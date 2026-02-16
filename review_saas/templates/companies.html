@@ -9,7 +9,6 @@
       <div class="card-body">
         <h5 class="card-title mb-3">Add Company</h5>
 
-        <!-- Adjust the action/method to match your API -->
         <form action="/api/companies" method="post" class="needs-validation" novalidate>
           <div class="mb-3">
             <label for="company_name" class="form-label">Company Name</label>
@@ -22,7 +21,7 @@
               autocomplete="off"
               required
             />
-            <div class="form-text">Start typing and select a place from the dropdown.</div>
+            <div class="form-text">Start typing and select a place from the suggestions.</div>
           </div>
 
           <div class="mb-3">
@@ -38,8 +37,12 @@
             />
           </div>
 
-          <!-- Optional: persist the selected Google Place ID -->
+          <!-- Hidden fields populated by JS -->
           <input type="hidden" id="place_id" name="place_id" />
+          <!-- Optional extras if you want them later:
+          <input type="hidden" id="owner_user_id" name="owner_user_id" value="" />
+          <input type="hidden" id="maps_url" name="maps_url" />
+          -->
 
           <button type="submit" class="btn btn-primary">Add Company</button>
         </form>
@@ -51,36 +54,7 @@
     <div class="card">
       <div class="card-body">
         <h5 class="card-title mb-3">Search / Filter</h5>
-
-        <form class="row g-2 align-items-end">
-          <div class="col-12 col-sm-6 col-lg-3">
-            <label class="form-label" for="filter_name">Name</label>
-            <input id="filter_name" class="form-control" type="text" />
-          </div>
-          <div class="col-12 col-sm-6 col-lg-3">
-            <label class="form-label" for="filter_city">City</label>
-            <input id="filter_city" class="form-control" type="text" />
-          </div>
-          <div class="col-12 col-sm-6 col-lg-2">
-            <label class="form-label" for="filter_status">Status</label>
-            <select id="filter_status" class="form-select">
-              <option value="">Any</option>
-              <option value="active">Active</option>
-              <option value="paused">Paused</option>
-            </select>
-          </div>
-          <div class="col-12 col-sm-6 col-lg-3">
-            <label class="form-label" for="filter_pid">Place ID</label>
-            <input id="filter_pid" class="form-control" type="text" />
-          </div>
-          <div class="col-12 col-lg-1">
-            <button type="button" class="btn btn-outline-primary w-100">Apply</button>
-          </div>
-          <div class="col-12 col-lg-1">
-            <button type="button" class="btn btn-outline-secondary w-100">Refresh</button>
-          </div>
-        </form>
-
+        <!-- Your filters/table go here -->
         <div class="table-responsive mt-3">
           <table class="table table-sm align-middle">
             <thead>
@@ -94,11 +68,10 @@
               </tr>
             </thead>
             <tbody>
-              <!-- Render your companies here -->
+              <!-- Render your rows here -->
             </tbody>
           </table>
         </div>
-
       </div>
     </div>
   </div>
@@ -108,12 +81,10 @@
 {% block scripts %}
 <script>
   (function initPlacesAutocomplete() {
-    // Ensure the async/defer Google Maps JS is ready
     function mapsReady() {
       return window.google && google.maps && google.maps.places;
     }
 
-    // Best-effort city extraction for PK (fallbacks to admin levels)
     function extractCity(addressComponents) {
       if (!addressComponents) return "";
       const pick = (type) =>
@@ -133,7 +104,7 @@
       if (!nameEl) return;
 
       const ac = new google.maps.places.Autocomplete(nameEl, {
-        types: ["establishment"],                  // businesses/places
+        types: ["establishment"],                  // business/places
         componentRestrictions: { country: "pk" },  // adjust if needed
         fields: ["name", "place_id", "address_components", "formatted_address"],
       });
@@ -147,7 +118,12 @@
         const city = extractCity(place.address_components);
         if (city && cityEl) cityEl.value = city;
 
-        if (pidEl && place.place_id) pidEl.value = place.place_id;
+        if (pidEl && place.place_id) {
+          pidEl.value = place.place_id;
+          // If you want to submit the maps_url explicitly:
+          // const mapsUrlEl = document.getElementById("maps_url");
+          // if (mapsUrlEl) mapsUrlEl.value = `https://www.google.com/maps/place/?q=place_id:${place.place_id}`;
+        }
       });
     }
 
@@ -157,9 +133,7 @@
       } else if (attempt < 60) {
         setTimeout(() => waitForMaps(attempt + 1), 100);
       } else {
-        console.error(
-          "Google Maps JS failed to load. Check key injection, APIs enabled, billing, and HTTP referrer restrictions."
-        );
+        console.error("Google Maps JS failed to load.");
       }
     })();
   })();
