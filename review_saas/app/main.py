@@ -1,6 +1,8 @@
+# review_saas/app/main.py
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse  # NEW: to serve favicon when present
 import os  # Added to create directories safely
 
 from .config import ALLOWED_ORIGINS, HTTPS_ONLY
@@ -26,11 +28,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Fix: Create uploads directory if it doesn't exist
-# This prevents RuntimeError when mounting StaticFiles in container environments
+# Ensure runtime directories exist (prevents mount errors in containers)
 os.makedirs("uploads", exist_ok=True)
+os.makedirs("static", exist_ok=True)   # NEW: where favicon.ico can live
 
+# Mount static & uploads
 app.mount('/uploads', StaticFiles(directory='uploads'), name='uploads')
+app.mount('/static', StaticFiles(directory='static'), name='static')  # NEW
 
 # Create all database tables (if they don't exist)
 Base.metadata.create_all(bind=engine)
@@ -49,6 +53,14 @@ app.include_router(alerts_router)
 @app.get('/')
 async def root():
     return {"message": "Reputation SaaS API"}
+
+# Serve favicon if present; otherwise return 204 to stop 404 noise
+@app.get('/favicon.ico')
+async def favicon():
+    path = os.path.join("static", "favicon.ico")
+    if os.path.exists(path):
+        return FileResponse(path, media_type="image/x-icon")
+    return Response(status_code=204)  # No Content (silences 404s)
 
 # Enforce HTTPS middleware (only active when HTTPS_ONLY is True)
 @app.middleware("http")
