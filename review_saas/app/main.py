@@ -1,8 +1,9 @@
-
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from .config import ALLOWED_ORIGINS
+import os  # Added to create directories safely
+
+from .config import ALLOWED_ORIGINS, HTTPS_ONLY
 from .db import Base, engine
 from . import models
 from .auth import router as auth_router
@@ -25,10 +26,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Fix: Create uploads directory if it doesn't exist
+# This prevents RuntimeError when mounting StaticFiles in container environments
+os.makedirs("uploads", exist_ok=True)
+
 app.mount('/uploads', StaticFiles(directory='uploads'), name='uploads')
 
+# Create all database tables (if they don't exist)
 Base.metadata.create_all(bind=engine)
 
+# Include all API routers
 app.include_router(auth_router)
 app.include_router(companies_router)
 app.include_router(reviews_router)
@@ -43,8 +50,7 @@ app.include_router(alerts_router)
 async def root():
     return {"message": "Reputation SaaS API"}
 
-from fastapi import Request, Response
-from .config import HTTPS_ONLY
+# Enforce HTTPS middleware (only active when HTTPS_ONLY is True)
 @app.middleware("http")
 async def https_enforce(request: Request, call_next):
     if HTTPS_ONLY and request.url.scheme != 'https':
