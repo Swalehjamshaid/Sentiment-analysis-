@@ -5,6 +5,13 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 import os
 
+# --- Load .env for local development (Railway will use service variables) ---
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
 from .config import ALLOWED_ORIGINS, HTTPS_ONLY
 from .db import Base, engine
 from . import models
@@ -43,9 +50,12 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 # ---------- Expose Google Maps API Key to templates ----------
-# Set this env var in Railway (Variables): GOOGLE_MAPS_API_KEY=<your-browser-key>
+# Railway: set GOOGLE_MAPS_API_KEY=<your-browser-key>
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 templates.env.globals["GOOGLE_MAPS_API_KEY"] = GOOGLE_MAPS_API_KEY
+
+# Optional: sanity log (remove if you like)
+print("GOOGLE_MAPS_API_KEY present:", bool(GOOGLE_MAPS_API_KEY))
 
 # ---------- DB init ----------
 Base.metadata.create_all(bind=engine)
