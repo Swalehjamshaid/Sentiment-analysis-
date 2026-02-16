@@ -13,10 +13,53 @@
       crossorigin="anonymous"
     />
 
+    <!-- Optional: Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <!-- Custom Styles -->
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #f8f9fa;
+      }
+      .navbar {
+        box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+      }
+      .navbar-brand {
+        font-weight: 700;
+        letter-spacing: 0.5px;
+      }
+      .nav-link {
+        font-weight: 500;
+        transition: color 0.2s;
+      }
+      .nav-link:hover {
+        color: #0d6efd;
+      }
+      main.container {
+        padding-top: 2rem;
+      }
+      footer {
+        text-align: center;
+        padding: 2rem 0;
+        font-size: 0.875rem;
+        color: #6c757d;
+      }
+      .btn-primary {
+        transition: all 0.2s;
+      }
+      .btn-primary:hover {
+        filter: brightness(1.1);
+      }
+    </style>
+
     {% block head %}{% endblock %}
   </head>
   <body>
-    <nav class="navbar navbar-expand-lg bg-light border-bottom mb-3">
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom">
       <div class="container-fluid">
         <a class="navbar-brand" href="/home">Reputation SaaS</a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain">
@@ -31,9 +74,15 @@
       </div>
     </nav>
 
+    <!-- Main Content -->
     <main class="container mb-5">
       {% block content %}{% endblock %}
     </main>
+
+    <!-- Footer -->
+    <footer>
+      &copy; {{ current_year if current_year else '2026' }} Reputation SaaS. All rights reserved.
+    </footer>
 
     <!-- Bootstrap Bundle JS -->
     <script
