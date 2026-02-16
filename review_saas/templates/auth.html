@@ -1,0 +1,233 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="row g-4">
+  <!-- Register -->
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">Register</h5>
+        <form id="registerForm" enctype="multipart/form-data">
+          <div class="mb-2">
+            <label class="form-label">Full Name</label>
+            <input name="full_name" maxlength="100" required class="form-control" placeholder="John Doe">
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Email</label>
+            <input name="email" type="email" required class="form-control" placeholder="john@example.com">
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Password</label>
+            <input name="password" type="password" required class="form-control" placeholder="StrongP@ssw0rd">
+            <div class="form-text">Min 8 chars; must include uppercase, lowercase, number, special character.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Profile Picture (optional, JPG/PNG ≤ 2MB)</label>
+            <input name="profile_picture" type="file" accept="image/png, image/jpeg" class="form-control">
+          </div>
+          <button class="btn btn-primary">Register</button>
+        </form>
+        <div id="registerMsg" class="text-muted mt-2 small"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Verify Email -->
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">Verify Email</h5>
+        <div class="mb-2">
+          Paste the token part from your verification link here (or open the verify URL directly).
+        </div>
+        <div class="input-group mb-3">
+          <input id="verifyToken" class="form-control" placeholder="token=...">
+          <button id="verifyBtn" class="btn btn-success">Verify</button>
+        </div>
+        <div id="verifyMsg" class="text-muted small"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Login / Logout -->
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">Login</h5>
+        <form id="loginForm">
+          <div class="mb-2">
+            <label class="form-label">Email</label>
+            <input name="email" type="email" required class="form-control">
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Password</label>
+            <input name="password" type="password" required class="form-control">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">2FA Code (if enabled)</label>
+            <input name="code" class="form-control" placeholder="123456">
+          </div>
+          <button class="btn btn-primary">Login</button>
+          <button id="logoutBtn" type="button" class="btn btn-outline-secondary ms-2">Logout</button>
+        </form>
+        <div id="loginMsg" class="text-muted mt-2 small"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Password Reset -->
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">Password Reset</h5>
+        <form id="resetRequestForm" class="mb-3">
+          <div class="input-group">
+            <input name="email" type="email" required class="form-control" placeholder="your@email.com">
+            <button class="btn btn-warning">Send Reset Link</button>
+          </div>
+        </form>
+        <form id="resetConfirmForm">
+          <div class="mb-2">
+            <label class="form-label">Token</label>
+            <input name="token" class="form-control" placeholder="token=...">
+          </div>
+          <div class="mb-2">
+            <label class="form-label">New Password</label>
+            <input name="new_password" type="password" class="form-control">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Confirm Password</label>
+            <input name="confirm_password" type="password" class="form-control">
+          </div>
+          <button class="btn btn-success">Reset Password</button>
+        </form>
+        <div id="resetMsg" class="text-muted small mt-2"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2FA Enable -->
+  <div class="col-lg-12">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">Two-Factor Authentication (TOTP)</h5>
+        <button id="enable2FA" class="btn btn-outline-primary">Enable 2FA (returns otpauth URI)</button>
+        <div class="input-group mt-2">
+          <input id="otpCode" class="form-control" placeholder="Enter 6-digit code after enabling">
+          <button id="verify2FA" class="btn btn-outline-success">Verify</button>
+        </div>
+        <div id="twofaMsg" class="text-muted small mt-2"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const j = (sel) => document.querySelector(sel);
+
+async function postJSON(url, body, extra={}) {
+  const res = await fetch(url, { method: 'POST', headers: {'Content-Type':'application/json', ...extra.headers}, body: JSON.stringify(body), credentials: 'include' });
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.detail || JSON.stringify(data));
+  return data;
+}
+
+async function postForm(url, form) {
+  const res = await fetch(url, { method: 'POST', body: form, credentials: 'include' });
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.detail || JSON.stringify(data));
+  return data;
+}
+
+// Register
+j('#registerForm')?.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const form = new FormData(e.target);
+  try {
+    const out = await postForm('/auth/register', form);
+    j('#registerMsg').innerText = out.message + ' Check your email for verification link.';
+  } catch(err) { j('#registerMsg').innerText = err.message; }
+});
+
+// Verify
+j('#verifyBtn')?.addEventListener('click', async ()=>{
+  const token = j('#verifyToken').value.trim().replace(/^token=/,'');
+  if(!token) return j('#verifyMsg').innerText = 'Token required.';
+  try {
+    const res = await fetch(`/auth/verify?token=${encodeURIComponent(token)}`, { credentials:'include' });
+    const out = await res.json();
+    if(!res.ok) throw new Error(out.detail || JSON.stringify(out));
+    j('#verifyMsg').innerText = out.message;
+  } catch(err) { j('#verifyMsg').innerText = err.message; }
+});
+
+// Login
+j('#loginForm')?.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const form = new FormData(e.target);
+  const payload = { email: form.get('email'), password: form.get('password') };
+  const code = form.get('code'); // optional 2FA code
+  const qs = code ? `?code=${encodeURIComponent(code)}` : '';
+  try{
+    const res = await fetch(`/auth/login${qs}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), credentials:'include' });
+    const out = await res.json();
+    if(!res.ok) throw new Error(out.detail || JSON.stringify(out));
+    j('#loginMsg').innerText = out.message + ` (user_id=${out.user_id})`;
+  }catch(err){ j('#loginMsg').innerText = err.message; }
+});
+
+// Logout
+j('#logoutBtn')?.addEventListener('click', async ()=>{
+  try{
+    const res = await fetch('/auth/logout', { method:'POST', credentials:'include' });
+    const out = await res.json();
+    if(!res.ok) throw new Error(out.detail || JSON.stringify(out));
+    j('#loginMsg').innerText = out.message;
+  }catch(err){ j('#loginMsg').innerText = err.message; }
+});
+
+// Reset request
+j('#resetRequestForm')?.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const email = new FormData(e.target).get('email');
+  try{
+    const res = await fetch('/auth/password/reset/request', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email}), credentials:'include' });
+    const out = await res.json();
+    j('#resetMsg').innerText = out.message;
+  }catch(err){ j('#resetMsg').innerText = err.message; }
+});
+
+// Reset confirm
+j('#resetConfirmForm')?.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const payload = { token: f.get('token').replace(/^token=/,''), new_password: f.get('new_password'), confirm_password: f.get('confirm_password') };
+  try{
+    const res = await fetch('/auth/password/reset/confirm', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), credentials:'include' });
+    const out = await res.json();
+    if(!res.ok) throw new Error(out.detail || JSON.stringify(out));
+    j('#resetMsg').innerText = out.message;
+  }catch(err){ j('#resetMsg').innerText = err.message; }
+});
+
+// 2FA enable
+j('#enable2FA')?.addEventListener('click', async ()=>{
+  try{
+    const res = await fetch('/auth/2fa/enable', { method:'POST', credentials:'include' });
+    const out = await res.json();
+    if(!res.ok) throw new Error(out.detail || JSON.stringify(out));
+    j('#twofaMsg').innerText = '2FA Enabled. otpauth URI: ' + out.otpauth_uri;
+  }catch(err){ j('#twofaMsg').innerText = err.message; }
+});
+
+// 2FA verify
+j('#verify2FA')?.addEventListener('click', async ()=>{
+  const code = j('#otpCode').value;
+  try{
+    const res = await fetch(`/auth/2fa/verify?code=${encodeURIComponent(code)}`, { method:'POST', credentials:'include' });
+    const out = await res.json();
+    if(!res.ok) throw new Error(out.detail || JSON.stringify(out));
+    j('#twofaMsg').innerText = out.message;
+  }catch(err){ j('#twofaMsg').innerText = err.message; }
+});
+</script>
+{% endblock %}
