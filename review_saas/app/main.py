@@ -1,3 +1,4 @@
+# review_saas/app/main.py
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -56,10 +57,10 @@ app.include_router(reports_router)
 app.include_router(jobs_router)
 app.include_router(alerts_router)
 
-# ---------- API root (JSON) ----------
-@app.get("/")
-async def root():
-    return {"message": "Reputation SaaS API"}
+# ---------- Redirect root to UI (so site opens as a web page) ----------
+@app.get("/", include_in_schema=False)
+async def redirect_root():
+    return RedirectResponse(url="/home", status_code=307)
 
 # ---------- UI routes (HTML) ----------
 @app.get("/home")
@@ -76,21 +77,15 @@ async def companies_page(request: Request):
 
 @app.get("/ui/dashboard/{company_id}")
 async def dashboard_page(company_id: int, request: Request):
-    # Chart.js code in dashboard.html will call the JSON APIs to populate
     return templates.TemplateResponse("dashboard.html", {"request": request, "company_id": company_id})
 
-# Optional: redirect root to the UI (uncomment if you want UI by default)
-# @app.get("", include_in_schema=False)
-# async def redirect_root():
-#     return RedirectResponse(url="/home", status_code=307)
-
-# ---------- Favicon ----------
+# ---------- Favicon (no 404 noise) ----------
 @app.get("/favicon.ico")
 async def favicon():
     path = os.path.join("static", "favicon.ico")
     if os.path.exists(path):
         return FileResponse(path, media_type="image/x-icon")
-    return Response(status_code=204)  # No Content (silences 404)
+    return Response(status_code=204)
 
 # ---------- HTTPS enforcement (prod) ----------
 @app.middleware("http")
