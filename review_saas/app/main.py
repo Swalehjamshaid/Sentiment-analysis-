@@ -1,4 +1,3 @@
-# review_saas/app/main.py
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -43,8 +42,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # ---------- Templates ----------
 templates = Jinja2Templates(directory="templates")
 
-# Expose Google Maps API Key to all templates as a global.
-# Make sure the environment variable GOOGLE_MAPS_API_KEY is set in Railway / your .env.
+# ---------- Expose Google Maps API Key to templates ----------
+# Set this env var in Railway (Variables): GOOGLE_MAPS_API_KEY=<your-browser-key>
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 templates.env.globals["GOOGLE_MAPS_API_KEY"] = GOOGLE_MAPS_API_KEY
 
