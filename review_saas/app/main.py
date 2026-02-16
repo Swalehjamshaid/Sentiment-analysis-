@@ -43,8 +43,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # ---------- Templates ----------
 templates = Jinja2Templates(directory="templates")
 
-# Make Google Maps API key accessible in all templates
-# Reads from environment (.env in Railway / local)
+# Expose Google Maps API Key to all templates as a global.
+# Make sure the environment variable GOOGLE_MAPS_API_KEY is set in Railway / your .env.
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 templates.env.globals["GOOGLE_MAPS_API_KEY"] = GOOGLE_MAPS_API_KEY
 
@@ -98,4 +98,3 @@ async def https_enforce(request: Request, call_next):
     if HTTPS_ONLY and request.url.scheme != "https":
         return Response("HTTPS required", status_code=400)
     return await call_next(request)
-``
