@@ -1,227 +1,167 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
+
+{% block title %}Companies · Reputation SaaS{% endblock %}
+
 {% block content %}
-<div class="row g-4">
-  <div class="col-lg-5">
-    <div class="card shadow-sm">
+<div class="row g-3">
+  <div class="col-12 col-lg-5">
+    <div class="card">
       <div class="card-body">
-        <h5 class="card-title">Add Company</h5>
-        <form id="addCompanyForm">
-          <div class="mb-2">
-            <label class="form-label">Company Name</label>
-            <!-- Added id -->
-            <input id="company_name" name="name" class="form-control" placeholder="My Cafe">
-          </div>
-          <div class="mb-2">
-            <label class="form-label">Google Maps Link</label>
-            <!-- Added id -->
-            <input id="maps_url" name="maps_url" class="form-control" placeholder="https://maps.google.com/...">
-          </div>
-          <div class="mb-2">
-            <label class="form-label">Google Place ID</label>
-            <!-- Added id -->
-            <input id="place_id" name="place_id" class="form-control" placeholder="ChIJ...">
-          </div>
+        <h5 class="card-title mb-3">Add Company</h5>
+
+        <!-- Adjust the action/method to match your API -->
+        <form action="/api/companies" method="post" class="needs-validation" novalidate>
           <div class="mb-3">
-            <label class="form-label">City</label>
-            <!-- Added id -->
-            <input id="city" name="city" class="form-control" placeholder="Lahore">
+            <label for="company_name" class="form-label">Company Name</label>
+            <input
+              id="company_name"
+              name="name"
+              type="text"
+              class="form-control"
+              placeholder="Search business (Google Places)"
+              autocomplete="off"
+              required
+            />
+            <div class="form-text">Start typing and select a place from the dropdown.</div>
           </div>
-          <button class="btn btn-primary">Add Company</button>
+
+          <div class="mb-3">
+            <label for="city" class="form-label">City</label>
+            <input
+              id="city"
+              name="city"
+              type="text"
+              class="form-control"
+              placeholder="City"
+              autocomplete="off"
+              required
+            />
+          </div>
+
+          <!-- Optional: persist the selected Google Place ID -->
+          <input type="hidden" id="place_id" name="place_id" />
+
+          <button type="submit" class="btn btn-primary">Add Company</button>
         </form>
-        <div id="addMsg" class="small text-muted mt-2"></div>
       </div>
     </div>
   </div>
 
-  <div class="col-lg-7">
-    <div class="card shadow-sm">
+  <div class="col-12 col-lg-7">
+    <div class="card">
       <div class="card-body">
-        <h5 class="card-title">Search / Filter</h5>
-        <form id="filterForm" class="row g-2">
-          <div class="col-md-3"><input name="q" class="form-control" placeholder="Name"></div>
-          <div class="col-md-3"><input name="city" class="form-control" placeholder="City"></div>
-          <div class="col-md-3">
-            <select name="status" class="form-select">
-              <option value="">Status</option>
-              <option>Active</option>
-              <option>Inactive</option>
+        <h5 class="card-title mb-3">Search / Filter</h5>
+
+        <form class="row g-2 align-items-end">
+          <div class="col-12 col-sm-6 col-lg-3">
+            <label class="form-label" for="filter_name">Name</label>
+            <input id="filter_name" class="form-control" type="text" />
+          </div>
+          <div class="col-12 col-sm-6 col-lg-3">
+            <label class="form-label" for="filter_city">City</label>
+            <input id="filter_city" class="form-control" type="text" />
+          </div>
+          <div class="col-12 col-sm-6 col-lg-2">
+            <label class="form-label" for="filter_status">Status</label>
+            <select id="filter_status" class="form-select">
+              <option value="">Any</option>
+              <option value="active">Active</option>
+              <option value="paused">Paused</option>
             </select>
           </div>
-          <div class="col-md-3"><input name="place_id" class="form-control" placeholder="Place ID"></div>
-          <div class="col-12">
-            <button class="btn btn-outline-primary">Apply</button>
-            <button type="button" id="refreshBtn" class="btn btn-outline-secondary ms-2">Refresh</button>
+          <div class="col-12 col-sm-6 col-lg-3">
+            <label class="form-label" for="filter_pid">Place ID</label>
+            <input id="filter_pid" class="form-control" type="text" />
+          </div>
+          <div class="col-12 col-lg-1">
+            <button type="button" class="btn btn-outline-primary w-100">Apply</button>
+          </div>
+          <div class="col-12 col-lg-1">
+            <button type="button" class="btn btn-outline-secondary w-100">Refresh</button>
           </div>
         </form>
 
-        <hr>
-        <div class="table-responsive">
+        <div class="table-responsive mt-3">
           <table class="table table-sm align-middle">
             <thead>
-              <tr><th>ID</th><th>Name</th><th>City</th><th>Place ID</th><th>Status</th><th>Actions</th></tr>
+              <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>City</th>
+                <th>Place ID</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
             </thead>
-            <tbody id="companiesBody"></tbody>
+            <tbody>
+              <!-- Render your companies here -->
+            </tbody>
           </table>
         </div>
+
       </div>
     </div>
   </div>
 </div>
+{% endblock %}
 
-<!-- Edit Modal -->
-<div class="modal fade" id="editModal" tabindex="-1">
-  <div class="modal-dialog">
-    <form class="modal-content" id="editForm">
-      <div class="modal-header">
-        <h5 class="modal-title">Edit Company</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <input type="hidden" name="id">
-        <div class="mb-2">
-          <label class="form-label">Name</label>
-          <input name="name" class="form-control">
-        </div>
-        <div class="mb-2">
-          <label class="form-label">City</label>
-          <input name="city" class="form-control">
-        </div>
-        <div class="mb-2">
-          <label class="form-label">Maps URL</label>
-          <input name="maps_url" class="form-control">
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-primary">Save</button>
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-      </div>
-    </form>
-  </div>
-</div>
-
+{% block scripts %}
 <script>
-const body = document.getElementById('companiesBody');
-const editModal = new bootstrap.Modal(document.getElementById('editModal'));
+  (function initPlacesAutocomplete() {
+    // Ensure the async/defer Google Maps JS is ready
+    function mapsReady() {
+      return window.google && google.maps && google.maps.places;
+    }
 
-async function getJSON(url){ const r=await fetch(url,{credentials:'include'}); const d=await r.json(); if(!r.ok) throw new Error(d.detail||JSON.stringify(d)); return d; }
-async function postJSON(url,body){ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'include'}); const d=await r.json(); if(!r.ok) throw new Error(d.detail||JSON.stringify(d)); return d; }
-async function putJSON(url,body){ const r=await fetch(url,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'include'}); const d=await r.json(); if(!r.ok) throw new Error(d.detail||JSON.stringify(d)); return d; }
-async function del(url){ const r=await fetch(url,{method:'DELETE',credentials:'include'}); const d=await r.json(); if(!r.ok) throw new Error(d.detail||JSON.stringify(d)); return d; }
+    // Best-effort city extraction for PK (fallbacks to admin levels)
+    function extractCity(addressComponents) {
+      if (!addressComponents) return "";
+      const pick = (type) =>
+        addressComponents.find((c) => c.types.includes(type))?.long_name || "";
+      return (
+        pick("locality") ||
+        pick("administrative_area_level_2") ||
+        pick("administrative_area_level_1") ||
+        ""
+      );
+    }
 
-async function listCompanies(){
-  const f = new FormData(document.getElementById('filterForm'));
-  const q = new URLSearchParams({ q:f.get('q')||'', city:f.get('city')||'', status:f.get('status')||'', place_id:f.get('place_id')||'' });
-  const data = await getJSON('/companies?'+q.toString());
-  body.innerHTML = data.map(c=>`
-    <tr>
-      <td>${c.id}</td>
-      <td>${c.name||''}</td>
-      <td>${c.city||''}</td>
-      <td class="text-truncate" style="max-width:180px">${c.place_id||''}</td>
-      <td>${c.status}</td>
-      <td class="d-flex flex-wrap gap-1">
-        <button class="btn btn-sm btn-outline-primary" onclick="openDash(${c.id})">Dashboard</button>
-        <button class="btn btn-sm btn-outline-success" onclick="fetchReviews(${c.id})">Fetch Reviews</button>
-        <button class="btn btn-sm btn-outline-warning" onclick="openEdit(${c.id},'${(c.name||'').replace(/'/g,"\\'")}', '${(c.city||'').replace(/'/g,"\\'")}', '${(c.maps_url||'').replace(/'/g,"\\'")}')">Edit</button>
-        <button class="btn btn-sm btn-outline-danger" onclick="deleteCompany(${c.id})">Delete</button>
-      </td>
-    </tr>
-  `).join('');
-}
+    function attachAutocomplete() {
+      const nameEl = document.getElementById("company_name");
+      const cityEl = document.getElementById("city");
+      const pidEl  = document.getElementById("place_id");
+      if (!nameEl) return;
 
-function openDash(id){ window.location.href = `/ui/dashboard/${id}`; }
+      const ac = new google.maps.places.Autocomplete(nameEl, {
+        types: ["establishment"],                  // businesses/places
+        componentRestrictions: { country: "pk" },  // adjust if needed
+        fields: ["name", "place_id", "address_components", "formatted_address"],
+      });
 
-async function fetchReviews(id){
-  try{
-    const out = await postJSON(`/reviews/fetch/${id}`, {});
-    alert(`Reviews saved: ${out.saved}, skipped: ${out.skipped}`);
-  }catch(err){ alert(err.message); }
-}
+      ac.addListener("place_changed", function () {
+        const place = ac.getPlace();
+        if (!place) return;
 
-function openEdit(id,name,city,maps_url){
-  const f = document.getElementById('editForm');
-  f.id.value = id; f.name.value = name||''; f.city.value = city||''; f.maps_url.value = maps_url||'';
-  editModal.show();
-}
+        if (place.name) nameEl.value = place.name;
 
-document.getElementById('editForm').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  const f = new FormData(e.target);
-  try{
-    await putJSON(`/companies/${f.get('id')}`, { name:f.get('name'), city:f.get('city'), maps_url:f.get('maps_url') });
-    editModal.hide(); listCompanies();
-  }catch(err){ alert(err.message); }
-});
+        const city = extractCity(place.address_components);
+        if (city && cityEl) cityEl.value = city;
 
-async function deleteCompany(id){
-  if(!confirm('Confirm delete?')) return;
-  try{
-    await del(`/companies/${id}?confirm=true`);
-    listCompanies();
-  }catch(err){ alert(err.message); }
-}
+        if (pidEl && place.place_id) pidEl.value = place.place_id;
+      });
+    }
 
-document.getElementById('addCompanyForm').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  const f = new FormData(e.target);
-  const payload = { name:f.get('name'), maps_url:f.get('maps_url'), place_id:f.get('place_id'), city:f.get('city') };
-  try{
-    const out = await postJSON('/companies', payload);
-    document.getElementById('addMsg').innerText = `Added company id ${out.id}`;
-    e.target.reset();
-    listCompanies();
-  }catch(err){ document.getElementById('addMsg').innerText = err.message; }
-});
-
-document.getElementById('filterForm').addEventListener('submit', async (e)=>{ e.preventDefault(); listCompanies(); });
-document.getElementById('refreshBtn').addEventListener('click', listCompanies);
-
-listCompanies();
+    (function waitForMaps(attempt = 0) {
+      if (mapsReady()) {
+        attachAutocomplete();
+      } else if (attempt < 60) {
+        setTimeout(() => waitForMaps(attempt + 1), 100);
+      } else {
+        console.error(
+          "Google Maps JS failed to load. Check key injection, APIs enabled, billing, and HTTP referrer restrictions."
+        );
+      }
+    })();
+  })();
 </script>
-
-<!-- ========= Google Places Autocomplete ========= -->
-<script>
-(function initAutocomplete(){
-  const input = document.getElementById('company_name');
-  if (!input) return;
-
-  // Ensure google is available (script tag loads below)
-  const waitGoogle = () => new Promise((resolve) => {
-    const check = () => (window.google && window.google.maps && window.google.maps.places)
-      ? resolve()
-      : setTimeout(check, 50);
-    check();
-  });
-
-  waitGoogle().then(() => {
-    const ac = new google.maps.places.Autocomplete(input, {
-      fields: ['place_id','name','formatted_address','adr_address','url']
-      // Optional: bias by country/type if needed
-      // componentRestrictions: { country: ['pk'] },
-      // types: ['establishment']
-    });
-
-    ac.addListener('place_changed', () => {
-      const place = ac.getPlace();
-      if (!place || !place.place_id) return;
-
-      // Fill Place ID
-      document.getElementById('place_id').value = place.place_id;
-
-      // Fill Google Maps URL (fallback if url is missing)
-      const mapsUrl = place.url || `https://www.google.com/maps/place/?q=place_id:${place.place_id}`;
-      document.getElementById('maps_url').value = mapsUrl;
-
-      // Extract City
-      const adr = place.adr_address || '';
-      const m = adr.match(/locality">([^<]+)/);
-      const city = m ? m[1] : (place.formatted_address||'').split(',').slice(-3, -2)[0]?.trim() || '';
-      document.getElementById('city').value = city;
-    });
-  });
-})();
-</script>
-
-<!-- Load Google Maps JS SDK with Places library -->
-<script src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_PLACES_API_KEY }}&libraries=places" defer></script>
 {% endblock %}
