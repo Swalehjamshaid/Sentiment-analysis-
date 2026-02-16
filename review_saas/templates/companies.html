@@ -1,0 +1,177 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">Add Company</h5>
+        <form id="addCompanyForm">
+          <div class="mb-2">
+            <label class="form-label">Company Name</label>
+            <input name="name" class="form-control" placeholder="My Cafe">
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Google Maps Link</label>
+            <input name="maps_url" class="form-control" placeholder="https://maps.google.com/...">
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Google Place ID</label>
+            <input name="place_id" class="form-control" placeholder="ChIJ...">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">City</label>
+            <input name="city" class="form-control" placeholder="Lahore">
+          </div>
+          <button class="btn btn-primary">Add Company</button>
+        </form>
+        <div id="addMsg" class="small text-muted mt-2"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">Search / Filter</h5>
+        <form id="filterForm" class="row g-2">
+          <div class="col-md-3"><input name="q" class="form-control" placeholder="Name"></div>
+          <div class="col-md-3"><input name="city" class="form-control" placeholder="City"></div>
+          <div class="col-md-3">
+            <select name="status" class="form-select">
+              <option value="">Status</option>
+              <option>Active</option>
+              <option>Inactive</option>
+            </select>
+          </div>
+          <div class="col-md-3"><input name="place_id" class="form-control" placeholder="Place ID"></div>
+          <div class="col-12">
+            <button class="btn btn-outline-primary">Apply</button>
+            <button type="button" id="refreshBtn" class="btn btn-outline-secondary ms-2">Refresh</button>
+          </div>
+        </form>
+
+        <hr>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr><th>ID</th><th>Name</th><th>City</th><th>Place ID</th><th>Status</th><th>Actions</th></tr>
+            </thead>
+            <tbody id="companiesBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form class="modal-content" id="editForm">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Company</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" name="id">
+        <div class="mb-2">
+          <label class="form-label">Name</label>
+          <input name="name" class="form-control">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">City</label>
+          <input name="city" class="form-control">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Maps URL</label>
+          <input name="maps_url" class="form-control">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary">Save</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+const body = document.getElementById('companiesBody');
+const editModal = new bootstrap.Modal(document.getElementById('editModal'));
+
+async function getJSON(url){ const r=await fetch(url,{credentials:'include'}); const d=await r.json(); if(!r.ok) throw new Error(d.detail||JSON.stringify(d)); return d; }
+async function postJSON(url,body){ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'include'}); const d=await r.json(); if(!r.ok) throw new Error(d.detail||JSON.stringify(d)); return d; }
+async function putJSON(url,body){ const r=await fetch(url,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'include'}); const d=await r.json(); if(!r.ok) throw new Error(d.detail||JSON.stringify(d)); return d; }
+async function del(url){ const r=await fetch(url,{method:'DELETE',credentials:'include'}); const d=await r.json(); if(!r.ok) throw new Error(d.detail||JSON.stringify(d)); return d; }
+
+async function listCompanies(){
+  const f = new FormData(document.getElementById('filterForm'));
+  const q = new URLSearchParams({ q:f.get('q')||'', city:f.get('city')||'', status:f.get('status')||'', place_id:f.get('place_id')||'' });
+  const data = await getJSON('/companies?'+q.toString());
+  body.innerHTML = data.map(c=>`
+    <tr>
+      <td>${c.id}</td>
+      <td>${c.name||''}</td>
+      <td>${c.city||''}</td>
+      <td class="text-truncate" style="max-width:180px">${c.place_id||''}</td>
+      <td>${c.status}</td>
+      <td class="d-flex flex-wrap gap-1">
+        <button class="btn btn-sm btn-outline-primary" onclick="openDash(${c.id})">Dashboard</button>
+        <button class="btn btn-sm btn-outline-success" onclick="fetchReviews(${c.id})">Fetch Reviews</button>
+        <button class="btn btn-sm btn-outline-warning" onclick="openEdit(${c.id},'${(c.name||'').replace(/'/g,\"\\'\")}', '${(c.city||'').replace(/'/g,\"\\'\")}', '${(c.maps_url||'').replace(/'/g,\"\\'\")}')">Edit</button>
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteCompany(${c.id})">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openDash(id){ window.location.href = `/ui/dashboard/${id}`; }
+
+async function fetchReviews(id){
+  try{
+    const out = await postJSON(`/reviews/fetch/${id}`, {});
+    alert(`Reviews saved: ${out.saved}, skipped: ${out.skipped}`);
+  }catch(err){ alert(err.message); }
+}
+
+function openEdit(id,name,city,maps_url){
+  const f = document.getElementById('editForm');
+  f.id.value = id; f.name.value = name||''; f.city.value = city||''; f.maps_url.value = maps_url||'';
+  editModal.show();
+}
+
+document.getElementById('editForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const f = new FormData(e.target);
+  try{
+    await putJSON(`/companies/${f.get('id')}`, { name:f.get('name'), city:f.get('city'), maps_url:f.get('maps_url') });
+    editModal.hide(); listCompanies();
+  }catch(err){ alert(err.message); }
+});
+
+async function deleteCompany(id){
+  if(!confirm('Confirm delete?')) return;
+  try{
+    await del(`/companies/${id}?confirm=true`);
+    listCompanies();
+  }catch(err){ alert(err.message); }
+}
+
+document.getElementById('addCompanyForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const payload = { name:f.get('name'), maps_url:f.get('maps_url'), place_id:f.get('place_id'), city:f.get('city') };
+  try{
+    const out = await postJSON('/companies', payload);
+    document.getElementById('addMsg').innerText = `Added company id ${out.id}`;
+    e.target.reset();
+    listCompanies();
+  }catch(err){ document.getElementById('addMsg').innerText = err.message; }
+});
+
+document.getElementById('filterForm').addEventListener('submit', async (e)=>{ e.preventDefault(); listCompanies(); });
+document.getElementById('refreshBtn').addEventListener('click', listCompanies);
+
+listCompanies();
+</script>
+{% endblock %}
