@@ -8,19 +8,23 @@
         <form id="addCompanyForm">
           <div class="mb-2">
             <label class="form-label">Company Name</label>
-            <input name="name" class="form-control" placeholder="My Cafe">
+            <!-- Added id -->
+            <input id="company_name" name="name" class="form-control" placeholder="My Cafe">
           </div>
           <div class="mb-2">
             <label class="form-label">Google Maps Link</label>
-            <input name="maps_url" class="form-control" placeholder="https://maps.google.com/...">
+            <!-- Added id -->
+            <input id="maps_url" name="maps_url" class="form-control" placeholder="https://maps.google.com/...">
           </div>
           <div class="mb-2">
             <label class="form-label">Google Place ID</label>
-            <input name="place_id" class="form-control" placeholder="ChIJ...">
+            <!-- Added id -->
+            <input id="place_id" name="place_id" class="form-control" placeholder="ChIJ...">
           </div>
           <div class="mb-3">
             <label class="form-label">City</label>
-            <input name="city" class="form-control" placeholder="Lahore">
+            <!-- Added id -->
+            <input id="city" name="city" class="form-control" placeholder="Lahore">
           </div>
           <button class="btn btn-primary">Add Company</button>
         </form>
@@ -118,7 +122,7 @@ async function listCompanies(){
       <td class="d-flex flex-wrap gap-1">
         <button class="btn btn-sm btn-outline-primary" onclick="openDash(${c.id})">Dashboard</button>
         <button class="btn btn-sm btn-outline-success" onclick="fetchReviews(${c.id})">Fetch Reviews</button>
-        <button class="btn btn-sm btn-outline-warning" onclick="openEdit(${c.id},'${(c.name||'').replace(/'/g,\"\\'\")}', '${(c.city||'').replace(/'/g,\"\\'\")}', '${(c.maps_url||'').replace(/'/g,\"\\'\")}')">Edit</button>
+        <button class="btn btn-sm btn-outline-warning" onclick="openEdit(${c.id},'${(c.name||'').replace(/'/g,"\\'")}', '${(c.city||'').replace(/'/g,"\\'")}', '${(c.maps_url||'').replace(/'/g,"\\'")}')">Edit</button>
         <button class="btn btn-sm btn-outline-danger" onclick="deleteCompany(${c.id})">Delete</button>
       </td>
     </tr>
@@ -174,4 +178,50 @@ document.getElementById('refreshBtn').addEventListener('click', listCompanies);
 
 listCompanies();
 </script>
+
+<!-- ========= Google Places Autocomplete ========= -->
+<script>
+(function initAutocomplete(){
+  const input = document.getElementById('company_name');
+  if (!input) return;
+
+  // Ensure google is available (script tag loads below)
+  const waitGoogle = () => new Promise((resolve) => {
+    const check = () => (window.google && window.google.maps && window.google.maps.places)
+      ? resolve()
+      : setTimeout(check, 50);
+    check();
+  });
+
+  waitGoogle().then(() => {
+    const ac = new google.maps.places.Autocomplete(input, {
+      fields: ['place_id','name','formatted_address','adr_address','url']
+      // Optional: bias by country/type if needed
+      // componentRestrictions: { country: ['pk'] },
+      // types: ['establishment']
+    });
+
+    ac.addListener('place_changed', () => {
+      const place = ac.getPlace();
+      if (!place || !place.place_id) return;
+
+      // Fill Place ID
+      document.getElementById('place_id').value = place.place_id;
+
+      // Fill Google Maps URL (fallback if url is missing)
+      const mapsUrl = place.url || `https://www.google.com/maps/place/?q=place_id:${place.place_id}`;
+      document.getElementById('maps_url').value = mapsUrl;
+
+      // Extract City
+      const adr = place.adr_address || '';
+      const m = adr.match(/locality">([^<]+)/);
+      const city = m ? m[1] : (place.formatted_address||'').split(',').slice(-3, -2)[0]?.trim() || '';
+      document.getElementById('city').value = city;
+    });
+  });
+})();
+</script>
+
+<!-- Load Google Maps JS SDK with Places library -->
+<script src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_PLACES_API_KEY }}&libraries=places" defer></script>
 {% endblock %}
