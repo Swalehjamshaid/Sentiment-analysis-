@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
@@ -12,10 +11,34 @@ from .utils.security import verify_password, get_password_hash, create_access_to
 from .config import SECRET_KEY, TOKEN_EXPIRE_EMAIL_VERIFICATION_H, TOKEN_EXPIRE_PASSWORD_RESET_MIN, LOCKOUT_MAX_ATTEMPTS, LOCKOUT_DURATION_MIN
 from .services.emailer import send_email
 import os
-
 from .config import GOOGLE_OAUTH, TWOFA_ENABLED
 import pyotp
 from .deps import get_current_user
+from authlib.integrations.starlette_client import OAuth
+from starlette.responses import RedirectResponse
+from starlette.requests import Request as StarletteRequest
+
+# ────────────────────────────────────────────────
+# IMPORTANT: Define router FIRST — before any decorators
+# ────────────────────────────────────────────────
+router = APIRouter(prefix='/auth', tags=['auth'])
+
+# Global serializer (can stay here or move up)
+serializer = URLSafeTimedSerializer(SECRET_KEY)
+
+# OAuth setup (can stay here)
+oauth = OAuth()
+oauth.register(
+    name='google',
+    client_id=GOOGLE_OAUTH['client_id'],
+    client_secret=GOOGLE_OAUTH['client_secret'],
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_kwargs={'scope': 'openid email profile'}
+)
+
+# ────────────────────────────────────────────────
+# Now all routes can safely use @router
+# ────────────────────────────────────────────────
 
 # 2FA: enable (TOTP) and verify
 @router.post('/2fa/enable')
@@ -64,12 +87,6 @@ async def unlock_confirm(token: str, db: Session = Depends(get_db)):
     db.commit()
     return {'message':'Account unlocked'}
 
-
-router = APIRouter(prefix='/auth', tags=['auth'])
-
-serializer = URLSafeTimedSerializer(SECRET_KEY)
-
-
 def _client_ip(req: Request) -> str:
     return req.client.host if req.client else 'unknown'
 
@@ -80,15 +97,12 @@ async def register(req: Request, full_name: str = Form(...), email: str = Form(.
         email = v.email
     except EmailNotValidError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=400, detail='Email already registered')
-
     # Password rules
     import re
     if len(password) < 8 or not re.search(r'[A-Z]', password) or not re.search(r'[a-z]', password) or not re.search(r'\d', password) or not re.search(r'[^A-Za-z0-9]', password):
         raise HTTPException(status_code=400, detail='Weak password')
-
     # Optional profile picture
     pic_url = None
     if profile_picture:
@@ -104,11 +118,9 @@ async def register(req: Request, full_name: str = Form(...), email: str = Form(.
         with open(os.path.join(folder, filename), 'wb') as f:
             f.write(contents)
         pic_url = f"/{folder}/{filename}"
-
     token = serializer.dumps({'email': email}, salt='email-verify')
     user = User(full_name=bleach.clean(full_name[:100], strip=True), email=email, password_hash=get_password_hash(password), profile_pic_url=pic_url, email_verification_token=token, email_verification_expires=datetime.utcnow()+timedelta(hours=TOKEN_EXPIRE_EMAIL_VERIFICATION_H))
     db.add(user); db.commit(); db.refresh(user)
-
     verify_link = f"/auth/verify?token={token}"
     send_email(email, 'Verify your email', f"<p>Click to verify: <a href='{verify_link}'>Verify</a></p>")
     return {'message': 'Registered. Please verify your email.'}
@@ -121,7 +133,6 @@ async def verify_email(token: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail='Verification token expired')
     except BadSignature:
         raise HTTPException(status_code=400, detail='Invalid token')
-
     email = data.get('email')
     user = db.query(User).filter(User.email == email).first()
     if not user:
@@ -138,11 +149,9 @@ async def login(req: Request, res: Response, payload: UserLogin, db: Session = D
         db.add(LoginAttempt(user_id=None, ip_address=ip, success=False))
         db.commit()
         raise HTTPException(status_code=400, detail='Invalid credentials')
-
     # Lockout check
     if user.lock_until and user.lock_until > datetime.utcnow():
         raise HTTPException(status_code=403, detail='Account locked. Try later or check email.')
-
     if not verify_password(payload.password, user.password_hash):
         user.login_attempts = (user.login_attempts or 0) + 1
         if user.login_attempts >= LOCKOUT_MAX_ATTEMPTS:
@@ -150,7 +159,6 @@ async def login(req: Request, res: Response, payload: UserLogin, db: Session = D
         db.add(LoginAttempt(user_id=user.id, ip_address=ip, success=False))
         db.commit()
         raise HTTPException(status_code=400, detail='Invalid credentials')
-
     # Success
     user.login_attempts = 0
     # If 2FA enabled, require valid code before issuing token
@@ -163,7 +171,6 @@ async def login(req: Request, res: Response, payload: UserLogin, db: Session = D
     user.last_login_at = datetime.utcnow()
     db.add(LoginAttempt(user_id=user.id, ip_address=ip, success=True))
     db.commit()
-
     token = create_access_token({'sub': str(user.id)})
     res.set_cookie(key='access_token', value=token, httponly=True, secure=True, samesite='lax')
     return {'message': 'Logged in', 'user_id': user.id}
@@ -195,7 +202,6 @@ async def password_reset_confirm(token: str, new_password: str, db: Session = De
         raise HTTPException(status_code=400, detail='Reset token expired')
     except BadSignature:
         raise HTTPException(status_code=400, detail='Invalid token')
-
     email = data.get('email')
     user = db.query(User).filter(User.email == email).first()
     if not user:
@@ -203,20 +209,6 @@ async def password_reset_confirm(token: str, new_password: str, db: Session = De
     user.password_hash = get_password_hash(new_password)
     db.commit()
     return {'message': 'Password updated'}
-
-
-from authlib.integrations.starlette_client import OAuth
-from starlette.responses import RedirectResponse
-from starlette.requests import Request as StarletteRequest
-
-oauth = OAuth()
-oauth.register(
-    name='google',
-    client_id=GOOGLE_OAUTH['client_id'],
-    client_secret=GOOGLE_OAUTH['client_secret'],
-    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-    client_kwargs={'scope': 'openid email profile'}
-)
 
 @router.get('/oauth/google/login')
 async def google_login(request: StarletteRequest):
