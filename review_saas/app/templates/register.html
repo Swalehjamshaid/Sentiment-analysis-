@@ -1,0 +1,12 @@
+
+{% extends 'base.html' %}
+{% block content %}
+<h3>Register</h3>
+<form method="post" action="/auth/register" enctype="multipart/form-data" class="row g-2">
+  <div class="col-md-6"><input class="form-control" name="full_name" placeholder="Full name" maxlength="100" required></div>
+  <div class="col-md-6"><input class="form-control" name="email" type="email" placeholder="Email" required></div>
+  <div class="col-md-6"><input class="form-control" name="password" type="password" placeholder="Strong password" required></div>
+  <div class="col-md-6"><input class="form-control" name="profile" type="file" accept="image/png,image/jpeg"></div>
+  <div class="col-12"><button class="btn btn-success">Create account</button></div>
+</form>
+{% endblock %}
