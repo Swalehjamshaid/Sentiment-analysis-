@@ -5,9 +5,12 @@
     "nixpacksPlan": {
       "providers": ["python"],
       "phases": {
+        "setup": {
+          "nixPkgs": ["python3", "postgresql"]
+        },
         "install": {
           "cmds": [
-            "python -m pip install --upgrade pip",
+            "python -m venv /opt/venv && . /opt/venv/bin/activate && pip install --upgrade pip",
             "pip install -r requirements.txt"
           ]
         }
@@ -18,7 +21,7 @@
     "numReplicas": 1,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 5,
-    "startCommand": "gunicorn -w 2 --bind 0.0.0.0:$PORT app.main:app",
+    "startCommand": "gunicorn -w 2 --bind 0.0.0.0:$PORT 'app.main:create_app()'",
     "healthcheckPath": "/healthz",
     "healthcheckTimeout": 180,
     "healthcheckInterval": 30
