@@ -28,8 +28,8 @@ def get_password_hash(password: str) -> str:
     max_bytes = 72
     encoded = password.encode("utf-8")
     if len(encoded) > max_bytes:
+        # Truncate to max 72 bytes and decode safely
         encoded = encoded[:max_bytes]
-    # Decode safely to string for passlib
     safe_password = encoded.decode("utf-8", errors="ignore")
     return pwd_context.hash(safe_password)
 
