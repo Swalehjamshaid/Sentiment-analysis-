@@ -8,15 +8,15 @@ click==8.1.7
 # Environment & Config
 python-dotenv==1.0.1
 
-# Security & Authentication
+# Security & Auth
 passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.3.0
 PyJWT==2.9.0
-email-validator==2.2.0                 # FIXED: valid version (2.2.1 does not exist)
+email-validator==2.2.0
 bleach==6.2.0
-flask-login==0.6.3                     # Required for sessions, current_user, login/logout
-flask-wtf==1.2.1                       # Forms with CSRF (registration/login/reset)
-pyotp==2.9.0                           # Optional 2FA (TOTP)
+flask-login==0.6.3
+flask-wtf==1.2.1
+pyotp==2.9.0
 
 # Database & Migrations
 SQLAlchemy==2.0.35
@@ -29,22 +29,23 @@ Pillow==10.4.0
 openpyxl==3.1.5
 pandas==2.2.3
 
-# Schedulers & Background Tasks
+# Schedulers & Utilities
 APScheduler==3.11.2
-backoff==2.2.2                         # Retry logic for Google API calls
+python-slugify==8.0.4
+pyotp==2.9.0
 
 # NLP / Text Processing
 vaderSentiment==3.3.2
 langdetect==1.0.9
 
-# Networking & HTTP Clients
+# Networking & HTTP
 httpx==0.27.2
-requests==2.32.3                       # Added for Google Places API calls (if needed)
+backoff==2.2.1                     # FIXED HERE
 
 # ASGI/WSGI compatibility (optional but harmless)
 asgiref==3.8.1
 
 # ────────────────────────────────────────────────
 # Production / Deployment (Railway + Gunicorn)
-gunicorn==23.0.0                       # Latest stable
-gevent==24.10.3                        # Latest stable async worker
+gunicorn==23.0.0
+gevent==24.10.3
