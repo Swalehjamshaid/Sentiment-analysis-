@@ -1,109 +1,52 @@
-from fastapi import FastAPI, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
-import os
+"""
+Application entry point.
+Creates the Flask app, injects template globals, and runs the dev server when executed directly.
+"""
 
-# --- Load .env for local development (Railway will use service variables) ---
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except Exception:
-    pass
+from flask import Flask
+from app.core.settings import settings_dict
+from app.routes.auth import auth_bp
+from app.routes.companies import companies_bp
+from app.routes.dashboard import dashboard_bp
+from app.routes.reviews import reviews_bp
+from app.routes.recipes import recipes_bp
+from app.routes.reports import reports_bp
 
-from .config import ALLOWED_ORIGINS, HTTPS_ONLY
-from .db import Base, engine
-from . import models
 
-# Routers (API)
-from .auth import router as auth_router
-from .routes.companies import router as companies_router
-from .routes.reviews import router as reviews_router
-from .routes.replies import router as replies_router
-from .routes.dashboard import router as dashboard_router
-from .routes.admin import router as admin_router
-from .routes.reports import router as reports_router
-from .routes.jobs import router as jobs_router
-from .routes.alerts import router as alerts_router
+def create_app() -> Flask:
+    app = Flask(__name__)
+    # Load config from environment via settings
+    app.config.update(settings_dict())
 
-app = FastAPI(title="Reputation Management SaaS")
+    # Blueprints
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(companies_bp)
+    app.register_blueprint(dashboard_bp)
+    app.register_blueprint(reviews_bp)
+    app.register_blueprint(recipes_bp)
+    app.register_blueprint(reports_bp)
 
-# ---------- CORS ----------
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    # Template globals (so base.html can access GOOGLE_MAPS_API_KEY easily)
+    @app.context_processor
+    def inject_globals():
+        return {
+            "GOOGLE_MAPS_API_KEY": app.config.get("GOOGLE_MAPS_API_KEY", ""),
+        }
 
-# ---------- Ensure runtime directories ----------
-os.makedirs("uploads", exist_ok=True)
-os.makedirs("static", exist_ok=True)
+    # Root → dashboard
+    @app.route("/")
+    def root():
+        from flask import redirect, url_for
+        return redirect(url_for("dashboard.view_dashboard"))
 
-# ---------- Static mounts ----------
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+    return app
 
-# ---------- Templates ----------
-templates = Jinja2Templates(directory="templates")
 
-# ---------- Expose Google Maps API Key to templates ----------
-# Railway: set GOOGLE_MAPS_API_KEY=<your-browser-key>
-GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
-templates.env.globals["GOOGLE_MAPS_API_KEY"] = GOOGLE_MAPS_API_KEY
-
-# Optional: sanity log (remove if you like)
-print("GOOGLE_MAPS_API_KEY present:", bool(GOOGLE_MAPS_API_KEY))
-
-# ---------- DB init ----------
-Base.metadata.create_all(bind=engine)
-
-# ---------- API routers ----------
-app.include_router(auth_router)
-app.include_router(companies_router)
-app.include_router(reviews_router)
-app.include_router(replies_router)
-app.include_router(dashboard_router)
-app.include_router(admin_router)
-app.include_router(reports_router)
-app.include_router(jobs_router)
-app.include_router(alerts_router)
-
-# ---------- Redirect root to UI (so site opens as a web page) ----------
-@app.get("/", include_in_schema=False)
-async def redirect_root():
-    return RedirectResponse(url="/home", status_code=307)
-
-# ---------- UI routes (HTML) ----------
-@app.get("/home")
-async def home_page(request: Request):
-    return templates.TemplateResponse("home.html", {"request": request})
-
-@app.get("/ui/auth")
-async def auth_page(request: Request):
-    return templates.TemplateResponse("auth.html", {"request": request})
-
-@app.get("/ui/companies")
-async def companies_page(request: Request):
-    return templates.TemplateResponse("companies.html", {"request": request})
-
-@app.get("/ui/dashboard/{company_id}")
-async def dashboard_page(company_id: int, request: Request):
-    return templates.TemplateResponse("dashboard.html", {"request": request, "company_id": company_id})
-
-# ---------- Favicon (no 404 noise) ----------
-@app.get("/favicon.ico")
-async def favicon():
-    path = os.path.join("static", "favicon.ico")
-    if os.path.exists(path):
-        return FileResponse(path, media_type="image/x-icon")
-    return Response(status_code=204)
-
-# ---------- HTTPS enforcement (prod) ----------
-@app.middleware("http")
-async def https_enforce(request: Request, call_next):
-    if HTTPS_ONLY and request.url.scheme != "https":
-        return Response("HTTPS required", status_code=400)
-    return await call_next(request)
+# Dev server
+if __name__ == "__main__":
+    app = create_app()
+    app.run(
+        host="0.0.0.0",
+        port=int(app.config.get("PORT", 5000)),
+        debug=bool(app.config.get("DEBUG", True)),
+    )
