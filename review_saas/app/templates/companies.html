@@ -1,0 +1,12 @@
+
+{% extends 'base.html' %}
+{% block content %}
+<h3>Companies</h3>
+<form class="row g-2 mb-3">
+  <div class="col-md-4"><input class="form-control" placeholder="Company name"></div>
+  <div class="col-md-4"><input class="form-control" placeholder="Google Maps link or Place ID"></div>
+  <div class="col-md-2"><input class="form-control" placeholder="City"></div>
+  <div class="col-md-2"><button class="btn btn-primary w-100">Add</button></div>
+</form>
+<table class="table table-sm table-striped"><thead><tr><th>Name</th><th>City</th><th>Status</th><th></th></tr></thead><tbody id="tbody"></tbody></table>
+{% endblock %}

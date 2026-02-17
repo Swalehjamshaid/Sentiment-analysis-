@@ -1,0 +1,21 @@
+
+{% extends 'base.html' %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col"><div class="card"><div class="card-body"><h6>Total Reviews</h6><h3 id="kpiTotal">0</h3></div></div></div>
+  <div class="col"><div class="card"><div class="card-body"><h6>Avg Rating</h6><h3 id="kpiAvg">0.0</h3></div></div></div>
+  <div class="col"><div class="card"><div class="card-body"><h6>Positive %</h6><h3 id="kpiPos">0%</h3></div></div></div>
+</div>
+<div class="row">
+  <div class="col-lg-8"><canvas id="trend"></canvas></div>
+  <div class="col-lg-4">
+    <button class="btn btn-outline-primary w-100 mb-2">Fetch Latest Reviews</button>
+    <button class="btn btn-outline-success w-100 mb-2">Generate Suggested Replies</button>
+    <button class="btn btn-outline-secondary w-100">Export PDF</button>
+  </div>
+</div>
+<script>
+  const ctx = document.getElementById('trend');
+  new Chart(ctx, {type:'line', data:{labels:['Jan','Feb','Mar'], datasets:[{label:'Rating', data:[0,0,0]}]}});
+</script>
+{% endblock %}
