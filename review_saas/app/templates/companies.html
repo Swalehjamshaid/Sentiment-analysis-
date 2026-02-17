@@ -1,0 +1,29 @@
+
+{% extends 'base.html' %}
+{% block content %}
+<h3>Companies</h3>
+<form class="row g-2 mb-3" onsubmit="return addCompany(event)">
+  <div class="col-md-4"><input class="form-control" id="name" placeholder="Company name"></div>
+  <div class="col-md-4"><input class="form-control" id="place" placeholder="Google Place ID or Maps link"></div>
+  <div class="col-md-2"><input class="form-control" id="city" placeholder="City"></div>
+  <div class="col-md-2"><button class="btn btn-primary w-100">Add</button></div>
+</form>
+<table class="table table-sm table-striped"><thead><tr><th>Name</th><th>City</th><th>Status</th></tr></thead><tbody id="tbody"></tbody></table>
+<script>
+  function token(){return localStorage.getItem('token')||''}
+  async function load(){
+    const r = await fetch('/companies',{headers:{'Authorization':'Bearer '+token()}});
+    const rows = await r.json();
+    const tb = document.getElementById('tbody'); tb.innerHTML='';
+    rows.forEach(c=>{tb.innerHTML += `<tr><td>${c.name}</td><td>${c.city||''}</td><td>${c.status}</td></tr>`});
+  }
+  async function addCompany(e){
+    e.preventDefault();
+    const n=document.getElementById('name').value, p=document.getElementById('place').value, c=document.getElementById('city').value;
+    const url = `/companies?name=${encodeURIComponent(n)}&city=${encodeURIComponent(c)}&place_id=${encodeURIComponent(p)}`;
+    const r = await fetch(url,{method:'POST',headers:{'Authorization':'Bearer '+token()}})
+    if(r.ok) load(); else alert(await r.text());
+  }
+  load();
+</script>
+{% endblock %}
