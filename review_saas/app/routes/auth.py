@@ -1,49 +1,66 @@
 # app/routes/auth.py
-
-from fastapi import APIRouter, Form, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
-from ..db import SessionLocal
-from ..models import User  # Make sure User model has profile_filename column
+from typing import Optional
+from app.db import get_db
+from app.models import User
 from passlib.context import CryptContext
+from datetime import datetime
 
-router = APIRouter(prefix="/auth", tags=["auth"])
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
+router = APIRouter()
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")  # or switch to "argon2"
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
-
+    """Hash password safely with bcrypt (truncate at 72 bytes)"""
+    max_bytes = 72
+    encoded = password.encode("utf-8")
+    if len(encoded) > max_bytes:
+        encoded = encoded[:max_bytes]
+    return pwd_context.hash(encoded.decode("utf-8"))
 
 @router.post("/register")
-def register(
+async def register(
     full_name: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
-    profile: UploadFile | None = File(None)  # Profile is optional
+    profile: Optional[UploadFile] = File(None),  # optional profile picture
+    db: Session = Depends(get_db),
 ):
-    with SessionLocal() as db:  # type: Session
-        # Check if the user already exists
-        existing_user = db.query(User).filter(User.email == email).first()
-        if existing_user:
-            raise HTTPException(status_code=400, detail="Email already registered")
+    # Check if user exists
+    existing_user = db.query(User).filter(User.email == email).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
 
-        hashed_password = get_password_hash(password)
+    # Hash password safely
+    hashed_password = get_password_hash(password)
 
-        user = User(
-            full_name=full_name,
-            email=email,
-            password=hashed_password,
-            profile_filename=profile.filename if profile and profile.filename else None
-        )
+    # Handle profile picture (optional)
+    profile_pic_url = None
+    if profile and profile.filename:
+        # save file logic here, example:
+        filename = f"profile_{datetime.utcnow().timestamp()}_{profile.filename}"
+        file_path = f"app/static/uploads/{filename}"
+        with open(file_path, "wb") as f:
+            f.write(await profile.read())
+        profile_pic_url = f"/static/uploads/{filename}"
 
-        db.add(user)
-        db.commit()
-        db.refresh(user)
+    # Create user
+    new_user = User(
+        full_name=full_name,
+        email=email,
+        password_hash=hashed_password,
+        profile_pic_url=profile_pic_url,
+        status="active",
+        created_at=datetime.utcnow(),
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
 
-        return {
-            "id": user.id,
-            "full_name": user.full_name,
-            "email": user.email,
-            "profile_filename": user.profile_filename
-        }
+    return {
+        "id": new_user.id,
+        "full_name": new_user.full_name,
+        "email": new_user.email,
+        "profile_pic_url": new_user.profile_pic_url,
+        "status": new_user.status,
+    }
