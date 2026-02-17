@@ -6,16 +6,29 @@ Creates the Flask app, injects template globals, and supports both:
 """
 
 from __future__ import annotations
-
 from datetime import datetime
-from flask import Flask
+from flask import Flask, redirect, url_for
 from app.core.settings import settings_dict
-from app.routes.auth import auth_bp
-from app.routes.companies import companies_bp
-from app.routes.dashboard import dashboard_bp
-from app.routes.reviews import reviews_bp
-from app.routes.recipes import recipes_bp
-from app.routes.reports import reports_bp
+
+# ---------------- Blueprints ----------------
+# Ensure absolute imports work
+try:
+    from app.routes.auth import auth_bp
+    from app.routes.companies import companies_bp
+    from app.routes.dashboard import dashboard_bp
+    from app.routes.reviews import reviews_bp
+    from app.routes.recipes import recipes_bp
+    from app.routes.reports import reports_bp
+except ModuleNotFoundError as e:
+    import sys, os
+    # Add project root to sys.path in case relative imports fail in Gunicorn
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from app.routes.auth import auth_bp
+    from app.routes.companies import companies_bp
+    from app.routes.dashboard import dashboard_bp
+    from app.routes.reviews import reviews_bp
+    from app.routes.recipes import recipes_bp
+    from app.routes.reports import reports_bp
 
 
 def create_app() -> Flask:
@@ -25,7 +38,7 @@ def create_app() -> Flask:
     # Load config from environment via settings
     app.config.update(settings_dict())
 
-    # ---------------- Blueprints ----------------
+    # Register blueprints
     app.register_blueprint(auth_bp)
     app.register_blueprint(companies_bp)
     app.register_blueprint(dashboard_bp)
@@ -33,36 +46,32 @@ def create_app() -> Flask:
     app.register_blueprint(recipes_bp)
     app.register_blueprint(reports_bp)
 
-    # --------------- Template globals ---------------
+    # Inject template globals
     @app.context_processor
     def inject_globals():
-        # Expose only safe values
         return {
             "GOOGLE_MAPS_API_KEY": app.config.get("GOOGLE_MAPS_API_KEY", ""),
-            "now": lambda: datetime.utcnow().year,  # {{ now() }} in templates
+            "now": lambda: datetime.utcnow().year,
         }
 
-    # --------------- Healthcheck ---------------
+    # Healthcheck for Railway
     @app.route("/healthz")
     def healthz():
-        # Return a simple 200 OK for Railway healthcheck
         return {"status": "ok"}, 200
 
-    # --------------- Root redirect ---------------
+    # Root redirect to dashboard
     @app.route("/")
     def root():
-        from flask import redirect, url_for
         return redirect(url_for("dashboard.view_dashboard"))
 
     return app
 
 
-# Expose a module-level `app` for WSGI servers (gunicorn, mod_wsgi, etc.)
+# Expose WSGI module-level app
 app = create_app()
 
-
 if __name__ == "__main__":
-    # Local dev server (avoid using in production)
+    # Local dev server
     app.run(
         host="0.0.0.0",
         port=int(app.config.get("PORT", 5000)),
