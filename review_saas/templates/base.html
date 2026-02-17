@@ -3,24 +3,20 @@
 
 {% block head %}
 <style>
-  /* Hide all original navbar items from base.html except logo */
-  #navMain .navbar-nav {
-    display: none !important;
-  }
+  /* --- Landing-only visual overrides (no link changes) --- */
 
-  /* Hide theme toggle in navbar */
-  #themeToggle {
-    display: none !important;
-  }
+  /* Hide base navbar items (keep only logo on this page) */
+  #navMain .navbar-nav { display: none !important; }
 
-  /* Hide footer link section (Privacy, Terms, Support) */
-  footer .mt-2.mt-md-0 {
-    display: none !important;
-  }
+  /* Hide theme toggle on this page (to keep header minimal) */
+  #themeToggle { display: none !important; }
 
-  /* Landing Hero */
+  /* Hide footer link group (no extra links on landing) */
+  footer .mt-2.mt-md-0 { display: none !important; }
+
+  /* HERO: centered, clean, lots of whitespace */
   .landing-hero {
-    min-height: clamp(60vh, 70vh, 85vh);
+    min-height: clamp(60vh, 72vh, 85vh);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -55,13 +51,15 @@
     flex-wrap: wrap;
   }
 
-  /* About Section (short, clean, 1 paragraph) */
+  /* ABOUT: single paragraph, left-aligned on larger viewports */
   .landing-about {
     max-width: 900px;
     margin-inline: auto;
     padding: clamp(16px, 2vw, 28px) 4px;
   }
-
+  @media (min-width: 768px) {
+    .landing-about p { text-align: left; }
+  }
   .landing-about p {
     line-height: 1.7;
     font-size: 1.05rem;
@@ -73,52 +71,46 @@
 
 {% block content %}
 
-<!-- Inject minimal nav actions (Login + Get Started) -->
+<!-- Minimal page-local nav actions (Login + Get Started only).
+     We inject these into #navMain to avoid changing your base.html structure/links. -->
 <div class="container">
   <div id="landing-nav-actions" class="d-none">
     <div class="ms-auto d-flex align-items-center gap-2">
-      <a href="/ui/auth#login" class="btn btn-outline-primary btn-sm px-3">
-        Login
-      </a>
-      <a href="/ui/auth#register" class="btn btn-primary btn-sm px-3">
-        Get Started
-      </a>
+      <a class="btn btn-outline-primary" href="/ui/auth#login">Login</a>
+      <a class="btn btn-primary" href="/ui/auth#register">Get Started</a>
     </div>
   </div>
 </div>
 
-<!-- ======================= HERO SECTION ======================= -->
+<!-- HERO -->
 <section class="landing-hero glass-card mt-4">
   <div class="container">
-    <h1 class="brand-gradient">
-      Own Your Reputation. Respond Smarter. Grow Faster.
-    </h1>
+    <h1 class="brand-gradient">Own Your Reputation. Respond Smarter. Grow Faster.</h1>
 
     <p class="sub">
-      Reputation SaaS automatically fetches Google reviews, analyzes sentiment,
-      highlights insights, and helps you send professional replies in seconds.
+      Reputation SaaS automatically fetches your Google reviews, analyzes sentiment,
+      highlights key trends and keywords, and helps you send professional replies in seconds.
     </p>
 
     <div class="d-flex landing-cta">
-      <a href="/ui/auth#register" class="btn btn-primary btn-lg px-4">
+      <a class="btn btn-lg btn-primary px-4" href="/ui/auth#register">
         <i class="bi bi-rocket-takeoff me-1"></i> Get Started
       </a>
-
-      <a href="/ui/auth#login" class="btn btn-outline-primary btn-lg px-4">
+      <a class="btn btn-lg btn-outline-primary px-4" href="/ui/auth#login">
         <i class="bi bi-box-arrow-in-right me-1"></i> Login
       </a>
     </div>
   </div>
 </section>
 
-<!-- ======================= ABOUT (ONE PARAGRAPH) ======================= -->
+<!-- ABOUT (single paragraph, 3–5 lines) -->
 <section class="landing-about mt-5">
   <p class="lead">
-    Reputation SaaS is designed for business owners, operators, and marketing teams
-    who want a clear view of customer sentiment. The platform pulls your Google reviews,
-    identifies complaints and praised aspects, and provides actionable insights with
-    AI‑powered recommended replies. With a clean dashboard and fast review workflow,
-    it helps you improve customer satisfaction and grow trust in your brand.
+    Reputation SaaS is built for business owners, operators, and marketing teams who need a
+    clear, actionable view of customer feedback. We automatically pull in your Google reviews,
+    classify sentiment, surface top complaints and praised aspects, and suggest fast, high‑quality
+    replies. With a modern, mobile‑ready dashboard and clean reports, you’ll prioritize improvements
+    and respond on time.
   </p>
 </section>
 
@@ -126,11 +118,10 @@
 
 {% block scripts %}
 <script>
-  // Replace navbar items from base.html with minimal landing nav
+  // Inject minimal nav actions into #navMain (no link changes).
   document.addEventListener("DOMContentLoaded", () => {
     const navMain = document.getElementById("navMain");
     const actions = document.querySelector("#landing-nav-actions > div");
-
     if (navMain && actions) {
       const clone = actions.cloneNode(true);
       clone.classList.remove("d-none");
@@ -139,3 +130,4 @@
   });
 </script>
 {% endblock %}
+``
