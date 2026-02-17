@@ -1,4 +1,5 @@
 # Filename: app/routes/auth.py
+
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
@@ -8,27 +9,36 @@ from app.models import User
 from passlib.context import CryptContext
 from datetime import datetime
 from fastapi.templating import Jinja2Templates
+import os
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")  # or switch to "argon2"
 
+# Directory to save uploaded profile images
+UPLOAD_DIR = "app/static/uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
 def get_password_hash(password: str) -> str:
     """
     Hash password safely with bcrypt (truncate at 72 bytes)
-    Works for multibyte characters
+    Works for multibyte characters.
     """
     max_bytes = 72
     encoded = password.encode("utf-8")
     if len(encoded) > max_bytes:
         encoded = encoded[:max_bytes]
-    # Pass bytes safely to bcrypt
-    return pwd_context.hash(encoded)
+        # Decode safely to string for passlib
+        password = encoded.decode("utf-8", errors="ignore")
+    return pwd_context.hash(password)
+
 
 # --- GET route to serve registration page ---
 @router.get("/register", response_class=HTMLResponse)
 async def get_register_page(request: Request):
     return templates.TemplateResponse("register.html", {"request": request})
+
 
 # --- POST route to handle registration ---
 @router.post("/register")
@@ -50,8 +60,10 @@ async def register(
     # Handle profile picture (optional)
     profile_pic_url = None
     if profile and profile.filename:
-        filename = f"profile_{datetime.utcnow().timestamp()}_{profile.filename}"
-        file_path = f"app/static/uploads/{filename}"
+        # save file
+        timestamp = int(datetime.utcnow().timestamp())
+        filename = f"profile_{timestamp}_{profile.filename}"
+        file_path = os.path.join(UPLOAD_DIR, filename)
         with open(file_path, "wb") as f:
             f.write(await profile.read())
         profile_pic_url = f"/static/uploads/{filename}"
