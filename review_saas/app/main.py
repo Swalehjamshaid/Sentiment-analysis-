@@ -23,6 +23,7 @@ class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
 app = FastAPI(title=settings.APP_NAME)
 templates = Jinja2Templates(directory="app/templates")
 
+# Security middleware
 app.add_middleware(HTTPSRedirectMiddleware)
 
 # Static mounts
@@ -37,7 +38,7 @@ def _init_db():
     # (Optional) start scheduler jobs here
 
 
-# ---------- UI pages ----------
+# -------- UI Pages --------
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     return templates.TemplateResponse("home.html", {"request": request})
@@ -68,7 +69,7 @@ def report_page(request: Request):
     return templates.TemplateResponse("report.html", {"request": request})
 
 
-# ---------- APIs ----------
+# -------- APIs --------
 app.include_router(auth.router)
 app.include_router(companies.router)
 app.include_router(reviews.router)
