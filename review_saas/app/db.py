@@ -2,14 +2,18 @@ import os
 from sqlalchemy import create_engine
 from .core.config import settings
 
-url = settings.DATABASE_URL
+url = settings.DATABASE_URL or "sqlite:///./app.db"
 
-# Railway / managed PG can supply 'postgres://'; SQLAlchemy expects 'postgresql://'
+# Normalize legacy postgres URL and prefer psycopg3 dialect for SQLAlchemy 2.x
 if url.startswith("postgres://"):
     url = url.replace("postgres://", "postgresql://", 1)
 
-# Ensure sslmode=require for managed Postgres if not already present
-if url.startswith("postgresql://") and "sslmode" not in url:
+# If it's a PostgreSQL URL but no explicit driver, switch to psycopg (v3).
+if url.startswith("postgresql://") and "+psycopg" not in url:
+    url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+
+# Managed PG: ensure sslmode=require if missing.
+if url.startswith("postgresql+psycopg://") and "sslmode" not in url:
     sep = "&" if "?" in url else "?"
     url = f"{url}{sep}sslmode=require"
 
