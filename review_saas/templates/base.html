@@ -1,233 +1,141 @@
-<!doctype html>
-<html lang="en" data-bs-theme="light">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>{% block title %}Reputation SaaS{% endblock %}</title>
+{% extends "base.html" %}
+{% block title %}Reputation SaaS – Review & Reputation Management{% endblock %}
 
-  <!-- ======================= Fonts & Icons ======================== -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+{% block head %}
+<style>
+  /* Hide all original navbar items from base.html except logo */
+  #navMain .navbar-nav {
+    display: none !important;
+  }
 
-  <!-- ======================= Bootstrap 5.3 ======================== -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
+  /* Hide theme toggle in navbar */
+  #themeToggle {
+    display: none !important;
+  }
 
-  <!-- ======================= Global Styles ======================== -->
-  <style>
-    :root {
-      --gradient-hero:
-        radial-gradient(1200px 600px at 10% -10%, rgba(99,102,241,.20), transparent 60%),
-        radial-gradient(1000px 500px at 110% 10%, rgba(16,185,129,.18), transparent 60%),
-        linear-gradient(180deg, rgba(2,6,23,0), rgba(2,6,23,.06));
-      --card-glass-bg: rgba(255,255,255,.65);
-      --card-glass-border: rgba(255,255,255,.45);
-      --shadow-soft: 0 12px 35px rgba(2,6,23,.08);
-      --transition-fast: all .25s ease;
-    }
+  /* Hide footer link section (Privacy, Terms, Support) */
+  footer .mt-2.mt-md-0 {
+    display: none !important;
+  }
 
-    [data-bs-theme="dark"] {
-      --card-glass-bg: rgba(13,17,23,.70);
-      --card-glass-border: rgba(255,255,255,.08);
-      --shadow-soft: 0 12px 35px rgba(0,0,0,.45);
-    }
+  /* Landing Hero */
+  .landing-hero {
+    min-height: clamp(60vh, 70vh, 85vh);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
 
-    html, body {
-      font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, Arial;
-      scroll-behavior: smooth;
-      background: var(--gradient-hero);
-      min-height: 100vh;
-    }
+    background:
+      radial-gradient(900px 360px at 50% -10%, rgba(99,102,241,.08), transparent 60%),
+      radial-gradient(700px 300px at 90% 0%, rgba(16,185,129,.08), transparent 60%);
 
-    .glass-card {
-      background: var(--card-glass-bg);
-      border: 1px solid var(--card-glass-border);
-      backdrop-filter: blur(10px);
-      box-shadow: var(--shadow-soft);
-      border-radius: 18px;
-      transition: var(--transition-fast);
-    }
+    border-radius: 22px;
+    padding: clamp(28px, 5vw, 60px);
+  }
 
-    .glass-card:hover {
-      transform: translateY(-2px);
-    }
+  .landing-hero h1 {
+    font-weight: 800;
+    line-height: 1.2;
+    font-size: clamp(2rem, 4vw, 3rem);
+    margin-bottom: 1.2rem;
+  }
 
-    .brand-gradient {
-      background: linear-gradient(90deg,#6366f1,#10b981 60%,#06b6d4);
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
-    }
+  .landing-hero p.sub {
+    font-size: clamp(1rem, 1.4vw, 1.2rem);
+    max-width: 720px;
+    margin-inline: auto;
+    margin-bottom: 1.8rem;
+    color: var(--bs-secondary);
+  }
 
-    .nav-link {
-      font-weight: 500;
-      transition: var(--transition-fast);
-    }
+  .landing-cta {
+    gap: 0.8rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
 
-    .nav-link.active,
-    .nav-link:hover {
-      color: var(--bs-primary) !important;
-    }
+  /* About Section (short, clean, 1 paragraph) */
+  .landing-about {
+    max-width: 900px;
+    margin-inline: auto;
+    padding: clamp(16px, 2vw, 28px) 4px;
+  }
 
-    .hero {
-      border-radius: 22px;
-      padding: 32px 26px;
-      overflow: hidden;
-      background:
-        radial-gradient(600px 200px at 10% 20%, rgba(99,102,241,.18), transparent 60%),
-        radial-gradient(600px 200px at 90% 20%, rgba(16,185,129,.18), transparent 60%),
-        linear-gradient(180deg, rgba(255,255,255,.25), rgba(255,255,255,.08));
-      border: 1px solid var(--card-glass-border);
-    }
+  .landing-about p {
+    line-height: 1.7;
+    font-size: 1.05rem;
+    margin: 0;
+    color: var(--bs-body-color);
+  }
+</style>
+{% endblock %}
 
-    [data-bs-theme="dark"] .hero {
-      background:
-        radial-gradient(600px 200px at 10% 20%, rgba(99,102,241,.18), transparent 60%),
-        radial-gradient(600px 200px at 90% 20%, rgba(16,185,129,.18), transparent 60%),
-        linear-gradient(180deg, rgba(13,17,23,.65), rgba(13,17,23,.45));
-    }
+{% block content %}
 
-    .footer {
-      border-top: 1px dashed var(--card-glass-border);
-      backdrop-filter: blur(6px);
-    }
-
-    #toast-stack {
-      position: fixed;
-      top: 1rem;
-      right: 1rem;
-      z-index: 1080;
-    }
-  </style>
-
-  {% block head %}{% endblock %}
-</head>
-
-<body>
-
-<!-- Prevent FOUC -->
-<script>
-(function () {
-  try {
-    const saved = localStorage.getItem('bsTheme') || 'light';
-    document.documentElement.setAttribute('data-bs-theme', saved);
-  } catch (_) {}
-})();
-</script>
-
-<!-- ======================= Navbar ======================== -->
-<nav class="navbar navbar-expand-lg sticky-top glass-card border-bottom py-2">
-  <div class="container-fluid">
-    <a class="navbar-brand fw-bold" href="/home">
-      <span class="brand-gradient">Reputation SaaS</span>
-    </a>
-
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain" aria-label="Toggle navigation">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-
-    <div id="navMain" class="collapse navbar-collapse">
-      <ul class="navbar-nav ms-auto align-items-lg-center gap-lg-2">
-
-        <li class="nav-item">
-          <a class="nav-link px-3" href="/home">
-            <i class="bi bi-house-door me-1"></i>Home
-          </a>
-        </li>
-
-        <li class="nav-item">
-          <a class="nav-link px-3" href="/ui/companies">
-            <i class="bi bi-buildings me-1"></i>Companies
-          </a>
-        </li>
-
-        <li class="nav-item me-lg-2">
-          <a class="nav-link px-3" href="/ui/auth">
-            <i class="bi bi-person-badge me-1"></i>Auth
-          </a>
-        </li>
-
-        <li class="nav-item">
-          <button id="themeToggle" class="btn btn-sm btn-outline-primary rounded-pill">
-            <i class="bi bi-moon-stars"></i>
-            <span class="ms-1 d-none d-sm-inline">Theme</span>
-          </button>
-        </li>
-
-      </ul>
+<!-- Inject minimal nav actions (Login + Get Started) -->
+<div class="container">
+  <div id="landing-nav-actions" class="d-none">
+    <div class="ms-auto d-flex align-items-center gap-2">
+      <a href="/ui/auth#login" class="btn btn-outline-primary btn-sm px-3">
+        Login
+      </a>
+      <a href="/ui/auth#register" class="btn btn-primary btn-sm px-3">
+        Get Started
+      </a>
     </div>
   </div>
-</nav>
-
-<!-- ======================= Content ======================== -->
-<div class="container my-4">
-  {% block content %}{% endblock %}
 </div>
 
-<!-- ======================= Footer ======================== -->
-<footer class="footer py-4 mt-5 glass-card">
-  <div class="container d-flex flex-column flex-md-row justify-content-between align-items-center small text-muted">
-    <div>
-      &copy; {{ (now() if now is defined) or '' }} Reputation SaaS — Crafted with
-      <i class="bi bi-heart-fill text-danger"></i>
-    </div>
-    <div class="mt-2 mt-md-0">
-      <a class="text-decoration-none me-3" href="#">Privacy</a>
-      <a class="text-decoration-none me-3" href="#">Terms</a>
-      <a class="text-decoration-none" href="#">Support</a>
+<!-- ======================= HERO SECTION ======================= -->
+<section class="landing-hero glass-card mt-4">
+  <div class="container">
+    <h1 class="brand-gradient">
+      Own Your Reputation. Respond Smarter. Grow Faster.
+    </h1>
+
+    <p class="sub">
+      Reputation SaaS automatically fetches Google reviews, analyzes sentiment,
+      highlights insights, and helps you send professional replies in seconds.
+    </p>
+
+    <div class="d-flex landing-cta">
+      <a href="/ui/auth#register" class="btn btn-primary btn-lg px-4">
+        <i class="bi bi-rocket-takeoff me-1"></i> Get Started
+      </a>
+
+      <a href="/ui/auth#login" class="btn btn-outline-primary btn-lg px-4">
+        <i class="bi bi-box-arrow-in-right me-1"></i> Login
+      </a>
     </div>
   </div>
-</footer>
+</section>
 
-<!-- Toast Container -->
-<div id="toast-stack" aria-live="polite" aria-atomic="true"></div>
+<!-- ======================= ABOUT (ONE PARAGRAPH) ======================= -->
+<section class="landing-about mt-5">
+  <p class="lead">
+    Reputation SaaS is designed for business owners, operators, and marketing teams
+    who want a clear view of customer sentiment. The platform pulls your Google reviews,
+    identifies complaints and praised aspects, and provides actionable insights with
+    AI‑powered recommended replies. With a clean dashboard and fast review workflow,
+    it helps you improve customer satisfaction and grow trust in your brand.
+  </p>
+</section>
 
-<!-- ======================= JS Libraries ======================== -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+{% endblock %}
 
-<!-- Google Maps API (UNCHANGED) -->
-<script defer src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&libraries=places"></script>
-
-<!-- ======================= Global JS ======================== -->
+{% block scripts %}
 <script>
-/* Theme Toggle */
-(function () {
-  const btn = document.getElementById('themeToggle');
-  const apply = mode => document.documentElement.setAttribute('data-bs-theme', mode);
-  const current = () => document.documentElement.getAttribute('data-bs-theme') || 'light';
+  // Replace navbar items from base.html with minimal landing nav
+  document.addEventListener("DOMContentLoaded", () => {
+    const navMain = document.getElementById("navMain");
+    const actions = document.querySelector("#landing-nav-actions > div");
 
-  btn?.addEventListener('click', () => {
-    const next = current() === 'dark' ? 'light' : 'dark';
-    apply(next);
-    try { localStorage.setItem('bsTheme', next); } catch (_) {}
+    if (navMain && actions) {
+      const clone = actions.cloneNode(true);
+      clone.classList.remove("d-none");
+      navMain.appendChild(clone);
+    }
   });
-})();
-
-/* Toast Utility */
-window.showToast = function (title, body, variant = 'primary', delay = 3800) {
-  const stack = document.getElementById('toast-stack');
-  const el = document.createElement('div');
-  el.className = 'toast align-items-center border-0 show mb-2';
-  el.role = 'alert';
-
-  el.innerHTML = `
-    <div class="d-flex">
-      <div class="toast-body">
-        <span class="badge text-bg-${variant} me-2">&nbsp;</span>
-        <strong>${title}</strong><br/>
-        <span class="text-muted small">${body}</span>
-      </div>
-      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
-    </div>
-  `;
-
-  stack.appendChild(el);
-  setTimeout(() => el.remove(), delay + 500);
-};
 </script>
-
-{% block scripts %}{% endblock %}
-</body>
-</html>
+{% endblock %}
