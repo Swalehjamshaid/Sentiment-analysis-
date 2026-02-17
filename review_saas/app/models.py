@@ -1,89 +1,62 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, Float
-    from sqlalchemy.orm import relationship
-    from datetime import datetime
-    from .db import Base
+# app/models.py
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Float
+from sqlalchemy.sql import func
+from .db import Base
 
-    class User(Base):
-        __tablename__ = "users"
-        id = Column(Integer, primary_key=True)
-        full_name = Column(String(100), nullable=False)
-        email = Column(String(255), unique=True, index=True, nullable=False)
-        password_hash = Column(String(255), nullable=False)
-        status = Column(String(20), default="active")
-        profile_pic_url = Column(String(255))
-        created_at = Column(DateTime, default=datetime.utcnow)
-        last_login = Column(DateTime)
-        companies = relationship("Company", back_populates="owner")
+# --------- Users ---------
+class User(Base):
+    __tablename__ = "users"
 
-    class VerificationToken(Base):
-        __tablename__ = "verification_tokens"
-        id = Column(Integer, primary_key=True)
-        user_id = Column(Integer, ForeignKey("users.id"))
-        token = Column(String(255), index=True)
-        expires_at = Column(DateTime)
-        used = Column(Boolean, default=False)
+    id = Column(Integer, primary_key=True, index=True)
+    full_name = Column(String(100), nullable=False)
+    email = Column(String(150), unique=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    profile_picture_url = Column(String, nullable=True)
+    is_active = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_login = Column(DateTime(timezone=True), nullable=True)
+    failed_login_attempts = Column(Integer, default=0)
+    locked_until = Column(DateTime(timezone=True), nullable=True)
 
-    class ResetToken(Base):
-        __tablename__ = "reset_tokens"
-        id = Column(Integer, primary_key=True)
-        user_id = Column(Integer, ForeignKey("users.id"))
-        token = Column(String(255), index=True)
-        expires_at = Column(DateTime)
-        used = Column(Boolean, default=False)
+# --------- Companies ---------
+class Company(Base):
+    __tablename__ = "companies"
 
-    class LoginAttempt(Base):
-        __tablename__ = "login_attempts"
-        id = Column(Integer, primary_key=True)
-        user_id = Column(Integer, ForeignKey("users.id"))
-        ip = Column(String(45))
-        attempted_at = Column(DateTime, default=datetime.utcnow)
-        success = Column(Boolean, default=False)
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    name = Column(String(200), nullable=False)
+    google_place_id = Column(String(100), nullable=True)
+    maps_link = Column(String(300), nullable=True)
+    city = Column(String(100), nullable=True)
+    logo_url = Column(String(300), nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    class Company(Base):
-        __tablename__ = "companies"
-        id = Column(Integer, primary_key=True)
-        owner_id = Column(Integer, ForeignKey("users.id"))
-        name = Column(String(255), nullable=False)
-        place_id = Column(String(128))
-        maps_link = Column(String(512))
-        city = Column(String(128))
-        status = Column(String(20), default="active")
-        logo_url = Column(String(255))
-        created_at = Column(DateTime, default=datetime.utcnow)
-        owner = relationship("User", back_populates="companies")
-        reviews = relationship("Review", back_populates="company")
+# --------- Reviews ---------
+class Review(Base):
+    __tablename__ = "reviews"
 
-    class Review(Base):
-        __tablename__ = "reviews"
-        id = Column(Integer, primary_key=True)
-        company_id = Column(Integer, ForeignKey("companies.id"))
-        text = Column(Text)
-        rating = Column(Integer)
-        review_at = Column(DateTime)
-        reviewer_name = Column(String(255))
-        reviewer_avatar = Column(String(255))
-        sentiment = Column(String(20))  # positive/neutral/negative
-        keywords = Column(String(512))
-        fetch_at = Column(DateTime, default=datetime.utcnow)
-        fetch_status = Column(String(20), default="Success")
-        company = relationship("Company", back_populates="reviews")
-        replies = relationship("Reply", back_populates="review")
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    review_text = Column(String(5000), nullable=True)
+    star_rating = Column(Integer, nullable=True)
+    review_date = Column(DateTime(timezone=True), nullable=True)
+    reviewer_name = Column(String(100), nullable=True)
+    reviewer_profile_url = Column(String(300), nullable=True)
+    sentiment_category = Column(String(20), nullable=True)
+    sentiment_score = Column(Float, nullable=True)
+    keywords = Column(String(500), nullable=True)
+    fetch_date = Column(DateTime(timezone=True), server_default=func.now())
+    fetch_status = Column(String(50), default="Pending")
 
-    class Reply(Base):
-        __tablename__ = "replies"
-        id = Column(Integer, primary_key=True)
-        review_id = Column(Integer, ForeignKey("reviews.id"))
-        suggested_text = Column(Text)
-        edited_text = Column(Text)
-        status = Column(String(20), default="Draft")
-        suggested_at = Column(DateTime, default=datetime.utcnow)
-        sent_at = Column(DateTime)
-        review = relationship("Review", back_populates="replies")
+# --------- Suggested Replies ---------
+class SuggestedReply(Base):
+    __tablename__ = "suggested_replies"
 
-    class Report(Base):
-        __tablename__ = "reports"
-        id = Column(Integer, primary_key=True)
-        company_id = Column(Integer, ForeignKey("companies.id"))
-        path = Column(String(512))
-        meta = Column(Text)
-        generated_at = Column(DateTime, default=datetime.utcnow)
+    id = Column(Integer, primary_key=True, index=True)
+    review_id = Column(Integer, ForeignKey("reviews.id"), nullable=False)
+    suggested_text = Column(String(500), nullable=False)
+    user_edited_text = Column(String(500), nullable=True)
+    status = Column(String(50), default="Draft")  # Draft / Sent
+    suggested_at = Column(DateTime(timezone=True), server_default=func.now())
+    sent_at = Column(DateTime(timezone=True), nullable=True)
