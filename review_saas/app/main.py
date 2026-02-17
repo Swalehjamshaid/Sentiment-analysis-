@@ -1,63 +1,47 @@
-"""
-Application entry point.
-Creates the Flask app, injects template globals, and supports both:
- - Local dev:  python app/main.py
- - Production: gunicorn "app.main:app"
-"""
+Flask==3.0.2
+Werkzeug==3.0.1
+Jinja2==3.1.4
+itsdangerous==2.2.0
+click==8.1.7
 
-from __future__ import annotations
+# Environment
+python-dotenv==1.0.1
 
-from flask import Flask
-from app.core.settings import settings_dict
-from app.routes.auth import auth_bp
-from app.routes.companies import companies_bp
-from app.routes.dashboard import dashboard_bp
-from app.routes.reviews import reviews_bp
-from app.routes.recipes import recipes_bp
-from app.routes.reports import reports_bp
+# Security
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+PyJWT==2.9.0
+email-validator==2.2.0
+bleach==6.2.0
 
+# Database
+SQLAlchemy==2.0.46
+alembic==1.13.2
+psycopg2-binary==2.9.10
 
-def create_app() -> Flask:
-    """App factory."""
-    app = Flask(__name__)
+# PDF and Reporting
+reportlab==4.2.5
+Pillow==10.4.0
+openpyxl==3.1.5
+pandas==2.2.3
 
-    # Load config from environment via settings
-    app.config.update(settings_dict())
+# Schedulers & Utilities
+APScheduler==3.11.2
+python-slugify==8.0.4
+pyotp==2.9.0
 
-    # ---------------- Blueprints ----------------
-    app.register_blueprint(auth_bp)
-    app.register_blueprint(companies_bp)
-    app.register_blueprint(dashboard_bp)
-    app.register_blueprint(reviews_bp)
-    app.register_blueprint(recipes_bp)
-    app.register_blueprint(reports_bp)
+# NLP / Text tools
+vaderSentiment==3.3.2
+langdetect==1.0.9
 
-    # --------------- Template globals ---------------
-    @app.context_processor
-    def inject_globals():
-        # Expose only safe values
-        return {
-            "GOOGLE_MAPS_API_KEY": app.config.get("GOOGLE_MAPS_API_KEY", ""),
-        }
+# Networking
+httpx==0.27.2
+backoff==2.2.1
 
-    # --------------- Root redirect ---------------
-    @app.route("/")
-    def root():
-        from flask import redirect, url_for
-        return redirect(url_for("dashboard.view_dashboard"))
+# ASGI wrapper (optional, but harmless)
+asgiref==3.8.1
 
-    return app
-
-
-# Expose a module-level `app` for WSGI servers (gunicorn, mod_wsgi, etc.)
-app = create_app()
-
-
-if __name__ == "__main__":
-    # Local dev server (avoid using in production)
-    app.run(
-        host="0.0.0.0",
-        port=int(app.config.get("PORT", 5000)),
-        debug=bool(app.config.get("DEBUG", True)),
-    )
-``
+# ────────────────────────────────────────────────
+# Production server for Railway (Flask + Gunicorn)
+gunicorn>=22.0.0
+gevent>=24.2.1
