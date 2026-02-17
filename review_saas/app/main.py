@@ -1,7 +1,11 @@
 """
 Application entry point.
-Creates the Flask app, injects template globals, and runs the dev server when executed directly.
+Creates the Flask app, injects template globals, and supports both:
+ - Local dev:  python app/main.py
+ - Production: gunicorn "app.main:app"
 """
+
+from __future__ import annotations
 
 from flask import Flask
 from app.core.settings import settings_dict
@@ -14,11 +18,13 @@ from app.routes.reports import reports_bp
 
 
 def create_app() -> Flask:
+    """App factory."""
     app = Flask(__name__)
+
     # Load config from environment via settings
     app.config.update(settings_dict())
 
-    # Blueprints
+    # ---------------- Blueprints ----------------
     app.register_blueprint(auth_bp)
     app.register_blueprint(companies_bp)
     app.register_blueprint(dashboard_bp)
@@ -26,14 +32,15 @@ def create_app() -> Flask:
     app.register_blueprint(recipes_bp)
     app.register_blueprint(reports_bp)
 
-    # Template globals (so base.html can access GOOGLE_MAPS_API_KEY easily)
+    # --------------- Template globals ---------------
     @app.context_processor
     def inject_globals():
+        # Expose only safe values
         return {
             "GOOGLE_MAPS_API_KEY": app.config.get("GOOGLE_MAPS_API_KEY", ""),
         }
 
-    # Root → dashboard
+    # --------------- Root redirect ---------------
     @app.route("/")
     def root():
         from flask import redirect, url_for
@@ -42,11 +49,15 @@ def create_app() -> Flask:
     return app
 
 
-# Dev server
+# Expose a module-level `app` for WSGI servers (gunicorn, mod_wsgi, etc.)
+app = create_app()
+
+
 if __name__ == "__main__":
-    app = create_app()
+    # Local dev server (avoid using in production)
     app.run(
         host="0.0.0.0",
         port=int(app.config.get("PORT", 5000)),
         debug=bool(app.config.get("DEBUG", True)),
     )
+``
