@@ -29,9 +29,9 @@ def get_password_hash(password: str) -> str:
     encoded = password.encode("utf-8")
     if len(encoded) > max_bytes:
         encoded = encoded[:max_bytes]
-        # Decode safely to string for passlib
-        password = encoded.decode("utf-8", errors="ignore")
-    return pwd_context.hash(password)
+    # Decode safely to string for passlib
+    safe_password = encoded.decode("utf-8", errors="ignore")
+    return pwd_context.hash(safe_password)
 
 
 # --- GET route to serve registration page ---
@@ -60,7 +60,6 @@ async def register(
     # Handle profile picture (optional)
     profile_pic_url = None
     if profile and profile.filename:
-        # save file
         timestamp = int(datetime.utcnow().timestamp())
         filename = f"profile_{timestamp}_{profile.filename}"
         file_path = os.path.join(UPLOAD_DIR, filename)
