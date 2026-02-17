@@ -1,68 +1,31 @@
-###############################################################################
-# Review SaaS – Comprehensive Requirements (Railway-ready)
-# Notes:
-# - Python 3.13 on Railway is default. Pandas 2.2.3 publishes wheels for Py3.13.
-# - python-multipart is required for FastAPI Form/UploadFile endpoints.
-# - requests is used by the PDF service (fetching logo).
-###############################################################################
-
-# --- FastAPI + Server ---
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 jinja2==3.1.4
+python-multipart==0.0.9
 
-# --- Data & ORM ---
 SQLAlchemy==2.0.31
+psycopg[binary]==3.2.1
 
-# --- Validation & Settings ---
 pydantic==2.9.2
 pydantic-settings==2.4.0
 python-dotenv==1.0.1
 email-validator==2.2.0
 
-# --- Auth & Security ---
 passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.3.0
-python-multipart==0.0.9     # <-- REQUIRED for FastAPI forms/file uploads
-
-# --- HTTP Clients ---
-httpx==0.27.2
-requests==2.32.3            # <-- Used by PDF logo fetch
-
-# --- PDF / Reports ---
-reportlab==4.1.0
-
-# --- Analytics / Export ---
-pandas==2.2.3               # <-- Py3.13 compatible wheels
-numpy==2.1.3                # <-- Matches pandas 2.2.3 on Py3.13
-openpyxl==3.1.5             # Excel export support
-
-# --- Scheduling ---
-apscheduler==3.10.4
-
-# --- Database Driver (PostgreSQL for Railway) ---
-psycopg2-binary==2.9.9
-
-# --- OAuth (Google) & 2FA (TOTP) ---
 authlib==1.3.1
 pyotp==2.9.0
-
-# --- Sanitization / Safety ---
 bleach==6.1.0
 
-# --- Language detection for review text (optional but used in sentiment) ---
+httpx==0.27.2
+requests==2.32.3
+
+reportlab==4.1.0
+
+pandas==2.2.3
+numpy==2.1.3
+openpyxl==3.1.5
+
+apscheduler==3.10.4
+
 langdetect==1.0.9
-
-###############################################################################
-# Optional tools (enable only if needed)
-###############################################################################
-
-# --- Server-side chart rendering for embedding charts into PDFs (optional) ---
-# matplotlib==3.8.4
-# NOTE: Matplotlib pulls native wheels; leave commented unless you’re
-# actually embedding server-rendered charts into PDFs.
-
-# --- Google Cloud libraries for GMB reply sending (if you add that later) ---
-# google-api-python-client==2.154.0
-# google-auth==2.36.0
-# google-auth-oauthlib==1.2.1
