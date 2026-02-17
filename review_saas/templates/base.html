@@ -1,133 +1,201 @@
-{% extends "base.html" %}
-{% block title %}Reputation SaaS – Review & Reputation Management{% endblock %}
+<html lang="en" data-bs-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{% block title %}Reputation SaaS{% endblock %}</title>
 
-{% block head %}
-<style>
-  /* --- Landing-only visual overrides (no link changes) --- */
+  <!-- ======================= Fonts & Icons ======================== -->
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
 
-  /* Hide base navbar items (keep only logo on this page) */
-  #navMain .navbar-nav { display: none !important; }
+  <!-- ======================= Bootstrap 5.3 ======================== -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
 
-  /* Hide theme toggle on this page (to keep header minimal) */
-  #themeToggle { display: none !important; }
-
-  /* Hide footer link group (no extra links on landing) */
-  footer .mt-2.mt-md-0 { display: none !important; }
-
-  /* HERO: centered, clean, lots of whitespace */
-  .landing-hero {
-    min-height: clamp(60vh, 72vh, 85vh);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-
-    background:
-      radial-gradient(900px 360px at 50% -10%, rgba(99,102,241,.08), transparent 60%),
-      radial-gradient(700px 300px at 90% 0%, rgba(16,185,129,.08), transparent 60%);
-
-    border-radius: 22px;
-    padding: clamp(28px, 5vw, 60px);
-  }
-
-  .landing-hero h1 {
-    font-weight: 800;
-    line-height: 1.2;
-    font-size: clamp(2rem, 4vw, 3rem);
-    margin-bottom: 1.2rem;
-  }
-
-  .landing-hero p.sub {
-    font-size: clamp(1rem, 1.4vw, 1.2rem);
-    max-width: 720px;
-    margin-inline: auto;
-    margin-bottom: 1.8rem;
-    color: var(--bs-secondary);
-  }
-
-  .landing-cta {
-    gap: 0.8rem;
-    justify-content: center;
-    flex-wrap: wrap;
-  }
-
-  /* ABOUT: single paragraph, left-aligned on larger viewports */
-  .landing-about {
-    max-width: 900px;
-    margin-inline: auto;
-    padding: clamp(16px, 2vw, 28px) 4px;
-  }
-  @media (min-width: 768px) {
-    .landing-about p { text-align: left; }
-  }
-  .landing-about p {
-    line-height: 1.7;
-    font-size: 1.05rem;
-    margin: 0;
-    color: var(--bs-body-color);
-  }
-</style>
-{% endblock %}
-
-{% block content %}
-
-<!-- Minimal page-local nav actions (Login + Get Started only).
-     We inject these into #navMain to avoid changing your base.html structure/links. -->
-<div class="container">
-  <div id="landing-nav-actions" class="d-none">
-    <div class="ms-auto d-flex align-items-center gap-2">
-      <a class="btn btn-outline-primary" href="/ui/auth#login">Login</a>
-      <a class="btn btn-primary" href="/ui/auth#register">Get Started</a>
-    </div>
-  </div>
-</div>
-
-<!-- HERO -->
-<section class="landing-hero glass-card mt-4">
-  <div class="container">
-    <h1 class="brand-gradient">Own Your Reputation. Respond Smarter. Grow Faster.</h1>
-
-    <p class="sub">
-      Reputation SaaS automatically fetches your Google reviews, analyzes sentiment,
-      highlights key trends and keywords, and helps you send professional replies in seconds.
-    </p>
-
-    <div class="d-flex landing-cta">
-      <a class="btn btn-lg btn-primary px-4" href="/ui/auth#register">
-        <i class="bi bi-rocket-takeoff me-1"></i> Get Started
-      </a>
-      <a class="btn btn-lg btn-outline-primary px-4" href="/ui/auth#login">
-        <i class="bi bi-box-arrow-in-right me-1"></i> Login
-      </a>
-    </div>
-  </div>
-</section>
-
-<!-- ABOUT (single paragraph, 3–5 lines) -->
-<section class="landing-about mt-5">
-  <p class="lead">
-    Reputation SaaS is built for business owners, operators, and marketing teams who need a
-    clear, actionable view of customer feedback. We automatically pull in your Google reviews,
-    classify sentiment, surface top complaints and praised aspects, and suggest fast, high‑quality
-    replies. With a modern, mobile‑ready dashboard and clean reports, you’ll prioritize improvements
-    and respond on time.
-  </p>
-</section>
-
-{% endblock %}
-
-{% block scripts %}
-<script>
-  // Inject minimal nav actions into #navMain (no link changes).
-  document.addEventListener("DOMContentLoaded", () => {
-    const navMain = document.getElementById("navMain");
-    const actions = document.querySelector("#landing-nav-actions > div");
-    if (navMain && actions) {
-      const clone = actions.cloneNode(true);
-      clone.classList.remove("d-none");
-      navMain.appendChild(clone);
+  <!-- ======================= Global Styles ======================== -->
+  <style>
+    :root {
+      --gradient-hero: radial-gradient(1200px 600px at 10% -10%, rgba(99, 102, 241, 0.20), transparent 60%),
+                        radial-gradient(1000px 500px at 110% 10%, rgba(16, 185, 129, 0.18), transparent 60%),
+                        linear-gradient(180deg, rgba(2, 6, 23, 0.0), rgba(2, 6, 23, 0.06));
+      --card-glass-bg: rgba(255, 255, 255, 0.6);
+      --card-glass-border: rgba(255, 255, 255, 0.45);
+      --shadow-soft: 0 10px 30px rgba(2, 6, 23, 0.08);
     }
-  });
-</script>
-{% endblock %}
-``
+
+    [data-bs-theme="dark"] {
+      --card-glass-bg: rgba(13, 17, 23, 0.65);
+      --card-glass-border: rgba(255, 255, 255, 0.08);
+      --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.35);
+    }
+
+    html, body {
+      font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans",
+                   "Apple Color Emoji", "Segoe UI Emoji";
+      scroll-behavior: smooth;
+      background: var(--gradient-hero),
+                  radial-gradient(800px 400px at 50% -10%, rgba(14, 165, 233, 0.10), transparent 60%),
+                  linear-gradient(180deg, rgba(99, 102, 241, 0.06), rgba(16, 185, 129, 0.05) 30%, transparent 60%);
+    }
+
+    .glass-card {
+      background: var(--card-glass-bg);
+      border: 1px solid var(--card-glass-border);
+      backdrop-filter: blur(8px);
+      box-shadow: var(--shadow-soft);
+      border-radius: 16px;
+    }
+
+    .brand-gradient {
+      background: linear-gradient(90deg, #6366f1, #10b981 60%, #06b6d4);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .nav-link.active, .nav-link:hover {
+      color: var(--bs-primary) !important;
+    }
+
+    .hero {
+      position: relative;
+      border-radius: 20px;
+      padding: 28px 22px;
+      overflow: hidden;
+      background: radial-gradient(600px 200px at 10% 20%, rgba(99,102,241,0.18), transparent 60%),
+                  radial-gradient(600px 200px at 90% 20%, rgba(16,185,129,0.18), transparent 60%),
+                  linear-gradient(180deg, rgba(255,255,255,0.25), rgba(255,255,255,0.08));
+      border: 1px solid var(--card-glass-border);
+    }
+
+    [data-bs-theme="dark"] .hero {
+      background: radial-gradient(600px 200px at 10% 20%, rgba(99,102,241,0.18), transparent 60%),
+                  radial-gradient(600px 200px at 90% 20%, rgba(16,185,129,0.18), transparent 60%),
+                  linear-gradient(180deg, rgba(13,17,23,0.65), rgba(13,17,23,0.45));
+    }
+
+    .footer {
+      border-top: 1px dashed var(--card-glass-border);
+      backdrop-filter: blur(6px);
+    }
+
+    /* Toast container placement */
+    #toast-stack {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      z-index: 1080;
+    }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+  <!-- =================================== Early Theme Apply (prevents FOUC) ==================================== -->
+  <script>
+    (function () {
+      try {
+        const saved = localStorage.getItem('bsTheme') || 'light';
+        document.documentElement.setAttribute('data-bs-theme', saved);
+      } catch (_) {}
+    })();
+  </script>
+
+  <!-- =================================== Navbar ==================================== -->
+  <nav class="navbar navbar-expand-lg border-bottom sticky-top glass-card py-2">
+    <div class="container-fluid">
+      <a class="navbar-brand fw-bold" href="/home">
+        <span class="brand-gradient">Reputation SaaS</span>
+      </a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div id="navMain" class="collapse navbar-collapse">
+        <ul class="navbar-nav ms-auto align-items-lg-center gap-lg-2">
+          <li class="nav-item">
+            <a class="nav-link px-3" href="/home"><i class="bi bi-house-door me-1"></i>Home</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link px-3" href="/ui/companies"><i class="bi bi-buildings me-1"></i>Companies</a>
+          </li>
+          <li class="nav-item me-lg-2">
+            <a class="nav-link px-3" href="/ui/auth"><i class="bi bi-person-badge me-1"></i>Auth</a>
+          </li>
+          <li class="nav-item">
+            <button id="themeToggle" class="btn btn-sm btn-outline-primary rounded-pill">
+              <i class="bi bi-moon-stars"></i>
+              <span class="ms-1 d-none d-sm-inline">Theme</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <!-- =================================== Page Content ==================================== -->
+  <div class="container my-4">
+    {% block content %}{% endblock %}
+  </div>
+
+  <!-- =================================== Footer ==================================== -->
+  <footer class="footer py-4 mt-5 glass-card">
+    <div class="container d-flex flex-column flex-md-row justify-content-between align-items-center small text-muted">
+      <div>&copy; {{ (now() if now is defined) or '' }} Reputation SaaS — Crafted with <i class="bi bi-heart-fill text-danger"></i></div>
+      <div class="mt-2 mt-md-0">
+        <a class="text-decoration-none me-3" href="#">Privacy</a>
+        <a class="text-decoration-none me-3" href="#">Terms</a>
+        <a class="text-decoration-none" href="#">Support</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toasts -->
+  <div id="toast-stack" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- ======================= JS Libraries ======================== -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+  <script defer src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&libraries=places"></script>
+
+  <!-- ======================= Global Helpers (Theme, Toasts) ======================== -->
+  <script>
+    // Theme toggle
+    (function () {
+      const btn = document.getElementById('themeToggle');
+      const apply = (mode) => document.documentElement.setAttribute('data-bs-theme', mode);
+      function current() { return document.documentElement.getAttribute('data-bs-theme') || 'light'; }
+      btn?.addEventListener('click', () => {
+        const next = current() === 'dark' ? 'light' : 'dark';
+        apply(next);
+        try { localStorage.setItem('bsTheme', next); } catch (_) {}
+      });
+    })();
+
+    // Toast maker
+    window.showToast = function (title, body, variant = 'primary', delay = 3800) {
+      const stack = document.getElementById('toast-stack');
+      const id = `t-${crypto?.randomUUID?.() || Math.random().toString(36).slice(2)}`;
+      const el = document.createElement('div');
+      el.className = 'toast align-items-center border-0 show mb-2';
+      el.id = id;
+      el.role = 'alert';
+      el.ariaLive = 'assertive';
+      el.ariaAtomic = 'true';
+      el.innerHTML = `
+        <div class="d-flex">
+          <div class="toast-body">
+            <span class="badge text-bg-${variant} me-2" style="vertical-align: text-top;">&nbsp;</span>
+            <strong>${title}</strong><br/>
+            <span class="text-muted small">${body}</span>
+          </div>
+          <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+      `;
+      stack.appendChild(el);
+      setTimeout(() => el.remove(), delay + 600);
+    }
+  </script>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>
