@@ -39,9 +39,14 @@ def create_app() -> Flask:
         # Expose only safe values
         return {
             "GOOGLE_MAPS_API_KEY": app.config.get("GOOGLE_MAPS_API_KEY", ""),
-            # makes {{ now() }} available in templates; returns current year by default
-            "now": lambda: datetime.utcnow().year,
+            "now": lambda: datetime.utcnow().year,  # {{ now() }} in templates
         }
+
+    # --------------- Healthcheck ---------------
+    @app.route("/healthz")
+    def healthz():
+        # Return a simple 200 OK for Railway healthcheck
+        return {"status": "ok"}, 200
 
     # --------------- Root redirect ---------------
     @app.route("/")
