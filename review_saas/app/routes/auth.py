@@ -19,18 +19,20 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")  # or switch t
 UPLOAD_DIR = "app/static/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-
 def get_password_hash(password: str) -> str:
     """
     Hash password safely with bcrypt (truncate at 72 bytes)
-    Works for multibyte characters.
+    Works for multibyte characters safely
     """
     max_bytes = 72
     encoded = password.encode("utf-8")
     if len(encoded) > max_bytes:
-        # Truncate to max 72 bytes and decode safely
+        # Truncate bytes safely
         encoded = encoded[:max_bytes]
-    safe_password = encoded.decode("utf-8", errors="ignore")
+        # Decode back to string, ignoring incomplete multibyte characters
+        safe_password = encoded.decode("utf-8", errors="ignore")
+    else:
+        safe_password = password
     return pwd_context.hash(safe_password)
 
 
