@@ -1,332 +1,233 @@
 <!doctype html>
 <html lang="en" data-bs-theme="light">
-  <head nonce="{{ csp_nonce }}">
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{% block title %}Reputation SaaS{% endblock %}</title>
 
-    <!-- CSRF token injected by server -->
-    <meta name="csrf-token" content="{{ csrf_token }}">
+  <!-- ======================= Fonts & Icons ======================== -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
 
-    <!-- Security headers (best set as HTTP headers; meta is a dev hint/fallback) -->
-    <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self';
-                   img-src 'self' data:;
-                   style-src 'self' 'unsafe-inline';
-                   script-src 'self' 'nonce-{{ csp_nonce }}';
-                   connect-src 'self';
-                   frame-ancestors 'none'">
-    <meta http-equiv="X-Frame-Options" content="DENY">
+  <!-- ======================= Bootstrap 5.3 ======================== -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
 
-    <title>{% block title %}Reputation SaaS{% endblock %}</title>
+  <!-- ======================= Global Styles ======================== -->
+  <style>
+    :root {
+      --gradient-hero:
+        radial-gradient(1200px 600px at 10% -10%, rgba(99,102,241,.20), transparent 60%),
+        radial-gradient(1000px 500px at 110% 10%, rgba(16,185,129,.18), transparent 60%),
+        linear-gradient(180deg, rgba(2,6,23,0), rgba(2,6,23,.06));
+      --card-glass-bg: rgba(255,255,255,.65);
+      --card-glass-border: rgba(255,255,255,.45);
+      --shadow-soft: 0 12px 35px rgba(2,6,23,.08);
+      --transition-fast: all .25s ease;
+    }
 
-    <!-- =======================
-         Fonts & Icons (Tip: self-host in prod for stricter CSP)
-    ======================== -->
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
-          rel="stylesheet" />
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
-          rel="stylesheet"
-          integrity="sha384-e1w1pX8lQ3Q4yP8BqO9I0yV9d6wR7qZCw2o5x9b8lK2c+5p2c1E3j4n3w0yZc1eA"
-          crossorigin="anonymous" />
+    [data-bs-theme="dark"] {
+      --card-glass-bg: rgba(13,17,23,.70);
+      --card-glass-border: rgba(255,255,255,.08);
+      --shadow-soft: 0 12px 35px rgba(0,0,0,.45);
+    }
 
-    <!-- =======================
-         Bootstrap 5.3 (Tip: serve from /static in prod)
-    ======================== -->
-    <link
-      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
-      rel="stylesheet"
-      integrity="sha384-T3c6CoIi6uLrA9TneNEoa7Rxnatz6GZrx9CMq5bGxXWm9E3wGmQG6n5M5V6zN9bM"
-      crossorigin="anonymous"
-    />
+    html, body {
+      font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      scroll-behavior: smooth;
+      background: var(--gradient-hero);
+      min-height: 100vh;
+    }
 
-    <!-- =======================
-         Global Styles
-    ======================== -->
-    <style nonce="{{ csp_nonce }}">
-      :root {
-        --gradient-hero: radial-gradient(1200px 600px at 10% -10%, rgba(99, 102, 241, 0.20), transparent 60%),
-                         radial-gradient(1000px 500px at 110% 10%, rgba(16, 185, 129, 0.18), transparent 60%),
-                         linear-gradient(180deg, rgba(2, 6, 23, 0.0), rgba(2, 6, 23, 0.06));
-        --card-glass-bg: rgba(255, 255, 255, 0.6);
-        --card-glass-border: rgba(255, 255, 255, 0.45);
-        --shadow-soft: 0 10px 30px rgba(2, 6, 23, 0.08);
-      }
-      [data-bs-theme="dark"] {
-        --card-glass-bg: rgba(13, 17, 23, 0.65);
-        --card-glass-border: rgba(255, 255, 255, 0.08);
-        --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.35);
-      }
+    .glass-card {
+      background: var(--card-glass-bg);
+      border: 1px solid var(--card-glass-border);
+      backdrop-filter: blur(10px);
+      box-shadow: var(--shadow-soft);
+      border-radius: 18px;
+      transition: var(--transition-fast);
+    }
 
-      html, body {
-        font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
-        scroll-behavior: smooth;
-        background:
-          var(--gradient-hero),
-          radial-gradient(800px 400px at 50% -10%, rgba(14, 165, 233, 0.10), transparent 60%),
-          linear-gradient(180deg, rgba(99, 102, 241, 0.06), rgba(16, 185, 129, 0.05) 30%, transparent 60%);
-      }
+    .glass-card:hover {
+      transform: translateY(-2px);
+    }
 
-      .glass-card {
-        background: var(--card-glass-bg);
-        border: 1px solid var(--card-glass-border);
-        backdrop-filter: blur(8px);
-        box-shadow: var(--shadow-soft);
-        border-radius: 16px;
-      }
+    .brand-gradient {
+      background: linear-gradient(90deg,#6366f1,#10b981 60%,#06b6d4);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
 
-      .brand-gradient {
-        background: linear-gradient(90deg, #6366f1, #10b981 60%, #06b6d4);
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-      }
+    .nav-link {
+      font-weight: 500;
+      transition: var(--transition-fast);
+    }
 
-      .nav-link.active,
-      .nav-link:hover {
-        color: var(--bs-primary) !important;
-      }
+    .nav-link.active,
+    .nav-link:hover {
+      color: var(--bs-primary) !important;
+    }
 
-      .hero {
-        position: relative;
-        border-radius: 20px;
-        padding: 28px 22px;
-        overflow: hidden;
-        background:
-          radial-gradient(600px 200px at 10% 20%, rgba(99,102,241,0.18), transparent 60%),
-          radial-gradient(600px 200px at 90% 20%, rgba(16,185,129,0.18), transparent 60%),
-          linear-gradient(180deg, rgba(255,255,255,0.25), rgba(255,255,255,0.08));
-        border: 1px solid var(--card-glass-border);
-      }
-      [data-bs-theme="dark"] .hero {
-        background:
-          radial-gradient(600px 200px at 10% 20%, rgba(99,102,241,0.18), transparent 60%),
-          radial-gradient(600px 200px at 90% 20%, rgba(16,185,129,0.18), transparent 60%),
-          linear-gradient(180deg, rgba(13,17,23,0.65), rgba(13,17,23,0.45));
-      }
+    .hero {
+      border-radius: 22px;
+      padding: 32px 26px;
+      overflow: hidden;
+      background:
+        radial-gradient(600px 200px at 10% 20%, rgba(99,102,241,.18), transparent 60%),
+        radial-gradient(600px 200px at 90% 20%, rgba(16,185,129,.18), transparent 60%),
+        linear-gradient(180deg, rgba(255,255,255,.25), rgba(255,255,255,.08));
+      border: 1px solid var(--card-glass-border);
+    }
 
-      .footer {
-        border-top: 1px dashed var(--card-glass-border);
-        backdrop-filter: blur(6px);
-      }
+    [data-bs-theme="dark"] .hero {
+      background:
+        radial-gradient(600px 200px at 10% 20%, rgba(99,102,241,.18), transparent 60%),
+        radial-gradient(600px 200px at 90% 20%, rgba(16,185,129,.18), transparent 60%),
+        linear-gradient(180deg, rgba(13,17,23,.65), rgba(13,17,23,.45));
+    }
 
-      #toast-stack { position: fixed; top: 1rem; right: 1rem; z-index: 1080; }
+    .footer {
+      border-top: 1px dashed var(--card-glass-border);
+      backdrop-filter: blur(6px);
+    }
 
-      /* Utility */
-      .max-w-sm { max-width: 480px; }
-      .form-hint { font-size: .9rem; color: var(--bs-secondary); }
+    #toast-stack {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      z-index: 1080;
+    }
+  </style>
 
-      /* Password strength bar (auth pages) */
-      .strength-bar {height:6px;background:#dee2e6;border-radius:3px;overflow:hidden}
-      .strength-bar>span{display:block;height:100%;transition:width .25s ease}
-    </style>
+  {% block head %}{% endblock %}
+</head>
 
-    {% block head %}{% endblock %}
-  </head>
+<body>
 
-  <body>
-    <!-- Early Theme Apply (prevents FOUC) -->
-    <script nonce="{{ csp_nonce }}">
-      (function () {
-        try {
-          const saved = localStorage.getItem('bsTheme') || 'light';
-          document.documentElement.setAttribute('data-bs-theme', saved);
-        } catch (_) {}
-      })();
-    </script>
+<!-- Prevent FOUC -->
+<script>
+(function () {
+  try {
+    const saved = localStorage.getItem('bsTheme') || 'light';
+    document.documentElement.setAttribute('data-bs-theme', saved);
+  } catch (_) {}
+})();
+</script>
 
-    <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg border-bottom sticky-top glass-card py-2">
-      <div class="container-fluid">
-        <a class="navbar-brand fw-bold" href="/home">
-          <span class="brand-gradient">Reputation SaaS</span>
-        </a>
+<!-- ======================= Navbar ======================== -->
+<nav class="navbar navbar-expand-lg sticky-top glass-card border-bottom py-2">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-bold" href="/home">
+      <span class="brand-gradient">Reputation SaaS</span>
+    </a>
 
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain">
-          <span class="navbar-toggler-icon"></span>
-        </button>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
 
-        <div id="navMain" class="collapse navbar-collapse">
-          <ul class="navbar-nav ms-auto align-items-lg-center gap-lg-2">
-            <li class="nav-item">
-              <a class="nav-link px-3" href="/home"><i class="bi bi-house-door me-1"></i>Home</a>
-            </li>
-            <li class="nav-item">
-              <a class="nav-link px-3" href="/ui/companies"><i class="bi bi-buildings me-1"></i>Companies</a>
-            </li>
-            <li class="nav-item me-lg-2">
-              <a class="nav-link px-3" href="/ui/auth"><i class="bi bi-person-badge me-1"></i>Auth</a>
-            </li>
-            <li class="nav-item">
-              <button id="themeToggle" class="btn btn-sm btn-outline-primary rounded-pill" type="button">
-                <i class="bi bi-moon-stars"></i> <span class="ms-1 d-none d-sm-inline">Theme</span>
-              </button>
-            </li>
-          </ul>
-        </div>
-      </div>
-    </nav>
+    <div id="navMain" class="collapse navbar-collapse">
+      <ul class="navbar-nav ms-auto align-items-lg-center gap-lg-2">
 
-    <!-- Page Content -->
-    <div class="container my-4">
-      {% block content %}{% endblock %}
+        <li class="nav-item">
+          <a class="nav-link px-3" href="/home">
+            <i class="bi bi-house-door me-1"></i>Home
+          </a>
+        </li>
+
+        <li class="nav-item">
+          <a class="nav-link px-3" href="/ui/companies">
+            <i class="bi bi-buildings me-1"></i>Companies
+          </a>
+        </li>
+
+        <li class="nav-item me-lg-2">
+          <a class="nav-link px-3" href="/ui/auth">
+            <i class="bi bi-person-badge me-1"></i>Auth
+          </a>
+        </li>
+
+        <li class="nav-item">
+          <button id="themeToggle" class="btn btn-sm btn-outline-primary rounded-pill">
+            <i class="bi bi-moon-stars"></i>
+            <span class="ms-1 d-none d-sm-inline">Theme</span>
+          </button>
+        </li>
+
+      </ul>
     </div>
+  </div>
+</nav>
 
-    <!-- Footer -->
-    <footer class="footer py-4 mt-5 glass-card">
-      <div class="container d-flex flex-column flex-md-row justify-content-between align-items-center small text-muted">
-        <div>&copy; {{ (now() if now is defined) or '' }} Reputation SaaS — Crafted with <i class="bi bi-heart-fill text-danger"></i></div>
-        <div class="mt-2 mt-md-0">
-          <a class="text-decoration-none me-3" href="#">Privacy</a>
-          <a class="text-decoration-none me-3" href="#">Terms</a>
-          <a class="text-decoration-none" href="#">Support</a>
-        </div>
+<!-- ======================= Content ======================== -->
+<div class="container my-4">
+  {% block content %}{% endblock %}
+</div>
+
+<!-- ======================= Footer ======================== -->
+<footer class="footer py-4 mt-5 glass-card">
+  <div class="container d-flex flex-column flex-md-row justify-content-between align-items-center small text-muted">
+    <div>
+      &copy; {{ (now() if now is defined) or '' }} Reputation SaaS — Crafted with
+      <i class="bi bi-heart-fill text-danger"></i>
+    </div>
+    <div class="mt-2 mt-md-0">
+      <a class="text-decoration-none me-3" href="#">Privacy</a>
+      <a class="text-decoration-none me-3" href="#">Terms</a>
+      <a class="text-decoration-none" href="#">Support</a>
+    </div>
+  </div>
+</footer>
+
+<!-- Toast Container -->
+<div id="toast-stack" aria-live="polite" aria-atomic="true"></div>
+
+<!-- ======================= JS Libraries ======================== -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+
+<!-- Google Maps API (UNCHANGED) -->
+<script defer src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&libraries=places"></script>
+
+<!-- ======================= Global JS ======================== -->
+<script>
+/* Theme Toggle */
+(function () {
+  const btn = document.getElementById('themeToggle');
+  const apply = mode => document.documentElement.setAttribute('data-bs-theme', mode);
+  const current = () => document.documentElement.getAttribute('data-bs-theme') || 'light';
+
+  btn?.addEventListener('click', () => {
+    const next = current() === 'dark' ? 'light' : 'dark';
+    apply(next);
+    try { localStorage.setItem('bsTheme', next); } catch (_) {}
+  });
+})();
+
+/* Toast Utility */
+window.showToast = function (title, body, variant = 'primary', delay = 3800) {
+  const stack = document.getElementById('toast-stack');
+  const el = document.createElement('div');
+  el.className = 'toast align-items-center border-0 show mb-2';
+  el.role = 'alert';
+
+  el.innerHTML = `
+    <div class="d-flex">
+      <div class="toast-body">
+        <span class="badge text-bg-${variant} me-2">&nbsp;</span>
+        <strong>${title}</strong><br/>
+        <span class="text-muted small">${body}</span>
       </div>
-    </footer>
+      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  `;
 
-    <!-- Toasts -->
-    <div id="toast-stack" aria-live="polite" aria-atomic="true"></div>
+  stack.appendChild(el);
+  setTimeout(() => el.remove(), delay + 500);
+};
+</script>
 
-    <!-- =======================
-         JS Libraries (Tip: move to /static in prod; keep SRI)
-    ======================== -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
-            integrity="sha384-HoA2b4GmJbqkRk8jN6m4rJmqlf6v1b5WZpY2i8m1l2QmE2aP1f3J5N8cZ4e4e5r7"
-            crossorigin="anonymous"></script>
-
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
-            integrity="sha384-SC6VhK1Q0X6Hq9x3W1jF8dN2vC0QyY8b3F8jKZL7yQ8HkqN3Cj3C3zJ2s4O5x9QG"
-            crossorigin="anonymous"></script>
-
-    <!-- Google Maps JS API (allow *.googleapis.com/ *.gstatic.com in CSP if used) -->
-    <script defer
-            src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&libraries=places"
-            referrerpolicy="strict-origin-when-cross-origin"></script>
-
-    <!-- =======================
-         Global Helpers (Theme, Toasts, Secure Fetch)
-    ======================== -->
-    <script nonce="{{ csp_nonce }}">
-      // Theme toggle
-      (function () {
-        const btn = document.getElementById('themeToggle');
-        const apply = (mode) => document.documentElement.setAttribute('data-bs-theme', mode);
-        const current = () => document.documentElement.getAttribute('data-bs-theme') || 'light';
-        btn?.addEventListener('click', () => {
-          const next = current() === 'dark' ? 'light' : 'dark';
-          apply(next);
-          try { localStorage.setItem('bsTheme', next); } catch (_) {}
-        });
-      })();
-
-      // Toast maker (privacy-safe UI messages)
-      window.showToast = function (title, body, variant = 'primary', delay = 3800) {
-        const stack = document.getElementById('toast-stack');
-        const id = `t-${crypto?.randomUUID?.() || Math.random().toString(36).slice(2)}`;
-        const el = document.createElement('div');
-        el.className = 'toast align-items-center border-0 show mb-2';
-        el.id = id;
-        el.role = 'alert'; el.ariaLive = 'assertive'; el.ariaAtomic = 'true';
-        el.innerHTML = `
-          <div class="d-flex">
-            <div class="toast-body">
-              <span class="badge text-bg-${variant} me-2" style="vertical-align: text-top;">&nbsp;</span>
-              <strong>${title}</strong><br/>
-              <span class="text-muted small">${body}</span>
-            </div>
-            <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-          </div>`;
-        stack.appendChild(el);
-        setTimeout(() => el.remove(), delay + 600);
-      };
-
-      // ======== Security helpers for Auth flows (client-side complements server) ========
-      const CSRF = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
-      const userAgent = navigator.userAgent;
-      const stripHTML = s => (s || '').replace(/[<>]/g, '').trim();
-
-      async function deviceFingerprint(){
-        try{
-          const data = [
-            navigator.userAgent,
-            navigator.language,
-            Intl.DateTimeFormat().resolvedOptions().timeZone || '',
-            screen.width+'x'+screen.height
-          ].join('|');
-          const enc = new TextEncoder().encode(data);
-          const digest = await crypto.subtle.digest('SHA-256', enc);
-          return Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,'0')).join('');
-        } catch {
-          return '';
-        }
-      }
-
-      // form throttling (3s) to discourage abuse
-      const _cooldowns = new Map();
-      function canSubmit(key){
-        const now = Date.now(), last = _cooldowns.get(key) || 0;
-        if (now - last < 3000) return false;
-        _cooldowns.set(key, now);
-        return true;
-      }
-
-      // Secure fetch wrappers
-      window.secureFetch = async function (endpoint, opts = {}) {
-        const headers = new Headers(opts.headers || {});
-        headers.set('X-CSRF-Token', CSRF());
-        headers.set('X-Client-UA', userAgent);
-        const fp = await deviceFingerprint(); if (fp) headers.set('X-Device-Fingerprint', fp);
-        return fetch(endpoint, { credentials: 'include', ...opts, headers });
-      };
-
-      window.securePostForm = async function(formEl, asJson=false) {
-        if (!canSubmit(formEl.id || formEl.name || 'form')) return;
-        const btn = formEl.querySelector('button[type="submit"]');
-        btn?.setAttribute('disabled','disabled');
-
-        try {
-          let body, headers = {};
-          if (asJson) {
-            const data = Object.fromEntries(new FormData(formEl).entries());
-            Object.keys(data).forEach(k => { if (typeof data[k]==='string') data[k] = stripHTML(data[k]); });
-            body = JSON.stringify(data);
-            headers['Content-Type'] = 'application/json';
-          } else {
-            body = new FormData(formEl);
-            for (const [k,v] of Array.from(body.entries())) {
-              if (typeof v === 'string') body.set(k, stripHTML(v));
-            }
-            // validate file fields here if present (JPEG/PNG, <= 2MB)
-            const file = body.get('profile_picture');
-            if (file && file.size) {
-              const okType = ['image/jpeg','image/png'].includes(file.type);
-              const okSize = file.size <= 2*1024*1024;
-              if (!okType) { showToast('Upload error', 'Only JPEG/PNG allowed.', 'danger'); return; }
-              if (!okSize) { showToast('Upload error', 'Profile picture exceeds 2 MB.', 'danger'); return; }
-            }
-          }
-          const res = await secureFetch(formEl.dataset.endpoint, {
-            method: formEl.dataset.method || 'POST',
-            body, headers
-          });
-          const isJSON = (res.headers.get('content-type')||'').includes('application/json');
-          const data = isJSON ? await res.json() : {};
-          if (!res.ok) {
-            showToast('Request failed', data?.detail || 'Please try again.', 'danger');
-            return { ok:false, data };
-          }
-          showToast('Success', data?.message || 'Completed.', 'success');
-          return { ok:true, data };
-        } catch (e) {
-          showToast('Network error', 'Please try again.', 'danger');
-          return { ok:false, data:null };
-        } finally {
-          btn?.removeAttribute('disabled');
-        }
-      };
-    </script>
-
-    {% block scripts %}{% endblock %}
-  </body>
+{% block scripts %}{% endblock %}
+</body>
 </html>
