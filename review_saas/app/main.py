@@ -72,7 +72,8 @@ def report_page(request: Request):
 
 
 # -------- APIs --------
-app.include_router(auth.router)
+# Add prefix="/auth" to fix POST /auth/register 404
+app.include_router(auth.router, prefix="/auth")
 app.include_router(companies.router)
 app.include_router(reviews.router)
 app.include_router(reply.router)
