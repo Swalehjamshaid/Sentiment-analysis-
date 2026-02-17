@@ -1,9 +1,24 @@
 {
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
-    "builder": "NIXPACKS"
+    "builder": "NIXPACKS",
+    "nixpacksPlan": {
+      "providers": ["python"],
+      "phases": {
+        "install": {
+          "cmds": [
+            "python -m pip install --upgrade pip",
+            "pip install -r requirements.txt"
+          ]
+        }
+      }
+    }
   },
   "deploy": {
-    "startCommand": "gunicorn -w 4 -k gevent --bind 0.0.0.0:$PORT app.main:app"
+    "numReplicas": 1,
+    "restartPolicyType": "ON_FAILURE",
+    "startCommand": "gunicorn -w 4 -k gevent --bind 0.0.0.0:$PORT app.main:app",
+    "healthcheckPath": "/",
+    "healthcheckTimeout": 100
   }
 }
