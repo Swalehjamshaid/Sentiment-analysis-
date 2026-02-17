@@ -1,13 +1,17 @@
-# app/routes/auth.py
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
+# Filename: routes/auth.py
+
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.db import get_db
 from app.models import User
 from passlib.context import CryptContext
 from datetime import datetime
+from fastapi.templating import Jinja2Templates
 
 router = APIRouter()
+templates = Jinja2Templates(directory="app/templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")  # or switch to "argon2"
 
 def get_password_hash(password: str) -> str:
@@ -18,6 +22,12 @@ def get_password_hash(password: str) -> str:
         encoded = encoded[:max_bytes]
     return pwd_context.hash(encoded.decode("utf-8"))
 
+# --- GET route to serve registration page ---
+@router.get("/register", response_class=HTMLResponse)
+async def get_register_page(request: Request):
+    return templates.TemplateResponse("register.html", {"request": request})
+
+# --- POST route to handle registration ---
 @router.post("/register")
 async def register(
     full_name: str = Form(...),
@@ -37,7 +47,7 @@ async def register(
     # Handle profile picture (optional)
     profile_pic_url = None
     if profile and profile.filename:
-        # save file logic here, example:
+        # save file logic here
         filename = f"profile_{datetime.utcnow().timestamp()}_{profile.filename}"
         file_path = f"app/static/uploads/{filename}"
         with open(file_path, "wb") as f:
