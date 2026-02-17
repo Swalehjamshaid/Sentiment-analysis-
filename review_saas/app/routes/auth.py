@@ -1,4 +1,4 @@
-# Filename: routes/auth.py
+# Filename: app/routes/auth.py
 
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
