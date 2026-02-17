@@ -1,5 +1,4 @@
 # Filename: app/routes/auth.py
-
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
@@ -15,12 +14,16 @@ templates = Jinja2Templates(directory="app/templates")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")  # or switch to "argon2"
 
 def get_password_hash(password: str) -> str:
-    """Hash password safely with bcrypt (truncate at 72 bytes)"""
+    """
+    Hash password safely with bcrypt (truncate at 72 bytes)
+    Works for multibyte characters
+    """
     max_bytes = 72
     encoded = password.encode("utf-8")
     if len(encoded) > max_bytes:
         encoded = encoded[:max_bytes]
-    return pwd_context.hash(encoded.decode("utf-8"))
+    # Pass bytes safely to bcrypt
+    return pwd_context.hash(encoded)
 
 # --- GET route to serve registration page ---
 @router.get("/register", response_class=HTMLResponse)
@@ -33,7 +36,7 @@ async def register(
     full_name: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
-    profile: Optional[UploadFile] = File(None),  # optional profile picture
+    profile: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
 ):
     # Check if user exists
@@ -47,7 +50,6 @@ async def register(
     # Handle profile picture (optional)
     profile_pic_url = None
     if profile and profile.filename:
-        # save file logic here
         filename = f"profile_{datetime.utcnow().timestamp()}_{profile.filename}"
         file_path = f"app/static/uploads/{filename}"
         with open(file_path, "wb") as f:
