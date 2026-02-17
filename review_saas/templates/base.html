@@ -1,31 +1,50 @@
 <!doctype html>
 <html lang="en" data-bs-theme="light">
-  <head>
+  <head nonce="{{ csp_nonce }}">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+    <!-- CSRF token injected by server -->
+    <meta name="csrf-token" content="{{ csrf_token }}">
+
+    <!-- Security headers (best set as HTTP headers; meta is a dev hint/fallback) -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self';
+                   img-src 'self' data:;
+                   style-src 'self' 'unsafe-inline';
+                   script-src 'self' 'nonce-{{ csp_nonce }}';
+                   connect-src 'self';
+                   frame-ancestors 'none'">
+    <meta http-equiv="X-Frame-Options" content="DENY">
 
     <title>{% block title %}Reputation SaaS{% endblock %}</title>
 
     <!-- =======================
-         Fonts & Icons
+         Fonts & Icons (Tip: self-host in prod for stricter CSP)
     ======================== -->
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+          rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+          rel="stylesheet"
+          integrity="sha384-e1w1pX8lQ3Q4yP8BqO9I0yV9d6wR7qZCw2o5x9b8lK2c+5p2c1E3j4n3w0yZc1eA"
+          crossorigin="anonymous" />
 
     <!-- =======================
-         Bootstrap 5.3
+         Bootstrap 5.3 (Tip: serve from /static in prod)
     ======================== -->
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
       rel="stylesheet"
+      integrity="sha384-T3c6CoIi6uLrA9TneNEoa7Rxnatz6GZrx9CMq5bGxXWm9E3wGmQG6n5M5V6zN9bM"
       crossorigin="anonymous"
     />
 
     <!-- =======================
          Global Styles
     ======================== -->
-    <style>
+    <style nonce="{{ csp_nonce }}">
       :root {
         --gradient-hero: radial-gradient(1200px 600px at 10% -10%, rgba(99, 102, 241, 0.20), transparent 60%),
                          radial-gradient(1000px 500px at 110% 10%, rgba(16, 185, 129, 0.18), transparent 60%),
@@ -92,23 +111,23 @@
         backdrop-filter: blur(6px);
       }
 
-      /* Toast container placement */
-      #toast-stack {
-        position: fixed;
-        top: 1rem;
-        right: 1rem;
-        z-index: 1080;
-      }
+      #toast-stack { position: fixed; top: 1rem; right: 1rem; z-index: 1080; }
+
+      /* Utility */
+      .max-w-sm { max-width: 480px; }
+      .form-hint { font-size: .9rem; color: var(--bs-secondary); }
+
+      /* Password strength bar (auth pages) */
+      .strength-bar {height:6px;background:#dee2e6;border-radius:3px;overflow:hidden}
+      .strength-bar>span{display:block;height:100%;transition:width .25s ease}
     </style>
 
     {% block head %}{% endblock %}
   </head>
 
   <body>
-    <!-- ===================================
-         Early Theme Apply (prevents FOUC)
-    ==================================== -->
-    <script>
+    <!-- Early Theme Apply (prevents FOUC) -->
+    <script nonce="{{ csp_nonce }}">
       (function () {
         try {
           const saved = localStorage.getItem('bsTheme') || 'light';
@@ -117,9 +136,7 @@
       })();
     </script>
 
-    <!-- ===================================
-         Navbar
-    ==================================== -->
+    <!-- Navbar -->
     <nav class="navbar navbar-expand-lg border-bottom sticky-top glass-card py-2">
       <div class="container-fluid">
         <a class="navbar-brand fw-bold" href="/home">
@@ -141,9 +158,8 @@
             <li class="nav-item me-lg-2">
               <a class="nav-link px-3" href="/ui/auth"><i class="bi bi-person-badge me-1"></i>Auth</a>
             </li>
-
             <li class="nav-item">
-              <button id="themeToggle" class="btn btn-sm btn-outline-primary rounded-pill">
+              <button id="themeToggle" class="btn btn-sm btn-outline-primary rounded-pill" type="button">
                 <i class="bi bi-moon-stars"></i> <span class="ms-1 d-none d-sm-inline">Theme</span>
               </button>
             </li>
@@ -152,16 +168,12 @@
       </div>
     </nav>
 
-    <!-- ===================================
-         Page Content
-    ==================================== -->
+    <!-- Page Content -->
     <div class="container my-4">
       {% block content %}{% endblock %}
     </div>
 
-    <!-- ===================================
-         Footer
-    ==================================== -->
+    <!-- Footer -->
     <footer class="footer py-4 mt-5 glass-card">
       <div class="container d-flex flex-column flex-md-row justify-content-between align-items-center small text-muted">
         <div>&copy; {{ (now() if now is defined) or '' }} Reputation SaaS — Crafted with <i class="bi bi-heart-fill text-danger"></i></div>
@@ -177,25 +189,30 @@
     <div id="toast-stack" aria-live="polite" aria-atomic="true"></div>
 
     <!-- =======================
-         JS Libraries
+         JS Libraries (Tip: move to /static in prod; keep SRI)
     ======================== -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-HoA2b4GmJbqkRk8jN6m4rJmqlf6v1b5WZpY2i8m1l2QmE2aP1f3J5N8cZ4e4e5r7"
+            crossorigin="anonymous"></script>
 
-    <!-- Google Maps JavaScript API with Places library (loaded once globally) -->
-    <script defer src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&libraries=places"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+            integrity="sha384-SC6VhK1Q0X6Hq9x3W1jF8dN2vC0QyY8b3F8jKZL7yQ8HkqN3Cj3C3zJ2s4O5x9QG"
+            crossorigin="anonymous"></script>
+
+    <!-- Google Maps JS API (allow *.googleapis.com/ *.gstatic.com in CSP if used) -->
+    <script defer
+            src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&libraries=places"
+            referrerpolicy="strict-origin-when-cross-origin"></script>
 
     <!-- =======================
-         Global Helpers (Theme, Toasts)
+         Global Helpers (Theme, Toasts, Secure Fetch)
     ======================== -->
-    <script>
+    <script nonce="{{ csp_nonce }}">
       // Theme toggle
       (function () {
         const btn = document.getElementById('themeToggle');
         const apply = (mode) => document.documentElement.setAttribute('data-bs-theme', mode);
-
-        function current() { return document.documentElement.getAttribute('data-bs-theme') || 'light'; }
-
+        const current = () => document.documentElement.getAttribute('data-bs-theme') || 'light';
         btn?.addEventListener('click', () => {
           const next = current() === 'dark' ? 'light' : 'dark';
           apply(next);
@@ -203,16 +220,14 @@
         });
       })();
 
-      // Toast maker
+      // Toast maker (privacy-safe UI messages)
       window.showToast = function (title, body, variant = 'primary', delay = 3800) {
         const stack = document.getElementById('toast-stack');
         const id = `t-${crypto?.randomUUID?.() || Math.random().toString(36).slice(2)}`;
         const el = document.createElement('div');
         el.className = 'toast align-items-center border-0 show mb-2';
         el.id = id;
-        el.role = 'alert';
-        el.ariaLive = 'assertive';
-        el.ariaAtomic = 'true';
+        el.role = 'alert'; el.ariaLive = 'assertive'; el.ariaAtomic = 'true';
         el.innerHTML = `
           <div class="d-flex">
             <div class="toast-body">
@@ -221,11 +236,95 @@
               <span class="text-muted small">${body}</span>
             </div>
             <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-          </div>
-        `;
+          </div>`;
         stack.appendChild(el);
         setTimeout(() => el.remove(), delay + 600);
+      };
+
+      // ======== Security helpers for Auth flows (client-side complements server) ========
+      const CSRF = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
+      const userAgent = navigator.userAgent;
+      const stripHTML = s => (s || '').replace(/[<>]/g, '').trim();
+
+      async function deviceFingerprint(){
+        try{
+          const data = [
+            navigator.userAgent,
+            navigator.language,
+            Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+            screen.width+'x'+screen.height
+          ].join('|');
+          const enc = new TextEncoder().encode(data);
+          const digest = await crypto.subtle.digest('SHA-256', enc);
+          return Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,'0')).join('');
+        } catch {
+          return '';
+        }
       }
+
+      // form throttling (3s) to discourage abuse
+      const _cooldowns = new Map();
+      function canSubmit(key){
+        const now = Date.now(), last = _cooldowns.get(key) || 0;
+        if (now - last < 3000) return false;
+        _cooldowns.set(key, now);
+        return true;
+      }
+
+      // Secure fetch wrappers
+      window.secureFetch = async function (endpoint, opts = {}) {
+        const headers = new Headers(opts.headers || {});
+        headers.set('X-CSRF-Token', CSRF());
+        headers.set('X-Client-UA', userAgent);
+        const fp = await deviceFingerprint(); if (fp) headers.set('X-Device-Fingerprint', fp);
+        return fetch(endpoint, { credentials: 'include', ...opts, headers });
+      };
+
+      window.securePostForm = async function(formEl, asJson=false) {
+        if (!canSubmit(formEl.id || formEl.name || 'form')) return;
+        const btn = formEl.querySelector('button[type="submit"]');
+        btn?.setAttribute('disabled','disabled');
+
+        try {
+          let body, headers = {};
+          if (asJson) {
+            const data = Object.fromEntries(new FormData(formEl).entries());
+            Object.keys(data).forEach(k => { if (typeof data[k]==='string') data[k] = stripHTML(data[k]); });
+            body = JSON.stringify(data);
+            headers['Content-Type'] = 'application/json';
+          } else {
+            body = new FormData(formEl);
+            for (const [k,v] of Array.from(body.entries())) {
+              if (typeof v === 'string') body.set(k, stripHTML(v));
+            }
+            // validate file fields here if present (JPEG/PNG, <= 2MB)
+            const file = body.get('profile_picture');
+            if (file && file.size) {
+              const okType = ['image/jpeg','image/png'].includes(file.type);
+              const okSize = file.size <= 2*1024*1024;
+              if (!okType) { showToast('Upload error', 'Only JPEG/PNG allowed.', 'danger'); return; }
+              if (!okSize) { showToast('Upload error', 'Profile picture exceeds 2 MB.', 'danger'); return; }
+            }
+          }
+          const res = await secureFetch(formEl.dataset.endpoint, {
+            method: formEl.dataset.method || 'POST',
+            body, headers
+          });
+          const isJSON = (res.headers.get('content-type')||'').includes('application/json');
+          const data = isJSON ? await res.json() : {};
+          if (!res.ok) {
+            showToast('Request failed', data?.detail || 'Please try again.', 'danger');
+            return { ok:false, data };
+          }
+          showToast('Success', data?.message || 'Completed.', 'success');
+          return { ok:true, data };
+        } catch (e) {
+          showToast('Network error', 'Please try again.', 'danger');
+          return { ok:false, data:null };
+        } finally {
+          btn?.removeAttribute('disabled');
+        }
+      };
     </script>
 
     {% block scripts %}{% endblock %}
