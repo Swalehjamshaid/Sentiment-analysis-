@@ -1,7 +1,7 @@
-"""
+review_saas/app/main.py"""
 Application entry point.
 Creates the Flask app, injects template globals, and supports both:
- - Local dev: python app/main.py   (or python -m app.main from root)
+ - Local dev: python app/main.py   (or python -m app.main from project root)
  - Production: gunicorn "app.main:app"
 """
 
@@ -11,10 +11,13 @@ import sys
 from pathlib import Path
 from flask import Flask, redirect, url_for
 
-# Ensure relative imports work even if cwd is project root
-sys.path.insert(0, str(Path(__file__).parent.resolve()))
+# Make sure relative imports work regardless of current working directory
+# (Railway runs Gunicorn from /app/, so we need to help Python find the package)
+package_dir = Path(__file__).parent.resolve()
+if str(package_dir) not in sys.path:
+    sys.path.insert(0, str(package_dir))
 
-# Now safe to do relative imports
+# Now import blueprints using relative imports
 from .core.settings import settings_dict
 from .routes.auth import auth_bp
 from .routes.companies import companies_bp
@@ -33,19 +36,20 @@ def create_app() -> Flask:
 
     # ---------------- Register Blueprints ----------------
     blueprints = [
-        auth_bp,
-        companies_bp,
-        dashboard_bp,
-        reviews_bp,
-        recipes_bp,
-        reports_bp,
+        ("auth", auth_bp),
+        ("companies", companies_bp),
+        ("dashboard", dashboard_bp),
+        ("reviews", reviews_bp),
+        ("recipes", recipes_bp),
+        ("reports", reports_bp),
     ]
 
-    for bp in blueprints:
+    for name, bp in blueprints:
         try:
             app.register_blueprint(bp)
+            print(f"Successfully registered blueprint: {name}")
         except Exception as e:
-            print(f"Error registering blueprint {bp.name}: {e}", file=sys.stderr)
+            print(f"Error registering blueprint '{name}': {e}", file=sys.stderr)
             raise
 
     # --------------- Template globals / context processors ---------------
@@ -64,17 +68,16 @@ def create_app() -> Flask:
     return app
 
 
-# Expose module-level app for WSGI servers (Gunicorn, uWSGI, mod_wsgi, etc.)
+# Expose module-level app for WSGI servers (Gunicorn, uWSGI, etc.)
 app = create_app()
 
 
 if __name__ == "__main__":
     # Local development server — never use in production
-    # Flask's built-in server is single-threaded and insecure
     port = int(app.config.get("PORT", 5000))
     debug = bool(app.config.get("DEBUG", True))
 
-    print(f"Starting Flask dev server on http://0.0.0.0:{port} (debug={debug})")
+    print(f"Starting Flask development server on http://0.0.0.0:{port} (debug={debug})")
     app.run(
         host="0.0.0.0",
         port=port,
