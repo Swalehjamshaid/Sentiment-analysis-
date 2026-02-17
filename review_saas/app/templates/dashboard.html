@@ -1,0 +1,23 @@
+
+{% extends 'base.html' %}
+{% block content %}
+  <h3>Dashboard</h3>
+  <div class="row mb-3">
+    <div class="col"><div class="card"><div class="card-body"><h6>Total</h6><h3 id="k1">0</h3></div></div></div>
+    <div class="col"><div class="card"><div class="card-body"><h6>Avg Rating</h6><h3 id="k2">0</h3></div></div></div>
+    <div class="col"><div class="card"><div class="card-body"><h6>Mix</h6><div id="k3">0/0/0</div></div></div></div>
+  </div>
+  <div class="mb-3">
+    <button class="btn btn-outline-primary" onclick="loadKpis()">Load KPIs</button>
+  </div>
+  <script>
+    function token(){return localStorage.getItem('token')||''}
+    async function loadKpis(){
+      const r = await fetch('/dashboard/kpis',{headers:{'Authorization':'Bearer '+token()}});
+      const j = await r.json();
+      document.getElementById('k1').innerText = j.total_reviews;
+      document.getElementById('k2').innerText = j.avg_rating;
+      document.getElementById('k3').innerText = `${j.mix.positive}/${j.mix.neutral}/${j.mix.negative}`;
+    }
+  </script>
+{% endblock %}
