@@ -1,3 +1,4 @@
+<!doctype html>
 <html lang="en" data-bs-theme="light">
 <head>
   <meta charset="utf-8" />
@@ -10,34 +11,34 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
 
   <!-- ======================= Bootstrap 5.3 ======================== -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+        integrity="sha384-ENjdO4Dr2bkBIFxQpeoTz1HIcje39Wm4jDKdf19U8gI4ddQ3GYNS7NTKfAdVQSZe"
+        crossorigin="anonymous" />
 
   <!-- ======================= Global Styles ======================== -->
   <style>
     :root {
-      --gradient-hero: radial-gradient(1200px 600px at 10% -10%, rgba(99, 102, 241, 0.20), transparent 60%),
-                        radial-gradient(1000px 500px at 110% 10%, rgba(16, 185, 129, 0.18), transparent 60%),
-                        linear-gradient(180deg, rgba(2, 6, 23, 0.0), rgba(2, 6, 23, 0.06));
+      --gradient-hero:
+        radial-gradient(1200px 600px at 10% -10%, rgba(99, 102, 241, 0.20), transparent 60%),
+        radial-gradient(1000px 500px at 110% 10%, rgba(16, 185, 129, 0.18), transparent 60%),
+        linear-gradient(180deg, rgba(2, 6, 23, 0.0), rgba(2, 6, 23, 0.06));
       --card-glass-bg: rgba(255, 255, 255, 0.6);
       --card-glass-border: rgba(255, 255, 255, 0.45);
       --shadow-soft: 0 10px 30px rgba(2, 6, 23, 0.08);
     }
-
     [data-bs-theme="dark"] {
       --card-glass-bg: rgba(13, 17, 23, 0.65);
       --card-glass-border: rgba(255, 255, 255, 0.08);
       --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.35);
     }
-
     html, body {
-      font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans",
-                   "Apple Color Emoji", "Segoe UI Emoji";
-      scroll-behavior: smooth;
+      font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
       background: var(--gradient-hero),
                   radial-gradient(800px 400px at 50% -10%, rgba(14, 165, 233, 0.10), transparent 60%),
                   linear-gradient(180deg, rgba(99, 102, 241, 0.06), rgba(16, 185, 129, 0.05) 30%, transparent 60%);
+      scroll-behavior: smooth;
     }
-
     .glass-card {
       background: var(--card-glass-bg);
       border: 1px solid var(--card-glass-border);
@@ -45,41 +46,34 @@
       box-shadow: var(--shadow-soft);
       border-radius: 16px;
     }
-
     .brand-gradient {
       background: linear-gradient(90deg, #6366f1, #10b981 60%, #06b6d4);
       -webkit-background-clip: text;
       background-clip: text;
       color: transparent;
     }
-
     .nav-link.active, .nav-link:hover {
       color: var(--bs-primary) !important;
     }
-
     .hero {
-      position: relative;
       border-radius: 20px;
       padding: 28px 22px;
-      overflow: hidden;
-      background: radial-gradient(600px 200px at 10% 20%, rgba(99,102,241,0.18), transparent 60%),
-                  radial-gradient(600px 200px at 90% 20%, rgba(16,185,129,0.18), transparent 60%),
-                  linear-gradient(180deg, rgba(255,255,255,0.25), rgba(255,255,255,0.08));
+      background:
+        radial-gradient(600px 200px at 10% 20%, rgba(99,102,241,0.18), transparent 60%),
+        radial-gradient(600px 200px at 90% 20%, rgba(16,185,129,0.18), transparent 60%),
+        linear-gradient(180deg, rgba(255,255,255,0.25), rgba(255,255,255,0.08));
       border: 1px solid var(--card-glass-border);
     }
-
     [data-bs-theme="dark"] .hero {
-      background: radial-gradient(600px 200px at 10% 20%, rgba(99,102,241,0.18), transparent 60%),
-                  radial-gradient(600px 200px at 90% 20%, rgba(16,185,129,0.18), transparent 60%),
-                  linear-gradient(180deg, rgba(13,17,23,0.65), rgba(13,17,23,0.45));
+      background:
+        radial-gradient(600px 200px at 10% 20%, rgba(99,102,241,0.18), transparent 60%),
+        radial-gradient(600px 200px at 90% 20%, rgba(16,185,129,0.18), transparent 60%),
+        linear-gradient(180deg, rgba(13,17,23,0.65), rgba(13,17,23,0.45));
     }
-
     .footer {
       border-top: 1px dashed var(--card-glass-border);
       backdrop-filter: blur(6px);
     }
-
-    /* Toast container placement */
     #toast-stack {
       position: fixed;
       top: 1rem;
@@ -87,10 +81,10 @@
       z-index: 1080;
     }
   </style>
+
   {% block head %}{% endblock %}
 </head>
 <body>
-
   <!-- =================================== Early Theme Apply (prevents FOUC) ==================================== -->
   <script>
     (function () {
@@ -107,9 +101,10 @@
       <a class="navbar-brand fw-bold" href="/home">
         <span class="brand-gradient">Reputation SaaS</span>
       </a>
-      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain">
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain" aria-controls="navMain" aria-expanded="false" aria-label="Toggle navigation">
         <span class="navbar-toggler-icon"></span>
       </button>
+
       <div id="navMain" class="collapse navbar-collapse">
         <ul class="navbar-nav ms-auto align-items-lg-center gap-lg-2">
           <li class="nav-item">
@@ -153,9 +148,14 @@
   <div id="toast-stack" aria-live="polite" aria-atomic="true"></div>
 
   <!-- ======================= JS Libraries ======================== -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
+          integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
+          crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+
+  {% if GOOGLE_MAPS_API_KEY %}
   <script defer src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&libraries=places"></script>
+  {% endif %}
 
   <!-- ======================= Global Helpers (Theme, Toasts) ======================== -->
   <script>
@@ -163,7 +163,7 @@
     (function () {
       const btn = document.getElementById('themeToggle');
       const apply = (mode) => document.documentElement.setAttribute('data-bs-theme', mode);
-      function current() { return document.documentElement.getAttribute('data-bs-theme') || 'light'; }
+      const current = () => document.documentElement.getAttribute('data-bs-theme') || 'light';
       btn?.addEventListener('click', () => {
         const next = current() === 'dark' ? 'light' : 'dark';
         apply(next);
@@ -184,7 +184,7 @@
       el.innerHTML = `
         <div class="d-flex">
           <div class="toast-body">
-            <span class="badge text-bg-${variant} me-2" style="vertical-align: text-top;">&nbsp;</span>
+            <span class="badge text-bg-${variant} me-2" style="vertical-align: text-top;"></span>
             <strong>${title}</strong><br/>
             <span class="text-muted small">${body}</span>
           </div>
