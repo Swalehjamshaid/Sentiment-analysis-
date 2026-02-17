@@ -60,4 +60,3 @@ if __name__ == "__main__":
         port=int(app.config.get("PORT", 5000)),
         debug=bool(app.config.get("DEBUG", True)),
     )
-``
