@@ -6,10 +6,9 @@ Creates the Flask app, injects template globals, and supports both:
 """
 
 from __future__ import annotations
-
 from flask import Flask, redirect, url_for
 
-# Relative imports (safe for Railway cwd = project root)
+# Relative imports (safe for Railway)
 from .core.settings import settings_dict
 from .routes.auth import auth_bp
 from .routes.companies import companies_bp
@@ -34,7 +33,7 @@ def create_app() -> Flask:
     app.register_blueprint(reviews_bp)
     app.register_blueprint(recipes_bp)
     app.register_blueprint(reports_bp)
-    app.register_blueprint(health_bp)  # ← NEW: register health blueprint
+    app.register_blueprint(health_bp)   # ← NEW: register health blueprint
 
     # --------------- Template globals ---------------
     @app.context_processor
