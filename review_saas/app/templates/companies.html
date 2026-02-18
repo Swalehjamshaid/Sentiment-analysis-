@@ -2,113 +2,30 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Company Management</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Company Management</title>
 
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 
-    <style>
-        body {
-            font-family: 'Roboto', sans-serif;
-            background-color: #f9f9f9;
-            margin: 0;
-            padding: 0;
-        }
-
-        .container {
-            max-width: 900px;
-            margin: 50px auto;
-            background: #fff;
-            padding: 30px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-            border-radius: 12px;
-        }
-
-        h2 {
-            text-align: center;
-            color: #333;
-            margin-bottom: 30px;
-        }
-
-        form {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-
-        label {
-            font-weight: 500;
-            margin-bottom: 5px;
-        }
-
-        input {
-            padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            width: 100%;
-            box-sizing: border-box;
-        }
-
-        button {
-            grid-column: span 2;
-            padding: 12px 20px;
-            border: none;
-            background-color: #007BFF;
-            color: white;
-            font-size: 16px;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background 0.3s ease;
-        }
-
-        button:hover {
-            background-color: #0056b3;
-        }
-
-        .suggestions {
-            position: absolute;
-            background: #fff;
-            border: 1px solid #ccc;
-            max-height: 200px;
-            overflow-y: auto;
-            width: calc(100% - 22px);
-            border-radius: 5px;
-            z-index: 1000;
-        }
-
-        .suggestion-item {
-            padding: 10px;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .suggestion-item:hover {
-            background-color: #f0f0f0;
-        }
-
-        .full-width {
-            grid-column: span 2;
-            position: relative;
-        }
-
-        #map {
-            height: 300px;
-            width: 100%;
-            border-radius: 8px;
-            margin-top: 10px;
-        }
-
-        @media (max-width: 600px) {
-            form {
-                grid-template-columns: 1fr;
-            }
-            .full-width {
-                grid-column: span 1;
-            }
-        }
-    </style>
+<style>
+    body { font-family: 'Roboto', sans-serif; background-color: #f4f6f8; margin: 0; padding: 0; }
+    .container { max-width: 1000px; margin: 50px auto; background: #fff; padding: 40px; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.1); }
+    h2 { text-align: center; color: #333; margin-bottom: 30px; font-weight: 700; }
+    form { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; position: relative; }
+    label { font-weight: 500; margin-bottom: 5px; display: block; }
+    input { padding: 12px; border: 1px solid #ccc; border-radius: 6px; width: 100%; box-sizing: border-box; transition: 0.2s; }
+    input:focus { border-color: #007BFF; outline: none; }
+    button { grid-column: span 2; padding: 14px 20px; border: none; background-color: #007BFF; color: white; font-size: 16px; border-radius: 6px; cursor: pointer; transition: background 0.3s; }
+    button:hover { background-color: #0056b3; }
+    .suggestions { position: absolute; top: 62px; left: 0; right: 0; background: #fff; border: 1px solid #ccc; border-radius: 6px; max-height: 250px; overflow-y: auto; z-index: 1000; }
+    .suggestion-item { padding: 12px; cursor: pointer; transition: background 0.2s; }
+    .suggestion-item:hover { background-color: #f0f0f0; }
+    .full-width { grid-column: span 2; position: relative; }
+    #map { height: 350px; width: 100%; border-radius: 10px; margin-top: 15px; }
+    @media (max-width: 700px) { form { grid-template-columns: 1fr; } .full-width { grid-column: span 1; } }
+</style>
 </head>
 <body>
 
@@ -118,38 +35,38 @@
     <form id="company-form">
         <div class="full-width">
             <label for="company-name">Company Name:</label>
-            <input type="text" id="company-name" placeholder="Enter company name" autocomplete="off">
+            <input type="text" id="company-name" placeholder="Start typing company name..." autocomplete="off">
             <div id="suggestions" class="suggestions"></div>
         </div>
 
         <div class="full-width">
             <label for="company-address">Company Address:</label>
-            <input type="text" id="company-address" placeholder="Address will auto-fill">
+            <input type="text" id="company-address" placeholder="Auto-filled from backend" readonly>
         </div>
 
         <div>
-            <label for="company-phone">Company Phone:</label>
-            <input type="text" id="company-phone" placeholder="Phone will auto-fill">
+            <label for="company-phone">Phone:</label>
+            <input type="text" id="company-phone" placeholder="Auto-filled from backend" readonly>
         </div>
 
         <div>
-            <label for="company-website">Company Website:</label>
-            <input type="text" id="company-website" placeholder="Website will auto-fill">
+            <label for="company-website">Website:</label>
+            <input type="text" id="company-website" placeholder="Auto-filled from backend" readonly>
         </div>
 
         <div>
             <label for="company-city">City:</label>
-            <input type="text" id="company-city" placeholder="City will auto-fill">
+            <input type="text" id="company-city" placeholder="Auto-filled from backend" readonly>
         </div>
 
         <div>
             <label for="company-lat">Latitude:</label>
-            <input type="text" id="company-lat" placeholder="Latitude will auto-fill" readonly>
+            <input type="text" id="company-lat" placeholder="Auto-filled from backend" readonly>
         </div>
 
         <div>
             <label for="company-lng">Longitude:</label>
-            <input type="text" id="company-lng" placeholder="Longitude will auto-fill" readonly>
+            <input type="text" id="company-lng" placeholder="Auto-filled from backend" readonly>
         </div>
 
         <div class="full-width">
@@ -167,20 +84,12 @@ let input = document.getElementById("company-name");
 let suggestionsDiv = document.getElementById("suggestions");
 let selectedPlaceId = null;
 
-// Google Maps variables
+// Google Maps default setup
 let map, marker;
-let defaultLocation = { lat: 24.8607, lng: 67.0011 }; // Karachi default
+let defaultLocation = { lat: 24.8607, lng: 67.0011 }; // Karachi
 function initMap() {
-    map = new google.maps.Map(document.getElementById("map"), {
-        zoom: 10,
-        center: defaultLocation
-    });
-
-    marker = new google.maps.Marker({
-        position: defaultLocation,
-        map: map,
-        draggable: true
-    });
+    map = new google.maps.Map(document.getElementById("map"), { zoom: 10, center: defaultLocation });
+    marker = new google.maps.Marker({ position: defaultLocation, map: map, draggable: true });
 
     marker.addListener("dragend", () => {
         document.getElementById("company-lat").value = marker.getPosition().lat();
@@ -191,19 +100,13 @@ function initMap() {
 // Debounce helper
 function debounce(func, delay = 300) {
     let timer;
-    return function(...args) {
-        clearTimeout(timer);
-        timer = setTimeout(() => func.apply(this, args), delay);
-    };
+    return function(...args) { clearTimeout(timer); timer = setTimeout(() => func.apply(this, args), delay); };
 }
 
-// Fetch autocomplete suggestions from backend
+// Fetch suggestions from backend
 const fetchSuggestions = debounce(async () => {
     const query = input.value.trim();
-    if (!query) {
-        suggestionsDiv.innerHTML = "";
-        return;
-    }
+    if (!query) { suggestionsDiv.innerHTML = ""; return; }
 
     try {
         const res = await fetch(`/companies/autocomplete?name=${encodeURIComponent(query)}`);
@@ -227,20 +130,15 @@ const fetchSuggestions = debounce(async () => {
                 document.getElementById("company-address").value = details.address || "";
                 document.getElementById("company-phone").value = details.phone || "";
                 document.getElementById("company-website").value = details.website || "";
+                document.getElementById("company-city").value = details.city || "";
+                document.getElementById("company-lat").value = details.lat || "";
+                document.getElementById("company-lng").value = details.lng || "";
 
-                if (details.address) {
-                    const parts = details.address.split(",");
-                    const city = parts.length >= 3 ? parts[parts.length - 3].trim() : "";
-                    document.getElementById("company-city").value = city;
-                }
-
-                // Update map
+                // Update marker & map
                 if (details.lat && details.lng) {
                     const pos = { lat: parseFloat(details.lat), lng: parseFloat(details.lng) };
                     marker.setPosition(pos);
                     map.setCenter(pos);
-                    document.getElementById("company-lat").value = pos.lat;
-                    document.getElementById("company-lng").value = pos.lng;
                 }
             });
 
@@ -253,20 +151,14 @@ const fetchSuggestions = debounce(async () => {
 
 input.addEventListener("input", fetchSuggestions);
 
-// Save company
+// Submit company
 document.getElementById("company-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const name = input.value.trim();
-    if (!name) {
-        alert("Company name is required!");
-        return;
-    }
+    if (!input.value.trim()) { alert("Company name is required!"); return; }
 
     try {
         const params = new URLSearchParams();
-        params.append("name", name);
-        const city = document.getElementById("company-city").value.trim();
-        if (city) params.append("city", city);
+        params.append("name", input.value.trim());
         if (selectedPlaceId) params.append("place_id", selectedPlaceId);
         params.append("lat", document.getElementById("company-lat").value);
         params.append("lng", document.getElementById("company-lng").value);
@@ -275,9 +167,10 @@ document.getElementById("company-form").addEventListener("submit", async (e) => 
         const data = await res.json();
         alert(`✅ Company saved: ${data.name}, ${data.city}, status: ${data.status}`);
 
+        // Reset form
         document.getElementById("company-form").reset();
-        selectedPlaceId = null;
         suggestionsDiv.innerHTML = "";
+        selectedPlaceId = null;
         marker.setPosition(defaultLocation);
         map.setCenter(defaultLocation);
     } catch (error) {
@@ -287,7 +180,7 @@ document.getElementById("company-form").addEventListener("submit", async (e) => 
 });
 </script>
 
-<!-- Google Maps API -->
+<!-- Google Maps API (Backend key not exposed) -->
 <script
     src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&callback=initMap"
     async defer>
