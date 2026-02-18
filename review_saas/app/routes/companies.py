@@ -1,5 +1,3 @@
-# Filename: app/routes/companies.py
-
 from fastapi import APIRouter, Depends, HTTPException, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -17,6 +15,14 @@ templates = Jinja2Templates(directory="app/templates")
 # Separate API Keys
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")      # Frontend
 GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")  # Backend
+
+# ─────────────────────────────────────────────
+# Startup logging for Railway deployment
+# ─────────────────────────────────────────────
+if not GOOGLE_MAPS_API_KEY or not GOOGLE_PLACES_API_KEY:
+    print("⚠️ Google API keys are missing or not loaded correctly!")
+else:
+    print("✅ Google API keys loaded successfully.")
 
 
 # ─────────────────────────────────────────────
@@ -88,9 +94,11 @@ def add_company(
             "key": GOOGLE_PLACES_API_KEY
         }
 
-        resp = requests.get(url, params=params)
-
-        if resp.status_code != 200:
+        try:
+            resp = requests.get(url, params=params, timeout=10)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            print(f"⚠️ Google Places API error: {e}")
             raise HTTPException(status_code=502, detail="Failed to fetch details from Google API")
 
         result = resp.json().get("result", {})
@@ -147,7 +155,6 @@ def add_company(
 # ─────────────────────────────────────────────
 @router.get("/autocomplete", response_model=List[dict])
 def autocomplete_company(name: str):
-
     if not GOOGLE_PLACES_API_KEY:
         raise HTTPException(status_code=500, detail="Google Places API key not configured")
 
@@ -158,9 +165,11 @@ def autocomplete_company(name: str):
         "key": GOOGLE_PLACES_API_KEY
     }
 
-    response = requests.get(url, params=params)
-
-    if response.status_code != 200:
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        print(f"⚠️ Google Autocomplete API error: {e}")
         raise HTTPException(status_code=502, detail="Error fetching autocomplete from Google API")
 
     data = response.json()
@@ -179,7 +188,6 @@ def autocomplete_company(name: str):
 # ─────────────────────────────────────────────
 @router.get("/details", response_model=dict)
 def get_company_details(place_id: str):
-
     if not GOOGLE_PLACES_API_KEY:
         raise HTTPException(status_code=500, detail="Google Places API key not configured")
 
@@ -190,9 +198,11 @@ def get_company_details(place_id: str):
         "key": GOOGLE_PLACES_API_KEY
     }
 
-    resp = requests.get(url, params=params)
-
-    if resp.status_code != 200:
+    try:
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        print(f"⚠️ Google Place Details API error: {e}")
         raise HTTPException(status_code=502, detail="Error fetching details from Google API")
 
     result = resp.json().get("result", {})
