@@ -11,7 +11,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Index,
-    Float,           # added for coordinates
+    Float,
 )
 from datetime import datetime
 
@@ -27,7 +27,6 @@ class User(Base):
     status = Column(String(20), default="pending")
     profile_pic_url = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-
     companies = relationship("Company", back_populates="owner")
 
 
@@ -61,7 +60,10 @@ class LoginAttempt(Base):
 class Company(Base):
     __tablename__ = "companies"
     id = Column(Integer, primary_key=True)
-    owner_id = Column(Integer, ForeignKey("users.id"))
+    
+    # ForeignKey is nullable=True so existing rows without owner are still valid
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    
     name = Column(String(255), nullable=False)
     place_id = Column(String(128))
     maps_link = Column(String(512))
@@ -69,8 +71,8 @@ class Company(Base):
     status = Column(String(20), default="active")
     logo_url = Column(String(255))
     created_at = Column(DateTime, default=datetime.utcnow)
-
-    # ── Added missing columns ──
+    
+    # Added columns (they are nullable so existing rows are not broken)
     lat = Column(Float(precision=10, asdecimal=True), nullable=True)
     lng = Column(Float(precision=10, asdecimal=True), nullable=True)
 
@@ -99,7 +101,6 @@ class Review(Base):
     language = Column(String(10))
     fetch_at = Column(DateTime, default=datetime.utcnow)
     fetch_status = Column(String(20), default="Success")
-
     company = relationship("Company", back_populates="reviews")
     replies = relationship("Reply", back_populates="review")
 
@@ -117,7 +118,6 @@ class Reply(Base):
     status = Column(String(20), default="Draft")
     suggested_at = Column(DateTime, default=datetime.utcnow)
     sent_at = Column(DateTime)
-
     review = relationship("Review", back_populates="replies")
 
 
