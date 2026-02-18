@@ -27,6 +27,8 @@ class User(Base):
     status = Column(String(20), default="pending")
     profile_pic_url = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationship to companies
     companies = relationship("Company", back_populates="owner")
 
 
@@ -60,10 +62,10 @@ class LoginAttempt(Base):
 class Company(Base):
     __tablename__ = "companies"
     id = Column(Integer, primary_key=True)
-    
+
     # ForeignKey is nullable=True so existing rows without owner are still valid
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    
+
     name = Column(String(255), nullable=False)
     place_id = Column(String(128))
     maps_link = Column(String(512))
@@ -71,11 +73,18 @@ class Company(Base):
     status = Column(String(20), default="active")
     logo_url = Column(String(255))
     created_at = Column(DateTime, default=datetime.utcnow)
-    
-    # Added columns (they are nullable so existing rows are not broken)
+
+    # Existing location columns
     lat = Column(Float(precision=10, asdecimal=True), nullable=True)
     lng = Column(Float(precision=10, asdecimal=True), nullable=True)
 
+    # ─── NEW ATTRIBUTES FROM HTML FORM ───
+    email = Column(String(255), nullable=True)
+    phone = Column(String(50), nullable=True)
+    address = Column(String(512), nullable=True)
+    description = Column(Text, nullable=True)
+
+    # Relationships
     owner = relationship("User", back_populates="companies")
     reviews = relationship("Review", back_populates="company")
 
