@@ -1,29 +1,52 @@
+# Filename: review_saas/app/routes/companies.py
 
-{% extends 'base.html' %}
-{% block content %}
-<h3>Companies</h3>
-<form class="row g-2 mb-3" onsubmit="return addCompany(event)">
-  <div class="col-md-4"><input class="form-control" id="name" placeholder="Company name"></div>
-  <div class="col-md-4"><input class="form-control" id="place" placeholder="Google Place ID or Maps link"></div>
-  <div class="col-md-2"><input class="form-control" id="city" placeholder="City"></div>
-  <div class="col-md-2"><button class="btn btn-primary w-100">Add</button></div>
-</form>
-<table class="table table-sm table-striped"><thead><tr><th>Name</th><th>City</th><th>Status</th></tr></thead><tbody id="tbody"></tbody></table>
-<script>
-  function token(){return localStorage.getItem('token')||''}
-  async function load(){
-    const r = await fetch('/companies',{headers:{'Authorization':'Bearer '+token()}});
-    const rows = await r.json();
-    const tb = document.getElementById('tbody'); tb.innerHTML='';
-    rows.forEach(c=>{tb.innerHTML += `<tr><td>${c.name}</td><td>${c.city||''}</td><td>${c.status}</td></tr>`});
-  }
-  async function addCompany(e){
-    e.preventDefault();
-    const n=document.getElementById('name').value, p=document.getElementById('place').value, c=document.getElementById('city').value;
-    const url = `/companies?name=${encodeURIComponent(n)}&city=${encodeURIComponent(c)}&place_id=${encodeURIComponent(p)}`;
-    const r = await fetch(url,{method:'POST',headers:{'Authorization':'Bearer '+token()}})
-    if(r.ok) load(); else alert(await r.text());
-  }
-  load();
-</script>
-{% endblock %}
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from app.db import get_db
+from app.models import Company
+from typing import List
+import requests
+from datetime import datetime
+from app.core.config import settings
+
+router = APIRouter()
+
+GOOGLE_API_KEY = settings.GOOGLE_API_KEY  # set in config.py or environment variable
+
+@router.get("/companies", response_model=List[dict])
+def get_companies(db: Session = Depends(get_db)):
+    companies = db.query(Company).all()
+    return [{"name": c.name, "city": c.city, "status": c.status} for c in companies]
+
+@router.post("/companies")
+def add_company(
+    name: str = Query(...),
+    city: str = Query(None),
+    place_id: str = Query(None),
+    db: Session = Depends(get_db)
+):
+    if place_id:
+        # Fetch place details from Google Places API
+        url = f"https://maps.googleapis.com/maps/api/place/details/json?place_id={place_id}&key={GOOGLE_API_KEY}"
+        resp = requests.get(url)
+        if resp.status_code == 200:
+            data = resp.json().get("result", {})
+            name = data.get("name", name)
+            # Extract city from address components
+            if "address_components" in data:
+                for comp in data["address_components"]:
+                    if "locality" in comp.get("types", []):
+                        city = comp.get("long_name")
+                        break
+
+    new_company = Company(
+        name=name,
+        city=city,
+        status="active",
+        created_at=datetime.utcnow(),
+        place_id=place_id
+    )
+    db.add(new_company)
+    db.commit()
+    db.refresh(new_company)
+    return {"name": new_company.name, "city": new_company.city, "status": new_company.status}
