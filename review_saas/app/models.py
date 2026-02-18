@@ -1,4 +1,4 @@
-# app/models.py
+# Filename: app/models.py
 
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy import (
@@ -11,6 +11,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Index,
+    Float,           # added for coordinates
 )
 from datetime import datetime
 
@@ -19,28 +20,19 @@ Base = declarative_base()
 
 class User(Base):
     __tablename__ = "users"
-
     id = Column(Integer, primary_key=True)
     full_name = Column(String(100), nullable=False)
     email = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     status = Column(String(20), default="pending")
-    profile_pic_url = Column(String(255), nullable=True)  # optional
-
+    profile_pic_url = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
-    # Comment out missing columns to prevent UndefinedColumn errors
-    # last_login = Column(DateTime)
-    # failed_attempts = Column(Integer, default=0)
-    # locked_until = Column(DateTime)
-    # twofa_secret = Column(String(32))
 
     companies = relationship("Company", back_populates="owner")
 
 
 class VerificationToken(Base):
     __tablename__ = "verification_tokens"
-
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     token = Column(String(255), index=True)
@@ -50,7 +42,6 @@ class VerificationToken(Base):
 
 class ResetToken(Base):
     __tablename__ = "reset_tokens"
-
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     token = Column(String(255), index=True)
@@ -60,7 +51,6 @@ class ResetToken(Base):
 
 class LoginAttempt(Base):
     __tablename__ = "login_attempts"
-
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     ip = Column(String(45))
@@ -70,7 +60,6 @@ class LoginAttempt(Base):
 
 class Company(Base):
     __tablename__ = "companies"
-
     id = Column(Integer, primary_key=True)
     owner_id = Column(Integer, ForeignKey("users.id"))
     name = Column(String(255), nullable=False)
@@ -81,17 +70,21 @@ class Company(Base):
     logo_url = Column(String(255))
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # ── Added missing columns ──
+    lat = Column(Float(precision=10, asdecimal=True), nullable=True)
+    lng = Column(Float(precision=10, asdecimal=True), nullable=True)
+
     owner = relationship("User", back_populates="companies")
     reviews = relationship("Review", back_populates="company")
 
     __table_args__ = (
         Index("idx_company_owner_status", "owner_id", "status"),
+        Index("idx_company_place_id", "place_id"),
     )
 
 
 class Review(Base):
     __tablename__ = "reviews"
-
     id = Column(Integer, primary_key=True)
     company_id = Column(Integer, ForeignKey("companies.id"))
     external_id = Column(String(128))
@@ -101,7 +94,7 @@ class Review(Base):
     reviewer_name = Column(String(255))
     reviewer_avatar = Column(String(255))
     sentiment = Column(String(20))
-    sentiment_score = Column(Integer)  # store 0..100
+    sentiment_score = Column(Integer)
     keywords = Column(String(512))
     language = Column(String(10))
     fetch_at = Column(DateTime, default=datetime.utcnow)
@@ -117,7 +110,6 @@ class Review(Base):
 
 class Reply(Base):
     __tablename__ = "replies"
-
     id = Column(Integer, primary_key=True)
     review_id = Column(Integer, ForeignKey("reviews.id"))
     suggested_text = Column(Text)
@@ -131,7 +123,6 @@ class Reply(Base):
 
 class Report(Base):
     __tablename__ = "reports"
-
     id = Column(Integer, primary_key=True)
     company_id = Column(Integer, ForeignKey("companies.id"))
     title = Column(String(255))
@@ -142,7 +133,6 @@ class Report(Base):
 
 class Notification(Base):
     __tablename__ = "notifications"
-
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
