@@ -4,10 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Company Management</title>
-
 <!-- Google Fonts -->
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-
 <style>
     body { font-family: 'Roboto', sans-serif; background: #f4f6f8; margin: 0; padding: 0; }
     .container { max-width: 1000px; margin: 50px auto; background: #fff; padding: 40px; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.1); }
@@ -16,170 +14,208 @@
     label { font-weight: 500; margin-bottom: 5px; display: block; }
     input { padding: 12px; border: 1px solid #ccc; border-radius: 6px; width: 100%; box-sizing: border-box; transition: 0.2s; }
     input:focus { border-color: #007BFF; outline: none; }
-    input[readonly] { background-color: #e9ecef; }
+    input[readonly] { background-color: #e9ecef; cursor: not-allowed; }
     button { grid-column: span 2; padding: 14px 20px; border: none; background-color: #007BFF; color: white; font-size: 16px; border-radius: 6px; cursor: pointer; transition: background 0.3s; }
     button:hover { background-color: #0056b3; }
-    .suggestions { position: absolute; top: 62px; left: 0; right: 0; background: #fff; border: 1px solid #ccc; border-radius: 6px; max-height: 250px; overflow-y: auto; z-index: 1000; }
+    button:disabled { background-color: #ccc; cursor: not-allowed; }
+    .suggestions { position: absolute; top: 62px; left: 0; right: 0; background: #fff; border: 1px solid #ccc; border-radius: 6px; max-height: 250px; overflow-y: auto; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
     .suggestion-item { padding: 12px; cursor: pointer; transition: background 0.2s; }
     .suggestion-item:hover { background-color: #f0f0f0; }
     .full-width { grid-column: span 2; position: relative; }
-    #map { height: 350px; width: 100%; border-radius: 10px; margin-top: 15px; }
+    #map { height: 350px; width: 100%; border-radius: 10px; margin-top: 15px; border: 1px solid #ddd; }
+    .error-message { color: #dc3545; font-size: 0.9em; margin-top: 4px; display: none; }
     @media (max-width: 700px) { form { grid-template-columns: 1fr; } .full-width { grid-column: span 1; } }
 </style>
 </head>
 <body>
-
 <div class="container">
     <h2>Company Management</h2>
-
     <form id="company-form">
         <div class="full-width">
             <label for="company-name">Company Name:</label>
             <input type="text" id="company-name" placeholder="Start typing company name..." autocomplete="off">
             <div id="suggestions" class="suggestions"></div>
+            <div id="name-error" class="error-message">Please enter a company name</div>
         </div>
-
         <div class="full-width">
             <label for="company-address">Company Address:</label>
-            <input type="text" id="company-address" readonly>
+            <input type="text" id="company-address" readonly placeholder="Will be auto-filled">
         </div>
-
         <div>
             <label for="company-phone">Phone:</label>
-            <input type="text" id="company-phone" readonly>
+            <input type="text" id="company-phone" readonly placeholder="Will be auto-filled">
         </div>
-
         <div>
             <label for="company-website">Website:</label>
-            <input type="text" id="company-website" readonly>
+            <input type="text" id="company-website" readonly placeholder="Will be auto-filled">
         </div>
-
         <div>
             <label for="company-city">City:</label>
-            <input type="text" id="company-city" readonly>
+            <input type="text" id="company-city" readonly placeholder="Will be auto-filled">
         </div>
-
         <div>
             <label for="company-lat">Latitude:</label>
-            <input type="text" id="company-lat" readonly>
+            <input type="text" id="company-lat" readonly placeholder="Will be auto-filled or adjustable">
         </div>
-
         <div>
             <label for="company-lng">Longitude:</label>
-            <input type="text" id="company-lng" readonly>
+            <input type="text" id="company-lng" readonly placeholder="Will be auto-filled or adjustable">
         </div>
-
         <div class="full-width">
             <div id="map"></div>
         </div>
-
         <div class="full-width">
-            <button type="submit">Save Company</button>
+            <button type="submit" id="save-btn">Save Company</button>
         </div>
     </form>
 </div>
 
 <script>
+// ────────────────────────────────────────────────
 let input = document.getElementById("company-name");
 let suggestionsDiv = document.getElementById("suggestions");
 let selectedPlaceId = null;
-
-// Google Maps
 let map, marker;
-let defaultLocation = { lat: 24.8607, lng: 67.0011 }; // Karachi default
+const defaultLocation = { lat: 24.8607, lng: 67.0011 }; // Karachi
 
 function initMap() {
-    map = new google.maps.Map(document.getElementById("map"), { zoom: 10, center: defaultLocation });
-    marker = new google.maps.Marker({ position: defaultLocation, map: map, draggable: true });
-
+    map = new google.maps.Map(document.getElementById("map"), {
+        zoom: 10,
+        center: defaultLocation
+    });
+    marker = new google.maps.Marker({
+        position: defaultLocation,
+        map: map,
+        draggable: true
+    });
     marker.addListener("dragend", () => {
-        document.getElementById("company-lat").value = marker.getPosition().lat();
-        document.getElementById("company-lng").value = marker.getPosition().lng();
+        const pos = marker.getPosition();
+        document.getElementById("company-lat").value = pos.lat().toFixed(6);
+        document.getElementById("company-lng").value = pos.lng().toFixed(6);
     });
 }
 
-// Debounce function
+// Debounce helper
 function debounce(func, delay = 300) {
     let timer;
-    return function(...args) { clearTimeout(timer); timer = setTimeout(() => func.apply(this, args), delay); };
+    return function(...args) {
+        clearTimeout(timer);
+        timer = setTimeout(() => func.apply(this, args), delay);
+    };
 }
 
-// Fetch suggestions from backend
+// Fetch autocomplete suggestions
 const fetchSuggestions = debounce(async () => {
     const query = input.value.trim();
-    if (!query) { suggestionsDiv.innerHTML = ""; return; }
+    if (!query) {
+        suggestionsDiv.innerHTML = "";
+        return;
+    }
 
     try {
         const res = await fetch(`/companies/autocomplete?name=${encodeURIComponent(query)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
         suggestionsDiv.innerHTML = "";
+        if (data.length === 0) {
+            suggestionsDiv.innerHTML = '<div class="suggestion-item" style="color:#888;">No companies found</div>';
+            return;
+        }
+
         data.forEach(item => {
             const div = document.createElement("div");
             div.classList.add("suggestion-item");
             div.textContent = item.description;
             div.dataset.placeId = item.place_id;
-
             div.addEventListener("click", async () => {
                 input.value = item.description;
                 selectedPlaceId = item.place_id;
                 suggestionsDiv.innerHTML = "";
 
-                // Fetch details from backend
-                const detailsRes = await fetch(`/companies/details?place_id=${item.place_id}`);
-                const details = await detailsRes.json();
+                try {
+                    const detailsRes = await fetch(`/companies/details?place_id=${item.place_id}`);
+                    if (!detailsRes.ok) throw new Error(`Details HTTP ${detailsRes.status}`);
+                    const details = await detailsRes.json();
 
-                // Fill fields
-                document.getElementById("company-address").value = details.address || "";
-                document.getElementById("company-phone").value = details.phone || "";
-                document.getElementById("company-website").value = details.website || "";
-                document.getElementById("company-city").value = details.city || "";
-                document.getElementById("company-lat").value = details.lat || "";
-                document.getElementById("company-lng").value = details.lng || "";
+                    // Fill form fields
+                    document.getElementById("company-address").value = details.address || "";
+                    document.getElementById("company-phone").value   = details.phone   || "";
+                    document.getElementById("company-website").value = details.website || "";
+                    document.getElementById("company-city").value    = details.city    || "";
+                    document.getElementById("company-lat").value     = details.lat     ?? "";
+                    document.getElementById("company-lng").value     = details.lng     ?? "";
 
-                if (details.lat && details.lng) {
-                    const pos = { lat: parseFloat(details.lat), lng: parseFloat(details.lng) };
-                    marker.setPosition(pos);
-                    map.setCenter(pos);
+                    // Center map & marker
+                    if (details.lat && details.lng) {
+                        const pos = { lat: parseFloat(details.lat), lng: parseFloat(details.lng) };
+                        marker.setPosition(pos);
+                        map.setCenter(pos);
+                        map.setZoom(15);
+                    }
+                } catch (err) {
+                    console.error("Details fetch failed:", err);
+                    alert("Could not load company details. Please try again.");
                 }
             });
-
             suggestionsDiv.appendChild(div);
         });
-    } catch (error) { console.error("Autocomplete error:", error); }
+    } catch (error) {
+        console.error("Autocomplete error:", error);
+        suggestionsDiv.innerHTML = '<div class="suggestion-item" style="color:#dc3545;">Error loading suggestions</div>';
+    }
 }, 300);
 
 input.addEventListener("input", fetchSuggestions);
 
-// Save company
+// Form submission
 document.getElementById("company-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!input.value.trim()) { alert("Company name is required!"); return; }
+
+    const name = input.value.trim();
+    if (!name) {
+        document.getElementById("name-error").style.display = "block";
+        return;
+    }
+    document.getElementById("name-error").style.display = "none";
+
+    const saveBtn = document.getElementById("save-btn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
 
     try {
         const params = new URLSearchParams();
-        params.append("name", input.value.trim());
+        params.append("name", name);
         if (selectedPlaceId) params.append("place_id", selectedPlaceId);
-        params.append("lat", document.getElementById("company-lat").value);
-        params.append("lng", document.getElementById("company-lng").value);
+        const lat = document.getElementById("company-lat").value.trim();
+        const lng = document.getElementById("company-lng").value.trim();
+        if (lat) params.append("lat", lat);
+        if (lng) params.append("lng", lng);
 
         const res = await fetch(`/companies?${params.toString()}`, { method: "POST" });
-        const data = await res.json();
-        alert(`✅ Company saved: ${data.name}, ${data.city}, status: ${data.status}`);
+        if (!res.ok) throw new Error(`Save failed: HTTP ${res.status}`);
 
-        // Reset form
+        const data = await res.json();
+        alert(`✅ Company saved successfully!\n${data.name} • ${data.city || "—"} • ${data.status}`);
+
+        // Reset
         document.getElementById("company-form").reset();
         suggestionsDiv.innerHTML = "";
         selectedPlaceId = null;
         marker.setPosition(defaultLocation);
         map.setCenter(defaultLocation);
+        map.setZoom(10);
     } catch (error) {
-        console.error("Error saving company:", error);
-        alert("❌ Failed to save company.");
+        console.error("Save error:", error);
+        alert("❌ Failed to save company. Please check your connection or try again.");
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = "Save Company";
     }
 });
 </script>
 
-<script src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&callback=initMap" async defer></script>
+<!-- Google Maps JS API -->
+<script src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&callback=initMap&libraries=places" async defer></script>
 </body>
 </html>
