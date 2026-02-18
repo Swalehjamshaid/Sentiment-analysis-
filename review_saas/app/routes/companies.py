@@ -2,22 +2,19 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from ..db import get_db
+from ..models import Company
 from typing import List
 import requests
 from datetime import datetime
 import os
 
-from ..db import get_db
-from ..models import Company, User
-
 router = APIRouter(prefix="/companies", tags=["companies"])
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 
-# -----------------------------
-# List all companies
-# -----------------------------
-@router.get("/", response_model=List[dict])
+# --- List all companies ---
+@router.get("/list", response_model=List[dict])
 def list_companies(db: Session = Depends(get_db)):
     companies = db.query(Company).all()
     return [
@@ -27,15 +24,12 @@ def list_companies(db: Session = Depends(get_db)):
             "city": c.city,
             "status": c.status,
             "lat": c.lat,
-            "lng": c.lng,
-            "place_id": c.place_id
+            "lng": c.lng
         }
         for c in companies
     ]
 
-# -----------------------------
-# Add a new company
-# -----------------------------
+# --- Add a new company (optionally via Google Place ID) ---
 @router.post("/")
 def add_company(
     name: str = Query(...),
@@ -45,8 +39,7 @@ def add_company(
     lng: float = Query(None),
     db: Session = Depends(get_db)
 ):
-    # Fetch details from Google if place_id is provided and lat/lng not given
-    if place_id and (lat is None or lng is None or not city):
+    if place_id:
         url = (
             f"https://maps.googleapis.com/maps/api/place/details/json"
             f"?place_id={place_id}"
@@ -57,26 +50,25 @@ def add_company(
         if resp.status_code == 200:
             data = resp.json().get("result", {})
             name = data.get("name", name)
-            geometry = data.get("geometry", {}).get("location", {})
-            lat = lat or geometry.get("lat")
-            lng = lng or geometry.get("lng")
-            if not city:
-                for comp in data.get("address_components", []):
+            if "address_components" in data:
+                for comp in data["address_components"]:
                     if "locality" in comp.get("types", []):
                         city = comp.get("long_name")
                         break
+            geometry = data.get("geometry", {}).get("location", {})
+            lat = geometry.get("lat", lat)
+            lng = geometry.get("lng", lng)
         else:
             raise HTTPException(status_code=502, detail="Failed to fetch details from Google API")
 
-    # Save company
     new_company = Company(
         name=name,
         city=city,
-        place_id=place_id,
         lat=lat,
         lng=lng,
         status="active",
-        owner_id=1  # Replace with current user ID if auth is implemented
+        place_id=place_id,
+        created_at=datetime.utcnow()
     )
     db.add(new_company)
     db.commit()
@@ -86,15 +78,12 @@ def add_company(
         "id": new_company.id,
         "name": new_company.name,
         "city": new_company.city,
-        "status": new_company.status,
         "lat": new_company.lat,
         "lng": new_company.lng,
-        "place_id": new_company.place_id
+        "status": new_company.status
     }
 
-# -----------------------------
-# Google Autocomplete
-# -----------------------------
+# --- Autocomplete companies using Google Places API ---
 @router.get("/autocomplete", response_model=List[dict])
 def autocomplete_company(name: str = Query(..., description="Company name to search")):
     if not GOOGLE_API_KEY:
@@ -118,9 +107,7 @@ def autocomplete_company(name: str = Query(..., description="Company name to sea
     ]
     return suggestions
 
-# -----------------------------
-# Google Place Details
-# -----------------------------
+# --- Fetch full company details by Google Place ID ---
 @router.get("/details", response_model=dict)
 def get_company_details(place_id: str = Query(..., description="Google Place ID of the company")):
     if not GOOGLE_API_KEY:
@@ -146,7 +133,6 @@ def get_company_details(place_id: str = Query(..., description="Google Place ID 
         "website": result.get("website")
     }
 
-    # Extract city
     city = None
     for comp in result.get("address_components", []):
         if "locality" in comp.get("types", []):
