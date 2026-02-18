@@ -8,6 +8,13 @@
     <title>Company Management</title>
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <!-- Google Maps Places API -->
+    <script
+      src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places"
+      defer
+    ></script>
+
     <style>
         body { font-family: 'Roboto', sans-serif; margin: 20px; background-color: #f5f5f5; }
         h1 { text-align: center; }
@@ -134,8 +141,27 @@
         }
     });
 
-    // Initial fetch
-    fetchCompanies();
+    // Initialize Google Places Autocomplete
+    function initAutocomplete() {
+        const addressInput = document.getElementById('address');
+        const autocomplete = new google.maps.places.Autocomplete(addressInput);
+
+        autocomplete.addListener('place_changed', () => {
+            const place = autocomplete.getPlace();
+            if (!place.geometry) return;
+
+            document.getElementById('lat').value = place.geometry.location.lat();
+            document.getElementById('lng').value = place.geometry.location.lng();
+            document.getElementById('place_id').value = place.place_id;
+        });
+    }
+
+    window.addEventListener('load', () => {
+        if (typeof google !== 'undefined') {
+            initAutocomplete();
+        }
+        fetchCompanies();
+    });
 </script>
 
 </body>
