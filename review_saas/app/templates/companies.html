@@ -42,7 +42,7 @@
     <label>Phone:</label>
     <input type="text" id="phone" name="phone">
 
-    <label>Address (Search via Google):</label>
+    <label>Address:</label>
     <textarea id="address" name="address" rows="2"></textarea>
 
     <label>Description:</label>
@@ -54,7 +54,6 @@
     <label>Longitude:</label>
     <input type="number" step="0.000001" id="lng" name="lng">
 
-    <!-- Hidden place_id -->
     <input type="hidden" id="place_id" name="place_id">
 
     <button type="submit">Add / Update Company</button>
@@ -87,7 +86,6 @@ async function fetchCompanies() {
     try {
         const response = await fetch('/companies/list');
         const companies = await response.json();
-
         tableBody.innerHTML = '';
         companies.forEach(c => {
             const row = document.createElement('tr');
@@ -113,15 +111,9 @@ async function fetchCompanies() {
 /* ───────── FORM SUBMIT ───────── */
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
-
     const formData = new FormData(form);
-
     try {
-        const response = await fetch('/companies/', {
-            method: 'POST',
-            body: formData
-        });
-
+        const response = await fetch('/companies/', { method: 'POST', body: formData });
         if (response.ok) {
             alert("Company saved successfully!");
             form.reset();
@@ -136,17 +128,16 @@ form.addEventListener('submit', async (e) => {
     }
 });
 
-/* ───────── GOOGLE AUTOCOMPLETE ───────── */
+/* ───────── GOOGLE AUTOCOMPLETE ON NAME ───────── */
 function initAutocomplete() {
-    const addressInput = document.getElementById('address');
+    const nameInput = document.getElementById('name');
 
-    const autocomplete = new google.maps.places.Autocomplete(addressInput, {
+    const autocomplete = new google.maps.places.Autocomplete(nameInput, {
         types: ['establishment']
     });
 
     autocomplete.addListener('place_changed', async () => {
         const place = autocomplete.getPlace();
-
         if (!place.geometry) {
             console.warn("No geometry available for selected place.");
             return;
@@ -156,6 +147,7 @@ function initAutocomplete() {
         document.getElementById('lng').value = place.geometry.location.lng();
         document.getElementById('place_id').value = place.place_id;
 
+        // Fetch backend enriched details
         try {
             const response = await fetch(`/companies/details?place_id=${place.place_id}`);
             if (response.ok) {
