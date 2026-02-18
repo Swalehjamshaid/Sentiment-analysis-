@@ -1,363 +1,142 @@
 <!-- Filename: app/templates/companies.html -->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Companies · Management</title>
-
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-
-  <style>
-    :root {
-      --clr-primary:   #2563eb;
-      --clr-primary-dark: #1d4ed8;
-      --clr-danger:    #dc2626;
-      --clr-success:   #16a34a;
-      --clr-bg:        #f8fafc;
-      --clr-surface:   #ffffff;
-      --clr-border:    #e2e8f0;
-      --clr-text:      #0f172a;
-      --clr-text-light:#64748b;
-      --shadow-sm:     0 1px 3px rgba(0,0,0,0.08);
-      --shadow-md:     0 4px 12px rgba(0,0,0,0.1);
-      --radius:        10px;
-    }
-
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      font-family: 'Inter', system-ui, sans-serif;
-      background: var(--clr-bg);
-      color: var(--clr-text);
-      line-height: 1.5;
-      min-height: 100vh;
-      padding: 24px 16px;
-    }
-
-    .container {
-      max-width: 1400px;
-      margin: 0 auto;
-    }
-
-    h1 {
-      font-size: 1.875rem;
-      font-weight: 700;
-      color: var(--clr-text);
-      margin-bottom: 2rem;
-      text-align: center;
-    }
-
-    .card {
-      background: var(--clr-surface);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow-md);
-      padding: 1.75rem;
-      margin-bottom: 2.5rem;
-    }
-
-    .form-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1.5rem 2rem;
-    }
-
-    .form-group {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-    }
-
-    label {
-      font-size: 0.875rem;
-      font-weight: 600;
-      color: var(--clr-text);
-    }
-
-    input, textarea {
-      padding: 0.75rem 1rem;
-      border: 1px solid var(--clr-border);
-      border-radius: 8px;
-      font-size: 0.95rem;
-      transition: all 0.15s ease;
-      background: white;
-    }
-
-    input:focus, textarea:focus {
-      outline: none;
-      border-color: var(--clr-primary);
-      box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
-    }
-
-    textarea {
-      resize: vertical;
-      min-height: 84px;
-    }
-
-    .form-actions {
-      grid-column: 1 / -1;
-      display: flex;
-      gap: 1rem;
-      margin-top: 1.25rem;
-    }
-
-    button {
-      padding: 0.75rem 1.5rem;
-      font-weight: 600;
-      font-size: 0.95rem;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      border: none;
-    }
-
-    .btn-primary {
-      background: var(--clr-primary);
-      color: white;
-    }
-
-    .btn-primary:hover {
-      background: var(--clr-primary-dark);
-      transform: translateY(-1px);
-    }
-
-    .btn-secondary {
-      background: #f1f5f9;
-      color: #334155;
-    }
-
-    .btn-secondary:hover {
-      background: #e2e8f0;
-    }
-
-    .table-container {
-      overflow-x: auto;
-      border-radius: var(--radius);
-      box-shadow: var(--shadow-md);
-      background: white;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.92rem;
-    }
-
-    th, td {
-      padding: 14px 16px;
-      text-align: left;
-      border-bottom: 1px solid var(--clr-border);
-    }
-
-    th {
-      background: #f1f5f9;
-      font-weight: 600;
-      color: #334155;
-      text-transform: uppercase;
-      font-size: 0.78rem;
-      letter-spacing: 0.4px;
-    }
-
-    tr:hover {
-      background: #f8fafc;
-    }
-
-    .status {
-      font-weight: 600;
-      font-size: 0.85rem;
-    }
-
-    .status.active  { color: var(--clr-success); }
-    .status.inactive { color: var(--clr-danger); }
-
-    @media (max-width: 768px) {
-      .form-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Company Management</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Roboto', sans-serif; margin: 20px; background-color: #f5f5f5; }
+        h1 { text-align: center; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #4CAF50; color: white; }
+        tr:nth-child(even){background-color: #f2f2f2;}
+        tr:hover {background-color: #ddd;}
+        form { background: #fff; padding: 20px; margin-bottom: 30px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);}
+        label { display: block; margin-top: 10px; }
+        input, textarea { width: 100%; padding: 8px; margin-top: 5px; border-radius: 4px; border: 1px solid #ccc; }
+        button { margin-top: 15px; padding: 10px 15px; border: none; border-radius: 4px; background-color: #4CAF50; color: white; cursor: pointer; }
+        button:hover { background-color: #45a049; }
+    </style>
 </head>
 <body>
 
-<div class="container">
-  <h1>Company Management</h1>
+<h1>Company Management</h1>
 
-  <!-- ─── Form ─── -->
-  <div class="card">
-    <form id="company-form" class="form-grid">
-      <div class="form-group">
-        <label for="name">Company Name <span style="color:#e11d48">*</span></label>
-        <input type="text" id="name" name="name" required autocomplete="organization">
-      </div>
+<!-- ─── Add / Edit Company Form ─── -->
+<form id="company-form">
+    <label for="name">Company Name:</label>
+    <input type="text" id="name" name="name" required>
 
-      <div class="form-group">
-        <label for="city">City</label>
-        <input type="text" id="city" name="city" autocomplete="address-level2">
-      </div>
+    <label for="city">City:</label>
+    <input type="text" id="city" name="city">
 
-      <div class="form-group">
-        <label for="email">Email</label>
-        <input type="email" id="email" name="email" autocomplete="email">
-      </div>
+    <label for="email">Email:</label>
+    <input type="email" id="email" name="email">
 
-      <div class="form-group">
-        <label for="phone">Phone</label>
-        <input type="tel" id="phone" name="phone" autocomplete="tel">
-      </div>
+    <label for="phone">Phone:</label>
+    <input type="text" id="phone" name="phone">
 
-      <div class="form-group">
-        <label for="address">Address</label>
-        <textarea id="address" name="address" rows="2" autocomplete="street-address"></textarea>
-      </div>
+    <label for="address">Address:</label>
+    <textarea id="address" name="address" rows="2"></textarea>
 
-      <div class="form-group">
-        <label for="description">Description</label>
-        <textarea id="description" name="description" rows="3"></textarea>
-      </div>
+    <label for="description">Description:</label>
+    <textarea id="description" name="description" rows="3"></textarea>
 
-      <div class="form-group">
-        <label for="lat">Latitude</label>
-        <input type="number" step="any" id="lat" name="lat" min="-90" max="90">
-      </div>
+    <label for="lat">Latitude:</label>
+    <input type="number" step="0.000001" id="lat" name="lat">
 
-      <div class="form-group">
-        <label for="lng">Longitude</label>
-        <input type="number" step="any" id="lng" name="lng" min="-180" max="180">
-      </div>
+    <label for="lng">Longitude:</label>
+    <input type="number" step="0.000001" id="lng" name="lng">
 
-      <div class="form-group">
-        <label for="place_id">Google Place ID</label>
-        <input type="text" id="place_id" name="place_id">
-      </div>
+    <label for="place_id">Google Place ID:</label>
+    <input type="text" id="place_id" name="place_id">
 
-      <div class="form-actions">
-        <button type="submit" class="btn-primary">Save Company</button>
-        <button type="button" class="btn-secondary" id="reset-btn">Clear Form</button>
-      </div>
-    </form>
-  </div>
+    <button type="submit">Add / Update Company</button>
+</form>
 
-  <!-- ─── Table ─── -->
-  <div class="table-container">
-    <table>
-      <thead>
+<!-- ─── Companies Table ─── -->
+<table>
+    <thead>
         <tr>
-          <th>ID</th>
-          <th>Name</th>
-          <th>City</th>
-          <th>Email</th>
-          <th>Phone</th>
-          <th>Address</th>
-          <th>Description</th>
-          <th>Lat</th>
-          <th>Lng</th>
-          <th>Status</th>
+            <th>ID</th>
+            <th>Name</th>
+            <th>City</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Address</th>
+            <th>Description</th>
+            <th>Latitude</th>
+            <th>Longitude</th>
+            <th>Status</th>
         </tr>
-      </thead>
-      <tbody id="companies-table-body">
-        <!-- rows inserted by JS -->
-      </tbody>
-    </table>
-  </div>
-</div>
+    </thead>
+    <tbody id="companies-table-body">
+        <!-- Dynamic rows will be inserted here -->
+    </tbody>
+</table>
 
 <script>
-  const form = document.getElementById('company-form');
-  const tableBody = document.getElementById('companies-table-body');
-  const resetBtn = document.getElementById('reset-btn');
+    const form = document.getElementById('company-form');
+    const tableBody = document.getElementById('companies-table-body');
 
-  async function fetchCompanies() {
-    try {
-      const res = await fetch('/companies/list');
-      if (!res.ok) throw new Error('Failed to load companies');
-      const companies = await res.json();
+    async function fetchCompanies() {
+        const response = await fetch('/companies/list');
+        const companies = await response.json();
+        tableBody.innerHTML = '';
 
-      tableBody.innerHTML = '';
-
-      companies.forEach(c => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-          <td>${c.id}</td>
-          <td><strong>${escapeHTML(c.name)}</strong></td>
-          <td>${c.city || '—'}</td>
-          <td>${c.email || '—'}</td>
-          <td>${c.phone || '—'}</td>
-          <td>${c.address || '—'}</td>
-          <td title="${escapeHTML(c.description || '')}">${truncate(c.description || '—', 60)}</td>
-          <td>${c.lat?.toFixed(5) || '—'}</td>
-          <td>${c.lng?.toFixed(5) || '—'}</td>
-          <td><span class="status ${c.status?.toLowerCase() || ''}">${c.status || 'Unknown'}</span></td>
-        `;
-        tableBody.appendChild(row);
-      });
-    } catch (err) {
-      console.error(err);
-      tableBody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:#dc2626;padding:2rem;">Could not load companies</td></tr>`;
-    }
-  }
-
-  function escapeHTML(str) {
-    return str.replace(/[&<>"']/g, m => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    })[m]);
-  }
-
-  function truncate(str, len) {
-    return str.length > len ? str.slice(0, len) + '…' : str;
-  }
-
-  form.addEventListener('submit', async e => {
-    e.preventDefault();
-
-    const data = {
-      name:       form.name.value.trim(),
-      city:       form.city.value.trim() || null,
-      email:      form.email.value.trim() || null,
-      phone:      form.phone.value.trim() || null,
-      address:    form.address.value.trim() || null,
-      description:form.description.value.trim() || null,
-      lat:        form.lat.value ? Number(form.lat.value) : null,
-      lng:        form.lng.value ? Number(form.lng.value) : null,
-      place_id:   form.place_id.value.trim() || null,
-    };
-
-    if (!data.name) {
-      alert('Company name is required.');
-      return;
+        companies.forEach(c => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${c.id}</td>
+                <td>${c.name}</td>
+                <td>${c.city || ''}</td>
+                <td>${c.email || ''}</td>
+                <td>${c.phone || ''}</td>
+                <td>${c.address || ''}</td>
+                <td>${c.description || ''}</td>
+                <td>${c.lat || ''}</td>
+                <td>${c.lng || ''}</td>
+                <td>${c.status}</td>
+            `;
+            tableBody.appendChild(row);
+        });
     }
 
-    try {
-      const query = new URLSearchParams(
-        Object.fromEntries(
-          Object.entries(data).filter(([_,v]) => v !== null && v !== '')
-        )
-      ).toString();
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
 
-      const res = await fetch(`/companies/?${query}`, { method: 'POST' });
+        const data = {
+            name: form.name.value,
+            city: form.city.value,
+            email: form.email.value,
+            phone: form.phone.value,
+            address: form.address.value,
+            description: form.description.value,
+            lat: form.lat.value || null,
+            lng: form.lng.value || null,
+            place_id: form.place_id.value
+        };
 
-      if (!res.ok) throw new Error(await res.text());
+        const query = new URLSearchParams(data).toString();
+        const response = await fetch(`/companies/?${query}`, { method: 'POST' });
 
-      alert('Company saved successfully.');
-      form.reset();
-      await fetchCompanies();
-    } catch (err) {
-      console.error(err);
-      alert('Failed to save company.\n' + (err.message || ''));
-    }
-  });
+        if (response.ok) {
+            alert('Company added/updated successfully!');
+            form.reset();
+            fetchCompanies();
+        } else {
+            alert('Failed to add company.');
+        }
+    });
 
-  resetBtn.addEventListener('click', () => {
-    if (confirm('Clear the form?')) form.reset();
-  });
-
-  // Load data when page opens
-  fetchCompanies();
+    // Initial fetch
+    fetchCompanies();
 </script>
+
 </body>
 </html>
