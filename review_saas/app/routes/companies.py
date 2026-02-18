@@ -1,6 +1,6 @@
 # Filename: app/routes/companies.py
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Form
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Company
@@ -24,21 +24,30 @@ def list_companies(db: Session = Depends(get_db)):
             "city": c.city,
             "status": c.status,
             "lat": c.lat,
-            "lng": c.lng
+            "lng": c.lng,
+            "email": getattr(c, "email", None),
+            "phone": getattr(c, "phone", None),
+            "address": getattr(c, "address", None),
+            "description": getattr(c, "description", None)
         }
         for c in companies
     ]
 
-# --- Add a new company (optionally via Google Place ID) ---
+# --- Add a new company via HTML form or Google Place ID ---
 @router.post("/")
 def add_company(
-    name: str = Query(...),
-    city: str = Query(None),
-    place_id: str = Query(None),
-    lat: float = Query(None),
-    lng: float = Query(None),
+    name: str = Form(...),
+    city: str = Form(None),
+    place_id: str = Form(None),
+    lat: float = Form(None),
+    lng: float = Form(None),
+    email: str = Form(None),
+    phone: str = Form(None),
+    address: str = Form(None),
+    description: str = Form(None),
     db: Session = Depends(get_db)
 ):
+    # Fetch details from Google API if place_id provided
     if place_id:
         url = (
             f"https://maps.googleapis.com/maps/api/place/details/json"
@@ -58,9 +67,12 @@ def add_company(
             geometry = data.get("geometry", {}).get("location", {})
             lat = geometry.get("lat", lat)
             lng = geometry.get("lng", lng)
+            phone = data.get("formatted_phone_number", phone)
+            address = data.get("formatted_address", address)
         else:
             raise HTTPException(status_code=502, detail="Failed to fetch details from Google API")
 
+    # Save all fields to the database
     new_company = Company(
         name=name,
         city=city,
@@ -68,6 +80,10 @@ def add_company(
         lng=lng,
         status="active",
         place_id=place_id,
+        email=email,
+        phone=phone,
+        address=address,
+        description=description,
         created_at=datetime.utcnow()
     )
     db.add(new_company)
@@ -80,12 +96,16 @@ def add_company(
         "city": new_company.city,
         "lat": new_company.lat,
         "lng": new_company.lng,
+        "email": new_company.email,
+        "phone": new_company.phone,
+        "address": new_company.address,
+        "description": new_company.description,
         "status": new_company.status
     }
 
 # --- Autocomplete companies using Google Places API ---
 @router.get("/autocomplete", response_model=List[dict])
-def autocomplete_company(name: str = Query(..., description="Company name to search")):
+def autocomplete_company(name: str):
     if not GOOGLE_API_KEY:
         raise HTTPException(status_code=500, detail="Google API key not configured")
 
@@ -101,15 +121,14 @@ def autocomplete_company(name: str = Query(..., description="Company name to sea
         raise HTTPException(status_code=502, detail="Error fetching autocomplete from Google API")
 
     data = response.json()
-    suggestions = [
+    return [
         {"description": pred.get("description"), "place_id": pred.get("place_id")}
         for pred in data.get("predictions", [])
     ]
-    return suggestions
 
 # --- Fetch full company details by Google Place ID ---
 @router.get("/details", response_model=dict)
-def get_company_details(place_id: str = Query(..., description="Google Place ID of the company")):
+def get_company_details(place_id: str):
     if not GOOGLE_API_KEY:
         raise HTTPException(status_code=500, detail="Google API key not configured")
 
