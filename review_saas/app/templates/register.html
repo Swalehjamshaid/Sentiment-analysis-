@@ -1,12 +1,133 @@
-
 {% extends 'base.html' %}
 {% block content %}
-<h3>Register</h3>
-<form method="post" action="/auth/register" enctype="multipart/form-data" class="row g-2">
-  <div class="col-md-6"><input class="form-control" name="full_name" placeholder="Full name" maxlength="100" required></div>
-  <div class="col-md-6"><input class="form-control" name="email" type="email" placeholder="Email" required></div>
-  <div class="col-md-6"><input class="form-control" name="password" type="password" placeholder="Strong password" required></div>
-  <div class="col-md-6"><input class="form-control" name="profile" type="file" accept="image/png,image/jpeg"></div>
-  <div class="col-12"><button class="btn btn-success">Create account</button></div>
-</form>
+
+<style>
+body {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    min-height: 100vh;
+}
+
+.register-container {
+    min-height: 85vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.register-card {
+    width: 100%;
+    max-width: 520px;
+    background: #ffffff;
+    border-radius: 18px;
+    padding: 40px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+    animation: fadeIn 0.6s ease-in-out;
+}
+
+.register-card h3 {
+    font-weight: 700;
+    margin-bottom: 25px;
+    text-align: center;
+    color: #333;
+}
+
+.form-control {
+    border-radius: 10px;
+    padding: 12px;
+    border: 1px solid #ddd;
+    transition: all 0.3s ease;
+}
+
+.form-control:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102,126,234,0.2);
+}
+
+.btn-register {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    border: none;
+    padding: 12px;
+    border-radius: 10px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-register:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+}
+
+.password-hint {
+    font-size: 12px;
+    color: #777;
+    margin-top: 5px;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+</style>
+
+<div class="register-container">
+    <div class="register-card">
+        <h3>Create Your Account</h3>
+
+        <form id="registerForm" method="post" action="/auth/register" enctype="multipart/form-data" class="row g-3">
+
+            <div class="col-12">
+                <input class="form-control" name="full_name" placeholder="Full name" maxlength="100" required>
+            </div>
+
+            <div class="col-12">
+                <input class="form-control" name="email" type="email" placeholder="Email address" required>
+            </div>
+
+            <div class="col-12">
+                <input class="form-control" name="password" type="password" placeholder="Strong password" required>
+                <div class="password-hint">
+                    Minimum 8 characters, uppercase, lowercase, number & special character
+                </div>
+            </div>
+
+            <div class="col-12">
+                <input class="form-control" name="profile" type="file" accept="image/png,image/jpeg">
+            </div>
+
+            <div class="col-12">
+                <button class="btn btn-register w-100 text-white">
+                    Create Account
+                </button>
+            </div>
+
+        </form>
+    </div>
+</div>
+
+<script>
+document.getElementById("registerForm").addEventListener("submit", async function(e) {
+    e.preventDefault();
+
+    const form = e.target;
+    const formData = new FormData(form);
+
+    const button = form.querySelector("button");
+    button.innerHTML = "Creating...";
+    button.disabled = true;
+
+    const response = await fetch(form.action, {
+        method: "POST",
+        body: formData
+    });
+
+    if (response.ok) {
+        window.location.href = "/login";
+    } else {
+        alert("Registration failed. Please try again.");
+        button.innerHTML = "Create Account";
+        button.disabled = false;
+    }
+});
+</script>
+
 {% endblock %}
