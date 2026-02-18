@@ -14,22 +14,35 @@ import os
 router = APIRouter(prefix="/companies", tags=["companies"])
 templates = Jinja2Templates(directory="app/templates")
 
-GOOGLE_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+# Separate API Keys
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")      # Frontend
+GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")  # Backend
 
-# --- Render HTML template with Google API key ---
+
+# ─────────────────────────────────────────────
+# Render HTML template with Google Maps JS key
+# ─────────────────────────────────────────────
 @router.get("/", response_class=HTMLResponse)
 def companies_page(request: Request):
-    if not GOOGLE_API_KEY:
-        raise HTTPException(status_code=500, detail="Google API key not configured")
+    if not GOOGLE_MAPS_API_KEY:
+        raise HTTPException(status_code=500, detail="Google Maps API key not configured")
+
     return templates.TemplateResponse(
         "companies.html",
-        {"request": request, "google_api_key": GOOGLE_API_KEY}
+        {
+            "request": request,
+            "google_maps_api_key": GOOGLE_MAPS_API_KEY
+        }
     )
 
-# --- List all companies ---
+
+# ─────────────────────────────────────────────
+# List all companies
+# ─────────────────────────────────────────────
 @router.get("/list", response_model=List[dict])
 def list_companies(db: Session = Depends(get_db)):
     companies = db.query(Company).all()
+
     return [
         {
             "id": c.id,
@@ -46,7 +59,10 @@ def list_companies(db: Session = Depends(get_db)):
         for c in companies
     ]
 
-# --- Add or update a company ---
+
+# ─────────────────────────────────────────────
+# Add Company
+# ─────────────────────────────────────────────
 @router.post("/")
 def add_company(
     name: str = Form(...),
@@ -60,32 +76,40 @@ def add_company(
     description: str = Form(None),
     db: Session = Depends(get_db)
 ):
-    # Fetch details from Google API if place_id is provided
+    # Fetch enriched details from Google Places API (Backend Key)
     if place_id:
-        url = (
-            f"https://maps.googleapis.com/maps/api/place/details/json"
-            f"?place_id={place_id}"
-            f"&fields=name,formatted_address,formatted_phone_number,address_components,geometry"
-            f"&key={GOOGLE_API_KEY}"
-        )
-        resp = requests.get(url)
-        if resp.status_code == 200:
-            data = resp.json().get("result", {})
-            name = data.get("name", name)
-            if "address_components" in data:
-                for comp in data["address_components"]:
-                    if "locality" in comp.get("types", []):
-                        city = comp.get("long_name")
-                        break
-            geometry = data.get("geometry", {}).get("location", {})
-            lat = geometry.get("lat", lat)
-            lng = geometry.get("lng", lng)
-            phone = data.get("formatted_phone_number", phone)
-            address = data.get("formatted_address", address)
-        else:
+        if not GOOGLE_PLACES_API_KEY:
+            raise HTTPException(status_code=500, detail="Google Places API key not configured")
+
+        url = "https://maps.googleapis.com/maps/api/place/details/json"
+        params = {
+            "place_id": place_id,
+            "fields": "name,formatted_address,formatted_phone_number,address_components,geometry",
+            "key": GOOGLE_PLACES_API_KEY
+        }
+
+        resp = requests.get(url, params=params)
+
+        if resp.status_code != 200:
             raise HTTPException(status_code=502, detail="Failed to fetch details from Google API")
 
-    # Save company to database
+        result = resp.json().get("result", {})
+
+        name = result.get("name", name)
+        phone = result.get("formatted_phone_number", phone)
+        address = result.get("formatted_address", address)
+
+        # Extract city
+        for comp in result.get("address_components", []):
+            if "locality" in comp.get("types", []):
+                city = comp.get("long_name")
+                break
+
+        geometry = result.get("geometry", {}).get("location", {})
+        lat = geometry.get("lat", lat)
+        lng = geometry.get("lng", lng)
+
+    # Save to DB
     new_company = Company(
         name=name,
         city=city,
@@ -99,6 +123,7 @@ def add_company(
         description=description,
         created_at=datetime.utcnow()
     )
+
     db.add(new_company)
     db.commit()
     db.refresh(new_company)
@@ -116,45 +141,62 @@ def add_company(
         "status": new_company.status
     }
 
-# --- Google Places Autocomplete ---
+
+# ─────────────────────────────────────────────
+# Google Places Autocomplete (Backend Key)
+# ─────────────────────────────────────────────
 @router.get("/autocomplete", response_model=List[dict])
 def autocomplete_company(name: str):
-    if not GOOGLE_API_KEY:
-        raise HTTPException(status_code=500, detail="Google API key not configured")
+
+    if not GOOGLE_PLACES_API_KEY:
+        raise HTTPException(status_code=500, detail="Google Places API key not configured")
 
     url = "https://maps.googleapis.com/maps/api/place/autocomplete/json"
     params = {
         "input": name,
         "types": "establishment",
-        "key": GOOGLE_API_KEY
+        "key": GOOGLE_PLACES_API_KEY
     }
+
     response = requests.get(url, params=params)
+
     if response.status_code != 200:
         raise HTTPException(status_code=502, detail="Error fetching autocomplete from Google API")
 
     data = response.json()
+
     return [
-        {"description": pred.get("description"), "place_id": pred.get("place_id")}
+        {
+            "description": pred.get("description"),
+            "place_id": pred.get("place_id")
+        }
         for pred in data.get("predictions", [])
     ]
 
-# --- Fetch full company details by Place ID ---
+
+# ─────────────────────────────────────────────
+# Get Full Company Details (Backend Key)
+# ─────────────────────────────────────────────
 @router.get("/details", response_model=dict)
 def get_company_details(place_id: str):
-    if not GOOGLE_API_KEY:
-        raise HTTPException(status_code=500, detail="Google API key not configured")
 
-    url = (
-        f"https://maps.googleapis.com/maps/api/place/details/json"
-        f"?place_id={place_id}"
-        f"&fields=name,formatted_address,formatted_phone_number,address_components,geometry"
-        f"&key={GOOGLE_API_KEY}"
-    )
-    resp = requests.get(url)
+    if not GOOGLE_PLACES_API_KEY:
+        raise HTTPException(status_code=500, detail="Google Places API key not configured")
+
+    url = "https://maps.googleapis.com/maps/api/place/details/json"
+    params = {
+        "place_id": place_id,
+        "fields": "name,formatted_address,formatted_phone_number,address_components,geometry",
+        "key": GOOGLE_PLACES_API_KEY
+    }
+
+    resp = requests.get(url, params=params)
+
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail="Error fetching details from Google API")
 
     result = resp.json().get("result", {})
+
     company_details = {
         "name": result.get("name"),
         "address": result.get("formatted_address"),
