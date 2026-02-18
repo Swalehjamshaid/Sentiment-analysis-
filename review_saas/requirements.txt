@@ -30,3 +30,5 @@ openpyxl==3.1.5
 apscheduler==3.10.4
 
 langdetect==1.0.9
+
+googlemaps==5.15.0          # Google Maps/Places API support
