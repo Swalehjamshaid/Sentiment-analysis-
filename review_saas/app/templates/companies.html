@@ -31,7 +31,7 @@
 
 <form id="company-form">
     <label>Company Name:</label>
-    <input type="text" id="name" name="name" required>
+    <input type="text" id="name" name="name" required placeholder="Start typing company name...">
 
     <label>City:</label>
     <input type="text" id="city" name="city">
@@ -42,18 +42,19 @@
     <label>Phone:</label>
     <input type="text" id="phone" name="phone">
 
-    <label>Address:</label>
-    <textarea id="address" name="address" rows="2"></textarea>
+    <label>Address (Auto-filled):</label>
+    <textarea id="address" name="address" rows="2" readonly></textarea>
 
     <label>Description:</label>
     <textarea id="description" name="description" rows="3"></textarea>
 
     <label>Latitude:</label>
-    <input type="number" step="0.000001" id="lat" name="lat">
+    <input type="number" step="0.000001" id="lat" name="lat" readonly>
 
     <label>Longitude:</label>
-    <input type="number" step="0.000001" id="lng" name="lng">
+    <input type="number" step="0.000001" id="lng" name="lng" readonly>
 
+    <!-- Hidden place_id -->
     <input type="hidden" id="place_id" name="place_id">
 
     <button type="submit">Add / Update Company</button>
@@ -86,6 +87,7 @@ async function fetchCompanies() {
     try {
         const response = await fetch('/companies/list');
         const companies = await response.json();
+
         tableBody.innerHTML = '';
         companies.forEach(c => {
             const row = document.createElement('tr');
@@ -111,9 +113,15 @@ async function fetchCompanies() {
 /* ───────── FORM SUBMIT ───────── */
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
+
     const formData = new FormData(form);
+
     try {
-        const response = await fetch('/companies/', { method: 'POST', body: formData });
+        const response = await fetch('/companies/', {
+            method: 'POST',
+            body: formData
+        });
+
         if (response.ok) {
             alert("Company saved successfully!");
             form.reset();
@@ -128,38 +136,32 @@ form.addEventListener('submit', async (e) => {
     }
 });
 
-/* ───────── GOOGLE AUTOCOMPLETE ON NAME ───────── */
+/* ───────── GOOGLE AUTOCOMPLETE ON COMPANY NAME ───────── */
 function initAutocomplete() {
     const nameInput = document.getElementById('name');
 
+    // Use Google Places Autocomplete for company name
     const autocomplete = new google.maps.places.Autocomplete(nameInput, {
-        types: ['establishment']
+        types: ['establishment']  // Only businesses
     });
 
     autocomplete.addListener('place_changed', async () => {
         const place = autocomplete.getPlace();
+
         if (!place.geometry) {
-            console.warn("No geometry available for selected place.");
+            console.warn("No geometry available for selected company.");
             return;
         }
 
+        // Fill in address, lat/lng, place_id automatically
         document.getElementById('lat').value = place.geometry.location.lat();
         document.getElementById('lng').value = place.geometry.location.lng();
         document.getElementById('place_id').value = place.place_id;
+        document.getElementById('address').value = place.formatted_address || '';
+        document.getElementById('city').value = (place.address_components || [])
+            .find(comp => comp.types.includes('locality'))?.long_name || '';
 
-        // Fetch backend enriched details
-        try {
-            const response = await fetch(`/companies/details?place_id=${place.place_id}`);
-            if (response.ok) {
-                const details = await response.json();
-                document.getElementById('name').value = details.name || '';
-                document.getElementById('city').value = details.city || '';
-                document.getElementById('phone').value = details.phone || '';
-                document.getElementById('address').value = details.address || '';
-            }
-        } catch (err) {
-            console.error("Error fetching backend details:", err);
-        }
+        document.getElementById('phone').value = place.formatted_phone_number || '';
     });
 }
 
