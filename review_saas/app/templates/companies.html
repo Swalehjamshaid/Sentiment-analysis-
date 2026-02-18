@@ -1,148 +1,363 @@
-# Filename: app/models.py
+<!-- Filename: app/templates/companies.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Companies · Management</title>
 
-from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    DateTime,
-    Boolean,
-    ForeignKey,
-    Text,
-    UniqueConstraint,
-    Index,
-    Float,
-)
-from datetime import datetime
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-Base = declarative_base()
+  <style>
+    :root {
+      --clr-primary:   #2563eb;
+      --clr-primary-dark: #1d4ed8;
+      --clr-danger:    #dc2626;
+      --clr-success:   #16a34a;
+      --clr-bg:        #f8fafc;
+      --clr-surface:   #ffffff;
+      --clr-border:    #e2e8f0;
+      --clr-text:      #0f172a;
+      --clr-text-light:#64748b;
+      --shadow-sm:     0 1px 3px rgba(0,0,0,0.08);
+      --shadow-md:     0 4px 12px rgba(0,0,0,0.1);
+      --radius:        10px;
+    }
 
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
 
-class User(Base):
-    __tablename__ = "users"
-    id = Column(Integer, primary_key=True)
-    full_name = Column(String(100), nullable=False)
-    email = Column(String(255), unique=True, index=True, nullable=False)
-    password_hash = Column(String(255), nullable=False)
-    status = Column(String(20), default="pending")
-    profile_pic_url = Column(String(255), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    companies = relationship("Company", back_populates="owner")
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--clr-bg);
+      color: var(--clr-text);
+      line-height: 1.5;
+      min-height: 100vh;
+      padding: 24px 16px;
+    }
 
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
 
-class VerificationToken(Base):
-    __tablename__ = "verification_tokens"
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    token = Column(String(255), index=True)
-    expires_at = Column(DateTime)
-    used = Column(Boolean, default=False)
+    h1 {
+      font-size: 1.875rem;
+      font-weight: 700;
+      color: var(--clr-text);
+      margin-bottom: 2rem;
+      text-align: center;
+    }
 
+    .card {
+      background: var(--clr-surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-md);
+      padding: 1.75rem;
+      margin-bottom: 2.5rem;
+    }
 
-class ResetToken(Base):
-    __tablename__ = "reset_tokens"
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    token = Column(String(255), index=True)
-    expires_at = Column(DateTime)
-    used = Column(Boolean, default=False)
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem 2rem;
+    }
 
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
 
-class LoginAttempt(Base):
-    __tablename__ = "login_attempts"
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    ip = Column(String(45))
-    attempted_at = Column(DateTime, default=datetime.utcnow)
-    success = Column(Boolean, default=False)
+    label {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--clr-text);
+    }
 
+    input, textarea {
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--clr-border);
+      border-radius: 8px;
+      font-size: 0.95rem;
+      transition: all 0.15s ease;
+      background: white;
+    }
 
-class Company(Base):
-    __tablename__ = "companies"
-    id = Column(Integer, primary_key=True)
+    input:focus, textarea:focus {
+      outline: none;
+      border-color: var(--clr-primary);
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+    }
 
-    # ForeignKey is nullable=True so existing rows without owner are still valid
-    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    textarea {
+      resize: vertical;
+      min-height: 84px;
+    }
 
-    name = Column(String(255), nullable=False)
-    place_id = Column(String(128))
-    maps_link = Column(String(512))
-    city = Column(String(128))
-    status = Column(String(20), default="active")
-    logo_url = Column(String(255))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    .form-actions {
+      grid-column: 1 / -1;
+      display: flex;
+      gap: 1rem;
+      margin-top: 1.25rem;
+    }
 
-    # Existing location columns
-    lat = Column(Float(precision=10, asdecimal=True), nullable=True)
-    lng = Column(Float(precision=10, asdecimal=True), nullable=True)
+    button {
+      padding: 0.75rem 1.5rem;
+      font-weight: 600;
+      font-size: 0.95rem;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: none;
+    }
 
-    # ─── NEW ATTRIBUTES FROM HTML FORM ───
-    email = Column(String(255), nullable=True)
-    phone = Column(String(50), nullable=True)
-    address = Column(String(512), nullable=True)
-    description = Column(Text, nullable=True)
+    .btn-primary {
+      background: var(--clr-primary);
+      color: white;
+    }
 
-    owner = relationship("User", back_populates="companies")
-    reviews = relationship("Review", back_populates="company")
+    .btn-primary:hover {
+      background: var(--clr-primary-dark);
+      transform: translateY(-1px);
+    }
 
-    __table_args__ = (
-        Index("idx_company_owner_status", "owner_id", "status"),
-        Index("idx_company_place_id", "place_id"),
-    )
+    .btn-secondary {
+      background: #f1f5f9;
+      color: #334155;
+    }
 
+    .btn-secondary:hover {
+      background: #e2e8f0;
+    }
 
-class Review(Base):
-    __tablename__ = "reviews"
-    id = Column(Integer, primary_key=True)
-    company_id = Column(Integer, ForeignKey("companies.id"))
-    external_id = Column(String(128))
-    text = Column(Text)
-    rating = Column(Integer)
-    review_at = Column(DateTime)
-    reviewer_name = Column(String(255))
-    reviewer_avatar = Column(String(255))
-    sentiment = Column(String(20))
-    sentiment_score = Column(Integer)
-    keywords = Column(String(512))
-    language = Column(String(10))
-    fetch_at = Column(DateTime, default=datetime.utcnow)
-    fetch_status = Column(String(20), default="Success")
-    company = relationship("Company", back_populates="reviews")
-    replies = relationship("Reply", back_populates="review")
+    .table-container {
+      overflow-x: auto;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-md);
+      background: white;
+    }
 
-    __table_args__ = (
-        UniqueConstraint("company_id", "external_id", name="uq_review_company_ext"),
-    )
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+    }
 
+    th, td {
+      padding: 14px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--clr-border);
+    }
 
-class Reply(Base):
-    __tablename__ = "replies"
-    id = Column(Integer, primary_key=True)
-    review_id = Column(Integer, ForeignKey("reviews.id"))
-    suggested_text = Column(Text)
-    edited_text = Column(Text)
-    status = Column(String(20), default="Draft")
-    suggested_at = Column(DateTime, default=datetime.utcnow)
-    sent_at = Column(DateTime)
-    review = relationship("Review", back_populates="replies")
+    th {
+      background: #f1f5f9;
+      font-weight: 600;
+      color: #334155;
+      text-transform: uppercase;
+      font-size: 0.78rem;
+      letter-spacing: 0.4px;
+    }
 
+    tr:hover {
+      background: #f8fafc;
+    }
 
-class Report(Base):
-    __tablename__ = "reports"
-    id = Column(Integer, primary_key=True)
-    company_id = Column(Integer, ForeignKey("companies.id"))
-    title = Column(String(255))
-    path = Column(String(512))
-    meta = Column(Text)
-    generated_at = Column(DateTime, default=datetime.utcnow)
+    .status {
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
 
+    .status.active  { color: var(--clr-success); }
+    .status.inactive { color: var(--clr-danger); }
 
-class Notification(Base):
-    __tablename__ = "notifications"
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
-    kind = Column(String(50))
-    payload = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    read = Column(Boolean, default=False)
+    @media (max-width: 768px) {
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Company Management</h1>
+
+  <!-- ─── Form ─── -->
+  <div class="card">
+    <form id="company-form" class="form-grid">
+      <div class="form-group">
+        <label for="name">Company Name <span style="color:#e11d48">*</span></label>
+        <input type="text" id="name" name="name" required autocomplete="organization">
+      </div>
+
+      <div class="form-group">
+        <label for="city">City</label>
+        <input type="text" id="city" name="city" autocomplete="address-level2">
+      </div>
+
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" autocomplete="email">
+      </div>
+
+      <div class="form-group">
+        <label for="phone">Phone</label>
+        <input type="tel" id="phone" name="phone" autocomplete="tel">
+      </div>
+
+      <div class="form-group">
+        <label for="address">Address</label>
+        <textarea id="address" name="address" rows="2" autocomplete="street-address"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="description">Description</label>
+        <textarea id="description" name="description" rows="3"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="lat">Latitude</label>
+        <input type="number" step="any" id="lat" name="lat" min="-90" max="90">
+      </div>
+
+      <div class="form-group">
+        <label for="lng">Longitude</label>
+        <input type="number" step="any" id="lng" name="lng" min="-180" max="180">
+      </div>
+
+      <div class="form-group">
+        <label for="place_id">Google Place ID</label>
+        <input type="text" id="place_id" name="place_id">
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn-primary">Save Company</button>
+        <button type="button" class="btn-secondary" id="reset-btn">Clear Form</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ─── Table ─── -->
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>City</th>
+          <th>Email</th>
+          <th>Phone</th>
+          <th>Address</th>
+          <th>Description</th>
+          <th>Lat</th>
+          <th>Lng</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="companies-table-body">
+        <!-- rows inserted by JS -->
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  const form = document.getElementById('company-form');
+  const tableBody = document.getElementById('companies-table-body');
+  const resetBtn = document.getElementById('reset-btn');
+
+  async function fetchCompanies() {
+    try {
+      const res = await fetch('/companies/list');
+      if (!res.ok) throw new Error('Failed to load companies');
+      const companies = await res.json();
+
+      tableBody.innerHTML = '';
+
+      companies.forEach(c => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${c.id}</td>
+          <td><strong>${escapeHTML(c.name)}</strong></td>
+          <td>${c.city || '—'}</td>
+          <td>${c.email || '—'}</td>
+          <td>${c.phone || '—'}</td>
+          <td>${c.address || '—'}</td>
+          <td title="${escapeHTML(c.description || '')}">${truncate(c.description || '—', 60)}</td>
+          <td>${c.lat?.toFixed(5) || '—'}</td>
+          <td>${c.lng?.toFixed(5) || '—'}</td>
+          <td><span class="status ${c.status?.toLowerCase() || ''}">${c.status || 'Unknown'}</span></td>
+        `;
+        tableBody.appendChild(row);
+      });
+    } catch (err) {
+      console.error(err);
+      tableBody.innerHTML = `<tr><td colspan="10" style="text-align:center;color:#dc2626;padding:2rem;">Could not load companies</td></tr>`;
+    }
+  }
+
+  function escapeHTML(str) {
+    return str.replace(/[&<>"']/g, m => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[m]);
+  }
+
+  function truncate(str, len) {
+    return str.length > len ? str.slice(0, len) + '…' : str;
+  }
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+
+    const data = {
+      name:       form.name.value.trim(),
+      city:       form.city.value.trim() || null,
+      email:      form.email.value.trim() || null,
+      phone:      form.phone.value.trim() || null,
+      address:    form.address.value.trim() || null,
+      description:form.description.value.trim() || null,
+      lat:        form.lat.value ? Number(form.lat.value) : null,
+      lng:        form.lng.value ? Number(form.lng.value) : null,
+      place_id:   form.place_id.value.trim() || null,
+    };
+
+    if (!data.name) {
+      alert('Company name is required.');
+      return;
+    }
+
+    try {
+      const query = new URLSearchParams(
+        Object.fromEntries(
+          Object.entries(data).filter(([_,v]) => v !== null && v !== '')
+        )
+      ).toString();
+
+      const res = await fetch(`/companies/?${query}`, { method: 'POST' });
+
+      if (!res.ok) throw new Error(await res.text());
+
+      alert('Company saved successfully.');
+      form.reset();
+      await fetchCompanies();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to save company.\n' + (err.message || ''));
+    }
+  });
+
+  resetBtn.addEventListener('click', () => {
+    if (confirm('Clear the form?')) form.reset();
+  });
+
+  // Load data when page opens
+  fetchCompanies();
+</script>
+</body>
+</html>
