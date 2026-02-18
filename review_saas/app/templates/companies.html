@@ -31,7 +31,7 @@
 
 <form id="company-form">
     <label>Company Name:</label>
-    <input type="text" id="name" name="name" required placeholder="Start typing company name...">
+    <input type="text" id="name" name="name" required>
 
     <label>City:</label>
     <input type="text" id="city" name="city">
@@ -42,17 +42,17 @@
     <label>Phone:</label>
     <input type="text" id="phone" name="phone">
 
-    <label>Address (Auto-filled):</label>
-    <textarea id="address" name="address" rows="2" readonly></textarea>
+    <label>Address (Autocomplete):</label>
+    <input type="text" id="address" name="address">
 
     <label>Description:</label>
     <textarea id="description" name="description" rows="3"></textarea>
 
     <label>Latitude:</label>
-    <input type="number" step="0.000001" id="lat" name="lat" readonly>
+    <input type="number" step="0.000001" id="lat" name="lat">
 
     <label>Longitude:</label>
-    <input type="number" step="0.000001" id="lng" name="lng" readonly>
+    <input type="number" step="0.000001" id="lng" name="lng">
 
     <!-- Hidden place_id -->
     <input type="hidden" id="place_id" name="place_id">
@@ -113,15 +113,10 @@ async function fetchCompanies() {
 /* ───────── FORM SUBMIT ───────── */
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
-
     const formData = new FormData(form);
 
     try {
-        const response = await fetch('/companies/', {
-            method: 'POST',
-            body: formData
-        });
-
+        const response = await fetch('/companies/', { method: 'POST', body: formData });
         if (response.ok) {
             alert("Company saved successfully!");
             form.reset();
@@ -136,32 +131,46 @@ form.addEventListener('submit', async (e) => {
     }
 });
 
-/* ───────── GOOGLE AUTOCOMPLETE ON COMPANY NAME ───────── */
+/* ───────── GOOGLE AUTOCOMPLETE & GEOCODE ───────── */
 function initAutocomplete() {
     const nameInput = document.getElementById('name');
+    const addressInput = document.getElementById('address');
 
-    // Use Google Places Autocomplete for company name
-    const autocomplete = new google.maps.places.Autocomplete(nameInput, {
-        types: ['establishment']  // Only businesses
+    const geocoder = new google.maps.Geocoder();
+
+    // When user types company name, fetch address and coordinates automatically
+    nameInput.addEventListener('change', () => {
+        const name = nameInput.value;
+        if (!name) return;
+
+        geocoder.geocode({ address: name }, (results, status) => {
+            if (status === 'OK' && results[0]) {
+                const place = results[0];
+                addressInput.value = place.formatted_address;
+                document.getElementById('lat').value = place.geometry.location.lat();
+                document.getElementById('lng').value = place.geometry.location.lng();
+                document.getElementById('place_id').value = place.place_id || '';
+                
+                // Extract city from address components
+                const cityComp = place.address_components.find(comp =>
+                    comp.types.includes('locality') || comp.types.includes('administrative_area_level_2')
+                );
+                document.getElementById('city').value = cityComp ? cityComp.long_name : '';
+            } else {
+                console.warn('Geocode was not successful:', status);
+            }
+        });
     });
 
-    autocomplete.addListener('place_changed', async () => {
+    // Optional: Keep normal autocomplete for manual edits
+    const autocomplete = new google.maps.places.Autocomplete(addressInput, { types: ['establishment'] });
+    autocomplete.addListener('place_changed', () => {
         const place = autocomplete.getPlace();
-
-        if (!place.geometry) {
-            console.warn("No geometry available for selected company.");
-            return;
-        }
-
-        // Fill in address, lat/lng, place_id automatically
+        if (!place.geometry) return;
         document.getElementById('lat').value = place.geometry.location.lat();
         document.getElementById('lng').value = place.geometry.location.lng();
         document.getElementById('place_id').value = place.place_id;
         document.getElementById('address').value = place.formatted_address || '';
-        document.getElementById('city').value = (place.address_components || [])
-            .find(comp => comp.types.includes('locality'))?.long_name || '';
-
-        document.getElementById('phone').value = place.formatted_phone_number || '';
     });
 }
 
