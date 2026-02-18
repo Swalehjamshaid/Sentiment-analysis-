@@ -1,21 +1,117 @@
-
 {% extends 'base.html' %}
 {% block content %}
-  <h3>Login</h3>
-  <form id="loginForm" class="row g-2">
-    <div class="col-md-4"><input class="form-control" name="email" type="email" placeholder="Email" required></div>
-    <div class="col-md-4"><input class="form-control" name="password" type="password" placeholder="Password" required></div>
-    <div class="col-md-4"><input class="form-control" name="totp" placeholder="2FA code (if enabled)"></div>
-    <div class="col-12"><button class="btn btn-primary" type="button" onclick="login()">Login</button></div>
-  </form>
-  <script>
-    async function login(){
-      const fd = new FormData(document.getElementById('loginForm'));
-      const params = new URLSearchParams({email: fd.get('email'), password: fd.get('password'), totp: fd.get('totp')});
-      const r = await fetch('/auth/login?'+params.toString(), {method:'POST'});
-      const j = await r.json();
-      if(j.access_token){ localStorage.setItem('token', j.access_token); alert('Logged in'); }
-      else{ alert(JSON.stringify(j)); }
+
+<style>
+/* Background Gradient */
+body {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Login Card */
+.login-container {
+    background: #ffffff;
+    border-radius: 20px;
+    padding: 40px 30px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+    max-width: 600px;
+    width: 100%;
+    animation: fadeIn 0.7s ease-in-out;
+}
+
+.login-container h3 {
+    text-align: center;
+    margin-bottom: 30px;
+    color: #333;
+    font-weight: 700;
+}
+
+/* Form Controls */
+.form-control {
+    border-radius: 12px;
+    padding: 12px 15px;
+    border: 1px solid #ddd;
+    transition: all 0.3s ease;
+}
+
+.form-control:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102,126,234,0.2);
+}
+
+/* Login Button */
+.btn-login {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    border: none;
+    padding: 12px;
+    border-radius: 12px;
+    font-weight: 600;
+    color: #fff;
+    width: 100%;
+    transition: all 0.3s ease;
+}
+
+.btn-login:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 25px rgba(0,0,0,0.25);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .login-container {
+        padding: 30px 20px;
     }
-  </script>
+}
+
+/* Animation */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px);}
+    to { opacity: 1; transform: translateY(0);}
+}
+</style>
+
+<div class="login-container">
+  <h3>Welcome Back</h3>
+  <form id="loginForm" class="row g-3">
+    <div class="col-md-12">
+      <input class="form-control" name="email" type="email" placeholder="Email" required>
+    </div>
+    <div class="col-md-12">
+      <input class="form-control" name="password" type="password" placeholder="Password" required>
+    </div>
+    <div class="col-md-12">
+      <input class="form-control" name="totp" placeholder="2FA code (if enabled)">
+    </div>
+    <div class="col-12">
+      <button class="btn btn-login" type="button" onclick="login()">Login</button>
+    </div>
+  </form>
+</div>
+
+<script>
+async function login() {
+    const form = document.getElementById('loginForm');
+    const formData = new FormData(form);
+
+    const response = await fetch('/auth/login', {
+        method: 'POST',
+        body: formData
+    });
+
+    const result = await response.json();
+
+    if(result.access_token){
+        localStorage.setItem('token', result.access_token);
+        alert('Logged in successfully!');
+        window.location.href = '/dashboard'; // Redirect to dashboard
+    } else {
+        alert(JSON.stringify(result));
+    }
+}
+</script>
+
 {% endblock %}
