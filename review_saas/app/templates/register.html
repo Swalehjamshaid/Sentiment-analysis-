@@ -12,6 +12,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-direction: column;
 }
 
 .register-card {
@@ -63,6 +64,36 @@ body {
     margin-top: 5px;
 }
 
+.response-box {
+    width: 100%;
+    max-width: 520px;
+    background: #f7f7f7;
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid #ddd;
+    display: none;
+    margin-top: 20px;
+}
+
+.response-box h4 {
+    margin-bottom: 10px;
+    font-size: 16px;
+    color: #333;
+}
+
+.response-box p {
+    margin: 4px 0;
+}
+
+#profilePreview {
+    max-width: 120px;
+    max-height: 120px;
+    margin-top: 10px;
+    border-radius: 50%;
+    border: 1px solid #ccc;
+    display: none;
+}
+
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(20px); }
     to { opacity: 1; transform: translateY(0); }
@@ -102,6 +133,17 @@ body {
 
         </form>
     </div>
+
+    <!-- Response box to show user data -->
+    <div id="responseBox" class="response-box">
+        <h4>Registered User Details:</h4>
+        <p><strong>ID:</strong> <span id="userId"></span></p>
+        <p><strong>Full Name:</strong> <span id="userFullName"></span></p>
+        <p><strong>Email:</strong> <span id="userEmail"></span></p>
+        <p><strong>Profile Pic:</strong> <span id="userProfile"></span></p>
+        <img id="profilePreview" alt="Profile Preview">
+        <p><strong>Status:</strong> <span id="userStatus"></span></p>
+    </div>
 </div>
 
 <script>
@@ -121,7 +163,26 @@ document.getElementById("registerForm").addEventListener("submit", async functio
     });
 
     if (response.ok) {
-        window.location.href = "/login";
+        const data = await response.json();
+
+        document.getElementById("userId").textContent = data.id;
+        document.getElementById("userFullName").textContent = data.full_name;
+        document.getElementById("userEmail").textContent = data.email;
+        document.getElementById("userProfile").textContent = data.profile_pic_url ?? "None";
+        document.getElementById("userStatus").textContent = data.status;
+
+        const profileImg = document.getElementById("profilePreview");
+        if(data.profile_pic_url){
+            profileImg.src = data.profile_pic_url;
+            profileImg.style.display = "block";
+        } else {
+            profileImg.style.display = "none";
+        }
+
+        document.getElementById("responseBox").style.display = "block";
+        button.innerHTML = "Create Account";
+        button.disabled = false;
+
     } else {
         alert("Registration failed. Please try again.");
         button.innerHTML = "Create Account";
