@@ -71,12 +71,11 @@
 </div>
 
 <script>
-// ────────────────────────────────────────────────
 let input = document.getElementById("company-name");
 let suggestionsDiv = document.getElementById("suggestions");
 let selectedPlaceId = null;
 let map, marker;
-const defaultLocation = { lat: 24.8607, lng: 67.0011 }; // Karachi
+const defaultLocation = { lat: 24.8607, lng: 67.0011 }; // Karachi default
 
 function initMap() {
     map = new google.maps.Map(document.getElementById("map"), {
@@ -95,7 +94,6 @@ function initMap() {
     });
 }
 
-// Debounce helper
 function debounce(func, delay = 300) {
     let timer;
     return function(...args) {
@@ -104,7 +102,6 @@ function debounce(func, delay = 300) {
     };
 }
 
-// Fetch autocomplete suggestions
 const fetchSuggestions = debounce(async () => {
     const query = input.value.trim();
     if (!query) {
@@ -138,7 +135,6 @@ const fetchSuggestions = debounce(async () => {
                     if (!detailsRes.ok) throw new Error(`Details HTTP ${detailsRes.status}`);
                     const details = await detailsRes.json();
 
-                    // Fill form fields
                     document.getElementById("company-address").value = details.address || "";
                     document.getElementById("company-phone").value   = details.phone   || "";
                     document.getElementById("company-website").value = details.website || "";
@@ -146,7 +142,6 @@ const fetchSuggestions = debounce(async () => {
                     document.getElementById("company-lat").value     = details.lat     ?? "";
                     document.getElementById("company-lng").value     = details.lng     ?? "";
 
-                    // Center map & marker
                     if (details.lat && details.lng) {
                         const pos = { lat: parseFloat(details.lat), lng: parseFloat(details.lng) };
                         marker.setPosition(pos);
@@ -168,7 +163,6 @@ const fetchSuggestions = debounce(async () => {
 
 input.addEventListener("input", fetchSuggestions);
 
-// Form submission
 document.getElementById("company-form").addEventListener("submit", async (e) => {
     e.preventDefault();
 
@@ -198,7 +192,6 @@ document.getElementById("company-form").addEventListener("submit", async (e) => 
         const data = await res.json();
         alert(`✅ Company saved successfully!\n${data.name} • ${data.city || "—"} • ${data.status}`);
 
-        // Reset
         document.getElementById("company-form").reset();
         suggestionsDiv.innerHTML = "";
         selectedPlaceId = null;
@@ -215,7 +208,6 @@ document.getElementById("company-form").addEventListener("submit", async (e) => 
 });
 </script>
 
-<!-- Google Maps JS API -->
 <script src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&callback=initMap&libraries=places" async defer></script>
 </body>
 </html>
