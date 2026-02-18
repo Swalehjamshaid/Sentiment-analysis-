@@ -12,6 +12,9 @@ from .models import Base
 from .routes import auth, companies, reviews, reply, reports, dashboard, admin
 from .core.config import settings
 
+# --- Include the new Google Maps routes ---
+from .routes.maps_routes import router as maps_router
+
 
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
@@ -80,6 +83,9 @@ app.include_router(reply.router)
 app.include_router(reports.router)
 app.include_router(dashboard.router)
 app.include_router(admin.router)
+
+# --- Include the Google Maps routes ---
+app.include_router(maps_router)
 
 
 @app.get("/health")
