@@ -1,52 +1,132 @@
-# Filename: review_saas/app/routes/companies.py
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Company Management</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        input { padding: 8px; margin: 5px 0; width: 300px; }
+        button { padding: 8px 16px; margin-top: 10px; }
+        .suggestions { border: 1px solid #ccc; max-width: 300px; }
+        .suggestion-item { padding: 5px; cursor: pointer; }
+        .suggestion-item:hover { background-color: #f0f0f0; }
+    </style>
+</head>
+<body>
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-from app.db import get_db
-from app.models import Company
-from typing import List
-import requests
-from datetime import datetime
-from app.core.config import settings
+<h2>Company Management</h2>
 
-router = APIRouter()
+<form id="company-form">
+    <label for="company-name">Company Name:</label><br>
+    <input type="text" id="company-name" placeholder="Enter company name" autocomplete="off">
+    <div id="suggestions" class="suggestions"></div>
 
-GOOGLE_API_KEY = settings.GOOGLE_API_KEY  # set in config.py or environment variable
+    <br>
+    <label for="company-address">Company Address:</label><br>
+    <input type="text" id="company-address" placeholder="Address will auto-fill">
 
-@router.get("/companies", response_model=List[dict])
-def get_companies(db: Session = Depends(get_db)):
-    companies = db.query(Company).all()
-    return [{"name": c.name, "city": c.city, "status": c.status} for c in companies]
+    <br>
+    <label for="company-phone">Company Phone:</label><br>
+    <input type="text" id="company-phone" placeholder="Phone will auto-fill">
 
-@router.post("/companies")
-def add_company(
-    name: str = Query(...),
-    city: str = Query(None),
-    place_id: str = Query(None),
-    db: Session = Depends(get_db)
-):
-    if place_id:
-        # Fetch place details from Google Places API
-        url = f"https://maps.googleapis.com/maps/api/place/details/json?place_id={place_id}&key={GOOGLE_API_KEY}"
-        resp = requests.get(url)
-        if resp.status_code == 200:
-            data = resp.json().get("result", {})
-            name = data.get("name", name)
-            # Extract city from address components
-            if "address_components" in data:
-                for comp in data["address_components"]:
-                    if "locality" in comp.get("types", []):
-                        city = comp.get("long_name")
-                        break
+    <br>
+    <label for="company-website">Company Website:</label><br>
+    <input type="text" id="company-website" placeholder="Website will auto-fill">
 
-    new_company = Company(
-        name=name,
-        city=city,
-        status="active",
-        created_at=datetime.utcnow(),
-        place_id=place_id
-    )
-    db.add(new_company)
-    db.commit()
-    db.refresh(new_company)
-    return {"name": new_company.name, "city": new_company.city, "status": new_company.status}
+    <br>
+    <label for="company-city">City:</label><br>
+    <input type="text" id="company-city" placeholder="City will auto-fill">
+
+    <br>
+    <button type="submit">Save Company</button>
+</form>
+
+<script>
+const input = document.getElementById("company-name");
+const suggestionsDiv = document.getElementById("suggestions");
+
+let selectedPlaceId = null;
+
+// Autocomplete suggestions
+input.addEventListener("input", async () => {
+    const query = input.value;
+    if (!query) {
+        suggestionsDiv.innerHTML = "";
+        return;
+    }
+
+    try {
+        const res = await fetch(`/companies/autocomplete?name=${encodeURIComponent(query)}`);
+        const data = await res.json();
+
+        suggestionsDiv.innerHTML = "";
+        data.forEach(item => {
+            const div = document.createElement("div");
+            div.classList.add("suggestion-item");
+            div.textContent = item.description;
+            div.dataset.placeId = item.place_id;
+
+            div.addEventListener("click", async () => {
+                input.value = item.description;
+                selectedPlaceId = item.place_id;
+                suggestionsDiv.innerHTML = "";
+
+                // Fetch full details by place_id
+                const detailsRes = await fetch(`/companies/details?place_id=${item.place_id}`);
+                const details = await detailsRes.json();
+
+                document.getElementById("company-address").value = details.address || "";
+                document.getElementById("company-phone").value = details.phone || "";
+                document.getElementById("company-website").value = details.website || "";
+                // Attempt to extract city from address
+                if (details.address) {
+                    const cityMatch = details.address.split(",").slice(-3, -2)[0]; // rough extract
+                    document.getElementById("company-city").value = cityMatch || "";
+                }
+            });
+
+            suggestionsDiv.appendChild(div);
+        });
+
+    } catch (error) {
+        console.error("Error fetching suggestions:", error);
+    }
+});
+
+// Save company form submission
+document.getElementById("company-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const name = document.getElementById("company-name").value;
+    const city = document.getElementById("company-city").value;
+
+    if (!name) {
+        alert("Company name is required!");
+        return;
+    }
+
+    try {
+        const params = new URLSearchParams();
+        params.append("name", name);
+        if (city) params.append("city", city);
+        if (selectedPlaceId) params.append("place_id", selectedPlaceId);
+
+        const res = await fetch(`/companies?${params.toString()}`, { method: "POST" });
+        const data = await res.json();
+        alert(`Company saved: ${data.name}, ${data.city}, status: ${data.status}`);
+
+        // Reset form
+        document.getElementById("company-form").reset();
+        selectedPlaceId = null;
+        suggestionsDiv.innerHTML = "";
+
+    } catch (error) {
+        console.error("Error saving company:", error);
+        alert("Failed to save company.");
+    }
+});
+</script>
+
+</body>
+</html>
