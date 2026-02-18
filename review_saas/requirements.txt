@@ -42,5 +42,4 @@ apscheduler==3.10.4
 langdetect==1.0.9
 
 # ── Google Maps Integration (Python 3.13 compatible) ──
-pip install googlemaps==5.15.0
-requests
+googlemaps==5.15.0
