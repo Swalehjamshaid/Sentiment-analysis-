@@ -29,9 +29,7 @@
 
 <h1>Company Management</h1>
 
-<!-- ─────────── FORM ─────────── -->
 <form id="company-form">
-
     <label>Company Name:</label>
     <input type="text" id="name" name="name" required>
 
@@ -62,7 +60,6 @@
     <button type="submit">Add / Update Company</button>
 </form>
 
-<!-- ─────────── TABLE ─────────── -->
 <table>
     <thead>
         <tr>
@@ -92,7 +89,6 @@ async function fetchCompanies() {
         const companies = await response.json();
 
         tableBody.innerHTML = '';
-
         companies.forEach(c => {
             const row = document.createElement('tr');
             row.innerHTML = `
@@ -142,7 +138,6 @@ form.addEventListener('submit', async (e) => {
 
 /* ───────── GOOGLE AUTOCOMPLETE ───────── */
 function initAutocomplete() {
-
     const addressInput = document.getElementById('address');
 
     const autocomplete = new google.maps.places.Autocomplete(addressInput, {
@@ -150,35 +145,28 @@ function initAutocomplete() {
     });
 
     autocomplete.addListener('place_changed', async () => {
-
         const place = autocomplete.getPlace();
 
         if (!place.geometry) {
-            alert("No details available for selected place.");
+            console.warn("No geometry available for selected place.");
             return;
         }
 
-        // Set Lat/Lng
         document.getElementById('lat').value = place.geometry.location.lat();
         document.getElementById('lng').value = place.geometry.location.lng();
-
-        // Set Place ID
         document.getElementById('place_id').value = place.place_id;
 
-        // Fetch backend enriched details
         try {
             const response = await fetch(`/companies/details?place_id=${place.place_id}`);
-
             if (response.ok) {
                 const details = await response.json();
-
                 document.getElementById('name').value = details.name || '';
                 document.getElementById('city').value = details.city || '';
                 document.getElementById('phone').value = details.phone || '';
                 document.getElementById('address').value = details.address || '';
             }
         } catch (err) {
-            console.error("Error fetching details:", err);
+            console.error("Error fetching backend details:", err);
         }
     });
 }
@@ -189,7 +177,7 @@ window.addEventListener('DOMContentLoaded', fetchCompanies);
 
 <!-- Google Maps Script -->
 <script
-    src="https://maps.googleapis.com/maps/api/js?key={{ google_api_key }}&libraries=places&callback=initAutocomplete"
+    src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&callback=initAutocomplete"
     async defer>
 </script>
 
