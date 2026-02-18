@@ -1,213 +1,148 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Company Management</title>
-<!-- Google Fonts -->
-<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-<style>
-    body { font-family: 'Roboto', sans-serif; background: #f4f6f8; margin: 0; padding: 0; }
-    .container { max-width: 1000px; margin: 50px auto; background: #fff; padding: 40px; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.1); }
-    h2 { text-align: center; color: #333; margin-bottom: 30px; font-weight: 700; }
-    form { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; position: relative; }
-    label { font-weight: 500; margin-bottom: 5px; display: block; }
-    input { padding: 12px; border: 1px solid #ccc; border-radius: 6px; width: 100%; box-sizing: border-box; transition: 0.2s; }
-    input:focus { border-color: #007BFF; outline: none; }
-    input[readonly] { background-color: #e9ecef; cursor: not-allowed; }
-    button { grid-column: span 2; padding: 14px 20px; border: none; background-color: #007BFF; color: white; font-size: 16px; border-radius: 6px; cursor: pointer; transition: background 0.3s; }
-    button:hover { background-color: #0056b3; }
-    button:disabled { background-color: #ccc; cursor: not-allowed; }
-    .suggestions { position: absolute; top: 62px; left: 0; right: 0; background: #fff; border: 1px solid #ccc; border-radius: 6px; max-height: 250px; overflow-y: auto; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-    .suggestion-item { padding: 12px; cursor: pointer; transition: background 0.2s; }
-    .suggestion-item:hover { background-color: #f0f0f0; }
-    .full-width { grid-column: span 2; position: relative; }
-    #map { height: 350px; width: 100%; border-radius: 10px; margin-top: 15px; border: 1px solid #ddd; }
-    .error-message { color: #dc3545; font-size: 0.9em; margin-top: 4px; display: none; }
-    @media (max-width: 700px) { form { grid-template-columns: 1fr; } .full-width { grid-column: span 1; } }
-</style>
-</head>
-<body>
-<div class="container">
-    <h2>Company Management</h2>
-    <form id="company-form">
-        <div class="full-width">
-            <label for="company-name">Company Name:</label>
-            <input type="text" id="company-name" placeholder="Start typing company name..." autocomplete="off">
-            <div id="suggestions" class="suggestions"></div>
-            <div id="name-error" class="error-message">Please enter a company name</div>
-        </div>
-        <div class="full-width">
-            <label for="company-address">Company Address:</label>
-            <input type="text" id="company-address" readonly placeholder="Will be auto-filled">
-        </div>
-        <div>
-            <label for="company-phone">Phone:</label>
-            <input type="text" id="company-phone" readonly placeholder="Will be auto-filled">
-        </div>
-        <div>
-            <label for="company-website">Website:</label>
-            <input type="text" id="company-website" readonly placeholder="Will be auto-filled">
-        </div>
-        <div>
-            <label for="company-city">City:</label>
-            <input type="text" id="company-city" readonly placeholder="Will be auto-filled">
-        </div>
-        <div>
-            <label for="company-lat">Latitude:</label>
-            <input type="text" id="company-lat" readonly placeholder="Will be auto-filled or adjustable">
-        </div>
-        <div>
-            <label for="company-lng">Longitude:</label>
-            <input type="text" id="company-lng" readonly placeholder="Will be auto-filled or adjustable">
-        </div>
-        <div class="full-width">
-            <div id="map"></div>
-        </div>
-        <div class="full-width">
-            <button type="submit" id="save-btn">Save Company</button>
-        </div>
-    </form>
-</div>
+# Filename: app/models.py
 
-<script>
-let input = document.getElementById("company-name");
-let suggestionsDiv = document.getElementById("suggestions");
-let selectedPlaceId = null;
-let map, marker;
-const defaultLocation = { lat: 24.8607, lng: 67.0011 }; // Karachi default
+from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DateTime,
+    Boolean,
+    ForeignKey,
+    Text,
+    UniqueConstraint,
+    Index,
+    Float,
+)
+from datetime import datetime
 
-function initMap() {
-    map = new google.maps.Map(document.getElementById("map"), {
-        zoom: 10,
-        center: defaultLocation
-    });
-    marker = new google.maps.Marker({
-        position: defaultLocation,
-        map: map,
-        draggable: true
-    });
-    marker.addListener("dragend", () => {
-        const pos = marker.getPosition();
-        document.getElementById("company-lat").value = pos.lat().toFixed(6);
-        document.getElementById("company-lng").value = pos.lng().toFixed(6);
-    });
-}
+Base = declarative_base()
 
-function debounce(func, delay = 300) {
-    let timer;
-    return function(...args) {
-        clearTimeout(timer);
-        timer = setTimeout(() => func.apply(this, args), delay);
-    };
-}
 
-const fetchSuggestions = debounce(async () => {
-    const query = input.value.trim();
-    if (!query) {
-        suggestionsDiv.innerHTML = "";
-        return;
-    }
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True)
+    full_name = Column(String(100), nullable=False)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    status = Column(String(20), default="pending")
+    profile_pic_url = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    companies = relationship("Company", back_populates="owner")
 
-    try {
-        const res = await fetch(`/companies/autocomplete?name=${encodeURIComponent(query)}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
 
-        suggestionsDiv.innerHTML = "";
-        if (data.length === 0) {
-            suggestionsDiv.innerHTML = '<div class="suggestion-item" style="color:#888;">No companies found</div>';
-            return;
-        }
+class VerificationToken(Base):
+    __tablename__ = "verification_tokens"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    token = Column(String(255), index=True)
+    expires_at = Column(DateTime)
+    used = Column(Boolean, default=False)
 
-        data.forEach(item => {
-            const div = document.createElement("div");
-            div.classList.add("suggestion-item");
-            div.textContent = item.description;
-            div.dataset.placeId = item.place_id;
-            div.addEventListener("click", async () => {
-                input.value = item.description;
-                selectedPlaceId = item.place_id;
-                suggestionsDiv.innerHTML = "";
 
-                try {
-                    const detailsRes = await fetch(`/companies/details?place_id=${item.place_id}`);
-                    if (!detailsRes.ok) throw new Error(`Details HTTP ${detailsRes.status}`);
-                    const details = await detailsRes.json();
+class ResetToken(Base):
+    __tablename__ = "reset_tokens"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    token = Column(String(255), index=True)
+    expires_at = Column(DateTime)
+    used = Column(Boolean, default=False)
 
-                    document.getElementById("company-address").value = details.address || "";
-                    document.getElementById("company-phone").value   = details.phone   || "";
-                    document.getElementById("company-website").value = details.website || "";
-                    document.getElementById("company-city").value    = details.city    || "";
-                    document.getElementById("company-lat").value     = details.lat     ?? "";
-                    document.getElementById("company-lng").value     = details.lng     ?? "";
 
-                    if (details.lat && details.lng) {
-                        const pos = { lat: parseFloat(details.lat), lng: parseFloat(details.lng) };
-                        marker.setPosition(pos);
-                        map.setCenter(pos);
-                        map.setZoom(15);
-                    }
-                } catch (err) {
-                    console.error("Details fetch failed:", err);
-                    alert("Could not load company details. Please try again.");
-                }
-            });
-            suggestionsDiv.appendChild(div);
-        });
-    } catch (error) {
-        console.error("Autocomplete error:", error);
-        suggestionsDiv.innerHTML = '<div class="suggestion-item" style="color:#dc3545;">Error loading suggestions</div>';
-    }
-}, 300);
+class LoginAttempt(Base):
+    __tablename__ = "login_attempts"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    ip = Column(String(45))
+    attempted_at = Column(DateTime, default=datetime.utcnow)
+    success = Column(Boolean, default=False)
 
-input.addEventListener("input", fetchSuggestions);
 
-document.getElementById("company-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
+class Company(Base):
+    __tablename__ = "companies"
+    id = Column(Integer, primary_key=True)
 
-    const name = input.value.trim();
-    if (!name) {
-        document.getElementById("name-error").style.display = "block";
-        return;
-    }
-    document.getElementById("name-error").style.display = "none";
+    # ForeignKey is nullable=True so existing rows without owner are still valid
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
-    const saveBtn = document.getElementById("save-btn");
-    saveBtn.disabled = true;
-    saveBtn.textContent = "Saving...";
+    name = Column(String(255), nullable=False)
+    place_id = Column(String(128))
+    maps_link = Column(String(512))
+    city = Column(String(128))
+    status = Column(String(20), default="active")
+    logo_url = Column(String(255))
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    try {
-        const params = new URLSearchParams();
-        params.append("name", name);
-        if (selectedPlaceId) params.append("place_id", selectedPlaceId);
-        const lat = document.getElementById("company-lat").value.trim();
-        const lng = document.getElementById("company-lng").value.trim();
-        if (lat) params.append("lat", lat);
-        if (lng) params.append("lng", lng);
+    # Existing location columns
+    lat = Column(Float(precision=10, asdecimal=True), nullable=True)
+    lng = Column(Float(precision=10, asdecimal=True), nullable=True)
 
-        const res = await fetch(`/companies?${params.toString()}`, { method: "POST" });
-        if (!res.ok) throw new Error(`Save failed: HTTP ${res.status}`);
+    # ─── NEW ATTRIBUTES FROM HTML FORM ───
+    email = Column(String(255), nullable=True)
+    phone = Column(String(50), nullable=True)
+    address = Column(String(512), nullable=True)
+    description = Column(Text, nullable=True)
 
-        const data = await res.json();
-        alert(`✅ Company saved successfully!\n${data.name} • ${data.city || "—"} • ${data.status}`);
+    owner = relationship("User", back_populates="companies")
+    reviews = relationship("Review", back_populates="company")
 
-        document.getElementById("company-form").reset();
-        suggestionsDiv.innerHTML = "";
-        selectedPlaceId = null;
-        marker.setPosition(defaultLocation);
-        map.setCenter(defaultLocation);
-        map.setZoom(10);
-    } catch (error) {
-        console.error("Save error:", error);
-        alert("❌ Failed to save company. Please check your connection or try again.");
-    } finally {
-        saveBtn.disabled = false;
-        saveBtn.textContent = "Save Company";
-    }
-});
-</script>
+    __table_args__ = (
+        Index("idx_company_owner_status", "owner_id", "status"),
+        Index("idx_company_place_id", "place_id"),
+    )
 
-<script src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&callback=initMap&libraries=places" async defer></script>
-</body>
-</html>
+
+class Review(Base):
+    __tablename__ = "reviews"
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id"))
+    external_id = Column(String(128))
+    text = Column(Text)
+    rating = Column(Integer)
+    review_at = Column(DateTime)
+    reviewer_name = Column(String(255))
+    reviewer_avatar = Column(String(255))
+    sentiment = Column(String(20))
+    sentiment_score = Column(Integer)
+    keywords = Column(String(512))
+    language = Column(String(10))
+    fetch_at = Column(DateTime, default=datetime.utcnow)
+    fetch_status = Column(String(20), default="Success")
+    company = relationship("Company", back_populates="reviews")
+    replies = relationship("Reply", back_populates="review")
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "external_id", name="uq_review_company_ext"),
+    )
+
+
+class Reply(Base):
+    __tablename__ = "replies"
+    id = Column(Integer, primary_key=True)
+    review_id = Column(Integer, ForeignKey("reviews.id"))
+    suggested_text = Column(Text)
+    edited_text = Column(Text)
+    status = Column(String(20), default="Draft")
+    suggested_at = Column(DateTime, default=datetime.utcnow)
+    sent_at = Column(DateTime)
+    review = relationship("Review", back_populates="replies")
+
+
+class Report(Base):
+    __tablename__ = "reports"
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id"))
+    title = Column(String(255))
+    path = Column(String(512))
+    meta = Column(Text)
+    generated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
+    kind = Column(String(50))
+    payload = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    read = Column(Boolean, default=False)
