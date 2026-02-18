@@ -1,5 +1,4 @@
 # Filename: main.py
-
 import os
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -7,10 +6,9 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from .db import engine
-from .models import Base
+from .models import Base, Company  # ← important: import Company
 from .routes import auth, companies, reviews, reply, reports, dashboard, admin
 from .core.config import settings
-# --- Include the new Google Maps routes ---
 from .routes.maps_routes import router as maps_router
 
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
@@ -25,10 +23,8 @@ app = FastAPI(title=settings.APP_NAME)
 
 templates = Jinja2Templates(directory="app/templates")
 
-# Security middleware
 app.add_middleware(HTTPSRedirectMiddleware)
 
-# Static mounts
 if os.path.isdir("app_uploads"):
     app.mount("/uploads", StaticFiles(directory="app_uploads"), name="uploads")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -36,6 +32,19 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 @app.on_event("startup")
 def _init_db():
     Base.metadata.create_all(bind=engine)
+
+    # ───────────────────────────────────────────────────────────────
+    # ONE-TIME SCHEMA FIX – only runs if you set this env var to "1"
+    # Set in Railway Variables → RECREATE_COMPANIES = 1
+    # Redeploy → wait for success → then set to 0 or delete the var
+    # WARNING: Deletes ALL rows in companies table (but keeps structure)
+    # ───────────────────────────────────────────────────────────────
+    if os.getenv("RECREATE_COMPANIES") == "1":
+        print("!!! DROPPING AND RECREATING COMPANIES TABLE !!!")
+        Base.metadata.drop_all(bind=engine, tables=[Company.__table__])
+        Base.metadata.create_all(bind=engine)
+        print("Companies table recreated with owner_id, lat, lng columns.")
+
     # (Optional) start scheduler jobs here
 
 # ────────────────────────────────────────────────
@@ -57,10 +66,6 @@ def login_page(request: Request):
 def dashboard_page(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
-# ────────────────────────────────────────────────
-# FIXED: Changed from /companies → /companies/manage
-#       This removes the conflict with the API router's POST /companies
-# ────────────────────────────────────────────────
 @app.get("/companies/manage", response_class=HTMLResponse)
 def companies_page(request: Request):
     return templates.TemplateResponse("companies.html", {"request": request})
@@ -73,14 +78,13 @@ def report_page(request: Request):
 # APIs
 # ────────────────────────────────────────────────
 app.include_router(auth.router, prefix="/auth")
-app.include_router(companies.router)           # Now /companies belongs only to the API (GET + POST)
+app.include_router(companies.router)
 app.include_router(reviews.router)
 app.include_router(reply.router)
 app.include_router(reports.router)
 app.include_router(dashboard.router)
 app.include_router(admin.router)
 
-# --- Include the Google Maps routes ---
 app.include_router(maps_router)
 
 @app.get("/health")
