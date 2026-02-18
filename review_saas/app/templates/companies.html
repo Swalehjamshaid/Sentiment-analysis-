@@ -6,6 +6,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Company Management</title>
+
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 
@@ -28,39 +29,40 @@
 
 <h1>Company Management</h1>
 
-<!-- ─── Add / Edit Company Form ─── -->
+<!-- ─────────── FORM ─────────── -->
 <form id="company-form">
-    <label for="name">Company Name:</label>
+
+    <label>Company Name:</label>
     <input type="text" id="name" name="name" required>
 
-    <label for="city">City:</label>
+    <label>City:</label>
     <input type="text" id="city" name="city">
 
-    <label for="email">Email:</label>
+    <label>Email:</label>
     <input type="email" id="email" name="email">
 
-    <label for="phone">Phone:</label>
+    <label>Phone:</label>
     <input type="text" id="phone" name="phone">
 
-    <label for="address">Address:</label>
+    <label>Address (Search via Google):</label>
     <textarea id="address" name="address" rows="2"></textarea>
 
-    <label for="description">Description:</label>
+    <label>Description:</label>
     <textarea id="description" name="description" rows="3"></textarea>
 
-    <label for="lat">Latitude:</label>
+    <label>Latitude:</label>
     <input type="number" step="0.000001" id="lat" name="lat">
 
-    <label for="lng">Longitude:</label>
+    <label>Longitude:</label>
     <input type="number" step="0.000001" id="lng" name="lng">
 
-    <label for="place_id">Google Place ID:</label>
-    <input type="text" id="place_id" name="place_id">
+    <!-- Hidden place_id -->
+    <input type="hidden" id="place_id" name="place_id">
 
     <button type="submit">Add / Update Company</button>
 </form>
 
-<!-- ─── Companies Table ─── -->
+<!-- ─────────── TABLE ─────────── -->
 <table>
     <thead>
         <tr>
@@ -76,18 +78,19 @@
             <th>Status</th>
         </tr>
     </thead>
-    <tbody id="companies-table-body">
-        <!-- Dynamic rows will be inserted here -->
-    </tbody>
+    <tbody id="companies-table-body"></tbody>
 </table>
 
 <script>
-    const form = document.getElementById('company-form');
-    const tableBody = document.getElementById('companies-table-body');
+const form = document.getElementById('company-form');
+const tableBody = document.getElementById('companies-table-body');
 
-    async function fetchCompanies() {
+/* ───────── FETCH COMPANIES ───────── */
+async function fetchCompanies() {
+    try {
         const response = await fetch('/companies/list');
         const companies = await response.json();
+
         tableBody.innerHTML = '';
 
         companies.forEach(c => {
@@ -95,85 +98,100 @@
             row.innerHTML = `
                 <td>${c.id}</td>
                 <td>${c.name}</td>
-                <td>${c.city || ''}</td>
-                <td>${c.email || ''}</td>
-                <td>${c.phone || ''}</td>
-                <td>${c.address || ''}</td>
-                <td>${c.description || ''}</td>
-                <td>${c.lat || ''}</td>
-                <td>${c.lng || ''}</td>
+                <td>${c.city ?? ''}</td>
+                <td>${c.email ?? ''}</td>
+                <td>${c.phone ?? ''}</td>
+                <td>${c.address ?? ''}</td>
+                <td>${c.description ?? ''}</td>
+                <td>${c.lat ?? ''}</td>
+                <td>${c.lng ?? ''}</td>
                 <td>${c.status}</td>
             `;
             tableBody.appendChild(row);
         });
+    } catch (err) {
+        console.error("Error loading companies:", err);
     }
+}
 
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
+/* ───────── FORM SUBMIT ───────── */
+form.addEventListener('submit', async (e) => {
+    e.preventDefault();
 
-        const data = {
-            name: form.name.value,
-            city: form.city.value,
-            email: form.email.value,
-            phone: form.phone.value,
-            address: form.address.value,
-            description: form.description.value,
-            lat: form.lat.value || null,
-            lng: form.lng.value || null,
-            place_id: form.place_id.value
-        };
+    const formData = new FormData(form);
 
-        const formData = new FormData();
-        for (const key in data) {
-            formData.append(key, data[key]);
-        }
-
-        const response = await fetch(`/companies/`, { method: 'POST', body: formData });
+    try {
+        const response = await fetch('/companies/', {
+            method: 'POST',
+            body: formData
+        });
 
         if (response.ok) {
-            alert('Company added/updated successfully!');
+            alert("Company saved successfully!");
             form.reset();
             fetchCompanies();
         } else {
-            alert('Failed to add company.');
+            const err = await response.json();
+            alert("Error: " + (err.detail || "Failed to save"));
+        }
+    } catch (error) {
+        alert("Network error.");
+        console.error(error);
+    }
+});
+
+/* ───────── GOOGLE AUTOCOMPLETE ───────── */
+function initAutocomplete() {
+
+    const addressInput = document.getElementById('address');
+
+    const autocomplete = new google.maps.places.Autocomplete(addressInput, {
+        types: ['establishment']
+    });
+
+    autocomplete.addListener('place_changed', async () => {
+
+        const place = autocomplete.getPlace();
+
+        if (!place.geometry) {
+            alert("No details available for selected place.");
+            return;
+        }
+
+        // Set Lat/Lng
+        document.getElementById('lat').value = place.geometry.location.lat();
+        document.getElementById('lng').value = place.geometry.location.lng();
+
+        // Set Place ID
+        document.getElementById('place_id').value = place.place_id;
+
+        // Fetch backend enriched details
+        try {
+            const response = await fetch(`/companies/details?place_id=${place.place_id}`);
+
+            if (response.ok) {
+                const details = await response.json();
+
+                document.getElementById('name').value = details.name || '';
+                document.getElementById('city').value = details.city || '';
+                document.getElementById('phone').value = details.phone || '';
+                document.getElementById('address').value = details.address || '';
+            }
+        } catch (err) {
+            console.error("Error fetching details:", err);
         }
     });
+}
 
-    // --- Google Places Autocomplete ---
-    function initAutocomplete() {
-        const addressInput = document.getElementById('address');
-        const autocomplete = new google.maps.places.Autocomplete(addressInput);
-
-        autocomplete.addListener('place_changed', async () => {
-            const place = autocomplete.getPlace();
-            if (!place.geometry) return;
-
-            document.getElementById('lat').value = place.geometry.location.lat();
-            document.getElementById('lng').value = place.geometry.location.lng();
-            document.getElementById('place_id').value = place.place_id;
-
-            // Fetch full details from backend
-            const detailsResp = await fetch(`/companies/details?place_id=${place.place_id}`);
-            if (detailsResp.ok) {
-                const details = await detailsResp.json();
-                form.name.value = details.name || form.name.value;
-                form.city.value = details.city || form.city.value;
-                form.phone.value = details.phone || form.phone.value;
-                form.address.value = details.address || form.address.value;
-            }
-        });
-    }
-
-    window.addEventListener('load', () => {
-        fetchCompanies();
-    });
+/* ───────── INITIAL LOAD ───────── */
+window.addEventListener('DOMContentLoaded', fetchCompanies);
 </script>
 
-<!-- Load Google Maps API with callback -->
+<!-- Google Maps Script -->
 <script
     src="https://maps.googleapis.com/maps/api/js?key={{ google_api_key }}&libraries=places&callback=initAutocomplete"
-    async defer
-></script>
+    async defer>
+</script>
 
 </body>
 </html>
