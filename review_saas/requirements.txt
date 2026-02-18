@@ -1,10 +1,12 @@
+# Filename: requirements.txt
+
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 jinja2==3.1.4
 python-multipart==0.0.9
 
 SQLAlchemy==2.0.31
-psycopg[binary]==3.3.2      # <-- compatible with Python 3.13
+psycopg[binary]==3.3.2      # compatible with Python 3.13
 
 pydantic==2.9.2
 pydantic-settings==2.4.0
@@ -31,4 +33,4 @@ apscheduler==3.10.4
 
 langdetect==1.0.9
 
-googlemaps==5.15.0          # Google Maps/Places API support
+googlemaps==4.10.0          # ✅ compatible with Python 3.13
