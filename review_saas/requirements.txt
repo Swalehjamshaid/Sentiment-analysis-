@@ -6,8 +6,8 @@ python-multipart==0.0.9
 
 # ── Database & ORM ──
 SQLAlchemy==2.0.31
-psycopg[binary]==3.3.2               # PostgreSQL driver, Python 3.13 compatible
-alembic==1.10.4                       # Database migrations
+psycopg[binary]==3.3.2
+alembic==1.10.4
 
 # ── Data Validation & Settings ──
 pydantic==2.9.2
@@ -41,5 +41,5 @@ apscheduler==3.10.4
 # ── Language Detection ──
 langdetect==1.0.9
 
-# ── Google Maps Integration ──
-googlemaps==5.15.0
+# ── Google Maps Integration (Python 3.13 compatible) ──
+googlemaps==4.10.0
