@@ -5,8 +5,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
+
 from .db import engine
-from .models import Base, Company  # ← important: import Company
+from .models import Base, Company
 from .routes import auth, companies, reviews, reply, reports, dashboard, admin
 from .core.config import settings
 from .routes.maps_routes import router as maps_router
@@ -20,32 +21,27 @@ class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app = FastAPI(title=settings.APP_NAME)
-
 templates = Jinja2Templates(directory="app/templates")
 
+# Middleware
 app.add_middleware(HTTPSRedirectMiddleware)
 
+# Static folders
 if os.path.isdir("app_uploads"):
     app.mount("/uploads", StaticFiles(directory="app_uploads"), name="uploads")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
+# Database init
 @app.on_event("startup")
 def _init_db():
     Base.metadata.create_all(bind=engine)
 
-    # ───────────────────────────────────────────────────────────────
-    # ONE-TIME SCHEMA FIX – only runs if you set this env var to "1"
-    # Set in Railway Variables → RECREATE_COMPANIES = 1
-    # Redeploy → wait for success → then set to 0 or delete the var
-    # WARNING: Deletes ALL rows in companies table (but keeps structure)
-    # ───────────────────────────────────────────────────────────────
+    # ONE-TIME SCHEMA FIX – only runs if env var is set
     if os.getenv("RECREATE_COMPANIES") == "1":
         print("!!! DROPPING AND RECREATING COMPANIES TABLE !!!")
         Base.metadata.drop_all(bind=engine, tables=[Company.__table__])
         Base.metadata.create_all(bind=engine)
         print("Companies table recreated with owner_id, lat, lng columns.")
-
-    # (Optional) start scheduler jobs here
 
 # ────────────────────────────────────────────────
 # UI Pages
@@ -77,16 +73,17 @@ def report_page(request: Request):
 # ────────────────────────────────────────────────
 # APIs
 # ────────────────────────────────────────────────
+# All routers
 app.include_router(auth.router, prefix="/auth")
-app.include_router(companies.router)
+app.include_router(companies.router, prefix="/companies")  # ensure /companies POST works
 app.include_router(reviews.router)
 app.include_router(reply.router)
 app.include_router(reports.router)
 app.include_router(dashboard.router)
 app.include_router(admin.router)
-
 app.include_router(maps_router)
 
+# Health check
 @app.get("/health")
 def health():
     return {"ok": True}
