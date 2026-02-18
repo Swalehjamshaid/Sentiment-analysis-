@@ -41,32 +41,32 @@
 
         <div class="full-width">
             <label for="company-address">Company Address:</label>
-            <input type="text" id="company-address" placeholder="Auto-filled from backend" readonly>
+            <input type="text" id="company-address" placeholder="Auto-filled" readonly>
         </div>
 
         <div>
             <label for="company-phone">Phone:</label>
-            <input type="text" id="company-phone" placeholder="Auto-filled from backend" readonly>
+            <input type="text" id="company-phone" placeholder="Auto-filled" readonly>
         </div>
 
         <div>
             <label for="company-website">Website:</label>
-            <input type="text" id="company-website" placeholder="Auto-filled from backend" readonly>
+            <input type="text" id="company-website" placeholder="Auto-filled" readonly>
         </div>
 
         <div>
             <label for="company-city">City:</label>
-            <input type="text" id="company-city" placeholder="Auto-filled from backend" readonly>
+            <input type="text" id="company-city" placeholder="Auto-filled" readonly>
         </div>
 
         <div>
             <label for="company-lat">Latitude:</label>
-            <input type="text" id="company-lat" placeholder="Auto-filled from backend" readonly>
+            <input type="text" id="company-lat" placeholder="Auto-filled" readonly>
         </div>
 
         <div>
             <label for="company-lng">Longitude:</label>
-            <input type="text" id="company-lng" placeholder="Auto-filled from backend" readonly>
+            <input type="text" id="company-lng" placeholder="Auto-filled" readonly>
         </div>
 
         <div class="full-width">
@@ -84,13 +84,12 @@ let input = document.getElementById("company-name");
 let suggestionsDiv = document.getElementById("suggestions");
 let selectedPlaceId = null;
 
-// Google Maps default setup
 let map, marker;
 let defaultLocation = { lat: 24.8607, lng: 67.0011 }; // Karachi
+
 function initMap() {
     map = new google.maps.Map(document.getElementById("map"), { zoom: 10, center: defaultLocation });
     marker = new google.maps.Marker({ position: defaultLocation, map: map, draggable: true });
-
     marker.addListener("dragend", () => {
         document.getElementById("company-lat").value = marker.getPosition().lat();
         document.getElementById("company-lng").value = marker.getPosition().lng();
@@ -103,7 +102,7 @@ function debounce(func, delay = 300) {
     return function(...args) { clearTimeout(timer); timer = setTimeout(() => func.apply(this, args), delay); };
 }
 
-// Fetch suggestions from backend
+// Fetch autocomplete suggestions from backend
 const fetchSuggestions = debounce(async () => {
     const query = input.value.trim();
     if (!query) { suggestionsDiv.innerHTML = ""; return; }
@@ -127,6 +126,7 @@ const fetchSuggestions = debounce(async () => {
                 const detailsRes = await fetch(`/companies/details?place_id=${item.place_id}`);
                 const details = await detailsRes.json();
 
+                // Autofill all inputs
                 document.getElementById("company-address").value = details.address || "";
                 document.getElementById("company-phone").value = details.phone || "";
                 document.getElementById("company-website").value = details.website || "";
@@ -145,7 +145,7 @@ const fetchSuggestions = debounce(async () => {
             suggestionsDiv.appendChild(div);
         });
     } catch (error) {
-        console.error("Error fetching suggestions:", error);
+        console.error("Autocomplete error:", error);
     }
 }, 300);
 
@@ -167,7 +167,6 @@ document.getElementById("company-form").addEventListener("submit", async (e) => 
         const data = await res.json();
         alert(`✅ Company saved: ${data.name}, ${data.city}, status: ${data.status}`);
 
-        // Reset form
         document.getElementById("company-form").reset();
         suggestionsDiv.innerHTML = "";
         selectedPlaceId = null;
@@ -180,11 +179,6 @@ document.getElementById("company-form").addEventListener("submit", async (e) => 
 });
 </script>
 
-<!-- Google Maps API (Backend key not exposed) -->
-<script
-    src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&callback=initMap"
-    async defer>
-</script>
-
+<script src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY }}&callback=initMap" async defer></script>
 </body>
 </html>
