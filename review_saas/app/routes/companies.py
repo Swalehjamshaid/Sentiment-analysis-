@@ -1,3 +1,5 @@
+# app/routes/companies.py
+
 from fastapi import APIRouter, Depends, HTTPException, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -12,27 +14,21 @@ import os
 router = APIRouter(prefix="/companies", tags=["companies"])
 templates = Jinja2Templates(directory="app/templates")
 
-# Separate API Keys
-GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")      # Frontend
-GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")  # Backend
+# Google API Keys
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")
 
-# ─────────────────────────────────────────────
-# Startup logging for Railway deployment
-# ─────────────────────────────────────────────
 if not GOOGLE_MAPS_API_KEY or not GOOGLE_PLACES_API_KEY:
-    print("⚠️ Google API keys are missing or not loaded correctly!")
+    print("⚠️ Google API keys missing or not loaded!")
 else:
     print("✅ Google API keys loaded successfully.")
 
 
-# ─────────────────────────────────────────────
-# Render HTML template with Google Maps JS key
-# ─────────────────────────────────────────────
+# Render HTML template
 @router.get("/", response_class=HTMLResponse)
 def companies_page(request: Request):
     if not GOOGLE_MAPS_API_KEY:
         raise HTTPException(status_code=500, detail="Google Maps API key not configured")
-
     return templates.TemplateResponse(
         "companies.html",
         {
@@ -42,21 +38,18 @@ def companies_page(request: Request):
     )
 
 
-# ─────────────────────────────────────────────
 # List all companies
-# ─────────────────────────────────────────────
 @router.get("/list", response_model=List[dict])
 def list_companies(db: Session = Depends(get_db)):
     companies = db.query(Company).all()
-
     return [
         {
             "id": c.id,
             "name": c.name,
-            "city": c.city,
-            "status": c.status,
-            "lat": c.lat,
-            "lng": c.lng,
+            "city": getattr(c, "city", None),
+            "status": getattr(c, "status", None),
+            "lat": getattr(c, "lat", None),
+            "lng": getattr(c, "lng", None),
             "email": getattr(c, "email", None),
             "phone": getattr(c, "phone", None),
             "address": getattr(c, "address", None),
@@ -66,9 +59,7 @@ def list_companies(db: Session = Depends(get_db)):
     ]
 
 
-# ─────────────────────────────────────────────
-# Add Company
-# ─────────────────────────────────────────────
+# Add company
 @router.post("/")
 def add_company(
     name: str = Form(...),
@@ -82,7 +73,7 @@ def add_company(
     description: str = Form(None),
     db: Session = Depends(get_db)
 ):
-    # Fetch enriched details from Google Places API (Backend Key)
+    # Enrich from Google Places
     if place_id:
         if not GOOGLE_PLACES_API_KEY:
             raise HTTPException(status_code=500, detail="Google Places API key not configured")
@@ -150,9 +141,7 @@ def add_company(
     }
 
 
-# ─────────────────────────────────────────────
-# Google Places Autocomplete (Backend Key)
-# ─────────────────────────────────────────────
+# Google Places Autocomplete
 @router.get("/autocomplete", response_model=List[dict])
 def autocomplete_company(name: str):
     if not GOOGLE_PLACES_API_KEY:
@@ -183,9 +172,7 @@ def autocomplete_company(name: str):
     ]
 
 
-# ─────────────────────────────────────────────
-# Get Full Company Details (Backend Key)
-# ─────────────────────────────────────────────
+# Get full company details
 @router.get("/details", response_model=dict)
 def get_company_details(place_id: str):
     if not GOOGLE_PLACES_API_KEY:
