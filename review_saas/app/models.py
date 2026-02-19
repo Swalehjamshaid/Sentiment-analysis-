@@ -28,44 +28,51 @@ class User(Base):
     profile_pic_url = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Relationship to companies
-    companies = relationship("Company", back_populates="owner")
+    # Relationships
+    companies = relationship("Company", back_populates="owner", cascade="all, delete-orphan")
+    verification_tokens = relationship("VerificationToken", back_populates="user", cascade="all, delete-orphan")
+    reset_tokens = relationship("ResetToken", back_populates="user", cascade="all, delete-orphan")
+    login_attempts = relationship("LoginAttempt", back_populates="user", cascade="all, delete-orphan")
+    notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
 
 
 class VerificationToken(Base):
     __tablename__ = "verification_tokens"
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     token = Column(String(255), index=True)
     expires_at = Column(DateTime)
     used = Column(Boolean, default=False)
+
+    user = relationship("User", back_populates="verification_tokens")
 
 
 class ResetToken(Base):
     __tablename__ = "reset_tokens"
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     token = Column(String(255), index=True)
     expires_at = Column(DateTime)
     used = Column(Boolean, default=False)
+
+    user = relationship("User", back_populates="reset_tokens")
 
 
 class LoginAttempt(Base):
     __tablename__ = "login_attempts"
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     ip = Column(String(45))
     attempted_at = Column(DateTime, default=datetime.utcnow)
     success = Column(Boolean, default=False)
+
+    user = relationship("User", back_populates="login_attempts")
 
 
 class Company(Base):
     __tablename__ = "companies"
     id = Column(Integer, primary_key=True)
-
-    # Fix: ensure owner_id is nullable to avoid commit errors
-    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     name = Column(String(255), nullable=False)
     place_id = Column(String(128))
     maps_link = Column(String(512))
@@ -74,11 +81,11 @@ class Company(Base):
     logo_url = Column(String(255))
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Location columns
+    # Location
     lat = Column(Float(precision=10, asdecimal=True), nullable=True)
     lng = Column(Float(precision=10, asdecimal=True), nullable=True)
 
-    # Form fields
+    # Contact / Form fields
     email = Column(String(255), nullable=True)
     phone = Column(String(50), nullable=True)
     address = Column(String(512), nullable=True)
@@ -86,7 +93,9 @@ class Company(Base):
 
     # Relationships
     owner = relationship("User", back_populates="companies")
-    reviews = relationship("Review", back_populates="company")
+    reviews = relationship("Review", back_populates="company", cascade="all, delete-orphan")
+    notifications = relationship("Notification", back_populates="company", cascade="all, delete-orphan")
+    reports = relationship("Report", back_populates="company", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_company_owner_status", "owner_id", "status"),
@@ -97,7 +106,7 @@ class Company(Base):
 class Review(Base):
     __tablename__ = "reviews"
     id = Column(Integer, primary_key=True)
-    company_id = Column(Integer, ForeignKey("companies.id"))
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"))
     external_id = Column(String(128))
     text = Column(Text)
     rating = Column(Integer)
@@ -110,8 +119,9 @@ class Review(Base):
     language = Column(String(10))
     fetch_at = Column(DateTime, default=datetime.utcnow)
     fetch_status = Column(String(20), default="Success")
+
     company = relationship("Company", back_populates="reviews")
-    replies = relationship("Reply", back_populates="review")
+    replies = relationship("Reply", back_populates="review", cascade="all, delete-orphan")
 
     __table_args__ = (
         UniqueConstraint("company_id", "external_id", name="uq_review_company_ext"),
@@ -121,31 +131,37 @@ class Review(Base):
 class Reply(Base):
     __tablename__ = "replies"
     id = Column(Integer, primary_key=True)
-    review_id = Column(Integer, ForeignKey("reviews.id"))
+    review_id = Column(Integer, ForeignKey("reviews.id", ondelete="CASCADE"))
     suggested_text = Column(Text)
     edited_text = Column(Text)
     status = Column(String(20), default="Draft")
     suggested_at = Column(DateTime, default=datetime.utcnow)
     sent_at = Column(DateTime)
+
     review = relationship("Review", back_populates="replies")
 
 
 class Report(Base):
     __tablename__ = "reports"
     id = Column(Integer, primary_key=True)
-    company_id = Column(Integer, ForeignKey("companies.id"))
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"))
     title = Column(String(255))
     path = Column(String(512))
     meta = Column(Text)
     generated_at = Column(DateTime, default=datetime.utcnow)
 
+    company = relationship("Company", back_populates="reports")
+
 
 class Notification(Base):
     __tablename__ = "notifications"
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
     kind = Column(String(50))
     payload = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     read = Column(Boolean, default=False)
+
+    user = relationship("User", back_populates="notifications")
+    company = relationship("Company", back_populates="notifications")
