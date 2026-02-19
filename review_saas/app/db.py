@@ -1,55 +1,35 @@
 # Filename: app/db.py
-import logging
-from sqlalchemy import create_engine, inspect, Column
+
+import os
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.exc import OperationalError
 from .core.config import settings
 from .models import Base
-import sqlalchemy
 
-logger = logging.getLogger(__name__)
-
-# -----------------------------
-# DATABASE URL CONFIGURATION
-# -----------------------------
+# DATABASE URL
 url = settings.DATABASE_URL or "sqlite:///./app.db"
 
+# Normalize Postgres URL and use psycopg v3
 if url.startswith("postgres://"):
     url = url.replace("postgres://", "postgresql://", 1)
-
 if url.startswith("postgresql://") and "+psycopg" not in url:
     url = url.replace("postgresql://", "postgresql+psycopg://", 1)
-
 if url.startswith("postgresql+psycopg://") and "sslmode" not in url:
     sep = "&" if "?" in url else "?"
     url = f"{url}{sep}sslmode=require"
 
-logger.info(f"Using database URL: {url}")
-
-# -----------------------------
-# SQLALCHEMY ENGINE
-# -----------------------------
+# CREATE ENGINE
 engine = create_engine(
     url,
+    connect_args={"check_same_thread": False} if url.startswith("sqlite") else {},
     future=True,
     echo=False,
-    connect_args={"check_same_thread": False} if url.startswith("sqlite") else {},
-    pool_pre_ping=True,
 )
 
-# -----------------------------
-# SESSION FACTORY
-# -----------------------------
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine,
-    future=True,
-)
+# SESSION
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, future=True)
 
-# -----------------------------
-# FASTAPI DEPENDENCY
-# -----------------------------
+# Dependency
 def get_db() -> Session:
     db = SessionLocal()
     try:
@@ -57,35 +37,21 @@ def get_db() -> Session:
     finally:
         db.close()
 
-# -----------------------------
-# FLEXIBLE AUTO-UPGRADE
-# -----------------------------
-def auto_upgrade_db():
-    """
-    Automatically create missing tables and columns based on models.py
-    Will not drop existing tables or data.
-    """
-    inspector = inspect(engine)
-    with engine.begin() as conn:
-        for table in Base.metadata.sorted_tables:
-            table_name = table.name
-            if not inspector.has_table(table_name):
-                logger.info(f"Creating missing table: {table_name}")
-                table.create(bind=engine)
-            else:
-                # Check columns
-                existing_columns = [col['name'] for col in inspector.get_columns(table_name)]
-                for col in table.columns:
-                    if col.name not in existing_columns:
-                        try:
-                            ddl = sqlalchemy.schema.AddColumn(col).compile(engine)
-                            conn.execute(sqlalchemy.text(str(ddl)))
-                            logger.info(f"Added new column '{col.name}' to table '{table_name}'")
-                        except Exception as e:
-                            logger.error(f"Failed to add column '{col.name}' to '{table_name}': {e}")
-    logger.info("Database auto-upgrade completed.")
 
 # -----------------------------
-# RUN AUTO-UPGRADE ON STARTUP
+# FLEXIBLE AUTO-CREATE TABLES
 # -----------------------------
-auto_upgrade_db()
+def init_db(drop_existing: bool = False):
+    """
+    Initialize database:
+    - If drop_existing=True, drop all old tables (destructive)
+    - Then create all tables based on current models.py
+    """
+    inspector = inspect(engine)
+    if drop_existing:
+        print("Dropping all existing tables...")
+        Base.metadata.drop_all(bind=engine)
+
+    print("Creating/updating tables...")
+    Base.metadata.create_all(bind=engine)
+    print("Database initialized successfully!")
