@@ -17,22 +17,17 @@ from datetime import datetime
 
 Base = declarative_base()
 
-
-# =========================
-# USERS
-# =========================
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     full_name = Column(String(100), nullable=False)
     email = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     status = Column(String(20), default="pending", index=True)
-    profile_pic_url = Column(String(255))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    profile_pic_url = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
-    # Relationships
     companies = relationship("Company", back_populates="owner", cascade="all, delete-orphan")
     verification_tokens = relationship("VerificationToken", back_populates="user", cascade="all, delete-orphan")
     reset_tokens = relationship("ResetToken", back_populates="user", cascade="all, delete-orphan")
@@ -40,17 +35,14 @@ class User(Base):
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
 
 
-# =========================
-# TOKENS
-# =========================
 class VerificationToken(Base):
     __tablename__ = "verification_tokens"
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token = Column(String(255), index=True, nullable=False)
-    expires_at = Column(DateTime, nullable=False)
-    used = Column(Boolean, default=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
 
     user = relationship("User", back_populates="verification_tokens")
 
@@ -61,57 +53,48 @@ class ResetToken(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token = Column(String(255), index=True, nullable=False)
-    expires_at = Column(DateTime, nullable=False)
-    used = Column(Boolean, default=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
 
     user = relationship("User", back_populates="reset_tokens")
 
 
-# =========================
-# LOGIN ATTEMPTS
-# =========================
 class LoginAttempt(Base):
     __tablename__ = "login_attempts"
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    ip = Column(String(45))
-    attempted_at = Column(DateTime, default=datetime.utcnow)
-    success = Column(Boolean, default=False)
+    ip = Column(String(45), nullable=True)
+    attempted_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    success = Column(Boolean, default=False, nullable=False)
 
     user = relationship("User", back_populates="login_attempts")
 
 
-# =========================
-# COMPANIES
-# =========================
 class Company(Base):
     __tablename__ = "companies"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     name = Column(String(255), nullable=False, index=True)
     place_id = Column(String(128), index=True)
-    maps_link = Column(String(512))
+    maps_link = Column(String(512), nullable=True)
 
-    city = Column(String(128), index=True)
-    status = Column(String(20), default="active", index=True)
+    city = Column(String(128), index=True, nullable=True)
+    status = Column(String(20), default="active", index=True, nullable=False)
 
-    logo_url = Column(String(255))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    logo_url = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
-    # 🌍 Location (IMPORTANT FIX)
-    lat = Column(Float, nullable=True)
-    lng = Column(Float, nullable=True)
+    lat = Column(Float(precision=10), nullable=True)
+    lng = Column(Float(precision=10), nullable=True)
 
-    # 📞 Contact
-    email = Column(String(255))
-    phone = Column(String(50))
-    address = Column(String(512))
-    description = Column(Text)
+    email = Column(String(255), nullable=True)
+    phone = Column(String(50), nullable=True)
+    address = Column(String(512), nullable=True)
+    description = Column(Text, nullable=True)
 
-    # Relationships
     owner = relationship("User", back_populates="companies")
     reviews = relationship("Review", back_populates="company", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="company", cascade="all, delete-orphan")
@@ -122,9 +105,6 @@ class Company(Base):
     )
 
 
-# =========================
-# REVIEWS
-# =========================
 class Review(Base):
     __tablename__ = "reviews"
 
@@ -132,20 +112,20 @@ class Review(Base):
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
 
     external_id = Column(String(128), nullable=False)
-    text = Column(Text)
-    rating = Column(Integer)
-    review_at = Column(DateTime)
+    text = Column(Text, nullable=True)
+    rating = Column(Integer, nullable=True)
+    review_at = Column(DateTime(timezone=True), nullable=True)
 
-    reviewer_name = Column(String(255))
-    reviewer_avatar = Column(String(255))
+    reviewer_name = Column(String(255), nullable=True)
+    reviewer_avatar = Column(String(255), nullable=True)
 
-    sentiment = Column(String(20))
-    sentiment_score = Column(Integer)
-    keywords = Column(String(512))
-    language = Column(String(10))
+    sentiment = Column(String(20), nullable=True)
+    sentiment_score = Column(Integer, nullable=True)
+    keywords = Column(String(512), nullable=True)
+    language = Column(String(10), nullable=True)
 
-    fetch_at = Column(DateTime, default=datetime.utcnow)
-    fetch_status = Column(String(20), default="Success")
+    fetch_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    fetch_status = Column(String(20), default="Success", nullable=False)
 
     company = relationship("Company", back_populates="reviews")
     replies = relationship("Reply", back_populates="review", cascade="all, delete-orphan")
@@ -155,45 +135,36 @@ class Review(Base):
     )
 
 
-# =========================
-# REPLIES
-# =========================
 class Reply(Base):
     __tablename__ = "replies"
 
     id = Column(Integer, primary_key=True)
     review_id = Column(Integer, ForeignKey("reviews.id", ondelete="CASCADE"), nullable=False)
 
-    suggested_text = Column(Text)
-    edited_text = Column(Text)
+    suggested_text = Column(Text, nullable=True)
+    edited_text = Column(Text, nullable=True)
 
-    status = Column(String(20), default="Draft")
-    suggested_at = Column(DateTime, default=datetime.utcnow)
-    sent_at = Column(DateTime)
+    status = Column(String(20), default="Draft", nullable=False)
+    suggested_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
 
     review = relationship("Review", back_populates="replies")
 
 
-# =========================
-# REPORTS
-# =========================
 class Report(Base):
     __tablename__ = "reports"
 
     id = Column(Integer, primary_key=True)
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
 
-    title = Column(String(255))
-    path = Column(String(512))
-    meta = Column(Text)
-    generated_at = Column(DateTime, default=datetime.utcnow)
+    title = Column(String(255), nullable=True)
+    path = Column(String(512), nullable=True)
+    meta = Column(Text, nullable=True)
+    generated_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
     company = relationship("Company", back_populates="reports")
 
 
-# =========================
-# NOTIFICATIONS
-# =========================
 class Notification(Base):
     __tablename__ = "notifications"
 
@@ -201,11 +172,11 @@ class Notification(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
 
-    kind = Column(String(50))
-    payload = Column(Text)
+    kind = Column(String(50), nullable=False)
+    payload = Column(Text, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    read = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    read = Column(Boolean, default=False, nullable=False)
 
     user = relationship("User", back_populates="notifications")
     company = relationship("Company", back_populates="notifications")
