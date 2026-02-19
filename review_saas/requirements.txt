@@ -26,11 +26,10 @@ pyotp==2.9.0
 bleach==6.1.0
 httpx==0.27.2
 requests==2.32.3
-aiohttp==3.9.6        # Recommended for async requests
 
 # ── Reporting & Documents ──
 reportlab==4.1.0
-Pillow==10.0.0        # For image handling in reports/logos
+Pillow==10.0.0
 
 # ── Data Processing & Excel ──
 pandas==2.2.3
@@ -43,7 +42,7 @@ apscheduler==3.10.4
 # ── Language Detection ──
 langdetect==1.0.9
 
-# ── Google Maps Integration (Python 3.13 compatible) ──
+# ── Google Maps Integration ──
 googlemaps==4.10.0
 
 # ── Optional: Dev & Debugging ──
