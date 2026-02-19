@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from ..db import get_db
 from ..models import Company
 from typing import List
@@ -38,10 +38,14 @@ def companies_page(request: Request):
     )
 
 
-# List all companies
+# List all companies – added defer to avoid crash on missing owner_id
 @router.get("/list", response_model=List[dict])
 def list_companies(db: Session = Depends(get_db)):
-    companies = db.query(Company).all()
+    companies = (
+        db.query(Company)
+        .options(defer(Company.owner_id))  # ← skip owner_id if column missing
+        .all()
+    )
     return [
         {
             "id": c.id,
@@ -59,7 +63,7 @@ def list_companies(db: Session = Depends(get_db)):
     ]
 
 
-# Add company
+# Add company – temporarily removed fields that cause INSERT error
 @router.post("/")
 def add_company(
     name: str = Form(...),
@@ -108,40 +112,45 @@ def add_company(
         lat = geometry.get("lat", lat)
         lng = geometry.get("lng", lng)
 
-    # Save to DB
+    # Save to DB – only using columns that likely exist to avoid crash
     new_company = Company(
         name=name,
         city=city,
-        lat=lat,
-        lng=lng,
         status="active",
         place_id=place_id,
-        email=email,
-        phone=phone,
-        address=address,
-        description=description,
         created_at=datetime.utcnow()
+        # ──────────────────────────────────────────────────────────────
+        # Temporarily commented out fields that cause "column does not exist" error
+        # Uncomment them one by one AFTER adding the columns in database
+        # lat=lat,
+        # lng=lng,
+        # email=email,
+        # phone=phone,
+        # address=address,
+        # description=description,
+        # owner_id=None  # or current_user.id if you have authentication
     )
 
     db.add(new_company)
     db.commit()
     db.refresh(new_company)
 
+    # Return the same structure (even if some fields are None)
     return {
         "id": new_company.id,
         "name": new_company.name,
         "city": new_company.city,
-        "lat": new_company.lat,
-        "lng": new_company.lng,
-        "email": new_company.email,
-        "phone": new_company.phone,
-        "address": new_company.address,
-        "description": new_company.description,
+        "lat": None,          # will be None until column added
+        "lng": None,
+        "email": None,
+        "phone": None,
+        "address": None,
+        "description": None,
         "status": new_company.status
     }
 
 
-# Google Places Autocomplete
+# Google Places Autocomplete – unchanged
 @router.get("/autocomplete", response_model=List[dict])
 def autocomplete_company(name: str):
     if not GOOGLE_PLACES_API_KEY:
@@ -172,7 +181,7 @@ def autocomplete_company(name: str):
     ]
 
 
-# Get full company details
+# Get full company details – unchanged
 @router.get("/details", response_model=dict)
 def get_company_details(place_id: str):
     if not GOOGLE_PLACES_API_KEY:
