@@ -38,12 +38,17 @@ def companies_page(request: Request):
     )
 
 
-# List all companies – added defer to avoid crash on missing owner_id
+# List all companies – skip ALL missing columns to prevent crash
 @router.get("/list", response_model=List[dict])
 def list_companies(db: Session = Depends(get_db)):
     companies = (
         db.query(Company)
-        .options(defer(Company.owner_id))  # ← skip owner_id if column missing
+        .options(
+            defer(Company.lat),       # skip lat
+            defer(Company.lng),       # skip lng
+            defer(Company.owner_id),  # skip owner_id
+            # If you get error on other fields later, add defer(Company.other_field)
+        )
         .all()
     )
     return [
@@ -52,8 +57,8 @@ def list_companies(db: Session = Depends(get_db)):
             "name": c.name,
             "city": getattr(c, "city", None),
             "status": getattr(c, "status", None),
-            "lat": getattr(c, "lat", None),
-            "lng": getattr(c, "lng", None),
+            "lat": None,          # skipped in query → return None
+            "lng": None,
             "email": getattr(c, "email", None),
             "phone": getattr(c, "phone", None),
             "address": getattr(c, "address", None),
@@ -63,7 +68,7 @@ def list_companies(db: Session = Depends(get_db)):
     ]
 
 
-# Add company – temporarily removed fields that cause INSERT error
+# Add company – keep only safe columns to avoid INSERT error
 @router.post("/")
 def add_company(
     name: str = Form(...),
@@ -112,35 +117,34 @@ def add_company(
         lat = geometry.get("lat", lat)
         lng = geometry.get("lng", lng)
 
-    # Save to DB – only using columns that likely exist to avoid crash
+    # Save to DB – only safe columns
     new_company = Company(
         name=name,
         city=city,
         status="active",
         place_id=place_id,
         created_at=datetime.utcnow()
-        # ──────────────────────────────────────────────────────────────
-        # Temporarily commented out fields that cause "column does not exist" error
-        # Uncomment them one by one AFTER adding the columns in database
+        # Temporarily skipped: lat, lng, email, phone, address, description, owner_id
+        # Uncomment when columns are added in database
         # lat=lat,
         # lng=lng,
         # email=email,
         # phone=phone,
         # address=address,
         # description=description,
-        # owner_id=None  # or current_user.id if you have authentication
+        # owner_id=None
     )
 
     db.add(new_company)
     db.commit()
     db.refresh(new_company)
 
-    # Return the same structure (even if some fields are None)
+    # Return same structure (missing fields as None)
     return {
         "id": new_company.id,
         "name": new_company.name,
         "city": new_company.city,
-        "lat": None,          # will be None until column added
+        "lat": None,
         "lng": None,
         "email": None,
         "phone": None,
