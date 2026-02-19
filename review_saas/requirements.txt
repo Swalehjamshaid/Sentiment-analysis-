@@ -29,7 +29,7 @@ requests==2.32.3
 
 # ── Reporting & Documents ──
 reportlab==4.1.0
-Pillow==10.0.0
+Pillow==10.3.0
 
 # ── Data Processing & Excel ──
 pandas==2.2.3
