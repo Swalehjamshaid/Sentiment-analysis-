@@ -1,5 +1,3 @@
-# app/routes/companies.py
-
 from fastapi import APIRouter, Depends, HTTPException, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -38,16 +36,19 @@ def companies_page(request: Request):
     )
 
 
-# List all companies – skip ALL missing columns to prevent crash
+# List all companies – skip ALL currently missing/problematic columns
 @router.get("/list", response_model=List[dict])
 def list_companies(db: Session = Depends(get_db)):
     companies = (
         db.query(Company)
         .options(
-            defer(Company.lat),       # skip lat
-            defer(Company.lng),       # skip lng
-            defer(Company.owner_id),  # skip owner_id
-            # If you get error on other fields later, add defer(Company.other_field)
+            defer(Company.lat),         # skip lat
+            defer(Company.lng),         # skip lng
+            defer(Company.owner_id),    # skip owner_id
+            defer(Company.email),       # skip email ← fixes current error
+            defer(Company.phone),       # skip phone
+            defer(Company.address),     # skip address
+            defer(Company.description), # skip description
         )
         .all()
     )
@@ -57,12 +58,12 @@ def list_companies(db: Session = Depends(get_db)):
             "name": c.name,
             "city": getattr(c, "city", None),
             "status": getattr(c, "status", None),
-            "lat": None,          # skipped in query → return None
+            "lat": None,          # skipped → return None
             "lng": None,
-            "email": getattr(c, "email", None),
-            "phone": getattr(c, "phone", None),
-            "address": getattr(c, "address", None),
-            "description": getattr(c, "description", None)
+            "email": None,
+            "phone": None,
+            "address": None,
+            "description": None
         }
         for c in companies
     ]
@@ -117,7 +118,7 @@ def add_company(
         lat = geometry.get("lat", lat)
         lng = geometry.get("lng", lng)
 
-    # Save to DB – only safe columns
+    # Save to DB – only using columns that likely exist to avoid crash
     new_company = Company(
         name=name,
         city=city,
@@ -132,7 +133,7 @@ def add_company(
         # phone=phone,
         # address=address,
         # description=description,
-        # owner_id=None
+        # owner_id=None  # or current_user.id if authenticated
     )
 
     db.add(new_company)
