@@ -63,7 +63,7 @@ class Company(Base):
     __tablename__ = "companies"
     id = Column(Integer, primary_key=True)
 
-    # ForeignKey is nullable=True so existing rows without owner are still valid
+    # Fix: ensure owner_id is nullable to avoid commit errors
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     name = Column(String(255), nullable=False)
@@ -74,11 +74,11 @@ class Company(Base):
     logo_url = Column(String(255))
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Existing location columns
+    # Location columns
     lat = Column(Float(precision=10, asdecimal=True), nullable=True)
     lng = Column(Float(precision=10, asdecimal=True), nullable=True)
 
-    # ─── NEW ATTRIBUTES FROM HTML FORM ───
+    # Form fields
     email = Column(String(255), nullable=True)
     phone = Column(String(50), nullable=True)
     address = Column(String(512), nullable=True)
