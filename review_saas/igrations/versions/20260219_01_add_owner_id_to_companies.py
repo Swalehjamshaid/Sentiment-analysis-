@@ -5,7 +5,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20260219_01_add_owner_id_to_companies'
-down_revision = None  # replace with your last migration's revision if any
+down_revision = '20260218_03_last_migration'  # <- set this to your last applied migration
 branch_labels = None
 depends_on = None
 
