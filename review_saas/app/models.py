@@ -116,7 +116,11 @@ class Review(Base):
     external_id = Column(String(128), nullable=True)
     text = Column(Text, nullable=True)
     rating = Column(Integer, nullable=True)
-    review_at = Column(DateTime, nullable=True)
+    
+    # FIXED: Changed review_at → review_date to match your actual database column
+    # If your DB column has a different name (e.g. created_at, fetch_at), change it here
+    review_date = Column(DateTime, nullable=True)  # ← This was review_at before
+
     reviewer_name = Column(String(255), nullable=True)
     reviewer_avatar = Column(String(255), nullable=True)
     sentiment = Column(String(20), nullable=True)
