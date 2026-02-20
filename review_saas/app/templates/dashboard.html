@@ -2,304 +2,407 @@
 
 {% block content %}
 <div class="container mt-4">
-  <div class="d-flex justify-content-between align-items-center mb-4">
-    <h3>Dashboard</h3>
+  <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+    <h3>Review Intelligence Dashboard</h3>
+
     <div class="d-flex align-items-center gap-3">
-      <select id="company-selector" class="form-select w-auto">
+      <select id="company-selector" class="form-select" style="min-width: 260px;">
         <option value="0">Select a Company...</option>
-        <!-- Filled dynamically -->
       </select>
+
       <button id="refresh-btn" class="btn btn-outline-success">
-        <i class="bi bi-arrow-repeat"></i> Refresh
+        <i class="bi bi-arrow-repeat"></i> Refresh Data
       </button>
     </div>
   </div>
 
-  <!-- Company Overview Card -->
-  <div class="card shadow-sm mb-4" id="company-overview" style="display: none;">
+  <!-- Company Header -->
+  <div class="card shadow mb-4 border-0" id="company-header" style="display: none;">
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-center">
         <div>
           <h4 id="company-name">Company Name</h4>
           <div class="text-muted">
-            Google Rating: <span id="google-rating">—</span> • 
-            Total Ratings: <span id="google-total-ratings">—</span>
+            <span>Google Rating: <strong id="google-rating">—</strong></span> •
+            <span>Total Ratings: <strong id="google-total-ratings">—</strong></span>
           </div>
         </div>
-        <div class="text-end">
-          <small class="text-muted">Last updated: <span id="last-updated">—</span></small>
-        </div>
+        <small class="text-muted">Last refreshed: <span id="last-refresh">—</span></small>
       </div>
     </div>
   </div>
 
-  <!-- KPI Cards -->
-  <div class="row mb-4 text-center" id="kpi-section">
-    <div class="col-md-4 mb-3">
-      <div class="card shadow-sm border-0 h-100">
-        <div class="card-body">
-          <h6 class="text-muted">Total Reviews</h6>
-          <h3 id="total-reviews">0</h3>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-4 mb-3">
-      <div class="card shadow-sm border-0 h-100">
-        <div class="card-body">
-          <h6 class="text-muted">Average Rating</h6>
-          <h3 id="avg-rating">0.0</h3>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-4 mb-3">
-      <div class="card shadow-sm border-0 h-100">
-        <div class="card-body">
-          <h6 class="text-muted">Sentiment Mix</h6>
-          <h5 id="sentiment-mix">0 / 0 / 0</h5>
-          <small class="text-success">Positive</small> /
-          <small class="text-warning">Neutral</small> /
-          <small class="text-danger">Negative</small>
-        </div>
-      </div>
-    </div>
+  <!-- Loading / Empty States -->
+  <div id="loading-state" class="text-center py-5 my-5" style="display: none;">
+    <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status"></div>
+    <p class="lead text-muted">Loading company analytics...</p>
   </div>
 
-  <div class="row">
-    <!-- Main Chart -->
-    <div class="col-lg-8 mb-4">
-      <div class="card shadow-sm border-0">
-        <div class="card-body">
-          <h5 class="card-title">Rating Trend Over Time</h5>
-          <canvas id="trendChart" height="220"></canvas>
-        </div>
-      </div>
-    </div>
-
-    <!-- Sidebar -->
-    <div class="col-lg-4">
-      <div class="card shadow-sm border-0 mb-3">
-        <div class="card-body">
-          <h5>Quick Actions</h5>
-          <a href="/companies" class="btn btn-outline-primary w-100 mb-2">
-            Manage Companies
-          </a>
-          <a href="/reports" class="btn btn-outline-info w-100 mb-2">
-            Generate Report
-          </a>
-        </div>
-      </div>
-
-      <div class="card shadow-sm border-0 mb-3">
-        <div class="card-body">
-          <h6>Top Keywords</h6>
-          <ul id="keywords-list" class="list-group list-group-flush small">
-            <li class="list-group-item text-muted">No keywords yet</li>
-          </ul>
-        </div>
-      </div>
-    </div>
+  <div id="no-selection-state" class="alert alert-info text-center py-5 my-5">
+    <i class="bi bi-building fs-1 mb-3 d-block"></i>
+    <h5>Please select a company from the dropdown above</h5>
+    <p class="text-muted">Once selected, you'll see reviews, trends, keywords, and suggested replies.</p>
   </div>
 
-  <!-- AI Summary Section -->
-  <div class="card shadow-sm mb-4" id="ai-summary-card" style="display: none;">
-    <div class="card-body">
-      <h5>Customer Sentiment Summary</h5>
-      <p id="ai-summary" class="text-muted">
-        Loading summary...
-      </p>
-    </div>
-  </div>
-
-  <!-- Recent Reviews -->
-  <div class="card shadow-sm">
-    <div class="card-body">
-      <h5>Recent Reviews</h5>
-      <div id="reviews-container" class="list-group">
-        <div class="list-group-item text-center text-muted py-4">
-          No reviews loaded yet. Select a company or refresh.
+  <!-- Main Dashboard Content -->
+  <div id="dashboard-content" style="display: none;">
+    <!-- KPI Cards -->
+    <div class="row g-4 mb-5">
+      <div class="col-md-4">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body text-center">
+            <h6 class="text-uppercase text-muted mb-3">Total Reviews</h6>
+            <h2 id="total-reviews" class="display-5 fw-bold">0</h2>
+          </div>
         </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body text-center">
+            <h6 class="text-uppercase text-muted mb-3">Average Rating</h6>
+            <h2 id="avg-rating" class="display-5 fw-bold">0.0</h2>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body text-center">
+            <h6 class="text-uppercase text-muted mb-3">Sentiment Mix</h6>
+            <h3 id="sentiment-mix" class="fw-bold">0 / 0 / 0</h3>
+            <div class="mt-2">
+              <span class="badge bg-success me-2">Positive</span>
+              <span class="badge bg-warning me-2">Neutral</span>
+              <span class="badge bg-danger">Negative</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-4">
+      <!-- Charts -->
+      <div class="col-lg-8">
+        <div class="card shadow-sm border-0 mb-4">
+          <div class="card-body">
+            <h5 class="card-title mb-4">Rating Trend Over Time</h5>
+            <div style="height: 320px;">
+              <canvas id="trendChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="card shadow-sm border-0">
+          <div class="card-body">
+            <h5 class="card-title mb-4">Sentiment Distribution</h5>
+            <div style="height: 320px;">
+              <canvas id="sentimentPie"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sidebar -->
+      <div class="col-lg-4">
+        <div class="card shadow-sm border-0 mb-4">
+          <div class="card-body">
+            <h5 class="card-title">Quick Actions</h5>
+            <a href="/companies" class="btn btn-outline-primary d-block mb-2">
+              <i class="bi bi-building-add"></i> Manage Companies
+            </a>
+            <button class="btn btn-outline-info d-block w-100" disabled>
+              <i class="bi bi-file-earmark-pdf"></i> Export PDF Report (soon)
+            </button>
+          </div>
+        </div>
+
+        <div class="card shadow-sm border-0 mb-4">
+          <div class="card-body">
+            <h6 class="card-title">Top Keywords</h6>
+            <div id="keywords-cloud" class="d-flex flex-wrap gap-2 mt-3"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Suggested Replies Section -->
+    <div class="card shadow-sm border-0 mt-4">
+      <div class="card-header bg-light">
+        <h5 class="mb-0">Recent Reviews & Auto-generated Replies</h5>
+      </div>
+      <div class="card-body p-0">
+        <div id="reviews-container" class="list-group list-group-flush"></div>
       </div>
     </div>
   </div>
 </div>
 
+<!-- Bootstrap Icons (if not already in base.html) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
 <!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
-  let ratingChart = null;
-  let currentCompanyId = {{ current_company_id | default(0) }};
+// ── Global Variables ─────────────────────────────────────────────────────────
+let trendChart = null;
+let sentimentPieChart = null;
+let currentCompanyId = {{ current_company_id | default(0) }};
 
-  async function loadCompanies() {
-    try {
-      const res = await fetch('/reviews/my-companies');
-      if (!res.ok) throw new Error('Failed to load companies');
-      const companies = await res.json();
+// ── Load companies list ──────────────────────────────────────────────────────
+async function loadCompanies() {
+  try {
+    const response = await fetch('/reviews/my-companies');
+    if (!response.ok) throw new Error('Failed to load companies');
+    const companies = await response.json();
 
-      const select = document.getElementById('company-selector');
-      select.innerHTML = '<option value="0">Select a Company...</option>';
+    const select = document.getElementById('company-selector');
+    select.innerHTML = '<option value="0">Select a Company...</option>';
 
-      companies.forEach(c => {
-        const opt = document.createElement('option');
-        opt.value = c.id;
-        opt.textContent = c.name;
-        if (c.id == currentCompanyId) opt.selected = true;
-        select.appendChild(opt);
-      });
+    companies.forEach(company => {
+      const option = document.createElement('option');
+      option.value = company.id;
+      option.textContent = company.name;
+      if (company.id == currentCompanyId) option.selected = true;
+      select.appendChild(option);
+    });
 
-      // Auto-load first company if none selected
-      if (currentCompanyId == 0 && companies.length > 0) {
-        currentCompanyId = companies[0].id;
-        select.value = currentCompanyId;
-      }
-
-      if (currentCompanyId > 0) {
-        await loadDashboard(currentCompanyId);
-      }
-
-      select.addEventListener('change', async (e) => {
-        currentCompanyId = parseInt(e.target.value);
-        if (currentCompanyId > 0) {
-          await loadDashboard(currentCompanyId);
-        } else {
-          clearDashboard();
-        }
-      });
-
-    } catch (err) {
-      console.error(err);
-      document.getElementById('reviews-container').innerHTML =
-        '<div class="alert alert-danger">Failed to load companies. Please try again.</div>';
+    // Auto-load first company if none pre-selected
+    if (currentCompanyId === 0 && companies.length > 0) {
+      currentCompanyId = companies[0].id;
+      select.value = currentCompanyId;
     }
-  }
 
-  async function loadDashboard(companyId) {
-    if (!companyId) return clearDashboard();
-
-    try {
-      const res = await fetch(`/reviews/summary/${companyId}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-
-      // Show overview card
-      document.getElementById('company-overview').style.display = 'block';
-      document.getElementById('company-name').textContent = data.company_name || 'Company';
-      document.getElementById('google-rating').textContent = data.google_rating || '—';
-      document.getElementById('google-total-ratings').textContent = data.google_total_ratings || '—';
-      document.getElementById('last-updated').textContent = new Date().toLocaleString();
-
-      // KPIs
-      document.getElementById('total-reviews').textContent = data.total_reviews;
-      document.getElementById('avg-rating').textContent = data.avg_rating.toFixed(1);
-
-      const mix = `${data.sentiments.Positive} / ${data.sentiments.Neutral} / ${data.sentiments.Negative}`;
-      document.getElementById('sentiment-mix').textContent = mix;
-
-      // Keywords
-      const kwList = document.getElementById('keywords-list');
-      kwList.innerHTML = '';
-      const allKw = [...data.positive_keywords, ...data.negative_keywords];
-      if (allKw.length === 0) {
-        kwList.innerHTML = '<li class="list-group-item text-muted">No keywords yet</li>';
-      } else {
-        allKw.forEach(kw => {
-          const li = document.createElement('li');
-          li.className = 'list-group-item';
-          li.textContent = kw;
-          kwList.appendChild(li);
-        });
-      }
-
-      // Recent Reviews
-      const container = document.getElementById('reviews-container');
-      container.innerHTML = '';
-      if (data.reviews.length === 0) {
-        container.innerHTML = '<div class="list-group-item text-center text-muted py-4">No reviews yet for this company</div>';
-      } else {
-        data.reviews.slice(0, 8).forEach(r => {
-          const item = document.createElement('div');
-          item.className = 'list-group-item';
-          item.innerHTML = `
-            <div class="d-flex w-100 justify-content-between">
-              <h6 class="mb-1">${r.reviewer_name}</h6>
-              <small>${r.review_date || 'N/A'}</small>
-            </div>
-            <p class="mb-1">${r.review_text.substring(0, 140)}${r.review_text.length > 140 ? '...' : ''}</p>
-            <div class="d-flex justify-content-between align-items-center">
-              <small>Rating: ${r.rating} ★</small>
-              <span class="badge ${
-                r.sentiment === 'Positive' ? 'bg-success' :
-                r.sentiment === 'Negative' ? 'bg-danger' : 'bg-warning'
-              }">${r.sentiment}</span>
-            </div>
-          `;
-          container.appendChild(item);
-        });
-      }
-
-      // Trend Chart
-      const ctx = document.getElementById('trendChart').getContext('2d');
-      if (ratingChart) ratingChart.destroy();
-
-      let labels = data.trend_data?.map(t => t.month) || [];
-      let avgRatings = data.trend_data?.map(t => t.avg_rating) || [];
-
-      if (labels.length === 0 && data.reviews.length > 0) {
-        labels = data.reviews.map(r => r.review_date ? new Date(r.review_date).toLocaleDateString() : 'N/A');
-        avgRatings = data.reviews.map(r => r.rating);
-      }
-
-      ratingChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: labels.length > 0 ? labels : ['No data'],
-          datasets: [{
-            label: 'Average Rating',
-            data: avgRatings.length > 0 ? avgRatings : [0],
-            borderColor: '#0d6efd',
-            backgroundColor: 'rgba(13, 110, 253, 0.12)',
-            tension: 0.3,
-            fill: true
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          scales: {
-            y: { min: 0, max: 5.5, title: { display: true, text: 'Rating (★)' } },
-            x: { title: { display: true, text: 'Time' } }
-          }
-        }
-      });
-
-    } catch (err) {
-      console.error(err);
-      document.getElementById('reviews-container').innerHTML =
-        '<div class="alert alert-warning">Failed to load data. Please try again.</div>';
-    }
-  }
-
-  function clearDashboard() {
-    document.getElementById('company-overview').style.display = 'none';
-    document.getElementById('total-reviews').textContent = '0';
-    document.getElementById('avg-rating').textContent = '0.0';
-    document.getElementById('sentiment-mix').textContent = '0 / 0 / 0';
-    document.getElementById('keywords-list').innerHTML = '<li class="list-group-item text-muted">Select a company</li>';
-    document.getElementById('reviews-container').innerHTML =
-      '<div class="list-group-item text-center text-muted py-4">Select a company to view reviews</div>';
-    if (ratingChart) ratingChart.destroy();
-  }
-
-  // Load everything on page ready
-  document.addEventListener('DOMContentLoaded', async () => {
-    await loadCompanies();
-  });
-
-  // Refresh button
-  document.getElementById('refresh-btn')?.addEventListener('click', async () => {
     if (currentCompanyId > 0) {
-      await loadDashboard(currentCompanyId);
+      await loadDashboardData(currentCompanyId);
+    }
+
+    // Change event
+    select.addEventListener('change', async (e) => {
+      currentCompanyId = parseInt(e.target.value);
+      if (currentCompanyId > 0) {
+        await loadDashboardData(currentCompanyId);
+      } else {
+        showNoSelection();
+      }
+    });
+
+  } catch (error) {
+    console.error('Companies load error:', error);
+    document.getElementById('reviews-container').innerHTML =
+      '<div class="list-group-item text-danger text-center py-4">Failed to load companies</div>';
+  }
+}
+
+// ── Load dashboard data for selected company ────────────────────────────────
+async function loadDashboardData(companyId) {
+  if (!companyId) return showNoSelection();
+
+  document.getElementById('loading-state').style.display = 'block';
+  document.getElementById('no-selection-state').style.display = 'none';
+  document.getElementById('main-content').style.display = 'none';
+
+  try {
+    const response = await fetch(`/reviews/summary/${companyId}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+
+    // Show content
+    document.getElementById('loading-state').style.display = 'none';
+    document.getElementById('main-content').style.display = 'block';
+    document.getElementById('company-header').style.display = 'block';
+
+    // Fill header
+    document.getElementById('company-name').textContent = data.company_name || 'Company';
+    document.getElementById('google-rating').textContent = data.google_rating || '—';
+    document.getElementById('google-total').textContent = data.google_total_ratings || '—';
+    document.getElementById('last-refresh').textContent = new Date().toLocaleString();
+
+    // KPIs
+    document.getElementById('total-reviews').textContent = data.total_reviews || 0;
+    document.getElementById('avg-rating').textContent = (data.avg_rating || 0).toFixed(1);
+    document.getElementById('sentiment-mix').textContent =
+      `${data.sentiments?.Positive || 0} / ${data.sentiments?.Neutral || 0} / ${data.sentiments?.Negative || 0}`;
+
+    // Keywords cloud
+    const keywordsDiv = document.getElementById('keywords-cloud');
+    keywordsDiv.innerHTML = '';
+    const allKeywords = [...(data.positive_keywords || []), ...(data.negative_keywords || [])];
+    if (allKeywords.length === 0) {
+      keywordsDiv.innerHTML = '<span class="text-muted">No keywords detected yet</span>';
+    } else {
+      allKeywords.forEach(kw => {
+        const tag = document.createElement('span');
+        tag.className = 'badge bg-light text-dark border px-3 py-2';
+        tag.textContent = kw;
+        keywordsDiv.appendChild(tag);
+      });
+    }
+
+    // Recent Reviews + Suggested Replies
+    const reviewsContainer = document.getElementById('reviews-container');
+    reviewsContainer.innerHTML = '';
+
+    if (!data.reviews || data.reviews.length === 0) {
+      reviewsContainer.innerHTML =
+        '<div class="list-group-item text-center text-muted py-5">No reviews available for this company yet.</div>';
+    } else {
+      data.reviews.slice(0, 10).forEach(review => {
+        const item = document.createElement('div');
+        item.className = 'list-group-item px-4 py-3';
+        item.innerHTML = `
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+              <h6 class="mb-1">${review.reviewer_name || 'Anonymous'}</h6>
+              <small class="text-muted">${review.review_date || '—'}</small>
+            </div>
+            <div class="text-end">
+              <span class="badge fs-6 px-3 py-2 ${
+                review.sentiment === 'Positive' ? 'bg-success' :
+                review.sentiment === 'Negative' ? 'bg-danger' : 'bg-warning'
+              }">
+                ${review.rating} ★ • ${review.sentiment}
+              </span>
+            </div>
+          </div>
+
+          <p class="mb-3">${review.review_text.substring(0, 220)}${review.review_text.length > 220 ? '...' : ''}</p>
+
+          <div class="border-top pt-3 mt-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <strong class="text-muted small">Suggested Reply:</strong>
+              <button class="btn btn-sm btn-outline-secondary copy-reply-btn"
+                      data-reply="${review.suggested_reply || 'Thank you for your feedback!'}">
+                <i class="bi bi-clipboard"></i> Copy
+              </button>
+            </div>
+            <div class="bg-light p-3 rounded small">
+              ${review.suggested_reply || 'No reply suggestion available'}
+            </div>
+          </div>
+        `;
+        reviewsContainer.appendChild(item);
+      });
+
+      // Copy reply buttons
+      document.querySelectorAll('.copy-reply-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          navigator.clipboard.writeText(this.dataset.reply);
+          const originalText = this.innerHTML;
+          this.innerHTML = '<i class="bi bi-check2"></i> Copied!';
+          this.disabled = true;
+          setTimeout(() => {
+            this.innerHTML = originalText;
+            this.disabled = false;
+          }, 2000);
+        });
+      });
+    }
+
+    // Trend Chart
+    renderTrendChart(data);
+
+    // Sentiment Pie Chart
+    renderSentimentPie(data);
+
+  } catch (err) {
+    console.error('Dashboard error:', err);
+    document.getElementById('reviews-container').innerHTML =
+      '<div class="alert alert-danger text-center py-4">Error loading data. Please try again.</div>';
+  }
+}
+
+// ── Render Trend Chart ──────────────────────────────────────────────────────
+function renderTrendChart(data) {
+  const ctx = document.getElementById('trendChart').getContext('2d');
+  if (trendChart) trendChart.destroy();
+
+  let labels = data.trend_data?.map(item => item.month) || [];
+  let values = data.trend_data?.map(item => item.avg_rating) || [];
+
+  if (labels.length === 0 && data.reviews?.length > 0) {
+    labels = data.reviews.map(r => r.review_date ? new Date(r.review_date).toLocaleDateString() : '—');
+    values = data.reviews.map(r => r.rating || 0);
+  }
+
+  trendChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels.length ? labels : ['No data'],
+      datasets: [{
+        label: 'Average Rating',
+        data: values.length ? values : [0],
+        borderColor: '#0d6efd',
+        backgroundColor: 'rgba(13, 110, 253, 0.15)',
+        tension: 0.3,
+        fill: true,
+        pointBackgroundColor: '#fff',
+        pointBorderColor: '#0d6efd',
+        pointRadius: 5
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: { min: 0, max: 5.5, title: { display: true, text: 'Stars' } },
+        x: { title: { display: true, text: 'Time' } }
+      },
+      plugins: { legend: { position: 'top' } }
     }
   });
+}
+
+// ── Render Sentiment Pie Chart ──────────────────────────────────────────────
+function renderSentimentPie(data) {
+  const ctx = document.getElementById('sentimentPie').getContext('2d');
+  if (sentimentPieChart) sentimentPieChart.destroy();
+
+  const positive = data.sentiments?.Positive || 0;
+  const neutral  = data.sentiments?.Neutral  || 0;
+  const negative = data.sentiments?.Negative || 0;
+
+  sentimentPieChart = new Chart(ctx, {
+    type: 'pie',
+    data: {
+      labels: ['Positive', 'Neutral', 'Negative'],
+      datasets: [{
+        data: [positive, neutral, negative],
+        backgroundColor: ['#28a745', '#ffc107', '#dc3545'],
+        borderWidth: 2,
+        borderColor: '#fff'
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 14 } } },
+        tooltip: { enabled: true }
+      }
+    }
+  });
+}
+
+// ── Clear dashboard ─────────────────────────────────────────────────────────
+function clearDashboard() {
+  document.getElementById('company-header').style.display = 'none';
+  document.getElementById('main-content').style.display = 'none';
+  document.getElementById('no-selection-state').style.display = 'block';
+  document.getElementById('loading-state').style.display = 'none';
+
+  if (trendChart) trendChart.destroy();
+  if (sentimentPieChart) sentimentPieChart.destroy();
+}
+
+// ── Initialize ──────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  loadCompanies();
+
+  document.getElementById('refresh-btn')?.addEventListener('click', () => {
+    if (currentCompanyId > 0) {
+      loadDashboard(currentCompanyId);
+    }
+  });
+});
 </script>
 {% endblock %}
