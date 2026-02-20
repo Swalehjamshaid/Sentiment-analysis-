@@ -4,7 +4,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Company
-# from ..auth import get_current_user  # Uncomment when auth is ready
+# from ..auth import get_current_user  # Uncomment when authentication is ready
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -17,16 +17,12 @@ async def get_dashboard(
     request: Request,
     company_id: int | None = None,
     db: Session = Depends(get_db),
-    # current_user = Depends(get_current_user)  # Uncomment later
+    # current_user = Depends(get_current_user)  # Add later for user-specific access
 ):
     """
     Render the main dashboard page.
-    Optionally pre-select a company if company_id is provided in URL.
+    If company_id is provided in URL, pre-select that company.
     """
-    # Optional: filter by user when auth is added
-    # companies = db.query(Company).filter(Company.user_id == current_user.id).all()
-
-    # For now: show all companies (or change to user-specific)
     initial_company = None
     if company_id:
         initial_company = db.query(Company).filter(Company.id == company_id).first()
