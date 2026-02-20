@@ -1,5 +1,5 @@
 # File: app/routes/reviews.py
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Review, Company
@@ -17,7 +17,7 @@ gmaps = googlemaps.Client(key=os.getenv("GOOGLE_PLACES_API_KEY"))
 
 
 def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) -> int:
-    """Fetch reviews from Google Places API and save new ones"""
+    """Fetch reviews from Google Places API and save new ones (slow operation)"""
     if not company.place_id:
         return 0
 
@@ -57,11 +57,10 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) 
         if added_count > 0:
             db.commit()
 
-        # Update company Google data if available
-        if "rating" in result or "user_ratings_total" in result:
-            company.google_rating = result.get("rating")
-            company.user_ratings_total = result.get("user_ratings_total")
-            db.commit()
+        # Update company metadata
+        company.google_rating = result.get("rating", company.google_rating)
+        company.user_ratings_total = result.get("user_ratings_total", company.user_ratings_total)
+        db.commit()
 
         return added_count
 
@@ -198,27 +197,29 @@ def fetch_reviews(
     company_id: int,
     db: Session = Depends(get_db)
 ):
-    """Trigger review fetch for a company"""
+    """Manually trigger full review fetch from Google"""
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(404, "Company not found")
 
     added = fetch_and_save_reviews(company, db)
-    return {"message": "Fetch completed", "new_reviews_added": added}
+    return {"message": "Fresh fetch completed", "new_reviews_added": added}
 
 
 @router.get("/summary/{company_id}")
 def reviews_summary(
     company_id: int,
+    refresh: bool = Query(False, description="If true, fetch fresh reviews from Google (may take 5–20 seconds)"),
     db: Session = Depends(get_db)
 ):
-    """Get full analytics summary for dashboard"""
+    """Fast dashboard summary — only fetches from Google if ?refresh=true"""
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(404, "Company not found")
 
-    # Uncomment if you want to always fetch fresh reviews
-    # fetch_and_save_reviews(company, db)
+    if refresh:
+        # This is the slow part — only do it when user clicks Refresh
+        fetch_and_save_reviews(company, db)
 
     reviews = db.query(Review).filter(Review.company_id == company_id).all()
     return get_review_summary_data(reviews, company)
@@ -226,19 +227,15 @@ def reviews_summary(
 
 @router.get("/my-companies")
 def get_my_companies(db: Session = Depends(get_db)):
-    """
-    Return list of companies for dropdown.
-    Safe version — no crash if fields are missing.
-    """
-    companies = db.query(Company).all()  # ← add user filter later
+    """List companies for dashboard dropdown (fast)"""
+    companies = db.query(Company).all()  # ← add .filter(Company.user_id == current_user.id) later
 
     return [
         {
             "id": c.id,
             "name": c.name,
             "place_id": c.place_id,
-            "city": getattr(c, "city", "N/A"),
-            # "added_at": getattr(c, "added_at", None).isoformat() if hasattr(c, "added_at") and c.added_at else None
+            "city": getattr(c, "city", "N/A")
         }
         for c in sorted(companies, key=lambda x: x.name or "")
     ]
