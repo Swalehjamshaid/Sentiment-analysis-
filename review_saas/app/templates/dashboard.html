@@ -2,10 +2,39 @@
 
 {% block content %}
 <div class="container mt-4">
-  <h3 class="mb-4">Dashboard {% if company_name %} - {{ company_name }}{% endif %}</h3>
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h3>Dashboard</h3>
+    <div class="d-flex align-items-center gap-3">
+      <select id="company-selector" class="form-select w-auto">
+        <option value="0">Select a Company...</option>
+        <!-- Filled dynamically -->
+      </select>
+      <button id="refresh-btn" class="btn btn-outline-success">
+        <i class="bi bi-arrow-repeat"></i> Refresh
+      </button>
+    </div>
+  </div>
+
+  <!-- Company Overview Card -->
+  <div class="card shadow-sm mb-4" id="company-overview" style="display: none;">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <h4 id="company-name">Company Name</h4>
+          <div class="text-muted">
+            Google Rating: <span id="google-rating">—</span> • 
+            Total Ratings: <span id="google-total-ratings">—</span>
+          </div>
+        </div>
+        <div class="text-end">
+          <small class="text-muted">Last updated: <span id="last-updated">—</span></small>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- KPI Cards -->
-  <div class="row mb-4 text-center">
+  <div class="row mb-4 text-center" id="kpi-section">
     <div class="col-md-4 mb-3">
       <div class="card shadow-sm border-0 h-100">
         <div class="card-body">
@@ -54,32 +83,40 @@
           <a href="/companies" class="btn btn-outline-primary w-100 mb-2">
             Manage Companies
           </a>
-          <button id="refresh-btn" class="btn btn-outline-success w-100 mb-2">
-            Refresh Dashboard
-          </button>
+          <a href="/reports" class="btn btn-outline-info w-100 mb-2">
+            Generate Report
+          </a>
         </div>
       </div>
 
-      <div class="card shadow-sm border-0">
+      <div class="card shadow-sm border-0 mb-3">
         <div class="card-body">
           <h6>Top Keywords</h6>
           <ul id="keywords-list" class="list-group list-group-flush small">
-            <!-- Filled by JS -->
+            <li class="list-group-item text-muted">No keywords yet</li>
           </ul>
         </div>
       </div>
     </div>
   </div>
 
+  <!-- AI Summary Section -->
+  <div class="card shadow-sm mb-4" id="ai-summary-card" style="display: none;">
+    <div class="card-body">
+      <h5>Customer Sentiment Summary</h5>
+      <p id="ai-summary" class="text-muted">
+        Loading summary...
+      </p>
+    </div>
+  </div>
+
   <!-- Recent Reviews -->
-  <div class="row mt-4">
-    <div class="col-12">
-      <div class="card shadow-sm border-0">
-        <div class="card-body">
-          <h5>Recent Reviews</h5>
-          <div id="reviews-container" class="list-group">
-            <!-- Filled dynamically -->
-          </div>
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h5>Recent Reviews</h5>
+      <div id="reviews-container" class="list-group">
+        <div class="list-group-item text-center text-muted py-4">
+          No reviews loaded yet. Select a company or refresh.
         </div>
       </div>
     </div>
@@ -91,17 +128,67 @@
 
 <script>
   let ratingChart = null;
-  const companyId = {{ current_company_id | default(1) }};  // Pass from template or get from URL/session
+  let currentCompanyId = {{ current_company_id | default(0) }};
 
-  async function loadDashboard() {
+  async function loadCompanies() {
     try {
-      const response = await fetch(`/reviews/summary/${companyId}`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
+      const res = await fetch('/reviews/my-companies');
+      if (!res.ok) throw new Error('Failed to load companies');
+      const companies = await res.json();
 
-      // Update KPIs
+      const select = document.getElementById('company-selector');
+      select.innerHTML = '<option value="0">Select a Company...</option>';
+
+      companies.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.name;
+        if (c.id == currentCompanyId) opt.selected = true;
+        select.appendChild(opt);
+      });
+
+      // Auto-load first company if none selected
+      if (currentCompanyId == 0 && companies.length > 0) {
+        currentCompanyId = companies[0].id;
+        select.value = currentCompanyId;
+      }
+
+      if (currentCompanyId > 0) {
+        await loadDashboard(currentCompanyId);
+      }
+
+      select.addEventListener('change', async (e) => {
+        currentCompanyId = parseInt(e.target.value);
+        if (currentCompanyId > 0) {
+          await loadDashboard(currentCompanyId);
+        } else {
+          clearDashboard();
+        }
+      });
+
+    } catch (err) {
+      console.error(err);
+      document.getElementById('reviews-container').innerHTML =
+        '<div class="alert alert-danger">Failed to load companies. Please try again.</div>';
+    }
+  }
+
+  async function loadDashboard(companyId) {
+    if (!companyId) return clearDashboard();
+
+    try {
+      const res = await fetch(`/reviews/summary/${companyId}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      // Show overview card
+      document.getElementById('company-overview').style.display = 'block';
+      document.getElementById('company-name').textContent = data.company_name || 'Company';
+      document.getElementById('google-rating').textContent = data.google_rating || '—';
+      document.getElementById('google-total-ratings').textContent = data.google_total_ratings || '—';
+      document.getElementById('last-updated').textContent = new Date().toLocaleString();
+
+      // KPIs
       document.getElementById('total-reviews').textContent = data.total_reviews;
       document.getElementById('avg-rating').textContent = data.avg_rating.toFixed(1);
 
@@ -111,11 +198,11 @@
       // Keywords
       const kwList = document.getElementById('keywords-list');
       kwList.innerHTML = '';
-      const allKeywords = [...data.positive_keywords, ...data.negative_keywords];
-      if (allKeywords.length === 0) {
+      const allKw = [...data.positive_keywords, ...data.negative_keywords];
+      if (allKw.length === 0) {
         kwList.innerHTML = '<li class="list-group-item text-muted">No keywords yet</li>';
       } else {
-        allKeywords.forEach(kw => {
+        allKw.forEach(kw => {
           const li = document.createElement('li');
           li.className = 'list-group-item';
           li.textContent = kw;
@@ -123,43 +210,41 @@
         });
       }
 
-      // Recent Reviews (top 6)
-      const reviewsContainer = document.getElementById('reviews-container');
-      reviewsContainer.innerHTML = '';
-      data.reviews.slice(0, 6).forEach(r => {
-        const div = document.createElement('div');
-        div.className = 'list-group-item';
-        div.innerHTML = `
-          <div class="d-flex w-100 justify-content-between">
-            <h6 class="mb-1">${r.reviewer_name}</h6>
-            <small>${r.review_date || 'N/A'}</small>
-          </div>
-          <p class="mb-1">${r.review_text.substring(0, 140)}${r.review_text.length > 140 ? '...' : ''}</p>
-          <div class="d-flex justify-content-between align-items-center">
-            <small>Rating: ${r.rating} ★</small>
-            <span class="badge ${
-              r.sentiment === 'Positive' ? 'bg-success' :
-              r.sentiment === 'Negative' ? 'bg-danger' : 'bg-warning'
-            }">${r.sentiment}</span>
-          </div>
-          <small class="text-muted mt-1 d-block">
-            Reply: ${r.suggested_reply.substring(0, 80)}${r.suggested_reply.length > 80 ? '...' : ''}
-          </small>
-        `;
-        reviewsContainer.appendChild(div);
-      });
+      // Recent Reviews
+      const container = document.getElementById('reviews-container');
+      container.innerHTML = '';
+      if (data.reviews.length === 0) {
+        container.innerHTML = '<div class="list-group-item text-center text-muted py-4">No reviews yet for this company</div>';
+      } else {
+        data.reviews.slice(0, 8).forEach(r => {
+          const item = document.createElement('div');
+          item.className = 'list-group-item';
+          item.innerHTML = `
+            <div class="d-flex w-100 justify-content-between">
+              <h6 class="mb-1">${r.reviewer_name}</h6>
+              <small>${r.review_date || 'N/A'}</small>
+            </div>
+            <p class="mb-1">${r.review_text.substring(0, 140)}${r.review_text.length > 140 ? '...' : ''}</p>
+            <div class="d-flex justify-content-between align-items-center">
+              <small>Rating: ${r.rating} ★</small>
+              <span class="badge ${
+                r.sentiment === 'Positive' ? 'bg-success' :
+                r.sentiment === 'Negative' ? 'bg-danger' : 'bg-warning'
+              }">${r.sentiment}</span>
+            </div>
+          `;
+          container.appendChild(item);
+        });
+      }
 
       // Trend Chart
       const ctx = document.getElementById('trendChart').getContext('2d');
       if (ratingChart) ratingChart.destroy();
 
-      let labels = [];
-      let avgRatings = [];
+      let labels = data.trend_data?.map(t => t.month) || [];
+      let avgRatings = data.trend_data?.map(t => t.avg_rating) || [];
 
-      if (data.trend_data && data.trend_data.length > 0) {
-        labels = data.trend_data.map(item => item.month);
-        avgRatings = data.trend_data.map(item => item.avg_rating);
-      } else if (data.reviews && data.reviews.length > 0) {
+      if (labels.length === 0 && data.reviews.length > 0) {
         labels = data.reviews.map(r => r.review_date ? new Date(r.review_date).toLocaleDateString() : 'N/A');
         avgRatings = data.reviews.map(r => r.rating);
       }
@@ -174,43 +259,47 @@
             borderColor: '#0d6efd',
             backgroundColor: 'rgba(13, 110, 253, 0.12)',
             tension: 0.3,
-            fill: true,
-            pointBackgroundColor: '#0d6efd',
-            pointBorderColor: '#fff',
-            pointRadius: 4
+            fill: true
           }]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
           scales: {
-            y: {
-              min: 0,
-              max: 5.5,
-              title: { display: true, text: 'Rating (★)' }
-            },
-            x: {
-              title: { display: true, text: 'Time' }
-            }
-          },
-          plugins: {
-            legend: { display: true, position: 'top' },
-            tooltip: { mode: 'index', intersect: false }
+            y: { min: 0, max: 5.5, title: { display: true, text: 'Rating (★)' } },
+            x: { title: { display: true, text: 'Time' } }
           }
         }
       });
 
     } catch (err) {
-      console.error('Dashboard load error:', err);
+      console.error(err);
       document.getElementById('reviews-container').innerHTML =
-        '<div class="alert alert-warning">Could not load review data. Please try again later.</div>';
+        '<div class="alert alert-warning">Failed to load data. Please try again.</div>';
     }
   }
 
-  // Load when page is ready
-  document.addEventListener('DOMContentLoaded', loadDashboard);
+  function clearDashboard() {
+    document.getElementById('company-overview').style.display = 'none';
+    document.getElementById('total-reviews').textContent = '0';
+    document.getElementById('avg-rating').textContent = '0.0';
+    document.getElementById('sentiment-mix').textContent = '0 / 0 / 0';
+    document.getElementById('keywords-list').innerHTML = '<li class="list-group-item text-muted">Select a company</li>';
+    document.getElementById('reviews-container').innerHTML =
+      '<div class="list-group-item text-center text-muted py-4">Select a company to view reviews</div>';
+    if (ratingChart) ratingChart.destroy();
+  }
+
+  // Load everything on page ready
+  document.addEventListener('DOMContentLoaded', async () => {
+    await loadCompanies();
+  });
 
   // Refresh button
-  document.getElementById('refresh-btn')?.addEventListener('click', loadDashboard);
+  document.getElementById('refresh-btn')?.addEventListener('click', async () => {
+    if (currentCompanyId > 0) {
+      await loadDashboard(currentCompanyId);
+    }
+  });
 </script>
 {% endblock %}
