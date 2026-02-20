@@ -1,22 +1,79 @@
 # review_saas/app/routes/reviews.py
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Review, Company
-# from ..auth import get_current_user   # ← COMMENTED OUT / REMOVED
-
 from collections import Counter, defaultdict
 from datetime import datetime
 import re
+import os
 from typing import List, Dict, Any
+import googlemaps
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
+# ─── Google Places Client (API key only) ─────────────────────────────────────
+gmaps = googlemaps.Client(key=os.getenv("GOOGLE_PLACES_API_KEY"))
 
-# ────────────────────────────────────────────────
-# Utilities (same as before – only small safety improvements)
-# ────────────────────────────────────────────────
-def classify_sentiment(rating: int | float | None) -> str:
+
+def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5):
+    """
+    Fetch latest reviews via Google Places API and save new ones to DB
+    Returns number of new reviews added
+    """
+    if not company.place_id:
+        return 0
+
+    try:
+        place_result = gmaps.place(
+            place_id=company.place_id,
+            fields=["reviews", "rating", "user_ratings_total"]
+        )
+
+        result = place_result.get("result", {})
+        api_reviews = result.get("reviews", [])[:max_reviews]
+
+        added_count = 0
+        for rev in api_reviews:
+            # Simple deduplication (text + rating + time)
+            review_time = rev.get("time")
+            existing = db.query(Review).filter(
+                Review.company_id == company.id,
+                Review.review_text == rev.get("text"),
+                Review.rating == rev.get("rating"),
+                Review.review_date == datetime.fromtimestamp(review_time) if review_time else None
+            ).first()
+
+            if existing:
+                continue
+
+            new_review = Review(
+                company_id=company.id,
+                review_text=rev.get("text", ""),
+                rating=rev.get("rating"),
+                reviewer_name=rev.get("author_name", "Anonymous"),
+                review_date=datetime.fromtimestamp(rev.get("time")) if rev.get("time") else None,
+                # reviewer_avatar=rev.get("profile_photo_url"),
+                fetch_at=datetime.utcnow()
+            )
+            db.add(new_review)
+            added_count += 1
+
+        if added_count > 0:
+            db.commit()
+
+        return added_count
+
+    except googlemaps.exceptions.ApiError as e:
+        print(f"Google Places error: {e}")
+        return 0
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return 0
+
+
+# ─── Sentiment & Summary Logic ───────────────────────────────────────────────
+def classify_sentiment(rating: float | None) -> str:
     if rating is None:
         return "Neutral"
     if rating >= 4:
@@ -32,32 +89,10 @@ def extract_keywords(text: str | None) -> List[str]:
         return []
     text = re.sub(r'[^\w\s]', '', text.lower())
     words = text.split()
-    stopwords = {
-        "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
-        "has", "have", "he", "in", "is", "it", "its", "of", "on", "that",
-        "the", "to", "was", "were", "will", "with", "this", "i", "me", "my"
-    }
+    stopwords = {"a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+                 "has", "have", "he", "in", "is", "it", "its", "of", "on", "that",
+                 "the", "to", "was", "were", "will", "with", "this", "i", "me", "my"}
     return [w for w in words if w not in stopwords and len(w) > 2]
-
-
-def generate_suggested_reply(sentiment: str) -> str:
-    templates = {
-        "Positive": [
-            "Thank you so much for your kind words! We're thrilled you had a great experience.",
-            "We really appreciate your positive feedback — thank you!",
-            "Thanks for the wonderful review! It means a lot to us."
-        ],
-        "Neutral": [
-            "Thank you for your feedback. We're always looking to improve.",
-            "Thanks for taking the time to share your thoughts."
-        ],
-        "Negative": [
-            "We're truly sorry for the experience you had. Please contact us so we can make this right.",
-            "We apologize for falling short. We'd love the chance to improve your experience — please reach out."
-        ]
-    }
-    import random
-    return random.choice(templates.get(sentiment, templates["Neutral"]))
 
 
 def get_review_summary_data(reviews: List[Review]) -> Dict[str, Any]:
@@ -99,7 +134,6 @@ def get_review_summary_data(reviews: List[Review]) -> Dict[str, Any]:
             "reviewer_name": r.reviewer_name or "Anonymous",
             "review_date": r.review_date.isoformat() if r.review_date else None,
             "sentiment": sentiment,
-            "suggested_reply": generate_suggested_reply(sentiment)
         })
 
         if r.review_date:
@@ -119,50 +153,58 @@ def get_review_summary_data(reviews: List[Review]) -> Dict[str, Any]:
     return {
         "total_reviews": total_reviews,
         "avg_rating": avg_rating,
+        "google_rating": reviews[0].company.google_rating if reviews else None,
         "sentiments": sentiments_count,
-        "positive_keywords": [k for k, _ in Counter(positive_keywords).most_common(5)],
-        "negative_keywords": [k for k, _ in Counter(negative_keywords).most_common(5)],
+        "positive_keywords": [k for k, _ in Counter(positive_keywords).most_common(8)],
+        "negative_keywords": [k for k, _ in Counter(negative_keywords).most_common(8)],
         "trend_data": trend_data,
-        "reviews": sorted(review_list, key=lambda x: x["review_date"] or "0000-00-00", reverse=True)
+        "reviews": sorted(review_list, key=lambda x: x["review_date"] or "0000-00-00", reverse=True)[:20]
     }
 
 
-# ────────────────────────────────────────────────
-# Endpoints
-# ────────────────────────────────────────────────
+# ─── Endpoints ────────────────────────────────────────────────────────────────
 
-@router.get("/")
-def list_all_reviews(db: Session = Depends(get_db)):
-    return db.query(Review).all()
+@router.post("/fetch/{company_id}")
+def fetch_reviews(
+    company_id: int,
+    db: Session = Depends(get_db)
+):
+    """Manually trigger review fetch for a company"""
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(404, "Company not found")
+
+    added = fetch_and_save_reviews(company, db)
+    return {"message": f"Fetch completed", "new_reviews_added": added}
 
 
 @router.get("/summary/{company_id}")
 def reviews_summary(company_id: int, db: Session = Depends(get_db)):
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+        raise HTTPException(404, "Company not found")
+
+    # Optional: fetch fresh reviews on every summary request (can be rate-limited)
+    # fetch_and_save_reviews(company, db)
 
     reviews = db.query(Review).filter(Review.company_id == company_id).all()
     data = get_review_summary_data(reviews)
     data["company_name"] = company.name
+    data["google_total_ratings"] = company.user_ratings_total
     return data
 
 
-# ────────────────────────────────────────────────
-# List companies (temporarily open – no auth check)
-# ────────────────────────────────────────────────
 @router.get("/my-companies")
 def get_my_companies(db: Session = Depends(get_db)):
-    # For now: return ALL companies (no user filter)
-    # Later: add Depends(get_current_user) when auth is ready
+    # Temporarily returns all companies (add auth later)
     companies = db.query(Company).all()
     return [
         {
             "id": c.id,
             "name": c.name,
             "place_id": c.place_id,
-            "city": c.city or "N/A",
+            "city": getattr(c, "city", None),
             "added_at": c.added_at.isoformat() if c.added_at else None
         }
-        for c in sorted(companies, key=lambda x: x.name or "")
+        for c in companies
     ]
