@@ -1,85 +1,20 @@
 # review_saas/app/routes/reviews.py
-
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Review, Company
 from collections import Counter
 import re
-import openai
-
-# Google API
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
+from typing import List, Dict
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
-# =========================
-# Google Business API Setup
-# =========================
-SERVICE_ACCOUNT_FILE = "path_to_your_service_account.json"
-SCOPES = ['https://www.googleapis.com/auth/business.manage']
-
-credentials = service_account.Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE, scopes=SCOPES
-)
-
-google_service = build('mybusiness', 'v4', credentials=credentials)
-
-def fetch_google_reviews(place_id: str):
-    """Fetch reviews from Google Business Profile API"""
-    reviews = []
-    try:
-        response = google_service.accounts().locations().reviews().list(
-            parent=f'locations/{place_id}'
-        ).execute()
-        for r in response.get("reviews", []):
-            reviews.append({
-                "review_text": r.get("comment", ""),
-                "rating": r.get("starRating", 0),
-                "reviewer_name": r.get("reviewer", {}).get("displayName"),
-                "review_date": r.get("createTime")
-            })
-    except Exception as e:
-        print(f"Google API fetch error: {e}")
-    return reviews
 
 # =========================
-# OpenAI API Setup
+# Pure Python Utilities
 # =========================
-openai.api_key = "YOUR_OPENAI_API_KEY"
-
-def generate_reply(review_text: str, sentiment: str):
-    """Generate AI suggested reply based on sentiment"""
-    if sentiment == "Positive":
-        prompt = f"Write a professional and friendly reply to this positive review: '{review_text}'"
-    elif sentiment == "Neutral":
-        prompt = f"Write a polite reply to this neutral review: '{review_text}'"
-    else:
-        prompt = f"Write a professional apology and support offer reply to this negative review: '{review_text}'"
-
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=60
-        )
-        return response['choices'][0]['message']['content']
-    except Exception as e:
-        print(f"OpenAI API error: {e}")
-        # fallback simple reply
-        if sentiment == "Positive":
-            return "Thank you for your feedback!"
-        elif sentiment == "Neutral":
-            return "Thanks for your review."
-        else:
-            return "We are sorry to hear this. Please contact support."
-
-# =========================
-# Utilities
-# =========================
-def classify_sentiment(rating: float):
+def classify_sentiment(rating: int | float) -> str:
+    """Simple rule-based sentiment classification based on star rating"""
     if rating >= 4:
         return "Positive"
     elif rating == 3:
@@ -87,98 +22,135 @@ def classify_sentiment(rating: float):
     else:
         return "Negative"
 
-def extract_keywords(text: str):
-    words = re.findall(r'\b\w+\b', text.lower())
-    stopwords = set(["the","and","a","of","to","in","is","it","for","on","with","this","that","at","as"])
-    return [w for w in words if w not in stopwords and len(w) > 2]
 
-def save_reviews_to_db(company_id: int, reviews: list, db: Session):
-    """Save fetched Google reviews to database, avoid duplicates"""
-    for r in reviews:
-        exists = db.query(Review).filter(
-            Review.company_id == company_id,
-            Review.review_text == r['review_text']
-        ).first()
-        if not exists:
-            review_obj = Review(
-                company_id=company_id,
-                review_text=r['review_text'],
-                rating=int(r['rating']),
-                reviewer_name=r.get('reviewer_name'),
-                review_date=r.get('review_date')
-            )
-            db.add(review_obj)
-    db.commit()
+def extract_keywords(text: str) -> List[str]:
+    """Basic keyword extraction: lowercase, remove punctuation, filter stopwords & short words"""
+    if not text:
+        return []
 
-# =========================
-# API Endpoints
-# =========================
-@router.get("/")
-def list_reviews(db: Session = Depends(get_db)):
-    """Return all reviews (raw data)"""
-    return db.query(Review).all()
+    # Remove punctuation and normalize
+    text = re.sub(r'[^\w\s]', '', text.lower())
+    words = text.split()
+
+    # Common English stopwords (you can expand this list)
+    stopwords = {
+        "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+        "has", "have", "he", "in", "is", "it", "its", "of", "on", "that",
+        "the", "to", "was", "were", "will", "with", "this", "i", "me", "my"
+    }
+
+    keywords = [w for w in words if w not in stopwords and len(w) > 2]
+    return keywords
 
 
-@router.get("/summary/{company_id}")
-def reviews_summary(company_id: int, db: Session = Depends(get_db)):
-    """Return summary of reviews for a company"""
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+def generate_suggested_reply(sentiment: str, review_text: str = "") -> str:
+    """
+    Template-based reply generator (no AI / OpenAI required)
+    Returns short, professional replies based on sentiment
+    """
+    templates = {
+        "Positive": [
+            "Thank you so much for your kind words! We're thrilled you had a great experience.",
+            "We really appreciate your positive feedback — thank you!",
+            "Thanks for the wonderful review! It means a lot to us.",
+            "We're so glad you enjoyed it — thank you for choosing us!"
+        ],
+        "Neutral": [
+            "Thank you for your feedback. We're always looking to improve.",
+            "Thanks for taking the time to share your thoughts.",
+            "We appreciate your honest review and will use it to get better.",
+            "Thank you for your input — we value every comment."
+        ],
+        "Negative": [
+            "We're truly sorry for the experience you had. Please contact us so we can make this right.",
+            "We apologize for falling short. We'd love the chance to improve your experience — please reach out.",
+            "We're sorry to hear this wasn't up to our standards. Please let us know how we can help.",
+            "We regret that your visit didn't meet expectations. We'd be grateful for more details so we can fix this."
+        ]
+    }
 
-    # Step 1: Fetch Google reviews and save
-    google_reviews = fetch_google_reviews(company.place_id)
-    save_reviews_to_db(company_id, google_reviews, db)
+    # Pick a random-ish reply (or first one) — you can make it more sophisticated later
+    import random
+    return random.choice(templates.get(sentiment, templates["Neutral"]))
 
-    # Step 2: Fetch all reviews from DB
-    reviews = db.query(Review).filter(Review.company_id == company_id).all()
+
+def get_review_summary_data(reviews: List[Review]) -> Dict:
+    """Compute summary statistics from a list of Review objects"""
     if not reviews:
         return {
             "total_reviews": 0,
-            "avg_rating": 0,
+            "avg_rating": 0.0,
             "sentiments": {"Positive": 0, "Neutral": 0, "Negative": 0},
             "positive_keywords": [],
             "negative_keywords": [],
             "reviews": []
         }
 
-    # Step 3: Compute KPIs
     total_reviews = len(reviews)
-    avg_rating = round(sum(r.rating for r in reviews) / total_reviews, 2)
-    sentiments = {"Positive": 0, "Neutral": 0, "Negative": 0}
+    total_rating = sum(r.rating for r in reviews)
+    avg_rating = round(total_rating / total_reviews, 2)
+
+    sentiments_count = {"Positive": 0, "Neutral": 0, "Negative": 0}
     positive_keywords = []
     negative_keywords = []
     review_list = []
 
     for r in reviews:
-        s = classify_sentiment(r.rating)
-        sentiments[s] += 1
-        keywords = extract_keywords(r.review_text)
-        if s == "Positive":
+        sentiment = classify_sentiment(r.rating)
+        sentiments_count[sentiment] += 1
+
+        keywords = extract_keywords(r.review_text or "")
+        if sentiment == "Positive":
             positive_keywords.extend(keywords)
-        elif s == "Negative":
+        elif sentiment == "Negative":
             negative_keywords.extend(keywords)
 
-        suggested_reply = generate_reply(r.review_text, s)
+        suggested_reply = generate_suggested_reply(sentiment, r.review_text or "")
 
         review_list.append({
             "id": r.id,
-            "review_text": r.review_text,
+            "review_text": r.review_text or "",
             "rating": r.rating,
-            "reviewer_name": r.reviewer_name,
+            "reviewer_name": r.reviewer_name or "Anonymous",
             "review_date": r.review_date.isoformat() if r.review_date else None,
-            "sentiment": s,
+            "sentiment": sentiment,
             "suggested_reply": suggested_reply
         })
 
-    top_positive = [k for k, v in Counter(positive_keywords).most_common(5)]
-    top_negative = [k for k, v in Counter(negative_keywords).most_common(5)]
+    # Get top 5 keywords per sentiment
+    top_positive = [k for k, _ in Counter(positive_keywords).most_common(5)]
+    top_negative = [k for k, _ in Counter(negative_keywords).most_common(5)]
 
     return {
         "total_reviews": total_reviews,
         "avg_rating": avg_rating,
-        "sentiments": sentiments,
+        "sentiments": sentiments_count,
         "positive_keywords": top_positive,
         "negative_keywords": top_negative,
         "reviews": review_list
     }
+
+
+# =========================
+# API Endpoints
+# =========================
+@router.get("/")
+def list_all_reviews(db: Session = Depends(get_db)):
+    """Return all reviews in the system (for admin/debug purposes)"""
+    return db.query(Review).all()
+
+
+@router.get("/summary/{company_id}")
+def reviews_summary(company_id: int, db: Session = Depends(get_db)):
+    """
+    Return review summary and processed data for a company.
+    Works only with reviews already stored in the database.
+    """
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    # Get all reviews for this company from DB
+    reviews = db.query(Review).filter(Review.company_id == company_id).all()
+
+    return get_review_summary_data(reviews)
