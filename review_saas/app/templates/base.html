@@ -1,17 +1,20 @@
 <!-- Filename: app/templates/base.html -->
 
 <!doctype html>
-<html lang="en">
+<html lang="en" data-bs-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ title or 'Review SaaS Pro' }}</title>
+  <title>{{ title or 'FF Tech Company - Review Intelligence' }}</title>
 
-  <!-- Bootstrap 5 CSS -->
+  <!-- Bootstrap 5.3 CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 
-  <!-- Google Fonts -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <!-- Google Fonts (Inter – modern & clean) -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Font Awesome 6 (icons) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -20,118 +23,235 @@
   <link rel="stylesheet" href="/static/css/style.css">
 
   <style>
-    /* Global Styles */
+    :root {
+      --primary: #4b4bff;
+      --primary-dark: #3a3aff;
+      --light-bg: #f8f9fc;
+    }
+
     body {
       font-family: 'Inter', sans-serif;
-      background: linear-gradient(135deg, #f5f7fa, #c3cfe2);
+      background: var(--light-bg);
       min-height: 100vh;
-      color: #333;
+      color: #2d3748;
     }
 
-    main.container {
-      padding-top: 50px;
-      padding-bottom: 50px;
-    }
-
-    /* Navbar */
+    /* Sticky Navbar */
     .navbar {
-      background: rgba(255, 255, 255, 0.95);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-      border-radius: 0.5rem;
+      background: rgba(255, 255, 255, 0.97);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+      position: sticky;
+      top: 0;
+      z-index: 1000;
     }
 
     .navbar-brand {
       font-weight: 700;
-      font-size: 1.5rem;
-      color: #4b4bff !important;
+      font-size: 1.6rem;
+      color: var(--primary) !important;
+      display: flex;
+      align-items: center;
     }
 
-    .navbar a.btn {
-      border-radius: 50px;
-      padding: 0.5rem 1.25rem;
-      font-weight: 600;
-      transition: all 0.3s ease;
+    .navbar-brand img {
+      height: 38px;
+      margin-right: 10px;
+      border-radius: 8px;
     }
 
-    .navbar a.btn:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+    .nav-link {
+      font-weight: 500;
+      color: #4a5568;
+      transition: color 0.2s;
     }
 
-    /* Card Styling */
-    .card {
-      border-radius: 18px;
-      padding: 30px;
-      box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-      background: #fff;
-      transition: all 0.3s ease;
+    .nav-link:hover, .nav-link.active {
+      color: var(--primary);
     }
 
-    .card:hover {
-      transform: translateY(-5px);
-      box-shadow: 0 25px 50px rgba(0,0,0,0.15);
-    }
-
-    /* Form Inputs */
-    .form-control {
-      border-radius: 10px;
-      padding: 12px;
-      border: 1px solid #ddd;
-      transition: all 0.3s ease;
-    }
-
-    .form-control:focus {
-      border-color: #4b4bff;
-      box-shadow: 0 0 0 3px rgba(75,75,255,0.2);
-    }
-
-    /* Buttons */
     .btn-primary {
       background: linear-gradient(135deg, #667eea, #764ba2);
       border: none;
-      font-weight: 600;
-      transition: all 0.3s ease;
       border-radius: 50px;
+      padding: 0.6rem 1.5rem;
+      font-weight: 600;
+      transition: all 0.3s;
     }
 
     .btn-primary:hover {
       transform: translateY(-2px);
-      box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+      box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
     }
 
-    /* Footer spacing */
+    .dropdown-menu {
+      border-radius: 12px;
+      border: none;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    }
+
+    main.container {
+      padding-top: 80px;
+      padding-bottom: 60px;
+    }
+
     footer {
-      margin-top: 50px;
-      text-align: center;
-      font-size: 0.9rem;
-      color: #777;
+      background: #1a202c;
+      color: #a0aec0;
+      padding: 40px 0 20px;
+      margin-top: 60px;
+    }
+
+    footer a {
+      color: #cbd5e0;
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      color: white;
     }
   </style>
 </head>
 <body>
-  <!-- Navbar -->
-  <nav class="navbar navbar-expand-lg navbar-light mb-4 px-4">
-    <div class="container-fluid">
-      <a class="navbar-brand" href="/">Review SaaS Pro</a>
-      <div class="ms-auto">
-        <a class="btn btn-outline-secondary me-2" href="/register">Register</a>
-        <a class="btn btn-primary" href="/login">Login</a>
+
+  <!-- Top Navigation Bar -->
+  <nav class="navbar navbar-expand-lg">
+    <div class="container-fluid px-4">
+      <!-- Brand / Logo -->
+      <a class="navbar-brand" href="/">
+        <!-- Replace src with your real logo file or URL -->
+        <img src="/static/images/logo.png" alt="FF Tech Company Logo" 
+             onerror="this.src='https://via.placeholder.com/40x40/4b4bff/ffffff?text=FF';this.onerror=null;">
+        FF Tech Company
+      </a>
+
+      <!-- Hamburger toggle for mobile -->
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent" aria-controls="navbarContent" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <!-- Navbar content -->
+      <div class="collapse navbar-collapse" id="navbarContent">
+        <!-- Left links -->
+        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+          <li class="nav-item">
+            <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="/">Dashboard</a>
+          </li>
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              Features
+            </a>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="/features/review-monitoring">Review Monitoring</a></li>
+              <li><a class="dropdown-item" href="/features/ai-replies">AI Reply Generator</a></li>
+              <li><a class="dropdown-item" href="/features/analytics">Analytics & Insights</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item" href="/pricing">Pricing</a></li>
+            </ul>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="/pricing">Pricing</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="/contact">Contact</a>
+          </li>
+        </ul>
+
+        <!-- Right side: Auth / User menu -->
+        <ul class="navbar-nav ms-auto align-items-center">
+          {% if current_user.is_authenticated %}
+            <!-- Logged in user dropdown -->
+            <li class="nav-item dropdown">
+              <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="fas fa-user-circle me-2"></i>
+                {{ current_user.full_name or current_user.email }}
+              </a>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item" href="/profile"><i class="fas fa-user me-2"></i>Profile</a></li>
+                <li><a class="dropdown-item" href="/settings"><i class="fas fa-cog me-2"></i>Settings</a></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item text-danger" href="/logout"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+              </ul>
+            </li>
+            <!-- Dark mode toggle -->
+            <li class="nav-item">
+              <button id="themeToggle" class="btn btn-link nav-link" title="Toggle dark mode">
+                <i class="fas fa-moon"></i>
+              </button>
+            </li>
+          {% else %}
+            <!-- Not logged in -->
+            <li class="nav-item">
+              <a class="btn btn-outline-primary me-2" href="/login">Login</a>
+            </li>
+            <li class="nav-item">
+              <a class="btn btn-primary" href="/register">Get Started Free</a>
+            </li>
+          {% endif %}
+        </ul>
       </div>
     </div>
   </nav>
 
-  <!-- Main Content -->
+  <!-- Main Content Area -->
   <main class="container">
     {% block content %}{% endblock %}
   </main>
 
   <!-- Footer -->
-  <footer>
-    &copy; {{ current_year or 2026 }} Review SaaS Pro. All rights reserved.
+  <footer class="text-center">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-4 mb-4 mb-md-0">
+          <h5>FF Tech Company</h5>
+          <p>AI-powered review intelligence & reputation management for businesses</p>
+        </div>
+        <div class="col-md-4 mb-4 mb-md-0">
+          <h5>Quick Links</h5>
+          <ul class="list-unstyled">
+            <li><a href="/features">Features</a></li>
+            <li><a href="/pricing">Pricing</a></li>
+            <li><a href="/contact">Contact Us</a></li>
+          </ul>
+        </div>
+        <div class="col-md-4">
+          <h5>Legal</h5>
+          <ul class="list-unstyled">
+            <li><a href="/privacy">Privacy Policy</a></li>
+            <li><a href="/terms">Terms of Service</a></li>
+          </ul>
+        </div>
+      </div>
+      <hr class="my-4">
+      <p class="mb-0">© {{ current_year or 2026 }} FF Tech Company. All rights reserved.</p>
+    </div>
   </footer>
 
-  <!-- Bootstrap JS Bundle -->
+  <!-- Bootstrap JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Dark mode toggle script -->
+  <script>
+    const themeToggle = document.getElementById('themeToggle');
+    if (themeToggle) {
+      themeToggle.addEventListener('click', () => {
+        const html = document.documentElement;
+        const currentTheme = html.getAttribute('data-bs-theme');
+        html.setAttribute('data-bs-theme', currentTheme === 'dark' ? 'light' : 'dark');
+        localStorage.setItem('theme', currentTheme === 'dark' ? 'light' : 'dark');
+      });
+    }
+
+    // Load saved theme
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme) {
+      document.documentElement.setAttribute('data-bs-theme', savedTheme);
+    }
+  </script>
+
+  <!-- Your custom JS -->
   <script src="/static/js/dashboard.js"></script>
+
+  {% block extra_js %}{% endblock %}
 </body>
 </html>
