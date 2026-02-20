@@ -1,16 +1,216 @@
-
 {% extends 'base.html' %}
+
 {% block content %}
-  <h3>Dashboard</h3>
-  <div class="row mb-3">
-    <div class="col"><div class="card"><div class="card-body"><h6>Total</h6><h3 id="k1">0</h3></div></div></div>
-    <div class="col"><div class="card"><div class="card-body"><h6>Avg Rating</h6><h3 id="k2">0</h3></div></div></div>
-    <div class="col"><div class="card"><div class="card-body"><h6>Mix</h6><div id="k3">0/0/0</div></div></div></div>
-  </div>
-  <div class="row">
-    <div class="col-lg-8"><canvas id="trend"></canvas></div>
-    <div class="col-lg-4">
-      <a class="btn btn-outline-secondary w-100 mb-2" href="/companies">Manage Companies</a>
+<div class="container mt-4">
+  <h3 class="mb-4">Dashboard {% if company_name %} - {{ company_name }}{% endif %}</h3>
+
+  <!-- KPI Cards -->
+  <div class="row mb-4 text-center">
+    <div class="col-md-4 mb-3">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-body">
+          <h6 class="text-muted">Total Reviews</h6>
+          <h3 id="total-reviews">0</h3>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4 mb-3">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-body">
+          <h6 class="text-muted">Average Rating</h6>
+          <h3 id="avg-rating">0.0</h3>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4 mb-3">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-body">
+          <h6 class="text-muted">Sentiment Mix</h6>
+          <h5 id="sentiment-mix">0 / 0 / 0</h5>
+          <small class="text-success">Positive</small> /
+          <small class="text-warning">Neutral</small> /
+          <small class="text-danger">Negative</small>
+        </div>
+      </div>
     </div>
   </div>
+
+  <div class="row">
+    <!-- Main Chart -->
+    <div class="col-lg-8 mb-4">
+      <div class="card shadow-sm border-0">
+        <div class="card-body">
+          <h5 class="card-title">Rating Trend Over Time</h5>
+          <canvas id="trendChart" height="220"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="col-lg-4">
+      <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body">
+          <h5>Quick Actions</h5>
+          <a href="/companies" class="btn btn-outline-primary w-100 mb-2">
+            Manage Companies
+          </a>
+          <button id="refresh-btn" class="btn btn-outline-success w-100 mb-2">
+            Refresh Dashboard
+          </button>
+        </div>
+      </div>
+
+      <div class="card shadow-sm border-0">
+        <div class="card-body">
+          <h6>Top Keywords</h6>
+          <ul id="keywords-list" class="list-group list-group-flush small">
+            <!-- Filled by JS -->
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Reviews -->
+  <div class="row mt-4">
+    <div class="col-12">
+      <div class="card shadow-sm border-0">
+        <div class="card-body">
+          <h5>Recent Reviews</h5>
+          <div id="reviews-container" class="list-group">
+            <!-- Filled dynamically -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+  let ratingChart = null;
+  const companyId = {{ current_company_id | default(1) }};  // Pass from template or get from URL/session
+
+  async function loadDashboard() {
+    try {
+      const response = await fetch(`/reviews/summary/${companyId}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+
+      // Update KPIs
+      document.getElementById('total-reviews').textContent = data.total_reviews;
+      document.getElementById('avg-rating').textContent = data.avg_rating.toFixed(1);
+
+      const mix = `${data.sentiments.Positive} / ${data.sentiments.Neutral} / ${data.sentiments.Negative}`;
+      document.getElementById('sentiment-mix').textContent = mix;
+
+      // Keywords
+      const kwList = document.getElementById('keywords-list');
+      kwList.innerHTML = '';
+      const allKeywords = [...data.positive_keywords, ...data.negative_keywords];
+      if (allKeywords.length === 0) {
+        kwList.innerHTML = '<li class="list-group-item text-muted">No keywords yet</li>';
+      } else {
+        allKeywords.forEach(kw => {
+          const li = document.createElement('li');
+          li.className = 'list-group-item';
+          li.textContent = kw;
+          kwList.appendChild(li);
+        });
+      }
+
+      // Recent Reviews (top 6)
+      const reviewsContainer = document.getElementById('reviews-container');
+      reviewsContainer.innerHTML = '';
+      data.reviews.slice(0, 6).forEach(r => {
+        const div = document.createElement('div');
+        div.className = 'list-group-item';
+        div.innerHTML = `
+          <div class="d-flex w-100 justify-content-between">
+            <h6 class="mb-1">${r.reviewer_name}</h6>
+            <small>${r.review_date || 'N/A'}</small>
+          </div>
+          <p class="mb-1">${r.review_text.substring(0, 140)}${r.review_text.length > 140 ? '...' : ''}</p>
+          <div class="d-flex justify-content-between align-items-center">
+            <small>Rating: ${r.rating} ★</small>
+            <span class="badge ${
+              r.sentiment === 'Positive' ? 'bg-success' :
+              r.sentiment === 'Negative' ? 'bg-danger' : 'bg-warning'
+            }">${r.sentiment}</span>
+          </div>
+          <small class="text-muted mt-1 d-block">
+            Reply: ${r.suggested_reply.substring(0, 80)}${r.suggested_reply.length > 80 ? '...' : ''}
+          </small>
+        `;
+        reviewsContainer.appendChild(div);
+      });
+
+      // Trend Chart
+      const ctx = document.getElementById('trendChart').getContext('2d');
+      if (ratingChart) ratingChart.destroy();
+
+      let labels = [];
+      let avgRatings = [];
+
+      if (data.trend_data && data.trend_data.length > 0) {
+        labels = data.trend_data.map(item => item.month);
+        avgRatings = data.trend_data.map(item => item.avg_rating);
+      } else if (data.reviews && data.reviews.length > 0) {
+        labels = data.reviews.map(r => r.review_date ? new Date(r.review_date).toLocaleDateString() : 'N/A');
+        avgRatings = data.reviews.map(r => r.rating);
+      }
+
+      ratingChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels.length > 0 ? labels : ['No data'],
+          datasets: [{
+            label: 'Average Rating',
+            data: avgRatings.length > 0 ? avgRatings : [0],
+            borderColor: '#0d6efd',
+            backgroundColor: 'rgba(13, 110, 253, 0.12)',
+            tension: 0.3,
+            fill: true,
+            pointBackgroundColor: '#0d6efd',
+            pointBorderColor: '#fff',
+            pointRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: {
+              min: 0,
+              max: 5.5,
+              title: { display: true, text: 'Rating (★)' }
+            },
+            x: {
+              title: { display: true, text: 'Time' }
+            }
+          },
+          plugins: {
+            legend: { display: true, position: 'top' },
+            tooltip: { mode: 'index', intersect: false }
+          }
+        }
+      });
+
+    } catch (err) {
+      console.error('Dashboard load error:', err);
+      document.getElementById('reviews-container').innerHTML =
+        '<div class="alert alert-warning">Could not load review data. Please try again later.</div>';
+    }
+  }
+
+  // Load when page is ready
+  document.addEventListener('DOMContentLoaded', loadDashboard);
+
+  // Refresh button
+  document.getElementById('refresh-btn')?.addEventListener('click', loadDashboard);
+</script>
 {% endblock %}
