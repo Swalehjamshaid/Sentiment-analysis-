@@ -1,5 +1,5 @@
-# review_saas/app/routes/reviews.py
-from fastapi import APIRouter, HTTPException, Depends, Query
+# File: app/routes/reviews.py
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Review, Company
@@ -12,14 +12,15 @@ import googlemaps
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
-# ─── Google Places Client (API key only) ─────────────────────────────────────
+# ─── Google Places Client Setup ─────────────────────────────────────────────
 gmaps = googlemaps.Client(key=os.getenv("GOOGLE_PLACES_API_KEY"))
 
 
-def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5):
+def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) -> int:
     """
-    Fetch latest reviews via Google Places API and save new ones to DB
-    Returns number of new reviews added
+    Fetch up to `max_reviews` latest reviews from Google Places API
+    and save only new ones to the database.
+    Returns the number of newly added reviews.
     """
     if not company.place_id:
         return 0
@@ -35,11 +36,11 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5):
 
         added_count = 0
         for rev in api_reviews:
-            # Simple deduplication (text + rating + time)
+            # Deduplication: check if review already exists (text + rating + time)
             review_time = rev.get("time")
             existing = db.query(Review).filter(
                 Review.company_id == company.id,
-                Review.review_text == rev.get("text"),
+                Review.review_text == rev.get("text", ""),
                 Review.rating == rev.get("rating"),
                 Review.review_date == datetime.fromtimestamp(review_time) if review_time else None
             ).first()
@@ -53,7 +54,6 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5):
                 rating=rev.get("rating"),
                 reviewer_name=rev.get("author_name", "Anonymous"),
                 review_date=datetime.fromtimestamp(rev.get("time")) if rev.get("time") else None,
-                # reviewer_avatar=rev.get("profile_photo_url"),
                 fetch_at=datetime.utcnow()
             )
             db.add(new_review)
@@ -62,18 +62,25 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5):
         if added_count > 0:
             db.commit()
 
+        # Update company with latest Google data (if available)
+        if "rating" in result or "user_ratings_total" in result:
+            company.google_rating = result.get("rating")
+            company.user_ratings_total = result.get("user_ratings_total")
+            db.commit()
+
         return added_count
 
     except googlemaps.exceptions.ApiError as e:
-        print(f"Google Places error: {e}")
+        print(f"Google Places API error: {e}")
         return 0
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        print(f"Unexpected error during fetch: {e}")
         return 0
 
 
-# ─── Sentiment & Summary Logic ───────────────────────────────────────────────
+# ─── Sentiment & Keyword Processing ─────────────────────────────────────────
 def classify_sentiment(rating: float | None) -> str:
+    """Classify review sentiment based on star rating"""
     if rating is None:
         return "Neutral"
     if rating >= 4:
@@ -85,19 +92,47 @@ def classify_sentiment(rating: float | None) -> str:
 
 
 def extract_keywords(text: str | None) -> List[str]:
+    """Extract meaningful keywords from review text"""
     if not text:
         return []
     text = re.sub(r'[^\w\s]', '', text.lower())
     words = text.split()
-    stopwords = {"a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
-                 "has", "have", "he", "in", "is", "it", "its", "of", "on", "that",
-                 "the", "to", "was", "were", "will", "with", "this", "i", "me", "my"}
+    stopwords = {
+        "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+        "has", "have", "he", "in", "is", "it", "its", "of", "on", "that",
+        "the", "to", "was", "were", "will", "with", "this", "i", "me", "my"
+    }
     return [w for w in words if w not in stopwords and len(w) > 2]
 
 
-def get_review_summary_data(reviews: List[Review]) -> Dict[str, Any]:
+def generate_suggested_reply(sentiment: str) -> str:
+    """Generate a professional auto-reply based on sentiment"""
+    templates = {
+        "Positive": [
+            "Thank you so much for your kind words! We're thrilled you had a great experience.",
+            "We really appreciate your positive feedback — thank you!",
+            "Thanks for the wonderful review! It means a lot to us."
+        ],
+        "Neutral": [
+            "Thank you for your feedback. We're always looking to improve.",
+            "Thanks for taking the time to share your thoughts."
+        ],
+        "Negative": [
+            "We're truly sorry for the experience you had. Please contact us so we can make this right.",
+            "We apologize for falling short. We'd love the chance to improve your experience — please reach out."
+        ]
+    }
+    import random
+    return random.choice(templates.get(sentiment, templates["Neutral"]))
+
+
+def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str, Any]:
+    """Generate complete summary data for dashboard"""
     if not reviews:
         return {
+            "company_name": company.name,
+            "google_rating": company.google_rating,
+            "google_total_ratings": company.user_ratings_total,
             "total_reviews": 0,
             "avg_rating": 0.0,
             "sentiments": {"Positive": 0, "Neutral": 0, "Negative": 0},
@@ -134,6 +169,7 @@ def get_review_summary_data(reviews: List[Review]) -> Dict[str, Any]:
             "reviewer_name": r.reviewer_name or "Anonymous",
             "review_date": r.review_date.isoformat() if r.review_date else None,
             "sentiment": sentiment,
+            "suggested_reply": generate_suggested_reply(sentiment)
         })
 
         if r.review_date:
@@ -151,14 +187,16 @@ def get_review_summary_data(reviews: List[Review]) -> Dict[str, Any]:
         })
 
     return {
+        "company_name": company.name,
+        "google_rating": company.google_rating,
+        "google_total_ratings": company.user_ratings_total,
         "total_reviews": total_reviews,
         "avg_rating": avg_rating,
-        "google_rating": reviews[0].company.google_rating if reviews else None,
         "sentiments": sentiments_count,
         "positive_keywords": [k for k, _ in Counter(positive_keywords).most_common(8)],
         "negative_keywords": [k for k, _ in Counter(negative_keywords).most_common(8)],
         "trend_data": trend_data,
-        "reviews": sorted(review_list, key=lambda x: x["review_date"] or "0000-00-00", reverse=True)[:20]
+        "reviews": sorted(review_list, key=lambda x: x["review_date"] or "0000-00-00", reverse=True)[:15]
     }
 
 
@@ -172,32 +210,36 @@ def fetch_reviews(
     """Manually trigger review fetch for a company"""
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
-        raise HTTPException(404, "Company not found")
+        raise HTTPException(status_code=404, detail="Company not found")
 
     added = fetch_and_save_reviews(company, db)
-    return {"message": f"Fetch completed", "new_reviews_added": added}
+    return {"message": "Fetch completed", "new_reviews_added": added}
 
 
 @router.get("/summary/{company_id}")
-def reviews_summary(company_id: int, db: Session = Depends(get_db)):
+def reviews_summary(
+    company_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get full review summary + analytics for a company"""
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
-        raise HTTPException(404, "Company not found")
+        raise HTTPException(status_code=404, detail="Company not found")
 
-    # Optional: fetch fresh reviews on every summary request (can be rate-limited)
+    # Optional: fetch latest reviews (uncomment if you want fresh data on every request)
     # fetch_and_save_reviews(company, db)
 
     reviews = db.query(Review).filter(Review.company_id == company_id).all()
-    data = get_review_summary_data(reviews)
-    data["company_name"] = company.name
-    data["google_total_ratings"] = company.user_ratings_total
-    return data
+    return get_review_summary_data(reviews, company)
 
 
 @router.get("/my-companies")
 def get_my_companies(db: Session = Depends(get_db)):
-    # Temporarily returns all companies (add auth later)
-    companies = db.query(Company).all()
+    """
+    Return list of companies (for dashboard dropdown).
+    Note: Add Depends(get_current_user) later when auth is fully implemented.
+    """
+    companies = db.query(Company).all()  # ← change to .filter(Company.user_id == current_user.id)
     return [
         {
             "id": c.id,
@@ -206,5 +248,5 @@ def get_my_companies(db: Session = Depends(get_db)):
             "city": getattr(c, "city", None),
             "added_at": c.added_at.isoformat() if c.added_at else None
         }
-        for c in companies
+        for c in sorted(companies, key=lambda x: x.name or "")
     ]
