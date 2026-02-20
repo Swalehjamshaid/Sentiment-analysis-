@@ -38,9 +38,10 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) 
             review_time = rev.get("time")
             review_date = datetime.fromtimestamp(review_time) if review_time else None
 
+            # FIXED: use correct column name 'text' instead of 'review_text'
             existing = db.query(Review).filter(
                 Review.company_id == company.id,
-                Review.review_text == rev.get("text", ""),
+                Review.text == rev.get("text", ""),
                 Review.rating == rev.get("rating"),
                 Review.review_date == review_date
             ).first()
@@ -50,7 +51,7 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) 
 
             new_review = Review(
                 company_id=company.id,
-                review_text=rev.get("text", ""),
+                text=rev.get("text", ""),                        # FIXED: use 'text'
                 rating=rev.get("rating"),
                 reviewer_name=rev.get("author_name", "Anonymous"),
                 review_date=review_date,
@@ -156,7 +157,7 @@ def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str
         sentiment = classify_sentiment(r.rating)
         sentiments_count[sentiment] += 1
 
-        keywords = extract_keywords(r.review_text)
+        keywords = extract_keywords(r.text)                           # FIXED: use r.text instead of r.review_text
         if sentiment == "Positive":
             positive_keywords.extend(keywords)
         elif sentiment == "Negative":
@@ -164,7 +165,7 @@ def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str
 
         review_list.append({
             "id": r.id,
-            "review_text": r.review_text or "",
+            "review_text": r.text or "",                              # FIXED: use r.text
             "rating": r.rating,
             "reviewer_name": r.reviewer_name or "Anonymous",
             "review_date": r.review_date.isoformat() if r.review_date else None,
@@ -240,7 +241,7 @@ def reviews_summary(
 @router.get("/my-companies")
 def get_my_companies(db: Session = Depends(get_db)):
     """List companies for dashboard dropdown (fast)"""
-    companies = db.query(Company).all()  # TODO: later → .filter(Company.user_id == current_user.id)
+    companies = db.query(Company).all()  # TODO: later → .filter(Company.owner_id == current_user.id)
     return [
         {
             "id": c.id,
