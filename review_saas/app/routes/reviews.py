@@ -9,11 +9,15 @@ import re
 import os
 from typing import List, Dict, Any
 import googlemaps
+import random
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
 # ─── Google Places Client ───────────────────────────────────────────────────
-gmaps = googlemaps.Client(key=os.getenv("GOOGLE_PLACES_API_KEY"))
+api_key = os.getenv("GOOGLE_PLACES_API_KEY")
+if not api_key:
+    raise RuntimeError("Google Places API key not set in environment")
+gmaps = googlemaps.Client(key=api_key)
 
 
 def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) -> int:
@@ -32,11 +36,13 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) 
         added_count = 0
         for rev in api_reviews:
             review_time = rev.get("time")
+            review_date = datetime.fromtimestamp(review_time) if review_time else None
+
             existing = db.query(Review).filter(
                 Review.company_id == company.id,
                 Review.review_text == rev.get("text", ""),
                 Review.rating == rev.get("rating"),
-                Review.review_date == (datetime.fromtimestamp(review_time) if review_time else None)
+                Review.review_date == review_date
             ).first()
 
             if existing:
@@ -47,25 +53,21 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) 
                 review_text=rev.get("text", ""),
                 rating=rev.get("rating"),
                 reviewer_name=rev.get("author_name", "Anonymous"),
-                review_date=datetime.fromtimestamp(rev.get("time")) if rev.get("time") else None,
+                review_date=review_date,
                 fetch_at=datetime.utcnow()
             )
             db.add(new_review)
             added_count += 1
 
-        if added_count > 0:
-            db.commit()
-
-        # Update company metadata — only set if API returned value
+        # Update company metadata if API returned value
         new_rating = result.get("rating")
         new_total = result.get("user_ratings_total")
 
-        if new_rating is not None:
-            company.google_rating = new_rating
-        if new_total is not None:
-            company.user_ratings_total = new_total
-
-        if new_rating is not None or new_total is not None:
+        if added_count > 0 or new_rating is not None or new_total is not None:
+            if new_rating is not None:
+                company.google_rating = new_rating
+            if new_total is not None:
+                company.user_ratings_total = new_total
             db.commit()
 
         return added_count
@@ -119,7 +121,6 @@ def generate_suggested_reply(sentiment: str) -> str:
             "We apologize for falling short. We'd love the chance to improve your experience — please reach out."
         ]
     }
-    import random
     return random.choice(templates.get(sentiment, templates["Neutral"]))
 
 
@@ -195,7 +196,11 @@ def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str
         "positive_keywords": [k for k, _ in Counter(positive_keywords).most_common(8)],
         "negative_keywords": [k for k, _ in Counter(negative_keywords).most_common(8)],
         "trend_data": trend_data,
-        "reviews": sorted(review_list, key=lambda x: x["review_date"] or "0000-00-00", reverse=True)[:15]
+        "reviews": sorted(
+            review_list,
+            key=lambda x: datetime.fromisoformat(x["review_date"]) if x["review_date"] else datetime.min,
+            reverse=True
+        )[:15]
     }
 
 
