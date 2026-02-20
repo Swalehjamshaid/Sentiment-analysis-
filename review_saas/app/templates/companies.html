@@ -5,128 +5,286 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Company Management</title>
+    <title>Manage Companies - FF Tech Company</title>
+
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
     <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <style>
-        body { font-family: 'Roboto', sans-serif; margin: 20px; background-color: #f5f5f5; }
-        h1 { text-align: center; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #4CAF50; color: white; }
-        tr:nth-child(even){background-color: #f2f2f2;}
-        tr:hover {background-color: #ddd;}
-        form { background: #fff; padding: 20px; margin-bottom: 30px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);}
-        label { display: block; margin-top: 10px; }
-        input, textarea { width: 100%; padding: 8px; margin-top: 5px; border-radius: 4px; border: 1px solid #ccc; }
-        button { margin-top: 15px; padding: 10px 15px; border: none; border-radius: 4px; background-color: #4CAF50; color: white; cursor: pointer; }
-        button:hover { background-color: #45a049; }
-        #map { height: 300px; width: 100%; margin-top: 10px; border-radius: 8px; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f8f9fc;
+            color: #2d3748;
+        }
+        .navbar {
+            background: rgba(255, 255, 255, 0.97);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+        .navbar-brand {
+            font-weight: 700;
+            font-size: 1.5rem;
+            color: #4b4bff !important;
+            display: flex;
+            align-items: center;
+        }
+        .navbar-brand img {
+            height: 38px;
+            margin-right: 10px;
+            border-radius: 8px;
+        }
+        .nav-link {
+            font-weight: 500;
+            color: #4a5568;
+        }
+        .nav-link:hover, .nav-link.active {
+            color: #4b4bff;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border: none;
+            border-radius: 50px;
+            padding: 0.6rem 1.5rem;
+        }
+        .card {
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+            border: none;
+        }
+        table {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+        }
+        th {
+            background: #4b4bff;
+            color: white;
+            font-weight: 600;
+        }
+        tr:hover {
+            background: #f1f5ff;
+        }
+        #map {
+            height: 350px;
+            border-radius: 12px;
+            margin-top: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .action-btn {
+            font-size: 0.9rem;
+            padding: 0.4rem 0.8rem;
+        }
     </style>
 </head>
 <body>
 
-<h1>Company Management</h1>
+<!-- Top Navigation Bar -->
+<nav class="navbar navbar-expand-lg">
+    <div class="container-fluid px-4">
+        <!-- Logo & Brand -->
+        <a class="navbar-brand" href="/">
+            <!-- Replace with your real logo -->
+            <img src="/static/images/logo.png" alt="FF Tech Company" 
+                 onerror="this.src='https://via.placeholder.com/40x40/4b4bff/ffffff?text=FF';">
+            FF Tech Company
+        </a>
 
-<form id="company-form">
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
 
-    <!-- Google Search Field -->
-    <label>Search Company (Google):</label>
-    <input type="text" id="google_search" placeholder="Start typing company name..." required>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="/">Dashboard</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link active" href="/companies">Companies</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/pricing">Pricing</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/contact">Contact</a>
+                </li>
+            </ul>
 
-    <!-- Auto-filled Name -->
-    <label>Company Name:</label>
-    <input type="text" id="name" name="name" required readonly>
+            <!-- User menu / Auth -->
+            <ul class="navbar-nav ms-auto align-items-center">
+                {% if current_user.is_authenticated %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="fas fa-user-circle me-2"></i>
+                            {{ current_user.full_name or current_user.email }}
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="/profile">Profile</a></li>
+                            <li><a class="dropdown-item" href="/settings">Settings</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item text-danger" href="/logout">Logout</a></li>
+                        </ul>
+                    </li>
+                {% else %}
+                    <li class="nav-item">
+                        <a class="btn btn-outline-primary me-2" href="/login">Login</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="btn btn-primary" href="/register">Sign Up</a>
+                    </li>
+                {% endif %}
+            </ul>
+        </div>
+    </div>
+</nav>
 
-    <!-- Auto-filled City -->
-    <label>City:</label>
-    <input type="text" id="city" name="city" readonly>
+<!-- Main Content -->
+<div class="container py-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="mb-0">Manage Your Companies</h1>
+        <div>
+            <button class="btn btn-outline-secondary me-2" onclick="location.reload()">
+                <i class="fas fa-sync-alt me-1"></i> Refresh List
+            </button>
+            <a href="/" class="btn btn-outline-primary">
+                <i class="fas fa-arrow-left me-1"></i> Back to Dashboard
+            </a>
+        </div>
+    </div>
 
-    <!-- Auto-filled Phone -->
-    <label>Phone:</label>
-    <input type="text" id="phone" name="phone" readonly>
+    <!-- Company Form Card -->
+    <div class="card mb-5">
+        <div class="card-body p-4">
+            <h4 class="card-title mb-4">Add or Update Company</h4>
+            <form id="company-form">
+                <!-- Google Search Field -->
+                <div class="mb-3">
+                    <label class="form-label">Search Company (Google)</label>
+                    <input type="text" id="google_search" class="form-control" placeholder="Start typing company name..." required>
+                </div>
 
-    <label>Email:</label>
-    <input type="email" id="email" name="email">
+                <!-- Auto-filled fields -->
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Company Name</label>
+                        <input type="text" id="name" name="name" class="form-control" required readonly>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">City</label>
+                        <input type="text" id="city" name="city" class="form-control" readonly>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Phone</label>
+                        <input type="text" id="phone" name="phone" class="form-control" readonly>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Email</label>
+                        <input type="email" id="email" name="email" class="form-control">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Address</label>
+                        <input type="text" id="address" name="address" class="form-control" readonly>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Description</label>
+                        <textarea id="description" name="description" class="form-control" rows="3"></textarea>
+                    </div>
+                </div>
 
-    <label>Address:</label>
-    <input type="text" id="address" name="address" readonly>
+                <!-- Hidden fields -->
+                <input type="hidden" id="lat" name="lat">
+                <input type="hidden" id="lng" name="lng">
+                <input type="hidden" id="place_id" name="place_id">
 
-    <label>Description:</label>
-    <textarea id="description" name="description" rows="3"></textarea>
+                <button type="submit" class="btn btn-primary mt-4">
+                    <i class="fas fa-save me-2"></i> Save Company
+                </button>
+            </form>
+        </div>
+    </div>
 
-    <!-- NOT REQUIRED but auto-filled -->
-    <input type="hidden" id="lat" name="lat">
-    <input type="hidden" id="lng" name="lng">
-    <input type="hidden" id="place_id" name="place_id">
+    <!-- Map -->
+    <div id="map" class="mb-5"></div>
 
-    <button type="submit">Add / Update Company</button>
-</form>
+    <!-- Companies Table -->
+    <div class="card">
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>City</th>
+                        <th>Email</th>
+                        <th>Phone</th>
+                        <th>Address</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="companies-table-body"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
 
-<div id="map"></div>
-
-<table>
-    <thead>
-        <tr>
-            <th>ID</th>
-            <th>Name</th>
-            <th>City</th>
-            <th>Email</th>
-            <th>Phone</th>
-            <th>Address</th>
-            <th>Description</th>
-            <th>Latitude</th>
-            <th>Longitude</th>
-            <th>Status</th>
-        </tr>
-    </thead>
-    <tbody id="companies-table-body"></tbody>
-</table>
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
-const form = document.getElementById('company-form');
-const tableBody = document.getElementById('companies-table-body');
-let map;
-let marker;
-
-/* ───────── FETCH COMPANIES ───────── */
+// ───────── FETCH COMPANIES ─────────
 async function fetchCompanies() {
     try {
         const response = await fetch('/companies/list');
         const companies = await response.json();
-        tableBody.innerHTML = '';
+        const tbody = document.getElementById('companies-table-body');
+        tbody.innerHTML = '';
+
         companies.forEach(c => {
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td>${c.id}</td>
-                <td>${c.name}</td>
-                <td>${c.city ?? ''}</td>
-                <td>${c.email ?? ''}</td>
-                <td>${c.phone ?? ''}</td>
-                <td>${c.address ?? ''}</td>
-                <td>${c.description ?? ''}</td>
-                <td>${c.lat ?? ''}</td>
-                <td>${c.lng ?? ''}</td>
-                <td>${c.status}</td>
+                <td>${c.name || 'N/A'}</td>
+                <td>${c.city || 'N/A'}</td>
+                <td>${c.email || 'N/A'}</td>
+                <td>${c.phone || 'N/A'}</td>
+                <td>${c.address || 'N/A'}</td>
+                <td>
+                    <a href="/reviews/summary/${c.id}" class="btn btn-sm btn-outline-primary action-btn">
+                        <i class="fas fa-eye me-1"></i> Manage Reviews
+                    </a>
+                    <button class="btn btn-sm btn-outline-warning action-btn" onclick="editCompany(${c.id})">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger action-btn" onclick="deleteCompany(${c.id})">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
             `;
-            tableBody.appendChild(row);
+            tbody.appendChild(row);
         });
     } catch (err) {
         console.error("Error loading companies:", err);
     }
 }
 
-/* ───────── FORM SUBMIT ───────── */
-form.addEventListener('submit', async (e) => {
+// ───────── FORM SUBMIT ─────────
+document.getElementById('company-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const formData = new FormData(form);
+    const formData = new FormData(e.target);
     try {
         const response = await fetch('/companies/', { method: 'POST', body: formData });
         if (response.ok) {
             alert("Company saved successfully!");
-            form.reset();
+            e.target.reset();
             fetchCompanies();
             if (marker) marker.setMap(null);
         } else {
@@ -139,10 +297,11 @@ form.addEventListener('submit', async (e) => {
     }
 });
 
-/* ───────── GOOGLE MAPS AUTOCOMPLETE ───────── */
+// ───────── GOOGLE MAPS AUTOCOMPLETE ─────────
+let map, marker;
 function initMap() {
     map = new google.maps.Map(document.getElementById("map"), {
-        center: { lat: 24.8607, lng: 67.0011 },
+        center: { lat: 31.5204, lng: 74.3587 }, // Lahore default
         zoom: 12,
     });
 
@@ -155,28 +314,22 @@ function initMap() {
         const place = autocomplete.getPlace();
         if (!place.geometry) return alert("No location found.");
 
-        // Auto-fill fields
         document.getElementById('name').value = place.name || '';
         document.getElementById('address').value = place.formatted_address || '';
         document.getElementById('lat').value = place.geometry.location.lat();
         document.getElementById('lng').value = place.geometry.location.lng();
         document.getElementById('place_id').value = place.place_id;
 
-        // Phone (if available)
         document.getElementById('phone').value = place.formatted_phone_number || '';
 
-        // Extract city
         let city = "";
         if (place.address_components) {
             place.address_components.forEach(component => {
-                if (component.types.includes("locality")) {
-                    city = component.long_name;
-                }
+                if (component.types.includes("locality")) city = component.long_name;
             });
         }
         document.getElementById('city').value = city;
 
-        // Map update
         map.setCenter(place.geometry.location);
         map.setZoom(15);
         if (marker) marker.setMap(null);
@@ -187,14 +340,30 @@ function initMap() {
     });
 }
 
-/* ───────── INITIAL LOAD ───────── */
+// Placeholder functions (hook to your backend later)
+function editCompany(id) {
+    alert(`Edit company ${id} - coming soon`);
+}
+
+function deleteCompany(id) {
+    if (confirm(`Delete company ${id}?`)) {
+        alert(`Company ${id} deleted - implement backend call`);
+        // fetch(`/companies/${id}`, { method: 'DELETE' }).then(() => fetchCompanies());
+    }
+}
+
+// Load companies on page load
 window.addEventListener('DOMContentLoaded', fetchCompanies);
 </script>
 
+<!-- Google Maps API -->
 <script
     src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initMap"
     async defer>
 </script>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 </body>
 </html>
