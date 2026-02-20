@@ -11,7 +11,7 @@
       </select>
 
       <button id="refresh-btn" class="btn btn-outline-success">
-        <i class="bi bi-arrow-repeat"></i> Refresh Data
+        <i class="bi bi-arrow-repeat"></i> Refresh & Fetch Latest
       </button>
     </div>
   </div>
@@ -22,7 +22,7 @@
       <div class="d-flex justify-content-between align-items-center">
         <div>
           <h4 id="company-name">Company Name</h4>
-          <div class="text-muted">
+          <div class="text-muted small">
             <span>Google Rating: <strong id="google-rating">—</strong></span> •
             <span>Total Ratings: <strong id="google-total-ratings">—</strong></span>
           </div>
@@ -32,20 +32,21 @@
     </div>
   </div>
 
-  <!-- Loading / Empty States -->
+  <!-- Loading / Status Messages -->
   <div id="loading-state" class="text-center py-5 my-5" style="display: none;">
-    <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status"></div>
-    <p class="lead text-muted">Loading company analytics...</p>
+    <div class="spinner-border text-primary mb-3" style="width: 3.5rem; height: 3.5rem;" role="status"></div>
+    <p class="lead text-muted">Fetching latest reviews and analytics... (may take up to 40 seconds)</p>
+    <small class="text-muted">Please wait while we pull data from Google and process insights.</small>
   </div>
 
   <div id="no-selection-state" class="alert alert-info text-center py-5 my-5">
     <i class="bi bi-building fs-1 mb-3 d-block"></i>
-    <h5>Please select a company from the dropdown above</h5>
-    <p class="text-muted">Once selected, you'll see reviews, trends, keywords, and suggested replies.</p>
+    <h5>Select a company to view deep analysis</h5>
+    <p class="text-muted">Click on any company from the dropdown to see reviews, trends, keywords, and suggested replies.</p>
   </div>
 
   <!-- Main Dashboard Content -->
-  <div id="dashboard-content" style="display: none;">
+  <div id="main-content" style="display: none;">
     <!-- KPI Cards -->
     <div class="row g-4 mb-5">
       <div class="col-md-4">
@@ -124,7 +125,7 @@
       </div>
     </div>
 
-    <!-- Suggested Replies Section -->
+    <!-- Recent Reviews & Suggested Replies -->
     <div class="card shadow-sm border-0 mt-4">
       <div class="card-header bg-light">
         <h5 class="mb-0">Recent Reviews & Auto-generated Replies</h5>
@@ -136,7 +137,7 @@
   </div>
 </div>
 
-<!-- Bootstrap Icons (if not already in base.html) -->
+<!-- Bootstrap Icons -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 
 <!-- Chart.js -->
@@ -147,6 +148,7 @@
 let trendChart = null;
 let sentimentPieChart = null;
 let currentCompanyId = {{ current_company_id | default(0) }};
+let isFetching = false;
 
 // ── Load companies list ──────────────────────────────────────────────────────
 async function loadCompanies() {
@@ -170,17 +172,14 @@ async function loadCompanies() {
     if (currentCompanyId === 0 && companies.length > 0) {
       currentCompanyId = companies[0].id;
       select.value = currentCompanyId;
-    }
-
-    if (currentCompanyId > 0) {
       await loadDashboardData(currentCompanyId);
     }
 
-    // Change event
+    // Change event - load immediately (fast DB read)
     select.addEventListener('change', async (e) => {
       currentCompanyId = parseInt(e.target.value);
       if (currentCompanyId > 0) {
-        await loadDashboardData(currentCompanyId);
+        await loadDashboardData(currentCompanyId, false); // no refresh
       } else {
         showNoSelection();
       }
@@ -189,20 +188,25 @@ async function loadCompanies() {
   } catch (error) {
     console.error('Companies load error:', error);
     document.getElementById('reviews-container').innerHTML =
-      '<div class="list-group-item text-danger text-center py-4">Failed to load companies</div>';
+      '<div class="list-group-item text-danger text-center py-4">Failed to load companies list</div>';
   }
 }
 
-// ── Load dashboard data for selected company ────────────────────────────────
-async function loadDashboardData(companyId) {
+// ── Load dashboard data (fast by default, slow only when refresh=true) ──────
+async function loadDashboardData(companyId, forceRefresh = false) {
   if (!companyId) return showNoSelection();
+
+  if (isFetching) return; // prevent double clicks
+  isFetching = true;
 
   document.getElementById('loading-state').style.display = 'block';
   document.getElementById('no-selection-state').style.display = 'none';
   document.getElementById('main-content').style.display = 'none';
 
   try {
-    const response = await fetch(`/reviews/summary/${companyId}`);
+    // Use ?refresh=true only when user clicks Refresh
+    const url = `/reviews/summary/${companyId}${forceRefresh ? '?refresh=true' : ''}`;
+    const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
 
@@ -214,7 +218,7 @@ async function loadDashboardData(companyId) {
     // Fill header
     document.getElementById('company-name').textContent = data.company_name || 'Company';
     document.getElementById('google-rating').textContent = data.google_rating || '—';
-    document.getElementById('google-total').textContent = data.google_total_ratings || '—';
+    document.getElementById('google-total-ratings').textContent = data.google_total_ratings || '—';
     document.getElementById('last-refresh').textContent = new Date().toLocaleString();
 
     // KPIs
@@ -223,7 +227,7 @@ async function loadDashboardData(companyId) {
     document.getElementById('sentiment-mix').textContent =
       `${data.sentiments?.Positive || 0} / ${data.sentiments?.Neutral || 0} / ${data.sentiments?.Negative || 0}`;
 
-    // Keywords cloud
+    // Keywords
     const keywordsDiv = document.getElementById('keywords-cloud');
     keywordsDiv.innerHTML = '';
     const allKeywords = [...(data.positive_keywords || []), ...(data.negative_keywords || [])];
@@ -244,7 +248,7 @@ async function loadDashboardData(companyId) {
 
     if (!data.reviews || data.reviews.length === 0) {
       reviewsContainer.innerHTML =
-        '<div class="list-group-item text-center text-muted py-5">No reviews available for this company yet.</div>';
+        '<div class="list-group-item text-center text-muted py-5">No reviews available yet. Click Refresh to fetch.</div>';
     } else {
       data.reviews.slice(0, 10).forEach(review => {
         const item = document.createElement('div');
@@ -283,35 +287,36 @@ async function loadDashboardData(companyId) {
         reviewsContainer.appendChild(item);
       });
 
-      // Copy reply buttons
+      // Copy buttons
       document.querySelectorAll('.copy-reply-btn').forEach(btn => {
         btn.addEventListener('click', function() {
           navigator.clipboard.writeText(this.dataset.reply);
-          const originalText = this.innerHTML;
+          const original = this.innerHTML;
           this.innerHTML = '<i class="bi bi-check2"></i> Copied!';
           this.disabled = true;
           setTimeout(() => {
-            this.innerHTML = originalText;
+            this.innerHTML = original;
             this.disabled = false;
           }, 2000);
         });
       });
     }
 
-    // Trend Chart
+    // Render charts
     renderTrendChart(data);
-
-    // Sentiment Pie Chart
     renderSentimentPie(data);
 
   } catch (err) {
-    console.error('Dashboard error:', err);
+    console.error('Dashboard load error:', err);
     document.getElementById('reviews-container').innerHTML =
-      '<div class="alert alert-danger text-center py-4">Error loading data. Please try again.</div>';
+      '<div class="alert alert-danger text-center py-4">Error loading data. Please try again or check your internet connection.</div>';
+  } finally {
+    isFetching = false;
+    document.getElementById('loading-state').style.display = 'none';
   }
 }
 
-// ── Render Trend Chart ──────────────────────────────────────────────────────
+// ── Chart Rendering Functions ───────────────────────────────────────────────
 function renderTrendChart(data) {
   const ctx = document.getElementById('trendChart').getContext('2d');
   if (trendChart) trendChart.destroy();
@@ -334,39 +339,31 @@ function renderTrendChart(data) {
         borderColor: '#0d6efd',
         backgroundColor: 'rgba(13, 110, 253, 0.15)',
         tension: 0.3,
-        fill: true,
-        pointBackgroundColor: '#fff',
-        pointBorderColor: '#0d6efd',
-        pointRadius: 5
+        fill: true
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      scales: {
-        y: { min: 0, max: 5.5, title: { display: true, text: 'Stars' } },
-        x: { title: { display: true, text: 'Time' } }
-      },
-      plugins: { legend: { position: 'top' } }
+      scales: { y: { min: 0, max: 5.5 } }
     }
   });
 }
 
-// ── Render Sentiment Pie Chart ──────────────────────────────────────────────
 function renderSentimentPie(data) {
   const ctx = document.getElementById('sentimentPie').getContext('2d');
   if (sentimentPieChart) sentimentPieChart.destroy();
 
-  const positive = data.sentiments?.Positive || 0;
-  const neutral  = data.sentiments?.Neutral  || 0;
-  const negative = data.sentiments?.Negative || 0;
+  const pos = data.sentiments?.Positive || 0;
+  const neu = data.sentiments?.Neutral  || 0;
+  const neg = data.sentiments?.Negative || 0;
 
   sentimentPieChart = new Chart(ctx, {
     type: 'pie',
     data: {
       labels: ['Positive', 'Neutral', 'Negative'],
       datasets: [{
-        data: [positive, neutral, negative],
+        data: [pos, neu, neg],
         backgroundColor: ['#28a745', '#ffc107', '#dc3545'],
         borderWidth: 2,
         borderColor: '#fff'
@@ -376,15 +373,14 @@ function renderSentimentPie(data) {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'bottom', labels: { font: { size: 14 } } },
-        tooltip: { enabled: true }
+        legend: { position: 'bottom' }
       }
     }
   });
 }
 
-// ── Clear dashboard ─────────────────────────────────────────────────────────
-function clearDashboard() {
+// ── Clear / Reset Dashboard ─────────────────────────────────────────────────
+function showNoSelection() {
   document.getElementById('company-header').style.display = 'none';
   document.getElementById('main-content').style.display = 'none';
   document.getElementById('no-selection-state').style.display = 'block';
@@ -398,9 +394,10 @@ function clearDashboard() {
 document.addEventListener('DOMContentLoaded', () => {
   loadCompanies();
 
-  document.getElementById('refresh-btn')?.addEventListener('click', () => {
-    if (currentCompanyId > 0) {
-      loadDashboard(currentCompanyId);
+  // Refresh button now triggers fresh fetch
+  document.getElementById('refresh-btn')?.addEventListener('click', async () => {
+    if (currentCompanyId > 0 && !isFetching) {
+      await loadDashboardData(currentCompanyId, true); // force refresh
     }
   });
 });
