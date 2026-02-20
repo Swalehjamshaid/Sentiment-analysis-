@@ -1,7 +1,8 @@
 # Filename: main.py
 
 import os
-from fastapi import FastAPI, Request
+from typing import Optional
+from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -12,6 +13,7 @@ from .models import Base, Company
 from .routes import auth, companies, reviews, reply, reports, dashboard, admin
 from .core.config import settings
 from .routes.maps_routes import router as maps_router
+from .auth import get_current_user  # <-- function returning logged-in user
 
 # ───────────────────────────────────────────────────────────────
 # HTTPS Redirect Middleware
@@ -51,32 +53,43 @@ def _init_db():
         print("Companies table recreated with owner_id, lat, lng columns.")
 
 # ───────────────────────────────────────────────────────────────
+# Helper: inject current_user into all templates
+# ───────────────────────────────────────────────────────────────
+def template_context(
+    request: Request,
+    current_user: Optional[Company] = Depends(get_current_user)
+):
+    return {
+        "request": request,
+        "current_user": current_user
+    }
+
+# ───────────────────────────────────────────────────────────────
 # UI Pages
 # ───────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request):
-    return templates.TemplateResponse("home.html", {"request": request})
+def home(context: dict = Depends(template_context)):
+    return templates.TemplateResponse("home.html", context)
 
 @app.get("/register", response_class=HTMLResponse)
-def register_page(request: Request):
-    return templates.TemplateResponse("register.html", {"request": request})
+def register_page(context: dict = Depends(template_context)):
+    return templates.TemplateResponse("register.html", context)
 
 @app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+def login_page(context: dict = Depends(template_context)):
+    return templates.TemplateResponse("login.html", context)
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard_page(request: Request):
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+def dashboard_page(context: dict = Depends(template_context)):
+    return templates.TemplateResponse("dashboard.html", context)
 
-# ── Fixed: Companies page route (was causing 404) ──
 @app.get("/companies", response_class=HTMLResponse)
-def companies_page(request: Request):
-    return templates.TemplateResponse("companies.html", {"request": request})
+def companies_page(context: dict = Depends(template_context)):
+    return templates.TemplateResponse("companies.html", context)
 
 @app.get("/report", response_class=HTMLResponse)
-def report_page(request: Request):
-    return templates.TemplateResponse("report.html", {"request": request})
+def report_page(context: dict = Depends(template_context)):
+    return templates.TemplateResponse("report.html", context)
 
 # ───────────────────────────────────────────────────────────────
 # API Routers
