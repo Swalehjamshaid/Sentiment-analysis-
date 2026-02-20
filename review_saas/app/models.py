@@ -117,9 +117,8 @@ class Review(Base):
     text = Column(Text, nullable=True)
     rating = Column(Integer, nullable=True)
     
-    # FIXED: Changed review_at → review_date to match your actual database column
-    # If your DB column has a different name (e.g. created_at, fetch_at), change it here
-    review_date = Column(DateTime, nullable=True)  # ← This was review_at before
+    # FIXED: Changed from review_at → review_date (this matches most common real DB column names)
+    review_date = Column(DateTime, nullable=True)
 
     reviewer_name = Column(String(255), nullable=True)
     reviewer_avatar = Column(String(255), nullable=True)
