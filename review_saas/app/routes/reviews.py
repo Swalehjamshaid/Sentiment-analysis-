@@ -26,7 +26,6 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) 
             place_id=company.place_id,
             fields=["reviews", "rating", "user_ratings_total"]
         )
-
         result = place_result.get("result", {})
         api_reviews = result.get("reviews", [])[:max_reviews]
 
@@ -37,7 +36,7 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) 
                 Review.company_id == company.id,
                 Review.review_text == rev.get("text", ""),
                 Review.rating == rev.get("rating"),
-                Review.review_date == datetime.fromtimestamp(review_time) if review_time else None
+                Review.review_date == (datetime.fromtimestamp(review_time) if review_time else None)
             ).first()
 
             if existing:
@@ -57,10 +56,17 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) 
         if added_count > 0:
             db.commit()
 
-        # Update company metadata
-        company.google_rating = result.get("rating", company.google_rating)
-        company.user_ratings_total = result.get("user_ratings_total", company.user_ratings_total)
-        db.commit()
+        # Update company metadata — only set if API returned value
+        new_rating = result.get("rating")
+        new_total = result.get("user_ratings_total")
+
+        if new_rating is not None:
+            company.google_rating = new_rating
+        if new_total is not None:
+            company.user_ratings_total = new_total
+
+        if new_rating is not None or new_total is not None:
+            db.commit()
 
         return added_count
 
@@ -118,11 +124,14 @@ def generate_suggested_reply(sentiment: str) -> str:
 
 
 def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str, Any]:
+    google_rating = getattr(company, "google_rating", None)
+    google_total_ratings = getattr(company, "user_ratings_total", None)
+
     if not reviews:
         return {
-            "company_name": company.name,
-            "google_rating": company.google_rating,
-            "google_total_ratings": company.user_ratings_total,
+            "company_name": company.name or "Unnamed Company",
+            "google_rating": google_rating,
+            "google_total_ratings": google_total_ratings,
             "total_reviews": 0,
             "avg_rating": 0.0,
             "sentiments": {"Positive": 0, "Neutral": 0, "Negative": 0},
@@ -164,7 +173,7 @@ def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str
 
         if r.review_date:
             month_key = r.review_date.strftime('%Y-%m')
-            monthly_ratings[month_key].append(r.rating or 0)
+            monthly_ratings[month_key].append(r.rating or 0.0)
 
     trend_data = []
     for month in sorted(monthly_ratings.keys()):
@@ -177,9 +186,9 @@ def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str
         })
 
     return {
-        "company_name": company.name,
-        "google_rating": company.google_rating,
-        "google_total_ratings": company.user_ratings_total,
+        "company_name": company.name or "Unnamed Company",
+        "google_rating": google_rating,
+        "google_total_ratings": google_total_ratings,
         "total_reviews": total_reviews,
         "avg_rating": avg_rating,
         "sentiments": sentiments_count,
@@ -191,7 +200,6 @@ def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
-
 @router.post("/fetch/{company_id}")
 def fetch_reviews(
     company_id: int,
@@ -218,7 +226,6 @@ def reviews_summary(
         raise HTTPException(404, "Company not found")
 
     if refresh:
-        # This is the slow part — only do it when user clicks Refresh
         fetch_and_save_reviews(company, db)
 
     reviews = db.query(Review).filter(Review.company_id == company_id).all()
@@ -228,14 +235,13 @@ def reviews_summary(
 @router.get("/my-companies")
 def get_my_companies(db: Session = Depends(get_db)):
     """List companies for dashboard dropdown (fast)"""
-    companies = db.query(Company).all()  # ← add .filter(Company.user_id == current_user.id) later
-
+    companies = db.query(Company).all()  # TODO: later → .filter(Company.user_id == current_user.id)
     return [
         {
             "id": c.id,
-            "name": c.name,
+            "name": c.name or "Unnamed",
             "place_id": c.place_id,
             "city": getattr(c, "city", "N/A")
         }
-        for c in sorted(companies, key=lambda x: x.name or "")
+        for c in sorted(companies, key=lambda x: (x.name or "").lower())
     ]
