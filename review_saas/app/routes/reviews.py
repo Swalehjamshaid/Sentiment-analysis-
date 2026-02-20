@@ -12,16 +12,12 @@ import googlemaps
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
-# ─── Google Places Client Setup ─────────────────────────────────────────────
+# ─── Google Places Client ───────────────────────────────────────────────────
 gmaps = googlemaps.Client(key=os.getenv("GOOGLE_PLACES_API_KEY"))
 
 
 def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) -> int:
-    """
-    Fetch up to `max_reviews` latest reviews from Google Places API
-    and save only new ones to the database.
-    Returns the number of newly added reviews.
-    """
+    """Fetch reviews from Google Places API and save new ones"""
     if not company.place_id:
         return 0
 
@@ -36,7 +32,6 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) 
 
         added_count = 0
         for rev in api_reviews:
-            # Deduplication: check if review already exists (text + rating + time)
             review_time = rev.get("time")
             existing = db.query(Review).filter(
                 Review.company_id == company.id,
@@ -62,7 +57,7 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) 
         if added_count > 0:
             db.commit()
 
-        # Update company with latest Google data (if available)
+        # Update company Google data if available
         if "rating" in result or "user_ratings_total" in result:
             company.google_rating = result.get("rating")
             company.user_ratings_total = result.get("user_ratings_total")
@@ -78,9 +73,8 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) 
         return 0
 
 
-# ─── Sentiment & Keyword Processing ─────────────────────────────────────────
+# ─── Sentiment & Reply Helpers ──────────────────────────────────────────────
 def classify_sentiment(rating: float | None) -> str:
-    """Classify review sentiment based on star rating"""
     if rating is None:
         return "Neutral"
     if rating >= 4:
@@ -92,7 +86,6 @@ def classify_sentiment(rating: float | None) -> str:
 
 
 def extract_keywords(text: str | None) -> List[str]:
-    """Extract meaningful keywords from review text"""
     if not text:
         return []
     text = re.sub(r'[^\w\s]', '', text.lower())
@@ -106,7 +99,6 @@ def extract_keywords(text: str | None) -> List[str]:
 
 
 def generate_suggested_reply(sentiment: str) -> str:
-    """Generate a professional auto-reply based on sentiment"""
     templates = {
         "Positive": [
             "Thank you so much for your kind words! We're thrilled you had a great experience.",
@@ -127,7 +119,6 @@ def generate_suggested_reply(sentiment: str) -> str:
 
 
 def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str, Any]:
-    """Generate complete summary data for dashboard"""
     if not reviews:
         return {
             "company_name": company.name,
@@ -207,10 +198,10 @@ def fetch_reviews(
     company_id: int,
     db: Session = Depends(get_db)
 ):
-    """Manually trigger review fetch for a company"""
+    """Trigger review fetch for a company"""
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+        raise HTTPException(404, "Company not found")
 
     added = fetch_and_save_reviews(company, db)
     return {"message": "Fetch completed", "new_reviews_added": added}
@@ -221,12 +212,12 @@ def reviews_summary(
     company_id: int,
     db: Session = Depends(get_db)
 ):
-    """Get full review summary + analytics for a company"""
+    """Get full analytics summary for dashboard"""
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+        raise HTTPException(404, "Company not found")
 
-    # Optional: fetch latest reviews (uncomment if you want fresh data on every request)
+    # Uncomment if you want to always fetch fresh reviews
     # fetch_and_save_reviews(company, db)
 
     reviews = db.query(Review).filter(Review.company_id == company_id).all()
@@ -236,17 +227,18 @@ def reviews_summary(
 @router.get("/my-companies")
 def get_my_companies(db: Session = Depends(get_db)):
     """
-    Return list of companies (for dashboard dropdown).
-    Note: Add Depends(get_current_user) later when auth is fully implemented.
+    Return list of companies for dropdown.
+    Safe version — no crash if fields are missing.
     """
-    companies = db.query(Company).all()  # ← change to .filter(Company.user_id == current_user.id)
+    companies = db.query(Company).all()  # ← add user filter later
+
     return [
         {
             "id": c.id,
             "name": c.name,
             "place_id": c.place_id,
-            "city": getattr(c, "city", None),
-            "added_at": c.added_at.isoformat() if c.added_at else None
+            "city": getattr(c, "city", "N/A"),
+            # "added_at": getattr(c, "added_at", None).isoformat() if hasattr(c, "added_at") and c.added_at else None
         }
         for c in sorted(companies, key=lambda x: x.name or "")
     ]
