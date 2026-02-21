@@ -12,7 +12,7 @@
         <option value="0">Select a Company...</option>
       </select>
 
-      <!-- Months Selector (aligned with /reviews/summary?months=) -->
+      <!-- Months Selector -->
       <select id="months-selector" class="form-select" style="min-width: 140px;">
         <option value="3">Last 3 months</option>
         <option value="6" selected>Last 6 months</option>
@@ -70,7 +70,7 @@
 
   <!-- Main Dashboard Content -->
   <div id="main-content" style="display: none;">
-    <!-- KPI Cards -->
+    <!-- KPI Cards (Total Reviews, Avg Rating, Sentiment, Risk) -->
     <div class="row g-4 mb-4">
       <div class="col-md-3">
         <div class="card shadow-sm border-0 h-100">
@@ -101,7 +101,6 @@
           </div>
         </div>
       </div>
-      <!-- Risk Gauge -->
       <div class="col-md-3">
         <div class="card shadow-sm border-0 h-100">
           <div class="card-body text-center">
@@ -117,7 +116,7 @@
       </div>
     </div>
 
-    <!-- Decision Insights: AI Plan + Data Completion -->
+    <!-- Decision Insights & Data Completion -->
     <div class="row g-4 mb-4">
       <div class="col-lg-8">
         <div class="card shadow-sm border-0 h-100">
@@ -149,7 +148,7 @@
       </div>
     </div>
 
-    <!-- Main Charts -->
+    <!-- Charts Section -->
     <div class="row g-4">
       <div class="col-lg-8">
         <div class="card shadow-sm border-0 mb-4">
@@ -171,7 +170,6 @@
         </div>
       </div>
 
-      <!-- Sidebar Charts -->
       <div class="col-lg-4">
         <div class="card shadow-sm border-0 mb-4">
           <div class="card-body">
@@ -213,7 +211,7 @@
       </div>
     </div>
 
-    <!-- Recent Reviews & Suggested Replies -->
+    <!-- Recent Reviews -->
     <div class="card shadow-sm border-0 mt-4">
       <div class="card-header bg-light">
         <h5 class="mb-0">Recent Reviews & Auto-generated Replies</h5>
@@ -225,451 +223,125 @@
   </div>
 </div>
 
-<!-- Bootstrap Icons -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-
-<!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
-// ─────────────────────────────────────────────────────────────────────────────
-// File name (per your rule #2): keep full path reference for diagnostics
-// ─────────────────────────────────────────────────────────────────────────────
 const FILE_NAME_HTML = "review_saas/app/templates/dashboard.html";
-
-// ── Global Variables ─────────────────────────────────────────────
-let trendChart = null;
-let sentimentPieChart = null;
-let weakAreasChart = null;
-let strengthAreasChart = null;
-let riskGaugeChart = null;
-
-let currentCompanyId = {{ current_company_id | default(0) }};
+let trendChart, sentimentPieChart, weakAreasChart, strengthAreasChart, riskGaugeChart;
+let currentCompanyId = 0;
 let isFetching = false;
 let activeMonths = 6;
 
-// ── Utility: clamp & colors ─────────────────────────────────────
+const colors = { primary:'#0d6efd', primaryFill:'rgba(13,110,253,0.15)', success:'#28a745', warning:'#ffc107', danger:'#dc3545', gray:'#6c757d', light:'#e9ecef' };
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const colors = {
-  primary: '#0d6efd',
-  primaryFill: 'rgba(13,110,253,0.15)',
-  success: '#28a745',
-  warning: '#ffc107',
-  danger: '#dc3545',
-  gray: '#6c757d',
-  light: '#e9ecef',
-};
 
-// ── Date Window (21/02/2026 → Today; display only) ──────────────
-function updateDateWindowDisplay() {
-  const start = new Date(Date.UTC(2026, 1, 21)); // 21 Feb 2026 (month is 0-indexed)
-  const end = new Date();
-  const fmt = (d) => d.toLocaleDateString(undefined, { year:'numeric', month:'short', day:'2-digit' });
-  const win = `${fmt(start)} → ${fmt(end)}`;
-  document.getElementById('date-window').textContent = win;
+function updateDateWindowDisplay(){
+  const start=new Date(Date.UTC(2026,1,21)), end=new Date();
+  const fmt=d=>d.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'2-digit'});
+  document.getElementById('date-window').textContent=`${fmt(start)} → ${fmt(end)}`;
 }
 
-// ── Load companies list ─────────────────────────────────────────
+// ── Load companies from /companies/list ──
 async function loadCompanies() {
-  try {
-    const response = await fetch('/reviews/my-companies');
-    if (!response.ok) throw new Error('Failed to load companies');
-    const companies = await response.json();
-
-    const select = document.getElementById('company-selector');
-    select.innerHTML = '<option value="0">Select a Company...</option>';
-
-    companies.forEach(company => {
-      const option = document.createElement('option');
-      option.value = company.id;
-      option.textContent = company.name;
-      if (company.id == currentCompanyId) option.selected = true;
-      select.appendChild(option);
+  try{
+    const res = await fetch('/companies/list');
+    if(!res.ok) throw new Error('Failed to load companies');
+    const companies = await res.json();
+    const select=document.getElementById('company-selector');
+    select.innerHTML='<option value="0">Select a Company...</option>';
+    companies.forEach(c=>{
+      const opt=document.createElement('option');
+      opt.value=c.id; opt.textContent=c.name; select.appendChild(opt);
     });
-
-    if (currentCompanyId === 0 && companies.length > 0) {
-      currentCompanyId = companies[0].id;
-      select.value = currentCompanyId;
-      await loadDashboardData(currentCompanyId);
-    }
-
-    select.addEventListener('change', async (e) => {
-      currentCompanyId = parseInt(e.target.value);
-      if (currentCompanyId > 0) {
-        await loadDashboardData(currentCompanyId, false);
-      } else showNoSelection();
+    if(companies.length>0){currentCompanyId=companies[0].id; select.value=currentCompanyId; await loadDashboardData(currentCompanyId);}
+    select.addEventListener('change', async e=>{
+      currentCompanyId=parseInt(e.target.value);
+      currentCompanyId>0 ? await loadDashboardData(currentCompanyId,false) : showNoSelection();
     });
-  } catch (error) {
-    console.error(`[${FILE_NAME_HTML}] Companies load error:`, error);
-  }
+  }catch(err){console.error(`[${FILE_NAME_HTML}] Companies load error:`, err);}
 }
 
-// ── Load dashboard data ─────────────────────────────────────────
-async function loadDashboardData(companyId, forceRefresh = false) {
-  if (!companyId) return showNoSelection();
-  if (isFetching) return;
-  isFetching = true;
+// ── Load dashboard summary / charts ──
+async function loadDashboardData(companyId, forceRefresh=false){
+  if(!companyId) return showNoSelection();
+  if(isFetching) return;
+  isFetching=true;
+  document.getElementById('loading-state').style.display='block';
+  document.getElementById('no-selection-state').style.display='none';
+  document.getElementById('main-content').style.display='none';
+  try{
+    const qs=new URLSearchParams();
+    if(forceRefresh) qs.set('refresh','true');
+    if(activeMonths>0) qs.set('months',String(activeMonths));
+    const url=`/reviews/summary/${companyId}${qs.toString()?'?'+qs.toString():''}`;
+    const res=await fetch(url);
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data=await res.json();
 
-  document.getElementById('loading-state').style.display = 'block';
-  document.getElementById('no-selection-state').style.display = 'none';
-  document.getElementById('main-content').style.display = 'none';
+    document.getElementById('loading-state').style.display='none';
+    document.getElementById('main-content').style.display='block';
+    document.getElementById('company-header').style.display='block';
 
-  try {
-    const qs = new URLSearchParams();
-    if (forceRefresh) qs.set('refresh', 'true');
-    if (activeMonths && Number(activeMonths) > 0) qs.set('months', String(activeMonths));
-    const url = `/reviews/summary/${companyId}${qs.toString() ? '?' + qs.toString() : ''}`;
+    document.getElementById('company-name').textContent=data.company_name||'Company';
+    document.getElementById('google-rating').textContent=data.google_rating ?? '—';
+    document.getElementById('google-total-ratings').textContent=data.google_total_ratings ?? '—';
+    document.getElementById('last-refresh').textContent=new Date().toLocaleString();
+    document.getElementById('months-active').textContent=activeMonths;
 
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
+    document.getElementById('total-reviews').textContent=data.total_reviews||0;
+    document.getElementById('avg-rating').textContent=(data.avg_rating||0).toFixed(1);
+    document.getElementById('sentiment-mix').textContent=`${data.sentiments?.Positive||0} / ${data.sentiments?.Neutral||0} / ${data.sentiments?.Negative||0}`;
 
-    document.getElementById('loading-state').style.display = 'none';
-    document.getElementById('main-content').style.display = 'block';
-    document.getElementById('company-header').style.display = 'block';
+    // Data completion
+    const completion=clamp(Number(data.data_completion_percent||0),0,100);
+    const bar=document.getElementById('data-completion-bar');
+    bar.style.width=`${completion}%`; bar.textContent=`${completion}%`;
+    bar.className='progress-bar '+(completion>=75?'bg-success':completion>=40?'bg-warning':'bg-danger');
 
-    // Header & KPIs
-    document.getElementById('company-name').textContent = data.company_name || 'Company';
-    document.getElementById('google-rating').textContent = data.google_rating ?? '—';
-    document.getElementById('google-total-ratings').textContent = data.google_total_ratings ?? '—';
-    document.getElementById('last-refresh').textContent = new Date().toLocaleString();
-    document.getElementById('months-active').textContent = activeMonths;
-
-    document.getElementById('total-reviews').textContent = data.total_reviews || 0;
-    document.getElementById('avg-rating').textContent = (data.avg_rating || 0).toFixed(1);
-    document.getElementById('sentiment-mix').textContent =
-      `${data.sentiments?.Positive || 0} / ${data.sentiments?.Neutral || 0} / ${data.sentiments?.Negative || 0}`;
-
-    // Data completion progress
-    const completion = clamp(Number(data.data_completion_percent || 0), 0, 100);
-    const bar = document.getElementById('data-completion-bar');
-    bar.style.width = `${completion}%`;
-    bar.textContent = `${completion}%`;
-    bar.classList.remove('bg-success','bg-warning','bg-danger');
-    bar.classList.add(completion >= 75 ? 'bg-success' : completion >= 40 ? 'bg-warning' : 'bg-danger');
-
-    // Chips: weak & strength areas
-    makeChips('weak-areas-chips', data.weak_areas || [], 'danger');
-    makeChips('strength-areas-chips', data.strength_areas || [], 'success');
+    // Chips
+    makeChips('weak-areas-chips',data.weak_areas||[],'danger');
+    makeChips('strength-areas-chips',data.strength_areas||[],'success');
 
     // Keywords Cloud
-    const keywordsDiv = document.getElementById('keywords-cloud');
-    keywordsDiv.innerHTML = '';
-    const allKeywords = [
-      ...(data.positive_keywords || []),
-      ...(data.negative_keywords || [])
-    ];
-    if (allKeywords.length === 0) {
-      keywordsDiv.innerHTML = '<span class="text-muted">No keywords detected yet</span>';
-    } else {
-      allKeywords.forEach(kw => {
-        const tag = document.createElement('span');
-        tag.className = 'badge bg-light text-dark border px-3 py-2';
-        tag.textContent = kw;
-        keywordsDiv.appendChild(tag);
-      });
-    }
+    const keywordsDiv=document.getElementById('keywords-cloud'); keywordsDiv.innerHTML='';
+    const allKeywords=[...(data.positive_keywords||[]),...(data.negative_keywords||[])];
+    if(allKeywords.length===0) keywordsDiv.innerHTML='<span class="text-muted">No keywords detected yet</span>';
+    else allKeywords.forEach(kw=>{ const tag=document.createElement('span'); tag.className='badge bg-light text-dark border px-3 py-2'; tag.textContent=kw; keywordsDiv.appendChild(tag); });
 
-    // Reviews list
-    const reviewsContainer = document.getElementById('reviews-container');
-    reviewsContainer.innerHTML = '';
-    if (!data.reviews || data.reviews.length === 0) {
-      reviewsContainer.innerHTML = '<div class="list-group-item text-center text-muted py-5">No reviews available.</div>';
-    } else {
-      data.reviews.slice(0, 10).forEach(review => {
-        const item = document.createElement('div');
-        item.className = 'list-group-item px-4 py-3';
-        item.innerHTML = `
+    // Reviews
+    const reviewsContainer=document.getElementById('reviews-container'); reviewsContainer.innerHTML='';
+    if(!data.reviews||data.reviews.length===0) reviewsContainer.innerHTML='<div class="list-group-item text-center text-muted py-5">No reviews available.</div>';
+    else{
+      data.reviews.slice(0,10).forEach(review=>{
+        const item=document.createElement('div'); item.className='list-group-item px-4 py-3';
+        item.innerHTML=`
           <div class="d-flex justify-content-between align-items-start mb-2">
-            <div>
-              <h6 class="mb-1">${review.reviewer_name || 'Anonymous'}</h6>
-              <small class="text-muted">${review.review_date || '—'}</small>
-            </div>
-            <div class="text-end">
-              <span class="badge fs-6 px-3 py-2 ${
-                review.sentiment === 'Positive' ? 'bg-success' :
-                review.sentiment === 'Negative' ? 'bg-danger' : 'bg-warning'
-              }">
-                ${review.rating ?? '—'} ★ • ${review.sentiment}
-              </span>
-            </div>
+            <div><h6 class="mb-1">${review.reviewer_name||'Anonymous'}</h6><small class="text-muted">${review.review_date||'—'}</small></div>
+            <div class="text-end"><span class="badge fs-6 px-3 py-2 ${review.sentiment==='Positive'?'bg-success':review.sentiment==='Negative'?'bg-danger':'bg-warning'}">${review.rating??'—'} ★ • ${review.sentiment}</span></div>
           </div>
-          <p class="mb-3">${(review.review_text || '').substring(0, 220)}${(review.review_text || '').length > 220 ? '...' : ''}</p>
+          <p class="mb-3">${(review.review_text||'').substring(0,220)}${(review.review_text||'').length>220?'...':''}</p>
           <div class="border-top pt-3 mt-3">
             <div class="d-flex justify-content-between align-items-center mb-2">
               <strong class="text-muted small">Suggested Reply:</strong>
-              <button class="btn btn-sm btn-outline-secondary copy-reply-btn"
-                      data-reply="${(review.suggested_reply || 'Thank you for your feedback!').replace(/"/g,'&quot;')}">
-                <i class="bi bi-clipboard"></i> Copy
-              </button>
+              <button class="btn btn-sm btn-outline-secondary copy-reply-btn" data-reply="${(review.suggested_reply||'Thank you for your feedback!').replace(/"/g,'&quot;')}"><i class="bi bi-clipboard"></i> Copy</button>
             </div>
-            <div class="bg-light p-3 rounded small">
-              ${review.suggested_reply || 'No reply suggestion available'}
-            </div>
+            <div class="bg-light p-3 rounded small">${review.suggested_reply||'No reply suggestion available'}</div>
           </div>
         `;
         reviewsContainer.appendChild(item);
       });
-      document.querySelectorAll('.copy-reply-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-          navigator.clipboard.writeText(this.dataset.reply);
-          const original = this.innerHTML;
-          this.innerHTML = '<i class="bi bi-check2"></i> Copied!';
-          this.disabled = true;
-          setTimeout(() => { this.innerHTML = original; this.disabled = false; }, 1800);
-        });
+      document.querySelectorAll('.copy-reply-btn').forEach(btn=>{
+        btn.addEventListener('click',function(){ navigator.clipboard.writeText(this.dataset.reply); const orig=this.innerHTML; this.innerHTML='<i class="bi bi-check2"></i> Copied!'; this.disabled=true; setTimeout(()=>{ this.innerHTML=orig; this.disabled=false; },1800); });
       });
     }
 
     // Charts
-    renderTrendChart(data);
-    renderSentimentPie(data);
-    renderWeakAreasChart(data);
-    renderStrengthAreasChart(data);
-    renderRiskGauge(data);
-
-    // AI Recommendations
+    renderTrendChart(data); renderSentimentPie(data); renderWeakAreasChart(data); renderStrengthAreasChart(data); renderRiskGauge(data);
     renderAIRecommendations(data);
 
-  } catch (err) {
-    console.error(`[${FILE_NAME_HTML}] Dashboard load error:`, err);
-  } finally {
-    isFetching = false;
-    document.getElementById('loading-state').style.display = 'none';
-  }
+  }catch(err){console.error(`[${FILE_NAME_HTML}] Dashboard load error:`, err);}
+  finally{isFetching=false; document.getElementById('loading-state').style.display='none';}
 }
 
-// ── Helpers (chips) ─────────────────────────────────────────────
-function makeChips(containerId, arr, kind = 'secondary') {
-  const div = document.getElementById(containerId);
-  div.innerHTML = '';
-  if (!arr || arr.length === 0) {
-    div.innerHTML = '<span class="text-muted">No data</span>';
-    return;
-  }
-  arr.slice(0, 10).forEach(item => {
-    const chip = document.createElement('span');
-    chip.className = `badge bg-${kind}`;
-    chip.textContent = `${item.keyword || '—'} (${item.mentions ?? 0})`;
-    div.appendChild(chip);
-  });
-}
-
-// ── Charts ─────────────────────────────────────────────────────
-function renderTrendChart(data) {
-  const ctx = document.getElementById('trendChart').getContext('2d');
-  if (trendChart) trendChart.destroy();
-
-  const labels = (data.trend_data || []).map(i => i.month);
-  const avg = (data.trend_data || []).map(i => i.avg_rating || 0);
-  const maxR = (data.trend_data || []).map(i => i.max_rating || 0);
-  const count = (data.trend_data || []).map(i => i.count || 0);
-
-  trendChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: labels.length ? labels : ['No data'],
-      datasets: [
-        {
-          type: 'line',
-          label: 'Average Rating',
-          data: avg.length ? avg : [0],
-          borderColor: colors.primary,
-          backgroundColor: colors.primaryFill,
-          tension: 0.3,
-          fill: true,
-          yAxisID: 'y',
-        },
-        {
-          type: 'line',
-          label: 'Max Rating',
-          data: maxR.length ? maxR : [0],
-          borderColor: colors.success,
-          borderDash: [6,4],
-          pointRadius: 3,
-          tension: 0.2,
-          yAxisID: 'y',
-        },
-        {
-          type: 'bar',
-          label: 'Review Count',
-          data: count.length ? count : [0],
-          backgroundColor: 'rgba(108,117,125,0.5)',
-          borderColor: colors.gray,
-          borderWidth: 1,
-          yAxisID: 'y1',
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      scales: {
-        y: { min: 0, max: 5.5, title: { display: true, text: 'Rating' } },
-        y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Count' } }
-      },
-      plugins: {
-        legend: { position: 'bottom' },
-        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y}` } }
-      }
-    }
-  });
-}
-
-function renderSentimentPie(data) {
-  const ctx = document.getElementById('sentimentPie').getContext('2d');
-  if (sentimentPieChart) sentimentPieChart.destroy();
-
-  const pos = data.sentiments?.Positive || 0;
-  const neu = data.sentiments?.Neutral || 0;
-  const neg = data.sentiments?.Negative || 0;
-
-  sentimentPieChart = new Chart(ctx, {
-    type: 'pie',
-    data: {
-      labels: ['Positive','Neutral','Negative'],
-      datasets: [{
-        data: [pos,neu,neg],
-        backgroundColor: [colors.success, colors.warning, colors.danger],
-        borderColor: '#fff',
-        borderWidth: 2
-      }]
-    },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
-  });
-}
-
-function renderWeakAreasChart(data) {
-  const ctx = document.getElementById('weakAreasChart').getContext('2d');
-  if (weakAreasChart) weakAreasChart.destroy();
-
-  const items = (data.weak_areas || []).slice(0, 10);
-  const labels = items.map(i => i.keyword || '—');
-  const values = items.map(i => i.mentions || 0);
-
-  weakAreasChart = new Chart(ctx, {
-    type: 'bar',
-    data: { labels, datasets: [{ label: 'Mentions', data: values, backgroundColor: 'rgba(220,53,69,0.7)' }] },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: { x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 0 } }, y: { beginAtZero: true } }
-    }
-  });
-}
-
-function renderStrengthAreasChart(data) {
-  const ctx = document.getElementById('strengthAreasChart').getContext('2d');
-  if (strengthAreasChart) strengthAreasChart.destroy();
-
-  const items = (data.strength_areas || []).slice(0, 10);
-  const labels = items.map(i => i.keyword || '—');
-  const values = items.map(i => i.mentions || 0);
-
-  strengthAreasChart = new Chart(ctx, {
-    type: 'bar',
-    data: { labels, datasets: [{ label: 'Mentions', data: values, backgroundColor: 'rgba(40,167,69,0.7)' }] },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: { x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 0 } }, y: { beginAtZero: true } }
-    }
-  });
-}
-
-function renderRiskGauge(data) {
-  const ctx = document.getElementById('riskGauge').getContext('2d');
-  if (riskGaugeChart) riskGaugeChart.destroy();
-
-  const score = clamp(Number(data.risk_score || 0), 0, 100);
-  const rest = 100 - score;
-  const color = score >= 70 ? colors.danger : score >= 40 ? colors.warning : colors,'Safe'],
-      datasets: [{
-        data: [score, rest],
-        backgroundColor: [color, '#e9ecef'],
-        borderWidth: 0
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      cutout: '70%',
-      plugins: { legend: { display: false }, tooltip: { enabled: false } }
-    }
-  });
-
-  const txt = document.getElementById('risk-score-text');
-  txt.textContent = `${score}%`;
-  txt.className = 'badge ' + (score >= 70 ? 'bg-danger' : score >= 40 ? 'bg-warning text-dark' : 'bg-success');
-}
-
-// ── AI Recommendations Renderer ─────────────────────────────────
-function renderAIRecommendations(data) {
-  const container = document.getElementById('ai-recs');
-  container.innerHTML = '';
-  const recs = data.ai_recommendations || [];
-
-  if (recs.length === 0) {
-    container.innerHTML = '<div class="list-group-item py-3 text-muted">No AI recommendations available.</div>';
-    return;
-  }
-
-  recs.slice(0, 6).forEach(r => {
-    const badgeClass = r.priority === 'High' ? 'bg-danger' : r.priority === 'Medium' ? 'bg-warning text-dark' : 'bg-secondary';
-    const item = document.createElement('div');
-    item.className = 'list-group-item py-3';
-    item.innerHTML = `
-      <div class="d-flex justify-content-between align-items-start">
-        <div>
-          <div class="mb-1">
-            <span class="badge ${badgeClass} me-2">${r.priority || '—'}</span>
-            <strong>${r.weak_area || 'Area'}</strong>
-            <small class="text-muted"> • mentions: ${r.issue_mentions ?? 0}</small>
-          </div>
-          <div class="mb-1"><i class="bi bi-lightbulb"></i> Action: ${r.recommended_action || '—'}</div>
-          <small class="text-muted"><i class="bi bi-graph-up-arrow"></i> Outcome: ${r.expected_outcome || '—'}</small>
-        </div>
-      </div>
-    `;
-    container.appendChild(item);
-  });
-}
-
-// ── Reset ───────────────────────────────────────────────────────
-function showNoSelection() {
-  document.getElementById('company-header').style.display='none';
-  document.getElementById('main-content').style.display='none';
-  document.getElementById('no-selection-state').style.display='block';
-  document.getElementById('loading-state').style.display='none';
-
-  if(trendChart) trendChart.destroy();
-  if(sentimentPieChart) sentimentPieChart.destroy();
-  if(weakAreasChart) weakAreasChart.destroy();
-  if(strengthAreasChart) strengthAreasChart.destroy();
-  if(riskGaugeChart) riskGaugeChart.destroy();
-}
-
-// ── Initialize ─────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  // default months from selector
-  const ms = document.getElementById('months-selector');
-  activeMonths = Number(ms.value || 6);
-  updateDateWindowDisplay();
-
-  loadCompanies();
-
-  document.getElementById('refresh-btn')?.addEventListener('click', async () => {
-    if(currentCompanyId > 0 && !isFetching) await loadDashboardData(currentCompanyId, true);
-  });
-
-  document.getElementById('apply-range-btn')?.addEventListener('click', async () => {
-    const msSel = document.getElementById('months-selector');
-    activeMonths = Number(msSel.value || 6);
-    if(currentCompanyId > 0 && !isFetching) await loadDashboardData(currentCompanyId, false);
-  });
-});
-</script>
-{% endblock %}
+function makeChips(containerId, arr, kind='secondary'){ const div=document.getElementById(containerId); div.innerHTML=''; if(!arr||arr.length===0){ div.innerHTML='<span class="text-muted">No data</span>'; return; } arr.slice(0,10).forEach(item=>{ const chip=document.createElement('span'); chip.className=`badge bg-${kind}`; chip.textContent=`
