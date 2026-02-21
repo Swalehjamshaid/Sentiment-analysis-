@@ -10,6 +10,11 @@
         <option value="0">Select a Company...</option>
       </select>
 
+      <!-- Add Company -->
+      <button id="add-company-btn" class="btn btn-outline-dark">
+        <i class="bi bi-building-add"></i> Add Company
+      </button>
+
       <!-- Date range: from / to -->
       <div class="d-flex align-items-center gap-2">
         <div class="input-group">
@@ -246,34 +251,67 @@
   </div>
 </div>
 
-<!-- Owner Summary Modal -->
-<div class="modal fade" id="ownerSummaryModal" tabindex="-1" aria-labelledby="ownerSummaryModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content">
+<!-- Add Company Modal -->
+<div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <form id="add-company-form" class="modal-content" autocomplete="off">
       <div class="modal-header">
-        <h5 id="ownerSummaryModalLabel" class="modal-title">Owner Summary & Action Plan</h5>
+        <h5 id="addCompanyModalLabel" class="modal-title"><i class="bi bi-building-add"></i> Add New Company</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close">
         </button>
       </div>
       <div class="modal-body">
+        <!-- Google Places Autocomplete (like companies.html) -->
         <div class="mb-3">
-          <div class="small text-muted">Executive Summary</div>
-          <div id="owner-executive-summary" class="fw-semibold"></div>
+          <label class="form-label">Search Company (Google)</label>
+          <input type="text" id="addco_google_search" class="form-control" placeholder="Start typing company name..." />
+          <div class="form-text">This will auto-fill name, city, address and Place ID.</div>
         </div>
-        <hr/>
-        <div class="mb-2 d-flex align-items-center justify-content-between">
-          <div class="fw-bold">Top Priority Actions</div>
-          <span id="owner-risk" class="badge rounded-pill bg-secondary">Risk: —</span>
+
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Company Name <span class="text-danger">*</span></label>
+            <input type="text" id="addco_name" class="form-control" required readonly />
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">City</label>
+            <input type="text" id="addco_city" class="form-control" readonly />
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Address</label>
+            <input type="text" id="addco_address" class="form-control" readonly />
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">Phone</label>
+            <input type="text" id="addco_phone" class="form-control" />
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Email</label>
+            <input type="email" id="addco_email" class="form-control" />
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Description</label>
+            <textarea id="addco_description" class="form-control" rows="3"></textarea>
+          </div>
         </div>
-        <div id="owner-action-plan" class="list-group list-group-flush"></div>
+
+        <!-- Hidden (same as companies.html) -->
+        <input type="hidden" id="addco_lat" />
+        <input type="hidden" id="addco_lng" />
+        <input type="hidden" id="addco_place_id" />
+
+        <div id="addco-alert" class="alert alert-danger d-none small mt-3"></div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-        <button id="copy-owner-summary" class="btn btn-primary">
-          <i class="bi bi-clipboard"></i> Copy Summary
+        <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+        <button id="add-company-submit" type="submit" class="btn btn-primary">
+          <i class="bi bi-plus-circle"></i> Create Company
         </button>
       </div>
-    </div>
+    </form>
   </div>
 </div>
 
@@ -292,6 +330,7 @@ let trendChart, sentimentPieChart, weakAreasChart, strengthAreasChart, riskGauge
 let currentCompanyId = 0;
 let isFetching = false;
 let lastSummaryData = null; // cache the one-shot payload for Owner Summary
+let addCoPlacesAutocomplete = null;
 
 const colors = { 
   primary:'#0d6efd', 
@@ -324,9 +363,26 @@ document.addEventListener('DOMContentLoaded', () => {
     modal.show();
   });
 
-  document.getElementById('copy-owner-summary').addEventListener('click', () => {
-    const text = buildOwnerSummaryClipboardText(lastSummaryData);
-    navigator.clipboard.writeText(text || '');
+  // Add Company open modal
+  document.getElementById('add-company-btn').addEventListener('click', () => {
+    clearAddCompanyForm();
+    const modalEl = document.getElementById('addCompanyModal');
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+
+    // Lazy init Places Autocomplete (only when modal opens)
+    if (!addCoPlacesAutocomplete && window.google?.maps?.places) {
+      addCoPlacesAutocomplete = new google.maps.places.Autocomplete(
+        document.getElementById('addco_google_search'),
+        { types: ['establishment'] }
+      );
+      addCoPlacesAutocomplete.addListener('place_changed', handleAddCoPlacePicked);
+    }
+  });
+
+  // Add Company submit
+  document.getElementById('add-company-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await submitNewCompany();
   });
 
   // Update date-window text on input changes (for UX)
@@ -381,6 +437,7 @@ function updateDateWindowDisplay(){
 
 async function loadCompanies() {
   try {
+    // Use existing endpoint used in dashboard (simple list)
     const res = await fetch('/reviews/my-companies');
     if(!res.ok) throw new Error('Network error loading companies');
     const companies = await res.json();
@@ -751,6 +808,126 @@ function showNoSelection() {
   document.getElementById('no-selection-state').style.display = 'block';
 }
 
+// ---- Add Company helpers (aligned with companies.html endpoints) ----
+function clearAddCompanyForm() {
+  ['addco_google_search','addco_name','addco_city','addco_address','addco_phone','addco_email','addco_description','addco_lat','addco_lng','addco_place_id']
+  .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const alert = document.getElementById('addco-alert');
+  alert.classList.add('d-none');
+  alert.textContent = '';
+}
+
+function handleAddCoPlacePicked() {
+  const place = addCoPlacesAutocomplete.getPlace();
+  if (!place || !place.geometry) {
+    showAddCoError('No location found from Google.');
+    return;
+  }
+
+  // Fill fields like companies.html
+  document.getElementById('addco_name').value = place.name || '';
+  document.getElementById('addco_address').value = place.formatted_address || '';
+  document.getElementById('addco_lat').value = place.geometry.location.lat();
+  document.getElementById('addco_lng').value = place.geometry.location.lng();
+  document.getElementById('addco_place_id').value = place.place_id || '';
+
+  // Phone (if available in Places autocomplete details)
+  document.getElementById('addco_phone').value = place.formatted_phone_number || '';
+
+  // City extraction
+  let city = '';
+  if (Array.isArray(place.address_components)) {
+    for (const comp of place.address_components) {
+      if (comp.types?.includes('locality')) { city = comp.long_name; break; }
+      if (comp.types?.includes('administrative_area_level_2') && !city) city = comp.long_name;
+    }
+  }
+  document.getElementById('addco_city').value = city;
+}
+
+function showAddCoError(msg) {
+  const alert = document.getElementById('addco-alert');
+  alert.textContent = msg || 'Failed to add company.';
+  alert.classList.remove('d-none');
+}
+
+async function submitNewCompany() {
+  const name = document.getElementById('addco_name').value.trim();
+  const city = document.getElementById('addco_city').value.trim();
+  const address = document.getElementById('addco_address').value.trim();
+  const phone = document.getElementById('addco_phone').value.trim();
+  const email = document.getElementById('addco_email').value.trim();
+  const description = document.getElementById('addco_description').value.trim();
+  const lat = document.getElementById('addco_lat').value;
+  const lng = document.getElementById('addco_lng').value;
+  const place_id = document.getElementById('addco_place_id').value;
+
+  if (!name || !place_id) {
+    showAddCoError('Please search via Google and ensure Name and Place ID are filled.');
+    return;
+  }
+
+  // Build FormData as companies.html expects
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('city', city);
+  fd.append('address', address);
+  fd.append('phone', phone);
+  fd.append('email', email);
+  fd.append('description', description);
+  fd.append('lat', lat);
+  fd.append('lng', lng);
+  fd.append('place_id', place_id);
+
+  try {
+    const res = await fetch('/companies/', { method: 'POST', body: fd });
+    if (!res.ok) {
+      const err = await res.json().catch(()=>({detail:'Unknown error'}));
+      throw new Error(err.detail || 'Failed to save');
+    }
+    // Close modal
+    bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
+
+    // Reload the dropdown from /reviews/my-companies
+    await reloadCompanyDropdownAndSelectNew(name, city);
+
+    // Immediately load analytics for the selected company
+    if (currentCompanyId > 0) {
+      await loadDashboardData(currentCompanyId, true);
+    }
+  } catch (e) {
+    showAddCoError(e.message);
+  }
+}
+
+async function reloadCompanyDropdownAndSelectNew(newName, newCity) {
+  try {
+    const res = await fetch('/reviews/my-companies');
+    if (!res.ok) throw new Error('Cannot refresh companies list');
+    const companies = await res.json();
+    const select = document.getElementById('company-selector');
+    select.innerHTML = '<option value="0">Select a Company...</option>';
+    let foundId = 0;
+    companies.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = `${c.name} (${c.city})`;
+      select.appendChild(opt);
+      // Try to auto-pick by name+city
+      if (c.name === newName && (c.city || '') === (newCity || '')) {
+        foundId = c.id;
+      }
+    });
+    if (foundId) {
+      select.value = foundId;
+      currentCompanyId = foundId;
+    }
+  } catch (e) {
+    console.warn('Dropdown refresh failed:', e);
+  }
+}
+// ---- End Add Company helpers ----
+
 function populateOwnerSummaryModal(data) {
   const exec = data?.executive_summary || '—';
   const riskScore = Number(data?.risk_score ?? 0);
@@ -818,10 +995,17 @@ function buildOwnerSummaryClipboardText(data) {
 }
 </script>
 
+<!-- Google Maps Places for Add Company modal (uses same style as companies.html) -->
+<script
+  src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_API_KEY&libraries=places"
+  async defer>
+</script>
+
 <style>
   .progress-bar { transition: width 1s ease-in-out; }
   .card { transition: transform 0.2s ease; }
   .list-group-item:hover { background-color: #fcfcfc; }
   .badge { letter-spacing: 0.5px; }
 </style>
+
 {% endblock %}
