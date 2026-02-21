@@ -42,13 +42,13 @@
   <div id="no-selection-state" class="alert alert-info text-center py-5 my-5">
     <i class="bi bi-building fs-1 mb-3 d-block"></i>
     <h5>Select a company to view deep analysis</h5>
-    <p class="text-muted">Click on any company from the dropdown to see reviews, trends, keywords, and suggested replies.</p>
+    <p class="text-muted">Click on any company from the dropdown to see reviews, trends, keywords, weak areas, and suggested actions.</p>
   </div>
 
   <!-- Main Dashboard Content -->
   <div id="main-content" style="display: none;">
     <!-- KPI Cards -->
-    <div class="row g-4 mb-5">
+    <div class="row g-4 mb-4">
       <div class="col-md-4">
         <div class="card shadow-sm border-0 h-100">
           <div class="card-body text-center">
@@ -80,8 +80,32 @@
       </div>
     </div>
 
+    <!-- Top 3 Weak Areas & Recommendations -->
+    <div class="card shadow-sm border-0 mb-4">
+      <div class="card-body">
+        <h5 class="card-title mb-4">Top 3 Graphs & Weak Areas Overview</h5>
+        <div class="row g-4">
+          <div class="col-md-4">
+            <h6>1. Low Rating Products/Services</h6>
+            <canvas id="weakArea1Chart" style="height: 180px;"></canvas>
+            <small class="text-muted d-block mt-2" id="weakArea1Action">—</small>
+          </div>
+          <div class="col-md-4">
+            <h6>2. Negative Sentiment Drivers</h6>
+            <canvas id="weakArea2Chart" style="height: 180px;"></canvas>
+            <small class="text-muted d-block mt-2" id="weakArea2Action">—</small>
+          </div>
+          <div class="col-md-4">
+            <h6>3. Repeated Complaints / Keywords</h6>
+            <canvas id="weakArea3Chart" style="height: 180px;"></canvas>
+            <small class="text-muted d-block mt-2" id="weakArea3Action">—</small>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="row g-4">
-      <!-- Charts -->
+      <!-- Main Charts -->
       <div class="col-lg-8">
         <div class="card shadow-sm border-0 mb-4">
           <div class="card-body">
@@ -144,13 +168,14 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
-// ── Global Variables ─────────────────────────────────────────────────────────
+// ── Global Variables ─────────────────────────────────────────────
 let trendChart = null;
 let sentimentPieChart = null;
+let weakAreaCharts = [];
 let currentCompanyId = {{ current_company_id | default(0) }};
 let isFetching = false;
 
-// ── Load companies list ──────────────────────────────────────────────────────
+// ── Load companies list ────────────────────────────────────────────
 async function loadCompanies() {
   try {
     const response = await fetch('/reviews/my-companies');
@@ -168,35 +193,27 @@ async function loadCompanies() {
       select.appendChild(option);
     });
 
-    // Auto-load first company if none pre-selected
     if (currentCompanyId === 0 && companies.length > 0) {
       currentCompanyId = companies[0].id;
       select.value = currentCompanyId;
       await loadDashboardData(currentCompanyId);
     }
 
-    // Change event - load immediately (fast DB read)
     select.addEventListener('change', async (e) => {
       currentCompanyId = parseInt(e.target.value);
       if (currentCompanyId > 0) {
-        await loadDashboardData(currentCompanyId, false); // no refresh
-      } else {
-        showNoSelection();
-      }
+        await loadDashboardData(currentCompanyId, false);
+      } else showNoSelection();
     });
-
   } catch (error) {
     console.error('Companies load error:', error);
-    document.getElementById('reviews-container').innerHTML =
-      '<div class="list-group-item text-danger text-center py-4">Failed to load companies list</div>';
   }
 }
 
-// ── Load dashboard data (fast by default, slow only when refresh=true) ──────
+// ── Load dashboard data ─────────────────────────────────────────────
 async function loadDashboardData(companyId, forceRefresh = false) {
   if (!companyId) return showNoSelection();
-
-  if (isFetching) return; // prevent double clicks
+  if (isFetching) return;
   isFetching = true;
 
   document.getElementById('loading-state').style.display = 'block';
@@ -204,24 +221,20 @@ async function loadDashboardData(companyId, forceRefresh = false) {
   document.getElementById('main-content').style.display = 'none';
 
   try {
-    // Use ?refresh=true only when user clicks Refresh
     const url = `/reviews/summary/${companyId}${forceRefresh ? '?refresh=true' : ''}`;
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
 
-    // Show content
     document.getElementById('loading-state').style.display = 'none';
     document.getElementById('main-content').style.display = 'block';
     document.getElementById('company-header').style.display = 'block';
 
-    // Fill header
     document.getElementById('company-name').textContent = data.company_name || 'Company';
     document.getElementById('google-rating').textContent = data.google_rating || '—';
     document.getElementById('google-total-ratings').textContent = data.google_total_ratings || '—';
     document.getElementById('last-refresh').textContent = new Date().toLocaleString();
 
-    // KPIs
     document.getElementById('total-reviews').textContent = data.total_reviews || 0;
     document.getElementById('avg-rating').textContent = (data.avg_rating || 0).toFixed(1);
     document.getElementById('sentiment-mix').textContent =
@@ -231,24 +244,19 @@ async function loadDashboardData(companyId, forceRefresh = false) {
     const keywordsDiv = document.getElementById('keywords-cloud');
     keywordsDiv.innerHTML = '';
     const allKeywords = [...(data.positive_keywords || []), ...(data.negative_keywords || [])];
-    if (allKeywords.length === 0) {
-      keywordsDiv.innerHTML = '<span class="text-muted">No keywords detected yet</span>';
-    } else {
-      allKeywords.forEach(kw => {
-        const tag = document.createElement('span');
-        tag.className = 'badge bg-light text-dark border px-3 py-2';
-        tag.textContent = kw;
-        keywordsDiv.appendChild(tag);
-      });
-    }
+    if (allKeywords.length === 0) keywordsDiv.innerHTML = '<span class="text-muted">No keywords detected yet</span>';
+    else allKeywords.forEach(kw => {
+      const tag = document.createElement('span');
+      tag.className = 'badge bg-light text-dark border px-3 py-2';
+      tag.textContent = kw;
+      keywordsDiv.appendChild(tag);
+    });
 
-    // Recent Reviews + Suggested Replies
+    // Reviews
     const reviewsContainer = document.getElementById('reviews-container');
     reviewsContainer.innerHTML = '';
-
     if (!data.reviews || data.reviews.length === 0) {
-      reviewsContainer.innerHTML =
-        '<div class="list-group-item text-center text-muted py-5">No reviews available yet. Click Refresh to fetch.</div>';
+      reviewsContainer.innerHTML = '<div class="list-group-item text-center text-muted py-5">No reviews available.</div>';
     } else {
       data.reviews.slice(0, 10).forEach(review => {
         const item = document.createElement('div');
@@ -268,9 +276,7 @@ async function loadDashboardData(companyId, forceRefresh = false) {
               </span>
             </div>
           </div>
-
           <p class="mb-3">${review.review_text.substring(0, 220)}${review.review_text.length > 220 ? '...' : ''}</p>
-
           <div class="border-top pt-3 mt-3">
             <div class="d-flex justify-content-between align-items-center mb-2">
               <strong class="text-muted small">Suggested Reply:</strong>
@@ -286,119 +292,88 @@ async function loadDashboardData(companyId, forceRefresh = false) {
         `;
         reviewsContainer.appendChild(item);
       });
-
-      // Copy buttons
       document.querySelectorAll('.copy-reply-btn').forEach(btn => {
         btn.addEventListener('click', function() {
           navigator.clipboard.writeText(this.dataset.reply);
           const original = this.innerHTML;
           this.innerHTML = '<i class="bi bi-check2"></i> Copied!';
           this.disabled = true;
-          setTimeout(() => {
-            this.innerHTML = original;
-            this.disabled = false;
-          }, 2000);
+          setTimeout(() => { this.innerHTML = original; this.disabled = false; }, 2000);
         });
       });
     }
 
-    // Render charts
+    // Charts
     renderTrendChart(data);
     renderSentimentPie(data);
+    renderWeakAreas(data);
 
   } catch (err) {
     console.error('Dashboard load error:', err);
-    document.getElementById('reviews-container').innerHTML =
-      '<div class="alert alert-danger text-center py-4">Error loading data. Please try again or check your internet connection.</div>';
   } finally {
     isFetching = false;
     document.getElementById('loading-state').style.display = 'none';
   }
 }
 
-// ── Chart Rendering Functions ───────────────────────────────────────────────
+// ── Charts ─────────────────────────────────────────────
 function renderTrendChart(data) {
   const ctx = document.getElementById('trendChart').getContext('2d');
   if (trendChart) trendChart.destroy();
-
-  let labels = data.trend_data?.map(item => item.month) || [];
-  let values = data.trend_data?.map(item => item.avg_rating) || [];
-
-  if (labels.length === 0 && data.reviews?.length > 0) {
-    labels = data.reviews.map(r => r.review_date ? new Date(r.review_date).toLocaleDateString() : '—');
-    values = data.reviews.map(r => r.rating || 0);
-  }
-
+  const labels = data.trend_data?.map(i => i.month) || [];
+  const values = data.trend_data?.map(i => i.avg_rating) || [];
   trendChart = new Chart(ctx, {
     type: 'line',
-    data: {
-      labels: labels.length ? labels : ['No data'],
-      datasets: [{
-        label: 'Average Rating',
-        data: values.length ? values : [0],
-        borderColor: '#0d6efd',
-        backgroundColor: 'rgba(13, 110, 253, 0.15)',
-        tension: 0.3,
-        fill: true
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: { y: { min: 0, max: 5.5 } }
-    }
+    data: { labels: labels.length ? labels : ['No data'], datasets: [{ label: 'Average Rating', data: values.length ? values : [0], borderColor: '#0d6efd', backgroundColor: 'rgba(13, 110, 253,0.15)', tension: 0.3, fill:true }] },
+    options: { responsive: true, maintainAspectRatio: false, scales:{y:{min:0,max:5.5}} }
   });
 }
 
 function renderSentimentPie(data) {
   const ctx = document.getElementById('sentimentPie').getContext('2d');
   if (sentimentPieChart) sentimentPieChart.destroy();
+  const pos = data.sentiments?.Positive||0, neu=data.sentiments?.Neutral||0, neg=data.sentiments?.Negative||0;
+  sentimentPieChart = new Chart(ctx, { type:'pie', data:{labels:['Positive','Neutral','Negative'], datasets:[{data:[pos,neu,neg],backgroundColor:['#28a745','#ffc107','#dc3545'],borderColor:'#fff',borderWidth:2}]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom'}}}});
+}
 
-  const pos = data.sentiments?.Positive || 0;
-  const neu = data.sentiments?.Neutral  || 0;
-  const neg = data.sentiments?.Negative || 0;
+function renderWeakAreas(data) {
+  const areas = [
+    {chartId:'weakArea1Chart', values:data.weak_areas?.low_rating || [], actionId:'weakArea1Action', action:data.weak_areas?.low_rating_action || '—'},
+    {chartId:'weakArea2Chart', values:data.weak_areas?.negative_drivers || [], actionId:'weakArea2Action', action:data.weak_areas?.negative_drivers_action || '—'},
+    {chartId:'weakArea3Chart', values:data.weak_areas?.repeated_keywords || [], actionId:'weakArea3Action', action:data.weak_areas?.repeated_keywords_action || '—'}
+  ];
 
-  sentimentPieChart = new Chart(ctx, {
-    type: 'pie',
-    data: {
-      labels: ['Positive', 'Neutral', 'Negative'],
-      datasets: [{
-        data: [pos, neu, neg],
-        backgroundColor: ['#28a745', '#ffc107', '#dc3545'],
-        borderWidth: 2,
-        borderColor: '#fff'
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'bottom' }
-      }
-    }
+  weakAreaCharts.forEach(c=>c.destroy());
+  weakAreaCharts=[];
+
+  areas.forEach(a=>{
+    const ctx=document.getElementById(a.chartId).getContext('2d');
+    const chart=new Chart(ctx,{
+      type:'bar',
+      data:{labels:a.values.map(v=>v.label||'—'), datasets:[{label:'Count', data:a.values.map(v=>v.count||0), backgroundColor:'rgba(220,53,69,0.7)'}]},
+      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}}
+    });
+    weakAreaCharts.push(chart);
+    document.getElementById(a.actionId).textContent=a.action;
   });
 }
 
-// ── Clear / Reset Dashboard ─────────────────────────────────────────────────
+// ── Reset ─────────────────────────────────────────────
 function showNoSelection() {
-  document.getElementById('company-header').style.display = 'none';
-  document.getElementById('main-content').style.display = 'none';
-  document.getElementById('no-selection-state').style.display = 'block';
-  document.getElementById('loading-state').style.display = 'none';
-
-  if (trendChart) trendChart.destroy();
-  if (sentimentPieChart) sentimentPieChart.destroy();
+  document.getElementById('company-header').style.display='none';
+  document.getElementById('main-content').style.display='none';
+  document.getElementById('no-selection-state').style.display='block';
+  document.getElementById('loading-state').style.display='none';
+  if(trendChart) trendChart.destroy();
+  if(sentimentPieChart) sentimentPieChart.destroy();
+  weakAreaCharts.forEach(c=>c.destroy());
 }
 
-// ── Initialize ──────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+// ── Initialize ─────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded',()=>{
   loadCompanies();
-
-  // Refresh button now triggers fresh fetch
-  document.getElementById('refresh-btn')?.addEventListener('click', async () => {
-    if (currentCompanyId > 0 && !isFetching) {
-      await loadDashboardData(currentCompanyId, true); // force refresh
-    }
+  document.getElementById('refresh-btn')?.addEventListener('click',async()=>{
+    if(currentCompanyId>0 && !isFetching) await loadDashboardData(currentCompanyId,true);
   });
 });
 </script>
