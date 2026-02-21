@@ -20,7 +20,7 @@ if not api_key:
 gmaps = googlemaps.Client(key=api_key)
 
 
-def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 20) -> int:
+def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 50) -> int:
     """Fetch reviews from Google Places API and save new ones"""
     if not company.place_id:
         return 0
@@ -108,7 +108,7 @@ def extract_keywords(text: str | None) -> List[str]:
 def generate_suggested_reply(sentiment: str) -> str:
     templates = {
         "Positive": [
-            "Thank you so much for your kind words! We're thrilled you had a great experience.",
+            "Thank you for your kind words! We're thrilled you had a great experience.",
             "We really appreciate your positive feedback — thank you!",
             "Thanks for the wonderful review! It means a lot to us."
         ],
@@ -124,10 +124,11 @@ def generate_suggested_reply(sentiment: str) -> str:
     return random.choice(templates.get(sentiment, templates["Neutral"]))
 
 
-# ─── Enhanced Dashboard Summary with AI Recommendations ───────────────────
+# ─── Enhanced Dashboard Summary with Graphs & AI Recommendations ───────────
 def get_review_summary_data(reviews: List[Review], company: Company, months: int = 6) -> Dict[str, Any]:
     """
-    Return a summary and trend data for the last `months` months.
+    Return a summary with comprehensive graphs, weak areas, and AI recommendations
+    for last `months` months (1–36).
     """
     google_rating = getattr(company, "google_rating", None)
     google_total_ratings = getattr(company, "user_ratings_total", None)
@@ -151,6 +152,7 @@ def get_review_summary_data(reviews: List[Review], company: Company, months: int
             "reviews": []
         }
 
+    # ─── Initialize Metrics ─────────────────────────────────────────────
     total_reviews = len(reviews)
     valid_ratings = [r.rating for r in reviews if r.rating is not None]
     avg_rating = round(sum(valid_ratings) / len(valid_ratings), 2) if valid_ratings else 0.0
@@ -163,7 +165,7 @@ def get_review_summary_data(reviews: List[Review], company: Company, months: int
     monthly_max_ratings = defaultdict(list)
     review_list = []
 
-    cutoff_date = datetime.utcnow() - timedelta(days=30*months)  # dynamic based on user input
+    cutoff_date = datetime.utcnow() - timedelta(days=30*months)  # Dynamic month selection
 
     for r in reviews:
         if not r.review_date or r.review_date < cutoff_date:
@@ -192,7 +194,7 @@ def get_review_summary_data(reviews: List[Review], company: Company, months: int
         monthly_ratings[month_key].append(r.rating or 0.0)
         monthly_max_ratings[month_key].append(r.rating or 0.0)
 
-    # ─── Trend Graph Data ─────────────
+    # ─── Trend Graphs ─────────────
     trend_data = []
     all_months = [(datetime.utcnow() - timedelta(days=30*i)).strftime('%Y-%m') for i in reversed(range(months))]
     for month in all_months:
@@ -215,10 +217,11 @@ def get_review_summary_data(reviews: List[Review], company: Company, months: int
     weak_areas = [{"keyword": k, "mentions": v} for k, v in top_negative]
     strength_areas = [{"keyword": k, "mentions": v} for k, v in top_positive]
 
+    # ─── Risk Score ───
     negative_ratio = sentiments_count["Negative"] / total_reviews
     risk_score = round(negative_ratio * 100, 2)
 
-    # ─── AI Recommendations ───
+    # ─── AI Recommendations & Improvement Plan ───
     ai_recommendations = []
     for keyword, count in top_negative[:5]:
         ai_recommendations.append({
@@ -227,6 +230,16 @@ def get_review_summary_data(reviews: List[Review], company: Company, months: int
             "priority": "High" if count > 3 else "Medium",
             "recommended_action": f"Investigate root cause of '{keyword}' complaints and implement corrective actions.",
             "expected_outcome": "Improved customer satisfaction and reduction in negative sentiment."
+        })
+
+    # Additional AI Improvement Suggestions
+    if negative_ratio > 0.2:
+        ai_recommendations.append({
+            "weak_area": "Overall customer satisfaction",
+            "issue_mentions": int(total_reviews * negative_ratio),
+            "priority": "High",
+            "recommended_action": "Train staff, review operational procedures, improve response times, and monitor feedback weekly.",
+            "expected_outcome": "Reduce negative reviews by focusing on top weak areas."
         })
 
     return {
@@ -239,10 +252,10 @@ def get_review_summary_data(reviews: List[Review], company: Company, months: int
         "sentiments": sentiments_count,
         "positive_keywords": [k for k, _ in top_positive],
         "negative_keywords": [k for k, _ in top_negative],
-        "trend_data": trend_data,
-        "weak_areas": weak_areas,
-        "strength_areas": strength_areas,
-        "ai_recommendations": ai_recommendations,
+        "trend_data": trend_data,  # Graph: Avg rating & Max rating per month
+        "weak_areas": weak_areas,  # Graph: Top negative keywords
+        "strength_areas": strength_areas,  # Graph: Top positive keywords
+        "ai_recommendations": ai_recommendations,  # Actionable improvement plan
         "risk_score": risk_score,
         "reviews": sorted(
             review_list,
@@ -265,11 +278,11 @@ def fetch_reviews(company_id: int, db: Session = Depends(get_db)):
 @router.get("/summary/{company_id}")
 def reviews_summary(
     company_id: int,
-    months: int = Query(6, description="Select how many past months of data to include (1–24)"),
+    months: int = Query(6, description="Select months of data (1–36)"),
     refresh: bool = Query(False, description="Fetch fresh reviews from Google"),
     db: Session = Depends(get_db)
 ):
-    if months < 1 or months > 24:
+    if months < 1 or months > 36:
         months = 6
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
