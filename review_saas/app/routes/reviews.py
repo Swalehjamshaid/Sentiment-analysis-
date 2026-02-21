@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Review, Company
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 import os
 from typing import List, Dict, Any
@@ -20,8 +20,8 @@ if not api_key:
 gmaps = googlemaps.Client(key=api_key)
 
 
-def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) -> int:
-    """Fetch reviews from Google Places API and save new ones (slow operation)"""
+def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 20) -> int:
+    """Fetch reviews from Google Places API and save new ones"""
     if not company.place_id:
         return 0
 
@@ -125,7 +125,10 @@ def generate_suggested_reply(sentiment: str) -> str:
 
 
 # ─── Enhanced Dashboard Summary with AI Recommendations ───────────────────
-def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str, Any]:
+def get_review_summary_data(reviews: List[Review], company: Company, months: int = 6) -> Dict[str, Any]:
+    """
+    Return a summary and trend data for the last `months` months.
+    """
     google_rating = getattr(company, "google_rating", None)
     google_total_ratings = getattr(company, "user_ratings_total", None)
 
@@ -134,6 +137,7 @@ def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str
             "company_name": company.name or "Unnamed Company",
             "google_rating": google_rating,
             "google_total_ratings": google_total_ratings,
+            "data_completion_percent": 0,
             "total_reviews": 0,
             "avg_rating": 0.0,
             "sentiments": {"Positive": 0, "Neutral": 0, "Negative": 0},
@@ -150,14 +154,21 @@ def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str
     total_reviews = len(reviews)
     valid_ratings = [r.rating for r in reviews if r.rating is not None]
     avg_rating = round(sum(valid_ratings) / len(valid_ratings), 2) if valid_ratings else 0.0
+    data_completion_percent = round((total_reviews / google_total_ratings) * 100, 2) if google_total_ratings else 0
 
     sentiments_count = {"Positive": 0, "Neutral": 0, "Negative": 0}
     positive_keywords = []
     negative_keywords = []
     monthly_ratings = defaultdict(list)
+    monthly_max_ratings = defaultdict(list)
     review_list = []
 
+    cutoff_date = datetime.utcnow() - timedelta(days=30*months)  # dynamic based on user input
+
     for r in reviews:
+        if not r.review_date or r.review_date < cutoff_date:
+            continue
+
         sentiment = classify_sentiment(r.rating)
         sentiments_count[sentiment] += 1
 
@@ -177,52 +188,52 @@ def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str
             "suggested_reply": generate_suggested_reply(sentiment)
         })
 
-        if r.review_date:
-            month_key = r.review_date.strftime('%Y-%m')
-            monthly_ratings[month_key].append(r.rating or 0.0)
+        month_key = r.review_date.strftime('%Y-%m')
+        monthly_ratings[month_key].append(r.rating or 0.0)
+        monthly_max_ratings[month_key].append(r.rating or 0.0)
 
-    # ─── Trend Graph Data ───
+    # ─── Trend Graph Data ─────────────
     trend_data = []
-    for month in sorted(monthly_ratings.keys()):
-        ratings_list = monthly_ratings[month]
-        avg = sum(ratings_list) / len(ratings_list) if ratings_list else 0
+    all_months = [(datetime.utcnow() - timedelta(days=30*i)).strftime('%Y-%m') for i in reversed(range(months))]
+    for month in all_months:
+        ratings = monthly_ratings.get(month, [])
+        avg = round(sum(ratings)/len(ratings), 2) if ratings else 0
+        max_r = max(monthly_max_ratings.get(month, [0])) if ratings else 0
         trend_data.append({
             "month": month,
-            "avg_rating": round(avg, 2),
-            "count": len(ratings_list)
+            "avg_rating": avg,
+            "max_rating": max_r,
+            "count": len(ratings)
         })
 
     # ─── Keyword Analysis ───
     positive_counter = Counter(positive_keywords)
     negative_counter = Counter(negative_keywords)
-
     top_positive = positive_counter.most_common(8)
     top_negative = negative_counter.most_common(8)
 
-    # ─── Weak / Strength Areas ───
     weak_areas = [{"keyword": k, "mentions": v} for k, v in top_negative]
     strength_areas = [{"keyword": k, "mentions": v} for k, v in top_positive]
 
-    # ─── Risk Score ───
     negative_ratio = sentiments_count["Negative"] / total_reviews
     risk_score = round(negative_ratio * 100, 2)
 
     # ─── AI Recommendations ───
     ai_recommendations = []
     for keyword, count in top_negative[:5]:
-        recommendation = {
+        ai_recommendations.append({
             "weak_area": keyword,
             "issue_mentions": count,
             "priority": "High" if count > 3 else "Medium",
             "recommended_action": f"Investigate root cause of '{keyword}' complaints and implement corrective actions.",
             "expected_outcome": "Improved customer satisfaction and reduction in negative sentiment."
-        }
-        ai_recommendations.append(recommendation)
+        })
 
     return {
         "company_name": company.name or "Unnamed Company",
         "google_rating": google_rating,
         "google_total_ratings": google_total_ratings,
+        "data_completion_percent": data_completion_percent,
         "total_reviews": total_reviews,
         "avg_rating": avg_rating,
         "sentiments": sentiments_count,
@@ -243,15 +254,10 @@ def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 @router.post("/fetch/{company_id}")
-def fetch_reviews(
-    company_id: int,
-    db: Session = Depends(get_db)
-):
-    """Manually trigger full review fetch from Google"""
+def fetch_reviews(company_id: int, db: Session = Depends(get_db)):
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(404, "Company not found")
-
     added = fetch_and_save_reviews(company, db)
     return {"message": "Fresh fetch completed", "new_reviews_added": added}
 
@@ -259,25 +265,24 @@ def fetch_reviews(
 @router.get("/summary/{company_id}")
 def reviews_summary(
     company_id: int,
-    refresh: bool = Query(False, description="If true, fetch fresh reviews from Google (may take 5–20 seconds)"),
+    months: int = Query(6, description="Select how many past months of data to include (1–24)"),
+    refresh: bool = Query(False, description="Fetch fresh reviews from Google"),
     db: Session = Depends(get_db)
 ):
-    """Fast dashboard summary — only fetches from Google if ?refresh=true"""
+    if months < 1 or months > 24:
+        months = 6
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(404, "Company not found")
-
     if refresh:
         fetch_and_save_reviews(company, db)
-
     reviews = db.query(Review).filter(Review.company_id == company_id).all()
-    return get_review_summary_data(reviews, company)
+    return get_review_summary_data(reviews, company, months=months)
 
 
 @router.get("/my-companies")
 def get_my_companies(db: Session = Depends(get_db)):
-    """List companies for dashboard dropdown (fast)"""
-    companies = db.query(Company).all()  # TODO: later → .filter(Company.owner_id == current_user.id)
+    companies = db.query(Company).all()
     return [
         {
             "id": c.id,
