@@ -1,13 +1,13 @@
-# File: app/routes/reviews.py
-from fastapi import APIRouter, HTTPException, Depends, Query
+# File: review_saas/app/routes/reviews.py
+
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Review, Company
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import re
 import os
-import random
 import logging
 from typing import List, Dict, Any, Tuple
 import googlemaps
@@ -15,7 +15,7 @@ import googlemaps
 # ──────────────────────────────────────────────────────────────────────────────
 # GLOBAL CONFIGURATION & LOGGING
 # ──────────────────────────────────────────────────────────────────────────────
-FILE_NAME: str = "app/routes/reviews.py"
+FILE_NAME: str = "review_saas/app/routes/reviews.py"
 logger = logging.getLogger(FILE_NAME)
 
 if not logger.handlers:
@@ -90,7 +90,8 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 50)
                 Review.rating == rev.get("rating"),
                 Review.review_date == review_date
             ).first()
-            if existing: continue
+            if existing: 
+                continue
             new_review = Review(
                 company_id=company.id,
                 text=rev.get("text", ""),
@@ -120,7 +121,8 @@ def extract_keywords(text: str | None) -> List[str]:
     if not text: return []
     text = re.sub(r"[^\w\s]", "", text.lower())
     words = text.split()
-    stopwords = {"a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "the", "this", "is", "it", "to", "with", "was", "of", "in", "on"}
+    stopwords = {"a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "the", 
+                 "this", "is", "it", "to", "with", "was", "of", "in", "on"}
     return [w for w in words if w not in stopwords and len(w) > 2]
 
 ACTION_MAP: Dict[str, str] = {
@@ -140,14 +142,22 @@ def _action_for_keyword(keyword: str) -> str:
 def get_review_summary_data(reviews: List[Review], company: Company, months: int = 6) -> Dict[str, Any]:
     start_date, end_date = _get_date_window()
     
-    # FILTER FIX: Datetime to Datetime comparison
+    # Ensure timezone-aware comparison
     windowed_reviews = [
         r for r in reviews 
         if r.review_date and start_date <= r.review_date.replace(tzinfo=timezone.utc) <= end_date
     ]
 
     if not windowed_reviews:
-        return {"company_name": company.name or "N/A", "total_reviews": 0, "avg_rating": 0.0, "sentiments": {"Positive": 0, "Neutral": 0, "Negative": 0}, "reviews": [], "ai_recommendations": [], "risk_score": 0}
+        return {
+            "company_name": company.name or "N/A",
+            "total_reviews": 0,
+            "avg_rating": 0.0,
+            "sentiments": {"Positive": 0, "Neutral": 0, "Negative": 0},
+            "reviews": [],
+            "ai_recommendations": [],
+            "risk_score": 0
+        }
 
     total_reviews = len(windowed_reviews)
     valid_ratings = [r.rating for r in windowed_reviews if r.rating is not None]
@@ -170,24 +180,27 @@ def get_review_summary_data(reviews: List[Review], company: Company, months: int
         monthly_ratings[mkey].append(r.rating or 0.0)
 
         review_list.append({
-            "id": r.id, "review_text": r.text or "", "rating": r.rating,
+            "id": r.id,
+            "review_text": r.text or "",
+            "rating": r.rating,
             "reviewer_name": r.reviewer_name or "Anonymous",
-            "review_date": r.review_date.isoformat(), "sentiment": sentiment,
+            "review_date": r.review_date.isoformat(),
+            "sentiment": sentiment,
             "suggested_reply": "Thank you for your feedback. We value your input."
         })
 
-    # Graphs: Trend Data
-    trend_data = [{"month": m, "avg_rating": round(sum(v)/len(v), 2), "count": len(v)} for m, v in sorted(monthly_ratings.items())]
+    trend_data = [{"month": m, "avg_rating": round(sum(v)/len(v), 2), "count": len(v)} 
+                  for m, v in sorted(monthly_ratings.items())]
 
-    # AI Recommendation Logic
     top_neg = Counter(neg_kw).most_common(5)
     ai_recs = [{
-        "weak_area": k, "issue_mentions": v, "priority": "High" if v > 2 else "Medium",
+        "weak_area": k,
+        "issue_mentions": v,
+        "priority": "High" if v > 2 else "Medium",
         "recommended_action": _action_for_keyword(k),
         "expected_outcome": "Reduced churn and improved brand reputation."
     } for k, v in top_neg]
 
-    # Risk Score Calculation (0-100)
     neg_ratio = sentiments_count["Negative"] / total_reviews
     risk_score = round(neg_ratio * 100, 2)
 
@@ -213,8 +226,10 @@ def get_review_summary_data(reviews: List[Review], company: Company, months: int
 @router.get("/summary/{company_id}")
 def reviews_summary(company_id: int, refresh: bool = False, db: Session = Depends(get_db)):
     company = db.query(Company).filter(Company.id == company_id).first()
-    if not company: raise HTTPException(404, "Company not found")
-    if refresh: fetch_and_save_reviews(company, db)
+    if not company: 
+        raise HTTPException(404, "Company not found")
+    if refresh: 
+        fetch_and_save_reviews(company, db)
     reviews = db.query(Review).filter(Review.company_id == company_id).all()
     return get_review_summary_data(reviews, company)
 
