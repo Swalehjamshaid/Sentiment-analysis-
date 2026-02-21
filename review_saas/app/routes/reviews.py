@@ -192,7 +192,12 @@ def _action_for_keyword(keyword: str) -> str:
 def get_review_summary_data(reviews: List[Review], company: Company, months: int = 6) -> Dict[str, Any]:
     google_rating = getattr(company, "google_rating", None)
     google_total_ratings = getattr(company, "user_ratings_total", None)
-    start_date, end_date = _get_date_window()
+    
+    # Ensuring window boundaries are datetime objects for strict comparison
+    raw_start, raw_end = _get_date_window()
+    start_date = datetime(raw_start.year, raw_start.month, raw_start.day)
+    end_date = datetime(raw_end.year, raw_end.month, raw_end.day, 23, 59, 59)
+
     if not reviews:
         return {
             "company_name": company.name or "Unnamed Company",
@@ -212,8 +217,12 @@ def get_review_summary_data(reviews: List[Review], company: Company, months: int
             "reviews": []
         }
 
-    # Filter by date window
-    windowed_reviews = [r for r in reviews if r.review_date and start_date <= r.review_date <= end_date]
+    # Filter by date window - Logic fixed to ensure datetime-to-datetime comparison
+    windowed_reviews = [
+        r for r in reviews 
+        if r.review_date and start_date <= r.review_date <= end_date
+    ]
+    
     total_reviews = len(windowed_reviews)
     valid_ratings = [r.rating for r in windowed_reviews if r.rating is not None]
     avg_rating = round(sum(valid_ratings)/len(valid_ratings),2) if valid_ratings else 0.0
@@ -354,11 +363,14 @@ def reviews_summary(
         raise HTTPException(404,"Company not found")
     if refresh:
         fetch_and_save_reviews(company, db)
-    # parse date range
+    
+    # Ensuring these remain datetime objects for the query and summary data
     start_date = _parse_date_env(from_date) or DEFAULT_DATE_FROM
     end_date = _parse_date_env(to_date) or datetime.utcnow()
+    
     if end_date < start_date:
         start_date, end_date = end_date, start_date
+        
     reviews = db.query(Review).filter(
         Review.company_id==company_id,
         Review.review_date>=start_date,
