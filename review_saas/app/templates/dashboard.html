@@ -1,14 +1,28 @@
+{# File: review_saas/app/templates/dashboard.html #}
 {% extends 'base.html' %}
 
 {% block content %}
 <div class="container mt-4">
   <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
-    <h3>Review Intelligence Dashboard</h3>
+    <h3 class="mb-0">Review Intelligence Dashboard</h3>
 
-    <div class="d-flex align-items-center gap-3">
+    <div class="d-flex align-items-center gap-3 flex-wrap">
+      <!-- Company Selector -->
       <select id="company-selector" class="form-select" style="min-width: 260px;">
         <option value="0">Select a Company...</option>
       </select>
+
+      <!-- Months Selector (aligned with /reviews/summary?months=) -->
+      <select id="months-selector" class="form-select" style="min-width: 140px;">
+        <option value="3">Last 3 months</option>
+        <option value="6" selected>Last 6 months</option>
+        <option value="9">Last 9 months</option>
+        <option value="12">Last 12 months</option>
+      </select>
+
+      <button id="apply-range-btn" class="btn btn-outline-primary">
+        <i class="bi bi-funnel"></i> Apply Range
+      </button>
 
       <button id="refresh-btn" class="btn btn-outline-success">
         <i class="bi bi-arrow-repeat"></i> Refresh & Fetch Latest
@@ -19,15 +33,24 @@
   <!-- Company Header -->
   <div class="card shadow mb-4 border-0" id="company-header" style="display: none;">
     <div class="card-body">
-      <div class="d-flex justify-content-between align-items-center">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
-          <h4 id="company-name">Company Name</h4>
+          <h4 id="company-name" class="mb-1">Company Name</h4>
           <div class="text-muted small">
             <span>Google Rating: <strong id="google-rating">—</strong></span> •
             <span>Total Ratings: <strong id="google-total-ratings">—</strong></span>
           </div>
         </div>
-        <small class="text-muted">Last refreshed: <span id="last-refresh">—</span></small>
+
+        <div class="text-end small">
+          <div class="text-muted">
+            Date Window: <span id="date-window">21 Feb 2026 → Today</span>
+          </div>
+          <div class="text-muted">
+            Months: <span id="months-active">6</span>
+            • Last refreshed: <span id="last-refresh">—</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -42,35 +65,35 @@
   <div id="no-selection-state" class="alert alert-info text-center py-5 my-5">
     <i class="bi bi-building fs-1 mb-3 d-block"></i>
     <h5>Select a company to view deep analysis</h5>
-    <p class="text-muted">Click on any company from the dropdown to see reviews, trends, keywords, weak areas, and suggested actions.</p>
+    <p class="text-muted">Click on any company from the dropdown to see reviews, trends, keywords, weak areas, AI recommendations, and actions.</p>
   </div>
 
   <!-- Main Dashboard Content -->
   <div id="main-content" style="display: none;">
     <!-- KPI Cards -->
     <div class="row g-4 mb-4">
-      <div class="col-md-4">
+      <div class="col-md-3">
         <div class="card shadow-sm border-0 h-100">
           <div class="card-body text-center">
             <h6 class="text-uppercase text-muted mb-3">Total Reviews</h6>
-            <h2 id="total-reviews" class="display-5 fw-bold">0</h2>
+            <h2 id="total-reviews" class="display-6 fw-bold">0</h2>
           </div>
         </div>
       </div>
-      <div class="col-md-4">
+      <div class="col-md-3">
         <div class="card shadow-sm border-0 h-100">
           <div class="card-body text-center">
             <h6 class="text-uppercase text-muted mb-3">Average Rating</h6>
-            <h2 id="avg-rating" class="display-5 fw-bold">0.0</h2>
+            <h2 id="avg-rating" class="display-6 fw-bold">0.0</h2>
           </div>
         </div>
       </div>
-      <div class="col-md-4">
+      <div class="col-md-3">
         <div class="card shadow-sm border-0 h-100">
           <div class="card-body text-center">
-            <h6 class="text-uppercase text-muted mb-3">Sentiment Mix</h6>
-            <h3 id="sentiment-mix" class="fw-bold">0 / 0 / 0</h3>
-            <div class="mt-2">
+            <h6 class="text-uppercase text-muted mb-2">Sentiment Mix</h6>
+            <h3 id="sentiment-mix" class="fw-bold mb-2">0 / 0 / 0</h3>
+            <div class="mt-1">
               <span class="badge bg-success me-2">Positive</span>
               <span class="badge bg-warning me-2">Neutral</span>
               <span class="badge bg-danger">Negative</span>
@@ -78,39 +101,61 @@
           </div>
         </div>
       </div>
-    </div>
-
-    <!-- Top 3 Weak Areas & Recommendations -->
-    <div class="card shadow-sm border-0 mb-4">
-      <div class="card-body">
-        <h5 class="card-title mb-4">Top 3 Graphs & Weak Areas Overview</h5>
-        <div class="row g-4">
-          <div class="col-md-4">
-            <h6>1. Low Rating Products/Services</h6>
-            <canvas id="weakArea1Chart" style="height: 180px;"></canvas>
-            <small class="text-muted d-block mt-2" id="weakArea1Action">—</small>
-          </div>
-          <div class="col-md-4">
-            <h6>2. Negative Sentiment Drivers</h6>
-            <canvas id="weakArea2Chart" style="height: 180px;"></canvas>
-            <small class="text-muted d-block mt-2" id="weakArea2Action">—</small>
-          </div>
-          <div class="col-md-4">
-            <h6>3. Repeated Complaints / Keywords</h6>
-            <canvas id="weakArea3Chart" style="height: 180px;"></canvas>
-            <small class="text-muted d-block mt-2" id="weakArea3Action">—</small>
+      <!-- Risk Gauge -->
+      <div class="col-md-3">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body text-center">
+            <h6 class="text-uppercase text-muted mb-2">Risk Score</h6>
+            <div style="height: 90px;">
+              <canvas id="riskGauge"></canvas>
+            </div>
+            <div class="mt-2">
+              <span id="risk-score-text" class="badge bg-secondary">0%</span>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
+    <!-- Decision Insights: AI Plan + Data Completion -->
+    <div class="row g-4 mb-4">
+      <div class="col-lg-8">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body">
+            <h5 class="card-title mb-3">AI Recommended Improvement Plan</h5>
+            <div id="ai-recs" class="list-group list-group-flush"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-4">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body">
+            <h6 class="card-title mb-3">Data Completion</h6>
+            <div class="progress" style="height: 18px;">
+              <div id="data-completion-bar" class="progress-bar" role="progressbar" style="width: 0%">0%</div>
+            </div>
+            <small class="text-muted d-block mt-2">Percentage of reviews captured vs Google total.</small>
+
+            <hr>
+            <h6 class="card-title">Top Weak Areas</h6>
+            <div id="weak-areas-chips" class="d-flex flex-wrap gap-2 mt-2"></div>
+
+            <hr>
+            <h6 class="card-title">Top Strength Areas</h6>
+            <div id="strength-areas-chips" class="d-flex flex-wrap gap-2 mt-2"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Charts -->
     <div class="row g-4">
-      <!-- Main Charts -->
       <div class="col-lg-8">
         <div class="card shadow-sm border-0 mb-4">
           <div class="card-body">
-            <h5 class="card-title mb-4">Rating Trend Over Time</h5>
-            <div style="height: 320px;">
+            <h5 class="card-title mb-3">Rating Trend & Volume</h5>
+            <div style="height: 360px;">
               <canvas id="trendChart"></canvas>
             </div>
           </div>
@@ -118,7 +163,7 @@
 
         <div class="card shadow-sm border-0">
           <div class="card-body">
-            <h5 class="card-title mb-4">Sentiment Distribution</h5>
+            <h5 class="card-title mb-3">Sentiment Distribution</h5>
             <div style="height: 320px;">
               <canvas id="sentimentPie"></canvas>
             </div>
@@ -126,9 +171,27 @@
         </div>
       </div>
 
-      <!-- Sidebar -->
+      <!-- Sidebar Charts -->
       <div class="col-lg-4">
         <div class="card shadow-sm border-0 mb-4">
+          <div class="card-body">
+            <h5 class="card-title mb-3">Weak Areas (Top Negative Keywords)</h5>
+            <div style="height: 280px;">
+              <canvas id="weakAreasChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="card shadow-sm border-0 mb-4">
+          <div class="card-body">
+            <h5 class="card-title mb-3">Strength Areas (Top Positive Keywords)</h5>
+            <div style="height: 280px;">
+              <canvas id="strengthAreasChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="card shadow-sm border-0">
           <div class="card-body">
             <h5 class="card-title">Quick Actions</h5>
             <a href="/companies" class="btn btn-outline-primary d-block mb-2">
@@ -139,13 +202,14 @@
             </button>
           </div>
         </div>
+      </div>
+    </div>
 
-        <div class="card shadow-sm border-0 mb-4">
-          <div class="card-body">
-            <h6 class="card-title">Top Keywords</h6>
-            <div id="keywords-cloud" class="d-flex flex-wrap gap-2 mt-3"></div>
-          </div>
-        </div>
+    <!-- Keywords Cloud -->
+    <div class="card shadow-sm border-0 mt-4">
+      <div class="card-body">
+        <h5 class="card-title mb-3">Top Keywords</h5>
+        <div id="keywords-cloud" class="d-flex flex-wrap gap-2"></div>
       </div>
     </div>
 
@@ -168,14 +232,44 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
+// ─────────────────────────────────────────────────────────────────────────────
+// File name (per your rule #2): keep full path reference for diagnostics
+// ─────────────────────────────────────────────────────────────────────────────
+const FILE_NAME_HTML = "review_saas/app/templates/dashboard.html";
+
 // ── Global Variables ─────────────────────────────────────────────
 let trendChart = null;
 let sentimentPieChart = null;
-let weakAreaCharts = [];
+let weakAreasChart = null;
+let strengthAreasChart = null;
+let riskGaugeChart = null;
+
 let currentCompanyId = {{ current_company_id | default(0) }};
 let isFetching = false;
+let activeMonths = 6;
 
-// ── Load companies list ────────────────────────────────────────────
+// ── Utility: clamp & colors ─────────────────────────────────────
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const colors = {
+  primary: '#0d6efd',
+  primaryFill: 'rgba(13,110,253,0.15)',
+  success: '#28a745',
+  warning: '#ffc107',
+  danger: '#dc3545',
+  gray: '#6c757d',
+  light: '#e9ecef',
+};
+
+// ── Date Window (21/02/2026 → Today; display only) ──────────────
+function updateDateWindowDisplay() {
+  const start = new Date(Date.UTC(2026, 1, 21)); // 21 Feb 2026 (month is 0-indexed)
+  const end = new Date();
+  const fmt = (d) => d.toLocaleDateString(undefined, { year:'numeric', month:'short', day:'2-digit' });
+  const win = `${fmt(start)} → ${fmt(end)}`;
+  document.getElementById('date-window').textContent = win;
+}
+
+// ── Load companies list ─────────────────────────────────────────
 async function loadCompanies() {
   try {
     const response = await fetch('/reviews/my-companies');
@@ -206,11 +300,11 @@ async function loadCompanies() {
       } else showNoSelection();
     });
   } catch (error) {
-    console.error('Companies load error:', error);
+    console.error(`[${FILE_NAME_HTML}] Companies load error:`, error);
   }
 }
 
-// ── Load dashboard data ─────────────────────────────────────────────
+// ── Load dashboard data ─────────────────────────────────────────
 async function loadDashboardData(companyId, forceRefresh = false) {
   if (!companyId) return showNoSelection();
   if (isFetching) return;
@@ -221,7 +315,11 @@ async function loadDashboardData(companyId, forceRefresh = false) {
   document.getElementById('main-content').style.display = 'none';
 
   try {
-    const url = `/reviews/summary/${companyId}${forceRefresh ? '?refresh=true' : ''}`;
+    const qs = new URLSearchParams();
+    if (forceRefresh) qs.set('refresh', 'true');
+    if (activeMonths && Number(activeMonths) > 0) qs.set('months', String(activeMonths));
+    const url = `/reviews/summary/${companyId}${qs.toString() ? '?' + qs.toString() : ''}`;
+
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
@@ -230,29 +328,49 @@ async function loadDashboardData(companyId, forceRefresh = false) {
     document.getElementById('main-content').style.display = 'block';
     document.getElementById('company-header').style.display = 'block';
 
+    // Header & KPIs
     document.getElementById('company-name').textContent = data.company_name || 'Company';
-    document.getElementById('google-rating').textContent = data.google_rating || '—';
-    document.getElementById('google-total-ratings').textContent = data.google_total_ratings || '—';
+    document.getElementById('google-rating').textContent = data.google_rating ?? '—';
+    document.getElementById('google-total-ratings').textContent = data.google_total_ratings ?? '—';
     document.getElementById('last-refresh').textContent = new Date().toLocaleString();
+    document.getElementById('months-active').textContent = activeMonths;
 
     document.getElementById('total-reviews').textContent = data.total_reviews || 0;
     document.getElementById('avg-rating').textContent = (data.avg_rating || 0).toFixed(1);
     document.getElementById('sentiment-mix').textContent =
       `${data.sentiments?.Positive || 0} / ${data.sentiments?.Neutral || 0} / ${data.sentiments?.Negative || 0}`;
 
-    // Keywords
+    // Data completion progress
+    const completion = clamp(Number(data.data_completion_percent || 0), 0, 100);
+    const bar = document.getElementById('data-completion-bar');
+    bar.style.width = `${completion}%`;
+    bar.textContent = `${completion}%`;
+    bar.classList.remove('bg-success','bg-warning','bg-danger');
+    bar.classList.add(completion >= 75 ? 'bg-success' : completion >= 40 ? 'bg-warning' : 'bg-danger');
+
+    // Chips: weak & strength areas
+    makeChips('weak-areas-chips', data.weak_areas || [], 'danger');
+    makeChips('strength-areas-chips', data.strength_areas || [], 'success');
+
+    // Keywords Cloud
     const keywordsDiv = document.getElementById('keywords-cloud');
     keywordsDiv.innerHTML = '';
-    const allKeywords = [...(data.positive_keywords || []), ...(data.negative_keywords || [])];
-    if (allKeywords.length === 0) keywordsDiv.innerHTML = '<span class="text-muted">No keywords detected yet</span>';
-    else allKeywords.forEach(kw => {
-      const tag = document.createElement('span');
-      tag.className = 'badge bg-light text-dark border px-3 py-2';
-      tag.textContent = kw;
-      keywordsDiv.appendChild(tag);
-    });
+    const allKeywords = [
+      ...(data.positive_keywords || []),
+      ...(data.negative_keywords || [])
+    ];
+    if (allKeywords.length === 0) {
+      keywordsDiv.innerHTML = '<span class="text-muted">No keywords detected yet</span>';
+    } else {
+      allKeywords.forEach(kw => {
+        const tag = document.createElement('span');
+        tag.className = 'badge bg-light text-dark border px-3 py-2';
+        tag.textContent = kw;
+        keywordsDiv.appendChild(tag);
+      });
+    }
 
-    // Reviews
+    // Reviews list
     const reviewsContainer = document.getElementById('reviews-container');
     reviewsContainer.innerHTML = '';
     if (!data.reviews || data.reviews.length === 0) {
@@ -272,16 +390,16 @@ async function loadDashboardData(companyId, forceRefresh = false) {
                 review.sentiment === 'Positive' ? 'bg-success' :
                 review.sentiment === 'Negative' ? 'bg-danger' : 'bg-warning'
               }">
-                ${review.rating} ★ • ${review.sentiment}
+                ${review.rating ?? '—'} ★ • ${review.sentiment}
               </span>
             </div>
           </div>
-          <p class="mb-3">${review.review_text.substring(0, 220)}${review.review_text.length > 220 ? '...' : ''}</p>
+          <p class="mb-3">${(review.review_text || '').substring(0, 220)}${(review.review_text || '').length > 220 ? '...' : ''}</p>
           <div class="border-top pt-3 mt-3">
             <div class="d-flex justify-content-between align-items-center mb-2">
               <strong class="text-muted small">Suggested Reply:</strong>
               <button class="btn btn-sm btn-outline-secondary copy-reply-btn"
-                      data-reply="${review.suggested_reply || 'Thank you for your feedback!'}">
+                      data-reply="${(review.suggested_reply || 'Thank you for your feedback!').replace(/"/g,'&quot;')}">
                 <i class="bi bi-clipboard"></i> Copy
               </button>
             </div>
@@ -298,7 +416,7 @@ async function loadDashboardData(companyId, forceRefresh = false) {
           const original = this.innerHTML;
           this.innerHTML = '<i class="bi bi-check2"></i> Copied!';
           this.disabled = true;
-          setTimeout(() => { this.innerHTML = original; this.disabled = false; }, 2000);
+          setTimeout(() => { this.innerHTML = original; this.disabled = false; }, 1800);
         });
       });
     }
@@ -306,74 +424,251 @@ async function loadDashboardData(companyId, forceRefresh = false) {
     // Charts
     renderTrendChart(data);
     renderSentimentPie(data);
-    renderWeakAreas(data);
+    renderWeakAreasChart(data);
+    renderStrengthAreasChart(data);
+    renderRiskGauge(data);
+
+    // AI Recommendations
+    renderAIRecommendations(data);
 
   } catch (err) {
-    console.error('Dashboard load error:', err);
+    console.error(`[${FILE_NAME_HTML}] Dashboard load error:`, err);
   } finally {
     isFetching = false;
     document.getElementById('loading-state').style.display = 'none';
   }
 }
 
-// ── Charts ─────────────────────────────────────────────
+// ── Helpers (chips) ─────────────────────────────────────────────
+function makeChips(containerId, arr, kind = 'secondary') {
+  const div = document.getElementById(containerId);
+  div.innerHTML = '';
+  if (!arr || arr.length === 0) {
+    div.innerHTML = '<span class="text-muted">No data</span>';
+    return;
+  }
+  arr.slice(0, 10).forEach(item => {
+    const chip = document.createElement('span');
+    chip.className = `badge bg-${kind}`;
+    chip.textContent = `${item.keyword || '—'} (${item.mentions ?? 0})`;
+    div.appendChild(chip);
+  });
+}
+
+// ── Charts ─────────────────────────────────────────────────────
 function renderTrendChart(data) {
   const ctx = document.getElementById('trendChart').getContext('2d');
   if (trendChart) trendChart.destroy();
-  const labels = data.trend_data?.map(i => i.month) || [];
-  const values = data.trend_data?.map(i => i.avg_rating) || [];
+
+  const labels = (data.trend_data || []).map(i => i.month);
+  const avg = (data.trend_data || []).map(i => i.avg_rating || 0);
+  const maxR = (data.trend_data || []).map(i => i.max_rating || 0);
+  const count = (data.trend_data || []).map(i => i.count || 0);
+
   trendChart = new Chart(ctx, {
-    type: 'line',
-    data: { labels: labels.length ? labels : ['No data'], datasets: [{ label: 'Average Rating', data: values.length ? values : [0], borderColor: '#0d6efd', backgroundColor: 'rgba(13, 110, 253,0.15)', tension: 0.3, fill:true }] },
-    options: { responsive: true, maintainAspectRatio: false, scales:{y:{min:0,max:5.5}} }
+    type: 'bar',
+    data: {
+      labels: labels.length ? labels : ['No data'],
+      datasets: [
+        {
+          type: 'line',
+          label: 'Average Rating',
+          data: avg.length ? avg : [0],
+          borderColor: colors.primary,
+          backgroundColor: colors.primaryFill,
+          tension: 0.3,
+          fill: true,
+          yAxisID: 'y',
+        },
+        {
+          type: 'line',
+          label: 'Max Rating',
+          data: maxR.length ? maxR : [0],
+          borderColor: colors.success,
+          borderDash: [6,4],
+          pointRadius: 3,
+          tension: 0.2,
+          yAxisID: 'y',
+        },
+        {
+          type: 'bar',
+          label: 'Review Count',
+          data: count.length ? count : [0],
+          backgroundColor: 'rgba(108,117,125,0.5)',
+          borderColor: colors.gray,
+          borderWidth: 1,
+          yAxisID: 'y1',
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        y: { min: 0, max: 5.5, title: { display: true, text: 'Rating' } },
+        y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Count' } }
+      },
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y}` } }
+      }
+    }
   });
 }
 
 function renderSentimentPie(data) {
   const ctx = document.getElementById('sentimentPie').getContext('2d');
   if (sentimentPieChart) sentimentPieChart.destroy();
-  const pos = data.sentiments?.Positive||0, neu=data.sentiments?.Neutral||0, neg=data.sentiments?.Negative||0;
-  sentimentPieChart = new Chart(ctx, { type:'pie', data:{labels:['Positive','Neutral','Negative'], datasets:[{data:[pos,neu,neg],backgroundColor:['#28a745','#ffc107','#dc3545'],borderColor:'#fff',borderWidth:2}]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom'}}}});
-}
 
-function renderWeakAreas(data) {
-  const areas = [
-    {chartId:'weakArea1Chart', values:data.weak_areas?.low_rating || [], actionId:'weakArea1Action', action:data.weak_areas?.low_rating_action || '—'},
-    {chartId:'weakArea2Chart', values:data.weak_areas?.negative_drivers || [], actionId:'weakArea2Action', action:data.weak_areas?.negative_drivers_action || '—'},
-    {chartId:'weakArea3Chart', values:data.weak_areas?.repeated_keywords || [], actionId:'weakArea3Action', action:data.weak_areas?.repeated_keywords_action || '—'}
-  ];
+  const pos = data.sentiments?.Positive || 0;
+  const neu = data.sentiments?.Neutral || 0;
+  const neg = data.sentiments?.Negative || 0;
 
-  weakAreaCharts.forEach(c=>c.destroy());
-  weakAreaCharts=[];
-
-  areas.forEach(a=>{
-    const ctx=document.getElementById(a.chartId).getContext('2d');
-    const chart=new Chart(ctx,{
-      type:'bar',
-      data:{labels:a.values.map(v=>v.label||'—'), datasets:[{label:'Count', data:a.values.map(v=>v.count||0), backgroundColor:'rgba(220,53,69,0.7)'}]},
-      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}}
-    });
-    weakAreaCharts.push(chart);
-    document.getElementById(a.actionId).textContent=a.action;
+  sentimentPieChart = new Chart(ctx, {
+    type: 'pie',
+    data: {
+      labels: ['Positive','Neutral','Negative'],
+      datasets: [{
+        data: [pos,neu,neg],
+        backgroundColor: [colors.success, colors.warning, colors.danger],
+        borderColor: '#fff',
+        borderWidth: 2
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
   });
 }
 
-// ── Reset ─────────────────────────────────────────────
+function renderWeakAreasChart(data) {
+  const ctx = document.getElementById('weakAreasChart').getContext('2d');
+  if (weakAreasChart) weakAreasChart.destroy();
+
+  const items = (data.weak_areas || []).slice(0, 10);
+  const labels = items.map(i => i.keyword || '—');
+  const values = items.map(i => i.mentions || 0);
+
+  weakAreasChart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'Mentions', data: values, backgroundColor: 'rgba(220,53,69,0.7)' }] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 0 } }, y: { beginAtZero: true } }
+    }
+  });
+}
+
+function renderStrengthAreasChart(data) {
+  const ctx = document.getElementById('strengthAreasChart').getContext('2d');
+  if (strengthAreasChart) strengthAreasChart.destroy();
+
+  const items = (data.strength_areas || []).slice(0, 10);
+  const labels = items.map(i => i.keyword || '—');
+  const values = items.map(i => i.mentions || 0);
+
+  strengthAreasChart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'Mentions', data: values, backgroundColor: 'rgba(40,167,69,0.7)' }] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 0 } }, y: { beginAtZero: true } }
+    }
+  });
+}
+
+function renderRiskGauge(data) {
+  const ctx = document.getElementById('riskGauge').getContext('2d');
+  if (riskGaugeChart) riskGaugeChart.destroy();
+
+  const score = clamp(Number(data.risk_score || 0), 0, 100);
+  const rest = 100 - score;
+  const color = score >= 70 ? colors.danger : score >= 40 ? colors.warning : colors,'Safe'],
+      datasets: [{
+        data: [score, rest],
+        backgroundColor: [color, '#e9ecef'],
+        borderWidth: 0
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '70%',
+      plugins: { legend: { display: false }, tooltip: { enabled: false } }
+    }
+  });
+
+  const txt = document.getElementById('risk-score-text');
+  txt.textContent = `${score}%`;
+  txt.className = 'badge ' + (score >= 70 ? 'bg-danger' : score >= 40 ? 'bg-warning text-dark' : 'bg-success');
+}
+
+// ── AI Recommendations Renderer ─────────────────────────────────
+function renderAIRecommendations(data) {
+  const container = document.getElementById('ai-recs');
+  container.innerHTML = '';
+  const recs = data.ai_recommendations || [];
+
+  if (recs.length === 0) {
+    container.innerHTML = '<div class="list-group-item py-3 text-muted">No AI recommendations available.</div>';
+    return;
+  }
+
+  recs.slice(0, 6).forEach(r => {
+    const badgeClass = r.priority === 'High' ? 'bg-danger' : r.priority === 'Medium' ? 'bg-warning text-dark' : 'bg-secondary';
+    const item = document.createElement('div');
+    item.className = 'list-group-item py-3';
+    item.innerHTML = `
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <div class="mb-1">
+            <span class="badge ${badgeClass} me-2">${r.priority || '—'}</span>
+            <strong>${r.weak_area || 'Area'}</strong>
+            <small class="text-muted"> • mentions: ${r.issue_mentions ?? 0}</small>
+          </div>
+          <div class="mb-1"><i class="bi bi-lightbulb"></i> Action: ${r.recommended_action || '—'}</div>
+          <small class="text-muted"><i class="bi bi-graph-up-arrow"></i> Outcome: ${r.expected_outcome || '—'}</small>
+        </div>
+      </div>
+    `;
+    container.appendChild(item);
+  });
+}
+
+// ── Reset ───────────────────────────────────────────────────────
 function showNoSelection() {
   document.getElementById('company-header').style.display='none';
   document.getElementById('main-content').style.display='none';
   document.getElementById('no-selection-state').style.display='block';
   document.getElementById('loading-state').style.display='none';
+
   if(trendChart) trendChart.destroy();
   if(sentimentPieChart) sentimentPieChart.destroy();
-  weakAreaCharts.forEach(c=>c.destroy());
+  if(weakAreasChart) weakAreasChart.destroy();
+  if(strengthAreasChart) strengthAreasChart.destroy();
+  if(riskGaugeChart) riskGaugeChart.destroy();
 }
 
-// ── Initialize ─────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded',()=>{
+// ── Initialize ─────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  // default months from selector
+  const ms = document.getElementById('months-selector');
+  activeMonths = Number(ms.value || 6);
+  updateDateWindowDisplay();
+
   loadCompanies();
-  document.getElementById('refresh-btn')?.addEventListener('click',async()=>{
-    if(currentCompanyId>0 && !isFetching) await loadDashboardData(currentCompanyId,true);
+
+  document.getElementById('refresh-btn')?.addEventListener('click', async () => {
+    if(currentCompanyId > 0 && !isFetching) await loadDashboardData(currentCompanyId, true);
+  });
+
+  document.getElementById('apply-range-btn')?.addEventListener('click', async () => {
+    const msSel = document.getElementById('months-selector');
+    activeMonths = Number(msSel.value || 6);
+    if(currentCompanyId > 0 && !isFetching) await loadDashboardData(currentCompanyId, false);
   });
 });
 </script>
