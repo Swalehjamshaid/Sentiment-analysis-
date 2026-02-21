@@ -38,7 +38,6 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) 
             review_time = rev.get("time")
             review_date = datetime.fromtimestamp(review_time) if review_time else None
 
-            # FIXED: use correct column name 'text' instead of 'review_text'
             existing = db.query(Review).filter(
                 Review.company_id == company.id,
                 Review.text == rev.get("text", ""),
@@ -51,7 +50,7 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) 
 
             new_review = Review(
                 company_id=company.id,
-                text=rev.get("text", ""),                        # FIXED: use 'text'
+                text=rev.get("text", ""),
                 rating=rev.get("rating"),
                 reviewer_name=rev.get("author_name", "Anonymous"),
                 review_date=review_date,
@@ -60,7 +59,7 @@ def fetch_and_save_reviews(company: Company, db: Session, max_reviews: int = 5) 
             db.add(new_review)
             added_count += 1
 
-        # Update company metadata if API returned value
+        # Update company metadata
         new_rating = result.get("rating")
         new_total = result.get("user_ratings_total")
 
@@ -125,6 +124,7 @@ def generate_suggested_reply(sentiment: str) -> str:
     return random.choice(templates.get(sentiment, templates["Neutral"]))
 
 
+# ─── Enhanced Dashboard Summary with AI Recommendations ───────────────────
 def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str, Any]:
     google_rating = getattr(company, "google_rating", None)
     google_total_ratings = getattr(company, "user_ratings_total", None)
@@ -140,6 +140,10 @@ def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str
             "positive_keywords": [],
             "negative_keywords": [],
             "trend_data": [],
+            "weak_areas": [],
+            "strength_areas": [],
+            "ai_recommendations": [],
+            "risk_score": 0,
             "reviews": []
         }
 
@@ -150,14 +154,14 @@ def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str
     sentiments_count = {"Positive": 0, "Neutral": 0, "Negative": 0}
     positive_keywords = []
     negative_keywords = []
-    review_list = []
     monthly_ratings = defaultdict(list)
+    review_list = []
 
     for r in reviews:
         sentiment = classify_sentiment(r.rating)
         sentiments_count[sentiment] += 1
 
-        keywords = extract_keywords(r.text)                           # FIXED: use r.text instead of r.review_text
+        keywords = extract_keywords(r.text)
         if sentiment == "Positive":
             positive_keywords.extend(keywords)
         elif sentiment == "Negative":
@@ -165,7 +169,7 @@ def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str
 
         review_list.append({
             "id": r.id,
-            "review_text": r.text or "",                              # FIXED: use r.text
+            "review_text": r.text or "",
             "rating": r.rating,
             "reviewer_name": r.reviewer_name or "Anonymous",
             "review_date": r.review_date.isoformat() if r.review_date else None,
@@ -177,6 +181,7 @@ def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str
             month_key = r.review_date.strftime('%Y-%m')
             monthly_ratings[month_key].append(r.rating or 0.0)
 
+    # ─── Trend Graph Data ───
     trend_data = []
     for month in sorted(monthly_ratings.keys()):
         ratings_list = monthly_ratings[month]
@@ -187,6 +192,33 @@ def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str
             "count": len(ratings_list)
         })
 
+    # ─── Keyword Analysis ───
+    positive_counter = Counter(positive_keywords)
+    negative_counter = Counter(negative_keywords)
+
+    top_positive = positive_counter.most_common(8)
+    top_negative = negative_counter.most_common(8)
+
+    # ─── Weak / Strength Areas ───
+    weak_areas = [{"keyword": k, "mentions": v} for k, v in top_negative]
+    strength_areas = [{"keyword": k, "mentions": v} for k, v in top_positive]
+
+    # ─── Risk Score ───
+    negative_ratio = sentiments_count["Negative"] / total_reviews
+    risk_score = round(negative_ratio * 100, 2)
+
+    # ─── AI Recommendations ───
+    ai_recommendations = []
+    for keyword, count in top_negative[:5]:
+        recommendation = {
+            "weak_area": keyword,
+            "issue_mentions": count,
+            "priority": "High" if count > 3 else "Medium",
+            "recommended_action": f"Investigate root cause of '{keyword}' complaints and implement corrective actions.",
+            "expected_outcome": "Improved customer satisfaction and reduction in negative sentiment."
+        }
+        ai_recommendations.append(recommendation)
+
     return {
         "company_name": company.name or "Unnamed Company",
         "google_rating": google_rating,
@@ -194,9 +226,13 @@ def get_review_summary_data(reviews: List[Review], company: Company) -> Dict[str
         "total_reviews": total_reviews,
         "avg_rating": avg_rating,
         "sentiments": sentiments_count,
-        "positive_keywords": [k for k, _ in Counter(positive_keywords).most_common(8)],
-        "negative_keywords": [k for k, _ in Counter(negative_keywords).most_common(8)],
+        "positive_keywords": [k for k, _ in top_positive],
+        "negative_keywords": [k for k, _ in top_negative],
         "trend_data": trend_data,
+        "weak_areas": weak_areas,
+        "strength_areas": strength_areas,
+        "ai_recommendations": ai_recommendations,
+        "risk_score": risk_score,
         "reviews": sorted(
             review_list,
             key=lambda x: datetime.fromisoformat(x["review_date"]) if x["review_date"] else datetime.min,
