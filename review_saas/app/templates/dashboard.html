@@ -7,12 +7,10 @@
     <h3 class="mb-0">Review Intelligence Dashboard</h3>
 
     <div class="d-flex align-items-center gap-3 flex-wrap">
-      <!-- Company Selector -->
       <select id="company-selector" class="form-select" style="min-width: 260px;">
         <option value="0">Select a Company...</option>
       </select>
 
-      <!-- Months Selector -->
       <select id="months-selector" class="form-select" style="min-width: 140px;">
         <option value="3">Last 3 months</option>
         <option value="6" selected>Last 6 months</option>
@@ -30,99 +28,97 @@
     </div>
   </div>
 
-  <!-- Company Header -->
   <div class="card shadow mb-4 border-0" id="company-header" style="display: none;">
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
-          <h4 id="company-name" class="mb-1">Company Name</h4>
+          <h4 id="company-name" class="mb-1 text-primary">Company Name</h4>
           <div class="text-muted small">
-            <span>Google Rating: <strong id="google-rating">—</strong></span> •
-            <span>Total Ratings: <strong id="google-total-ratings">—</strong></span>
+            <span>Google Rating: <strong id="google-rating" class="text-dark">—</strong></span> •
+            <span>Total Ratings: <strong id="google-total-ratings" class="text-dark">—</strong></span>
           </div>
         </div>
 
         <div class="text-end small">
           <div class="text-muted">
-            Date Window: <span id="date-window">21 Feb 2026 → Today</span>
+            Analysis Window: <span id="date-window" class="fw-bold text-dark">21 Feb 2026 → Today</span>
           </div>
           <div class="text-muted">
-            Months: <span id="months-active">6</span>
-            • Last refreshed: <span id="last-refresh">—</span>
+            Depth: <span id="months-active" class="fw-bold text-dark">6</span> Months
+            • Sync Status: <span id="last-refresh" class="text-success">—</span>
           </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Loading / Status Messages -->
   <div id="loading-state" class="text-center py-5 my-5" style="display: none;">
     <div class="spinner-border text-primary mb-3" style="width: 3.5rem; height: 3.5rem;" role="status"></div>
-    <p class="lead text-muted">Fetching latest reviews and analytics... (may take up to 40 seconds)</p>
-    <small class="text-muted">Please wait while we pull data from Google and process insights.</small>
+    <p class="lead text-muted">Analyzing sentiment and extracting insights... (Approx. 5-20s)</p>
+    <small class="text-muted">Connecting to Google Places API and generating AI recommendations.</small>
   </div>
 
-  <div id="no-selection-state" class="alert alert-info text-center py-5 my-5">
-    <i class="bi bi-building fs-1 mb-3 d-block"></i>
-    <h5>Select a company to view deep analysis</h5>
-    <p class="text-muted">Click on any company from the dropdown to see reviews, trends, keywords, weak areas, AI recommendations, and actions.</p>
+  <div id="no-selection-state" class="alert alert-light border text-center py-5 my-5 shadow-sm">
+    <i class="bi bi-building-up fs-1 mb-3 d-block text-primary"></i>
+    <h5>Business Intelligence Ready</h5>
+    <p class="text-muted">Please select a company from the dropdown menu above to begin the analysis.</p>
   </div>
 
-  <!-- Main Dashboard Content -->
   <div id="main-content" style="display: none;">
-    <!-- KPI Cards (Total Reviews, Avg Rating, Sentiment, Risk) -->
     <div class="row g-4 mb-4">
       <div class="col-md-3">
-        <div class="card shadow-sm border-0 h-100">
+        <div class="card shadow-sm border-0 h-100 border-start border-primary border-4">
           <div class="card-body text-center">
-            <h6 class="text-uppercase text-muted mb-3">Total Reviews</h6>
+            <h6 class="text-uppercase text-muted small mb-3">Total Reviews</h6>
             <h2 id="total-reviews" class="display-6 fw-bold">0</h2>
           </div>
         </div>
       </div>
       <div class="col-md-3">
-        <div class="card shadow-sm border-0 h-100">
+        <div class="card shadow-sm border-0 h-100 border-start border-success border-4">
           <div class="card-body text-center">
-            <h6 class="text-uppercase text-muted mb-3">Average Rating</h6>
+            <h6 class="text-uppercase text-muted small mb-3">Average Rating</h6>
             <h2 id="avg-rating" class="display-6 fw-bold">0.0</h2>
           </div>
         </div>
       </div>
       <div class="col-md-3">
-        <div class="card shadow-sm border-0 h-100">
+        <div class="card shadow-sm border-0 h-100 border-start border-warning border-4">
           <div class="card-body text-center">
-            <h6 class="text-uppercase text-muted mb-2">Sentiment Mix</h6>
+            <h6 class="text-uppercase text-muted small mb-2">Sentiment Mix</h6>
             <h3 id="sentiment-mix" class="fw-bold mb-2">0 / 0 / 0</h3>
             <div class="mt-1">
-              <span class="badge bg-success me-2">Positive</span>
-              <span class="badge bg-warning me-2">Neutral</span>
-              <span class="badge bg-danger">Negative</span>
+              <span class="badge bg-success-subtle text-success border border-success me-1">Pos</span>
+              <span class="badge bg-warning-subtle text-warning border border-warning me-1">Neu</span>
+              <span class="badge bg-danger-subtle text-danger border border-danger">Neg</span>
             </div>
           </div>
         </div>
       </div>
       <div class="col-md-3">
-        <div class="card shadow-sm border-0 h-100">
+        <div class="card shadow-sm border-0 h-100 border-start border-danger border-4">
           <div class="card-body text-center">
-            <h6 class="text-uppercase text-muted mb-2">Risk Score</h6>
-            <div style="height: 90px;">
+            <h6 class="text-uppercase text-muted small mb-2">Risk Score</h6>
+            <div style="height: 60px;">
               <canvas id="riskGauge"></canvas>
             </div>
             <div class="mt-2">
-              <span id="risk-score-text" class="badge bg-secondary">0%</span>
+              <span id="risk-score-text" class="badge rounded-pill bg-secondary px-3">0%</span>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Decision Insights & Data Completion -->
     <div class="row g-4 mb-4">
       <div class="col-lg-8">
         <div class="card shadow-sm border-0 h-100">
           <div class="card-body">
-            <h5 class="card-title mb-3">AI Recommended Improvement Plan</h5>
-            <div id="ai-recs" class="list-group list-group-flush"></div>
+            <div class="d-flex align-items-center mb-3">
+              <i class="bi bi-robot text-primary fs-4 me-2"></i>
+              <h5 class="card-title mb-0">AI Recommended Improvement Plan</h5>
+            </div>
+            <div id="ai-recs" class="list-group list-group-flush border rounded overflow-hidden"></div>
           </div>
         </div>
       </div>
@@ -130,30 +126,33 @@
       <div class="col-lg-4">
         <div class="card shadow-sm border-0 h-100">
           <div class="card-body">
-            <h6 class="card-title mb-3">Data Completion</h6>
-            <div class="progress" style="height: 18px;">
-              <div id="data-completion-bar" class="progress-bar" role="progressbar" style="width: 0%">0%</div>
+            <h6 class="card-title mb-3">Data Accuracy</h6>
+            <div class="progress" style="height: 12px;">
+              <div id="data-completion-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
             </div>
-            <small class="text-muted d-block mt-2">Percentage of reviews captured vs Google total.</small>
+            <small class="text-muted d-block mt-2">Sync Status: <span id="data-completion-text">0%</span> of Google database indexed.</small>
 
-            <hr>
-            <h6 class="card-title">Top Weak Areas</h6>
+            <hr class="my-4">
+            <h6 class="card-title d-flex justify-content-between">
+              Top Weak Areas <i class="bi bi-graph-down-arrow text-danger"></i>
+            </h6>
             <div id="weak-areas-chips" class="d-flex flex-wrap gap-2 mt-2"></div>
 
-            <hr>
-            <h6 class="card-title">Top Strength Areas</h6>
+            <hr class="my-4">
+            <h6 class="card-title d-flex justify-content-between">
+              Top Strength Areas <i class="bi bi-graph-up-arrow text-success"></i>
+            </h6>
             <div id="strength-areas-chips" class="d-flex flex-wrap gap-2 mt-2"></div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Charts Section -->
     <div class="row g-4">
       <div class="col-lg-8">
         <div class="card shadow-sm border-0 mb-4">
           <div class="card-body">
-            <h5 class="card-title mb-3">Rating Trend & Volume</h5>
+            <h5 class="card-title mb-3">Historical Rating Trend</h5>
             <div style="height: 360px;">
               <canvas id="trendChart"></canvas>
             </div>
@@ -162,7 +161,7 @@
 
         <div class="card shadow-sm border-0">
           <div class="card-body">
-            <h5 class="card-title mb-3">Sentiment Distribution</h5>
+            <h5 class="card-title mb-3">Customer Sentiment Distribution</h5>
             <div style="height: 320px;">
               <canvas id="sentimentPie"></canvas>
             </div>
@@ -173,8 +172,8 @@
       <div class="col-lg-4">
         <div class="card shadow-sm border-0 mb-4">
           <div class="card-body">
-            <h5 class="card-title mb-3">Weak Areas (Top Negative Keywords)</h5>
-            <div style="height: 280px;">
+            <h5 class="card-title mb-3">Keyword Impact (Negative)</h5>
+            <div style="height: 250px;">
               <canvas id="weakAreasChart"></canvas>
             </div>
           </div>
@@ -182,39 +181,36 @@
 
         <div class="card shadow-sm border-0 mb-4">
           <div class="card-body">
-            <h5 class="card-title mb-3">Strength Areas (Top Positive Keywords)</h5>
-            <div style="height: 280px;">
+            <h5 class="card-title mb-3">Keyword Impact (Positive)</h5>
+            <div style="height: 250px;">
               <canvas id="strengthAreasChart"></canvas>
             </div>
           </div>
         </div>
 
-        <div class="card shadow-sm border-0">
-          <div class="card-body">
-            <h5 class="card-title">Quick Actions</h5>
-            <a href="/companies" class="btn btn-outline-primary d-block mb-2">
-              <i class="bi bi-building-add"></i> Manage Companies
-            </a>
-            <button class="btn btn-outline-info d-block w-100" disabled>
-              <i class="bi bi-file-earmark-pdf"></i> Export PDF Report (soon)
+        <div class="card shadow-sm border-0 bg-primary text-white">
+          <div class="card-body text-center py-4">
+            <h5 class="card-title">Reporting</h5>
+            <p class="small opacity-75">Generate a full audit report for stakeholders.</p>
+            <button class="btn btn-light w-100 fw-bold disabled">
+              <i class="bi bi-file-earmark-pdf"></i> Export Intelligence (PDF)
             </button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Keywords Cloud -->
     <div class="card shadow-sm border-0 mt-4">
       <div class="card-body">
-        <h5 class="card-title mb-3">Top Keywords</h5>
+        <h5 class="card-title mb-3">Intelligent Keywords Mapping</h5>
         <div id="keywords-cloud" class="d-flex flex-wrap gap-2"></div>
       </div>
     </div>
 
-    <!-- Recent Reviews -->
-    <div class="card shadow-sm border-0 mt-4">
-      <div class="card-header bg-light">
-        <h5 class="mb-0">Recent Reviews & Auto-generated Replies</h5>
+    <div class="card shadow-sm border-0 mt-4 overflow-hidden">
+      <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Recent Feedback & AI Suggestions</h5>
+        <span class="badge bg-primary-subtle text-primary border border-primary">Live Data</span>
       </div>
       <div class="card-body p-0">
         <div id="reviews-container" class="list-group list-group-flush"></div>
@@ -233,115 +229,326 @@ let currentCompanyId = 0;
 let isFetching = false;
 let activeMonths = 6;
 
-const colors = { primary:'#0d6efd', primaryFill:'rgba(13,110,253,0.15)', success:'#28a745', warning:'#ffc107', danger:'#dc3545', gray:'#6c757d', light:'#e9ecef' };
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const colors = { 
+    primary:'#0d6efd', 
+    success:'#198754', 
+    warning:'#ffc107', 
+    danger:'#dc3545', 
+    gray:'#6c757d', 
+    light:'#f8f9fa' 
+};
+
+// ── Initialization ──
+document.addEventListener('DOMContentLoaded', () => {
+    updateDateWindowDisplay();
+    loadCompanies();
+
+    document.getElementById('apply-range-btn').addEventListener('click', () => {
+        activeMonths = parseInt(document.getElementById('months-selector').value);
+        if(currentCompanyId > 0) loadDashboardData(currentCompanyId, false);
+    });
+
+    document.getElementById('refresh-btn').addEventListener('click', () => {
+        if(currentCompanyId > 0) loadDashboardData(currentCompanyId, true);
+    });
+});
 
 function updateDateWindowDisplay(){
-  const start=new Date(Date.UTC(2026,1,21)), end=new Date();
-  const fmt=d=>d.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'2-digit'});
-  document.getElementById('date-window').textContent=`${fmt(start)} → ${fmt(end)}`;
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - (activeMonths * 30));
+    const fmt = d => d.toLocaleDateString(undefined, {year:'numeric', month:'short', day:'2-digit'});
+    document.getElementById('date-window').textContent = `${fmt(start)} → ${fmt(end)}`;
 }
 
-// ── Load companies from /companies/list ──
 async function loadCompanies() {
-  try{
-    const res = await fetch('/companies/list');
-    if(!res.ok) throw new Error('Failed to load companies');
-    const companies = await res.json();
-    const select=document.getElementById('company-selector');
-    select.innerHTML='<option value="0">Select a Company...</option>';
-    companies.forEach(c=>{
-      const opt=document.createElement('option');
-      opt.value=c.id; opt.textContent=c.name; select.appendChild(opt);
-    });
-    if(companies.length>0){currentCompanyId=companies[0].id; select.value=currentCompanyId; await loadDashboardData(currentCompanyId);}
-    select.addEventListener('change', async e=>{
-      currentCompanyId=parseInt(e.target.value);
-      currentCompanyId>0 ? await loadDashboardData(currentCompanyId,false) : showNoSelection();
-    });
-  }catch(err){console.error(`[${FILE_NAME_HTML}] Companies load error:`, err);}
-}
+    try {
+        const res = await fetch('/reviews/my-companies');
+        if(!res.ok) throw new Error('Network error loading companies');
+        const companies = await res.json();
+        const select = document.getElementById('company-selector');
+        
+        select.innerHTML = '<option value="0">Select a Company...</option>';
+        companies.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = `${c.name} (${c.city})`;
+            select.appendChild(opt);
+        });
 
-// ── Load dashboard summary / charts ──
-async function loadDashboardData(companyId, forceRefresh=false){
-  if(!companyId) return showNoSelection();
-  if(isFetching) return;
-  isFetching=true;
-  document.getElementById('loading-state').style.display='block';
-  document.getElementById('no-selection-state').style.display='none';
-  document.getElementById('main-content').style.display='none';
-  try{
-    const qs=new URLSearchParams();
-    if(forceRefresh) qs.set('refresh','true');
-    if(activeMonths>0) qs.set('months',String(activeMonths));
-    const url=`/reviews/summary/${companyId}${qs.toString()?'?'+qs.toString():''}`;
-    const res=await fetch(url);
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data=await res.json();
-
-    document.getElementById('loading-state').style.display='none';
-    document.getElementById('main-content').style.display='block';
-    document.getElementById('company-header').style.display='block';
-
-    document.getElementById('company-name').textContent=data.company_name||'Company';
-    document.getElementById('google-rating').textContent=data.google_rating ?? '—';
-    document.getElementById('google-total-ratings').textContent=data.google_total_ratings ?? '—';
-    document.getElementById('last-refresh').textContent=new Date().toLocaleString();
-    document.getElementById('months-active').textContent=activeMonths;
-
-    document.getElementById('total-reviews').textContent=data.total_reviews||0;
-    document.getElementById('avg-rating').textContent=(data.avg_rating||0).toFixed(1);
-    document.getElementById('sentiment-mix').textContent=`${data.sentiments?.Positive||0} / ${data.sentiments?.Neutral||0} / ${data.sentiments?.Negative||0}`;
-
-    // Data completion
-    const completion=clamp(Number(data.data_completion_percent||0),0,100);
-    const bar=document.getElementById('data-completion-bar');
-    bar.style.width=`${completion}%`; bar.textContent=`${completion}%`;
-    bar.className='progress-bar '+(completion>=75?'bg-success':completion>=40?'bg-warning':'bg-danger');
-
-    // Chips
-    makeChips('weak-areas-chips',data.weak_areas||[],'danger');
-    makeChips('strength-areas-chips',data.strength_areas||[],'success');
-
-    // Keywords Cloud
-    const keywordsDiv=document.getElementById('keywords-cloud'); keywordsDiv.innerHTML='';
-    const allKeywords=[...(data.positive_keywords||[]),...(data.negative_keywords||[])];
-    if(allKeywords.length===0) keywordsDiv.innerHTML='<span class="text-muted">No keywords detected yet</span>';
-    else allKeywords.forEach(kw=>{ const tag=document.createElement('span'); tag.className='badge bg-light text-dark border px-3 py-2'; tag.textContent=kw; keywordsDiv.appendChild(tag); });
-
-    // Reviews
-    const reviewsContainer=document.getElementById('reviews-container'); reviewsContainer.innerHTML='';
-    if(!data.reviews||data.reviews.length===0) reviewsContainer.innerHTML='<div class="list-group-item text-center text-muted py-5">No reviews available.</div>';
-    else{
-      data.reviews.slice(0,10).forEach(review=>{
-        const item=document.createElement('div'); item.className='list-group-item px-4 py-3';
-        item.innerHTML=`
-          <div class="d-flex justify-content-between align-items-start mb-2">
-            <div><h6 class="mb-1">${review.reviewer_name||'Anonymous'}</h6><small class="text-muted">${review.review_date||'—'}</small></div>
-            <div class="text-end"><span class="badge fs-6 px-3 py-2 ${review.sentiment==='Positive'?'bg-success':review.sentiment==='Negative'?'bg-danger':'bg-warning'}">${review.rating??'—'} ★ • ${review.sentiment}</span></div>
-          </div>
-          <p class="mb-3">${(review.review_text||'').substring(0,220)}${(review.review_text||'').length>220?'...':''}</p>
-          <div class="border-top pt-3 mt-3">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-              <strong class="text-muted small">Suggested Reply:</strong>
-              <button class="btn btn-sm btn-outline-secondary copy-reply-btn" data-reply="${(review.suggested_reply||'Thank you for your feedback!').replace(/"/g,'&quot;')}"><i class="bi bi-clipboard"></i> Copy</button>
-            </div>
-            <div class="bg-light p-3 rounded small">${review.suggested_reply||'No reply suggestion available'}</div>
-          </div>
-        `;
-        reviewsContainer.appendChild(item);
-      });
-      document.querySelectorAll('.copy-reply-btn').forEach(btn=>{
-        btn.addEventListener('click',function(){ navigator.clipboard.writeText(this.dataset.reply); const orig=this.innerHTML; this.innerHTML='<i class="bi bi-check2"></i> Copied!'; this.disabled=true; setTimeout(()=>{ this.innerHTML=orig; this.disabled=false; },1800); });
-      });
+        select.addEventListener('change', async e => {
+            currentCompanyId = parseInt(e.target.value);
+            if(currentCompanyId > 0) {
+                await loadDashboardData(currentCompanyId, false);
+            } else {
+                showNoSelection();
+            }
+        });
+    } catch(err) {
+        console.error(`[${FILE_NAME_HTML}] Init error:`, err);
     }
-
-    // Charts
-    renderTrendChart(data); renderSentimentPie(data); renderWeakAreasChart(data); renderStrengthAreasChart(data); renderRiskGauge(data);
-    renderAIRecommendations(data);
-
-  }catch(err){console.error(`[${FILE_NAME_HTML}] Dashboard load error:`, err);}
-  finally{isFetching=false; document.getElementById('loading-state').style.display='none';}
 }
 
-function makeChips(containerId, arr, kind='secondary'){ const div=document.getElementById(containerId); div.innerHTML=''; if(!arr||arr.length===0){ div.innerHTML='<span class="text-muted">No data</span>'; return; } arr.slice(0,10).forEach(item=>{ const chip=document.createElement('span'); chip.className=`badge bg-${kind}`; chip.textContent=`
+async function loadDashboardData(companyId, forceRefresh=false){
+    if(isFetching) return;
+    isFetching = true;
+    
+    // UI Transitions
+    document.getElementById('loading-state').style.display = 'block';
+    document.getElementById('no-selection-state').style.display = 'none';
+    document.getElementById('main-content').style.display = 'none';
+    document.getElementById('company-header').style.display = 'none';
+
+    try {
+        const url = `/reviews/summary/${companyId}?months=${activeMonths}&refresh=${forceRefresh}`;
+        const res = await fetch(url);
+        if(!res.ok) throw new Error(`API Error: ${res.status}`);
+        const data = await res.json();
+
+        // Populate Data
+        document.getElementById('company-name').textContent = data.company_name;
+        document.getElementById('google-rating').textContent = data.google_rating || 'N/A';
+        document.getElementById('google-total-ratings').textContent = data.google_total_ratings || '0';
+        document.getElementById('total-reviews').textContent = data.total_reviews;
+        document.getElementById('avg-rating').textContent = data.avg_rating.toFixed(1);
+        document.getElementById('sentiment-mix').textContent = 
+            `${data.sentiments.Positive} / ${data.sentiments.Neutral} / ${data.sentiments.Negative}`;
+        document.getElementById('months-active').textContent = activeMonths;
+        document.getElementById('last-refresh').textContent = forceRefresh ? "Just Now" : "Synced";
+        
+        updateDateWindowDisplay();
+
+        // Data Completion Bar
+        const completion = Math.min(100, data.data_completion_percent);
+        const bar = document.getElementById('data-completion-bar');
+        bar.style.width = `${completion}%`;
+        document.getElementById('data-completion-text').textContent = `${completion}%`;
+        bar.className = 'progress-bar ' + (completion > 80 ? 'bg-success' : completion > 50 ? 'bg-warning' : 'bg-danger');
+
+        // Analytics Components
+        renderChips('weak-areas-chips', data.weak_areas, 'danger');
+        renderChips('strength-areas-chips', data.strength_areas, 'success');
+        renderKeywordsCloud(data.positive_keywords, data.negative_keywords);
+        renderReviews(data.reviews);
+        renderAIRecommendations(data.ai_recommendations);
+        
+        // Charts
+        initCharts(data);
+
+        document.getElementById('loading-state').style.display = 'none';
+        document.getElementById('main-content').style.display = 'block';
+        document.getElementById('company-header').style.display = 'block';
+
+    } catch(err) {
+        console.error(`[${FILE_NAME_HTML}] Load Error:`, err);
+        alert("Critical failure while fetching analytics. Check server logs.");
+    } finally {
+        isFetching = false;
+    }
+}
+
+function renderChips(id, items, type) {
+    const container = document.getElementById(id);
+    container.innerHTML = '';
+    if(!items || items.length === 0) {
+        container.innerHTML = '<span class="text-muted small">No data detected.</span>';
+        return;
+    }
+    items.forEach(i => {
+        const chip = document.createElement('span');
+        chip.className = `badge rounded-pill bg-${type}-subtle text-${type} border border-${type} px-3`;
+        chip.textContent = `${i.keyword} (${i.mentions})`;
+        container.appendChild(chip);
+    });
+}
+
+function renderKeywordsCloud(pos, neg) {
+    const container = document.getElementById('keywords-cloud');
+    container.innerHTML = '';
+    const items = [
+        ...(pos || []).map(k => ({k, type: 'success'})),
+        ...(neg || []).map(k => ({k, type: 'danger'}))
+    ];
+    if(items.length === 0) container.innerHTML = '<span class="text-muted">Insufficient text data.</span>';
+    items.forEach(item => {
+        const span = document.createElement('span');
+        span.className = `badge bg-light text-${item.type} border px-3 py-2`;
+        span.textContent = item.k;
+        container.appendChild(span);
+    });
+}
+
+function renderAIRecommendations(recs) {
+    const container = document.getElementById('ai-recs');
+    container.innerHTML = '';
+    if(!recs || recs.length === 0) {
+        container.innerHTML = '<div class="p-4 text-center text-muted">Awaiting more negative feedback data to generate recommendations.</div>';
+        return;
+    }
+    recs.forEach(r => {
+        const item = document.createElement('div');
+        item.className = "list-group-item p-3 border-0 border-bottom";
+        item.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="badge bg-danger-subtle text-danger px-2 py-1">Area: ${r.weak_area}</span>
+                <span class="badge bg-${r.priority === 'High' ? 'danger' : 'warning'}">${r.priority} Priority</span>
+            </div>
+            <p class="mb-2 fw-bold text-dark"><i class="bi bi-lightbulb text-warning me-1"></i> ${r.recommended_action}</p>
+            <div class="small text-muted"><i class="bi bi-check-circle text-success me-1"></i> ${r.expected_outcome}</div>
+        `;
+        container.appendChild(item);
+    });
+}
+
+function renderReviews(reviews) {
+    const container = document.getElementById('reviews-container');
+    container.innerHTML = '';
+    if(!reviews || reviews.length === 0) {
+        container.innerHTML = '<div class="p-5 text-center text-muted">No reviews in the selected date range.</div>';
+        return;
+    }
+    reviews.forEach(rev => {
+        const div = document.createElement('div');
+        div.className = "list-group-item p-4";
+        div.innerHTML = `
+            <div class="d-flex justify-content-between mb-2">
+                <div>
+                    <h6 class="mb-0 fw-bold">${rev.reviewer_name}</h6>
+                    <small class="text-muted">${new Date(rev.review_date).toLocaleDateString()}</small>
+                </div>
+                <div class="text-end">
+                    <div class="text-warning mb-1">${'★'.repeat(rev.rating)}${'☆'.repeat(5-rev.rating)}</div>
+                    <span class="badge bg-${rev.sentiment==='Positive'?'success':rev.sentiment==='Negative'?'danger':'warning'}-subtle text-${rev.sentiment==='Positive'?'success':rev.sentiment==='Negative'?'danger':'warning'}">${rev.sentiment}</span>
+                </div>
+            </div>
+            <p class="text-secondary small mb-3 italic">"${rev.review_text}"</p>
+            <div class="bg-light p-3 rounded border">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="small fw-bold text-primary"><i class="bi bi-stars"></i> Suggested AI Reply:</span>
+                    <button class="btn btn-sm btn-link p-0 text-decoration-none" onclick="copyText(this, \`${rev.suggested_reply}\`)"><i class="bi bi-clipboard"></i> Copy</button>
+                </div>
+                <div class="small text-dark">${rev.suggested_reply}</div>
+            </div>
+        `;
+        container.appendChild(div);
+    });
+}
+
+function copyText(btn, text) {
+    navigator.clipboard.writeText(text);
+    const original = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-check2"></i> Copied';
+    setTimeout(() => btn.innerHTML = original, 2000);
+}
+
+function initCharts(data) {
+    // Destroy previous instances
+    [trendChart, sentimentPieChart, weakAreasChart, strengthAreasChart, riskGaugeChart].forEach(c => c?.destroy());
+
+    // 1. Trend Chart
+    trendChart = new Chart(document.getElementById('trendChart'), {
+        type: 'line',
+        data: {
+            labels: data.trend_data.map(t => t.month),
+            datasets: [{
+                label: 'Avg Rating',
+                data: data.trend_data.map(t => t.avg_rating),
+                borderColor: colors.primary,
+                backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                fill: true,
+                tension: 0.4,
+                yAxisID: 'y'
+            }, {
+                label: 'Review Count',
+                data: data.trend_data.map(t => t.count),
+                type: 'bar',
+                backgroundColor: 'rgba(108, 117, 125, 0.2)',
+                yAxisID: 'y1'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { min: 0, max: 5, position: 'left' },
+                y1: { position: 'right', grid: { display: false } }
+            }
+        }
+    });
+
+    // 2. Sentiment Pie
+    sentimentPieChart = new Chart(document.getElementById('sentimentPie'), {
+        type: 'doughnut',
+        data: {
+            labels: ['Positive', 'Neutral', 'Negative'],
+            datasets: [{
+                data: [data.sentiments.Positive, data.sentiments.Neutral, data.sentiments.Negative],
+                backgroundColor: [colors.success, colors.warning, colors.danger]
+            }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+    });
+
+    // 3. Weak Areas Horizontal Bar
+    weakAreasChart = new Chart(document.getElementById('weakAreasChart'), {
+        type: 'bar',
+        data: {
+            labels: data.weak_areas.map(w => w.keyword),
+            datasets: [{
+                data: data.weak_areas.map(w => w.mentions),
+                backgroundColor: 'rgba(220, 53, 69, 0.7)',
+                borderRadius: 5
+            }]
+        },
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+
+    // 4. Strength Areas Horizontal Bar
+    strengthAreasChart = new Chart(document.getElementById('strengthAreasChart'), {
+        type: 'bar',
+        data: {
+            labels: data.strength_areas.map(s => s.keyword),
+            datasets: [{
+                data: data.strength_areas.map(s => s.mentions),
+                backgroundColor: 'rgba(25, 135, 84, 0.7)',
+                borderRadius: 5
+            }]
+        },
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+
+    // 5. Risk Gauge
+    const risk = data.risk_score;
+    const riskText = document.getElementById('risk-score-text');
+    riskText.textContent = `Risk: ${risk}%`;
+    riskText.className = `badge rounded-pill px-3 ${risk > 60 ? 'bg-danger' : risk > 30 ? 'bg-warning' : 'bg-success'}`;
+
+    riskGaugeChart = new Chart(document.getElementById('riskGauge'), {
+        type: 'doughnut',
+        data: {
+            datasets: [{
+                data: [risk, 100 - risk],
+                backgroundColor: [risk > 60 ? colors.danger : risk > 30 ? colors.warning : colors.success, '#eee'],
+                circumference: 180,
+                rotation: 270,
+                borderWidth: 0
+            }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, cutout: '80%', plugins: { tooltip: { enabled: false } } }
+    });
+}
+
+function showNoSelection() {
+    document.getElementById('main-content').style.display = 'none';
+    document.getElementById('company-header').style.display = 'none';
+    document.getElementById('no-selection-state').style.display = 'block';
+}
+</script>
+
+<style>
+    .progress-bar { transition: width 1s ease-in-out; }
+    .card { transition: transform 0.2s ease; }
+    .list-group-item:hover { background-color: #fcfcfc; }
+    .badge { letter-spacing: 0.5px; }
+</style>
+{% endblock %}
