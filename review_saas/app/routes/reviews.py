@@ -1,4 +1,4 @@
-# File: review_saas/app/routes/reviews.py
+# FILE: review_saas/app/routes/reviews.py
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import Session
@@ -35,16 +35,33 @@ router = APIRouter(prefix="/reviews", tags=["reviews"])
 # ─────────────────────────────────────────────────────────────
 # Config: Places (limited) & GBP (full)
 # ─────────────────────────────────────────────────────────────
-api_key = os.getenv("GOOGLE_PLACES_API_KEY")
+
+def _resolve_places_api_key() -> Tuple[Optional[str], str]:
+    """
+    Resolve a Google key usable for Places. Prefer GOOGLE_PLACES_API_KEY,
+    but fall back to GOOGLE_MAPS_API_KEY if needed. Return (key, source_label).
+    """
+    key = os.getenv("GOOGLE_PLACES_API_KEY")
+    if key:
+        return key, "GOOGLE_PLACES_API_KEY"
+    alt = os.getenv("GOOGLE_MAPS_API_KEY")
+    if alt:
+        logger.warning("GOOGLE_PLACES_API_KEY not set; falling back to GOOGLE_MAPS_API_KEY for Places client.")
+        return alt, "GOOGLE_MAPS_API_KEY"
+    return None, "NONE"
+
+api_key, api_key_source = _resolve_places_api_key()
+
 gmaps = None
 if api_key and googlemaps is not None:
     try:
         gmaps = googlemaps.Client(key=api_key)
+        logger.info(f"Initialized Google Maps client using {api_key_source}.")
     except Exception as e:
         logger.warning(f"Failed to initialize Google Maps client: {e}")
 else:
     if not api_key:
-        logger.info("GOOGLE_PLACES_API_KEY not set; Places fetch disabled.")
+        logger.info("No usable Google key found for Places (neither GOOGLE_PLACES_API_KEY nor GOOGLE_MAPS_API_KEY).")
     if googlemaps is None:
         logger.info("googlemaps package not available; Places fetch disabled.")
 
@@ -306,7 +323,11 @@ def _build_executive_summary(
 # Places fetch (limited — up to a few reviews, no pagination)
 # ─────────────────────────────────────────────────────────────
 def fetch_and_save_reviews_places(company: Company, db: Session, max_reviews: int = 50) -> int:
-    if not gmaps or not getattr(company, "place_id", None):
+    if not gmaps:
+        logger.warning("Places fetch skipped: Google client not initialized (no key or no googlemaps package).")
+        return 0
+    if not getattr(company, "place_id", None):
+        logger.info(f"Company {company.id} has no place_id; skipping Places fetch.")
         return 0
     try:
         result = gmaps.place(
@@ -368,12 +389,6 @@ def _build_gbp_session_headers() -> Optional[Dict[str, str]]:
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
 def fetch_and_save_reviews_gbp(company: Company, db: Session, date_from: datetime, date_to: datetime, page_size: int = 200) -> Dict[str, Any]:
-    """
-    Fetch all reviews via GBP API with pagination and store into DB once.
-    API: GET https://mybusiness.googleapis.com/v4/{locationName}/reviews
-         or Business Profile Admin API v1: https://mybusinessbusinessinformation.googleapis.com/...
-    Here we code a generic loop; you must ensure the correct GBP endpoint and token scope.
-    """
     import json
     import urllib.request
     import urllib.parse
@@ -386,12 +401,6 @@ def fetch_and_save_reviews_gbp(company: Company, db: Session, date_from: datetim
         return {"ok": False, "reason": "No GBP access token"}
 
     base = f"https://mybusiness.googleapis.com/v4/{GBP_LOCATION_NAME}/reviews"
-    # NOTE: Depending on your GBP API version, the endpoint may differ.
-    # Adjust base URL to the exact GBP endpoint you're enabled for.
-
-    # GBP supports pagination via pageToken
-    # Some versions support 'orderBy' and may not support direct date filters
-    # We fetch all then filter locally by date window.
 
     added = 0
     pages = 0
@@ -414,11 +423,8 @@ def fetch_and_save_reviews_gbp(company: Company, db: Session, date_from: datetim
 
         reviews = payload.get("reviews", []) or payload.get("review", []) or []
         for rev in reviews:
-            # GBP fields vary by version:
-            # candidate fields: 'comment', 'starRating', 'createTime', 'reviewer', 'reviewReply'
             text = (rev.get("comment") or rev.get("text") or "").strip()
             rating = rev.get("starRating") or rev.get("rating")
-            # normalize rating to numeric if given as string like "FIVE"
             if isinstance(rating, str):
                 star_map = {"ONE":1, "TWO":2, "THREE":3, "FOUR":4, "FIVE":5}
                 rating = star_map.get(rating.upper(), None)
@@ -426,12 +432,10 @@ def fetch_and_save_reviews_gbp(company: Company, db: Session, date_from: datetim
             r_dt = None
             try:
                 if r_time:
-                    # r_time often ISO8601 with Z
                     r_dt = datetime.fromisoformat(r_time.replace("Z", "+00:00")).astimezone(timezone.utc)
             except Exception:
                 r_dt = None
 
-            # Filter by window
             if r_dt and not (date_from <= r_dt <= date_to):
                 continue
 
@@ -440,7 +444,6 @@ def fetch_and_save_reviews_gbp(company: Company, db: Session, date_from: datetim
                 reviewer = (rev["reviewer"].get("displayName") or "Anonymous")
             reviewer = reviewer or "Anonymous"
 
-            # Deduplicate
             exists = db.query(Review).filter(
                 Review.company_id == company.id,
                 Review.text == text,
@@ -460,8 +463,6 @@ def fetch_and_save_reviews_gbp(company: Company, db: Session, date_from: datetim
             ))
             added += 1
 
-        # update aggregates if present (GBP may expose global counts separately; skipped here)
-        # Commit per page to avoid heavy transaction
         if added:
             try:
                 db.commit()
@@ -650,8 +651,14 @@ def reviews_full_sync(
             return {"ok": False, "source": "GBP", "reason": res.get("reason") or res.get("error")}
         return {"ok": True, "source": "GBP", "added": res.get("added", 0), "pages": res.get("pages", 0)}
     else:
-        # Places cannot fetch "all", but we try once so DB has at least the most relevant few.
+        # Places cannot fetch "all". If client is not initialized or no place_id, report ok=False.
+        if not gmaps:
+            return {"ok": False, "source": "Places", "reason": "Google client not initialized (missing key or package)", "added": 0, "pages": 0}
+        if not getattr(company, "place_id", None):
+            return {"ok": False, "source": "Places", "reason": "Company has no place_id", "added": 0, "pages": 0}
+
         added = fetch_and_save_reviews_places(company, db, max_reviews=50)
+        # Keep the same output keys; ok reflects whether operation could run, not whether new rows were added
         return {"ok": True, "source": "Places", "added": added, "pages": 1}
 
 @router.get("/summary/{company_id}")
@@ -730,3 +737,21 @@ def reviews_recommendations(
 def get_my_companies(db: Session = Depends(get_db)):
     companies = db.query(Company).all()
     return [{"id": c.id, "name": c.name, "city": getattr(c, "city", "N/A")} for c in companies]
+
+# ─────────────────────────────────────────────────────────────
+# Diagnostics (non-breaking helper)
+# ─────────────────────────────────────────────────────────────
+@router.get("/diagnostics")
+def reviews_diagnostics():
+    """
+    Returns non-secret flags to help debug why Google/GBP flows may not work.
+    No secrets (keys/tokens) are returned—only presence flags and config shape.
+    """
+    return {
+        "googlemaps_package_available": googlemaps is not None,
+        "places_client_initialized": gmaps is not None,
+        "places_key_source": api_key_source,  # "GOOGLE_PLACES_API_KEY" | "GOOGLE_MAPS_API_KEY" | "NONE"
+        "use_gbp_api": USE_GBP_API,
+        "gbp_location_name_set": bool(GBP_LOCATION_NAME),
+        "gbp_token_present": bool(GBP_ACCESS_TOKEN or GBP_SERVICE_ACCOUNT_JSON),
+    }
