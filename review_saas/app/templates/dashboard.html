@@ -1,4 +1,4 @@
-<!-- FILE: review_saas/app/templates/dashboard.html -->
+v<!-- FILE: review_saas/app/templates/dashboard.html -->
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">
 <head>
@@ -32,6 +32,7 @@
     .health-Red { background:#dc3545; }
     .table thead th { white-space: nowrap; }
     .clickable-row { cursor: pointer; }
+    .date-inputs .form-control[type="date"] { min-width: 160px; }
   </style>
 </head>
 
@@ -84,21 +85,39 @@
     </div>
   </div>
 
-  <!-- Company Selector (kept) -->
+  <!-- Company Selector + Date Range -->
   <div class="card p-3 mb-4">
-    <div class="row align-items-center">
-      <div class="col-md-6">
+    <div class="row align-items-end g-2">
+      <div class="col-lg-4 col-md-6">
         <label class="form-label">Select Company</label>
         <select id="companySelect" class="form-select" aria-label="Select company"></select>
       </div>
-      <div class="col-md-6 text-end mt-3 mt-md-0">
-        <button id="btnSync" class="btn btn-primary" onclick="syncReviews()">
-          <span class="sync-label">Sync Reviews</span>
-          <span class="spinner-border spinner-border-sm ms-2 d-none" role="status" aria-hidden="true"></span>
-        </button>
-        <button class="btn btn-outline-dark" onclick="openOwnerSummary()">AI Owner Summary</button>
+      <div class="col-lg-6 col-md-6 date-inputs">
+        <div class="row g-2">
+          <div class="col-sm-6">
+            <label class="form-label">Start Date</label>
+            <input type="date" id="startDate" class="form-control" aria-label="Start date">
+          </div>
+          <div class="col-sm-6">
+            <label class="form-label">End Date</label>
+            <input type="date" id="endDate" class="form-control" aria-label="End date">
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-2 text-end">
+        <div class="d-flex gap-2 justify-content-end">
+          <button class="btn btn-outline-primary" onclick="applyDateRange()">Apply Range</button>
+          <button id="btnSync" class="btn btn-primary" onclick="syncReviews()">
+            <span class="sync-label">Sync</span>
+            <span class="spinner-border spinner-border-sm ms-2 d-none" role="status" aria-hidden="true"></span>
+          </button>
+        </div>
+        <div class="text-end mt-2">
+          <button class="btn btn-outline-dark btn-sm" onclick="openOwnerSummary()">AI Owner Summary</button>
+        </div>
       </div>
     </div>
+    <small id="activeWindowNote" class="text-muted mt-2 d-block"></small>
   </div>
 
   <!-- Metrics -->
@@ -171,19 +190,31 @@
         <div class="alert alert-info small">
           Use API token to add a company and auto-ingest reviews (if Place ID provided).
         </div>
+
+        <div class="mb-2">
+          <label class="form-label">Search Business (Google Places)</label>
+          <div class="input-group">
+            <input type="text" id="placeQuery" class="form-control" placeholder="e.g., Acme Foods Lahore">
+            <button class="btn btn-outline-secondary" onclick="searchPlace()">Search</button>
+          </div>
+          <div id="searchResults" class="mt-2"></div>
+        </div>
+
+        <hr>
+
         <div class="mb-2">
           <label class="form-label">Company Name</label>
           <input type="text" id="apiCompanyName" class="form-control" placeholder="Acme Foods">
         </div>
         <div class="mb-2">
-          <label class="form-label">Google Place ID (optional)</label>
+          <label class="form-label">Google Place ID</label>
           <input type="text" id="apiCompanyPlaceId" class="form-control" placeholder="ChIJN1t_tDeuEmsRUsoyG83frY4">
         </div>
         <div class="mb-2">
           <label class="form-label">Website (optional)</label>
-          <input type="text" id="apiCompanyWebsite" class="form-control" placeholder="https://example.com">
+          <input type="url" id="apiCompanyWebsite" class="form-control" placeholder="https://example.com">
         </div>
-        <div class="mb-2">
+        <div class="mb-3">
           <label class="form-label">Location (optional)</label>
           <input type="text" id="apiCompanyLocation" class="form-control" placeholder="City, Country">
         </div>
@@ -191,15 +222,7 @@
           <label class="form-label">API Token</label>
           <input type="password" id="apiToken" class="form-control" placeholder="••••••••••">
         </div>
-        <button class="btn btn-primary w-100" onclick="addCompanyViaApi()">
-          Add Company via API
-        </button>
-
-        <hr class="my-4">
-
-        <input type="text" id="placeQuery" class="form-control mb-2" placeholder="(Legacy) Search business name">
-        <button class="btn btn-outline-secondary w-100" onclick="searchPlace()">Search via Google</button>
-        <div id="searchResults" class="mt-3"></div>
+        <button class="btn btn-primary w-100" onclick="addCompanyViaApi()">Add Company via API</button>
       </div>
     </div>
   </div>
@@ -235,7 +258,8 @@
   // ------------------------------
   const $ = (id) => document.getElementById(id);
   const getCssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  const escapeHtml = (str = '') => str.replace(/[&<>"'`=\/]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'}[s] || s));
+  const escapeHtml = (str = '') =>
+    str.replace(/[&<>"'`=\/]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'}[s] || s));
 
   function setLoadingMetrics(isLoading) {
     ['metricTotal','metricAvg','metricRisk'].forEach(id => {
@@ -248,6 +272,14 @@
   function fmtNumber(n, decimals=0) {
     if (Number.isFinite(n)) return n.toFixed(decimals);
     return '0';
+  }
+
+  function fmtDateISO(d) {
+    // returns YYYY-MM-DD
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
   }
 
   // Theme handling
@@ -298,8 +330,9 @@
             currentCompany = String(item.id);
             const sel = $('companySelect');
             if (sel && sel.value !== currentCompany) sel.value = currentCompany;
-            loadSummary();
-            window.scrollTo({ top: document.querySelector('.card.p-3.mb-4 + .row')?.offsetTop || 0, behavior: 'smooth' });
+            loadSummary(); // uses currently selected date range
+            const target = document.querySelector('.row.mb-4.g-3');
+            if (target) window.scrollTo({ top: target.offsetTop - 20, behavior: 'smooth' });
           }
         };
 
@@ -343,30 +376,16 @@
     if (!el) return;
     const primary = getCssVar('--bs-primary') || '#0d6efd';
     const gridColor = getCssVar('--bs-border-color') || 'rgba(0,0,0,0.08)';
-    const textColor = getCssVar('--bs-body-color') || '#212529';
 
     const data = values && values.length ? values : [0,0,0,0,0,0,0];
     const labels = data.map((_, i) => i+1);
     const chart = new Chart(el, {
       type: 'line',
-      data: {
-        labels,
-        datasets: [{
-          data,
-          borderColor: primary,
-          backgroundColor: 'transparent',
-          pointRadius: 0,
-          tension: 0.25
-        }]
-      },
+      data: { labels, datasets: [{ data, borderColor: primary, backgroundColor: 'transparent', pointRadius: 0, tension: 0.25 }] },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false }, tooltip: { enabled: false } },
-        scales: {
-          x: { display: false },
-          y: { display: false, suggestedMin: -1, suggestedMax: 1, grid: { color: gridColor } }
-        },
+        scales: { x: { display: false }, y: { display: false, suggestedMin: -1, suggestedMax: 1, grid: { color: gridColor } } },
         elements: { line: { borderWidth: 2 } }
       }
     });
@@ -378,8 +397,16 @@
   }
 
   // ------------------------------
-  // Legacy list & Detailed Summary
+  // Company list and Summary (single fetch with date range)
   // ------------------------------
+  function initDefaultDates() {
+    // Default start: 2026-02-23 (as per your example), End: today
+    const startEl = $('startDate');
+    const endEl = $('endDate');
+    if (!startEl.value) startEl.value = '2026-02-23';
+    if (!endEl.value) endEl.value = fmtDateISO(new Date());
+  }
+
   async function loadCompanies() {
     try {
       const res = await fetch('/companies');
@@ -396,8 +423,9 @@
       });
 
       if (companies.length) {
-        currentCompany = companies[0].id;
-        await loadSummary();
+        if (!currentCompany) currentCompany = companies[0].id;
+        select.value = String(currentCompany);
+        await loadSummary(); // includes date range query if provided
       }
 
       select.onchange = async () => {
@@ -410,13 +438,28 @@
     }
   }
 
+  function applyDateRange() {
+    loadSummary();
+  }
+
   async function loadSummary() {
     if (!currentCompany) return;
     setLoadingMetrics(true);
     $('trendHint').textContent = '';
 
     try {
-      const res = await fetch(`/reviews/summary/${currentCompany}`);
+      const start = $('startDate').value?.trim();
+      const end = $('endDate').value?.trim();
+
+      const qs = new URLSearchParams();
+      if (start) qs.set('start', start);     // backend accepts multiple formats; YYYY-MM-DD is fine
+      if (end) qs.set('end', end);
+
+      const url = qs.toString()
+        ? `/reviews/summary/${currentCompany}?${qs.toString()}`
+        : `/reviews/summary/${currentCompany}`;
+
+      const res = await fetch(url);
       if (!res.ok) throw new Error('Failed to load summary');
       const data = await res.json();
       currentSummaryData = data;
@@ -433,7 +476,14 @@
       else badge.classList.add('badge-risk-low');
       badge.textContent = data.risk_level;
 
-      // Trend hint
+      // Active window note
+      const w = data.window || {};
+      const winText = (w.start && w.end)
+        ? `Window: ${new Date(w.start).toLocaleDateString()} → ${new Date(w.end).toLocaleDateString()}`
+        : '';
+      $('activeWindowNote').textContent = winText;
+
+      // Trend hint (monthly trend signal still supported)
       if (data.trend && data.trend.signal !== undefined) {
         const s = data.trend.signal;
         const d = Number(data.trend.delta || 0);
@@ -454,7 +504,7 @@
   }
 
   // ------------------------------
-  // Charts
+  // Charts (uses daily_series for date-wise single fetch)
   // ------------------------------
   function renderCharts(data) {
     const primary = getCssVar('--bs-primary') || '#0d6efd';
@@ -462,14 +512,25 @@
     const gridColor = getCssVar('--bs-border-color') || 'rgba(0,0,0,0.1)';
     const bgMuted = getCssVar('--bs-secondary-bg') || 'rgba(13,110,253,0.08)';
 
-    // Trend
-    const trendLabels = (data.trend_data || []).map(t => {
-      const [y, m] = (t.month || '').split('-').map(Number);
-      if (!y || !m) return t.month || '';
-      const d = new Date(Date.UTC(y, m - 1, 1));
-      return d.toLocaleString(undefined, { month: 'short', year: 'numeric' });
-    });
-    const trendValues = (data.trend_data || []).map(t => t.avg_rating);
+    // Prefer daily series (date-wise) if available; fall back to monthly trend_data
+    let trendLabels = [];
+    let trendValues = [];
+
+    if (Array.isArray(data.daily_series) && data.daily_series.length) {
+      trendLabels = data.daily_series.map(d => {
+        const dt = new Date(d.date);
+        return dt.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
+      });
+      trendValues = data.daily_series.map(d => (Number.isFinite(d.avg_rating) ? d.avg_rating : null));
+    } else if (Array.isArray(data.trend_data) && data.trend_data.length) {
+      trendLabels = data.trend_data.map(t => {
+        const [y, m] = (t.month || '').split('-').map(Number);
+        if (!y || !m) return t.month || '';
+        const d = new Date(Date.UTC(y, m - 1, 1));
+        return d.toLocaleString(undefined, { month: 'short', year: 'numeric' });
+      });
+      trendValues = data.trend_data.map(t => t.avg_rating);
+    }
 
     if (trendChart) trendChart.destroy();
     trendChart = new Chart($('trendChart'), {
@@ -482,9 +543,10 @@
           borderColor: primary,
           backgroundColor: bgMuted,
           tension: 0.3,
+          spanGaps: true,
           fill: true,
-          pointRadius: 3,
-          pointHoverRadius: 5
+          pointRadius: 2,
+          pointHoverRadius: 4
         }]
       },
       options: {
@@ -496,12 +558,12 @@
         },
         scales: {
           y: { min: 0, max: 5, ticks: { color: textColor }, grid: { color: gridColor } },
-          x: { ticks: { color: textColor }, grid: { color: gridColor } }
+          x: { ticks: { color: textColor }, grid: { color: gridColor, display: false } }
         }
       }
     });
 
-    // Sentiment
+    // Sentiment doughnut
     const sentiments = data.sentiments || { Positive:0, Neutral:0, Negative:0 };
     const sData = [sentiments.Positive || 0, sentiments.Neutral || 0, sentiments.Negative || 0];
 
@@ -574,11 +636,11 @@
     } finally {
       btn.disabled = false;
       spinner.classList.add('d-none');
-      label.textContent = 'Sync Reviews';
+      label.textContent = 'Sync';
     }
   }
 
-  // API Add company
+  // API: Add company (secured)
   async function addCompanyViaApi() {
     const name = $('apiCompanyName').value.trim();
     const place_id = $('apiCompanyPlaceId').value.trim();
@@ -613,26 +675,50 @@
     }
   }
 
-  // Legacy modal helpers
+  // Google Places search via backend
   async function searchPlace() {
     const q = $('placeQuery').value.trim();
-    let diag = null;
+    const resultsEl = $('searchResults');
+    if (!q) {
+      resultsEl.innerHTML = `<div class="text-muted">Enter a business name or query.</div>`;
+      return;
+    }
+    resultsEl.innerHTML = `<div class="text-muted">Searching...</div>`;
     try {
-      const r = await fetch('/reviews/diagnostics');
-      diag = await r.json();
-    } catch {}
-    const diagMsg = diag ? `
-      <div class="small text-muted mt-2">
-        Google Maps Available: ${diag.googlemaps_available ? 'Yes' : 'No'}<br>
-        Places Client: ${diag.places_client_initialized ? 'Initialized' : 'Not initialized'}
-      </div>` : '';
-    $('searchResults').innerHTML = `
-      <div class="alert alert-info">
-        Google Place search is not configured in this UI. Query typed: <strong>${escapeHtml(q) || '-'}</strong>.
-        Please configure Place ID in the backend/company record or use "Add Company via API".
-      </div>
-      ${diagMsg}
-    `;
+      const res = await fetch(`/reviews/google/places?q=${encodeURIComponent(q)}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.reason || 'Search failed');
+      }
+      const items = data.items || [];
+      if (!items.length) {
+        resultsEl.innerHTML = `<div class="text-muted">No matches found.</div>`;
+        return;
+      }
+      resultsEl.innerHTML = items.map(it => `
+        <div class="border rounded p-2 mb-2">
+          <div><strong>${escapeHtml(it.name || 'Unknown')}</strong></div>
+          <div class="text-muted small">${escapeHtml(it.formatted_address || '')}</div>
+          <div class="small text-break text-muted">Place ID: <code>${escapeHtml(it.place_id || '')}</code></div>
+          <div class="mt-2 d-flex gap-2">
+            <button class="btn btn-sm btn-outline-primary" onclick="usePlaceId('${encodeURIComponent(it.place_id || '')}', '${encodeURIComponent(it.name || '')}')">
+              Use this Place ID
+            </button>
+          </div>
+        </div>
+      `).join('');
+    } catch (err) {
+      console.error(err);
+      resultsEl.innerHTML = `<div class="text-danger">Search failed. Ensure Google API is configured.</div>`;
+    }
+  }
+
+  function usePlaceId(encodedPlaceId, encodedName) {
+    const placeId = decodeURIComponent(encodedPlaceId || '');
+    const name = decodeURIComponent(encodedName || '');
+    if (placeId) $('apiCompanyPlaceId').value = placeId;
+    if (name && !$('apiCompanyName').value) $('apiCompanyName').value = name;
+    toast('Place ID applied to form.', 'success');
   }
 
   function openOwnerSummary() {
@@ -644,8 +730,11 @@
       `<li><strong>${escapeHtml(r.area)}</strong>: ${escapeHtml(r.action)}</li>`
     ).join('');
 
+    const windowText = data.window ? `<div class="small text-muted">Window: ${new Date(data.window.start).toLocaleDateString()} → ${new Date(data.window.end).toLocaleDateString()}</div>` : '';
+
     container.innerHTML = `
       <h5>Executive Overview</h5>
+      ${windowText}
       <p>${fmtNumber(data.total_reviews)} reviews analysed. Average rating ${fmtNumber(data.avg_rating,2)}. Risk ${fmtNumber(data.risk_score,0)}%.</p>
       <h5 class="mt-3">Action Plan</h5>
       <ul>${items}</ul>
@@ -697,6 +786,7 @@
   // ------------------------------
   document.addEventListener('DOMContentLoaded', async () => {
     initTheme();
+    initDefaultDates();
     await loadCompaniesOverview();
     await loadCompanies();
   });
