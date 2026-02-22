@@ -2,64 +2,80 @@
 from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from typing import Optional
 from ..db import get_db
 from ..models import Company
-# from ..auth import get_current_user  # Uncomment when authentication is ready
+# from ..auth import get_current_user  # Uncomment when auth is implemented
 import os
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
-
 templates = Jinja2Templates(directory="app/templates")
+
+
+def _get_google_maps_js_key() -> Optional[str]:
+    """
+    Prefer GOOGLE_MAPS_API_KEY for browser JavaScript (Maps JS API + Places Autocomplete).
+    Fall back to GOOGLE_PLACES_API_KEY only if the former is missing.
+    """
+    key = os.getenv("GOOGLE_MAPS_API_KEY")
+    if key:
+        return key
+    fallback = os.getenv("GOOGLE_PLACES_API_KEY")
+    if fallback:
+        print("Warning: Using GOOGLE_PLACES_API_KEY for browser – prefer GOOGLE_MAPS_API_KEY for JS API")
+        return fallback
+    return None
 
 
 @router.get("/", name="dashboard")
 @router.get("/{company_id}", name="dashboard_with_company")
 async def get_dashboard(
     request: Request,
-    company_id: int | None = None,
+    company_id: Optional[int] = None,
     db: Session = Depends(get_db),
-    # current_user = Depends(get_current_user)  # Add later for user-specific access
+    # current_user = Depends(get_current_user)  # ← enable later for ownership filtering
 ):
     """
-    Render the main dashboard page.
-    If company_id is provided in URL, pre-select that company.
-
-    This route ALSO injects the Google Maps JS API key into the template so that
-    the Places Autocomplete in the 'Add Company' modal can initialize.
-
-    Expected environment variables (one of these must be set):
-      - GOOGLE_MAPS_API_KEY        (used for Maps JavaScript + Places on frontend)
-      - GOOGLE_PLACES_API_KEY      (backend server-to-server calls; not used in script tag)
-
-    NOTE: We prefer GOOGLE_MAPS_API_KEY for the <script> tag because the Maps JS runtime
-    runs in the browser and expects a Maps/Browser key configured with HTTP referrer
-    restrictions for your domain(s).
+    Renders the main Review Intelligence dashboard.
+    
+    - If company_id is in the URL path (e.g. /dashboard/3), pre-selects that company.
+    - Injects Google Maps JavaScript API key for client-side Places Autocomplete.
+    - Includes basic diagnostics (useful during dev / onboarding).
     """
     initial_company = None
     if company_id:
-        initial_company = db.query(Company).filter(Company.id == company_id).first()
+        initial_company = (
+            db.query(Company)
+            .filter(Company.id == company_id)
+            # .filter(Company.owner_id == current_user.id)  # ← add when auth ready
+            .first()
+        )
+        if not initial_company:
+            raise HTTPException(status_code=404, detail="Company not found")
 
-    # Resolve the key for the front-end script tag.
-    # We use GOOGLE_MAPS_API_KEY specifically for the browser (JS).
-    google_maps_api_key = os.getenv("GOOGLE_MAPS_API_KEY")
+    maps_js_key = _get_google_maps_js_key()
 
-    # Non-breaking diagnostics flags for the template (optional UI banner).
+    # Optional: raise hard error in production if key missing
+    # if not maps_js_key:
+    #     raise HTTPException(500, "Google Maps JavaScript API key not configured")
+
     diagnostics = {
-        "maps_key_present": bool(google_maps_api_key),
-        # You can add your production hostname checks here if needed
+        "maps_js_key_present": bool(maps_js_key),
+        "maps_key_source": "GOOGLE_MAPS_API_KEY" if os.getenv("GOOGLE_MAPS_API_KEY") else
+                           "GOOGLE_PLACES_API_KEY (fallback)" if os.getenv("GOOGLE_PLACES_API_KEY") else
+                           "MISSING",
+        "environment": os.getenv("ENVIRONMENT", "development"),
     }
-
-    # If you want a HARD fail when key is missing, uncomment the next 2 lines.
-    # if not google_maps_api_key:
-    #     raise HTTPException(status_code=500, detail="Google Maps API key not configured")
 
     return templates.TemplateResponse(
         "dashboard.html",
         {
             "request": request,
             "current_company_id": company_id or 0,
-            "company_name": initial_company.name if initial_company else None,
-            "google_maps_api_key": google_maps_api_key,  # ← used by <script src="...key={{ google_maps_api_key }}...">
-            "diagnostics": diagnostics,                  # ← optional banner in template
+            "initial_company_name": initial_company.name if initial_company else None,
+            "google_maps_api_key": maps_js_key,
+            "diagnostics": diagnostics,
+            # Add more context if needed, e.g.:
+            # "user": current_user,
         }
     )
