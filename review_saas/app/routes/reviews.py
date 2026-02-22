@@ -1,5 +1,5 @@
 # FILE: review_saas/app/routes/reviews.py
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Review, Company
@@ -11,7 +11,6 @@ from typing import List, Dict, Any, Optional, Tuple
 import os
 import re
 import logging
-import math
 
 # Optional Google client (Places only)
 try:
@@ -61,7 +60,7 @@ GBP_ACCESS_TOKEN = os.getenv("GBP_ACCESS_TOKEN")
 
 API_TOKEN = os.getenv("API_TOKEN")  # For POST /reviews/company
 
-# Keep the fixed start to preserve existing behavior
+# Keep the fixed start to preserve existing behavior when no user-provided range
 FIXED_DEFAULT_START = datetime(2026, 2, 21, tzinfo=timezone.utc)
 
 # ─────────────────────────────────────────────────────────────
@@ -170,6 +169,48 @@ def _confidence_heuristic(rating: Optional[float], text: Optional[str]) -> float
     return round(conf, 2)
 
 # ─────────────────────────────────────────────────────────────
+# Date Parsing (for single-fetch windowed queries)
+# ─────────────────────────────────────────────────────────────
+_DATE_FORMATS = [
+    "%Y-%m-%d",
+    "%d/%m/%Y",
+    "%d-%m-%Y",
+    "%Y/%m/%d",
+    "%d.%m.%Y",
+    "%Y.%m.%d",
+    "%Y-%m-%dT%H:%M",
+    "%Y-%m-%dT%H:%M:%S",
+]
+
+def _parse_date_param(val: Optional[str], *, as_end: bool = False) -> Optional[datetime]:
+    """Parse flexible date strings into UTC datetimes.
+    - If only date is provided, start = 00:00:00, end = 23:59:59
+    """
+    if not val:
+        return None
+    s = val.strip()
+    for fmt in _DATE_FORMATS:
+        try:
+            dt = datetime.strptime(s, fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            else:
+                dt = dt.astimezone(timezone.utc)
+            if "T" not in fmt:  # Date-only formats
+                if as_end:
+                    dt = dt.replace(hour=23, minute=59, second=59, microsecond=0)
+                else:
+                    dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+            return dt
+        except Exception:
+            continue
+    raise HTTPException(
+        status_code=422,
+        detail="Invalid date format. Use one of: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, "
+               "YYYY/MM/DD, DD.MM.YYYY, or ISO datetime (e.g., 2026-02-23T13:30:00)."
+    )
+
+# ─────────────────────────────────────────────────────────────
 # Sync Optimized (NO N+1 QUERIES)
 # ─────────────────────────────────────────────────────────────
 def _preload_existing_keys(db: Session, company_id: int):
@@ -210,7 +251,6 @@ def fetch_and_save_reviews_places(company: Company, db: Session, max_reviews: in
     if added:
         db.commit()
 
-    # Update company aggregates if model supports these fields
     if hasattr(company, "google_rating"):
         company.google_rating = result.get("rating")
     if hasattr(company, "user_ratings_total"):
@@ -243,50 +283,44 @@ def _detect_trend(trend_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         return {"signal": "improving", "delta": delta}
     return {"signal": "stable", "delta": delta}
 
-def _daily_buckets(reviews: List[Review], days: int) -> List[Dict[str, Any]]:
-    """Return last N days buckets with avg rating & sentiment score."""
-    end = datetime.now(timezone.utc).replace(hour=23, minute=59, second=59, microsecond=0)
-    start = end - timedelta(days=days-1)
+def _daily_buckets_range(reviews: List[Review], start: datetime, end: datetime) -> List[Dict[str, Any]]:
+    """Return per-day buckets between start and end (inclusive) with avg rating & sentiment score."""
+    start_day = start.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
+    end_day = end.replace(hour=23, minute=59, second=59, microsecond=0, tzinfo=timezone.utc)
+    days = (end_day.date() - start_day.date()).days + 1
+    if days < 1:
+        return []
+
     buckets: Dict[str, Dict[str, Any]] = {}
     for i in range(days):
-        d = (start + timedelta(days=i)).date().isoformat()
-        buckets[d] = {"date": d, "ratings": [], "scores": []}
+        d = (start_day + timedelta(days=i)).date().isoformat()
+        buckets[d] = {"date": d, "ratings": [], "scores": [], "counts": {"Positive":0, "Neutral":0, "Negative":0}}
 
     for r in reviews:
         dt = _parse_review_date(r)
-        if not dt:
-            continue
-        if dt < start or dt > end:
+        if not dt or dt < start_day or dt > end_day:
             continue
         d = dt.date().isoformat()
         label = classify_sentiment(r.rating)
         score = _score_from_sentiment(label)
         buckets[d]["ratings"].append(r.rating or 0)
         buckets[d]["scores"].append(score)
+        buckets[d]["counts"][label] += 1
 
     series = []
     for d in sorted(buckets.keys()):
         rs = buckets[d]["ratings"]
         ss = buckets[d]["scores"]
+        counts = buckets[d]["counts"]
         series.append({
             "date": d,
             "avg_rating": round(sum(rs)/len(rs), 2) if rs else None,
-            "sent_score": round(sum(ss)/len(ss), 3) if ss else 0.0
+            "sent_score": round(sum(ss)/len(ss), 3) if ss else 0.0,
+            "positive": counts["Positive"],
+            "neutral": counts["Neutral"],
+            "negative": counts["Negative"]
         })
     return series
-
-def _window_summary(reviews: List[Review], days: int) -> Dict[str, Any]:
-    series = _daily_buckets(reviews, days)
-    values = [x["sent_score"] for x in series]
-    avg = round(sum(values)/len(values), 3) if values else 0.0
-    # Spike detection: last 3-day vs previous 3-day mean
-    if len(values) >= 6:
-        last3 = values[-3:]
-        prev3 = values[-6:-3]
-        delta = round((sum(last3)/3) - (sum(prev3)/3), 3)
-    else:
-        delta = 0.0
-    return {"avg_score": avg, "delta": delta, "series": series}
 
 def get_review_summary_data(
     reviews: List[Review],
@@ -294,7 +328,7 @@ def get_review_summary_data(
     start_override: Optional[datetime] = None,
     end_override: Optional[datetime] = None
 ):
-    # Preserve window behavior
+    # Window behavior: use provided start/end, else default fixed start -> now
     start = start_override or FIXED_DEFAULT_START
     end = end_override or datetime.now(timezone.utc)
     if end < start:
@@ -306,7 +340,7 @@ def get_review_summary_data(
         if r_dt and start <= r_dt <= end:
             windowed.append(r)
 
-    # Ensure consistent structure even when no data (additive keys only)
+    # Empty result (preserve keys; additive fields included)
     if not windowed:
         return {
             "company_name": getattr(company, "name", f"Company {getattr(company, 'id', '')}"),
@@ -319,6 +353,8 @@ def get_review_summary_data(
             "sentiments": {"Positive": 0, "Neutral": 0, "Negative": 0},
             "ai_recommendations": [],
             "reviews": [],
+            "daily_series": [],
+            "window": {"start": start.isoformat(), "end": end.isoformat()},
             "payload_version": "3.0"
         }
 
@@ -376,6 +412,9 @@ def get_review_summary_data(
             "action": _action_for_keyword(keyword)
         })
 
+    # Per-day data for the exact requested window (single fetch for UI)
+    daily_series = _daily_buckets_range(windowed, start, end)
+
     return {
         "company_name": getattr(company, "name", f"Company {getattr(company, 'id', '')}"),
         "total_reviews": total,
@@ -386,11 +425,13 @@ def get_review_summary_data(
         "risk_score": risk_score,
         "risk_level": risk_level,
         "ai_recommendations": recommendations,
+        "daily_series": daily_series,  # NEW: day-wise results for the given window
+        "window": {"start": start.isoformat(), "end": end.isoformat()},
         "payload_version": "3.0"
     }
 
 # ─────────────────────────────────────────────────────────────
-# New: Companies Overview & Add Company API
+# Companies Overview & Add Company API (kept)
 # ─────────────────────────────────────────────────────────────
 def _health_from_risk(risk_level: str) -> str:
     if risk_level == "High": return "Red"
@@ -399,6 +440,27 @@ def _health_from_risk(risk_level: str) -> str:
 
 def _pct(n: int, d: int) -> float:
     return round((n / d) * 100, 2) if d else 0.0
+
+def _daily_buckets(reviews: List[Review], days: int) -> List[Dict[str, Any]]:
+    """Return last N days buckets with avg rating & sentiment score."""
+    end = datetime.now(timezone.utc).replace(hour=23, minute=59, second=59, microsecond=0)
+    start = end - timedelta(days=days-1)
+    return _daily_buckets_range(reviews, start, end)
+
+def _window_summary(reviews: List[Review], days: int) -> Dict[str, Any]:
+    end = datetime.now(timezone.utc).replace(hour=23, minute=59, second=59, microsecond=0)
+    start = end - timedelta(days=days-1)
+    series = _daily_buckets_range(reviews, start, end)
+    values = [x["sent_score"] for x in series]
+    avg = round(sum(values)/len(values), 3) if values else 0.0
+    # Spike detection: last 3-day vs previous 3-day mean
+    if len(values) >= 6:
+        last3 = values[-3:]
+        prev3 = values[-6:-3]
+        delta = round((sum(last3)/3) - (sum(prev3)/3), 3)
+    else:
+        delta = 0.0
+    return {"avg_score": avg, "delta": delta, "series": series}
 
 def _compute_overview_for_company(db: Session, c: Company) -> Dict[str, Any]:
     reviews = db.query(Review).filter(Review.company_id == c.id).all()
@@ -445,18 +507,12 @@ def _compute_overview_for_company(db: Session, c: Company) -> Dict[str, Any]:
             "delta": last90["delta"],
             "label": perf90_label
         },
-        "alerts": {
-            "negative_surge": neg_surge
-        }
+        "alerts": { "negative_surge": neg_surge }
     }
     return overview
 
 @router.get("/companies/overview")
 def companies_overview(db: Session = Depends(get_db)):
-    """
-    Returns overview metrics per company for the central dashboard.
-    Non-breaking: new endpoint.
-    """
     companies = db.query(Company).all()
     results = []
     for c in companies:
@@ -561,16 +617,47 @@ def add_company(
     }
 
 # ─────────────────────────────────────────────────────────────
-# Existing Endpoints (unchanged IO)
+# NEW: Google Places text search (to discover place_id)
+# ─────────────────────────────────────────────────────────────
+@router.get("/google/places")
+def google_places_search(q: str = Query(..., min_length=2)):
+    """
+    Search Google Places by text to get place_id before adding a company.
+    """
+    if not gmaps:
+        return {"ok": False, "reason": "Google client not initialized"}
+    try:
+        resp = gmaps.find_place(input=q, input_type="textquery", fields=["place_id","name","formatted_address"])
+        candidates = resp.get("candidates", []) or []
+        items = [{
+            "name": c.get("name"),
+            "place_id": c.get("place_id"),
+            "formatted_address": c.get("formatted_address")
+        } for c in candidates]
+        return {"ok": True, "items": items}
+    except Exception as e:
+        logger.error(f"Places search failed: {e}")
+        return {"ok": False, "reason": "places_search_failed"}
+
+# ─────────────────────────────────────────────────────────────
+# Existing Endpoints (IO preserved, now with optional start/end)
 # ─────────────────────────────────────────────────────────────
 @router.get("/summary/{company_id}")
-def reviews_summary(company_id: int, db: Session = Depends(get_db)):
+def reviews_summary(
+    company_id: int,
+    start: Optional[str] = Query(None, description="Start date (e.g., 2026-02-23 or 23/02/2026)"),
+    end: Optional[str] = Query(None, description="End date (e.g., 2026-03-10 or 10/03/2026)"),
+    db: Session = Depends(get_db)
+):
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
 
+    start_dt = _parse_date_param(start, as_end=False) if start else None
+    end_dt = _parse_date_param(end, as_end=True) if end else None
+
     reviews = db.query(Review).filter(Review.company_id == company_id).all()
-    return get_review_summary_data(reviews, company)
+    return get_review_summary_data(reviews, company, start_dt, end_dt)
 
 @router.get("/sync/{company_id}")
 def reviews_sync(company_id: int, db: Session = Depends(get_db)):
