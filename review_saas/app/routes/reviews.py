@@ -1,6 +1,5 @@
 # FILE: review_saas/app/routes/reviews.py
-
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Review, Company
@@ -19,11 +18,9 @@ try:
 except Exception:
     googlemaps = None
 
-
 # ─────────────────────────────────────────────────────────────
 # Logger
 # ─────────────────────────────────────────────────────────────
-
 logger = logging.getLogger("reviews")
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -34,11 +31,9 @@ logger.setLevel(logging.INFO)
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
-
 # ─────────────────────────────────────────────────────────────
 # Config
 # ─────────────────────────────────────────────────────────────
-
 def _resolve_places_api_key() -> Tuple[Optional[str], str]:
     key = os.getenv("GOOGLE_PLACES_API_KEY")
     if key:
@@ -48,7 +43,6 @@ def _resolve_places_api_key() -> Tuple[Optional[str], str]:
         logger.warning("Falling back to GOOGLE_MAPS_API_KEY for Places.")
         return alt, "GOOGLE_MAPS_API_KEY"
     return None, "NONE"
-
 
 api_key, api_key_source = _resolve_places_api_key()
 
@@ -64,13 +58,12 @@ USE_GBP_API = os.getenv("USE_GBP_API", "false").lower() == "true"
 GBP_LOCATION_NAME = os.getenv("GBP_LOCATION_NAME")
 GBP_ACCESS_TOKEN = os.getenv("GBP_ACCESS_TOKEN")
 
+# Keep the fixed start to preserve existing behavior
 FIXED_DEFAULT_START = datetime(2026, 2, 21, tzinfo=timezone.utc)
-
 
 # ─────────────────────────────────────────────────────────────
 # NLP Helpers
 # ─────────────────────────────────────────────────────────────
-
 _STOPWORDS = {
     "a","an","and","are","as","at","be","by","for","from",
     "the","this","is","it","to","with","was","of","in","on",
@@ -78,7 +71,7 @@ _STOPWORDS = {
     "very","really","just","too"
 }
 
-ASPECT_LEXICON = {
+ASPECT_LEXICON: Dict[str, List[str]] = {
     "Service": ["service","staff","attitude","rude","friendly","helpful","manager"],
     "Speed": ["wait","slow","delay","queue","time","late"],
     "Price": ["price","expensive","cheap","overpriced","value"],
@@ -89,7 +82,7 @@ ASPECT_LEXICON = {
     "Digital": ["payment","card","terminal","app","crash","online","wifi"],
 }
 
-ACTION_MAP = {
+ACTION_MAP: Dict[str, str] = {
     "wait": "Optimize peak-hour staffing and queue flow.",
     "service": "Launch service excellence workshop.",
     "price": "Review pricing vs competitors.",
@@ -135,12 +128,11 @@ def _parse_review_date(r: Review) -> Optional[datetime]:
         return r.review_date.astimezone(timezone.utc) if r.review_date.tzinfo else r.review_date.replace(tzinfo=timezone.utc)
     return None
 
-
 # ─────────────────────────────────────────────────────────────
 # Sync Optimized (NO N+1 QUERIES)
 # ─────────────────────────────────────────────────────────────
-
 def _preload_existing_keys(db: Session, company_id: int):
+    # Keep behavior; optimizing would require changing ORM calls
     existing = db.query(Review).filter(Review.company_id == company_id).all()
     return {(r.text, r.rating, r.review_date) for r in existing}
 
@@ -150,8 +142,10 @@ def fetch_and_save_reviews_places(company: Company, db: Session, max_reviews: in
 
     existing_keys = _preload_existing_keys(db, company.id)
 
-    result = gmaps.place(place_id=company.place_id,
-                         fields=["reviews","rating","user_ratings_total"]).get("result", {})
+    result = gmaps.place(
+        place_id=company.place_id,
+        fields=["reviews","rating","user_ratings_total"]
+    ).get("result", {})
 
     reviews_data = (result.get("reviews", []) or [])[:max_reviews]
     added = 0
@@ -182,14 +176,12 @@ def fetch_and_save_reviews_places(company: Company, db: Session, max_reviews: in
 
     return added
 
-
 # ─────────────────────────────────────────────────────────────
 # Analysis Engine
 # ─────────────────────────────────────────────────────────────
-
 def _detect_trend(trend_data: List[Dict[str, Any]]) -> Dict[str, Any]:
     if len(trend_data) < 3:
-        return {"signal":"insufficient_data","delta":0.0}
+        return {"signal": "insufficient_data", "delta": 0.0}
 
     data = sorted(trend_data, key=lambda x: x["month"])
 
@@ -198,16 +190,15 @@ def _detect_trend(trend_data: List[Dict[str, Any]]) -> Dict[str, Any]:
     else:
         last3 = data[-3:]
         prev3 = data[-6:-3]
-        last_avg = sum(x["avg_rating"] for x in last3)/3
-        prev_avg = sum(x["avg_rating"] for x in prev3)/3 if prev3 else last_avg
-        delta = round(last_avg-prev_avg,2)
+        last_avg = sum(x["avg_rating"] for x in last3) / 3
+        prev_avg = sum(x["avg_rating"] for x in prev3) / 3 if prev3 else last_avg
+        delta = round(last_avg - prev_avg, 2)
 
     if delta <= -0.3:
-        return {"signal":"declining","delta":delta}
+        return {"signal": "declining", "delta": delta}
     if delta >= 0.3:
-        return {"signal":"improving","delta":delta}
-    return {"signal":"stable","delta":delta}
-
+        return {"signal": "improving", "delta": delta}
+    return {"signal": "stable", "delta": delta}
 
 def get_review_summary_data(
     reviews: List[Review],
@@ -215,18 +206,19 @@ def get_review_summary_data(
     start_override: Optional[datetime] = None,
     end_override: Optional[datetime] = None
 ):
-
+    # Preserve window behavior
     start = start_override or FIXED_DEFAULT_START
     end = end_override or datetime.now(timezone.utc)
     if end < start:
         start, end = end, start
 
-    windowed = []
+    windowed: List[Review] = []
     for r in reviews:
         r_dt = _parse_review_date(r)
         if r_dt and start <= r_dt <= end:
             windowed.append(r)
 
+    # Ensure consistent structure even when no data (additive keys only)
     if not windowed:
         return {
             "company_name": company.name,
@@ -235,61 +227,66 @@ def get_review_summary_data(
             "risk_score": 0,
             "risk_level": "Low",
             "trend_data": [],
+            "trend": {"signal": "insufficient_data", "delta": 0.0},
+            "sentiments": {"Positive": 0, "Neutral": 0, "Negative": 0},
             "ai_recommendations": [],
-            "reviews": []
+            "reviews": [],                  # preserved from original empty path
+            "payload_version": "3.0"        # aligns with non-empty path
         }
 
-    sentiments = {"Positive":0,"Neutral":0,"Negative":0}
-    trend_data = defaultdict(list)
-    neg_tokens = []
-    aspect_counts = defaultdict(lambda: {"pos":0,"neg":0})
+    sentiments = {"Positive":0, "Neutral":0, "Negative":0}
+    trend_data: Dict[str, List[float]] = defaultdict(list)
+    neg_tokens: List[str] = []
+    aspect_counts: Dict[str, Dict[str, int]] = defaultdict(lambda: {"pos":0,"neg":0})
 
     for r in windowed:
         sentiment = classify_sentiment(r.rating)
-        sentiments[sentiment]+=1
+        sentiments[sentiment] += 1
 
         tokens = extract_keywords(r.text)
         aspects = map_aspects(tokens)
 
-        if sentiment=="Negative":
+        if sentiment == "Negative":
             neg_tokens.extend(tokens)
 
         for asp in aspects:
-            if sentiment=="Positive":
-                aspect_counts[asp]["pos"]+=1
-            if sentiment=="Negative":
-                aspect_counts[asp]["neg"]+=1
+            if sentiment == "Positive":
+                aspect_counts[asp]["pos"] += 1
+            if sentiment == "Negative":
+                aspect_counts[asp]["neg"] += 1
 
         r_dt = _parse_review_date(r)
         if r_dt:
             trend_data[r_dt.strftime("%Y-%m")].append(r.rating or 0)
 
-    trend_list = [{"month":m,"avg_rating":round(sum(v)/len(v),2)}
-                  for m,v in sorted(trend_data.items())]
+    trend_list = [
+        {"month": m, "avg_rating": round(sum(v)/len(v), 2)}
+        for m, v in sorted(trend_data.items())
+    ]
 
     trend_signal = _detect_trend(trend_list)
 
     total = len(windowed)
-    avg = round(sum(r.rating for r in windowed if r.rating)/total,2)
+    # Ratings may be None on some rows; filter accordingly
+    rated_values = [r.rating for r in windowed if r.rating is not None]
+    avg = round(sum(rated_values) / len(rated_values), 2) if rated_values else 0.0
 
-    neg_share = sentiments["Negative"]/total
-    risk_score = round(neg_share*100 + (10 if trend_signal["signal"]=="declining" else 0),2)
-
-    risk_level = "High" if risk_score>=40 else "Medium" if risk_score>=20 else "Low"
+    neg_share = sentiments["Negative"] / total if total else 0
+    risk_score = round(neg_share * 100 + (10 if trend_signal["signal"] == "declining" else 0), 2)
+    risk_level = "High" if risk_score >= 40 else "Medium" if risk_score >= 20 else "Low"
 
     neg_counter = Counter(neg_tokens)
 
     recommendations = []
     seen = set()
-
     for keyword, count in neg_counter.most_common(5):
         if keyword in seen:
             continue
         seen.add(keyword)
         recommendations.append({
-            "area":keyword,
-            "priority":"High" if count>=5 else "Medium",
-            "action":_action_for_keyword(keyword)
+            "area": keyword,
+            "priority": "High" if count >= 5 else "Medium",
+            "action": _action_for_keyword(keyword)
         })
 
     return {
@@ -302,36 +299,32 @@ def get_review_summary_data(
         "risk_score": risk_score,
         "risk_level": risk_level,
         "ai_recommendations": recommendations,
-        "payload_version":"3.0"
+        "payload_version": "3.0"
     }
 
-
 # ─────────────────────────────────────────────────────────────
-# Endpoints
+# Endpoints (unchanged IO)
 # ─────────────────────────────────────────────────────────────
-
 @router.get("/summary/{company_id}")
-def reviews_summary(company_id:int, db:Session=Depends(get_db)):
-    company = db.query(Company).filter(Company.id==company_id).first()
+def reviews_summary(company_id: int, db: Session = Depends(get_db)):
+    company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
-        raise HTTPException(status_code=404,detail="Company not found")
+        raise HTTPException(status_code=404, detail="Company not found")
 
-    reviews = db.query(Review).filter(Review.company_id==company_id).all()
-    return get_review_summary_data(reviews,company)
-
+    reviews = db.query(Review).filter(Review.company_id == company_id).all()
+    return get_review_summary_data(reviews, company)
 
 @router.get("/sync/{company_id}")
-def reviews_sync(company_id:int, db:Session=Depends(get_db)):
-    company = db.query(Company).filter(Company.id==company_id).first()
+def reviews_sync(company_id: int, db: Session = Depends(get_db)):
+    company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
-        raise HTTPException(status_code=404,detail="Company not found")
+        raise HTTPException(status_code=404, detail="Company not found")
 
     if not gmaps:
-        return {"ok":False,"reason":"Google client not initialized"}
+        return {"ok": False, "reason": "Google client not initialized"}
 
-    added = fetch_and_save_reviews_places(company,db)
-    return {"ok":True,"added":added}
-
+    added = fetch_and_save_reviews_places(company, db)
+    return {"ok": True, "added": added}
 
 @router.get("/diagnostics")
 def reviews_diagnostics():
