@@ -1,6 +1,5 @@
 # FILE: review_saas/app/routes/reviews.py
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
-from sqlalchemy import func, and_
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timezone, timedelta
@@ -18,6 +17,9 @@ except ImportError:
 from ..db import get_db
 from ..models import Review, Company
 
+# ─────────────────────────────────────────────────────────────
+# Logger
+# ─────────────────────────────────────────────────────────────
 logger = logging.getLogger("reviews")
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -27,8 +29,13 @@ logger.setLevel(logging.INFO)
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
-# ---------------- Config ----------------
+# ─────────────────────────────────────────────────────────────
+# Config / Google Client
+# ─────────────────────────────────────────────────────────────
 def _resolve_places_api_key() -> Tuple[Optional[str], str]:
+    """
+    Prefer GOOGLE_PLACES_API_KEY; fall back to GOOGLE_MAPS_API_KEY for Places API.
+    """
     key = os.getenv("GOOGLE_PLACES_API_KEY")
     if key:
         return key, "GOOGLE_PLACES_API_KEY"
@@ -40,7 +47,7 @@ def _resolve_places_api_key() -> Tuple[Optional[str], str]:
 
 api_key, api_src = _resolve_places_api_key()
 
-gmaps: Optional[googlemaps.Client] = None
+gmaps: Optional["googlemaps.Client"] = None
 if api_key and googlemaps:
     try:
         gmaps = googlemaps.Client(key=api_key)
@@ -50,7 +57,9 @@ if api_key and googlemaps:
 
 API_TOKEN = os.getenv("API_TOKEN")
 
-# ---------------- NLP helpers ----------------
+# ─────────────────────────────────────────────────────────────
+# NLP helpers
+# ─────────────────────────────────────────────────────────────
 _STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
     "the", "this", "is", "it", "to", "with", "was", "of", "in", "on",
@@ -111,7 +120,9 @@ def _action_for_keyword(keyword: str) -> str:
             return v
     return "Perform root-cause analysis (5-Whys) and define corrective action"
 
-# ---------------- Google Place Helpers ----------------
+# ─────────────────────────────────────────────────────────────
+# Google Place Helpers
+# ─────────────────────────────────────────────────────────────
 def _city_country_from_components(components: List[Dict]) -> Tuple[Optional[str], Optional[str]]:
     city = country = None
     for comp in components:
@@ -123,6 +134,9 @@ def _city_country_from_components(components: List[Dict]) -> Tuple[Optional[str]
     return city, country
 
 def _enrich_place_detail(place_id: str) -> Dict[str, Any]:
+    """
+    Calls Places Details API and returns a normalized attribute payload.
+    """
     if not gmaps:
         return {}
     try:
@@ -131,9 +145,9 @@ def _enrich_place_detail(place_id: str) -> Dict[str, Any]:
             "website", "international_phone_number", "rating", "user_ratings_total",
             "geometry", "opening_hours"
         ]
-        res = gmaps.place(place_id=place_id, fields=fields).get("result", {})
+        res = gmaps.place(place_id=place_id, fields=fields).get("result", {}) or {}
         city, country = _city_country_from_components(res.get("address_components", []))
-        loc = res.get("geometry", {}).get("location", {})
+        loc = (res.get("geometry") or {}).get("location") or {}
         return {
             "name": res.get("name"),
             "place_id": res.get("place_id"),
@@ -145,13 +159,15 @@ def _enrich_place_detail(place_id: str) -> Dict[str, Any]:
             "rating": res.get("rating"),
             "user_ratings_total": res.get("user_ratings_total"),
             "location": {"lat": loc.get("lat"), "lng": loc.get("lng")} if loc else None,
-            "opening_hours": {"weekday_text": res.get("opening_hours", {}).get("weekday_text", [])},
+            "opening_hours": {"weekday_text": (res.get("opening_hours") or {}).get("weekday_text", [])},
         }
     except Exception as e:
         logger.error(f"Google place detail failed for {place_id}: {e}")
         return {}
 
-# ---------------- Date handling ----------------
+# ─────────────────────────────────────────────────────────────
+# Date handling
+# ─────────────────────────────────────────────────────────────
 def _parse_review_date(r: Review) -> Optional[datetime]:
     if not r.review_date:
         return None
@@ -182,7 +198,9 @@ def _parse_date_param(val: Optional[str], as_end: bool = False) -> Optional[date
             continue
     raise HTTPException(422, "Invalid date format. Use YYYY-MM-DD or similar.")
 
-# ---------------- DB & Google helpers ----------------
+# ─────────────────────────────────────────────────────────────
+# DB & Google helpers
+# ─────────────────────────────────────────────────────────────
 def _preload_existing_keys(db: Session, company_id: int, since_days: int = 90) -> set:
     cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
     existing = db.query(Review).filter(
@@ -192,6 +210,10 @@ def _preload_existing_keys(db: Session, company_id: int, since_days: int = 90) -
     return {(r.text or "", r.rating, r.review_date) for r in existing}
 
 def fetch_and_save_reviews_places(company: Company, db: Session, max_reviews: int = 60) -> int:
+    """
+    Fetches recent reviews from Google Places for a company's place_id and saves
+    new ones only (dedup by text/rating/date). Also updates company aggregates.
+    """
     if not gmaps or not getattr(company, "place_id", None):
         return 0
 
@@ -241,7 +263,9 @@ def fetch_and_save_reviews_places(company: Company, db: Session, max_reviews: in
 
     return added
 
-# ---------------- Core analysis logic ----------------
+# ─────────────────────────────────────────────────────────────
+# Core analysis logic
+# ─────────────────────────────────────────────────────────────
 def _daily_buckets_range(reviews: List[Review], start: datetime, end: datetime) -> List[Dict]:
     start_day = start.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
     end_day = end.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
@@ -281,6 +305,11 @@ def get_review_summary_data(
     start: Optional[datetime] = None,
     end: Optional[datetime] = None
 ) -> Dict[str, Any]:
+    """
+    Single-fetch summary for a given company and date window.
+    Includes: totals, avg rating, sentiments, monthly trend, day-wise series,
+    risk score/level, and AI recommendations derived from negative tokens.
+    """
     now = datetime.now(timezone.utc)
     start = start or (now - timedelta(days=180))  # Default: last 6 months
     end = end or now
@@ -326,6 +355,7 @@ def get_review_summary_data(
         for m, v in sorted(trend_data.items())
     ]
 
+    # Trend signal from monthly buckets
     trend = {"signal": "insufficient_data", "delta": 0.0}
     if len(trend_list) >= 3:
         last = trend_list[-1]["avg_rating"]
@@ -380,9 +410,15 @@ def get_review_summary_data(
         "payload_version": "3.2"
     }
 
-# ────────────────────────────────────────────── Endpoints ─────
+# ─────────────────────────────────────────────────────────────
+# Endpoints
+# ─────────────────────────────────────────────────────────────
 @router.get("/google/places")
 def google_places_search(q: str = Query(..., min_length=2)):
+    """
+    Search Google Places; returns candidates enriched with city/country/website/phone/rating
+    by calling Places Details for each candidate (best-effort).
+    """
     if not gmaps:
         return {"ok": False, "reason": "Google Places client not available"}
     try:
@@ -406,6 +442,7 @@ def google_places_search(q: str = Query(..., min_length=2)):
                 "user_ratings_total": detail.get("user_ratings_total"),
                 "location": detail.get("location"),
                 "website": detail.get("website"),
+                "international_phone_number": detail.get("international_phone_number"),
             })
         return {"ok": True, "items": items}
     except Exception as e:
@@ -414,6 +451,9 @@ def google_places_search(q: str = Query(..., min_length=2)):
 
 @router.get("/company/{company_id}/google_details")
 def google_details_for_company(company_id: int, db: Session = Depends(get_db)):
+    """
+    Fetch live Google attributes for the company's place_id and (best-effort) update DB fields.
+    """
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(404, "Company not found")
@@ -453,6 +493,11 @@ def add_company(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
     authorization: Optional[str] = Header(None, alias="Authorization")
 ):
+    """
+    Create a new company by name + place_id.
+    If API_TOKEN is set, validates token via X-API-Key or Authorization Bearer.
+    Enriches company fields via Google details (best-effort).
+    """
     if API_TOKEN:
         token = (x_api_key or "").strip() or ""
         if authorization and authorization.lower().startswith("bearer "):
@@ -471,8 +516,11 @@ def add_company(
         raise HTTPException(409, "Place ID already registered")
 
     company = Company(name=name, place_id=place_id)
-    company.website = (payload.get("website") or "").strip() or None
-    company.location = (payload.get("location") or "").strip() or None
+    # Accept optional provided values; may be overwritten by enrich below.
+    if hasattr(company, "website"):
+        company.website = (payload.get("website") or "").strip() or None
+    if hasattr(company, "location"):
+        company.location = (payload.get("location") or "").strip() or None
 
     db.add(company)
     db.commit()
@@ -483,11 +531,11 @@ def add_company(
         detail = _enrich_place_detail(place_id)
         if detail:
             updates = {}
-            if detail.get("website"):
+            if detail.get("website") and hasattr(company, "website"):
                 updates["website"] = detail["website"]
             if detail.get("city") or detail.get("country"):
                 loc = ", ".join(filter(None, [detail.get("city"), detail.get("country")]))
-                if loc:
+                if loc and hasattr(company, "location"):
                     updates["location"] = loc
             if hasattr(company, "google_rating") and detail.get("rating") is not None:
                 updates["google_rating"] = detail["rating"]
@@ -508,6 +556,9 @@ def reviews_summary(
     end: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
+    """
+    Single-fetch summary for a company over a date range (?start=&end=).
+    """
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(404, "Company not found")
@@ -515,17 +566,15 @@ def reviews_summary(
     start_dt = _parse_date_param(start, as_end=False) if start else None
     end_dt = _parse_date_param(end, as_end=True) if end else None
 
-    # Filter directly in database — huge performance improvement
+    # Filter directly in database
     query = db.query(Review).filter(Review.company_id == company_id)
-
     if start_dt:
         query = query.filter(Review.review_date >= start_dt)
     if end_dt:
         query = query.filter(Review.review_date <= end_dt)
 
-    # Safety limit — prevents loading millions of rows
+    # Safety cap
     reviews = query.order_by(Review.review_date.desc()).limit(8000).all()
-
     return get_review_summary_data(reviews, company, start_dt, end_dt)
 
 @router.get("/sync/{company_id}")
