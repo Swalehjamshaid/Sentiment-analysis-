@@ -1,10 +1,13 @@
+<!-- FILE: review_saas/app/templates/dashboard.html -->
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">
 <head>
   <meta charset="UTF-8">
   <title>Review Intelligence • Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <!-- CSS & JS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 
@@ -19,12 +22,10 @@
       --bg: #f8fafc;
       --card-bg: #ffffff;
       --border: #e2e8f0;
-      --shadow-sm: 0 1px 3px rgba(0,0,0,0.05);
       --shadow: 0 4px 16px -2px rgba(0,0,0,0.08);
       --radius: 16px;
       --transition: all 0.22s ease;
     }
-
     [data-bs-theme="dark"] {
       --bg: #0f172a;
       --card-bg: #1e293b;
@@ -32,19 +33,16 @@
       --text: #e2e8f0;
       --neutral: #94a3b8;
     }
-
     body {
       background: var(--bg);
       color: var(--text, #0f172a);
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       padding-bottom: 3rem;
     }
-
     .navbar {
       background: linear-gradient(135deg, #4f46e5, #7c3aed) !important;
       box-shadow: 0 2px 12px rgba(0,0,0,0.15);
     }
-
     .card {
       background: var(--card-bg);
       border: 1px solid var(--border);
@@ -53,25 +51,17 @@
       transition: var(--transition);
       overflow: hidden;
     }
-
     .card:hover { transform: translateY(-2px); box-shadow: 0 10px 30px -6px rgba(0,0,0,0.1); }
-
     .metric {
       font-size: 2.6rem;
       font-weight: 700;
       line-height: 1;
       color: var(--primary);
     }
-
     .badge-risk-low    { background: var(--success); color: white; }
     .badge-risk-medium { background: var(--warning); color: black; }
     .badge-risk-high   { background: var(--danger);  color: white; }
-
-    .chart-wrap {
-      position: relative;
-      height: 320px;
-    }
-
+    .chart-wrap { position: relative; height: 320px; }
     .skeleton {
       background: linear-gradient(90deg, var(--border) 25%, #e5e7eb 50%, var(--border) 75%);
       background-size: 200% 100%;
@@ -79,52 +69,16 @@
       border-radius: 6px;
       min-height: 24px;
     }
-
     @keyframes shimmer { 0% {background-position: 200% 0;} 100% {background-position: -200% 0;} }
-
     .btn-primary { background: var(--primary); border-color: var(--primary); }
     .btn-primary:hover { background: var(--primary-soft); border-color: var(--primary-soft); }
-
-    .form-select, .form-control {
-      border-radius: 10px;
-      border-color: var(--border);
-    }
-
-    .attr-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 1rem;
-    }
-
-    .attr-item {
-      background: rgba(99,102,241,0.04);
-      border-radius: 10px;
-      padding: 1rem;
-      border: 1px solid var(--border);
-    }
-
+    .form-select, .form-control { border-radius: 10px; border-color: var(--border); }
+    .attr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+    .attr-item { background: rgba(99,102,241,0.04); border-radius: 10px; padding: 1rem; border: 1px solid var(--border); }
     [data-bs-theme="dark"] .attr-item { background: rgba(99,102,241,0.08); }
-
-    .rec-item {
-      border-left: 4px solid var(--primary);
-      background: rgba(99,102,241,0.03);
-      padding: 1rem;
-      border-radius: 10px;
-      margin-bottom: 1rem;
-    }
-
-    .theme-toggle {
-      background: none;
-      border: none;
-      font-size: 1.3rem;
-      cursor: pointer;
-      color: white;
-    }
-
-    @media (max-width: 992px) {
-      .chart-wrap { height: 280px; }
-      .metric { font-size: 2.2rem; }
-    }
+    .rec-item { border-left: 4px solid var(--primary); background: rgba(99,102,241,0.03); padding: 1rem; border-radius: 10px; margin-bottom: 1rem; }
+    .theme-toggle { background: none; border: none; font-size: 1.3rem; cursor: pointer; color: white; }
+    @media (max-width: 992px) { .chart-wrap { height: 280px; } .metric { font-size: 2.2rem; } }
   </style>
 </head>
 <body>
@@ -328,13 +282,16 @@
 </div>
 
 <script>
-// ────────────────────────────────────────────── State & Utils ─────
+/* ────────────────────────────────────────────── State & Utils ───── */
 let currentCompany = null;
 let trendChart, sentimentChart;
 let currentSummaryData = null;
 
-const $ = id => document.getElementById(id);
-const escapeHtml = str => str.replace(/[&<>"'`=\/]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'}[s] || s));
+const $  = id  => document.getElementById(id);
+const qs = sel => document.querySelector(sel);
+const escapeHtml = str => String(str || '').replace(/[&<>"'`=\/]/g, s =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'}[s] || s)
+);
 
 function fmtNumber(n, d=0) { return Number.isFinite(n) ? n.toFixed(d) : '—'; }
 function fmtDateISO(d) { return d.toISOString().split('T')[0]; }
@@ -348,66 +305,69 @@ function setLoading(isLoading) {
 
 function toast(msg, type = 'primary') {
   const id = `t${Date.now()}`;
-  document.body.insertAdjacentHTML('beforeend', `
-    <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index:1090">
-      <div id="${id}" class="toast align-items-center text-bg-${type} border-0" role="alert">
-        <div class="d-flex">
-          <div class="toast-body">${escapeHtml(msg)}</div>
-          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-        </div>
+  const wrap = document.createElement('div');
+  wrap.className = 'toast-container position-fixed top-0 end-0 p-3';
+  wrap.style.zIndex = '1090';
+  wrap.innerHTML = `
+    <div id="${id}" class="toast align-items-center text-bg-${type} border-0" role="alert">
+      <div class="d-flex">
+        <div class="toast-body">${escapeHtml(msg)}</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
       </div>
-    </div>`);
-  new bootstrap.Toast($(`${id}`), {delay:2800}).show();
-  setTimeout(() => $(id)?.closest('.toast-container')?.remove(), 3500);
+    </div>`;
+  document.body.appendChild(wrap);
+  new bootstrap.Toast($(id), { delay: 2800 }).show();
+  setTimeout(() => wrap.remove(), 3400);
 }
 
-// ────────────────────────────────────────────── Theme Toggle ─────
+/* ────────────────────────────────────────────── Theme Toggle ───── */
 function toggleTheme() {
   const html = document.documentElement;
   const isDark = html.getAttribute('data-bs-theme') === 'dark';
   html.setAttribute('data-bs-theme', isDark ? 'light' : 'dark');
   localStorage.setItem('theme', isDark ? 'light' : 'dark');
-  $(`.theme-toggle i`).className = isDark ? 'fas fa-moon' : 'fas fa-sun';
+  const icon = qs('.theme-toggle i');
+  if (icon) icon.className = isDark ? 'fas fa-moon' : 'fas fa-sun';
 }
+(function initTheme() {
+  const saved = localStorage.getItem('theme');
+  if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    toggleTheme(); // toggles to dark
+  }
+})();
 
-if (localStorage.getItem('theme') === 'dark' ||
-    (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-  toggleTheme();
-}
-
-// ────────────────────────────────────────────── Load Companies ─────
+/* ────────────────────────────────────────────── Load Companies ───── */
 async function loadCompanies() {
   try {
     const res = await fetch('/companies');
-    if (!res.ok) throw new Error();
+    if (!res.ok) throw new Error('companies fetch failed');
     const companies = await res.json();
     const sel = $('companySelect');
     sel.innerHTML = companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
     if (companies.length) {
       currentCompany = currentCompany ?? companies[0].id;
       sel.value = currentCompany;
-      loadSummary();
+      await loadSummary();
     }
-    sel.onchange = () => { currentCompany = sel.value; clearAttrs(); loadSummary(); };
+    sel.onchange = async () => { currentCompany = sel.value; clearAttrs(); await loadSummary(); };
   } catch {
     toast('Failed to load companies', 'danger');
   }
 }
 
-// ────────────────────────────────────────────── Date Range ─────
+/* ────────────────────────────────────────────── Date Range ───── */
 function initDates() {
   const today = fmtDateISO(new Date());
   $('endDate').value = today;
-  $('startDate').value = '2026-02-01'; // sensible recent default
+  $('startDate').value = '2026-02-23'; // matches your example
 }
 function applyDateRange() { loadSummary(); }
 
-// ────────────────────────────────────────────── Main Summary ─────
+/* ────────────────────────────────────────────── Main Summary ───── */
 async function loadSummary() {
   if (!currentCompany) return;
   setLoading(true);
   $('trendHint').textContent = '';
-
   try {
     const params = new URLSearchParams();
     const s = $('startDate').value?.trim();
@@ -416,7 +376,7 @@ async function loadSummary() {
     if (e) params.set('end', e);
     const url = `/reviews/summary/${currentCompany}${params.toString() ? '?' + params : ''}`;
     const res = await fetch(url);
-    if (!res.ok) throw new Error();
+    if (!res.ok) throw new Error('summary fetch failed');
     const data = await res.json();
     currentSummaryData = data;
 
@@ -425,8 +385,8 @@ async function loadSummary() {
     $('metricRisk').textContent = fmtNumber(data.risk_score) + '%';
 
     const badge = $('riskBadge');
-    badge.className = `badge fs-5 px-4 py-2 mt-2 badge-risk-${data.risk_level.toLowerCase()}`;
-    badge.textContent = data.risk_level;
+    badge.className = `badge fs-5 px-4 py-2 mt-2 badge-risk-${(data.risk_level || 'Low').toLowerCase()}`;
+    badge.textContent = data.risk_level || 'Low';
 
     $('activeWindowNote').textContent = data.window?.start && data.window?.end
       ? `Showing ${new Date(data.window.start).toLocaleDateString()} – ${new Date(data.window.end).toLocaleDateString()}`
@@ -448,12 +408,11 @@ async function loadSummary() {
   }
 }
 
-// ────────────────────────────────────────────── Google Details ─────
+/* ────────────────────────────────────────────── Google Details ───── */
 function clearAttrs() {
   $('companyAttrs').innerHTML = `<div class="text-center py-5 text-muted">Select company & click Google Details</div>`;
   $('attrsStatus').textContent = '';
 }
-
 async function fetchGoogleDetails() {
   if (!currentCompany) return;
   $('attrsStatus').textContent = 'Loading...';
@@ -468,47 +427,53 @@ async function fetchGoogleDetails() {
     toast('Could not fetch Google info. Check API key.', 'danger');
   }
 }
-
 function renderAttrs(d) {
   if (!Object.keys(d).length) return;
   const items = [
-    {label:'Name',        val:`<strong>${escapeHtml(d.name||'—')}</strong>`},
-    {label:'Address',     val:escapeHtml(d.formatted_address||'—')},
-    {label:'City',        val:escapeHtml(d.city||'—')},
-    {label:'Country',     val:escapeHtml(d.country||'—')},
-    {label:'Website',     val:d.website ? `<a href="${escapeHtml(d.website)}" target="_blank" rel="noopener">${escapeHtml(d.website)}</a>` : '—'},
-    {label:'Phone',       val:escapeHtml(d.international_phone_number||'—')},
-    {label:'Google Rating', val: d.rating ? `${d.rating} (${d.user_ratings_total || 0} reviews)` : '—'},
-    {label:'Place ID',    val:`<code class="small">${escapeHtml(d.place_id||'—')}</code>`},
-    {label:'Coordinates', val:d.location ? `${d.location.lat.toFixed(5)}, ${d.location.lng.toFixed(5)}` : '—'},
+    {label:'Name', val:`<strong>${escapeHtml(d.name||'—')}</strong>`},
+    {label:'Address', val:escapeHtml(d.formatted_address||'—')},
+    {label:'City', val:escapeHtml(d.city||'—')},
+    {label:'Country', val:escapeHtml(d.country||'—')},
+    {label:'Website', val:d.website ? `<a href="${escapeHtml(d.website)}" target="_blank" rel="noopener">${escapeHtml(d.website)}</a>` : '—'},
+    {label:'Phone', val:escapeHtml(d.international_phone_number||'—')},
+    {label:'Google Rating', val: d.rating ? `${escapeHtml(String(d.rating))} (${escapeHtml(String(d.user_ratings_total || 0))} reviews)` : '—'},
+    {label:'Place ID', val:`<code class="small">${escapeHtml(d.place_id||'—')}</code>`},
+    {label:'Coordinates', val:(d.location && Number.isFinite(d.location.lat) && Number.isFinite(d.location.lng))
+        ? `${Number(d.location.lat).toFixed(5)}, ${Number(d.location.lng).toFixed(5)}`
+        : '—'},
   ];
-
   $('companyAttrs').innerHTML = items.map(i => `
     <div class="attr-item">
       <div class="small text-muted mb-1">${i.label}</div>
       <div>${i.val}</div>
-    </div>
-  `).join('') + (d.opening_hours?.weekday_text?.length ? `
-    <div class="attr-item col-span-full">
-      <div class="small text-muted mb-1">Opening Hours</div>
-      ${d.opening_hours.weekday_text.map(l => `<div class="small">${escapeHtml(l)}</div>`).join('')}
-    </div>` : '');
+    </div>`).join('') +
+    (d.opening_hours?.weekday_text?.length ? `
+      <div class="attr-item" style="grid-column: 1 / -1;">
+        <div class="small text-muted mb-1">Opening Hours</div>
+        ${d.opening_hours.weekday_text.map(l => `<div class="small">${escapeHtml(l)}</div>`).join('')}
+      </div>` : '');
 }
 
-// ────────────────────────────────────────────── Charts ─────
+/* ────────────────────────────────────────────── Charts ───── */
 function renderCharts(data) {
-  const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() + '55';
+  const borderVar = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#e2e8f0';
+  const gridColor = borderVar + '55';
 
-  // Trend (prefer daily, fallback monthly)
+  // Trend: prefer daily, fallback monthly
   let labels = [], values = [], pointBg = [];
   if (data.daily_series?.length) {
     labels = data.daily_series.map(d => new Date(d.date).toLocaleDateString(undefined, {month:'short', day:'numeric'}));
-    values = data.daily_series.map(d => d.avg_rating ?? null);
-    pointBg = data.daily_series.map(d => d.avg_rating >= 4 ? 'rgba(16,185,129,0.7)' : d.avg_rating <= 2.5 ? 'rgba(239,68,68,0.7)' : 'rgba(99,102,241,0.7)');
+    values = data.daily_series.map(d => (Number.isFinite(d.avg_rating) ? d.avg_rating : null));
+    pointBg = data.daily_series.map(d =>
+      (d.avg_rating ?? 0) >= 4 ? 'rgba(16,185,129,0.7)' :
+      (d.avg_rating ?? 5) <= 2.5 ? 'rgba(239,68,68,0.7)' :
+      'rgba(99,102,241,0.7)'
+    );
   } else if (data.trend_data?.length) {
     labels = data.trend_data.map(t => {
-      const [y,m] = t.month.split('-');
-      return new Date(Date.UTC(y,m-1,1)).toLocaleString(undefined,{month:'short', year:'numeric'});
+      const [y, m] = (t.month || '').split('-').map(Number);
+      if (!y || !m) return t.month || '';
+      return new Date(Date.UTC(y, m-1, 1)).toLocaleString(undefined, {month:'short', year:'numeric'});
     });
     values = data.trend_data.map(t => t.avg_rating);
   }
@@ -527,17 +492,17 @@ function renderCharts(data) {
         tension: 0.28,
         spanGaps: true,
         pointBackgroundColor: pointBg.length ? pointBg : 'var(--primary)',
-        pointRadius: 4,
-        pointHoverRadius: 7
+        pointRadius: 3.5,
+        pointHoverRadius: 6
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: {display:false} },
+      plugins: { legend: { display: false } },
       scales: {
-        y: { min: 0, max: 5, grid:{color:gridColor} },
-        x: { grid:{display:false} }
+        y: { min: 0, max: 5, grid:{ color: gridColor } },
+        x: { grid:{ display: false } }
       }
     }
   });
@@ -560,13 +525,13 @@ function renderCharts(data) {
       maintainAspectRatio: false,
       cutout: '65%',
       plugins: {
-        legend: { position: 'bottom', labels:{boxWidth:12, padding:16} }
+        legend: { position: 'bottom', labels:{ boxWidth: 12, padding: 16 } }
       }
     }
   });
 }
 
-// ────────────────────────────────────────────── Recommendations ─────
+/* ────────────────────────────────────────────── Recommendations ───── */
 function renderRecommendations(list) {
   const cont = $('recommendations');
   cont.innerHTML = '';
@@ -581,32 +546,30 @@ function renderRecommendations(list) {
         <span class="badge bg-primary-subtle text-primary">${escapeHtml(r.priority)}</span>
       </div>
       <div class="mt-1">${escapeHtml(r.action)}</div>
-      ${r.count ? `<small class="text-muted">Mentioned ${r.count} times</small>` : ''}
+      ${r.count ? `<small class="text-muted">Mentioned ${escapeHtml(String(r.count))} times</small>` : ''}
     </div>
   `).join('');
 }
 
-// ────────────────────────────────────────────── Executive Summary ─────
+/* ────────────────────────────────────────────── Executive Summary ───── */
 function openOwnerSummary() {
   const d = currentSummaryData;
   if (!d) return;
-
-  const recs = (d.ai_recommendations || []).map(r => `
-    <li class="mb-2"><strong>${escapeHtml(r.area)}</strong> (${r.priority}) — ${escapeHtml(r.action)}</li>
-  `).join('');
-
+  const recs = (d.ai_recommendations || []).map(r =>
+    `<li class="mb-2"><strong>${escapeHtml(r.area)}</strong> (${escapeHtml(r.priority)}) — ${escapeHtml(r.action)}</li>`
+  ).join('');
   $('owner-summary-content').innerHTML = `
     <div class="lead fw-medium mb-3">Review Intelligence Summary</div>
     ${d.window ? `<p class="text-muted small">Period: ${new Date(d.window.start).toLocaleDateString()} – ${new Date(d.window.end).toLocaleDateString()}</p>` : ''}
-    <p class="fs-5">We analyzed <strong>${fmtNumber(d.total_reviews)} reviews</strong> with an average rating of <strong>${fmtNumber(d.avg_rating,2)}</strong>. Current risk level: <strong>${d.risk_level}</strong> (${fmtNumber(d.risk_score)}%).</p>
-    ${d.trend?.signal !== 'insufficient_data' ? `<p>Trend: <strong>${$('trendHint').textContent}</strong></p>` : ''}
+    <p class="fs-5">We analyzed <strong>${fmtNumber(d.total_reviews)}</strong> reviews with an average rating of <strong>${fmtNumber(d.avg_rating,2)}</strong>.
+      Current risk level: <strong>${escapeHtml(d.risk_level || 'Low')}</strong> (${fmtNumber(d.risk_score)}%).</p>
+    ${d.trend?.signal !== 'insufficient_data' ? `<p>Trend: <strong>${escapeHtml(document.getElementById('trendHint').textContent)}</strong></p>` : ''}
     <hr class="my-4">
     <h6 class="fw-semibold mb-3">Recommended Actions</h6>
     <ul class="ps-4">${recs || '<li class="text-muted">No priority actions at this time.</li>'}</ul>
   `;
   new bootstrap.Modal($('#ownerSummaryModal')).show();
 }
-
 function copySummary() {
   const text = $('#owner-summary-content').innerText.trim();
   navigator.clipboard.writeText(text)
@@ -614,7 +577,7 @@ function copySummary() {
     .catch(() => toast('Copy failed', 'danger'));
 }
 
-// ────────────────────────────────────────────── Sync ─────
+/* ────────────────────────────────────────────── Sync ───── */
 async function syncReviews() {
   if (!currentCompany) return;
   const btn = $('btnSync');
@@ -629,7 +592,7 @@ async function syncReviews() {
     const data = await res.json();
     if (!data.ok) throw new Error(data.reason || 'failed');
     toast(`Success — ${data.added || 0} new review(s) added`, 'success');
-    loadSummary();
+    await loadSummary();
   } catch {
     toast('Sync failed. Try again.', 'danger');
   } finally {
@@ -639,14 +602,15 @@ async function syncReviews() {
   }
 }
 
-// ────────────────────────────────────────────── Add Company Flow ─────
+/* ────────────────────────────────────────────── Add Company Flow ───── */
 async function searchPlace() {
   const q = $('placeQuery').value.trim();
   const resDiv = $('searchResults');
-  if (!q) return resDiv.innerHTML = '<div class="alert alert-info">Enter business name or address</div>';
-
+  if (!q) {
+    resDiv.innerHTML = '<div class="alert alert-info">Enter business name or address</div>';
+    return;
+  }
   resDiv.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
-
   try {
     const r = await fetch(`/reviews/google/places?q=${encodeURIComponent(q)}`);
     const data = await r.json();
@@ -662,9 +626,9 @@ async function searchPlace() {
           <h6 class="card-title mb-1">${escapeHtml(it.name)}</h6>
           <p class="card-text small text-muted mb-2">${escapeHtml(it.formatted_address || '—')}</p>
           <div class="small">
-            <strong>Rating:</strong> ${it.rating ?? '—'} (${it.user_ratings_total || 0})<br>
+            <strong>Rating:</strong> ${escapeHtml(String(it.rating ?? '—'))} (${escapeHtml(String(it.user_ratings_total || 0))})<br>
             <strong>City / Country:</strong> ${escapeHtml(it.city || '?')}, ${escapeHtml(it.country || '?')}<br>
-            <strong>Place ID:</strong> <code class="small">${escapeHtml(it.place_id)}</code>
+            <strong>Place ID:</strong> <code class="small">${escapeHtml(it.place_id || '')}</code>
           </div>
           <button class="btn btn-sm btn-outline-primary mt-3" onclick="useResult('${encodeURIComponent(JSON.stringify(it))}')">
             Use this location
@@ -676,7 +640,6 @@ async function searchPlace() {
     resDiv.innerHTML = '<div class="alert alert-danger">Search failed – check Google API configuration</div>';
   }
 }
-
 function useResult(encodedJson) {
   try {
     const it = JSON.parse(decodeURIComponent(encodedJson));
@@ -688,7 +651,6 @@ function useResult(encodedJson) {
     toast('Information loaded – ready to create', 'success');
   } catch {}
 }
-
 async function addCompanyViaApi() {
   const payload = {
     name: $('apiCompanyName').value.trim(),
@@ -696,35 +658,34 @@ async function addCompanyViaApi() {
     website: $('apiCompanyWebsite').value.trim(),
     location: [$('apiCompanyCity').value.trim(), $('apiCompanyCountry').value.trim()].filter(Boolean).join(', ')
   };
-
   if (!payload.name || !payload.place_id) {
     toast('Company name & Place ID required', 'warning');
     return;
   }
-
   const token = $('apiToken').value.trim();
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers['X-API-Key'] = token;
-
   try {
     const res = await fetch('/reviews/company', { method:'POST', headers, body: JSON.stringify(payload) });
     const data = await res.json();
     if (!data.ok) throw new Error(data.detail || 'failed');
     toast('Company created successfully', 'success');
     bootstrap.Modal.getInstance($('#addCompanyModal')).hide();
-    loadCompanies();
+    await loadCompanies();
   } catch (err) {
     toast('Failed to create company', 'danger');
   }
 }
 
-// ────────────────────────────────────────────── Init ─────
-document.addEventListener('DOMContentLoaded', () => {
+/* ────────────────────────────────────────────── Init ───── */
+document.addEventListener('DOMContentLoaded', async () => {
   initDates();
-  loadCompanies();
+  await loadCompanies();
 });
 </script>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+        crossorigin="anonymous"></script>
 </body>
 </html>
