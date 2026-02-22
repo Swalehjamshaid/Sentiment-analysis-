@@ -63,9 +63,6 @@
       <button class="theme-toggle" title="Toggle theme" onclick="toggleTheme()">
         <i class="fas fa-moon"></i>
       </button>
-      <button class="btn btn-light btn-sm fw-semibold" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
-        <i class="fas fa-plus me-1"></i> Add Company
-      </button>
     </div>
   </div>
 </nav>
@@ -87,9 +84,8 @@
           <input type="date" id="endDate" class="form-control">
         </div>
       </div>
-      <div class="col-md-4 text-md-end d-flex flex-wrap gap-2 justify-content-md-end">
+      <div class="col-md-4 text-md-end d-flex gap-2 justify-content-md-end">
         <button class="btn btn-outline-secondary" onclick="applyDateRange()">Apply</button>
-        <button class="btn btn-outline-info" onclick="fetchGoogleDetails()">Google Details</button>
         <button id="btnSync" class="btn btn-primary position-relative" onclick="syncReviews()">
           <span class="sync-label">Sync Reviews</span>
           <span class="spinner-border spinner-border-sm position-absolute top-50 end-0 translate-middle-y me-3 d-none" role="status"></span>
@@ -98,12 +94,12 @@
     </div>
   </div>
 
-  <!-- AI Insight Section -->
+  <!-- AI Insights -->
   <div class="row g-3 mb-4">
     <div class="col-lg-6">
       <div class="card p-4 h-100">
         <h5 class="fw-semibold">🧠 AI-Generated Insights</h5>
-        <p id="aiInsights" class="text-muted mt-2">Select a company to generate real AI recommendations...</p>
+        <p id="aiInsights" class="text-muted mt-2">Select a company to generate AI recommendations...</p>
       </div>
     </div>
     <div class="col-lg-6">
@@ -164,32 +160,6 @@
     </div>
   </div>
 
-  <!-- SaaS Architecture & Checklist -->
-  <div class="row g-3 mb-4">
-    <div class="col-lg-6">
-      <div class="card p-4 h-100">
-        <h5 class="fw-semibold">🏢 Multi-tenant SaaS Architecture</h5>
-        <ul>
-          <li>Separate database schema per company</li>
-          <li>Role-based access control</li>
-          <li>Cloud-first deployment</li>
-          <li>High availability & auto-scaling</li>
-        </ul>
-      </div>
-    </div>
-    <div class="col-lg-6">
-      <div class="card p-4 h-100">
-        <h5 class="fw-semibold">🚀 Production Deployment Checklist</h5>
-        <ul>
-          <li>✅ Database backups configured</li>
-          <li>✅ Logging & monitoring active</li>
-          <li>✅ API keys & environment variables secured</li>
-          <li>✅ Load balancing & scaling verified</li>
-        </ul>
-      </div>
-    </div>
-  </div>
-
   <!-- AI Recommendations -->
   <div class="card p-4 mb-4">
     <h5 class="fw-semibold">AI-Powered Action Recommendations</h5>
@@ -201,7 +171,7 @@
 <script>
 const $ = id => document.getElementById(id);
 
-// Toggle dark/light theme
+// ------------------ Theme ------------------
 function toggleTheme() {
   const html = document.documentElement;
   const isDark = html.getAttribute('data-bs-theme') === 'dark';
@@ -215,16 +185,7 @@ function toggleTheme() {
   if(saved==='dark'||(!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) toggleTheme();
 })();
 
-// Animations
-anime({
-  targets: '.metric',
-  scale:[0.8,1],
-  duration:1500,
-  easing:'easeOutElastic(1, .6)',
-  delay: anime.stagger(200)
-});
-
-// Charts
+// ------------------ Charts ------------------
 let trendChart, sentimentChart, revenueChart;
 function initCharts(){
   trendChart = new Chart($('#trendChart'), { type:'line', data:{labels:[], datasets:[{label:'Rating', data:[], borderColor:'#6366f1', backgroundColor:'rgba(99,102,241,0.2)'}]}, options:{responsive:true}});
@@ -232,12 +193,98 @@ function initCharts(){
   revenueChart = new Chart($('#revenueChart'), { type:'bar', data:{labels:['Jan','Feb','Mar','Apr','May'], datasets:[{label:'Predicted Revenue', data:[0,0,0,0,0], backgroundColor:'#6366f1'}]}, options:{responsive:true}});
 }
 
-// Load on page ready
+// ------------------ Fetch Companies ------------------
+async function loadCompanies() {
+    try {
+        const res = await fetch('/api/companies');
+        if(!res.ok) throw new Error('Failed to load companies');
+        const companies = await res.json();
+        const select = $('#companySelect');
+        select.innerHTML = '<option value="">-- Select Company --</option>';
+        companies.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = c.name;
+            select.appendChild(opt);
+        });
+    } catch(err) {
+        console.error(err);
+        alert('Error loading companies');
+    }
+}
+
+// ------------------ Fetch Metrics ------------------
+async function fetchMetrics(companyId, start, end) {
+    if(!companyId) return;
+    try {
+        const res = await fetch(`/api/metrics?company_id=${companyId}&start=${start}&end=${end}`);
+        if(!res.ok) throw new Error('Failed to fetch metrics');
+        const data = await res.json();
+        $('#metricTotal').textContent = data.total ?? '—';
+        $('#metricAvg').textContent = data.avg_rating?.toFixed(2) ?? '—';
+        $('#metricRisk').textContent = data.risk_score?.toFixed(2) ?? '—';
+        const badge = $('#riskBadge');
+        badge.textContent = data.risk_level ?? '—';
+        badge.className = 'badge fs-5 px-4 py-2 mt-2 ' + 
+          (data.risk_level==='High'?'badge-risk-high':data.risk_level==='Medium'?'badge-risk-medium':'badge-risk-low');
+    } catch(err) { console.error(err); }
+}
+
+// ------------------ Fetch AI Insights ------------------
+async function fetchAIInsights(companyId, start, end) {
+    if(!companyId) return;
+    try {
+        const res = await fetch(`/api/insights?company_id=${companyId}&start=${start}&end=${end}`);
+        if(!res.ok) throw new Error('Failed to fetch AI insights');
+        const data = await res.json();
+        $('#aiInsights').textContent = data?.insights || 'No insights available';
+        const recContainer = $('#recommendations');
+        recContainer.innerHTML = '';
+        (data.recommendations || []).forEach(r => {
+            const div = document.createElement('div');
+            div.className='rec-item';
+            div.textContent = r;
+            recContainer.appendChild(div);
+        });
+    } catch(err){ console.error(err); }
+}
+
+// ------------------ Apply Date Range ------------------
+function applyDateRange() {
+    const companyId = $('#companySelect').value;
+    const start = $('#startDate').value;
+    const end = $('#endDate').value;
+    fetchMetrics(companyId, start, end);
+    fetchAIInsights(companyId, start, end);
+}
+
+// ------------------ Sync Reviews ------------------
+async function syncReviews() {
+    const btn = $('#btnSync');
+    const spinner = btn.querySelector('.spinner-border');
+    const label = btn.querySelector('.sync-label');
+    const companyId = $('#companySelect').value;
+    if(!companyId) return alert('Select a company first');
+    spinner.classList.remove('d-none');
+    label.textContent='Syncing...';
+    try {
+        const res = await fetch(`/api/reviews/sync?company_id=${companyId}`, {method:'POST'});
+        if(!res.ok) throw new Error('Sync failed');
+        const data = await res.json();
+        alert(data.message || 'Reviews synced successfully');
+        applyDateRange();
+    } catch(err){ console.error(err); alert('Error syncing reviews'); }
+    finally { spinner.classList.add('d-none'); label.textContent='Sync Reviews'; }
+}
+
+// ------------------ Init ------------------
 document.addEventListener('DOMContentLoaded', async () => { 
   initCharts(); 
-  // Call your backend endpoints to load company list, AI insights, and metrics
+  await loadCompanies();
+  $('#companySelect').addEventListener('change', applyDateRange);
 });
 </script>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
