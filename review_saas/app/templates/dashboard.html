@@ -1,25 +1,30 @@
+{# FILE: review_saas/app/templates/dashboard.html #}
 {% extends 'base.html' %}
 {% block content %}
 
 <div class="container mt-4">
 
   <!-- Low data warning (critical in 2026 with Places API limitation) -->
-  <div id="low-data-warning" class="alert alert-warning d-none mb-4" role="alert">
+  <div id="low-data-warning" class="alert alert-warning d-none mb-4" role="alert" aria-live="polite">
     <i class="bi bi-exclamation-triangle-fill me-2"></i>
-    <strong>Limited review data loaded.</strong> 
-    Only a small number of reviews are available (likely due to Google Places API restrictions — max ~5 reviews). 
+    <strong>Limited review data loaded.</strong>
+    Only a small number of reviews are available (likely due to Google Places API restrictions — max ~5 reviews).
     For accurate insights, enable full Google Business Profile sync.
   </div>
 
+  <!-- Toolbar -->
   <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
     <h3 class="mb-0">Review Intelligence Dashboard</h3>
     <div class="d-flex align-items-center gap-3 flex-wrap">
+
       <select id="company-selector" class="form-select" style="min-width: 260px;" aria-label="Select company">
         <option value="0">Select a Company...</option>
       </select>
-      <button id="add-company-btn" class="btn btn-outline-dark" aria-label="Add new company">
+
+      <button id="add-company-btn" class="btn btn-outline-dark" aria-label="Add new company" data-bs-toggle="tooltip" data-bs-title="Add or link a new company">
         <i class="bi bi-building-add"></i> Add Company
       </button>
+
       <div class="d-flex align-items-center gap-2">
         <div class="input-group">
           <span class="input-group-text"><i class="bi bi-calendar-date"></i></span>
@@ -30,18 +35,27 @@
           <input id="date-to" type="date" class="form-control" aria-label="To date" />
         </div>
       </div>
-      <button id="apply-range-btn" class="btn btn-outline-primary">
+
+      <button id="apply-range-btn" class="btn btn-outline-primary" data-bs-toggle="tooltip" data-bs-title="Apply date range (shortcut: A)">
         <i class="bi bi-funnel"></i> Apply
       </button>
-      <button id="refresh-btn" class="btn btn-outline-success">
-        <i class="bi bi-arrow-repeat"></i> Refresh & Fetch
+
+      <button id="refresh-btn" class="btn btn-outline-success" data-bs-toggle="tooltip" data-bs-title="Refresh & Fetch latest (shortcut: R)">
+        <i class="bi bi-arrow-repeat"></i> Refresh &amp; Fetch
       </button>
+
       <button id="owner-summary-btn" class="btn btn-primary" disabled aria-label="Owner summary">
         <i class="bi bi-stars"></i> Owner Summary
+      </button>
+
+      <!-- Theme toggle (non-breaking) -->
+      <button id="theme-toggle" class="btn btn-outline-secondary" type="button" aria-label="Toggle theme" data-bs-toggle="tooltip" data-bs-title="Toggle Light/Dark">
+        <i class="bi bi-moon-stars"></i>
       </button>
     </div>
   </div>
 
+  <!-- Company header -->
   <div class="card shadow mb-4 border-0" id="company-header" style="display: none;">
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -67,20 +81,24 @@
     </div>
   </div>
 
+  <!-- Loading -->
   <div id="loading-state" class="text-center py-5 my-5" style="display: none;">
-    <div class="spinner-border text-primary mb-3" style="width: 3.5rem; height: 3.5rem;" role="status"></div>
-    <p class="lead text-muted">Analyzing reviews & generating insights…</p>
+    <div class="spinner-border text-primary mb-3" style="width: 3.5rem; height: 3.5rem;" role="status" aria-label="Loading"></div>
+    <p class="lead text-muted">Analyzing reviews &amp; generating insights…</p>
     <small class="text-muted">This may take 5–30 seconds depending on data volume</small>
   </div>
 
-  <div id="no-selection-state" class="alert alert-light border text-center py-5 my-5 shadow-sm">
+  <!-- Empty -->
+  <div id="no-selection-state" class="alert alert-light border text-center py-5 my-5 shadow-sm" role="status" aria-live="polite">
     <i class="bi bi-building-up fs-1 mb-3 d-block text-primary"></i>
     <h5>Review Intelligence Dashboard</h5>
     <p class="text-muted">Select a company and date range to view AI-powered insights.</p>
   </div>
 
+  <!-- Main content -->
   <div id="main-content" style="display: none;">
 
+    <!-- KPIs -->
     <div class="row g-4 mb-4">
       <div class="col-md-3">
         <div class="card shadow-sm border-0 h-100 border-start border-primary border-4">
@@ -126,33 +144,246 @@
       </div>
     </div>
 
-    <!-- The rest of your layout remains almost identical -->
+    <!-- Data Quality & Coverage -->
+    <div class="row g-4 mb-4">
+      <div class="col-lg-6">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h6 class="text-uppercase text-muted small mb-0">Data Quality &amp; Coverage</h6>
+              <span id="data-completion-text" class="badge bg-secondary-subtle text-secondary border">0%</span>
+            </div>
+            <div class="progress" role="progressbar" aria-label="Data completion progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="data-completion-bar" class="progress-bar" style="width: 0%"></div>
+            </div>
+            <small class="text-muted d-block mt-2">
+              Low values may be due to API limits (e.g., Places caps ~5 reviews).
+              Link your Google Business Profile for complete sync.
+            </small>
+          </div>
+        </div>
+      </div>
 
-    <!-- Keep all other sections: AI plan, data accuracy, charts, keywords, reviews list, etc. -->
+      <div class="col-lg-6">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body">
+            <h6 class="text-uppercase text-muted small mb-3">Sentiment Breakdown</h6>
+            <div style="height:220px;"><canvas id="sentimentPie"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </div>
 
-    <!-- ... paste your existing row g-4 mb-4 with AI recs, data accuracy, charts ... -->
+    <!-- Trends & Aspects -->
+    <div class="row g-4 mb-4">
+      <div class="col-lg-8">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body">
+            <h6 class="text-uppercase text-muted small mb-3">Review Trend</h6>
+            <div style="height:320px;"><canvas id="trendChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body">
+            <h6 class="text-uppercase text-muted small mb-3">Aspect Matrix</h6>
+            <div style="height:320px;"><canvas id="aspectMatrixChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Strengths & Weaknesses -->
+    <div class="row g-4 mb-4">
+      <div class="col-lg-6">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h6 class="text-uppercase text-muted small mb-0">Weak Areas</h6>
+            </div>
+            <div id="weak-areas-chips" class="d-flex flex-wrap gap-2"></div>
+            <div class="mt-3" style="height:240px;"><canvas id="weakAreasChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h6 class="text-uppercase text-muted small mb-0">Strength Areas</h6>
+            </div>
+            <div id="strength-areas-chips" class="d-flex flex-wrap gap-2"></div>
+            <div class="mt-3" style="height:240px;"><canvas id="strengthAreasChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Keywords & Phrases -->
+    <div class="row g-4 mb-4">
+      <div class="col-lg-6">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body">
+            <h6 class="text-uppercase text-muted small mb-3">Keywords — Positive vs Negative</h6>
+            <div class="row g-3">
+              <div class="col-6">
+                <h6 class="small text-success">Positive</h6>
+                <div id="positive-keywords-cloud" class="d-flex flex-wrap gap-2"></div>
+              </div>
+              <div class="col-6">
+                <h6 class="small text-danger">Negative</h6>
+                <div id="negative-keywords-cloud" class="d-flex flex-wrap gap-2"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center">
+              <h6 class="text-uppercase text-muted small mb-3">Top Negative Phrases</h6>
+              <button class="btn btn-sm btn-outline-secondary" onclick="copyText('top-negative-phrases')" data-bs-toggle="tooltip" data-bs-title="Copy phrases">
+                <i class="bi bi-clipboard"></i>
+              </button>
+            </div>
+            <div id="top-negative-phrases" class="small"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Recommendations -->
+    <div class="card shadow-sm border-0 mb-4">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <h6 class="text-uppercase text-muted small mb-3">AI Recommendations</h6>
+          <button class="btn btn-sm btn-outline-secondary" onclick="copyText('ai-recommendations')" data-bs-toggle="tooltip" data-bs-title="Copy recommendations">
+            <i class="bi bi-clipboard"></i>
+          </button>
+        </div>
+        <div id="ai-recommendations" class="row g-3"></div>
+      </div>
+    </div>
+
+    <!-- Reviews List -->
+    <div class="card shadow-sm border-0 mb-5">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <h6 class="text-uppercase text-muted small mb-3">Reviews</h6>
+          <div class="d-flex gap-2 align-items-center">
+            <div class="input-group input-group-sm" style="max-width: 260px;">
+              <span class="input-group-text"><i class="bi bi-search"></i></span>
+              <input id="reviews-search" type="text" class="form-control" placeholder="Filter by keyword…"
+                     aria-label="Filter reviews" />
+            </div>
+          </div>
+        </div>
+        <div id="reviews-list" class="list-group list-group-flush"></div>
+      </div>
+    </div>
 
   </div>
 </div>
 
-<!-- Add Company Modal (unchanged except improved labels) -->
+<!-- Add Company Modal -->
 <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <form id="add-company-form" class="modal-content" autocomplete="off">
-      <!-- ... your existing modal content ... -->
+      <div class="modal-header">
+        <h5 class="modal-title" id="addCompanyModalLabel"><i class="bi bi-building-add me-2"></i>Add Company</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"
+                data-bs-toggle="tooltip" data-bs-title="Close modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label for="addco_google_search" class="form-label">Find on Google (Places)</label>
+          <input type="text" id="addco_google_search" class="form-control" placeholder="Search business name…" aria-describedby="ghelp">
+          <div id="ghelp" class="form-text">Pick an establishment to autofill details (requires Places script).</div>
+        </div>
+
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" for="addco_name">Company Name</label>
+            <input id="addco_name" name="name" class="form-control" placeholder="Company Legal Name">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="addco_place_id">Google Place ID</label>
+            <input id="addco_place_id" name="place_id" class="form-control" placeholder="Place ID">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="addco_address">Address</label>
+            <input id="addco_address" name="address" class="form-control" placeholder="Street, City, Country">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="addco_phone">Phone</label>
+            <input id="addco_phone" name="phone" class="form-control" placeholder="+92-...">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="addco_website">Website</label>
+            <input id="addco_website" name="website" class="form-control" placeholder="https://example.com">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="addco_google_url">Google Maps URL</label>
+            <input id="addco_google_url" name="google_url" class="form-control" placeholder="https://maps.google.com/...">
+          </div>
+        </div>
+
+        <div id="addco_error" class="alert alert-danger d-none mt-3" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-light" type="button" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" type="submit">
+          <i class="bi bi-save2 me-1"></i> Save Company
+        </button>
+      </div>
     </form>
   </div>
 </div>
 
+<!-- Owner Summary Modal -->
+<div class="modal fade" id="ownerSummaryModal" tabindex="-1" aria-labelledby="ownerSummaryModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 id="ownerSummaryModalLabel" class="modal-title"><i class="bi bi-stars me-2"></i>Owner Summary</h5>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="owner-summary-copy-btn" data-bs-toggle="tooltip" data-bs-title="Copy to clipboard">
+          <i class="bi bi-clipboard"></i>
+        </button>
+        <button type="button" class="btn-close ms-2" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="owner-summary-content">
+        <!-- Populated by populateOwnerSummaryModal(data) -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toasts (non-blocking notifications) -->
+<div class="position-fixed top-0 end-0 p-3" style="z-index: 1080">
+  <div id="globalToast" class="toast align-items-center text-bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true">
+    <div class="d-flex">
+      <div class="toast-body" id="globalToastBody">An error occurred.</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+  </div>
+</div>
+
 <!-- Libraries -->
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+      integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+      crossorigin="anonymous">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
 // ─────────────────────────────────────────────────────────────
-// JavaScript (refined)
+// JavaScript (refined, user-friendly)
+// IMPORTANT: Per your rules → unchanged I/O + filename in code
+// FILE_NAME_HTML = "review_saas/app/templates/dashboard.html"
 // ─────────────────────────────────────────────────────────────
 
 const FILE_NAME_HTML = "review_saas/app/templates/dashboard.html";
@@ -169,60 +400,135 @@ const colors = {
   warning: '#ffc107',
   danger: '#dc3545',
   gray: '#6c757d',
-  light: '#f8f9fa'
+  light: '#f8f9fa',
+  dark: '#212529'
 };
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Enable Bootstrap tooltips globally
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+    new bootstrap.Tooltip(el);
+  });
+
+  initTheme();
   initDefaultDates();
   updateDateWindowDisplay();
-  loadCompanies();
+  loadCompaniesSafe();
 
+  // Toolbar actions
   document.getElementById('apply-range-btn').addEventListener('click', () => {
     if (currentCompanyId > 0) loadDashboardData(currentCompanyId, false);
   });
-
   document.getElementById('refresh-btn').addEventListener('click', () => {
     if (currentCompanyId > 0) loadDashboardData(currentCompanyId, true);
   });
 
-  // Owner summary modal trigger (requires modal HTML to exist)
+  // Keyboard shortcuts: A = apply, R = refresh
+  document.addEventListener('keydown', (e) => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+    if (e.key.toLowerCase() === 'a') {
+      const btn = document.getElementById('apply-range-btn');
+      if (!btn.disabled) btn.click();
+    } else if (e.key.toLowerCase() === 'r') {
+      const btn = document.getElementById('refresh-btn');
+      if (!btn.disabled) btn.click();
+    }
+  });
+
+  // Owner summary
   document.getElementById('owner-summary-btn').addEventListener('click', () => {
     if (!lastSummaryData) return;
-    populateOwnerSummaryModal(lastSummaryData);
+    if (typeof populateOwnerSummaryModal === 'function') {
+      populateOwnerSummaryModal(lastSummaryData);
+    }
     const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('ownerSummaryModal'));
     modal.show();
   });
 
+  // Copy summary (uses provided helper if available)
+  document.getElementById('owner-summary-copy-btn').addEventListener('click', async () => {
+    try {
+      let text = '';
+      if (typeof buildOwnerSummaryClipboardText === 'function') {
+        text = buildOwnerSummaryClipboardText(lastSummaryData);
+      } else {
+        text = (document.getElementById('owner-summary-content')?.innerText || '').trim();
+      }
+      await navigator.clipboard.writeText(text);
+      showToast('Copied owner summary to clipboard', 'success');
+    } catch {
+      showToast('Failed to copy owner summary', 'danger');
+    }
+  });
+
   // Add company modal
   document.getElementById('add-company-btn').addEventListener('click', () => {
-    clearAddCompanyForm();
+    if (typeof clearAddCompanyForm === 'function') clearAddCompanyForm();
     const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('addCompanyModal'));
     modal.show();
 
+    // Google Places autocomplete (if script loaded)
     if (!addCoPlacesAutocomplete && window.google?.maps?.places) {
       addCoPlacesAutocomplete = new google.maps.places.Autocomplete(
         document.getElementById('addco_google_search'),
         { types: ['establishment'] }
       );
-      addCoPlacesAutocomplete.addListener('place_changed', handleAddCoPlacePicked);
+      addCoPlacesAutocomplete.addListener('place_changed', () => {
+        if (typeof handleAddCoPlacePicked === 'function') handleAddCoPlacePicked(addCoPlacesAutocomplete);
+      });
     }
   });
 
   document.getElementById('add-company-form').addEventListener('submit', async e => {
     e.preventDefault();
-    await submitNewCompany();
+    if (typeof submitNewCompany === 'function') {
+      await submitNewCompany();
+    } else {
+      showToast('submitNewCompany() missing. Please implement on backend side.', 'warning');
+    }
   });
 
-  document.getElementById('date-from').addEventListener('change', updateDateWindowDisplay);
-  document.getElementById('date-to').addEventListener('change', updateDateWindowDisplay);
+  // Date inputs
+  document.getElementById('date-from').addEventListener('change', () => {
+    updateDateWindowDisplay();
+    persistDateRange();
+  });
+  document.getElementById('date-to').addEventListener('change', () => {
+    updateDateWindowDisplay();
+    persistDateRange();
+  });
+
+  // Theme toggle
+  document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
+
+  // Reviews search filter (delegated to your renderReviews impl if it supports filtering)
+  const reviewsSearch = document.getElementById('reviews-search');
+  if (reviewsSearch) {
+    reviewsSearch.addEventListener('input', () => {
+      if (typeof renderReviews === 'function') {
+        renderReviews(lastSummaryData?.reviews || [], reviewsSearch.value || '');
+      }
+    });
+  }
 });
 
 function initDefaultDates() {
+  // Default: last 90 days (example preserves your logic from snippet date-from Feb 21, 2026)
   const df = new Date(Date.UTC(2026, 1, 21));
   const dt = new Date();
+  // If previously persisted, use that
+  const persistedFrom = localStorage.getItem('ri_date_from');
+  const persistedTo = localStorage.getItem('ri_date_to');
   const fmt = d => d.toISOString().slice(0, 10);
-  document.getElementById('date-from').value = fmt(df);
-  document.getElementById('date-to').value = fmt(dt);
+
+  document.getElementById('date-from').value = persistedFrom || fmt(df);
+  document.getElementById('date-to').value = persistedTo || fmt(dt);
+}
+
+function persistDateRange() {
+  const { date_from, date_to } = getDateInputs();
+  if (date_from) localStorage.setItem('ri_date_from', date_from);
+  if (date_to) localStorage.setItem('ri_date_to', date_to);
 }
 
 // ── Core fetch & render logic ─────────────────────────────────
@@ -259,8 +565,10 @@ async function loadDashboardData(companyId, forceRefresh = false) {
     document.getElementById('google-rating').textContent = data.google_rating ?? '—';
     document.getElementById('google-total-ratings').textContent = data.google_total_ratings ?? '—';
 
+    // KPIs
     document.getElementById('total-reviews').textContent = data.total_reviews ?? 0;
-    document.getElementById('avg-rating').textContent = (data.avg_rating ?? 0).toFixed(1);
+    const avg = Number(data.avg_rating ?? 0);
+    document.getElementById('avg-rating').textContent = isFinite(avg) ? avg.toFixed(1) : '0.0';
     document.getElementById('sentiment-mix').textContent =
       `${data.sentiments?.Positive ?? 0} / ${data.sentiments?.Neutral ?? 0} / ${data.sentiments?.Negative ?? 0}`;
 
@@ -272,30 +580,32 @@ async function loadDashboardData(companyId, forceRefresh = false) {
     }
 
     // Data completion & warning
-    const completion = computeCompletionPercent(data);
+    const completion = computeCompletionPercentSafe(data);
     const bar = document.getElementById('data-completion-bar');
-    bar.style.width = `${completion}%`;
-    document.getElementById('data-completion-text').textContent = `${completion}%`;
+    const pct = Math.max(0, Math.min(100, Math.round(completion)));
+    bar.style.width = `${pct}%`;
+    bar.parentElement?.setAttribute('aria-valuenow', String(pct));
+    document.getElementById('data-completion-text').textContent = `${pct}%`;
 
     bar.className = 'progress-bar ' + (
-      completion >= 80 ? 'bg-success' :
-      completion >= 50 ? 'bg-warning' :
+      pct >= 80 ? 'bg-success' :
+      pct >= 50 ? 'bg-warning' :
       'bg-danger'
     );
 
-    if (completion < 40) {
+    if (pct < 40) {
       document.getElementById('low-data-warning').classList.remove('d-none');
     }
 
-    // Render rest
-    renderChips('weak-areas-chips', data.weak_areas || [], 'danger');
-    renderChips('strength-areas-chips', data.strength_areas || [], 'success');
-    renderKeywordsCloud(data.positive_keywords || [], data.negative_keywords || []);
-    renderTopNegativePhrases(data.top_phrases_negative || []);
-    renderAIRecommendations(data.ai_recommendations || []);
-    renderReviews(data.reviews || []);
+    // Render rest (hook into your existing helpers)
+    renderChipsSafe('weak-areas-chips', data.weak_areas || [], 'danger');
+    renderChipsSafe('strength-areas-chips', data.strength_areas || [], 'success');
+    renderKeywordsCloudSafe(data.positive_keywords || [], data.negative_keywords || []);
+    renderTopNegativePhrasesSafe(data.top_phrases_negative || []);
+    renderAIRecommendationsSafe(data.ai_recommendations || []);
+    renderReviewsSafe(data.reviews || []);
 
-    initCharts(data);
+    initChartsSafe(data);
 
     document.getElementById('owner-summary-btn').disabled = false;
     document.getElementById('main-content').style.display = 'block';
@@ -303,32 +613,390 @@ async function loadDashboardData(companyId, forceRefresh = false) {
 
   } catch (err) {
     console.error(`[${FILE_NAME_HTML}]`, err);
-    alert("Failed to load dashboard data. Check console or server logs.");
+    showToast(`Failed to load dashboard data (${err.message}). Check console or server logs.`, 'danger');
+    // Fallback legacy alert if toasts not visible
+    try { alert("Failed to load dashboard data. Check console or server logs."); } catch {}
   } finally {
     isFetching = false;
     document.getElementById('loading-state').style.display = 'none';
   }
 }
 
-// Keep your existing helper functions: computeCompletionPercent, renderChips, renderTopNegativePhrases,
-// renderKeywordsCloud, renderAIRecommendations, renderReviews, copyText, initCharts, showNoSelection,
-// clearAddCompanyForm, handleAddCoPlacePicked, showAddCoError, submitNewCompany, reloadCompanyDropdownAndSelectNew,
-// populateOwnerSummaryModal, buildOwnerSummaryClipboardText
+// ── Helper: date inputs & window label ───────────────────────
 
-// (They are already well written — no major changes needed there)
+function getDateInputs() {
+  const date_from = (document.getElementById('date-from').value || '').trim();
+  const date_to = (document.getElementById('date-to').value || '').trim();
+  return { date_from, date_to };
+}
 
+function updateDateWindowDisplay() {
+  const { date_from, date_to } = getDateInputs();
+  const label = (date_from && date_to) ? `${date_from} → ${date_to}` : '—';
+  const el = document.getElementById('date-window');
+  if (el) el.textContent = label;
+}
+
+// ── Helper: toasts ───────────────────────────────────────────
+
+function showToast(message, type = 'danger') {
+  const toastEl = document.getElementById('globalToast');
+  const bodyEl = document.getElementById('globalToastBody');
+  if (!toastEl || !bodyEl) return;
+  bodyEl.textContent = message || 'Notification';
+  toastEl.classList.remove('text-bg-danger', 'text-bg-success', 'text-bg-warning', 'text-bg-info', 'text-bg-secondary');
+  toastEl.classList.add(`text-bg-${type}`);
+  const t = bootstrap.Toast.getOrCreateInstance(toastEl, { delay: 3500 });
+  t.show();
+}
+
+// ── UX: Theme handling (non-breaking) ────────────────────────
+
+function initTheme() {
+  const root = document.documentElement;
+  const saved = localStorage.getItem('ri_theme');
+  let theme = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  applyTheme(theme);
+
+  // Update Chart.js defaults for current theme (only colors)
+  if (window.Chart) {
+    const isDark = theme === 'dark';
+    Chart.defaults.color = isDark ? '#dee2e6' : '#343a40';
+    Chart.defaults.borderColor = isDark ? 'rgba(255,255,255,.15)' : 'rgba(0,0,0,.1)';
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-bs-theme') || 'light';
+  const next = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  localStorage.setItem('ri_theme', next);
+  // If charts exist, you may re-render them in initChartsSafe for exact theming
+  if (lastSummaryData) initChartsSafe(lastSummaryData);
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-bs-theme', theme);
+  const icon = document.querySelector('#theme-toggle i');
+  if (icon) {
+    icon.className = theme === 'dark' ? 'bi bi-brightness-high' : 'bi bi-moon-stars';
+  }
+}
+
+// ── Safe wrappers for your existing helpers (non-invasive) ───
+
+function computeCompletionPercentSafe(data) {
+  if (typeof computeCompletionPercent === 'function') {
+    return computeCompletionPercent(data);
+  }
+  // Fallback heuristic (non-invasive)
+  const total = Number(data?.google_total_ratings ?? 0);
+  const have = Number(data?.total_reviews ?? 0);
+  if (total <= 0) return have > 0 ? 50 : 0;
+  return Math.max(0, Math.min(100, Math.round((have / total) * 100)));
+}
+
+function renderChipsSafe(targetId, items, bsContext = 'secondary') {
+  if (typeof renderChips === 'function') return renderChips(targetId, items, bsContext);
+  const box = document.getElementById(targetId);
+  if (!box) return;
+  box.innerHTML = '';
+  (items || []).forEach((t) => {
+    const span = document.createElement('span');
+    span.className = `badge bg-${bsContext}-subtle text-${bsContext} border border-${bsContext}`;
+    span.textContent = t;
+    box.appendChild(span);
+  });
+}
+
+function renderTopNegativePhrasesSafe(items) {
+  if (typeof renderTopNegativePhrases === 'function') return renderTopNegativePhrases(items);
+  const box = document.getElementById('top-negative-phrases');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!items?.length) {
+    box.innerHTML = '<span class="text-muted">No negative phrases found in the selected window.</span>';
+    return;
+  }
+  const ul = document.createElement('ul');
+  ul.className = 'mb-0 ps-3';
+  items.forEach((p) => {
+    const li = document.createElement('li');
+    li.textContent = p;
+    ul.appendChild(li);
+  });
+  box.appendChild(ul);
+}
+
+function renderKeywordsCloudSafe(pos = [], neg = []) {
+  if (typeof renderKeywordsCloud === 'function') return renderKeywordsCloud(pos, neg);
+  const p = document.getElementById('positive-keywords-cloud');
+  const n = document.getElementById('negative-keywords-cloud');
+  if (p) p.innerHTML = '';
+  if (n) n.innerHTML = '';
+  pos.forEach(k => {
+    const b = document.createElement('span');
+    b.className = 'badge bg-success-subtle text-success border border-success';
+    b.textContent = k;
+    p?.appendChild(b);
+  });
+  neg.forEach(k => {
+    const b = document.createElement('span');
+    b.className = 'badge bg-danger-subtle text-danger border border-danger';
+    b.textContent = k;
+    n?.appendChild(b);
+  });
+}
+
+function renderAIRecommendationsSafe(recs = []) {
+  if (typeof renderAIRecommendations === 'function') return renderAIRecommendations(recs);
+  const box = document.getElementById('ai-recommendations');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!recs.length) {
+    box.innerHTML = '<div class="text-muted small">No AI recommendations available.</div>';
+    return;
+  }
+  recs.forEach((r) => {
+    const col = document.createElement('div');
+    col.className = 'col-12';
+    const c = document.createElement('div');
+    c.className = 'p-3 rounded border bg-body-tertiary';
+    c.innerHTML = `<strong>${r.title || 'Recommendation'}</strong><div class="small mt-1">${r.detail || ''}</div>`;
+    col.appendChild(c);
+    box.appendChild(col);
+  });
+}
+
+function renderReviewsSafe(reviews = [], filter = '') {
+  if (typeof renderReviews === 'function') return renderReviews(reviews, filter);
+  const list = document.getElementById('reviews-list');
+  if (!list) return;
+  list.innerHTML = '';
+  const f = (filter || '').toLowerCase();
+
+  const shown = reviews.filter(rv => {
+    if (!f) return true;
+    const t = `${rv.author_name || ''} ${rv.text || ''}`.toLowerCase();
+    return t.includes(f);
+  });
+
+  if (!shown.length) {
+    list.innerHTML = '<div class="text-muted small">No reviews match the filter.</div>';
+    return;
+  }
+
+  shown.forEach(rv => {
+    const item = document.createElement('div');
+    item.className = 'list-group-item';
+    item.innerHTML = `
+      <div class="d-flex justify-content-between">
+        <div class="fw-semibold">${rv.author_name || 'Anonymous'}</div>
+        <div class="text-warning">${'★'.repeat(Math.round(rv.rating || 0))}</div>
+      </div>
+      <div class="small text-muted">${rv.relative_time_description || ''}</div>
+      <div class="mt-2">${rv.text || ''}</div>
+    `;
+    list.appendChild(item);
+  });
+}
+
+function initChartsSafe(data) {
+  if (typeof initCharts === 'function') return initCharts(data);
+
+  // Minimal safe defaults if your chart initializer is absent
+  const theme = (document.documentElement.getAttribute('data-bs-theme') || 'light');
+  const grid = theme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+  const txt = theme === 'dark' ? '#e9ecef' : '#343a40';
+
+  // Sentiment Pie
+  try {
+    const pos = Number(data.sentiments?.Positive || 0);
+    const neu = Number(data.sentiments?.Neutral || 0);
+    const neg = Number(data.sentiments?.Negative || 0);
+    const ctxPie = document.getElementById('sentimentPie')?.getContext('2d');
+    if (ctxPie) {
+      if (sentimentPieChart) sentimentPieChart.destroy();
+      sentimentPieChart = new Chart(ctxPie, {
+        type: 'doughnut',
+        data: {
+          labels: ['Positive', 'Neutral', 'Negative'],
+          datasets: [{
+            data: [pos, neu, neg],
+            backgroundColor: ['#198754', '#ffc107', '#dc3545']
+          }]
+        },
+        options: {
+          plugins: { legend: { labels: { color: txt } } }
+        }
+      });
+    }
+  } catch(e) { console.warn('Pie chart error', e); }
+
+  // Trend line (dummy-safe if you don’t pass series in your own init)
+  try {
+    const ctxTrend = document.getElementById('trendChart')?.getContext('2d');
+    if (ctxTrend) {
+      if (trendChart) trendChart.destroy();
+      const labels = (data.trend?.labels) || [];
+      const series = (data.trend?.values) || [];
+      trendChart = new Chart(ctxTrend, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Reviews',
+            data: series,
+            borderColor: colors.primary,
+            backgroundColor: 'rgba(13,110,253,0.1)',
+            tension: 0.25,
+            fill: true
+          }]
+        },
+        options: {
+          scales: {
+            x: { grid: { color: grid }, ticks: { color: txt } },
+            y: { grid: { color: grid }, ticks: { color: txt } }
+          },
+          plugins: { legend: { labels: { color: txt } } }
+        }
+      });
+    }
+  } catch(e) { console.warn('Trend chart error', e); }
+
+  // Weak/Strength Bars (safe)
+  try {
+    const wctx = document.getElementById('weakAreasChart')?.getContext('2d');
+    if (wctx) {
+      if (weakAreasChart) weakAreasChart.destroy();
+      const labels = (data.weak_areas || []).map(x => (x.label || x));
+      const vals = (data.weak_areas || []).map(x => Number(x.value ?? 1));
+      weakAreasChart = new Chart(wctx, {
+        type: 'bar',
+        data: { labels, datasets: [{ data: vals, backgroundColor: colors.danger }] },
+        options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: txt } }, y: { grid: { color: grid }, ticks: { color: txt } } } }
+      });
+    }
+  } catch(e) { console.warn('Weak chart error', e); }
+
+  try {
+    const sctx = document.getElementById('strengthAreasChart')?.getContext('2d');
+    if (sctx) {
+      if (strengthAreasChart) strengthAreasChart.destroy();
+      const labels = (data.strength_areas || []).map(x => (x.label || x));
+      const vals = (data.strength_areas || []).map(x => Number(x.value ?? 1));
+      strengthAreasChart = new Chart(sctx, {
+        type: 'bar',
+        data: { labels, datasets: [{ data: vals, backgroundColor: colors.success }] },
+        options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: txt } }, y: { grid: { color: grid }, ticks: { color: txt } } } }
+      });
+    }
+  } catch(e) { console.warn('Strength chart error', e); }
+
+  // Risk Gauge (if you draw elsewhere, this won’t interfere)
+  try {
+    const ctxGauge = document.getElementById('riskGauge')?.getContext('2d');
+    const score = Number((data.risk_score_percent ?? 0));
+    document.getElementById('risk-score-text').textContent = `${Math.round(score)}%`;
+    if (ctxGauge) {
+      if (riskGaugeChart) riskGaugeChart.destroy();
+      riskGaugeChart = new Chart(ctxGauge, {
+        type: 'doughnut',
+        data: {
+          labels: ['Risk', 'Remaining'],
+          datasets: [{ data: [score, Math.max(0, 100 - score)], backgroundColor: [colors.danger, '#e9ecef'], borderWidth: 0, cutout: '70%' }]
+        },
+        options: { plugins: { legend: { display: false } } }
+      });
+    }
+  } catch(e) { console.warn('Gauge chart error', e); }
+
+  // Aspect matrix placeholder (bubble)
+  try {
+    const ctxAsp = document.getElementById('aspectMatrixChart')?.getContext('2d');
+    if (ctxAsp) {
+      if (aspectMatrixChart) aspectMatrixChart.destroy();
+      const pts = (data.aspect_matrix || []).map(a => ({ x: Number(a.importance || 0), y: Number(a.sentiment || 0), r: Number(a.weight || 3) }));
+      aspectMatrixChart = new Chart(ctxAsp, {
+        type: 'bubble',
+        data: { datasets: [{ label: 'Aspects', data: pts, backgroundColor: 'rgba(13,110,253,0.35)' }] },
+        options: { scales: { x: { min: 0, max: 100, grid: { color: grid }, ticks: { color: txt } }, y: { min: -100, max: 100, grid: { color: grid }, ticks: { color: txt } } },
+                   plugins: { legend: { labels: { color: txt } } } }
+      });
+    }
+  } catch(e) { console.warn('Aspect chart error', e); }
+}
+
+// ── Loading companies (non-invasive) ─────────────────────────
+
+function loadCompaniesSafe() {
+  if (typeof loadCompanies === 'function') {
+    loadCompanies();
+    // Ensure change handler is attached
+    const sel = document.getElementById('company-selector');
+    if (sel && !sel.dataset.bound) {
+      sel.addEventListener('change', onCompanyChanged);
+      sel.dataset.bound = '1';
+    }
+    return;
+  }
+  // Minimal behavior: assume server injects options; bind change
+  const sel = document.getElementById('company-selector');
+  if (!sel) return;
+  sel.addEventListener('change', onCompanyChanged);
+}
+
+function onCompanyChanged(e) {
+  const selVal = Number(e.target.value || 0);
+  currentCompanyId = selVal;
+  localStorage.setItem('ri_company_id', String(currentCompanyId));
+  if (currentCompanyId > 0) {
+    loadDashboardData(currentCompanyId, false);
+  } else {
+    showNoSelectionSafe();
+  }
+}
+
+function showNoSelectionSafe() {
+  if (typeof showNoSelection === 'function') return showNoSelection();
+  document.getElementById('no-selection-state').style.display = 'block';
+  document.getElementById('main-content').style.display = 'none';
+  document.getElementById('company-header').style.display = 'none';
+}
+
+// ── Copy utility (safe) ─────────────────────────────────────
+
+async function copyText(targetId) {
+  try {
+    const el = document.getElementById(targetId);
+    const text = el ? el.innerText.trim() : '';
+    if (!text) throw new Error('Nothing to copy');
+    await navigator.clipboard.writeText(text);
+    showToast('Copied to clipboard', 'success');
+  } catch {
+    showToast('Copy failed', 'danger');
+  }
+}
 </script>
 
 <!-- Google Places script (replace YOUR_GOOGLE_API_KEY) -->
 <script async defer src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_API_KEY&libraries=places"></script>
 
 <style>
+  :root {
+    --card-hover-raise: -3px;
+    --hover-shadow: 0 10px 25px rgba(0,0,0,0.08);
+  }
+  [data-bs-theme="dark"] .card {
+    background-color: #1e2125;
+    border-color: #2b3035 !important;
+  }
   .card {
-    transition: transform 0.18s ease, box-shadow 0.18s ease;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, background-color .2s ease, border-color .2s ease;
   }
   .card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+    transform: translateY(var(--card-hover-raise));
+    box-shadow: var(--hover-shadow);
   }
   .progress-bar {
     transition: width 1.2s ease-in-out;
@@ -339,6 +1007,21 @@ async function loadDashboardData(companyId, forceRefresh = false) {
   .badge {
     letter-spacing: 0.4px;
     font-weight: 500;
+  }
+  /* Subtle focus ring */
+  .form-control:focus, .btn:focus, .form-select:focus {
+    box-shadow: 0 0 0 .2rem rgba(13,110,253,.25);
+  }
+  /* Improve list items readability */
+  #reviews-list .list-group-item {
+    border-left: 3px solid transparent;
+  }
+  #reviews-list .list-group-item:hover {
+    border-left-color: var(--bs-primary);
+    background: var(--bs-light-bg-subtle, #f8f9fa);
+  }
+  [data-bs-theme="dark"] #reviews-list .list-group-item:hover {
+    background: #262a2f;
   }
 </style>
 
