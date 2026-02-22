@@ -49,7 +49,6 @@ if api_key and googlemaps:
         logger.warning(f"Failed to initialize Google Maps client: {e}")
 
 API_TOKEN = os.getenv("API_TOKEN")
-FIXED_DEFAULT_START = datetime(2026, 2, 21, tzinfo=timezone.utc)
 
 # ---------------- NLP helpers ----------------
 _STOPWORDS = {
@@ -111,6 +110,46 @@ def _action_for_keyword(keyword: str) -> str:
         if k in k_lower:
             return v
     return "Perform root-cause analysis (5-Whys) and define corrective action"
+
+# ---------------- Google Place Helpers ----------------
+def _city_country_from_components(components: List[Dict]) -> Tuple[Optional[str], Optional[str]]:
+    city = country = None
+    for comp in components:
+        types = comp.get("types", [])
+        if any(t in types for t in ["locality", "postal_town", "administrative_area_level_2"]):
+            city = city or comp.get("long_name")
+        if "country" in types:
+            country = comp.get("long_name")
+    return city, country
+
+def _enrich_place_detail(place_id: str) -> Dict[str, Any]:
+    if not gmaps:
+        return {}
+    try:
+        fields = [
+            "name", "place_id", "formatted_address", "address_components",
+            "website", "international_phone_number", "rating", "user_ratings_total",
+            "geometry", "opening_hours"
+        ]
+        res = gmaps.place(place_id=place_id, fields=fields).get("result", {})
+        city, country = _city_country_from_components(res.get("address_components", []))
+        loc = res.get("geometry", {}).get("location", {})
+        return {
+            "name": res.get("name"),
+            "place_id": res.get("place_id"),
+            "formatted_address": res.get("formatted_address"),
+            "city": city,
+            "country": country,
+            "website": res.get("website"),
+            "international_phone_number": res.get("international_phone_number"),
+            "rating": res.get("rating"),
+            "user_ratings_total": res.get("user_ratings_total"),
+            "location": {"lat": loc.get("lat"), "lng": loc.get("lng")} if loc else None,
+            "opening_hours": {"weekday_text": res.get("opening_hours", {}).get("weekday_text", [])},
+        }
+    except Exception as e:
+        logger.error(f"Google place detail failed for {place_id}: {e}")
+        return {}
 
 # ---------------- Date handling ----------------
 def _parse_review_date(r: Review) -> Optional[datetime]:
@@ -194,7 +233,6 @@ def fetch_and_save_reviews_places(company: Company, db: Session, max_reviews: in
     if added:
         db.commit()
 
-    # Update aggregate fields
     if hasattr(company, "google_rating"):
         company.google_rating = result.get("rating")
     if hasattr(company, "user_ratings_total"):
@@ -207,7 +245,6 @@ def fetch_and_save_reviews_places(company: Company, db: Session, max_reviews: in
 def _daily_buckets_range(reviews: List[Review], start: datetime, end: datetime) -> List[Dict]:
     start_day = start.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
     end_day = end.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
-
     days_diff = (end_day.date() - start_day.date()).days + 1
     if days_diff < 1:
         return []
@@ -245,12 +282,11 @@ def get_review_summary_data(
     end: Optional[datetime] = None
 ) -> Dict[str, Any]:
     now = datetime.now(timezone.utc)
-    start = start or FIXED_DEFAULT_START
+    start = start or (now - timedelta(days=180))  # Default: last 6 months
     end = end or now
     if end < start:
         start, end = end, start
 
-    # Filter in Python for now (later → move to SQL)
     windowed = [
         r for r in reviews
         if (dt := _parse_review_date(r)) and start <= dt <= end
@@ -269,7 +305,7 @@ def get_review_summary_data(
             "ai_recommendations": [],
             "daily_series": [],
             "window": {"start": start.isoformat(), "end": end.isoformat()},
-            "payload_version": "3.1"
+            "payload_version": "3.2"
         }
 
     sentiments: Dict[str, int] = {"Positive": 0, "Neutral": 0, "Negative": 0}
@@ -290,7 +326,6 @@ def get_review_summary_data(
         for m, v in sorted(trend_data.items())
     ]
 
-    # Improved trend detection
     trend = {"signal": "insufficient_data", "delta": 0.0}
     if len(trend_list) >= 3:
         last = trend_list[-1]["avg_rating"]
@@ -298,7 +333,7 @@ def get_review_summary_data(
         delta = round(last - first, 2)
         if len(trend_list) >= 6:
             last3 = sum(x["avg_rating"] for x in trend_list[-3:]) / 3
-            prev3 = sum(x["avg_rating"] for x in trend_list[-6:-3]) / 3
+            prev3 = sum(x["avg_rating"] for x in trend_list[-6:-3]) / 3 if len(trend_list) >= 6 else last3
             delta = round(last3 - prev3, 2)
         if delta <= -0.3:
             trend = {"signal": "declining", "delta": delta}
@@ -315,7 +350,6 @@ def get_review_summary_data(
     risk_score = round(neg_share * 100 + (15 if trend["signal"] == "declining" else 0), 1)
     risk_level = "High" if risk_score >= 45 else "Medium" if risk_score >= 20 else "Low"
 
-    # Recommendations
     recs = []
     seen = set()
     for kw, count in Counter(neg_keywords).most_common(6):
@@ -343,13 +377,10 @@ def get_review_summary_data(
         "ai_recommendations": recs,
         "daily_series": daily_series,
         "window": {"start": start.isoformat(), "end": end.isoformat()},
-        "payload_version": "3.1"
+        "payload_version": "3.2"
     }
 
-# ──────────────────────────────────────────────
-# Endpoints
-# ──────────────────────────────────────────────
-
+# ────────────────────────────────────────────── Endpoints ─────
 @router.get("/google/places")
 def google_places_search(q: str = Query(..., min_length=2)):
     if not gmaps:
@@ -447,11 +478,26 @@ def add_company(
     db.commit()
     db.refresh(company)
 
-    # Try to pre-fill from Google
-    if gmaps:
+    # Enrich from Google if possible
+    if gmaps and place_id:
         detail = _enrich_place_detail(place_id)
-        # same update logic as in google_details_for_company...
-        # (omitted here for brevity — copy if needed)
+        if detail:
+            updates = {}
+            if detail.get("website"):
+                updates["website"] = detail["website"]
+            if detail.get("city") or detail.get("country"):
+                loc = ", ".join(filter(None, [detail.get("city"), detail.get("country")]))
+                if loc:
+                    updates["location"] = loc
+            if hasattr(company, "google_rating") and detail.get("rating") is not None:
+                updates["google_rating"] = detail["rating"]
+            if hasattr(company, "user_ratings_total") and detail.get("user_ratings_total") is not None:
+                updates["user_ratings_total"] = detail["user_ratings_total"]
+
+            if updates:
+                for k, v in updates.items():
+                    setattr(company, k, v)
+                db.commit()
 
     return {"ok": True, "company_id": company.id}
 
@@ -469,14 +515,17 @@ def reviews_summary(
     start_dt = _parse_date_param(start, as_end=False) if start else None
     end_dt = _parse_date_param(end, as_end=True) if end else None
 
-    # Future optimization: move filtering to SQL
-    # reviews = db.query(Review).filter(
-    #     Review.company_id == company_id,
-    #     Review.review_date >= start_dt if start_dt else True,
-    #     Review.review_date <= end_dt if end_dt else True,
-    # ).all()
+    # Filter directly in database — huge performance improvement
+    query = db.query(Review).filter(Review.company_id == company_id)
 
-    reviews = db.query(Review).filter(Review.company_id == company_id).all()
+    if start_dt:
+        query = query.filter(Review.review_date >= start_dt)
+    if end_dt:
+        query = query.filter(Review.review_date <= end_dt)
+
+    # Safety limit — prevents loading millions of rows
+    reviews = query.order_by(Review.review_date.desc()).limit(8000).all()
+
     return get_review_summary_data(reviews, company, start_dt, end_dt)
 
 @router.get("/sync/{company_id}")
@@ -497,5 +546,5 @@ def reviews_diagnostics():
         "places_client_active": gmaps is not None,
         "api_key_source": api_src,
         "api_token_configured": bool(API_TOKEN),
-        "default_start_date": FIXED_DEFAULT_START.isoformat()
+        "default_window_days": 180
     }
