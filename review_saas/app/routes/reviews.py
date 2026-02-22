@@ -1,16 +1,17 @@
 # FILE: review_saas/app/routes/reviews.py
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Header
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Review, Company
 
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 
 import os
 import re
 import logging
+import math
 
 # Optional Google client (Places only)
 try:
@@ -58,6 +59,8 @@ USE_GBP_API = os.getenv("USE_GBP_API", "false").lower() == "true"
 GBP_LOCATION_NAME = os.getenv("GBP_LOCATION_NAME")
 GBP_ACCESS_TOKEN = os.getenv("GBP_ACCESS_TOKEN")
 
+API_TOKEN = os.getenv("API_TOKEN")  # For POST /reviews/company
+
 # Keep the fixed start to preserve existing behavior
 FIXED_DEFAULT_START = datetime(2026, 2, 21, tzinfo=timezone.utc)
 
@@ -80,6 +83,16 @@ ASPECT_LEXICON: Dict[str, List[str]] = {
     "Availability": ["stock","availability","sold","item"],
     "Environment": ["noise","crowd","parking","space","ambience"],
     "Digital": ["payment","card","terminal","app","crash","online","wifi"],
+}
+
+EMOTION_LEXICON = {
+    "anger": ["angry","furious","outraged","rage","mad","livid","disgusting","hate","terrible"],
+    "joy": ["happy","delighted","amazing","love","great","wonderful","fantastic","pleased","satisfied"],
+    "frustration": ["frustrated","annoyed","irritated","disappointed","upset","letdown","ugh","tired"],
+    # Simple multilingual hints (lightweight)
+    "anger_multi": ["enojado","arrabbiato","wütend","عصبي","生气","गुस्सा"],
+    "joy_multi": ["feliz","felice","glücklich","سعيد","高兴","खुश"],
+    "frustration_multi": ["frustrado","frustrato","frustriert","محبط","沮丧","हताश"],
 }
 
 ACTION_MAP: Dict[str, str] = {
@@ -128,16 +141,43 @@ def _parse_review_date(r: Review) -> Optional[datetime]:
         return r.review_date.astimezone(timezone.utc) if r.review_date.tzinfo else r.review_date.replace(tzinfo=timezone.utc)
     return None
 
+def _score_from_sentiment(label: str) -> float:
+    # Map to numeric [-1, 1]
+    if label == "Positive": return 1.0
+    if label == "Negative": return -1.0
+    return 0.0
+
+def _emotion_from_text(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return None
+    t = _normalize(text)
+    if any(w in t for w in EMOTION_LEXICON["anger"] + EMOTION_LEXICON["anger_multi"]):
+        return "anger"
+    if any(w in t for w in EMOTION_LEXICON["frustration"] + EMOTION_LEXICON["frustration_multi"]):
+        return "frustration"
+    if any(w in t for w in EMOTION_LEXICON["joy"] + EMOTION_LEXICON["joy_multi"]):
+        return "joy"
+    return None
+
+def _confidence_heuristic(rating: Optional[float], text: Optional[str]) -> float:
+    # Simple heuristic: strong when rating far from neutral or text has emotion keywords
+    conf = 0.5
+    if rating is not None:
+        conf = 0.6 + 0.4 * (abs((rating or 3) - 3) / 2)  # 3..5 -> up to +0.4; 1..3 similar
+    emo = _emotion_from_text(text)
+    if emo:
+        conf = min(0.95, conf + 0.2)
+    return round(conf, 2)
+
 # ─────────────────────────────────────────────────────────────
 # Sync Optimized (NO N+1 QUERIES)
 # ─────────────────────────────────────────────────────────────
 def _preload_existing_keys(db: Session, company_id: int):
-    # Keep behavior; optimizing would require changing ORM calls
     existing = db.query(Review).filter(Review.company_id == company_id).all()
     return {(r.text, r.rating, r.review_date) for r in existing}
 
 def fetch_and_save_reviews_places(company: Company, db: Session, max_reviews: int = 50) -> int:
-    if not gmaps or not company.place_id:
+    if not gmaps or not getattr(company, "place_id", None):
         return 0
 
     existing_keys = _preload_existing_keys(db, company.id)
@@ -170,14 +210,17 @@ def fetch_and_save_reviews_places(company: Company, db: Session, max_reviews: in
     if added:
         db.commit()
 
-    company.google_rating = result.get("rating")
-    company.user_ratings_total = result.get("user_ratings_total")
+    # Update company aggregates if model supports these fields
+    if hasattr(company, "google_rating"):
+        company.google_rating = result.get("rating")
+    if hasattr(company, "user_ratings_total"):
+        company.user_ratings_total = result.get("user_ratings_total")
     db.commit()
 
     return added
 
 # ─────────────────────────────────────────────────────────────
-# Analysis Engine
+# Analysis & Aggregations
 # ─────────────────────────────────────────────────────────────
 def _detect_trend(trend_data: List[Dict[str, Any]]) -> Dict[str, Any]:
     if len(trend_data) < 3:
@@ -200,6 +243,51 @@ def _detect_trend(trend_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         return {"signal": "improving", "delta": delta}
     return {"signal": "stable", "delta": delta}
 
+def _daily_buckets(reviews: List[Review], days: int) -> List[Dict[str, Any]]:
+    """Return last N days buckets with avg rating & sentiment score."""
+    end = datetime.now(timezone.utc).replace(hour=23, minute=59, second=59, microsecond=0)
+    start = end - timedelta(days=days-1)
+    buckets: Dict[str, Dict[str, Any]] = {}
+    for i in range(days):
+        d = (start + timedelta(days=i)).date().isoformat()
+        buckets[d] = {"date": d, "ratings": [], "scores": []}
+
+    for r in reviews:
+        dt = _parse_review_date(r)
+        if not dt:
+            continue
+        if dt < start or dt > end:
+            continue
+        d = dt.date().isoformat()
+        label = classify_sentiment(r.rating)
+        score = _score_from_sentiment(label)
+        buckets[d]["ratings"].append(r.rating or 0)
+        buckets[d]["scores"].append(score)
+
+    series = []
+    for d in sorted(buckets.keys()):
+        rs = buckets[d]["ratings"]
+        ss = buckets[d]["scores"]
+        series.append({
+            "date": d,
+            "avg_rating": round(sum(rs)/len(rs), 2) if rs else None,
+            "sent_score": round(sum(ss)/len(ss), 3) if ss else 0.0
+        })
+    return series
+
+def _window_summary(reviews: List[Review], days: int) -> Dict[str, Any]:
+    series = _daily_buckets(reviews, days)
+    values = [x["sent_score"] for x in series]
+    avg = round(sum(values)/len(values), 3) if values else 0.0
+    # Spike detection: last 3-day vs previous 3-day mean
+    if len(values) >= 6:
+        last3 = values[-3:]
+        prev3 = values[-6:-3]
+        delta = round((sum(last3)/3) - (sum(prev3)/3), 3)
+    else:
+        delta = 0.0
+    return {"avg_score": avg, "delta": delta, "series": series}
+
 def get_review_summary_data(
     reviews: List[Review],
     company: Company,
@@ -221,7 +309,7 @@ def get_review_summary_data(
     # Ensure consistent structure even when no data (additive keys only)
     if not windowed:
         return {
-            "company_name": company.name,
+            "company_name": getattr(company, "name", f"Company {getattr(company, 'id', '')}"),
             "total_reviews": 0,
             "avg_rating": 0.0,
             "risk_score": 0,
@@ -230,8 +318,8 @@ def get_review_summary_data(
             "trend": {"signal": "insufficient_data", "delta": 0.0},
             "sentiments": {"Positive": 0, "Neutral": 0, "Negative": 0},
             "ai_recommendations": [],
-            "reviews": [],                  # preserved from original empty path
-            "payload_version": "3.0"        # aligns with non-empty path
+            "reviews": [],
+            "payload_version": "3.0"
         }
 
     sentiments = {"Positive":0, "Neutral":0, "Negative":0}
@@ -267,7 +355,6 @@ def get_review_summary_data(
     trend_signal = _detect_trend(trend_list)
 
     total = len(windowed)
-    # Ratings may be None on some rows; filter accordingly
     rated_values = [r.rating for r in windowed if r.rating is not None]
     avg = round(sum(rated_values) / len(rated_values), 2) if rated_values else 0.0
 
@@ -290,7 +377,7 @@ def get_review_summary_data(
         })
 
     return {
-        "company_name": company.name,
+        "company_name": getattr(company, "name", f"Company {getattr(company, 'id', '')}"),
         "total_reviews": total,
         "avg_rating": avg,
         "sentiments": sentiments,
@@ -303,7 +390,178 @@ def get_review_summary_data(
     }
 
 # ─────────────────────────────────────────────────────────────
-# Endpoints (unchanged IO)
+# New: Companies Overview & Add Company API
+# ─────────────────────────────────────────────────────────────
+def _health_from_risk(risk_level: str) -> str:
+    if risk_level == "High": return "Red"
+    if risk_level == "Medium": return "Yellow"
+    return "Green"
+
+def _pct(n: int, d: int) -> float:
+    return round((n / d) * 100, 2) if d else 0.0
+
+def _compute_overview_for_company(db: Session, c: Company) -> Dict[str, Any]:
+    reviews = db.query(Review).filter(Review.company_id == c.id).all()
+
+    # Full-window summary (existing logic)
+    base = get_review_summary_data(reviews, c)
+
+    # Windowed analytics
+    last7 = _window_summary(reviews, 7)
+    last30 = _window_summary(reviews, 30)
+    last90 = _window_summary(reviews, 90)
+
+    # Negative surge alert: last7 avg < prev7 avg by threshold (e.g., -0.25)
+    neg_surge = False
+    if len(last30["series"]) >= 14:
+        last7_vals = [x["sent_score"] for x in last30["series"][-7:]]
+        prev7_vals = [x["sent_score"] for x in last30["series"][-14:-7]]
+        if last7_vals and prev7_vals:
+            diff = (sum(last7_vals)/7) - (sum(prev7_vals)/7)
+            neg_surge = diff <= -0.25
+
+    sentiments = base.get("sentiments", {"Positive":0,"Neutral":0,"Negative":0})
+    total = base["total_reviews"]
+    pos_pct = _pct(sentiments.get("Positive",0), total)
+    neu_pct = _pct(sentiments.get("Neutral",0), total)
+    neg_pct = _pct(sentiments.get("Negative",0), total)
+
+    perf90_label = "Improving" if last90["delta"] > 0.05 else "Declining" if last90["delta"] < -0.05 else "Stable"
+
+    overview = {
+        "id": c.id,
+        "name": getattr(c, "name", f"Company {c.id}"),
+        "avg_rating": base["avg_rating"],
+        "total_reviews": base["total_reviews"],
+        "pos_pct": pos_pct,
+        "neu_pct": neu_pct,
+        "neg_pct": neg_pct,
+        "risk_level": base["risk_level"],
+        "health": _health_from_risk(base["risk_level"]),
+        "trend7": last7["series"],     # [{date, avg_rating, sent_score}]
+        "trend30": last30["series"],
+        "perf90": {
+            "avg_score": last90["avg_score"],
+            "delta": last90["delta"],
+            "label": perf90_label
+        },
+        "alerts": {
+            "negative_surge": neg_surge
+        }
+    }
+    return overview
+
+@router.get("/companies/overview")
+def companies_overview(db: Session = Depends(get_db)):
+    """
+    Returns overview metrics per company for the central dashboard.
+    Non-breaking: new endpoint.
+    """
+    companies = db.query(Company).all()
+    results = []
+    for c in companies:
+        try:
+            results.append(_compute_overview_for_company(db, c))
+        except Exception as e:
+            logger.error(f"Overview compute failed for company {getattr(c, 'id', '?')}: {e}")
+            results.append({
+                "id": getattr(c, "id", None),
+                "name": getattr(c, "name", "Unknown"),
+                "error": "overview_failed"
+            })
+    return {"items": results, "generated_at": datetime.now(timezone.utc).isoformat()}
+
+def _validate_api_token(x_api_key: Optional[str], auth: Optional[str]):
+    if not API_TOKEN:
+        raise HTTPException(status_code=503, detail="API token not configured on server")
+    token = None
+    if x_api_key:
+        token = x_api_key.strip()
+    elif auth and auth.lower().startswith("bearer "):
+        token = auth[7:].strip()
+    if token != API_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid API token")
+
+@router.post("/company")
+def add_company(
+    payload: Dict[str, Any],
+    db: Session = Depends(get_db),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None, alias="Authorization")
+):
+    """
+    Secure API to add new company.
+    - Token validation via X-API-Key or Authorization: Bearer <token>.
+    - Duplicate detection by name (case-insensitive) and place_id.
+    - Attempts auto-fetch of reviews if Google Places configured and place_id provided.
+    - Returns status (Processing/Active/Error) and the overview payload entry.
+    """
+    _validate_api_token(x_api_key, authorization)
+
+    name = (payload.get("name") or "").strip()
+    place_id = (payload.get("place_id") or "").strip() or None
+    website = (payload.get("website") or "").strip() or None
+    location = (payload.get("location") or "").strip() or None
+
+    if not name or len(name) < 2:
+        raise HTTPException(status_code=422, detail="Company name is required")
+
+    # Duplicate detection
+    existing = db.query(Company).filter(Company.name.ilike(name)).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Company with same name already exists")
+
+    if place_id:
+        dup_place = db.query(Company).filter(Company.place_id == place_id).first()
+        if dup_place:
+            raise HTTPException(status_code=409, detail="Company with same place_id already exists")
+
+    # Create company (supporting dynamic models)
+    company = Company(name=name)
+    if hasattr(company, "place_id"): company.place_id = place_id
+    if hasattr(company, "website"): company.website = website
+    if hasattr(company, "location"): company.location = location
+
+    db.add(company)
+    db.commit()
+    db.refresh(company)
+
+    status = "Processing"
+    added = 0
+    reason = None
+    try:
+        if place_id and gmaps:
+            added = fetch_and_save_reviews_places(company, db)
+            status = "Active"
+        else:
+            status = "Active"  # created, but no external ingestion
+    except Exception as e:
+        logger.error(f"Auto-ingestion failed for company {company.id}: {e}")
+        status = "Error"
+        reason = "ingestion_failed"
+
+    # Build overview row so UI can appear instantly
+    try:
+        overview = _compute_overview_for_company(db, company)
+    except Exception as e:
+        logger.error(f"Overview build failed for company {company.id}: {e}")
+        overview = {
+            "id": company.id,
+            "name": getattr(company, "name", "Unknown"),
+            "error": "overview_failed"
+        }
+
+    return {
+        "ok": True,
+        "company_id": company.id,
+        "status": status,
+        "reason": reason,
+        "auto_ingested_reviews": added,
+        "overview": overview
+    }
+
+# ─────────────────────────────────────────────────────────────
+# Existing Endpoints (unchanged IO)
 # ─────────────────────────────────────────────────────────────
 @router.get("/summary/{company_id}")
 def reviews_summary(company_id: int, db: Session = Depends(get_db)):
