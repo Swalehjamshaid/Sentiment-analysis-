@@ -3,6 +3,12 @@
 {% block content %}
 
 <div class="container mt-4">
+  <!-- API diagnostics (non-blocking) -->
+  <div id="api-diagnostics" class="alert alert-info d-none mb-4" role="alert" aria-live="polite">
+    <i class="bi bi-info-circle me-2"></i>
+    <strong>Heads up:</strong>
+    <span id="api-diagnostics-text">Checking Google Places script & environment keys…</span>
+  </div>
 
   <!-- Low data warning (critical in 2026 with Places API limitation) -->
   <div id="low-data-warning" class="alert alert-warning d-none mb-4" role="alert" aria-live="polite">
@@ -17,8 +23,9 @@
     <h3 class="mb-0">Review Intelligence Dashboard</h3>
     <div class="d-flex align-items-center gap-3 flex-wrap">
 
-      <select id="company-selector" class="form-select" style="min-width: 260px;" aria-label="Select company">
-        <option value="0">Select a Company...</option>
+      <!-- Companies dropdown: now auto-populates -->
+      <select id="company-selector" class="form-select" style="min-width: 280px;" aria-label="Select company">
+        <option value="0">Loading companies…</option>
       </select>
 
       <button id="add-company-btn" class="btn btn-outline-dark" aria-label="Add new company" data-bs-toggle="tooltip" data-bs-title="Add or link a new company">
@@ -40,7 +47,7 @@
         <i class="bi bi-funnel"></i> Apply
       </button>
 
-      <button id="refresh-btn" class="btn btn-outline-success" data-bs-toggle="tooltip" data-bs-title="Refresh & Fetch latest (shortcut: R)">
+      <button id="refresh-btn" class="btn btn-outline-success" data-bs-toggle="tooltip" data-bs-title="Refresh & Fetch latest from source (shortcut: R)">
         <i class="bi bi-arrow-repeat"></i> Refresh &amp; Fetch
       </button>
 
@@ -48,7 +55,7 @@
         <i class="bi bi-stars"></i> Owner Summary
       </button>
 
-      <!-- Theme toggle (non-breaking) -->
+      <!-- Theme toggle -->
       <button id="theme-toggle" class="btn btn-outline-secondary" type="button" aria-label="Toggle theme" data-bs-toggle="tooltip" data-bs-title="Toggle Light/Dark">
         <i class="bi bi-moon-stars"></i>
       </button>
@@ -275,8 +282,7 @@
           <div class="d-flex gap-2 align-items-center">
             <div class="input-group input-group-sm" style="max-width: 260px;">
               <span class="input-group-text"><i class="bi bi-search"></i></span>
-              <input id="reviews-search" type="text" class="form-control" placeholder="Filter by keyword…"
-                     aria-label="Filter reviews" />
+              <input id="reviews-search" type="text" class="form-control" placeholder="Filter by keyword…" aria-label="Filter reviews" />
             </div>
           </div>
         </div>
@@ -293,8 +299,7 @@
     <form id="add-company-form" class="modal-content" autocomplete="off">
       <div class="modal-header">
         <h5 class="modal-title" id="addCompanyModalLabel"><i class="bi bi-building-add me-2"></i>Add Company</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"
-                data-bs-toggle="tooltip" data-bs-title="Close modal"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" data-bs-toggle="tooltip" data-bs-title="Close modal"></button>
       </div>
       <div class="modal-body">
         <div class="mb-3">
@@ -360,7 +365,7 @@
   </div>
 </div>
 
-<!-- Toasts (non-blocking notifications) -->
+<!-- Toasts -->
 <div class="position-fixed top-0 end-0 p-3" style="z-index: 1080">
   <div id="globalToast" class="toast align-items-center text-bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true">
     <div class="d-flex">
@@ -371,21 +376,16 @@
 </div>
 
 <!-- Libraries -->
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-      rel="stylesheet"
-      integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
-      crossorigin="anonymous">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
 // ─────────────────────────────────────────────────────────────
-// JavaScript (refined, user-friendly)
-// IMPORTANT: Per your rules → unchanged I/O + filename in code
+// JavaScript (refined, user-friendly, no I/O changes)
 // FILE_NAME_HTML = "review_saas/app/templates/dashboard.html"
 // ─────────────────────────────────────────────────────────────
-
 const FILE_NAME_HTML = "review_saas/app/templates/dashboard.html";
 
 let trendChart, sentimentPieChart, weakAreasChart, strengthAreasChart, riskGaugeChart, aspectMatrixChart;
@@ -405,78 +405,91 @@ const colors = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Enable Bootstrap tooltips globally
-  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
-    new bootstrap.Tooltip(el);
-  });
+  // Tooltips
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
 
+  // Theme & dates
   initTheme();
   initDefaultDates();
   updateDateWindowDisplay();
-  loadCompaniesSafe();
+
+  // Load companies (now implemented)
+  loadCompanies();
+
+  // Restore last selected company (if any)
+  const lastId = Number(localStorage.getItem('ri_company_id') || 0);
+  if (lastId > 0) {
+    currentCompanyId = lastId;
+  }
 
   // Toolbar actions
   document.getElementById('apply-range-btn').addEventListener('click', () => {
     if (currentCompanyId > 0) loadDashboardData(currentCompanyId, false);
   });
-  document.getElementById('refresh-btn').addEventListener('click', () => {
-    if (currentCompanyId > 0) loadDashboardData(currentCompanyId, true);
+  document.getElementById('refresh-btn').addEventListener('click', async () => {
+    if (currentCompanyId > 0) {
+      await performSync(currentCompanyId); // real sync
+      await loadDashboardData(currentCompanyId, false);
+    }
   });
 
   // Keyboard shortcuts: A = apply, R = refresh
   document.addEventListener('keydown', (e) => {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
     if (e.key.toLowerCase() === 'a') {
-      const btn = document.getElementById('apply-range-btn');
-      if (!btn.disabled) btn.click();
+      document.getElementById('apply-range-btn')?.click();
     } else if (e.key.toLowerCase() === 'r') {
-      const btn = document.getElementById('refresh-btn');
-      if (!btn.disabled) btn.click();
+      document.getElementById('refresh-btn')?.click();
     }
   });
 
-  // Owner summary
+  // Owner summary modal
   document.getElementById('owner-summary-btn').addEventListener('click', () => {
     if (!lastSummaryData) return;
     if (typeof populateOwnerSummaryModal === 'function') {
       populateOwnerSummaryModal(lastSummaryData);
+    } else {
+      document.getElementById('owner-summary-content').innerText = (lastSummaryData.executive_summary || 'No summary available.');
     }
     const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('ownerSummaryModal'));
     modal.show();
   });
-
-  // Copy summary (uses provided helper if available)
   document.getElementById('owner-summary-copy-btn').addEventListener('click', async () => {
     try {
-      let text = '';
-      if (typeof buildOwnerSummaryClipboardText === 'function') {
-        text = buildOwnerSummaryClipboardText(lastSummaryData);
-      } else {
-        text = (document.getElementById('owner-summary-content')?.innerText || '').trim();
-      }
+      const text = (typeof buildOwnerSummaryClipboardText === 'function')
+        ? buildOwnerSummaryClipboardText(lastSummaryData)
+        : (document.getElementById('owner-summary-content')?.innerText || '').trim();
       await navigator.clipboard.writeText(text);
       showToast('Copied owner summary to clipboard', 'success');
-    } catch {
-      showToast('Failed to copy owner summary', 'danger');
-    }
+    } catch { showToast('Failed to copy owner summary', 'danger'); }
   });
 
-  // Add company modal
+  // Add company modal & Places autocomplete
   document.getElementById('add-company-btn').addEventListener('click', () => {
     if (typeof clearAddCompanyForm === 'function') clearAddCompanyForm();
     const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('addCompanyModal'));
     modal.show();
 
-    // Google Places autocomplete (if script loaded)
     if (!addCoPlacesAutocomplete && window.google?.maps?.places) {
       addCoPlacesAutocomplete = new google.maps.places.Autocomplete(
         document.getElementById('addco_google_search'),
         { types: ['establishment'] }
       );
       addCoPlacesAutocomplete.addListener('place_changed', () => {
-        if (typeof handleAddCoPlacePicked === 'function') handleAddCoPlacePicked(addCoPlacesAutocomplete);
+        if (typeof handleAddCoPlacePicked === 'function') {
+          handleAddCoPlacePicked(addCoPlacesAutocomplete);
+        } else {
+          const place = addCoPlacesAutocomplete.getPlace();
+          // Minimal autofill if your handler isn't present
+          document.getElementById('addco_name').value = place?.name || '';
+          document.getElementById('addco_place_id').value = place?.place_id || '';
+          document.getElementById('addco_address').value = place?.formatted_address || '';
+        }
       });
     }
+
+    // Diagnostics banner for Google script issues
+    diagnoseGoogleScript();
   });
 
   document.getElementById('add-company-form').addEventListener('submit', async e => {
@@ -484,7 +497,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof submitNewCompany === 'function') {
       await submitNewCompany();
     } else {
-      showToast('submitNewCompany() missing. Please implement on backend side.', 'warning');
+      // Generic post if your helper is absent
+      try {
+        const formEl = e.target;
+        const fd = new FormData(formEl);
+        const res = await fetch('/companies/', { method: 'POST', body: fd });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showToast('Company added successfully', 'success');
+        await reloadCompanyDropdownAndSelectNewSafe();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('addCompanyModal')).hide();
+      } catch (err) {
+        showAddCoError(`Failed to add company: ${err.message}`);
+      }
     }
   });
 
@@ -501,39 +525,115 @@ document.addEventListener('DOMContentLoaded', () => {
   // Theme toggle
   document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
 
-  // Reviews search filter (delegated to your renderReviews impl if it supports filtering)
+  // Reviews search filter
   const reviewsSearch = document.getElementById('reviews-search');
   if (reviewsSearch) {
     reviewsSearch.addEventListener('input', () => {
-      if (typeof renderReviews === 'function') {
-        renderReviews(lastSummaryData?.reviews || [], reviewsSearch.value || '');
-      }
+      renderReviewsSafe(lastSummaryData?.reviews || [], reviewsSearch.value || '');
     });
   }
+
+  // Try auto-load on first run if a company was stored
+  setTimeout(() => {
+    const sel = document.getElementById('company-selector');
+    if (sel && currentCompanyId > 0) {
+      const option = [...sel.options].find(o => Number(o.value) === currentCompanyId);
+      if (option) {
+        sel.value = String(currentCompanyId);
+        loadDashboardData(currentCompanyId, false);
+      }
+    }
+  }, 400);
 });
 
-function initDefaultDates() {
-  // Default: last 90 days (example preserves your logic from snippet date-from Feb 21, 2026)
-  const df = new Date(Date.UTC(2026, 1, 21));
-  const dt = new Date();
-  // If previously persisted, use that
-  const persistedFrom = localStorage.getItem('ri_date_from');
-  const persistedTo = localStorage.getItem('ri_date_to');
-  const fmt = d => d.toISOString().slice(0, 10);
+// ── Companies loading (robust; with fallback) ────────────────
+async function loadCompanies() {
+  const sel = document.getElementById('company-selector');
+  if (!sel) return;
+  sel.innerHTML = `<option value="0">Loading companies…</option>`;
+  try {
+    let list = [];
+    // Primary: /companies/list
+    try {
+      const res = await fetch('/companies/list');
+      if (res.ok) list = await res.json();
+    } catch {}
+    // Fallback: /reviews/my-companies
+    if (!list?.length) {
+      const res2 = await fetch('/reviews/my-companies');
+      if (res2.ok) list = await res2.json();
+    }
+    if (!list?.length) throw new Error('No companies found');
 
-  document.getElementById('date-from').value = persistedFrom || fmt(df);
-  document.getElementById('date-to').value = persistedTo || fmt(dt);
+    sel.innerHTML = `<option value="0">Select a Company…</option>`;
+    list.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = String(c.id);
+      opt.textContent = c.name + (c.city ? ` — ${c.city}` : '');
+      sel.appendChild(opt);
+    });
+
+    sel.addEventListener('change', onCompanyChanged);
+    sel.dataset.bound = '1';
+
+    // Restore last selected
+    const lastId = Number(localStorage.getItem('ri_company_id') || 0);
+    if (lastId > 0 && list.some(x => Number(x.id) === lastId)) {
+      sel.value = String(lastId);
+    } else {
+      sel.value = '0';
+    }
+
+  } catch (err) {
+    sel.innerHTML = `<option value="0">Failed to load companies</option>`;
+    showToast(`Companies load error: ${err.message}`, 'danger');
+  }
 }
 
-function persistDateRange() {
-  const { date_from, date_to } = getDateInputs();
-  if (date_from) localStorage.setItem('ri_date_from', date_from);
-  if (date_to) localStorage.setItem('ri_date_to', date_to);
+function onCompanyChanged(e) {
+  const selVal = Number(e.target.value || 0);
+  currentCompanyId = selVal;
+  localStorage.setItem('ri_company_id', String(currentCompanyId));
+  if (currentCompanyId > 0) {
+    loadDashboardData(currentCompanyId, false);
+  } else {
+    showNoSelectionSafe();
+  }
 }
 
-// ── Core fetch & render logic ─────────────────────────────────
+async function reloadCompanyDropdownAndSelectNewSafe() {
+  await loadCompanies();
+  const sel = document.getElementById('company-selector');
+  if (!sel) return;
+  // Pick last option (newly added) if available
+  if (sel.options.length > 1) {
+    sel.selectedIndex = sel.options.length - 1;
+    sel.dispatchEvent(new Event('change'));
+  }
+}
 
-async function loadDashboardData(companyId, forceRefresh = false) {
+// ── Sync then summary (no I/O change in /summary) ────────────
+async function performSync(companyId) {
+  try {
+    const { date_from, date_to } = getDateInputs();
+    const qp = new URLSearchParams();
+    if (date_from) qp.set('date_from', date_from);
+    if (date_to) qp.set('date_to', date_to);
+    const res = await fetch(`/reviews/sync/${companyId}?${qp}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data?.ok === false) {
+      showToast(`Sync warning: ${data.reason || 'source not configured'}`, 'warning');
+    } else {
+      showToast(`Sync done (${data?.source || 'unknown'})`, 'success');
+    }
+  } catch (err) {
+    showToast(`Sync failed: ${err.message}`, 'danger');
+  }
+}
+
+// ── Core fetch & render logic ────────────────────────────────
+async function loadDashboardData(companyId, _forceRefresh = false) {
   if (isFetching) return;
   isFetching = true;
 
@@ -552,11 +652,9 @@ async function loadDashboardData(companyId, forceRefresh = false) {
     const qp = new URLSearchParams();
     if (date_from) qp.set('date_from', date_from);
     if (date_to) qp.set('date_to', date_to);
-    qp.set('refresh', String(!!forceRefresh));
 
     const res = await fetch(`/reviews/summary/${companyId}?${qp}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
     const data = await res.json();
     lastSummaryData = data;
 
@@ -572,14 +670,14 @@ async function loadDashboardData(companyId, forceRefresh = false) {
     document.getElementById('sentiment-mix').textContent =
       `${data.sentiments?.Positive ?? 0} / ${data.sentiments?.Neutral ?? 0} / ${data.sentiments?.Negative ?? 0}`;
 
-    document.getElementById('last-refresh').textContent = forceRefresh ? 'Just now' : 'Synced';
+    document.getElementById('last-refresh').textContent = 'Synced';
 
     if (data.executive_summary) {
       document.getElementById('executive-summary-text').textContent = data.executive_summary;
       document.getElementById('executive-summary-line').style.display = 'block';
     }
 
-    // Data completion & warning
+    // Data completion & warning (use backend field if present)
     const completion = computeCompletionPercentSafe(data);
     const bar = document.getElementById('data-completion-bar');
     const pct = Math.max(0, Math.min(100, Math.round(completion)));
@@ -597,7 +695,7 @@ async function loadDashboardData(companyId, forceRefresh = false) {
       document.getElementById('low-data-warning').classList.remove('d-none');
     }
 
-    // Render rest (hook into your existing helpers)
+    // Render sections
     renderChipsSafe('weak-areas-chips', data.weak_areas || [], 'danger');
     renderChipsSafe('strength-areas-chips', data.strength_areas || [], 'success');
     renderKeywordsCloudSafe(data.positive_keywords || [], data.negative_keywords || []);
@@ -613,8 +711,7 @@ async function loadDashboardData(companyId, forceRefresh = false) {
 
   } catch (err) {
     console.error(`[${FILE_NAME_HTML}]`, err);
-    showToast(`Failed to load dashboard data (${err.message}). Check console or server logs.`, 'danger');
-    // Fallback legacy alert if toasts not visible
+    showToast(`Failed to load dashboard data (${err.message}).`, 'danger');
     try { alert("Failed to load dashboard data. Check console or server logs."); } catch {}
   } finally {
     isFetching = false;
@@ -622,74 +719,75 @@ async function loadDashboardData(companyId, forceRefresh = false) {
   }
 }
 
-// ── Helper: date inputs & window label ───────────────────────
+// ── Date helpers ────────────────────────────────────────────
+function initDefaultDates() {
+  // Default start 21/02/2026 as per requirement
+  const df = new Date(Date.UTC(2026, 1, 21));
+  const dt = new Date();
+  const persistedFrom = localStorage.getItem('ri_date_from');
+  const persistedTo = localStorage.getItem('ri_date_to');
+  const fmt = d => d.toISOString().slice(0, 10);
 
+  document.getElementById('date-from').value = persistedFrom || fmt(df);
+  document.getElementById('date-to').value = persistedTo || fmt(dt);
+}
 function getDateInputs() {
   const date_from = (document.getElementById('date-from').value || '').trim();
   const date_to = (document.getElementById('date-to').value || '').trim();
   return { date_from, date_to };
 }
-
 function updateDateWindowDisplay() {
   const { date_from, date_to } = getDateInputs();
   const label = (date_from && date_to) ? `${date_from} → ${date_to}` : '—';
   const el = document.getElementById('date-window');
   if (el) el.textContent = label;
 }
+function persistDateRange() {
+  const { date_from, date_to } = getDateInputs();
+  if (date_from) localStorage.setItem('ri_date_from', date_from);
+  if (date_to) localStorage.setItem('ri_date_to', date_to);
+}
 
-// ── Helper: toasts ───────────────────────────────────────────
-
+// ── Toasts ──────────────────────────────────────────────────
 function showToast(message, type = 'danger') {
   const toastEl = document.getElementById('globalToast');
   const bodyEl = document.getElementById('globalToastBody');
   if (!toastEl || !bodyEl) return;
   bodyEl.textContent = message || 'Notification';
-  toastEl.classList.remove('text-bg-danger', 'text-bg-success', 'text-bg-warning', 'text-bg-info', 'text-bg-secondary');
+  toastEl.classList.remove('text-bg-danger','text-bg-success','text-bg-warning','text-bg-info','text-bg-secondary');
   toastEl.classList.add(`text-bg-${type}`);
   const t = bootstrap.Toast.getOrCreateInstance(toastEl, { delay: 3500 });
   t.show();
 }
 
-// ── UX: Theme handling (non-breaking) ────────────────────────
-
+// ── Theme handling ──────────────────────────────────────────
 function initTheme() {
-  const root = document.documentElement;
   const saved = localStorage.getItem('ri_theme');
   let theme = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   applyTheme(theme);
-
-  // Update Chart.js defaults for current theme (only colors)
   if (window.Chart) {
     const isDark = theme === 'dark';
     Chart.defaults.color = isDark ? '#dee2e6' : '#343a40';
     Chart.defaults.borderColor = isDark ? 'rgba(255,255,255,.15)' : 'rgba(0,0,0,.1)';
   }
 }
-
 function toggleTheme() {
   const current = document.documentElement.getAttribute('data-bs-theme') || 'light';
   const next = current === 'dark' ? 'light' : 'dark';
   applyTheme(next);
   localStorage.setItem('ri_theme', next);
-  // If charts exist, you may re-render them in initChartsSafe for exact theming
   if (lastSummaryData) initChartsSafe(lastSummaryData);
 }
-
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-bs-theme', theme);
   const icon = document.querySelector('#theme-toggle i');
-  if (icon) {
-    icon.className = theme === 'dark' ? 'bi bi-brightness-high' : 'bi bi-moon-stars';
-  }
+  if (icon) icon.className = theme === 'dark' ? 'bi bi-brightness-high' : 'bi bi-moon-stars';
 }
 
-// ── Safe wrappers for your existing helpers (non-invasive) ───
-
+// ── Safe wrappers / fallbacks ───────────────────────────────
 function computeCompletionPercentSafe(data) {
-  if (typeof computeCompletionPercent === 'function') {
-    return computeCompletionPercent(data);
-  }
-  // Fallback heuristic (non-invasive)
+  if (typeof computeCompletionPercent === 'function') return computeCompletionPercent(data);
+  if (typeof data?.data_completion_percent === 'number') return data.data_completion_percent;
   const total = Number(data?.google_total_ratings ?? 0);
   const have = Number(data?.total_reviews ?? 0);
   if (total <= 0) return have > 0 ? 50 : 0;
@@ -701,53 +799,57 @@ function renderChipsSafe(targetId, items, bsContext = 'secondary') {
   const box = document.getElementById(targetId);
   if (!box) return;
   box.innerHTML = '';
-  (items || []).forEach((t) => {
+  (items || []).forEach((it) => {
+    const label = typeof it === 'string' ? it : (it.keyword || it.label || '');
+    if (!label) return;
     const span = document.createElement('span');
     span.className = `badge bg-${bsContext}-subtle text-${bsContext} border border-${bsContext}`;
-    span.textContent = t;
+    span.textContent = it.mentions ? `${label} (${it.mentions})` : label;
     box.appendChild(span);
   });
 }
-
 function renderTopNegativePhrasesSafe(items) {
   if (typeof renderTopNegativePhrases === 'function') return renderTopNegativePhrases(items);
   const box = document.getElementById('top-negative-phrases');
   if (!box) return;
   box.innerHTML = '';
-  if (!items?.length) {
+  const arr = (items || []).map(p => typeof p === 'string' ? { phrase: p, mentions: null } : p);
+  if (!arr.length) {
     box.innerHTML = '<span class="text-muted">No negative phrases found in the selected window.</span>';
     return;
   }
   const ul = document.createElement('ul');
   ul.className = 'mb-0 ps-3';
-  items.forEach((p) => {
+  arr.forEach(p => {
     const li = document.createElement('li');
-    li.textContent = p;
+    li.textContent = p.mentions ? `${p.phrase} (${p.mentions})` : p.phrase;
     ul.appendChild(li);
   });
   box.appendChild(ul);
 }
-
 function renderKeywordsCloudSafe(pos = [], neg = []) {
   if (typeof renderKeywordsCloud === 'function') return renderKeywordsCloud(pos, neg);
   const p = document.getElementById('positive-keywords-cloud');
   const n = document.getElementById('negative-keywords-cloud');
   if (p) p.innerHTML = '';
   if (n) n.innerHTML = '';
-  pos.forEach(k => {
+  (pos || []).forEach(k => {
+    const label = (typeof k === 'string') ? k : (k.keyword || '');
+    if (!label) return;
     const b = document.createElement('span');
     b.className = 'badge bg-success-subtle text-success border border-success';
-    b.textContent = k;
+    b.textContent = label;
     p?.appendChild(b);
   });
-  neg.forEach(k => {
+  (neg || []).forEach(k => {
+    const label = (typeof k === 'string') ? k : (k.keyword || '');
+    if (!label) return;
     const b = document.createElement('span');
     b.className = 'badge bg-danger-subtle text-danger border border-danger';
-    b.textContent = k;
+    b.textContent = k.mentions ? `${label} (${k.mentions})` : label;
     n?.appendChild(b);
   });
 }
-
 function renderAIRecommendationsSafe(recs = []) {
   if (typeof renderAIRecommendations === 'function') return renderAIRecommendations(recs);
   const box = document.getElementById('ai-recommendations');
@@ -762,12 +864,13 @@ function renderAIRecommendationsSafe(recs = []) {
     col.className = 'col-12';
     const c = document.createElement('div');
     c.className = 'p-3 rounded border bg-body-tertiary';
-    c.innerHTML = `<strong>${r.title || 'Recommendation'}</strong><div class="small mt-1">${r.detail || ''}</div>`;
+    c.innerHTML = `<strong>${r.weak_area || r.title || 'Recommendation'}</strong>
+                   <div class="small mt-1">${r.recommended_action || r.detail || ''}</div>
+                   <div class="small text-muted mt-1">Priority: ${r.priority || '—'} • Owner: ${r.owner || '—'} • ${r.timeframe || ''}</div>`;
     col.appendChild(c);
     box.appendChild(col);
   });
 }
-
 function renderReviewsSafe(reviews = [], filter = '') {
   if (typeof renderReviews === 'function') return renderReviews(reviews, filter);
   const list = document.getElementById('reviews-list');
@@ -777,7 +880,7 @@ function renderReviewsSafe(reviews = [], filter = '') {
 
   const shown = reviews.filter(rv => {
     if (!f) return true;
-    const t = `${rv.author_name || ''} ${rv.text || ''}`.toLowerCase();
+    const t = `${rv.reviewer_name || ''} ${rv.review_text || ''}`.toLowerCase();
     return t.includes(f);
   });
 
@@ -789,13 +892,16 @@ function renderReviewsSafe(reviews = [], filter = '') {
   shown.forEach(rv => {
     const item = document.createElement('div');
     item.className = 'list-group-item';
+    const stars = Number(rv.rating || 0);
+    const dateStr = rv.review_date ? new Date(rv.review_date).toLocaleDateString() : '';
     item.innerHTML = `
       <div class="d-flex justify-content-between">
-        <div class="fw-semibold">${rv.author_name || 'Anonymous'}</div>
-        <div class="text-warning">${'★'.repeat(Math.round(rv.rating || 0))}</div>
+        <div class="fw-semibold">${rv.reviewer_name || 'Anonymous'}</div>
+        <div class="text-warning" title="${stars}">${'★'.repeat(Math.round(stars))}</div>
       </div>
-      <div class="small text-muted">${rv.relative_time_description || ''}</div>
-      <div class="mt-2">${rv.text || ''}</div>
+      <div class="small text-muted">${dateStr} • ${rv.sentiment || ''}</div>
+      <div class="mt-2">${rv.review_text || ''}</div>
+      <div class="mt-2 small text-muted fst-italic">${rv.suggested_reply ? 'Suggested reply: ' + rv.suggested_reply : ''}</div>
     `;
     list.appendChild(item);
   });
@@ -804,7 +910,6 @@ function renderReviewsSafe(reviews = [], filter = '') {
 function initChartsSafe(data) {
   if (typeof initCharts === 'function') return initCharts(data);
 
-  // Minimal safe defaults if your chart initializer is absent
   const theme = (document.documentElement.getAttribute('data-bs-theme') || 'light');
   const grid = theme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
   const txt = theme === 'dark' ? '#e9ecef' : '#343a40';
@@ -821,31 +926,26 @@ function initChartsSafe(data) {
         type: 'doughnut',
         data: {
           labels: ['Positive', 'Neutral', 'Negative'],
-          datasets: [{
-            data: [pos, neu, neg],
-            backgroundColor: ['#198754', '#ffc107', '#dc3545']
-          }]
+          datasets: [{ data: [pos, neu, neg], backgroundColor: ['#198754', '#ffc107', '#dc3545'] }]
         },
-        options: {
-          plugins: { legend: { labels: { color: txt } } }
-        }
+        options: { plugins: { legend: { labels: { color: txt } } } }
       });
     }
   } catch(e) { console.warn('Pie chart error', e); }
 
-  // Trend line (dummy-safe if you don’t pass series in your own init)
+  // Trend line (uses backend "trend_data")
   try {
     const ctxTrend = document.getElementById('trendChart')?.getContext('2d');
     if (ctxTrend) {
       if (trendChart) trendChart.destroy();
-      const labels = (data.trend?.labels) || [];
-      const series = (data.trend?.values) || [];
+      const labels = (data.trend_data || []).map(x => x.month);
+      const series = (data.trend_data || []).map(x => x.avg_rating);
       trendChart = new Chart(ctxTrend, {
         type: 'line',
         data: {
           labels,
           datasets: [{
-            label: 'Reviews',
+            label: 'Avg Rating',
             data: series,
             borderColor: colors.primary,
             backgroundColor: 'rgba(13,110,253,0.1)',
@@ -856,7 +956,7 @@ function initChartsSafe(data) {
         options: {
           scales: {
             x: { grid: { color: grid }, ticks: { color: txt } },
-            y: { grid: { color: grid }, ticks: { color: txt } }
+            y: { grid: { color: grid }, ticks: { color: txt }, suggestedMin: 0, suggestedMax: 5 }
           },
           plugins: { legend: { labels: { color: txt } } }
         }
@@ -864,17 +964,18 @@ function initChartsSafe(data) {
     }
   } catch(e) { console.warn('Trend chart error', e); }
 
-  // Weak/Strength Bars (safe)
+  // Weak/Strength bars
   try {
     const wctx = document.getElementById('weakAreasChart')?.getContext('2d');
     if (wctx) {
       if (weakAreasChart) weakAreasChart.destroy();
-      const labels = (data.weak_areas || []).map(x => (x.label || x));
-      const vals = (data.weak_areas || []).map(x => Number(x.value ?? 1));
+      const labels = (data.weak_areas || []).map(x => x.keyword || x.label || x);
+      const vals = (data.weak_areas || []).map(x => Number(x.mentions ?? x.value ?? 1));
       weakAreasChart = new Chart(wctx, {
         type: 'bar',
         data: { labels, datasets: [{ data: vals, backgroundColor: colors.danger }] },
-        options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: txt } }, y: { grid: { color: grid }, ticks: { color: txt } } } }
+        options: { indexAxis: 'y', plugins: { legend: { display: false } },
+          scales: { x: { grid: { color: grid }, ticks: { color: txt } }, y: { grid: { color: grid }, ticks: { color: txt } } } }
       });
     }
   } catch(e) { console.warn('Weak chart error', e); }
@@ -883,20 +984,21 @@ function initChartsSafe(data) {
     const sctx = document.getElementById('strengthAreasChart')?.getContext('2d');
     if (sctx) {
       if (strengthAreasChart) strengthAreasChart.destroy();
-      const labels = (data.strength_areas || []).map(x => (x.label || x));
-      const vals = (data.strength_areas || []).map(x => Number(x.value ?? 1));
+      const labels = (data.strength_areas || []).map(x => x.keyword || x.label || x);
+      const vals = (data.strength_areas || []).map(x => Number(x.mentions ?? x.value ?? 1));
       strengthAreasChart = new Chart(sctx, {
         type: 'bar',
         data: { labels, datasets: [{ data: vals, backgroundColor: colors.success }] },
-        options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { grid: { color: grid }, ticks: { color: txt } }, y: { grid: { color: grid }, ticks: { color: txt } } } }
+        options: { indexAxis: 'y', plugins: { legend: { display: false } },
+          scales: { x: { grid: { color: grid }, ticks: { color: txt } }, y: { grid: { color: grid }, ticks: { color: txt } } } }
       });
     }
   } catch(e) { console.warn('Strength chart error', e); }
 
-  // Risk Gauge (if you draw elsewhere, this won’t interfere)
+  // Risk Gauge (uses backend "risk_score" 0–100)
   try {
     const ctxGauge = document.getElementById('riskGauge')?.getContext('2d');
-    const score = Number((data.risk_score_percent ?? 0));
+    const score = Number((data.risk_score ?? 0));
     document.getElementById('risk-score-text').textContent = `${Math.round(score)}%`;
     if (ctxGauge) {
       if (riskGaugeChart) riskGaugeChart.destroy();
@@ -911,52 +1013,37 @@ function initChartsSafe(data) {
     }
   } catch(e) { console.warn('Gauge chart error', e); }
 
-  // Aspect matrix placeholder (bubble)
+  // Aspect matrix (derive from aspect_breakdown)
   try {
     const ctxAsp = document.getElementById('aspectMatrixChart')?.getContext('2d');
     if (ctxAsp) {
       if (aspectMatrixChart) aspectMatrixChart.destroy();
-      const pts = (data.aspect_matrix || []).map(a => ({ x: Number(a.importance || 0), y: Number(a.sentiment || 0), r: Number(a.weight || 3) }));
+      const ab = data.aspect_breakdown || {};
+      const pts = Object.entries(ab).map(([aspect, counts]) => {
+        const pos = Number(counts.pos || 0);
+        const neg = Number(counts.neg || 0);
+        const neu = Number(counts.neu || 0);
+        const total = pos + neg + neu || 1;
+        const sentiment = Math.round(((pos - neg) / total) * 100); // -100..100
+        const importance = Math.round((total / (data.total_reviews || 1)) * 100); // 0..100
+        return { label: aspect, x: importance, y: sentiment, r: Math.max(3, Math.min(12, total)) };
+      });
       aspectMatrixChart = new Chart(ctxAsp, {
         type: 'bubble',
         data: { datasets: [{ label: 'Aspects', data: pts, backgroundColor: 'rgba(13,110,253,0.35)' }] },
-        options: { scales: { x: { min: 0, max: 100, grid: { color: grid }, ticks: { color: txt } }, y: { min: -100, max: 100, grid: { color: grid }, ticks: { color: txt } } },
-                   plugins: { legend: { labels: { color: txt } } } }
+        options: {
+          scales: {
+            x: { min: 0, max: 100, grid: { color: grid }, ticks: { color: txt }, title: { display: true, text: 'Importance', color: txt } },
+            y: { min: -100, max: 100, grid: { color: grid }, ticks: { color: txt }, title: { display: true, text: 'Sentiment', color: txt } }
+          },
+          plugins: { legend: { labels: { color: txt } } }
+        }
       });
     }
   } catch(e) { console.warn('Aspect chart error', e); }
 }
 
-// ── Loading companies (non-invasive) ─────────────────────────
-
-function loadCompaniesSafe() {
-  if (typeof loadCompanies === 'function') {
-    loadCompanies();
-    // Ensure change handler is attached
-    const sel = document.getElementById('company-selector');
-    if (sel && !sel.dataset.bound) {
-      sel.addEventListener('change', onCompanyChanged);
-      sel.dataset.bound = '1';
-    }
-    return;
-  }
-  // Minimal behavior: assume server injects options; bind change
-  const sel = document.getElementById('company-selector');
-  if (!sel) return;
-  sel.addEventListener('change', onCompanyChanged);
-}
-
-function onCompanyChanged(e) {
-  const selVal = Number(e.target.value || 0);
-  currentCompanyId = selVal;
-  localStorage.setItem('ri_company_id', String(currentCompanyId));
-  if (currentCompanyId > 0) {
-    loadDashboardData(currentCompanyId, false);
-  } else {
-    showNoSelectionSafe();
-  }
-}
-
+// ── Display helpers ─────────────────────────────────────────
 function showNoSelectionSafe() {
   if (typeof showNoSelection === 'function') return showNoSelection();
   document.getElementById('no-selection-state').style.display = 'block';
@@ -964,8 +1051,14 @@ function showNoSelectionSafe() {
   document.getElementById('company-header').style.display = 'none';
 }
 
-// ── Copy utility (safe) ─────────────────────────────────────
+function showAddCoError(msg) {
+  const el = document.getElementById('addco_error');
+  if (!el) return;
+  el.textContent = msg || 'Error.';
+  el.classList.remove('d-none');
+}
 
+// ── Copy utility ────────────────────────────────────────────
 async function copyText(targetId) {
   try {
     const el = document.getElementById(targetId);
@@ -977,9 +1070,28 @@ async function copyText(targetId) {
     showToast('Copy failed', 'danger');
   }
 }
+
+// ── Diagnostics for Google script / env keys ────────────────
+function diagnoseGoogleScript() {
+  const diag = document.getElementById('api-diagnostics');
+  const txt = document.getElementById('api-diagnostics-text');
+  if (!diag || !txt) return;
+  const hasGoogle = !!(window.google && window.google.maps && window.google.maps.places);
+  if (hasGoogle) {
+    diag.classList.add('d-none');
+    return;
+  }
+  diag.classList.remove('d-none');
+  txt.innerHTML = `
+    Google Places script not detected on this page.<br>
+    Ensure you include the script with a valid key:
+    <code>https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_API_KEY&libraries=places</code><br>
+    On the backend, set <code>GOOGLE_MAPS_API_KEY</code> and <code>GOOGLE_PLACES_API_KEY</code> environment variables.
+  `;
+}
 </script>
 
-<!-- Google Places script (replace YOUR_GOOGLE_API_KEY) -->
+<!-- Google Places script (replace YOUR_GOOGLE_API_KEY with your actual key or inject from server-side) -->
 <script async defer src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_API_KEY&libraries=places"></script>
 
 <style>
@@ -1008,11 +1120,9 @@ async function copyText(targetId) {
     letter-spacing: 0.4px;
     font-weight: 500;
   }
-  /* Subtle focus ring */
   .form-control:focus, .btn:focus, .form-select:focus {
     box-shadow: 0 0 0 .2rem rgba(13,110,253,.25);
   }
-  /* Improve list items readability */
   #reviews-list .list-group-item {
     border-left: 3px solid transparent;
   }
