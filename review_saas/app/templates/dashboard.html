@@ -1,71 +1,124 @@
 <!-- FILE: review_saas/app/templates/dashboard.html -->
-
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="light">
 <head>
-<meta charset="UTF-8">
-<title>Review Intelligence Dashboard</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8">
+  <title>Review Intelligence Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Bootstrap & Chart.js -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-<style>
-body { background:#f4f6f9; }
-.card { border:none; border-radius:14px; box-shadow:0 2px 12px rgba(0,0,0,0.05); }
-.metric { font-size:28px; font-weight:700; }
-.badge-risk-low { background:#28a745; }
-.badge-risk-medium { background:#ffc107; color:#000; }
-.badge-risk-high { background:#dc3545; }
-.navbar-brand { font-weight:600; }
-</style>
+  <style>
+    :root {
+      --card-radius: 14px;
+      --shadow-soft: 0 2px 12px rgba(0,0,0,0.05);
+    }
+    body { background:#f4f6f9; }
+    .card { border:none; border-radius:var(--card-radius); box-shadow:var(--shadow-soft); }
+    .metric { font-size:28px; font-weight:700; }
+    .badge-risk-low { background:#28a745; }
+    .badge-risk-medium { background:#ffc107; color:#000; }
+    .badge-risk-high { background:#dc3545; }
+    .navbar-brand { font-weight:600; }
+    .skeleton { background:linear-gradient(90deg, rgba(0,0,0,.06), rgba(0,0,0,.12), rgba(0,0,0,.06)); background-size:200% 100%; animation: shimmer 1.2s infinite; border-radius:8px; min-height: 18px; }
+    @keyframes shimmer { 0%{background-position:200% 0;} 100%{background-position:-200% 0;} }
+    .chart-wrap { position: relative; min-height: 280px; }
+    .sparkline { width: 140px; height: 36px; }
+    .health-dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; }
+    .health-Green { background:#28a745; }
+    .health-Yellow { background:#ffc107; }
+    .health-Red { background:#dc3545; }
+    .table thead th { white-space: nowrap; }
+    .clickable-row { cursor: pointer; }
+  </style>
 </head>
 
 <body>
-
 <nav class="navbar navbar-dark bg-dark mb-4">
   <div class="container-fluid">
     <span class="navbar-brand">Review Intelligence Dashboard</span>
-    <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
-      + Add Company
-    </button>
+    <div class="d-flex gap-2">
+      <!-- Theme toggle -->
+      <div class="form-check form-switch text-light align-self-center">
+        <input class="form-check-input" type="checkbox" id="themeToggle" aria-label="Toggle theme">
+        <label class="form-check-label small" for="themeToggle">Dark</label>
+      </div>
+      <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+        + Add Company
+      </button>
+    </div>
   </div>
 </nav>
 
 <div class="container">
 
-  <!-- Company Selector -->
+  <!-- Companies Overview -->
+  <div class="card p-3 mb-4">
+    <div class="d-flex justify-content-between align-items-center">
+      <h5 class="mb-0">Companies Overview</h5>
+      <small id="overviewGenerated" class="text-muted"></small>
+    </div>
+    <div class="table-responsive mt-3">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th>Company</th>
+            <th>Health</th>
+            <th class="text-center">Avg Rating</th>
+            <th class="text-center">Total</th>
+            <th class="text-center">Pos %</th>
+            <th class="text-center">Neu %</th>
+            <th class="text-center">Neg %</th>
+            <th>7d Trend</th>
+            <th>30d Trend</th>
+            <th>90d Perf</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="overviewBody">
+          <tr><td colspan="11" class="text-center text-muted">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Company Selector (kept) -->
   <div class="card p-3 mb-4">
     <div class="row align-items-center">
       <div class="col-md-6">
         <label class="form-label">Select Company</label>
-        <select id="companySelect" class="form-select"></select>
+        <select id="companySelect" class="form-select" aria-label="Select company"></select>
       </div>
       <div class="col-md-6 text-end mt-3 mt-md-0">
-        <button class="btn btn-primary" onclick="syncReviews()">Sync Reviews</button>
+        <button id="btnSync" class="btn btn-primary" onclick="syncReviews()">
+          <span class="sync-label">Sync Reviews</span>
+          <span class="spinner-border spinner-border-sm ms-2 d-none" role="status" aria-hidden="true"></span>
+        </button>
         <button class="btn btn-outline-dark" onclick="openOwnerSummary()">AI Owner Summary</button>
       </div>
     </div>
   </div>
 
   <!-- Metrics -->
-  <div class="row mb-4">
+  <div class="row mb-4 g-3">
     <div class="col-md-3">
       <div class="card p-3 text-center">
         <div>Total Reviews</div>
-        <div id="metricTotal" class="metric">0</div>
+        <div id="metricTotal" class="metric skeleton" aria-live="polite"> </div>
       </div>
     </div>
     <div class="col-md-3">
       <div class="card p-3 text-center">
         <div>Average Rating</div>
-        <div id="metricAvg" class="metric">0.0</div>
+        <div id="metricAvg" class="metric skeleton" aria-live="polite"> </div>
       </div>
     </div>
     <div class="col-md-3">
       <div class="card p-3 text-center">
         <div>Risk Score</div>
-        <div id="metricRisk" class="metric">0%</div>
+        <div id="metricRisk" class="metric skeleton" aria-live="polite"> </div>
       </div>
     </div>
     <div class="col-md-3">
@@ -77,17 +130,24 @@ body { background:#f4f6f9; }
   </div>
 
   <!-- Charts -->
-  <div class="row mb-4">
+  <div class="row mb-4 g-3">
     <div class="col-md-6">
       <div class="card p-3">
-        <h6>Trend</h6>
-        <canvas id="trendChart"></canvas>
+        <div class="d-flex justify-content-between align-items-center">
+          <h6 class="mb-0">Trend</h6>
+          <small id="trendHint" class="text-muted"></small>
+        </div>
+        <div class="chart-wrap mt-2">
+          <canvas id="trendChart" aria-label="Average rating trend"></canvas>
+        </div>
       </div>
     </div>
     <div class="col-md-6">
       <div class="card p-3">
         <h6>Sentiment</h6>
-        <canvas id="sentimentChart"></canvas>
+        <div class="chart-wrap mt-2">
+          <canvas id="sentimentChart" aria-label="Sentiment breakdown"></canvas>
+        </div>
       </div>
     </div>
   </div>
@@ -95,9 +155,8 @@ body { background:#f4f6f9; }
   <!-- AI Recommendations -->
   <div class="card p-3 mb-4">
     <h6>AI Action Recommendations</h6>
-    <div id="recommendations"></div>
+    <div id="recommendations" class="mt-2"></div>
   </div>
-
 </div>
 
 <!-- Add Company Modal -->
@@ -106,11 +165,40 @@ body { background:#f4f6f9; }
     <div class="modal-content">
       <div class="modal-header">
         <h5>Add New Company</h5>
-        <button class="btn-close" data-bs-dismiss="modal"></button>
+        <button class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <input type="text" id="placeQuery" class="form-control mb-2" placeholder="Search business name">
-        <button class="btn btn-primary w-100" onclick="searchPlace()">Search via Google</button>
+        <div class="alert alert-info small">
+          Use API token to add a company and auto-ingest reviews (if Place ID provided).
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Company Name</label>
+          <input type="text" id="apiCompanyName" class="form-control" placeholder="Acme Foods">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Google Place ID (optional)</label>
+          <input type="text" id="apiCompanyPlaceId" class="form-control" placeholder="ChIJN1t_tDeuEmsRUsoyG83frY4">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Website (optional)</label>
+          <input type="text" id="apiCompanyWebsite" class="form-control" placeholder="https://example.com">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Location (optional)</label>
+          <input type="text" id="apiCompanyLocation" class="form-control" placeholder="City, Country">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">API Token</label>
+          <input type="password" id="apiToken" class="form-control" placeholder="••••••••••">
+        </div>
+        <button class="btn btn-primary w-100" onclick="addCompanyViaApi()">
+          Add Company via API
+        </button>
+
+        <hr class="my-4">
+
+        <input type="text" id="placeQuery" class="form-control mb-2" placeholder="(Legacy) Search business name">
+        <button class="btn btn-outline-secondary w-100" onclick="searchPlace()">Search via Google</button>
         <div id="searchResults" class="mt-3"></div>
       </div>
     </div>
@@ -123,7 +211,7 @@ body { background:#f4f6f9; }
     <div class="modal-content">
       <div class="modal-header">
         <h5>AI Owner Summary</h5>
-        <button class="btn-close" data-bs-dismiss="modal"></button>
+        <button class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body" id="owner-summary-content"></div>
       <div class="modal-footer">
@@ -134,120 +222,484 @@ body { background:#f4f6f9; }
 </div>
 
 <script>
-let currentCompany = null;
-let trendChart, sentimentChart;
-let currentSummaryData = null;
+  // ------------------------------
+  // State
+  // ------------------------------
+  let currentCompany = null;
+  let trendChart, sentimentChart;
+  let currentSummaryData = null;
+  const sparkCharts = {}; // id -> { spark7, spark30 }
 
-async function loadCompanies() {
-  const res = await fetch('/companies');
-  const companies = await res.json();
+  // ------------------------------
+  // Utilities
+  // ------------------------------
+  const $ = (id) => document.getElementById(id);
+  const getCssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const escapeHtml = (str = '') => str.replace(/[&<>"'`=\/]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'}[s] || s));
 
-  const select = document.getElementById('companySelect');
-  select.innerHTML = '';
-
-  companies.forEach(c => {
-    const option = document.createElement('option');
-    option.value = c.id;
-    option.textContent = c.name;
-    select.appendChild(option);
-  });
-
-  if (companies.length) {
-    currentCompany = companies[0].id;
-    loadSummary();
+  function setLoadingMetrics(isLoading) {
+    ['metricTotal','metricAvg','metricRisk'].forEach(id => {
+      const el = $(id);
+      if (isLoading) { el.classList.add('skeleton'); el.textContent = ' '; }
+      else { el.classList.remove('skeleton'); }
+    });
   }
 
-  select.onchange = () => {
-    currentCompany = select.value;
-    loadSummary();
-  };
-}
+  function fmtNumber(n, decimals=0) {
+    if (Number.isFinite(n)) return n.toFixed(decimals);
+    return '0';
+  }
 
-async function loadSummary() {
-  if (!currentCompany) return;
-  const res = await fetch(`/reviews/summary/${currentCompany}`);
-  const data = await res.json();
-  currentSummaryData = data;
-
-  document.getElementById('metricTotal').innerText = data.total_reviews;
-  document.getElementById('metricAvg').innerText = data.avg_rating;
-  document.getElementById('metricRisk').innerText = data.risk_score + '%';
-
-  const badge = document.getElementById('riskBadge');
-  badge.className = 'badge';
-  if (data.risk_level === 'High') badge.classList.add('badge-risk-high');
-  else if (data.risk_level === 'Medium') badge.classList.add('badge-risk-medium');
-  else badge.classList.add('badge-risk-low');
-  badge.innerText = data.risk_level;
-
-  renderCharts(data);
-  renderRecommendations(data.ai_recommendations);
-}
-
-function renderCharts(data) {
-  const trendLabels = data.trend_data.map(t => t.month);
-  const trendValues = data.trend_data.map(t => t.avg_rating);
-
-  if (trendChart) trendChart.destroy();
-  trendChart = new Chart(document.getElementById('trendChart'), {
-    type:'line',
-    data:{ labels:trendLabels, datasets:[{ label:'Avg Rating', data:trendValues, borderColor:'#007bff' }] }
-  });
-
-  if (sentimentChart) sentimentChart.destroy();
-  sentimentChart = new Chart(document.getElementById('sentimentChart'), {
-    type:'doughnut',
-    data:{
-      labels:['Positive','Neutral','Negative'],
-      datasets:[{ data:[
-        data.sentiments.Positive,
-        data.sentiments.Neutral,
-        data.sentiments.Negative
-      ]}]
+  // Theme handling
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-bs-theme', theme);
+    localStorage.setItem('theme', theme);
+    const toggle = $('themeToggle');
+    if (toggle) toggle.checked = (theme === 'dark');
+    // repaint charts
+    if (currentSummaryData) renderCharts(currentSummaryData);
+    // repaint all sparklines
+    for (const cid in sparkCharts) {
+      if (sparkCharts[cid].spark7) sparkCharts[cid].spark7.update();
+      if (sparkCharts[cid].spark30) sparkCharts[cid].spark30.update();
     }
-  });
-}
+  }
 
-function renderRecommendations(list) {
-  const container = document.getElementById('recommendations');
-  container.innerHTML = '';
-  list.forEach(r => {
-    container.innerHTML += `
-      <div class="border rounded p-2 mb-2">
-        <strong>${r.area}</strong> (${r.priority})<br>
-        ${r.action}
+  function initTheme() {
+    const saved = localStorage.getItem('theme') || 'light';
+    applyTheme(saved);
+    $('themeToggle').addEventListener('change', (e) => {
+      applyTheme(e.target.checked ? 'dark' : 'light');
+    });
+  }
+
+  // ------------------------------
+  // Companies Overview
+  // ------------------------------
+  async function loadCompaniesOverview() {
+    const body = $('overviewBody');
+    body.innerHTML = `<tr><td colspan="11" class="text-center text-muted">Loading...</td></tr>`;
+    try {
+      const res = await fetch('/reviews/companies/overview');
+      if (!res.ok) throw new Error('Failed to load overview');
+      const data = await res.json();
+      $('overviewGenerated').textContent = data.generated_at ? `Updated ${new Date(data.generated_at).toLocaleString()}` : '';
+      const items = data.items || [];
+      if (!items.length) {
+        body.innerHTML = `<tr><td colspan="11" class="text-center text-muted">No companies found.</td></tr>`;
+        return;
+      }
+      body.innerHTML = '';
+      items.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.classList.add('clickable-row');
+        tr.onclick = () => {
+          if (item.id) {
+            currentCompany = String(item.id);
+            const sel = $('companySelect');
+            if (sel && sel.value !== currentCompany) sel.value = currentCompany;
+            loadSummary();
+            window.scrollTo({ top: document.querySelector('.card.p-3.mb-4 + .row')?.offsetTop || 0, behavior: 'smooth' });
+          }
+        };
+
+        const spark7Id = `spark7-${item.id}`;
+        const spark30Id = `spark30-${item.id}`;
+
+        tr.innerHTML = `
+          <td>${escapeHtml(item.name || 'Unknown')}</td>
+          <td><span class="health-dot health-${escapeHtml(item.health || 'Green')}"></span>${escapeHtml(item.health || 'Green')}</td>
+          <td class="text-center">${fmtNumber(item.avg_rating ?? 0, 2)}</td>
+          <td class="text-center">${fmtNumber(item.total_reviews ?? 0, 0)}</td>
+          <td class="text-center text-success">${fmtNumber(item.pos_pct ?? 0, 1)}%</td>
+          <td class="text-center text-muted">${fmtNumber(item.neu_pct ?? 0, 1)}%</td>
+          <td class="text-center text-danger">${fmtNumber(item.neg_pct ?? 0, 1)}%</td>
+          <td><canvas id="${spark7Id}" class="sparkline" aria-label="7d trend"></canvas></td>
+          <td><canvas id="${spark30Id}" class="sparkline" aria-label="30d trend"></canvas></td>
+          <td>
+            <span class="badge ${item.perf90?.label === 'Improving' ? 'bg-success' :
+                                  item.perf90?.label === 'Declining' ? 'bg-danger' : 'bg-secondary'}">
+              ${escapeHtml(item.perf90?.label || 'Stable')}
+            </span>
+          </td>
+          <td>
+            <button class="btn btn-sm btn-outline-primary">View</button>
+          </td>
+        `;
+        body.appendChild(tr);
+
+        // Draw sparklines
+        drawSparkline(spark7Id, (item.trend7 || []).map(x => x.sent_score));
+        drawSparkline(spark30Id, (item.trend30 || []).map(x => x.sent_score));
+      });
+    } catch (err) {
+      console.error(err);
+      body.innerHTML = `<tr><td colspan="11" class="text-center text-danger">Failed to load overview.</td></tr>`;
+    }
+  }
+
+  function drawSparkline(canvasId, values) {
+    const el = $(canvasId);
+    if (!el) return;
+    const primary = getCssVar('--bs-primary') || '#0d6efd';
+    const gridColor = getCssVar('--bs-border-color') || 'rgba(0,0,0,0.08)';
+    const textColor = getCssVar('--bs-body-color') || '#212529';
+
+    const data = values && values.length ? values : [0,0,0,0,0,0,0];
+    const labels = data.map((_, i) => i+1);
+    const chart = new Chart(el, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          data,
+          borderColor: primary,
+          backgroundColor: 'transparent',
+          pointRadius: 0,
+          tension: 0.25
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: {
+          x: { display: false },
+          y: { display: false, suggestedMin: -1, suggestedMax: 1, grid: { color: gridColor } }
+        },
+        elements: { line: { borderWidth: 2 } }
+      }
+    });
+
+    const cid = canvasId.split('-')[1];
+    sparkCharts[cid] = sparkCharts[cid] || {};
+    if (canvasId.startsWith('spark7-')) sparkCharts[cid].spark7 = chart;
+    else sparkCharts[cid].spark30 = chart;
+  }
+
+  // ------------------------------
+  // Legacy list & Detailed Summary
+  // ------------------------------
+  async function loadCompanies() {
+    try {
+      const res = await fetch('/companies');
+      const companies = await res.json();
+
+      const select = $('companySelect');
+      select.innerHTML = '';
+
+      companies.forEach(c => {
+        const option = document.createElement('option');
+        option.value = c.id;
+        option.textContent = c.name;
+        select.appendChild(option);
+      });
+
+      if (companies.length) {
+        currentCompany = companies[0].id;
+        await loadSummary();
+      }
+
+      select.onchange = async () => {
+        currentCompany = select.value;
+        await loadSummary();
+      };
+    } catch (err) {
+      console.error(err);
+      toast('Could not load companies.', 'danger');
+    }
+  }
+
+  async function loadSummary() {
+    if (!currentCompany) return;
+    setLoadingMetrics(true);
+    $('trendHint').textContent = '';
+
+    try {
+      const res = await fetch(`/reviews/summary/${currentCompany}`);
+      if (!res.ok) throw new Error('Failed to load summary');
+      const data = await res.json();
+      currentSummaryData = data;
+
+      // Metrics
+      $('metricTotal').textContent = fmtNumber(data.total_reviews, 0);
+      $('metricAvg').textContent = fmtNumber(data.avg_rating, 2);
+      $('metricRisk').textContent = fmtNumber(data.risk_score, 0) + '%';
+
+      const badge = $('riskBadge');
+      badge.className = 'badge';
+      if (data.risk_level === 'High') badge.classList.add('badge-risk-high');
+      else if (data.risk_level === 'Medium') badge.classList.add('badge-risk-medium');
+      else badge.classList.add('badge-risk-low');
+      badge.textContent = data.risk_level;
+
+      // Trend hint
+      if (data.trend && data.trend.signal !== undefined) {
+        const s = data.trend.signal;
+        const d = Number(data.trend.delta || 0);
+        const hint = s === 'improving' ? `Improving (+${fmtNumber(d,2)})`
+                    : s === 'declining' ? `Declining (${fmtNumber(d,2)})`
+                    : s === 'stable' ? `Stable (${fmtNumber(d,2)})` : '';
+        $('trendHint').textContent = hint;
+      }
+
+      renderCharts(data);
+      renderRecommendations(data.ai_recommendations || []);
+    } catch (err) {
+      console.error(err);
+      toast('Could not load summary.', 'danger');
+    } finally {
+      setLoadingMetrics(false);
+    }
+  }
+
+  // ------------------------------
+  // Charts
+  // ------------------------------
+  function renderCharts(data) {
+    const primary = getCssVar('--bs-primary') || '#0d6efd';
+    const textColor = getCssVar('--bs-body-color') || '#212529';
+    const gridColor = getCssVar('--bs-border-color') || 'rgba(0,0,0,0.1)';
+    const bgMuted = getCssVar('--bs-secondary-bg') || 'rgba(13,110,253,0.08)';
+
+    // Trend
+    const trendLabels = (data.trend_data || []).map(t => {
+      const [y, m] = (t.month || '').split('-').map(Number);
+      if (!y || !m) return t.month || '';
+      const d = new Date(Date.UTC(y, m - 1, 1));
+      return d.toLocaleString(undefined, { month: 'short', year: 'numeric' });
+    });
+    const trendValues = (data.trend_data || []).map(t => t.avg_rating);
+
+    if (trendChart) trendChart.destroy();
+    trendChart = new Chart($('trendChart'), {
+      type: 'line',
+      data: {
+        labels: trendLabels,
+        datasets: [{
+          label: 'Avg Rating',
+          data: trendValues,
+          borderColor: primary,
+          backgroundColor: bgMuted,
+          tension: 0.3,
+          fill: true,
+          pointRadius: 3,
+          pointHoverRadius: 5
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: textColor } },
+          tooltip: { callbacks: { label: (ctx) => `Avg: ${fmtNumber(ctx.parsed.y, 2)}` } }
+        },
+        scales: {
+          y: { min: 0, max: 5, ticks: { color: textColor }, grid: { color: gridColor } },
+          x: { ticks: { color: textColor }, grid: { color: gridColor } }
+        }
+      }
+    });
+
+    // Sentiment
+    const sentiments = data.sentiments || { Positive:0, Neutral:0, Negative:0 };
+    const sData = [sentiments.Positive || 0, sentiments.Neutral || 0, sentiments.Negative || 0];
+
+    if (sentimentChart) sentimentChart.destroy();
+    sentimentChart = new Chart($('sentimentChart'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Positive','Neutral','Negative'],
+        datasets: [{ data: sData, backgroundColor: ['#28a745', '#adb5bd', '#dc3545'], borderWidth: 0 }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: textColor } },
+          tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${fmtNumber(ctx.parsed,0)}` } }
+        },
+        cutout: '60%'
+      }
+    });
+  }
+
+  // ------------------------------
+  // Recommendations
+  // ------------------------------
+  function renderRecommendations(list) {
+    const container = $('recommendations');
+    container.innerHTML = '';
+    if (!list || !list.length) {
+      container.innerHTML = '<div class="text-muted">No recommendations available yet.</div>';
+      return;
+    }
+    list.forEach(r => {
+      const area = escapeHtml(r.area);
+      const priority = escapeHtml(r.priority);
+      const action = escapeHtml(r.action);
+      container.innerHTML += `
+        <div class="border rounded p-2 mb-2">
+          <strong>${area}</strong> (${priority})<br>
+          ${action}
+        </div>`;
+    });
+  }
+
+  // ------------------------------
+  // Actions
+  // ------------------------------
+  async function syncReviews() {
+    if (!currentCompany) return;
+    const btn = $('btnSync');
+    const spinner = btn.querySelector('.spinner-border');
+    const label = btn.querySelector('.sync-label');
+
+    try {
+      btn.disabled = true;
+      spinner.classList.remove('d-none');
+      label.textContent = 'Syncing...';
+
+      const res = await fetch(`/reviews/sync/${currentCompany}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.reason || 'Sync failed');
+      }
+      toast(`Synced. Added: ${data.added || 0}`, 'success');
+      await loadSummary();
+      await loadCompaniesOverview();
+    } catch (err) {
+      console.error(err);
+      toast(err.message || 'Sync failed.', 'danger');
+    } finally {
+      btn.disabled = false;
+      spinner.classList.add('d-none');
+      label.textContent = 'Sync Reviews';
+    }
+  }
+
+  // API Add company
+  async function addCompanyViaApi() {
+    const name = $('apiCompanyName').value.trim();
+    const place_id = $('apiCompanyPlaceId').value.trim();
+    const website = $('apiCompanyWebsite').value.trim();
+    const location = $('apiCompanyLocation').value.trim();
+    const token = $('apiToken').value.trim();
+
+    if (!name) {
+      toast('Company name is required.', 'warning');
+      return;
+    }
+    try {
+      const res = await fetch('/reviews/company', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': token
+        },
+        body: JSON.stringify({ name, place_id, website, location })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.detail || data.reason || 'Add company failed');
+      }
+      toast(`Company created. Status: ${data.status}`, 'success');
+      // Refresh overview and selector
+      await loadCompaniesOverview();
+      await loadCompanies();
+    } catch (err) {
+      console.error(err);
+      toast(err.message || 'Add company failed.', 'danger');
+    }
+  }
+
+  // Legacy modal helpers
+  async function searchPlace() {
+    const q = $('placeQuery').value.trim();
+    let diag = null;
+    try {
+      const r = await fetch('/reviews/diagnostics');
+      diag = await r.json();
+    } catch {}
+    const diagMsg = diag ? `
+      <div class="small text-muted mt-2">
+        Google Maps Available: ${diag.googlemaps_available ? 'Yes' : 'No'}<br>
+        Places Client: ${diag.places_client_initialized ? 'Initialized' : 'Not initialized'}
+      </div>` : '';
+    $('searchResults').innerHTML = `
+      <div class="alert alert-info">
+        Google Place search is not configured in this UI. Query typed: <strong>${escapeHtml(q) || '-'}</strong>.
+        Please configure Place ID in the backend/company record or use "Add Company via API".
+      </div>
+      ${diagMsg}
+    `;
+  }
+
+  function openOwnerSummary() {
+    const container = $('owner-summary-content');
+    const data = currentSummaryData;
+    if (!data) return;
+
+    const items = (data.ai_recommendations || []).map(r =>
+      `<li><strong>${escapeHtml(r.area)}</strong>: ${escapeHtml(r.action)}</li>`
+    ).join('');
+
+    container.innerHTML = `
+      <h5>Executive Overview</h5>
+      <p>${fmtNumber(data.total_reviews)} reviews analysed. Average rating ${fmtNumber(data.avg_rating,2)}. Risk ${fmtNumber(data.risk_score,0)}%.</p>
+      <h5 class="mt-3">Action Plan</h5>
+      <ul>${items}</ul>
+    `;
+
+    new bootstrap.Modal($('ownerSummaryModal')).show();
+  }
+
+  function copySummary() {
+    const text = $('owner-summary-content').innerText;
+    if (!navigator.clipboard) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      toast('Copied to clipboard.', 'success');
+      return;
+    }
+    navigator.clipboard.writeText(text)
+      .then(() => toast('Copied to clipboard.', 'success'))
+      .catch(() => toast('Copy failed.', 'danger'));
+  }
+
+  // ------------------------------
+  // Toasts
+  // ------------------------------
+  function toast(message, type='primary') {
+    const id = `t-${Date.now()}`;
+    const wrap = document.createElement('div');
+    wrap.className = 'position-fixed top-0 end-0 p-3';
+    wrap.style.zIndex = 1080;
+    wrap.innerHTML = `
+      <div id="${id}" class="toast align-items-center text-bg-${type} border-0" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+          <div class="toast-body">${escapeHtml(message)}</div>
+          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
       </div>`;
+    document.body.appendChild(wrap);
+    const t = new bootstrap.Toast($(id), { delay: 2500 });
+    t.show();
+    setTimeout(() => wrap.remove(), 3000);
+  }
+
+  // ------------------------------
+  // Init
+  // ------------------------------
+  document.addEventListener('DOMContentLoaded', async () => {
+    initTheme();
+    await loadCompaniesOverview();
+    await loadCompanies();
   });
-}
-
-async function syncReviews() {
-  await fetch(`/reviews/sync/${currentCompany}`);
-  loadSummary();
-}
-
-function openOwnerSummary() {
-  const container = document.getElementById('owner-summary-content');
-  const data = currentSummaryData;
-  if (!data) return;
-
-  container.innerHTML = `
-    <h5>Executive Overview</h5>
-    <p>${data.total_reviews} reviews analysed. Average rating ${data.avg_rating}. Risk ${data.risk_score}%.</p>
-    <h5 class="mt-3">Action Plan</h5>
-    <ul>
-      ${data.ai_recommendations.map(r=>`<li><strong>${r.area}</strong>: ${r.action}</li>`).join('')}
-    </ul>
-  `;
-
-  new bootstrap.Modal(document.getElementById('ownerSummaryModal')).show();
-}
-
-function copySummary() {
-  const text = document.getElementById('owner-summary-content').innerText;
-  navigator.clipboard.writeText(text);
-}
-
-loadCompanies();
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
