@@ -1,4 +1,4 @@
-v<!-- FILE: review_saas/app/templates/dashboard.html -->
+<!-- FILE: review_saas/app/templates/dashboard.html -->
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">
 <head>
@@ -11,10 +11,7 @@ v<!-- FILE: review_saas/app/templates/dashboard.html -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
-    :root {
-      --card-radius: 14px;
-      --shadow-soft: 0 2px 12px rgba(0,0,0,0.05);
-    }
+    :root { --card-radius: 14px; --shadow-soft: 0 2px 12px rgba(0,0,0,0.05); }
     body { background:#f4f6f9; }
     .card { border:none; border-radius:var(--card-radius); box-shadow:var(--shadow-soft); }
     .metric { font-size:28px; font-weight:700; }
@@ -25,14 +22,9 @@ v<!-- FILE: review_saas/app/templates/dashboard.html -->
     .skeleton { background:linear-gradient(90deg, rgba(0,0,0,.06), rgba(0,0,0,.12), rgba(0,0,0,.06)); background-size:200% 100%; animation: shimmer 1.2s infinite; border-radius:8px; min-height: 18px; }
     @keyframes shimmer { 0%{background-position:200% 0;} 100%{background-position:-200% 0;} }
     .chart-wrap { position: relative; min-height: 280px; }
-    .sparkline { width: 140px; height: 36px; }
-    .health-dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; }
-    .health-Green { background:#28a745; }
-    .health-Yellow { background:#ffc107; }
-    .health-Red { background:#dc3545; }
-    .table thead th { white-space: nowrap; }
-    .clickable-row { cursor: pointer; }
     .date-inputs .form-control[type="date"] { min-width: 160px; }
+    .attr-label { width: 160px; color:#6c757d; }
+    .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; display:inline-block; vertical-align:bottom; }
   </style>
 </head>
 
@@ -41,11 +33,6 @@ v<!-- FILE: review_saas/app/templates/dashboard.html -->
   <div class="container-fluid">
     <span class="navbar-brand">Review Intelligence Dashboard</span>
     <div class="d-flex gap-2">
-      <!-- Theme toggle -->
-      <div class="form-check form-switch text-light align-self-center">
-        <input class="form-check-input" type="checkbox" id="themeToggle" aria-label="Toggle theme">
-        <label class="form-check-label small" for="themeToggle">Dark</label>
-      </div>
       <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
         + Add Company
       </button>
@@ -55,69 +42,48 @@ v<!-- FILE: review_saas/app/templates/dashboard.html -->
 
 <div class="container">
 
-  <!-- Companies Overview -->
+  <!-- Company Picker + Date Range + Actions -->
   <div class="card p-3 mb-4">
-    <div class="d-flex justify-content-between align-items-center">
-      <h5 class="mb-0">Companies Overview</h5>
-      <small id="overviewGenerated" class="text-muted"></small>
-    </div>
-    <div class="table-responsive mt-3">
-      <table class="table align-middle">
-        <thead>
-          <tr>
-            <th>Company</th>
-            <th>Health</th>
-            <th class="text-center">Avg Rating</th>
-            <th class="text-center">Total</th>
-            <th class="text-center">Pos %</th>
-            <th class="text-center">Neu %</th>
-            <th class="text-center">Neg %</th>
-            <th>7d Trend</th>
-            <th>30d Trend</th>
-            <th>90d Perf</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="overviewBody">
-          <tr><td colspan="11" class="text-center text-muted">Loading...</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Company Selector + Date Range -->
-  <div class="card p-3 mb-4">
-    <div class="row align-items-end g-2">
+    <div class="row g-3 align-items-end">
       <div class="col-lg-4 col-md-6">
         <label class="form-label">Select Company</label>
         <select id="companySelect" class="form-select" aria-label="Select company"></select>
       </div>
-      <div class="col-lg-6 col-md-6 date-inputs">
+      <div class="col-lg-5 col-md-6 date-inputs">
         <div class="row g-2">
           <div class="col-sm-6">
             <label class="form-label">Start Date</label>
-            <input type="date" id="startDate" class="form-control" aria-label="Start date">
+            <input type="date" id="startDate" class="form-control">
           </div>
           <div class="col-sm-6">
             <label class="form-label">End Date</label>
-            <input type="date" id="endDate" class="form-control" aria-label="End date">
+            <input type="date" id="endDate" class="form-control">
           </div>
         </div>
       </div>
-      <div class="col-lg-2 text-end">
+      <div class="col-lg-3 text-end">
         <div class="d-flex gap-2 justify-content-end">
           <button class="btn btn-outline-primary" onclick="applyDateRange()">Apply Range</button>
+          <button id="btnGoogleDetails" class="btn btn-secondary" onclick="fetchGoogleDetails()">Fetch Google Details</button>
           <button id="btnSync" class="btn btn-primary" onclick="syncReviews()">
             <span class="sync-label">Sync</span>
             <span class="spinner-border spinner-border-sm ms-2 d-none" role="status" aria-hidden="true"></span>
           </button>
         </div>
-        <div class="text-end mt-2">
-          <button class="btn btn-outline-dark btn-sm" onclick="openOwnerSummary()">AI Owner Summary</button>
-        </div>
+        <small id="activeWindowNote" class="text-muted mt-2 d-block"></small>
       </div>
     </div>
-    <small id="activeWindowNote" class="text-muted mt-2 d-block"></small>
+  </div>
+
+  <!-- Company Attributes (from Google) -->
+  <div class="card p-3 mb-4">
+    <div class="d-flex justify-content-between align-items-center">
+      <h6 class="mb-0">Company Attributes (Google)</h6>
+      <small id="attrsStatus" class="text-muted"></small>
+    </div>
+    <div id="companyAttrs" class="mt-3">
+      <div class="text-muted">Click <strong>Fetch Google Details</strong> to load attributes for the selected company.</div>
+    </div>
   </div>
 
   <!-- Metrics -->
@@ -173,7 +139,10 @@ v<!-- FILE: review_saas/app/templates/dashboard.html -->
 
   <!-- AI Recommendations -->
   <div class="card p-3 mb-4">
-    <h6>AI Action Recommendations</h6>
+    <div class="d-flex justify-content-between align-items-center mb-1">
+      <h6 class="mb-0">AI Action Recommendations</h6>
+      <button class="btn btn-sm btn-outline-dark" onclick="openOwnerSummary()">AI Owner Summary</button>
+    </div>
     <div id="recommendations" class="mt-2"></div>
   </div>
 </div>
@@ -187,14 +156,11 @@ v<!-- FILE: review_saas/app/templates/dashboard.html -->
         <button class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <div class="alert alert-info small">
-          Use API token to add a company and auto-ingest reviews (if Place ID provided).
-        </div>
 
         <div class="mb-2">
-          <label class="form-label">Search Business (Google Places)</label>
+          <label class="form-label">Business Name (Google)</label>
           <div class="input-group">
-            <input type="text" id="placeQuery" class="form-control" placeholder="e.g., Acme Foods Lahore">
+            <input type="text" id="placeQuery" class="form-control" placeholder="e.g., Gloria Jeans Lahore">
             <button class="btn btn-outline-secondary" onclick="searchPlace()">Search</button>
           </div>
           <div id="searchResults" class="mt-2"></div>
@@ -204,25 +170,33 @@ v<!-- FILE: review_saas/app/templates/dashboard.html -->
 
         <div class="mb-2">
           <label class="form-label">Company Name</label>
-          <input type="text" id="apiCompanyName" class="form-control" placeholder="Acme Foods">
+          <input type="text" id="apiCompanyName" class="form-control" placeholder="Auto-filled from Google">
         </div>
         <div class="mb-2">
           <label class="form-label">Google Place ID</label>
-          <input type="text" id="apiCompanyPlaceId" class="form-control" placeholder="ChIJN1t_tDeuEmsRUsoyG83frY4">
+          <input type="text" id="apiCompanyPlaceId" class="form-control" placeholder="Auto-filled from Google">
         </div>
         <div class="mb-2">
-          <label class="form-label">Website (optional)</label>
-          <input type="url" id="apiCompanyWebsite" class="form-control" placeholder="https://example.com">
+          <label class="form-label">City</label>
+          <input type="text" id="apiCompanyCity" class="form-control" placeholder="Auto-filled" readonly>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Country</label>
+          <input type="text" id="apiCompanyCountry" class="form-control" placeholder="Auto-filled" readonly>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Website</label>
+          <input type="url" id="apiCompanyWebsite" class="form-control" placeholder="Auto-filled">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Phone</label>
+          <input type="text" id="apiCompanyPhone" class="form-control" placeholder="Auto-filled">
         </div>
         <div class="mb-3">
-          <label class="form-label">Location (optional)</label>
-          <input type="text" id="apiCompanyLocation" class="form-control" placeholder="City, Country">
-        </div>
-        <div class="mb-3">
-          <label class="form-label">API Token</label>
+          <label class="form-label">API Token (if required)</label>
           <input type="password" id="apiToken" class="form-control" placeholder="••••••••••">
         </div>
-        <button class="btn btn-primary w-100" onclick="addCompanyViaApi()">Add Company via API</button>
+        <button class="btn btn-primary w-100" onclick="addCompanyViaApi()">Create Company</button>
       </div>
     </div>
   </div>
@@ -251,16 +225,13 @@ v<!-- FILE: review_saas/app/templates/dashboard.html -->
   let currentCompany = null;
   let trendChart, sentimentChart;
   let currentSummaryData = null;
-  const sparkCharts = {}; // id -> { spark7, spark30 }
 
   // ------------------------------
   // Utilities
   // ------------------------------
   const $ = (id) => document.getElementById(id);
-  const getCssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const escapeHtml = (str = '') =>
     str.replace(/[&<>"'`=\/]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'}[s] || s));
-
   function setLoadingMetrics(isLoading) {
     ['metricTotal','metricAvg','metricRisk'].forEach(id => {
       const el = $(id);
@@ -268,203 +239,73 @@ v<!-- FILE: review_saas/app/templates/dashboard.html -->
       else { el.classList.remove('skeleton'); }
     });
   }
-
-  function fmtNumber(n, decimals=0) {
-    if (Number.isFinite(n)) return n.toFixed(decimals);
-    return '0';
-  }
-
+  function fmtNumber(n, decimals=0) { return Number.isFinite(n) ? n.toFixed(decimals) : '0'; }
   function fmtDateISO(d) {
-    // returns YYYY-MM-DD
-    const y = d.getFullYear();
-    const m = String(d.getMonth()+1).padStart(2,'0');
-    const day = String(d.getDate()).padStart(2,'0');
+    const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
     return `${y}-${m}-${day}`;
   }
 
-  // Theme handling
-  function applyTheme(theme) {
-    document.documentElement.setAttribute('data-bs-theme', theme);
-    localStorage.setItem('theme', theme);
-    const toggle = $('themeToggle');
-    if (toggle) toggle.checked = (theme === 'dark');
-    // repaint charts
-    if (currentSummaryData) renderCharts(currentSummaryData);
-    // repaint all sparklines
-    for (const cid in sparkCharts) {
-      if (sparkCharts[cid].spark7) sparkCharts[cid].spark7.update();
-      if (sparkCharts[cid].spark30) sparkCharts[cid].spark30.update();
-    }
-  }
-
-  function initTheme() {
-    const saved = localStorage.getItem('theme') || 'light';
-    applyTheme(saved);
-    $('themeToggle').addEventListener('change', (e) => {
-      applyTheme(e.target.checked ? 'dark' : 'light');
-    });
-  }
-
   // ------------------------------
-  // Companies Overview
+  // Load companies
   // ------------------------------
-  async function loadCompaniesOverview() {
-    const body = $('overviewBody');
-    body.innerHTML = `<tr><td colspan="11" class="text-center text-muted">Loading...</td></tr>`;
-    try {
-      const res = await fetch('/reviews/companies/overview');
-      if (!res.ok) throw new Error('Failed to load overview');
-      const data = await res.json();
-      $('overviewGenerated').textContent = data.generated_at ? `Updated ${new Date(data.generated_at).toLocaleString()}` : '';
-      const items = data.items || [];
-      if (!items.length) {
-        body.innerHTML = `<tr><td colspan="11" class="text-center text-muted">No companies found.</td></tr>`;
-        return;
-      }
-      body.innerHTML = '';
-      items.forEach(item => {
-        const tr = document.createElement('tr');
-        tr.classList.add('clickable-row');
-        tr.onclick = () => {
-          if (item.id) {
-            currentCompany = String(item.id);
-            const sel = $('companySelect');
-            if (sel && sel.value !== currentCompany) sel.value = currentCompany;
-            loadSummary(); // uses currently selected date range
-            const target = document.querySelector('.row.mb-4.g-3');
-            if (target) window.scrollTo({ top: target.offsetTop - 20, behavior: 'smooth' });
-          }
-        };
-
-        const spark7Id = `spark7-${item.id}`;
-        const spark30Id = `spark30-${item.id}`;
-
-        tr.innerHTML = `
-          <td>${escapeHtml(item.name || 'Unknown')}</td>
-          <td><span class="health-dot health-${escapeHtml(item.health || 'Green')}"></span>${escapeHtml(item.health || 'Green')}</td>
-          <td class="text-center">${fmtNumber(item.avg_rating ?? 0, 2)}</td>
-          <td class="text-center">${fmtNumber(item.total_reviews ?? 0, 0)}</td>
-          <td class="text-center text-success">${fmtNumber(item.pos_pct ?? 0, 1)}%</td>
-          <td class="text-center text-muted">${fmtNumber(item.neu_pct ?? 0, 1)}%</td>
-          <td class="text-center text-danger">${fmtNumber(item.neg_pct ?? 0, 1)}%</td>
-          <td><canvas id="${spark7Id}" class="sparkline" aria-label="7d trend"></canvas></td>
-          <td><canvas id="${spark30Id}" class="sparkline" aria-label="30d trend"></canvas></td>
-          <td>
-            <span class="badge ${item.perf90?.label === 'Improving' ? 'bg-success' :
-                                  item.perf90?.label === 'Declining' ? 'bg-danger' : 'bg-secondary'}">
-              ${escapeHtml(item.perf90?.label || 'Stable')}
-            </span>
-          </td>
-          <td>
-            <button class="btn btn-sm btn-outline-primary">View</button>
-          </td>
-        `;
-        body.appendChild(tr);
-
-        // Draw sparklines
-        drawSparkline(spark7Id, (item.trend7 || []).map(x => x.sent_score));
-        drawSparkline(spark30Id, (item.trend30 || []).map(x => x.sent_score));
-      });
-    } catch (err) {
-      console.error(err);
-      body.innerHTML = `<tr><td colspan="11" class="text-center text-danger">Failed to load overview.</td></tr>`;
-    }
-  }
-
-  function drawSparkline(canvasId, values) {
-    const el = $(canvasId);
-    if (!el) return;
-    const primary = getCssVar('--bs-primary') || '#0d6efd';
-    const gridColor = getCssVar('--bs-border-color') || 'rgba(0,0,0,0.08)';
-
-    const data = values && values.length ? values : [0,0,0,0,0,0,0];
-    const labels = data.map((_, i) => i+1);
-    const chart = new Chart(el, {
-      type: 'line',
-      data: { labels, datasets: [{ data, borderColor: primary, backgroundColor: 'transparent', pointRadius: 0, tension: 0.25 }] },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { enabled: false } },
-        scales: { x: { display: false }, y: { display: false, suggestedMin: -1, suggestedMax: 1, grid: { color: gridColor } } },
-        elements: { line: { borderWidth: 2 } }
-      }
-    });
-
-    const cid = canvasId.split('-')[1];
-    sparkCharts[cid] = sparkCharts[cid] || {};
-    if (canvasId.startsWith('spark7-')) sparkCharts[cid].spark7 = chart;
-    else sparkCharts[cid].spark30 = chart;
-  }
-
-  // ------------------------------
-  // Company list and Summary (single fetch with date range)
-  // ------------------------------
-  function initDefaultDates() {
-    // Default start: 2026-02-23 (as per your example), End: today
-    const startEl = $('startDate');
-    const endEl = $('endDate');
-    if (!startEl.value) startEl.value = '2026-02-23';
-    if (!endEl.value) endEl.value = fmtDateISO(new Date());
-  }
-
   async function loadCompanies() {
     try {
       const res = await fetch('/companies');
+      if (!res.ok) throw new Error('companies fetch failed');
       const companies = await res.json();
-
       const select = $('companySelect');
       select.innerHTML = '';
-
       companies.forEach(c => {
         const option = document.createElement('option');
         option.value = c.id;
         option.textContent = c.name;
         select.appendChild(option);
       });
-
       if (companies.length) {
-        if (!currentCompany) currentCompany = companies[0].id;
+        currentCompany = currentCompany ?? companies[0].id;
         select.value = String(currentCompany);
-        await loadSummary(); // includes date range query if provided
+        await loadSummary();
       }
-
       select.onchange = async () => {
         currentCompany = select.value;
+        clearAttrs();
         await loadSummary();
       };
-    } catch (err) {
-      console.error(err);
+    } catch (e) {
+      console.error(e);
       toast('Could not load companies.', 'danger');
     }
   }
 
-  function applyDateRange() {
-    loadSummary();
+  // ------------------------------
+  // Date range
+  // ------------------------------
+  function initDefaultDates() {
+    // Default start: 2026-02-23 (your example); End: today
+    $('startDate').value = $('startDate').value || '2026-02-23';
+    $('endDate').value = $('endDate').value || fmtDateISO(new Date());
   }
+  function applyDateRange() { loadSummary(); }
 
+  // ------------------------------
+  // Summary (single fetch, supports ?start=&end=)
+  // ------------------------------
   async function loadSummary() {
     if (!currentCompany) return;
     setLoadingMetrics(true);
     $('trendHint').textContent = '';
-
     try {
       const start = $('startDate').value?.trim();
       const end = $('endDate').value?.trim();
-
       const qs = new URLSearchParams();
-      if (start) qs.set('start', start);     // backend accepts multiple formats; YYYY-MM-DD is fine
+      if (start) qs.set('start', start);
       if (end) qs.set('end', end);
-
-      const url = qs.toString()
-        ? `/reviews/summary/${currentCompany}?${qs.toString()}`
-        : `/reviews/summary/${currentCompany}`;
-
+      const url = qs.toString() ? `/reviews/summary/${currentCompany}?${qs.toString()}` : `/reviews/summary/${currentCompany}`;
       const res = await fetch(url);
-      if (!res.ok) throw new Error('Failed to load summary');
+      if (!res.ok) throw new Error('summary fetch failed');
       const data = await res.json();
       currentSummaryData = data;
 
-      // Metrics
       $('metricTotal').textContent = fmtNumber(data.total_reviews, 0);
       $('metricAvg').textContent = fmtNumber(data.avg_rating, 2);
       $('metricRisk').textContent = fmtNumber(data.risk_score, 0) + '%';
@@ -476,27 +317,22 @@ v<!-- FILE: review_saas/app/templates/dashboard.html -->
       else badge.classList.add('badge-risk-low');
       badge.textContent = data.risk_level;
 
-      // Active window note
       const w = data.window || {};
-      const winText = (w.start && w.end)
+      $('activeWindowNote').textContent = (w.start && w.end)
         ? `Window: ${new Date(w.start).toLocaleDateString()} → ${new Date(w.end).toLocaleDateString()}`
         : '';
-      $('activeWindowNote').textContent = winText;
 
-      // Trend hint (monthly trend signal still supported)
       if (data.trend && data.trend.signal !== undefined) {
-        const s = data.trend.signal;
-        const d = Number(data.trend.delta || 0);
-        const hint = s === 'improving' ? `Improving (+${fmtNumber(d,2)})`
-                    : s === 'declining' ? `Declining (${fmtNumber(d,2)})`
-                    : s === 'stable' ? `Stable (${fmtNumber(d,2)})` : '';
-        $('trendHint').textContent = hint;
+        const s = data.trend.signal; const d = Number(data.trend.delta || 0);
+        $('trendHint').textContent = s === 'improving' ? `Improving (+${fmtNumber(d,2)})`
+                                 : s === 'declining' ? `Declining (${fmtNumber(d,2)})`
+                                 : s === 'stable' ? `Stable (${fmtNumber(d,2)})` : '';
       }
 
       renderCharts(data);
       renderRecommendations(data.ai_recommendations || []);
-    } catch (err) {
-      console.error(err);
+    } catch (e) {
+      console.error(e);
       toast('Could not load summary.', 'danger');
     } finally {
       setLoadingMetrics(false);
@@ -504,90 +340,104 @@ v<!-- FILE: review_saas/app/templates/dashboard.html -->
   }
 
   // ------------------------------
-  // Charts (uses daily_series for date-wise single fetch)
+  // Fetch Google attributes for selected company
+  // ------------------------------
+  function clearAttrs() {
+    $('companyAttrs').innerHTML = '<div class="text-muted">Click <strong>Fetch Google Details</strong> to load attributes for the selected company.</div>';
+    $('attrsStatus').textContent = '';
+  }
+
+  async function fetchGoogleDetails() {
+    if (!currentCompany) return;
+    $('attrsStatus').textContent = 'Loading...';
+    try {
+      const res = await fetch(`/reviews/company/${currentCompany}/google_details`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.reason || 'Failed to fetch Google details');
+      }
+      $('attrsStatus').textContent = data.refreshed ? 'Updated from Google' : 'Loaded';
+      renderAttrs(data.details || {});
+    } catch (e) {
+      console.error(e);
+      $('attrsStatus').textContent = 'Error';
+      toast('Failed to fetch Google details. Check API key.', 'danger');
+    }
+  }
+
+  function cell(label, valueHtml) {
+    return `
+      <div class="d-flex align-items-start mb-2">
+        <div class="attr-label">${escapeHtml(label)}</div>
+        <div class="flex-grow-1">${valueHtml || '<span class="text-muted">—</span>'}</div>
+      </div>
+    `;
+  }
+
+  function renderAttrs(d) {
+    const name = escapeHtml(d.name || '');
+    const place = escapeHtml(d.place_id || '');
+    const addr = escapeHtml(d.formatted_address || '');
+    const city = escapeHtml(d.city || '');
+    const country = escapeHtml(d.country || '');
+    const website = d.website ? `<a href="${escapeHtml(d.website)}" target="_blank" class="truncate">${escapeHtml(d.website)}</a>` : '';
+    const phone = escapeHtml(d.international_phone_number || d.phone || '');
+    const rating = (d.rating != null) ? `${escapeHtml(String(d.rating))} (${escapeHtml(String(d.user_ratings_total || 0))})` : '';
+
+    $('companyAttrs').innerHTML = `
+      ${cell('Name', `<strong>${name}</strong>`)}
+      ${cell('Place ID', `<code class="truncate">${place}</code>`)}
+      ${cell('Address', addr)}
+      ${cell('City', city)}
+      ${cell('Country', country)}
+      ${cell('Website', website)}
+      ${cell('Phone', phone)}
+      ${cell('Google Rating', rating)}
+      ${cell('Coordinates', d.location ? `${escapeHtml(String(d.location.lat))}, ${escapeHtml(String(d.location.lng))}` : '')}
+      ${d.opening_hours ? cell('Opening Hours', (d.opening_hours.weekday_text || []).map(x => `<div>${escapeHtml(x)}</div>`).join('')) : ''}
+    `;
+  }
+
+  // ------------------------------
+  // Charts (prefer daily_series if available)
   // ------------------------------
   function renderCharts(data) {
-    const primary = getCssVar('--bs-primary') || '#0d6efd';
-    const textColor = getCssVar('--bs-body-color') || '#212529';
-    const gridColor = getCssVar('--bs-border-color') || 'rgba(0,0,0,0.1)';
-    const bgMuted = getCssVar('--bs-secondary-bg') || 'rgba(13,110,253,0.08)';
-
-    // Prefer daily series (date-wise) if available; fall back to monthly trend_data
-    let trendLabels = [];
-    let trendValues = [];
-
+    const primary = '#0d6efd';
+    const gridColor = 'rgba(0,0,0,0.1)';
+    // Trend line (daily_series or monthly trend_data)
+    let labels = [], values = [];
     if (Array.isArray(data.daily_series) && data.daily_series.length) {
-      trendLabels = data.daily_series.map(d => {
-        const dt = new Date(d.date);
-        return dt.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
-      });
-      trendValues = data.daily_series.map(d => (Number.isFinite(d.avg_rating) ? d.avg_rating : null));
+      labels = data.daily_series.map(d => new Date(d.date).toLocaleDateString(undefined, { day: '2-digit', month: 'short' }));
+      values = data.daily_series.map(d => (Number.isFinite(d.avg_rating) ? d.avg_rating : null));
     } else if (Array.isArray(data.trend_data) && data.trend_data.length) {
-      trendLabels = data.trend_data.map(t => {
+      labels = data.trend_data.map(t => {
         const [y, m] = (t.month || '').split('-').map(Number);
         if (!y || !m) return t.month || '';
         const d = new Date(Date.UTC(y, m - 1, 1));
         return d.toLocaleString(undefined, { month: 'short', year: 'numeric' });
       });
-      trendValues = data.trend_data.map(t => t.avg_rating);
+      values = data.trend_data.map(t => t.avg_rating);
     }
-
     if (trendChart) trendChart.destroy();
     trendChart = new Chart($('trendChart'), {
       type: 'line',
-      data: {
-        labels: trendLabels,
-        datasets: [{
-          label: 'Avg Rating',
-          data: trendValues,
-          borderColor: primary,
-          backgroundColor: bgMuted,
-          tension: 0.3,
-          spanGaps: true,
-          fill: true,
-          pointRadius: 2,
-          pointHoverRadius: 4
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { labels: { color: textColor } },
-          tooltip: { callbacks: { label: (ctx) => `Avg: ${fmtNumber(ctx.parsed.y, 2)}` } }
-        },
-        scales: {
-          y: { min: 0, max: 5, ticks: { color: textColor }, grid: { color: gridColor } },
-          x: { ticks: { color: textColor }, grid: { color: gridColor, display: false } }
-        }
-      }
+      data: { labels, datasets: [{ label: 'Avg Rating', data: values, borderColor: primary, backgroundColor: 'rgba(13,110,253,0.08)', tension: .3, spanGaps:true, fill:true, pointRadius:2 }] },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false } }, scales:{ y:{ min:0, max:5, grid:{ color:gridColor } }, x:{ grid:{ display:false } } } }
     });
 
     // Sentiment doughnut
     const sentiments = data.sentiments || { Positive:0, Neutral:0, Negative:0 };
-    const sData = [sentiments.Positive || 0, sentiments.Neutral || 0, sentiments.Negative || 0];
-
+    const sData = [sentiments.Positive||0, sentiments.Neutral||0, sentiments.Negative||0];
     if (sentimentChart) sentimentChart.destroy();
     sentimentChart = new Chart($('sentimentChart'), {
       type: 'doughnut',
-      data: {
-        labels: ['Positive','Neutral','Negative'],
-        datasets: [{ data: sData, backgroundColor: ['#28a745', '#adb5bd', '#dc3545'], borderWidth: 0 }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { labels: { color: textColor } },
-          tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${fmtNumber(ctx.parsed,0)}` } }
-        },
-        cutout: '60%'
-      }
+      data: { labels:['Positive','Neutral','Negative'], datasets:[{ data: sData, backgroundColor: ['#28a745', '#adb5bd', '#dc3545'], borderWidth:0 }] },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom' } }, cutout:'60%' }
     });
   }
 
   // ------------------------------
-  // Recommendations
+  // Recommendations & Summary modal
   // ------------------------------
   function renderRecommendations(list) {
     const container = $('recommendations');
@@ -597,167 +447,129 @@ v<!-- FILE: review_saas/app/templates/dashboard.html -->
       return;
     }
     list.forEach(r => {
-      const area = escapeHtml(r.area);
-      const priority = escapeHtml(r.priority);
-      const action = escapeHtml(r.action);
       container.innerHTML += `
         <div class="border rounded p-2 mb-2">
-          <strong>${area}</strong> (${priority})<br>
-          ${action}
+          <strong>${escapeHtml(r.area)}</strong> (${escapeHtml(r.priority)})<br>
+          ${escapeHtml(r.action)}
         </div>`;
     });
   }
 
-  // ------------------------------
-  // Actions
-  // ------------------------------
-  async function syncReviews() {
-    if (!currentCompany) return;
-    const btn = $('btnSync');
-    const spinner = btn.querySelector('.spinner-border');
-    const label = btn.querySelector('.sync-label');
-
-    try {
-      btn.disabled = true;
-      spinner.classList.remove('d-none');
-      label.textContent = 'Syncing...';
-
-      const res = await fetch(`/reviews/sync/${currentCompany}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.ok === false) {
-        throw new Error(data.reason || 'Sync failed');
-      }
-      toast(`Synced. Added: ${data.added || 0}`, 'success');
-      await loadSummary();
-      await loadCompaniesOverview();
-    } catch (err) {
-      console.error(err);
-      toast(err.message || 'Sync failed.', 'danger');
-    } finally {
-      btn.disabled = false;
-      spinner.classList.add('d-none');
-      label.textContent = 'Sync';
-    }
-  }
-
-  // API: Add company (secured)
-  async function addCompanyViaApi() {
-    const name = $('apiCompanyName').value.trim();
-    const place_id = $('apiCompanyPlaceId').value.trim();
-    const website = $('apiCompanyWebsite').value.trim();
-    const location = $('apiCompanyLocation').value.trim();
-    const token = $('apiToken').value.trim();
-
-    if (!name) {
-      toast('Company name is required.', 'warning');
-      return;
-    }
-    try {
-      const res = await fetch('/reviews/company', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': token
-        },
-        body: JSON.stringify({ name, place_id, website, location })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.ok === false) {
-        throw new Error(data.detail || data.reason || 'Add company failed');
-      }
-      toast(`Company created. Status: ${data.status}`, 'success');
-      // Refresh overview and selector
-      await loadCompaniesOverview();
-      await loadCompanies();
-    } catch (err) {
-      console.error(err);
-      toast(err.message || 'Add company failed.', 'danger');
-    }
-  }
-
-  // Google Places search via backend
-  async function searchPlace() {
-    const q = $('placeQuery').value.trim();
-    const resultsEl = $('searchResults');
-    if (!q) {
-      resultsEl.innerHTML = `<div class="text-muted">Enter a business name or query.</div>`;
-      return;
-    }
-    resultsEl.innerHTML = `<div class="text-muted">Searching...</div>`;
-    try {
-      const res = await fetch(`/reviews/google/places?q=${encodeURIComponent(q)}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.ok === false) {
-        throw new Error(data.reason || 'Search failed');
-      }
-      const items = data.items || [];
-      if (!items.length) {
-        resultsEl.innerHTML = `<div class="text-muted">No matches found.</div>`;
-        return;
-      }
-      resultsEl.innerHTML = items.map(it => `
-        <div class="border rounded p-2 mb-2">
-          <div><strong>${escapeHtml(it.name || 'Unknown')}</strong></div>
-          <div class="text-muted small">${escapeHtml(it.formatted_address || '')}</div>
-          <div class="small text-break text-muted">Place ID: <code>${escapeHtml(it.place_id || '')}</code></div>
-          <div class="mt-2 d-flex gap-2">
-            <button class="btn btn-sm btn-outline-primary" onclick="usePlaceId('${encodeURIComponent(it.place_id || '')}', '${encodeURIComponent(it.name || '')}')">
-              Use this Place ID
-            </button>
-          </div>
-        </div>
-      `).join('');
-    } catch (err) {
-      console.error(err);
-      resultsEl.innerHTML = `<div class="text-danger">Search failed. Ensure Google API is configured.</div>`;
-    }
-  }
-
-  function usePlaceId(encodedPlaceId, encodedName) {
-    const placeId = decodeURIComponent(encodedPlaceId || '');
-    const name = decodeURIComponent(encodedName || '');
-    if (placeId) $('apiCompanyPlaceId').value = placeId;
-    if (name && !$('apiCompanyName').value) $('apiCompanyName').value = name;
-    toast('Place ID applied to form.', 'success');
-  }
-
   function openOwnerSummary() {
     const container = $('owner-summary-content');
-    const data = currentSummaryData;
-    if (!data) return;
-
-    const items = (data.ai_recommendations || []).map(r =>
-      `<li><strong>${escapeHtml(r.area)}</strong>: ${escapeHtml(r.action)}</li>`
-    ).join('');
-
-    const windowText = data.window ? `<div class="small text-muted">Window: ${new Date(data.window.start).toLocaleDateString()} → ${new Date(data.window.end).toLocaleDateString()}</div>` : '';
-
+    const d = currentSummaryData;
+    if (!d) return;
+    const items = (d.ai_recommendations || []).map(r => `<li><strong>${escapeHtml(r.area)}</strong>: ${escapeHtml(r.action)}</li>`).join('');
+    const windowText = d.window ? `<div class="small text-muted">Window: ${new Date(d.window.start).toLocaleDateString()} → ${new Date(d.window.end).toLocaleDateString()}</div>` : '';
     container.innerHTML = `
       <h5>Executive Overview</h5>
       ${windowText}
-      <p>${fmtNumber(data.total_reviews)} reviews analysed. Average rating ${fmtNumber(data.avg_rating,2)}. Risk ${fmtNumber(data.risk_score,0)}%.</p>
+      <p>${fmtNumber(d.total_reviews)} reviews analysed. Average rating ${fmtNumber(d.avg_rating,2)}. Risk ${fmtNumber(d.risk_score,0)}%.</p>
       <h5 class="mt-3">Action Plan</h5>
       <ul>${items}</ul>
     `;
-
     new bootstrap.Modal($('ownerSummaryModal')).show();
   }
 
   function copySummary() {
     const text = $('owner-summary-content').innerText;
     if (!navigator.clipboard) {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      toast('Copied to clipboard.', 'success');
-      return;
+      const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta);
+      ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+      toast('Copied to clipboard.', 'success'); return;
     }
-    navigator.clipboard.writeText(text)
-      .then(() => toast('Copied to clipboard.', 'success'))
-      .catch(() => toast('Copy failed.', 'danger'));
+    navigator.clipboard.writeText(text).then(()=>toast('Copied to clipboard.','success')).catch(()=>toast('Copy failed.','danger'));
+  }
+
+  // ------------------------------
+  // Sync
+  // ------------------------------
+  async function syncReviews() {
+    if (!currentCompany) return;
+    const btn = $('btnSync'), spinner = btn.querySelector('.spinner-border'), label = btn.querySelector('.sync-label');
+    try {
+      btn.disabled = true; spinner.classList.remove('d-none'); label.textContent = 'Syncing...';
+      const res = await fetch(`/reviews/sync/${currentCompany}`);
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok || data.ok === false) throw new Error(data.reason || 'Sync failed');
+      toast(`Synced. Added: ${data.added || 0}`, 'success');
+      await loadSummary();
+    } catch (e) {
+      console.error(e);
+      toast('Sync failed.', 'danger');
+    } finally {
+      btn.disabled = false; spinner.classList.add('d-none'); label.textContent = 'Sync';
+    }
+  }
+
+  // ------------------------------
+  // Add Company: Google search + Create
+  // ------------------------------
+  async function searchPlace() {
+    const q = $('placeQuery').value.trim();
+    const $res = $('searchResults');
+    if (!q) { $res.innerHTML = '<div class="text-muted">Enter a business name or query.</div>'; return; }
+    $res.innerHTML = '<div class="text-muted">Searching...</div>';
+    try {
+      const r = await fetch(`/reviews/google/places?q=${encodeURIComponent(q)}`);
+      const data = await r.json().catch(()=>({}));
+      if (!r.ok || data.ok === false) throw new Error(data.reason || 'Search failed');
+      const items = data.items || [];
+      if (!items.length) { $res.innerHTML = '<div class="text-muted">No matches found.</div>'; return; }
+      $res.innerHTML = items.map(it => `
+        <div class="border rounded p-2 mb-2">
+          <div><strong>${escapeHtml(it.name || '')}</strong></div>
+          <div class="small text-muted">${escapeHtml(it.formatted_address || '')}</div>
+          <div class="small">City: ${escapeHtml(it.city || '—')}, Country: ${escapeHtml(it.country || '—')}</div>
+          <div class="small">Phone: ${escapeHtml(it.international_phone_number || it.phone || '—')}</div>
+          <div class="small">Website: ${it.website ? `<a href="${escapeHtml(it.website)}" target="_blank">${escapeHtml(it.website)}</a>` : '—'}</div>
+          <div class="small">Rating: ${escapeHtml(String(it.rating ?? '—'))} (${escapeHtml(String(it.user_ratings_total ?? 0))})</div>
+          <div class="small text-break">Place ID: <code>${escapeHtml(it.place_id || '')}</code></div>
+          <div class="mt-2 d-flex gap-2">
+            <button class="btn btn-sm btn-outline-primary" onclick="useResult('${encodeURIComponent(JSON.stringify(it))}')">Use</button>
+          </div>
+        </div>
+      `).join('');
+    } catch (e) {
+      console.error(e);
+      $res.innerHTML = '<div class="text-danger">Search failed. Ensure Google API is configured.</div>';
+    }
+  }
+
+  function useResult(encoded) {
+    const it = JSON.parse(decodeURIComponent(encoded));
+    $('apiCompanyName').value = it.name || '';
+    $('apiCompanyPlaceId').value = it.place_id || '';
+    $('apiCompanyCity').value = it.city || '';
+    $('apiCompanyCountry').value = it.country || '';
+    $('apiCompanyWebsite').value = it.website || '';
+    $('apiCompanyPhone').value = it.international_phone_number || it.phone || '';
+    toast('Fields auto-filled from Google.', 'success');
+  }
+
+  async function addCompanyViaApi() {
+    const name = $('apiCompanyName').value.trim();
+    const place_id = $('apiCompanyPlaceId').value.trim();
+    const website = $('apiCompanyWebsite').value.trim();
+    const location = [$('apiCompanyCity').value.trim(), $('apiCompanyCountry').value.trim()].filter(Boolean).join(', ');
+    const token = $('apiToken').value.trim();
+    if (!name || !place_id) { toast('Name and Place ID are required (use Google Search above).', 'warning'); return; }
+    try {
+      const res = await fetch('/reviews/company', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'X-API-Key': token } : {}) },
+        body: JSON.stringify({ name, place_id, website, location })
+      });
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok || data.ok === false) throw new Error(data.detail || data.reason || 'Create failed');
+      toast('Company created.', 'success');
+      const modalEl = document.getElementById('addCompanyModal');
+      bootstrap.Modal.getInstance(modalEl)?.hide();
+      await loadCompanies();
+    } catch (e) {
+      console.error(e);
+      toast('Create failed.', 'danger');
+    }
   }
 
   // ------------------------------
@@ -778,16 +590,14 @@ v<!-- FILE: review_saas/app/templates/dashboard.html -->
     document.body.appendChild(wrap);
     const t = new bootstrap.Toast($(id), { delay: 2500 });
     t.show();
-    setTimeout(() => wrap.remove(), 3000);
+    setTimeout(()=>wrap.remove(), 3000);
   }
 
   // ------------------------------
   // Init
   // ------------------------------
   document.addEventListener('DOMContentLoaded', async () => {
-    initTheme();
     initDefaultDates();
-    await loadCompaniesOverview();
     await loadCompanies();
   });
 </script>
