@@ -12,28 +12,22 @@ import os
 import re
 import logging
 
-# Optional Google client (Places only)
+# Optional Google client
 try:
     import googlemaps
 except Exception:
     googlemaps = None
 
-# ─────────────────────────────────────────────────────────────
-# Logger
-# ─────────────────────────────────────────────────────────────
 logger = logging.getLogger("reviews")
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
-    handler.setFormatter(formatter)
+    handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
     logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
-# ─────────────────────────────────────────────────────────────
-# Config
-# ─────────────────────────────────────────────────────────────
+# ---------------- Config ----------------
 def _resolve_places_api_key() -> Tuple[Optional[str], str]:
     key = os.getenv("GOOGLE_PLACES_API_KEY")
     if key:
@@ -44,28 +38,19 @@ def _resolve_places_api_key() -> Tuple[Optional[str], str]:
         return alt, "GOOGLE_MAPS_API_KEY"
     return None, "NONE"
 
-api_key, api_key_source = _resolve_places_api_key()
-
+api_key, api_src = _resolve_places_api_key()
 gmaps = None
 if api_key and googlemaps:
     try:
         gmaps = googlemaps.Client(key=api_key)
-        logger.info(f"Google Places client initialized using {api_key_source}")
+        logger.info(f"Google Places client initialized using {api_src}")
     except Exception as e:
         logger.warning(f"Failed to initialize Google Maps client: {e}")
 
-USE_GBP_API = os.getenv("USE_GBP_API", "false").lower() == "true"
-GBP_LOCATION_NAME = os.getenv("GBP_LOCATION_NAME")
-GBP_ACCESS_TOKEN = os.getenv("GBP_ACCESS_TOKEN")
-
-API_TOKEN = os.getenv("API_TOKEN")  # For POST /reviews/company
-
-# Keep the fixed start to preserve existing behavior when no user-provided range
+API_TOKEN = os.getenv("API_TOKEN")
 FIXED_DEFAULT_START = datetime(2026, 2, 21, tzinfo=timezone.utc)
 
-# ─────────────────────────────────────────────────────────────
-# NLP Helpers
-# ─────────────────────────────────────────────────────────────
+# ---------------- NLP helpers ----------------
 _STOPWORDS = {
     "a","an","and","are","as","at","be","by","for","from",
     "the","this","is","it","to","with","was","of","in","on",
@@ -83,17 +68,6 @@ ASPECT_LEXICON: Dict[str, List[str]] = {
     "Environment": ["noise","crowd","parking","space","ambience"],
     "Digital": ["payment","card","terminal","app","crash","online","wifi"],
 }
-
-EMOTION_LEXICON = {
-    "anger": ["angry","furious","outraged","rage","mad","livid","disgusting","hate","terrible"],
-    "joy": ["happy","delighted","amazing","love","great","wonderful","fantastic","pleased","satisfied"],
-    "frustration": ["frustrated","annoyed","irritated","disappointed","upset","letdown","ugh","tired"],
-    # Simple multilingual hints (lightweight)
-    "anger_multi": ["enojado","arrabbiato","wütend","عصبي","生气","गुस्सा"],
-    "joy_multi": ["feliz","felice","glücklich","سعيد","高兴","खुश"],
-    "frustration_multi": ["frustrado","frustrato","frustriert","محبط","沮丧","हताश"],
-}
-
 ACTION_MAP: Dict[str, str] = {
     "wait": "Optimize peak-hour staffing and queue flow.",
     "service": "Launch service excellence workshop.",
@@ -140,79 +114,31 @@ def _parse_review_date(r: Review) -> Optional[datetime]:
         return r.review_date.astimezone(timezone.utc) if r.review_date.tzinfo else r.review_date.replace(tzinfo=timezone.utc)
     return None
 
-def _score_from_sentiment(label: str) -> float:
-    # Map to numeric [-1, 1]
-    if label == "Positive": return 1.0
-    if label == "Negative": return -1.0
+def _score_from_sentiment(lbl: str) -> float:
+    if lbl == "Positive": return 1.0
+    if lbl == "Negative": return -1.0
     return 0.0
 
-def _emotion_from_text(text: Optional[str]) -> Optional[str]:
-    if not text:
-        return None
-    t = _normalize(text)
-    if any(w in t for w in EMOTION_LEXICON["anger"] + EMOTION_LEXICON["anger_multi"]):
-        return "anger"
-    if any(w in t for w in EMOTION_LEXICON["frustration"] + EMOTION_LEXICON["frustration_multi"]):
-        return "frustration"
-    if any(w in t for w in EMOTION_LEXICON["joy"] + EMOTION_LEXICON["joy_multi"]):
-        return "joy"
-    return None
-
-def _confidence_heuristic(rating: Optional[float], text: Optional[str]) -> float:
-    # Simple heuristic: strong when rating far from neutral or text has emotion keywords
-    conf = 0.5
-    if rating is not None:
-        conf = 0.6 + 0.4 * (abs((rating or 3) - 3) / 2)  # 3..5 -> up to +0.4; 1..3 similar
-    emo = _emotion_from_text(text)
-    if emo:
-        conf = min(0.95, conf + 0.2)
-    return round(conf, 2)
-
-# ─────────────────────────────────────────────────────────────
-# Date Parsing (for single-fetch windowed queries)
-# ─────────────────────────────────────────────────────────────
+# ---------------- Date parsing ----------------
 _DATE_FORMATS = [
-    "%Y-%m-%d",
-    "%d/%m/%Y",
-    "%d-%m-%Y",
-    "%Y/%m/%d",
-    "%d.%m.%Y",
-    "%Y.%m.%d",
-    "%Y-%m-%dT%H:%M",
-    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d", "%d.%m.%Y", "%Y.%m.%d",
+    "%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S",
 ]
-
-def _parse_date_param(val: Optional[str], *, as_end: bool = False) -> Optional[datetime]:
-    """Parse flexible date strings into UTC datetimes.
-    - If only date is provided, start = 00:00:00, end = 23:59:59
-    """
-    if not val:
-        return None
+def _parse_date_param(val: Optional[str], *, as_end: bool=False) -> Optional[datetime]:
+    if not val: return None
     s = val.strip()
     for fmt in _DATE_FORMATS:
         try:
             dt = datetime.strptime(s, fmt)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            else:
-                dt = dt.astimezone(timezone.utc)
-            if "T" not in fmt:  # Date-only formats
-                if as_end:
-                    dt = dt.replace(hour=23, minute=59, second=59, microsecond=0)
-                else:
-                    dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+            dt = dt.replace(tzinfo=timezone.utc) if not dt.tzinfo else dt.astimezone(timezone.utc)
+            if "T" not in fmt:
+                dt = dt.replace(hour=23, minute=59, second=59, microsecond=0) if as_end else dt.replace(hour=0, minute=0, second=0, microsecond=0)
             return dt
         except Exception:
             continue
-    raise HTTPException(
-        status_code=422,
-        detail="Invalid date format. Use one of: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, "
-               "YYYY/MM/DD, DD.MM.YYYY, or ISO datetime (e.g., 2026-02-23T13:30:00)."
-    )
+    raise HTTPException(status_code=422, detail="Invalid date format")
 
-# ─────────────────────────────────────────────────────────────
-# Sync Optimized (NO N+1 QUERIES)
-# ─────────────────────────────────────────────────────────────
+# ---------------- DB helpers ----------------
 def _preload_existing_keys(db: Session, company_id: int):
     existing = db.query(Review).filter(Review.company_id == company_id).all()
     return {(r.text, r.rating, r.review_date) for r in existing}
@@ -220,321 +146,235 @@ def _preload_existing_keys(db: Session, company_id: int):
 def fetch_and_save_reviews_places(company: Company, db: Session, max_reviews: int = 50) -> int:
     if not gmaps or not getattr(company, "place_id", None):
         return 0
-
     existing_keys = _preload_existing_keys(db, company.id)
-
-    result = gmaps.place(
-        place_id=company.place_id,
-        fields=["reviews","rating","user_ratings_total"]
-    ).get("result", {})
-
+    result = gmaps.place(place_id=company.place_id, fields=["reviews","rating","user_ratings_total"]).get("result", {})
     reviews_data = (result.get("reviews", []) or [])[:max_reviews]
     added = 0
-
     for rev in reviews_data:
         review_date = datetime.fromtimestamp(rev["time"], tz=timezone.utc) if rev.get("time") else None
         key = (rev.get("text",""), rev.get("rating"), review_date)
-
-        if key in existing_keys:
-            continue
-
+        if key in existing_keys: continue
         db.add(Review(
-            company_id=company.id,
-            text=key[0],
-            rating=key[1],
+            company_id=company.id, text=key[0], rating=key[1],
             reviewer_name=rev.get("author_name","Anonymous"),
-            review_date=review_date,
-            fetch_at=datetime.now(timezone.utc)
+            review_date=review_date, fetch_at=datetime.now(timezone.utc)
         ))
         added += 1
-
-    if added:
-        db.commit()
-
-    if hasattr(company, "google_rating"):
-        company.google_rating = result.get("rating")
-    if hasattr(company, "user_ratings_total"):
-        company.user_ratings_total = result.get("user_ratings_total")
+    if added: db.commit()
+    if hasattr(company, "google_rating"): company.google_rating = result.get("rating")
+    if hasattr(company, "user_ratings_total"): company.user_ratings_total = result.get("user_ratings_total")
     db.commit()
-
     return added
 
-# ─────────────────────────────────────────────────────────────
-# Analysis & Aggregations
-# ─────────────────────────────────────────────────────────────
+# ---------------- Analysis ----------------
 def _detect_trend(trend_data: List[Dict[str, Any]]) -> Dict[str, Any]:
-    if len(trend_data) < 3:
-        return {"signal": "insufficient_data", "delta": 0.0}
-
+    if len(trend_data) < 3: return {"signal":"insufficient_data","delta":0.0}
     data = sorted(trend_data, key=lambda x: x["month"])
-
     if len(data) == 3:
         delta = round(data[-1]["avg_rating"] - data[0]["avg_rating"], 2)
     else:
-        last3 = data[-3:]
-        prev3 = data[-6:-3]
-        last_avg = sum(x["avg_rating"] for x in last3) / 3
-        prev_avg = sum(x["avg_rating"] for x in prev3) / 3 if prev3 else last_avg
-        delta = round(last_avg - prev_avg, 2)
-
-    if delta <= -0.3:
-        return {"signal": "declining", "delta": delta}
-    if delta >= 0.3:
-        return {"signal": "improving", "delta": delta}
-    return {"signal": "stable", "delta": delta}
+        last3 = data[-3:]; prev3 = data[-6:-3]
+        last_avg = sum(x["avg_rating"] for x in last3)/3
+        prev_avg = sum(x["avg_rating"] for x in prev3)/3 if prev3 else last_avg
+        delta = round(last_avg-prev_avg,2)
+    if delta <= -0.3: return {"signal":"declining","delta":delta}
+    if delta >= 0.3: return {"signal":"improving","delta":delta}
+    return {"signal":"stable","delta":delta}
 
 def _daily_buckets_range(reviews: List[Review], start: datetime, end: datetime) -> List[Dict[str, Any]]:
-    """Return per-day buckets between start and end (inclusive) with avg rating & sentiment score."""
     start_day = start.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
     end_day = end.replace(hour=23, minute=59, second=59, microsecond=0, tzinfo=timezone.utc)
     days = (end_day.date() - start_day.date()).days + 1
-    if days < 1:
-        return []
-
+    if days < 1: return []
     buckets: Dict[str, Dict[str, Any]] = {}
     for i in range(days):
         d = (start_day + timedelta(days=i)).date().isoformat()
-        buckets[d] = {"date": d, "ratings": [], "scores": [], "counts": {"Positive":0, "Neutral":0, "Negative":0}}
-
+        buckets[d] = {"date": d, "ratings": [], "scores": [], "counts":{"Positive":0,"Neutral":0,"Negative":0}}
     for r in reviews:
         dt = _parse_review_date(r)
-        if not dt or dt < start_day or dt > end_day:
-            continue
+        if not dt or dt < start_day or dt > end_day: continue
         d = dt.date().isoformat()
-        label = classify_sentiment(r.rating)
-        score = _score_from_sentiment(label)
+        lbl = classify_sentiment(r.rating); sc = _score_from_sentiment(lbl)
         buckets[d]["ratings"].append(r.rating or 0)
-        buckets[d]["scores"].append(score)
-        buckets[d]["counts"][label] += 1
-
+        buckets[d]["scores"].append(sc)
+        buckets[d]["counts"][lbl] += 1
     series = []
     for d in sorted(buckets.keys()):
-        rs = buckets[d]["ratings"]
-        ss = buckets[d]["scores"]
-        counts = buckets[d]["counts"]
+        rs = buckets[d]["ratings"]; ss = buckets[d]["scores"]; c = buckets[d]["counts"]
         series.append({
             "date": d,
             "avg_rating": round(sum(rs)/len(rs), 2) if rs else None,
             "sent_score": round(sum(ss)/len(ss), 3) if ss else 0.0,
-            "positive": counts["Positive"],
-            "neutral": counts["Neutral"],
-            "negative": counts["Negative"]
+            "positive": c["Positive"], "neutral": c["Neutral"], "negative": c["Negative"]
         })
     return series
 
 def get_review_summary_data(
-    reviews: List[Review],
-    company: Company,
-    start_override: Optional[datetime] = None,
-    end_override: Optional[datetime] = None
+    reviews: List[Review], company: Company,
+    start_override: Optional[datetime] = None, end_override: Optional[datetime] = None
 ):
-    # Window behavior: use provided start/end, else default fixed start -> now
     start = start_override or FIXED_DEFAULT_START
     end = end_override or datetime.now(timezone.utc)
-    if end < start:
-        start, end = end, start
+    if end < start: start, end = end, start
 
-    windowed: List[Review] = []
+    windowed = []
     for r in reviews:
         r_dt = _parse_review_date(r)
         if r_dt and start <= r_dt <= end:
             windowed.append(r)
 
-    # Empty result (preserve keys; additive fields included)
     if not windowed:
         return {
-            "company_name": getattr(company, "name", f"Company {getattr(company, 'id', '')}"),
-            "total_reviews": 0,
-            "avg_rating": 0.0,
-            "risk_score": 0,
-            "risk_level": "Low",
-            "trend_data": [],
-            "trend": {"signal": "insufficient_data", "delta": 0.0},
-            "sentiments": {"Positive": 0, "Neutral": 0, "Negative": 0},
-            "ai_recommendations": [],
-            "reviews": [],
-            "daily_series": [],
-            "window": {"start": start.isoformat(), "end": end.isoformat()},
-            "payload_version": "3.0"
+            "company_name": getattr(company, "name", f"Company {getattr(company,'id','')}"),
+            "total_reviews": 0, "avg_rating": 0.0,
+            "risk_score": 0, "risk_level":"Low",
+            "trend_data": [], "trend":{"signal":"insufficient_data","delta":0.0},
+            "sentiments":{"Positive":0,"Neutral":0,"Negative":0},
+            "ai_recommendations": [], "reviews": [],
+            "daily_series": [], "window":{"start": start.isoformat(), "end": end.isoformat()},
+            "payload_version":"3.0"
         }
 
-    sentiments = {"Positive":0, "Neutral":0, "Negative":0}
+    sentiments = {"Positive":0,"Neutral":0,"Negative":0}
     trend_data: Dict[str, List[float]] = defaultdict(list)
     neg_tokens: List[str] = []
-    aspect_counts: Dict[str, Dict[str, int]] = defaultdict(lambda: {"pos":0,"neg":0})
-
     for r in windowed:
-        sentiment = classify_sentiment(r.rating)
-        sentiments[sentiment] += 1
-
+        s = classify_sentiment(r.rating)
+        sentiments[s]+=1
         tokens = extract_keywords(r.text)
-        aspects = map_aspects(tokens)
-
-        if sentiment == "Negative":
-            neg_tokens.extend(tokens)
-
-        for asp in aspects:
-            if sentiment == "Positive":
-                aspect_counts[asp]["pos"] += 1
-            if sentiment == "Negative":
-                aspect_counts[asp]["neg"] += 1
-
+        if s == "Negative": neg_tokens.extend(tokens)
         r_dt = _parse_review_date(r)
-        if r_dt:
-            trend_data[r_dt.strftime("%Y-%m")].append(r.rating or 0)
+        if r_dt: trend_data[r_dt.strftime("%Y-%m")].append(r.rating or 0)
 
-    trend_list = [
-        {"month": m, "avg_rating": round(sum(v)/len(v), 2)}
-        for m, v in sorted(trend_data.items())
-    ]
-
+    trend_list = [{"month":m,"avg_rating":round(sum(v)/len(v),2)} for m,v in sorted(trend_data.items())]
     trend_signal = _detect_trend(trend_list)
-
     total = len(windowed)
-    rated_values = [r.rating for r in windowed if r.rating is not None]
-    avg = round(sum(rated_values) / len(rated_values), 2) if rated_values else 0.0
+    rated = [r.rating for r in windowed if r.rating is not None]
+    avg = round(sum(rated)/len(rated),2) if rated else 0.0
+    neg_share = sentiments["Negative"]/total if total else 0
+    risk_score = round(neg_share*100 + (10 if trend_signal["signal"]=="declining" else 0),2)
+    risk_level = "High" if risk_score>=40 else "Medium" if risk_score>=20 else "Low"
 
-    neg_share = sentiments["Negative"] / total if total else 0
-    risk_score = round(neg_share * 100 + (10 if trend_signal["signal"] == "declining" else 0), 2)
-    risk_level = "High" if risk_score >= 40 else "Medium" if risk_score >= 20 else "Low"
+    from collections import Counter
+    recs = []
+    seen=set()
+    for kw,count in Counter(neg_tokens).most_common(5):
+        if kw in seen: continue
+        seen.add(kw)
+        recs.append({"area":kw,"priority":"High" if count>=5 else "Medium","action":_action_for_keyword(kw)})
 
-    neg_counter = Counter(neg_tokens)
-
-    recommendations = []
-    seen = set()
-    for keyword, count in neg_counter.most_common(5):
-        if keyword in seen:
-            continue
-        seen.add(keyword)
-        recommendations.append({
-            "area": keyword,
-            "priority": "High" if count >= 5 else "Medium",
-            "action": _action_for_keyword(keyword)
-        })
-
-    # Per-day data for the exact requested window (single fetch for UI)
     daily_series = _daily_buckets_range(windowed, start, end)
 
     return {
-        "company_name": getattr(company, "name", f"Company {getattr(company, 'id', '')}"),
-        "total_reviews": total,
-        "avg_rating": avg,
-        "sentiments": sentiments,
-        "trend_data": trend_list,
-        "trend": trend_signal,
-        "risk_score": risk_score,
-        "risk_level": risk_level,
-        "ai_recommendations": recommendations,
-        "daily_series": daily_series,  # NEW: day-wise results for the given window
+        "company_name": getattr(company, "name", f"Company {getattr(company,'id','')}"),
+        "total_reviews": total, "avg_rating": avg,
+        "sentiments": sentiments, "trend_data": trend_list, "trend": trend_signal,
+        "risk_score": risk_score, "risk_level": risk_level,
+        "ai_recommendations": recs,
+        "daily_series": daily_series,
         "window": {"start": start.isoformat(), "end": end.isoformat()},
         "payload_version": "3.0"
     }
 
-# ─────────────────────────────────────────────────────────────
-# Companies Overview & Add Company API (kept)
-# ─────────────────────────────────────────────────────────────
-def _health_from_risk(risk_level: str) -> str:
-    if risk_level == "High": return "Red"
-    if risk_level == "Medium": return "Yellow"
-    return "Green"
+# ---------------- Enrichment helpers (Google) ----------------
+def _city_country_from_components(components: List[Dict[str, Any]]) -> Tuple[Optional[str], Optional[str]]:
+    city = country = None
+    for comp in components or []:
+        types = comp.get("types", [])
+        if "locality" in types or "postal_town" in types or "administrative_area_level_2" in types:
+            city = city or comp.get("long_name")
+        if "country" in types:
+            country = comp.get("long_name")
+    return city, country
 
-def _pct(n: int, d: int) -> float:
-    return round((n / d) * 100, 2) if d else 0.0
+def _enrich_place_detail(place_id: str) -> Dict[str, Any]:
+    if not gmaps: return {}
+    try:
+        fields = [
+            "name","place_id","formatted_address","address_components","website",
+            "international_phone_number","rating","user_ratings_total",
+            "geometry","opening_hours"
+        ]
+        res = gmaps.place(place_id=place_id, fields=fields).get("result", {}) or {}
+        city, country = _city_country_from_components(res.get("address_components") or [])
+        loc = (res.get("geometry") or {}).get("location") or {}
+        return {
+            "name": res.get("name"),
+            "place_id": res.get("place_id"),
+            "formatted_address": res.get("formatted_address"),
+            "city": city, "country": country,
+            "website": res.get("website"),
+            "international_phone_number": res.get("international_phone_number"),
+            "rating": res.get("rating"),
+            "user_ratings_total": res.get("user_ratings_total"),
+            "location": {"lat": loc.get("lat"), "lng": loc.get("lng")},
+            "opening_hours": {"weekday_text": (res.get("opening_hours") or {}).get("weekday_text")}
+        }
+    except Exception as e:
+        logger.error(f"enrich_place_detail failed: {e}")
+        return {}
 
-def _daily_buckets(reviews: List[Review], days: int) -> List[Dict[str, Any]]:
-    """Return last N days buckets with avg rating & sentiment score."""
-    end = datetime.now(timezone.utc).replace(hour=23, minute=59, second=59, microsecond=0)
-    start = end - timedelta(days=days-1)
-    return _daily_buckets_range(reviews, start, end)
-
-def _window_summary(reviews: List[Review], days: int) -> Dict[str, Any]:
-    end = datetime.now(timezone.utc).replace(hour=23, minute=59, second=59, microsecond=0)
-    start = end - timedelta(days=days-1)
-    series = _daily_buckets_range(reviews, start, end)
-    values = [x["sent_score"] for x in series]
-    avg = round(sum(values)/len(values), 3) if values else 0.0
-    # Spike detection: last 3-day vs previous 3-day mean
-    if len(values) >= 6:
-        last3 = values[-3:]
-        prev3 = values[-6:-3]
-        delta = round((sum(last3)/3) - (sum(prev3)/3), 3)
-    else:
-        delta = 0.0
-    return {"avg_score": avg, "delta": delta, "series": series}
-
-def _compute_overview_for_company(db: Session, c: Company) -> Dict[str, Any]:
-    reviews = db.query(Review).filter(Review.company_id == c.id).all()
-
-    # Full-window summary (existing logic)
-    base = get_review_summary_data(reviews, c)
-
-    # Windowed analytics
-    last7 = _window_summary(reviews, 7)
-    last30 = _window_summary(reviews, 30)
-    last90 = _window_summary(reviews, 90)
-
-    # Negative surge alert: last7 avg < prev7 avg by threshold (e.g., -0.25)
-    neg_surge = False
-    if len(last30["series"]) >= 14:
-        last7_vals = [x["sent_score"] for x in last30["series"][-7:]]
-        prev7_vals = [x["sent_score"] for x in last30["series"][-14:-7]]
-        if last7_vals and prev7_vals:
-            diff = (sum(last7_vals)/7) - (sum(prev7_vals)/7)
-            neg_surge = diff <= -0.25
-
-    sentiments = base.get("sentiments", {"Positive":0,"Neutral":0,"Negative":0})
-    total = base["total_reviews"]
-    pos_pct = _pct(sentiments.get("Positive",0), total)
-    neu_pct = _pct(sentiments.get("Neutral",0), total)
-    neg_pct = _pct(sentiments.get("Negative",0), total)
-
-    perf90_label = "Improving" if last90["delta"] > 0.05 else "Declining" if last90["delta"] < -0.05 else "Stable"
-
-    overview = {
-        "id": c.id,
-        "name": getattr(c, "name", f"Company {c.id}"),
-        "avg_rating": base["avg_rating"],
-        "total_reviews": base["total_reviews"],
-        "pos_pct": pos_pct,
-        "neu_pct": neu_pct,
-        "neg_pct": neg_pct,
-        "risk_level": base["risk_level"],
-        "health": _health_from_risk(base["risk_level"]),
-        "trend7": last7["series"],     # [{date, avg_rating, sent_score}]
-        "trend30": last30["series"],
-        "perf90": {
-            "avg_score": last90["avg_score"],
-            "delta": last90["delta"],
-            "label": perf90_label
-        },
-        "alerts": { "negative_surge": neg_surge }
-    }
-    return overview
-
-@router.get("/companies/overview")
-def companies_overview(db: Session = Depends(get_db)):
-    companies = db.query(Company).all()
-    results = []
-    for c in companies:
-        try:
-            results.append(_compute_overview_for_company(db, c))
-        except Exception as e:
-            logger.error(f"Overview compute failed for company {getattr(c, 'id', '?')}: {e}")
-            results.append({
-                "id": getattr(c, "id", None),
-                "name": getattr(c, "name", "Unknown"),
-                "error": "overview_failed"
+# ---------------- New endpoints (Google search & details) ----------------
+@router.get("/google/places")
+def google_places_search(q: str = Query(..., min_length=2)):
+    if not gmaps:
+        return {"ok": False, "reason": "Google client not initialized"}
+    try:
+        resp = gmaps.find_place(input=q, input_type="textquery", fields=["place_id","name","formatted_address"])
+        candidates = (resp.get("candidates") or [])[:5]
+        items = []
+        for c in candidates:
+            pid = c.get("place_id")
+            detail = _enrich_place_detail(pid) if pid else {}
+            # fallback to basic values if details fail
+            items.append({
+                "name": detail.get("name") or c.get("name"),
+                "place_id": pid,
+                "formatted_address": detail.get("formatted_address") or c.get("formatted_address"),
+                "city": detail.get("city"),
+                "country": detail.get("country"),
+                "website": detail.get("website"),
+                "international_phone_number": detail.get("international_phone_number"),
+                "rating": detail.get("rating"),
+                "user_ratings_total": detail.get("user_ratings_total"),
+                "location": detail.get("location"),
             })
-    return {"items": results, "generated_at": datetime.now(timezone.utc).isoformat()}
+        return {"ok": True, "items": items}
+    except Exception as e:
+        logger.error(f"Places search failed: {e}")
+        return {"ok": False, "reason": "places_search_failed"}
 
+@router.get("/company/{company_id}/google_details")
+def google_details_for_company(company_id: int, db: Session = Depends(get_db)):
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if not gmaps or not getattr(company, "place_id", None):
+        return {"ok": False, "reason": "missing_google_or_place_id"}
+    detail = _enrich_place_detail(company.place_id)
+    # Update DB fields if present
+    try:
+        if hasattr(company, "google_rating"): company.google_rating = detail.get("rating")
+        if hasattr(company, "user_ratings_total"): company.user_ratings_total = detail.get("user_ratings_total")
+        if hasattr(company, "website") and detail.get("website"): company.website = detail["website"]
+        if hasattr(company, "location"):
+            city = detail.get("city"); country = detail.get("country")
+            if city or country:
+                company.location = ", ".join([p for p in [city, country] if p])
+        db.commit()
+        refreshed = True
+    except Exception as e:
+        logger.warning(f"DB update skipped/failed: {e}")
+        refreshed = False
+    return {"ok": True, "refreshed": refreshed, "details": detail}
+
+# ---------------- Create company (secured if API_TOKEN set) ----------------
 def _validate_api_token(x_api_key: Optional[str], auth: Optional[str]):
     if not API_TOKEN:
-        raise HTTPException(status_code=503, detail="API token not configured on server")
+        return  # token not configured; allow open (your choice)
     token = None
-    if x_api_key:
-        token = x_api_key.strip()
-    elif auth and auth.lower().startswith("bearer "):
-        token = auth[7:].strip()
+    if x_api_key: token = x_api_key.strip()
+    elif auth and auth.lower().startswith("bearer "): token = auth[7:].strip()
     if token != API_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid API token")
 
@@ -545,13 +385,6 @@ def add_company(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
     authorization: Optional[str] = Header(None, alias="Authorization")
 ):
-    """
-    Secure API to add new company.
-    - Token validation via X-API-Key or Authorization: Bearer <token>.
-    - Duplicate detection by name (case-insensitive) and place_id.
-    - Attempts auto-fetch of reviews if Google Places configured and place_id provided.
-    - Returns status (Processing/Active/Error) and the overview payload entry.
-    """
     _validate_api_token(x_api_key, authorization)
 
     name = (payload.get("name") or "").strip()
@@ -559,103 +392,51 @@ def add_company(
     website = (payload.get("website") or "").strip() or None
     location = (payload.get("location") or "").strip() or None
 
-    if not name or len(name) < 2:
-        raise HTTPException(status_code=422, detail="Company name is required")
+    if not name or not place_id:
+        raise HTTPException(status_code=422, detail="name and place_id are required")
 
-    # Duplicate detection
     existing = db.query(Company).filter(Company.name.ilike(name)).first()
     if existing:
         raise HTTPException(status_code=409, detail="Company with same name already exists")
+    dup = db.query(Company).filter(Company.place_id == place_id).first() if hasattr(Company, "place_id") else None
+    if dup:
+        raise HTTPException(status_code=409, detail="Company with same place_id already exists")
 
-    if place_id:
-        dup_place = db.query(Company).filter(Company.place_id == place_id).first()
-        if dup_place:
-            raise HTTPException(status_code=409, detail="Company with same place_id already exists")
-
-    # Create company (supporting dynamic models)
     company = Company(name=name)
     if hasattr(company, "place_id"): company.place_id = place_id
     if hasattr(company, "website"): company.website = website
     if hasattr(company, "location"): company.location = location
+    db.add(company); db.commit(); db.refresh(company)
 
-    db.add(company)
-    db.commit()
-    db.refresh(company)
-
-    status = "Processing"
-    added = 0
-    reason = None
+    # optional: prefill rating/phone/address via details
+    detail = _enrich_place_detail(place_id) if gmaps else {}
     try:
-        if place_id and gmaps:
-            added = fetch_and_save_reviews_places(company, db)
-            status = "Active"
-        else:
-            status = "Active"  # created, but no external ingestion
+        if hasattr(company, "google_rating"): company.google_rating = detail.get("rating")
+        if hasattr(company, "user_ratings_total"): company.user_ratings_total = detail.get("user_ratings_total")
+        if hasattr(company, "website") and detail.get("website"): company.website = detail["website"]
+        if hasattr(company, "location"):
+            city = detail.get("city"); country = detail.get("country")
+            if city or country:
+                company.location = ", ".join([p for p in [city, country] if p])
+        db.commit()
     except Exception as e:
-        logger.error(f"Auto-ingestion failed for company {company.id}: {e}")
-        status = "Error"
-        reason = "ingestion_failed"
+        logger.warning(f"prefill enrich failed: {e}")
 
-    # Build overview row so UI can appear instantly
-    try:
-        overview = _compute_overview_for_company(db, company)
-    except Exception as e:
-        logger.error(f"Overview build failed for company {company.id}: {e}")
-        overview = {
-            "id": company.id,
-            "name": getattr(company, "name", "Unknown"),
-            "error": "overview_failed"
-        }
+    return {"ok": True, "company_id": company.id}
 
-    return {
-        "ok": True,
-        "company_id": company.id,
-        "status": status,
-        "reason": reason,
-        "auto_ingested_reviews": added,
-        "overview": overview
-    }
-
-# ─────────────────────────────────────────────────────────────
-# NEW: Google Places text search (to discover place_id)
-# ─────────────────────────────────────────────────────────────
-@router.get("/google/places")
-def google_places_search(q: str = Query(..., min_length=2)):
-    """
-    Search Google Places by text to get place_id before adding a company.
-    """
-    if not gmaps:
-        return {"ok": False, "reason": "Google client not initialized"}
-    try:
-        resp = gmaps.find_place(input=q, input_type="textquery", fields=["place_id","name","formatted_address"])
-        candidates = resp.get("candidates", []) or []
-        items = [{
-            "name": c.get("name"),
-            "place_id": c.get("place_id"),
-            "formatted_address": c.get("formatted_address")
-        } for c in candidates]
-        return {"ok": True, "items": items}
-    except Exception as e:
-        logger.error(f"Places search failed: {e}")
-        return {"ok": False, "reason": "places_search_failed"}
-
-# ─────────────────────────────────────────────────────────────
-# Existing Endpoints (IO preserved, now with optional start/end)
-# ─────────────────────────────────────────────────────────────
+# ---------------- Existing endpoints ----------------
 @router.get("/summary/{company_id}")
 def reviews_summary(
     company_id: int,
-    start: Optional[str] = Query(None, description="Start date (e.g., 2026-02-23 or 23/02/2026)"),
-    end: Optional[str] = Query(None, description="End date (e.g., 2026-03-10 or 10/03/2026)"),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
-
     start_dt = _parse_date_param(start, as_end=False) if start else None
     end_dt = _parse_date_param(end, as_end=True) if end else None
-
     reviews = db.query(Review).filter(Review.company_id == company_id).all()
     return get_review_summary_data(reviews, company, start_dt, end_dt)
 
@@ -664,10 +445,8 @@ def reviews_sync(company_id: int, db: Session = Depends(get_db)):
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
-
     if not gmaps:
         return {"ok": False, "reason": "Google client not initialized"}
-
     added = fetch_and_save_reviews_places(company, db)
     return {"ok": True, "added": added}
 
@@ -675,8 +454,5 @@ def reviews_sync(company_id: int, db: Session = Depends(get_db)):
 def reviews_diagnostics():
     return {
         "googlemaps_available": googlemaps is not None,
-        "places_client_initialized": gmaps is not None,
-        "use_gbp_api": USE_GBP_API,
-        "gbp_location_set": bool(GBP_LOCATION_NAME),
-        "gbp_token_present": bool(GBP_ACCESS_TOKEN)
+        "places_client_initialized": gmaps is not None
     }
