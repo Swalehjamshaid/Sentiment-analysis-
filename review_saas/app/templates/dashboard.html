@@ -1,148 +1,850 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>World-Class Reviews Dashboard</title>
+  <meta charset="utf-8" />
+  <title>Reviews Intelligence Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-<script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/dayjs.min.js" defer></script>
-<script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/plugin/utc.js" defer></script>
-<script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/plugin/timezone.js" defer></script>
-<style>
-body { background:#f0f4f8; font-family:"Inter",sans-serif; }
-.sidebar .list-group-item { cursor:pointer; transition: all 0.3s; }
-.sidebar .list-group-item:hover { background:#e8f0fe; }
-.kpi-card { border-radius:1rem; background:#fff; box-shadow:0 5px 15px rgba(0,0,0,0.05); padding:1rem; text-align:center; }
-.chart-container { height:280px; }
-.card-glass { background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); border-radius:1rem; box-shadow:0 8px 32px rgba(0,0,0,0.1); }
-.badge-negative { background:#dc3545; color:#fff; }
-</style>
+  <!-- ===== Styles: Glassmorphism + Responsive Layout ===== -->
+  <style>
+    :root{
+      --bg: #0f1221;
+      --card: rgba(255,255,255,0.08);
+      --card-hover: rgba(255,255,255,0.12);
+      --border: rgba(255,255,255,0.2);
+      --text: #e8ecf1;
+      --muted: #9aa6b2;
+      --primary: #6dd5ed;
+      --accent: #b892ff;
+      --success: #2bd39b;
+      --warning: #ffc658;
+      --error: #ff7b7b;
+      --glass-blur: 10px;
+      --shadow: 0 10px 30px rgba(0,0,0,0.35);
+    }
+    *{ box-sizing: border-box; }
+    html, body{ margin:0; padding:0; background:linear-gradient(135deg,#0b0e1a,#121634 60%,#1c103a); color:var(--text); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;}
+    a{ color:inherit; text-decoration:none; }
+    button{ cursor:pointer; }
+
+    /* Top Navbar */
+    .navbar{
+      position: sticky; top:0; z-index: 9;
+      display:flex; align-items:center; justify-content:space-between;
+      padding:12px 16px; border-bottom:1px solid var(--border);
+      background: linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0.15));
+      backdrop-filter: blur(var(--glass-blur));
+    }
+    .brand{ display:flex; align-items:center; gap:10px; }
+    .brand .logo{
+      width:34px; height:34px; border-radius:10px; background:
+        linear-gradient(135deg,var(--primary), var(--accent)); box-shadow: var(--shadow);
+    }
+    .brand h1{ font-size:16px; font-weight:600; letter-spacing: .4px; }
+    .nav-actions{ display:flex; gap:8px; align-items:center; }
+
+    .btn{
+      padding:10px 14px; border:1px solid var(--border);
+      background:var(--card); color:var(--text); border-radius:10px;
+      transition: all .2s ease; backdrop-filter: blur(var(--glass-blur));
+    }
+    .btn:hover{ background:var(--card-hover); transform: translateY(-1px); }
+    .btn.primary{ border-color: transparent; background: linear-gradient(135deg,var(--primary),var(--accent)); color:#1a1a1a; font-weight:600; }
+    .btn.danger{ border-color: rgba(255,100,100,.35); background: rgba(255,0,0,.1); color:#ffd7d7; }
+    .btn.sm{ padding:6px 10px; font-size:12px; }
+
+    /* Layout */
+    .layout{
+      display:grid; grid-template-columns: 280px 1fr; gap:14px;
+      padding:14px; min-height: calc(100dvh - 60px);
+    }
+    .sidebar{
+      border:1px solid var(--border); background:var(--card); border-radius:14px;
+      padding:12px; backdrop-filter: blur(var(--glass-blur));
+      box-shadow: var(--shadow);
+      display:flex; flex-direction:column; gap:12px;
+      min-height: 70vh;
+    }
+    .main{
+      display:flex; flex-direction:column; gap:14px;
+    }
+
+    /* Sidebar: Companies */
+    .sidebar .title{ font-size:14px; color:var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+    .companies{ display:flex; flex-direction:column; gap:8px; min-height:200px; }
+    .company-item{
+      padding:10px; border:1px solid var(--border); background: rgba(255,255,255,0.06);
+      border-radius:10px; transition: all .2s ease; display:flex; gap:8px; align-items:center; justify-content:space-between;
+    }
+    .company-item:hover{ background: rgba(255,255,255,0.1); transform: translateY(-1px); }
+    .company-item.active{ border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
+    .company-name{ font-size:13px; font-weight:600; }
+    .company-meta{ font-size:12px; color:var(--muted); }
+    .company-actions{ display:flex; gap:6px; }
+    .draggable{ cursor:grab; opacity:.95; }
+    .drag-over{ outline:2px dashed var(--primary); }
+
+    .add-box{
+      display:flex; gap:8px; align-items:center;
+    }
+    .add-box input{
+      flex:1; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:rgba(0,0,0,.2); color:var(--text);
+      outline:none;
+    }
+
+    /* Filters / Date range */
+    .filters{
+      display:grid; grid-template-columns: repeat(12,1fr); gap:12px;
+    }
+    .filters .card{
+      grid-column: span 12;
+      border:1px solid var(--border); background:var(--card);
+      padding:10px; border-radius:12px; backdrop-filter: blur(var(--glass-blur));
+    }
+    .filters-row{
+      display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+    }
+    .filters-row label{ font-size:12px; color:var(--muted); }
+    .filters-row input, .filters-row select{
+      padding:10px; border-radius:10px; border:1px solid var(--border);
+      background:rgba(0,0,0,.2); color:var(--text); outline:none;
+    }
+
+    /* KPIs */
+    .grid{
+      display:grid; grid-template-columns: repeat(12,1fr); gap:12px;
+    }
+    .card{
+      border:1px solid var(--border); background:var(--card); backdrop-filter: blur(var(--glass-blur));
+      border-radius:12px; padding:14px; transition: all .2s ease; box-shadow: var(--shadow);
+    }
+    .card:hover{ background:var(--card-hover); transform: translateY(-1px); }
+    .kpi{ grid-column: span 3; }
+    .kpi h3{ margin:0 0 6px 0; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; }
+    .kpi .value{ font-size:24px; font-weight:700; }
+    .kpi .sub{ font-size:12px; color:var(--muted); margin-top:4px; }
+
+    /* Charts and AI box */
+    .charts{ grid-column: span 8; min-height: 320px; }
+    .sentiment{ grid-column: span 4; min-height: 320px; }
+    .ai-summary{ grid-column: span 12; }
+
+    /* Keywords */
+    .badges{ display:flex; flex-wrap:wrap; gap:8px; }
+    .badge{
+      padding:6px 10px; border-radius:999px; border:1px solid var(--border);
+      background: rgba(255,255,255,0.06); font-size:12px; color:var(--text);
+    }
+
+    /* Reviews Table */
+    .table-card{ grid-column: span 12; }
+    table{ width:100%; border-collapse: collapse; }
+    th, td{ padding:10px; border-bottom:1px dashed var(--border); font-size:13px; }
+    th{ color:var(--muted); text-align:left; text-transform: uppercase; letter-spacing:.6px; font-size:12px; }
+    tr:hover{ background: rgba(255,255,255,0.04); }
+    .neg{ background: rgba(255, 100, 100, 0.08); border-left:3px solid var(--error); }
+    .table-actions{ display:flex; gap:8px; align-items:center; }
+    .pagination{ display:flex; justify-content:flex-end; gap:8px; margin-top:10px; align-items:center; color:var(--muted); }
+    .muted{ color:var(--muted); }
+
+    /* Alerts */
+    .alert{ padding:10px; border-radius:10px; margin:6px 0; }
+    .alert.info{ background: rgba(80,170,255,.12); border:1px solid rgba(80,170,255,.35); }
+    .alert.success{ background: rgba(50,220,170,.12); border:1px solid rgba(50,220,170,.35); }
+    .alert.warning{ background: rgba(255,200,80,.12); border:1px solid rgba(255,200,80,.35); }
+
+    /* Modal */
+    .modal-backdrop{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background: rgba(0,0,0,.55); z-index:50; }
+    .modal{ width: min(480px, 92vw); background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; backdrop-filter: blur(var(--glass-blur)); }
+    .modal.show{ display:flex; }
+
+    /* Responsive */
+    @media (max-width: 1100px){
+      .layout{ grid-template-columns: 1fr; }
+      .sidebar{ order:2; }
+      .main{ order:1; }
+      .kpi{ grid-column: span 6; }
+      .charts{ grid-column: span 12; }
+      .sentiment{ grid-column: span 12; }
+    }
+    @media (max-width: 640px){
+      .kpi{ grid-column: span 12; }
+    }
+  </style>
+
+  <!-- ===== Chart.js (CDN) ===== -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
 </head>
 <body>
-<nav class="navbar navbar-expand-lg bg-white border-bottom mb-3">
-  <div class="container-fluid">
-    <a class="navbar-brand fw-semibold" href="#"><i class="bi bi-graph-up-arrow me-2"></i>Reviews Dashboard</a>
-    <div class="d-flex gap-2 ms-auto">
-      <button class="btn btn-outline-danger" id="btnLogout"><i class="bi bi-box-arrow-right me-1"></i> Logout</button>
+  <!-- ===== Navbar ===== -->
+  <div class="navbar">
+    <div class="brand">
+      <div class="logo"></div>
+      <h1>Reviews Intelligence</h1>
+    </div>
+    <div class="nav-actions">
+      <button id="btnExportCsv" class="btn sm">Export CSV</button>
+      <button id="btnLogout" class="btn danger sm">Logout</button>
     </div>
   </div>
-</nav>
 
-<div class="container-fluid">
-<div class="row">
+  <!-- ===== Layout ===== -->
+  <div class="layout">
+    <!-- ===== Sidebar: Companies ===== -->
+    <aside class="sidebar">
+      <div class="title">Companies</div>
+      <div id="companiesList" class="companies" aria-live="polite"></div>
 
-<!-- Sidebar -->
-<div class="col-lg-3 col-12">
-<div class="card card-glass sticky-top-20 mb-3 sidebar">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <strong>Companies</strong>
-    <button class="btn btn-sm btn-primary" data-bs-toggle="collapse" data-bs-target="#addCompanySection"><i class="bi bi-plus-lg"></i></button>
+      <!-- Add company -->
+      <div class="add-box">
+        <input id="addCompanyInput" type="text" placeholder="Add company by name…" />
+        <button id="btnAddCompany" class="btn primary sm">Add</button>
+      </div>
+      <small class="muted">Tip: Drag-and-drop to prioritize companies (saved locally).</small>
+    </aside>
+
+    <!-- ===== Main Content ===== -->
+    <main class="main">
+      <!-- Filters / Dates -->
+      <div class="filters">
+        <div class="card">
+          <div class="filters-row">
+            <label>Company: <span id="activeCompanyName" class="muted">None</span></label>
+            <label>Start</label>
+            <input id="startDate" type="text" placeholder="DD/MM/YYYY" />
+            <label>End</label>
+            <input id="endDate" type="text" placeholder="DD/MM/YYYY" />
+            <button id="btnApplyDates" class="btn sm">Apply</button>
+            <button id="btnLast30" class="btn sm">Last 30 Days</button>
+            <span class="muted" id="rowCountNote"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- KPIs -->
+      <section class="grid">
+        <div class="card kpi">
+          <h3>Total Reviews</h3>
+          <div class="value" id="kpiTotal">0</div>
+          <div class="sub">In selected period</div>
+        </div>
+        <div class="card kpi">
+          <h3>Average Rating</h3>
+          <div class="value" id="kpiAvg">0.0</div>
+          <div class="sub">Stars (0–5)</div>
+        </div>
+        <div class="card kpi">
+          <h3>Risk</h3>
+          <div class="value"><span id="kpiRiskScore">0</span> / <span id="kpiRiskLevel">Low</span></div>
+          <div class="sub">Score &amp; Level</div>
+        </div>
+        <div class="card kpi">
+          <h3>AI Highlights</h3>
+          <div class="sub">Key Recommendations</div>
+          <div id="aiRecs"></div>
+        </div>
+
+        <!-- Trend Chart -->
+        <div class="card charts">
+          <h3 class="muted">Trend (Average Rating)</h3>
+          <canvas id="trendChart" height="100"></canvas>
+        </div>
+
+        <!-- Sentiment Chart -->
+        <div class="card sentiment">
+          <h3 class="muted">Sentiment Distribution</h3>
+          <canvas id="sentimentChart" height="100"></canvas>
+          <div id="alertsBox"></div>
+        </div>
+
+        <!-- AI Executive Summary -->
+        <div class="card ai-summary">
+          <h3 class="muted">AI Executive Summary</h3>
+          <div id="aiSummaryText" style="line-height:1.6"></div>
+        </div>
+
+        <!-- Keywords -->
+        <div class="card" style="grid-column: span 12;">
+          <h3 class="muted">Top Keywords</h3>
+          <div id="keywordsBox" class="badges"></div>
+        </div>
+
+        <!-- Reviews Table -->
+        <div class="card table-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <div class="muted">Reviews (auto-highlights rating ≤ 2)</div>
+            <div class="table-actions">
+              <select id="filterRating">
+                <option value="">All Ratings</option>
+                <option value="5">5 ★</option>
+                <option value="4">4 ★</option>
+                <option value="3">3 ★</option>
+                <option value="2">2 ★</option>
+                <option value="1">1 ★</option>
+              </select>
+              <input id="filterSearch" type="text" placeholder="Search comment/author…" />
+              <button id="btnApplyTableFilters" class="btn sm">Filter</button>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width:80px;">Rating</th>
+                <th>Comment</th>
+                <th style="width:180px;">Reviewer</th>
+                <th style="width:160px;">Date</th>
+              </tr>
+            </thead>
+            <tbody id="reviewsTbody"></tbody>
+          </table>
+          <div class="pagination">
+            <button id="prevPage" class="btn sm">Prev</button>
+            <span id="pageInfo">Page 1 / 1</span>
+            <button id="nextPage" class="btn sm">Next</button>
+          </div>
+        </div>
+      </section>
+    </main>
   </div>
-  <div class="card-body p-0">
-    <div class="list-group list-group-flush" id="companyList">
-      <div class="p-3 text-center text-muted" id="companiesEmpty">Loading companies…</div>
-    </div>
-    <div class="collapse border-top" id="addCompanySection">
-      <div class="p-3">
-        <input class="form-control mb-2" id="placeSearchInput" placeholder="Search Google Places…">
-        <button class="btn btn-outline-secondary w-100 mb-2" id="btnPlaceSearch">Search</button>
-        <input class="form-control mb-2" id="placeIdInput" placeholder="Place ID…">
-        <button class="btn btn-success w-100" id="btnAddPlaceId">Add</button>
+
+  <!-- ===== Delete Confirmation Modal ===== -->
+  <div id="modalDelete" class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal">
+      <h3>Delete Company</h3>
+      <p class="muted">Are you sure you want to delete <strong id="delCompanyName"></strong>? This action cannot be undone.</p>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button class="btn sm" onclick="closeDeleteModal()">Cancel</button>
+        <button class="btn danger sm" id="btnConfirmDelete">Delete</button>
       </div>
     </div>
   </div>
-</div>
-</div>
 
-<!-- Main -->
-<div class="col-lg-9 col-12">
+  <!-- ===== Scripts ===== -->
+  <script>
+    /* ---------------------------------------------------------
+       API CONFIG & HELPERS
+       --------------------------------------------------------- */
+    const API = {
+      COMPANIES: '/api/companies',
+      COMP_AUTOCOMPLETE: '/api/companies/autocomplete',
+      REVIEWS_SUMMARY: (id) => `/api/reviews/summary/${id}`,
+      REVIEWS_LIST: (id) => `/api/reviews/list/${id}`,
+      // Optional delete endpoint (if implemented server-side)
+      COMPANY_DELETE: (id) => `/api/companies/${id}`,
+    };
 
-<!-- Filters & Export -->
-<div class="card card-glass mb-3 p-3 d-flex flex-wrap align-items-end gap-2">
-  <div><label>Date Start</label><input type="date" class="form-control" id="filterStart" /></div>
-  <div><label>Date End</label><input type="date" class="form-control" id="filterEnd" /></div>
-  <div><label>Search Text</label><input class="form-control" id="filterQuery" placeholder="Keyword…" /></div>
-  <div class="d-grid"><button class="btn btn-primary" id="btnApplyFilters">Apply Filters</button></div>
-  <div class="d-grid"><button class="btn btn-success" id="btnExportCSV"><i class="bi bi-file-earmark-spreadsheet me-1"></i> Export CSV</button></div>
-</div>
+    const state = {
+      companies: [],
+      selectedCompany: null,
+      // Default date range: start=23/02/2026 (DD/MM/YYYY), end=today
+      startDDMMYYYY: '23/02/2026',
+      endDDMMYYYY: toDDMMYYYY(new Date()),
+      reviewsPage: 1,
+      reviewsLimit: 20,
+      reviewsTotal: 0,
+      filterRating: '',
+      filterSearch: '',
+      charts: { trend: null, sentiment: null },
+      lastFetchedReviews: [],
+    };
 
-<!-- AI Summary -->
-<div class="card card-glass mb-3 p-3">
-  <strong>AI Summary & Recommendations</strong>
-  <div id="aiSummary" class="mt-2 text-muted">Select a company and date range.</div>
-</div>
+    function authHeaders() {
+      const h = { 'Content-Type': 'application/json' };
+      const token = localStorage.getItem('token');
+      if (token) {
+        h['Authorization'] = `Bearer ${token}`;
+        h['X-API-Key'] = token; // optional server-side acceptance
+      }
+      return h;
+    }
 
-<!-- KPIs -->
-<div class="row g-3 mb-3">
-  <div class="col-md-3"><div class="kpi-card"><div>Total Reviews</div><div id="kpiTotal" class="fs-3 fw-bold">—</div></div></div>
-  <div class="col-md-3"><div class="kpi-card"><div>Average Rating</div><div id="kpiAvg" class="fs-3 fw-bold">—</div></div></div>
-  <div class="col-md-3"><div class="kpi-card"><div>Risk Score</div><div id="kpiRisk" class="fs-3 fw-bold">—</div></div></div>
-</div>
+    function showToast(msg){
+      console.log('[toast]', msg);
+    }
 
-<!-- Charts -->
-<div class="row g-3 mb-3">
-  <div class="col-md-6"><div class="card card-glass p-3 chart-container"><canvas id="chartTrend"></canvas></div></div>
-  <div class="col-md-6"><div class="card card-glass p-3 chart-container"><canvas id="chartSentiment"></canvas></div></div>
-</div>
+    // Convert DD/MM/YYYY ↔ YYYY-MM-DD
+    function toISO(dmy) {
+      // expects DD/MM/YYYY
+      const [d, m, y] = dmy.split('/');
+      return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+    }
+    function toDDMMYYYY(date){
+      const d = new Date(date);
+      const dd = String(d.getDate()).padStart(2,'0');
+      const mm = String(d.getMonth()+1).padStart(2,'0');
+      const yy = d.getFullYear();
+      return `${dd}/${mm}/${yy}`;
+    }
+    function isoToPretty(iso){
+      if(!iso) return '';
+      const d = new Date(iso);
+      return d.toLocaleString();
+    }
 
-<!-- Reviews Table -->
-<div class="card card-glass p-3 mb-5">
-  <strong>Reviews</strong>
-  <div class="table-responsive mt-2">
-    <table class="table table-borderless">
-      <thead><tr><th>Rating</th><th>Comment</th><th>Reviewer</th><th>Date</th></tr></thead>
-      <tbody id="reviewsTbody"><tr><td colspan="4" class="text-center text-muted">No data</td></tr></tbody>
-    </table>
-  </div>
-</div>
+    /* ---------------------------------------------------------
+       SIDEBAR: LOAD, RENDER, DRAG & DROP
+       --------------------------------------------------------- */
+    async function loadCompanies(){
+      const url = `${API.COMPANIES}?status=active&limit=200&sort=name`;
+      const res = await fetch(url, { headers: authHeaders() });
+      if(!res.ok){ showToast('Failed to load companies'); return; }
+      state.companies = await res.json();
 
-</div>
-</div>
-</div>
+      // Apply local drag order if exists
+      const saved = JSON.parse(localStorage.getItem('companyOrder') || '[]');
+      if(saved.length){
+        const map = new Map(state.companies.map(c => [c.id, c]));
+        state.companies = saved.map(id => map.get(id)).filter(Boolean)
+          .concat(state.companies.filter(c => !saved.includes(c.id)));
+      }
+      renderCompanies();
+      if(state.companies.length){
+        selectCompany(state.companies[0]);
+      } else {
+        state.selectedCompany = null;
+        document.getElementById('activeCompanyName').textContent = 'None';
+      }
+    }
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-const state={companies:[],currentCompanyId:null,reviewsPage:1,reviewsLimit:50,charts:{trend:null,sentiment:null},reviewsData:[]};
+    function renderCompanies(){
+      const wrap = document.getElementById('companiesList');
+      wrap.innerHTML = '';
+      state.companies.forEach(c => {
+        const div = document.createElement('div');
+        div.className = `company-item draggable ${state.selectedCompany && c.id === state.selectedCompany.id ? 'active':''}`;
+        div.draggable = true;
+        div.dataset.id = c.id;
 
-// Toast
-function toast(msg){alert(msg);}
+        const left = document.createElement('div');
+        left.style.display='flex';
+        left.style.flexDirection='column';
+        left.style.gap='2px';
 
-// API Fetch
-async function apiFetch(path,opt={}){const res=await fetch(path,opt);if(!res.ok)throw new Error('HTTP '+res.status);return res.json();}
+        const nm = document.createElement('div');
+        nm.className = 'company-name';
+        nm.textContent = c.name || `Company #${c.id}`;
+        const meta = document.createElement('div');
+        meta.className = 'company-meta';
+        meta.textContent = [c.city, c.status].filter(Boolean).join(' • ');
 
-// Companies
-async function loadCompanies(){state.companies=await apiFetch('/api/companies?status=active');renderCompanyList();}
-function renderCompanyList(){const list=document.getElementById('companyList');list.innerHTML='';state.companies.forEach(c=>{const div=document.createElement('div');div.className='list-group-item';div.innerText=c.name;div.draggable=true;div.addEventListener('click',()=>selectCompany(c.id));div.addEventListener('dragstart',e=>e.dataTransfer.setData('text/plain',c.id));div.addEventListener('dragover',e=>e.preventDefault());div.addEventListener('drop',e=>{e.preventDefault();const draggedId=e.dataTransfer.getData('text/plain');reorderCompanies(draggedId,c.id);});list.appendChild(div);});}
-function reorderCompanies(fromId,toId){const fIdx=state.companies.findIndex(c=>c.id==fromId),tIdx=state.companies.findIndex(c=>c.id==toId);if(fIdx<0||tIdx<0)return;const [item]=state.companies.splice(fIdx,1);state.companies.splice(tIdx,0,item);renderCompanyList();}
+        left.appendChild(nm); left.appendChild(meta);
 
-// Select company
-async function selectCompany(id){state.currentCompanyId=id;await refreshDashboard();}
+        const actions = document.createElement('div');
+        actions.className = 'company-actions';
 
-// Refresh Dashboard
-async function refreshDashboard(){if(!state.currentCompanyId)return;const start=document.getElementById('filterStart').value,end=document.getElementById('filterEnd').value,q=document.getElementById('filterQuery').value;try{const summary=await apiFetch(`/api/reviews/summary/${state.currentCompanyId}?start=${start}&end=${end}`);document.getElementById('kpiTotal').innerText=summary.metrics.total||0;document.getElementById('kpiAvg').innerText=(summary.metrics.avg_rating||0).toFixed(2);document.getElementById('kpiRisk').innerText=(summary.metrics.risk_score||0).toFixed(1);renderTrend(summary.daily_series.map(d=>d.date),summary.daily_series.map(d=>d.avg_rating));renderSentiment(summary.sentiment);state.reviewsData=await apiFetch(`/api/reviews/list/${state.currentCompanyId}?page=1&limit=500&start=${start}&end=${end}&q=${q}`);renderReviewsTable(state.reviewsData.items||[]);document.getElementById('aiSummary').innerText=`Total ${summary.metrics.total} reviews. Avg Rating: ${summary.metrics.avg_rating}. Negative reviews: ${summary.sentiment.Negative}. Act: Respond to negative feedback.`;}catch(err){toast(err.message);}}
+        const btnOpen = document.createElement('button');
+        btnOpen.className = 'btn sm'; btnOpen.textContent = 'Open';
+        btnOpen.onclick = (e) => { e.stopPropagation(); selectCompany(c); };
 
-// Charts
-function destroyChart(ref){if(ref&&ref.destroy)ref.destroy();}
-function renderTrend(labels,data){const ctx=document.getElementById('chartTrend');destroyChart(state.charts.trend);state.charts.trend=new Chart(ctx,{type:'line',data:{labels,datasets:[{label:'Avg Rating',data,borderColor:'#0d6efd',backgroundColor:'rgba(13,110,253,0.1)',tension:0.3,fill:true}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{min:0,max:5}}}});}
-function renderSentiment({Positive,Neutral,Negative}){const ctx=document.getElementById('chartSentiment');destroyChart(state.charts.sentiment);state.charts.sentiment=new Chart(ctx,{type:'doughnut',data:{labels:['Positive','Neutral','Negative'],datasets:[{data:[Positive,Neutral,Negative],backgroundColor:['#198754','#6c757d','#dc3545']}]} ,options:{responsive:true,plugins:{legend:{position:'bottom'}}}});}
+        const btnDel = document.createElement('button');
+        btnDel.className = 'btn danger sm'; btnDel.textContent = 'Delete';
+        btnDel.onclick = (e) => { e.stopPropagation(); openDeleteModal(c); };
 
-// Reviews Table
-function renderReviewsTable(items){const tbody=document.getElementById('reviewsTbody');tbody.innerHTML='';if(!items.length){tbody.innerHTML='<tr><td colspan="4" class="text-center text-muted">No reviews</td></tr>';return;}items.forEach(r=>{const tr=document.createElement('tr');const cls=r.rating<=2?'badge-negative':'';tr.innerHTML=`<td><span class="${cls}">${r.rating}</span></td><td>${r.text}</td><td>${r.reviewer_name||'-'}</td><td>${r.review_date}</td>`;tbody.appendChild(tr);});}
+        actions.appendChild(btnOpen); actions.appendChild(btnDel);
 
-// CSV Export
-document.getElementById('btnExportCSV').addEventListener('click',()=>{if(!state.reviewsData?.items?.length){toast('No reviews to export');return;}const rows=[['Rating','Comment','Reviewer','Date']];state.reviewsData.items.forEach(r=>rows.push([r.rating,r.text,r.reviewer_name||'',r.review_date]));const csv='data:text/csv;charset=utf-8,'+rows.map(r=>r.map(c=>'"'+c.toString().replace(/"/g,'""')+'"').join(',')).join('\n');const a=document.createElement('a');a.href=csv;a.download='reviews.csv';a.click();});
+        div.appendChild(left); div.appendChild(actions);
 
-// Filters
-document.getElementById('btnApplyFilters').addEventListener('click',()=>refreshDashboard());
+        // Click anywhere on item selects company
+        div.onclick = () => selectCompany(c);
 
-// Logout
-document.getElementById('btnLogout').addEventListener('click',()=>{alert('Logged out');});
+        // Drag & Drop
+        div.addEventListener('dragstart', handleDragStart);
+        div.addEventListener('dragover', handleDragOver);
+        div.addEventListener('dragleave', handleDragLeave);
+        div.addEventListener('drop', handleDrop);
+        wrap.appendChild(div);
+      });
+    }
 
-// Init
-window.addEventListener('DOMContentLoaded',()=>{loadCompanies();document.getElementById('filterStart').value='2026-02-23';document.getElementById('filterEnd').value=new Date().toISOString().split('T')[0];});
-</script>
+    let dragSrcId = null;
+    function handleDragStart(e){
+      dragSrcId = parseInt(e.currentTarget.dataset.id);
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', dragSrcId);
+    }
+    function handleDragOver(e){
+      e.preventDefault();
+      e.currentTarget.classList.add('drag-over');
+    }
+    function handleDragLeave(e){
+      e.currentTarget.classList.remove('drag-over');
+    }
+    function handleDrop(e){
+      e.preventDefault();
+      e.currentTarget.classList.remove('drag-over');
+      const targetId = parseInt(e.currentTarget.dataset.id);
+      if(dragSrcId === targetId) return;
+
+      const list = state.companies.slice();
+      const fromIdx = list.findIndex(x => x.id === dragSrcId);
+      const toIdx = list.findIndex(x => x.id === targetId);
+      const [item] = list.splice(fromIdx, 1);
+      list.splice(toIdx, 0, item);
+      state.companies = list;
+      renderCompanies();
+
+      // Persist order locally
+      localStorage.setItem('companyOrder', JSON.stringify(state.companies.map(x => x.id)));
+    }
+
+    /* ---------------------------------------------------------
+       SELECT COMPANY → LOAD SUMMARY + REVIEWS
+       --------------------------------------------------------- */
+    async function selectCompany(company){
+      state.selectedCompany = company;
+      document.getElementById('activeCompanyName').textContent = company.name || `#${company.id}`;
+      state.reviewsPage = 1;
+      // Load everything
+      await Promise.all([ loadSummary(), loadReviews() ]);
+      renderCompanies(); // refresh highlight
+    }
+
+    /* ---------------------------------------------------------
+       SUMMARY: KPIs, Charts, Keywords, Alerts, AI text
+       GET /api/reviews/summary/{company_id}
+       --------------------------------------------------------- */
+    async function loadSummary(){
+      if(!state.selectedCompany) return;
+
+      const start = toISO(state.startDDMMYYYY);
+      const end = toISO(state.endDDMMYYYY);
+      const url = `${API.REVIEWS_SUMMARY(state.selectedCompany.id)}?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+
+      const res = await fetch(url, { headers: authHeaders() });
+      if(!res.ok){ showToast('Failed to load summary'); return; }
+      const data = await res.json();
+
+      // KPIs
+      document.getElementById('kpiTotal').textContent = data?.metrics?.total ?? data?.total_reviews ?? 0;
+      document.getElementById('kpiAvg').textContent = (data?.metrics?.avg_rating ?? data?.avg_rating ?? 0).toFixed(2);
+      document.getElementById('kpiRiskScore').textContent = Math.round(data?.metrics?.risk_score ?? data?.risk_score ?? 0);
+      document.getElementById('kpiRiskLevel').textContent = data?.metrics?.risk_level ?? data?.risk_level ?? 'Low';
+
+      // AI Recs (mini list)
+      const aiRecs = data?.ai_recommendations || [];
+      document.getElementById('aiRecs').innerHTML = aiRecs.slice(0,4).map(r => `
+        <div class="badge">${escapeHtml(r.area || 'issue')}: ${escapeHtml(r.action || 'review')}</div>
+      `).join('') || `<div class="muted">No recommendations.</div>`;
+
+      // Keywords (badges)
+      const kwLabels = data?.keywords?.labels || [];
+      const kwData = data?.keywords?.data || [];
+      const keywordsBox = document.getElementById('keywordsBox');
+      keywordsBox.innerHTML = '';
+      if(kwLabels.length){
+        kwLabels.forEach((label, i) => {
+          const b = document.createElement('div');
+          b.className = 'badge';
+          b.textContent = `${label} • ${kwData[i] || 0}`;
+          keywordsBox.appendChild(b);
+        });
+      } else {
+        keywordsBox.innerHTML = `<span class="muted">No keywords in this period.</span>`;
+      }
+
+      // Alerts
+      const alerts = data?.alerts || [];
+      const alertsBox = document.getElementById('alertsBox');
+      alertsBox.innerHTML = alerts.map(a => `
+        <div class="alert ${a.type}">
+          <strong>${escapeHtml(a.title || 'Alert')}</strong><br/>
+          <span class="muted">${escapeHtml(a.message || '')}</span>
+        </div>
+      `).join('') || '';
+
+      // AI Executive Summary (requirement #16-18)
+      const total = data?.metrics?.total ?? data?.total_reviews ?? 0;
+      const avg = data?.metrics?.avg_rating ?? data?.avg_rating ?? 0;
+      const neg = (data?.sentiment?.Negative ?? 0);
+      const recTxt = aiRecs.slice(0,2).map(r => r.action).filter(Boolean).join('; ');
+      const trendSignal = data?.trend?.signal || 'stable';
+      const trendDelta = data?.trend?.delta || 0;
+      const keyNeg = (kwLabels || []).slice(0,3).join(', ') || 'none';
+      const aiSummary = `
+        Total reviews: <b>${total}</b>, Avg rating: <b>${(+avg).toFixed(2)}</b>.
+        Trend is <b>${trendSignal}</b> (Δ ${trendDelta}).
+        Negative focus: <b>${neg}</b> negative reviews. Key keywords: <b>${escapeHtml(keyNeg)}</b>.
+        Recommendations: ${escapeHtml(recTxt || 'None')}.
+      `;
+      document.getElementById('aiSummaryText').innerHTML = aiSummary;
+
+      // Trend Chart (line)
+      const trendLabels = data?.trend?.labels || (data?.trend_data || []).map(x => x.month);
+      const trendSeries = data?.trend?.data || (data?.trend_data || []).map(x => x.avg_rating);
+      renderTrendChart(trendLabels, trendSeries);
+
+      // Sentiment Chart (doughnut)
+      const pos = (data?.sentiment?.Positive ?? 0), neu = (data?.sentiment?.Neutral ?? 0), negCnt = (data?.sentiment?.Negative ?? 0);
+      renderSentimentChart([pos, neu, negCnt]);
+
+    }
+
+    function renderTrendChart(labels, dataArr){
+      const ctx = document.getElementById('trendChart').getContext('2d');
+      if(state.charts.trend){ state.charts.trend.destroy(); }
+      state.charts.trend = new Chart(ctx, {
+        type:'line',
+        data:{
+          labels,
+          datasets:[{
+            label:'Avg Rating',
+            data: dataArr,
+            fill:false,
+            borderColor: '#6dd5ed',
+            backgroundColor: 'rgba(109,213,237,.25)',
+            tension:.25,
+          }]
+        },
+        options:{
+          responsive:true,
+          plugins:{ legend:{ display:false } },
+          scales:{
+            y:{ beginAtZero:true, suggestedMax:5 }
+          }
+        }
+      });
+    }
+    function renderSentimentChart(vals){
+      const ctx = document.getElementById('sentimentChart').getContext('2d');
+      if(state.charts.sentiment){ state.charts.sentiment.destroy(); }
+      state.charts.sentiment = new Chart(ctx, {
+        type:'doughnut',
+        data:{
+          labels:['Positive','Neutral','Negative'],
+          datasets:[{
+            data: vals,
+            backgroundColor:['#2bd39b','#9aa6b2','#ff7b7b'],
+            borderColor: ['transparent','transparent','transparent']
+          }]
+        },
+        options:{
+          plugins:{ legend:{ position:'bottom', labels:{ color:'#cfd7df' } } }
+        }
+      });
+    }
+
+    /* ---------------------------------------------------------
+       REVIEWS TABLE (pagination, filters, negative highlight)
+       GET /api/reviews/list/{company_id}
+       --------------------------------------------------------- */
+    async function loadReviews(){
+      if(!state.selectedCompany) return;
+      const start = toISO(state.startDDMMYYYY);
+      const end = toISO(state.endDDMMYYYY);
+      const params = new URLSearchParams({
+        page: String(state.reviewsPage),
+        limit: String(state.reviewsLimit),
+        order: 'desc'
+      });
+      if(state.filterRating) params.set('rating', state.filterRating);
+      if(state.filterSearch) params.set('q', state.filterSearch);
+      params.set('start', start);
+      params.set('end', end);
+
+      const url = `${API.REVIEWS_LIST(state.selectedCompany.id)}?${params.toString()}`;
+      const res = await fetch(url, { headers: authHeaders() });
+      if(!res.ok){ showToast('Failed to load reviews'); return; }
+      const data = await res.json();
+
+      state.reviewsTotal = data.total || 0;
+      state.lastFetchedReviews = data.items || [];
+
+      const tbody = document.getElementById('reviewsTbody');
+      tbody.innerHTML = '';
+      (data.items || []).forEach(item => {
+        const tr = document.createElement('tr');
+        if((item.rating ?? 0) <= 2) tr.classList.add('neg'); // auto-highlight negatives
+        tr.innerHTML = `
+          <td>${Number(item.rating ?? 0).toFixed(1)}</td>
+          <td>${escapeHtml(item.text || '')}</td>
+          <td>${escapeHtml(item.reviewer_name || '')}</td>
+          <td>${isoToPretty(item.review_date)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      const totalPages = Math.max(1, Math.ceil((state.reviewsTotal) / state.reviewsLimit));
+      document.getElementById('pageInfo').textContent = `Page ${state.reviewsPage} / ${totalPages}`;
+      document.getElementById('rowCountNote').textContent = `${state.reviewsTotal} reviews in range`;
+    }
+
+    // Pagination controls
+    document.getElementById('prevPage').onclick = () => {
+      if(state.reviewsPage > 1){ state.reviewsPage--; loadReviews(); }
+    };
+    document.getElementById('nextPage').onclick = () => {
+      const totalPages = Math.max(1, Math.ceil((state.reviewsTotal) / state.reviewsLimit));
+      if(state.reviewsPage < totalPages){ state.reviewsPage++; loadReviews(); }
+    };
+
+    // Table filter controls
+    document.getElementById('btnApplyTableFilters').onclick = () => {
+      state.filterRating = document.getElementById('filterRating').value || '';
+      state.filterSearch = document.getElementById('filterSearch').value.trim();
+      state.reviewsPage = 1;
+      loadReviews();
+    };
+
+    /* ---------------------------------------------------------
+       DATE CONTROLS (#4, #5, #6)
+       --------------------------------------------------------- */
+    // Set inputs to defaults
+    document.getElementById('startDate').value = state.startDDMMYYYY;
+    document.getElementById('endDate').value = state.endDDMMYYYY;
+
+    document.getElementById('btnApplyDates').onclick = async () => {
+      const sd = (document.getElementById('startDate').value || '').trim();
+      const ed = (document.getElementById('endDate').value || '').trim();
+      if(sd) state.startDDMMYYYY = sd;
+      if(ed) state.endDDMMYYYY = ed;
+      state.reviewsPage = 1;
+      await loadSummary();
+      await loadReviews();
+    };
+
+    // Last 30 days for selected company
+    document.getElementById('btnLast30').onclick = async () => {
+      const today = new Date();
+      const start = new Date(today.getTime() - 29*86400*1000);
+      state.startDDMMYYYY = toDDMMYYYY(start);
+      state.endDDMMYYYY = toDDMMYYYY(today);
+      document.getElementById('startDate').value = state.startDDMMYYYY;
+      document.getElementById('endDate').value = state.endDDMMYYYY;
+      state.reviewsPage = 1;
+      await loadSummary();
+      await loadReviews();
+    };
+
+    /* ---------------------------------------------------------
+       ADD COMPANY (#12-14)
+       - Use backend autocomplete → then POST create
+       --------------------------------------------------------- */
+    document.getElementById('btnAddCompany').onclick = async () => {
+      const input = document.getElementById('addCompanyInput');
+      const name = (input.value || '').trim();
+      if(!name){ showToast('Enter a company name'); return; }
+
+      // 1) Try autocomplete to get place_id
+      const acUrl = `${API.COMP_AUTOCOMPLETE}?q=${encodeURIComponent(name)}`;
+      const acRes = await fetch(acUrl, { headers: authHeaders() });
+      if(!acRes.ok){ showToast('Autocomplete failed'); return; }
+      const acData = await acRes.json();
+      const first = (acData || [])[0] || null;
+      const payload = { name };
+
+      if(first && first.place_id){
+        // backend will enrich details from Google
+        payload.place_id = first.place_id;
+      }
+
+      // 2) Create
+      const cr = await fetch(API.COMPANIES, {
+        method:'POST',
+        headers: authHeaders(),
+        body: JSON.stringify(payload)
+      });
+      if(!cr.ok){
+        const errText = await cr.text();
+        showToast(`Create failed: ${errText}`);
+        return;
+      }
+      input.value = '';
+      await loadCompanies(); // sidebar refresh (#14)
+      showToast('Company added');
+    };
+
+    /* ---------------------------------------------------------
+       DELETE COMPANY (#15)
+       - Attempts DELETE /api/companies/{id}
+       - If your backend lacks DELETE, a helpful message is shown
+       --------------------------------------------------------- */
+    let deleteTarget = null;
+    function openDeleteModal(company){
+      deleteTarget = company;
+      document.getElementById('delCompanyName').textContent = company.name || `#${company.id}`;
+      document.getElementById('modalDelete').classList.add('show');
+    }
+    function closeDeleteModal(){
+      deleteTarget = null;
+      document.getElementById('modalDelete').classList.remove('show');
+    }
+    document.getElementById('btnConfirmDelete').onclick = async () => {
+      if(!deleteTarget){ return; }
+      const url = API.COMPANY_DELETE(deleteTarget.id);
+      const res = await fetch(url, { method:'DELETE', headers: authHeaders() });
+      if(!res.ok){
+        closeDeleteModal();
+        showToast('Delete endpoint not available. Please add DELETE /api/companies/{id} in backend or archive via status.');
+        return;
+      }
+      closeDeleteModal();
+      showToast('Company deleted');
+      await loadCompanies();
+    };
+
+    /* ---------------------------------------------------------
+       EXPORT CSV (#26) of currently visible reviews
+       --------------------------------------------------------- */
+    document.getElementById('btnExportCsv').onclick = () => {
+      const rows = state.lastFetchedReviews || [];
+      if(!rows.length){ showToast('No rows to export'); return; }
+      const header = ['id','rating','text','reviewer','review_date','sentiment_category','sentiment_score','keywords','language'];
+      const lines = [header.join(',')];
+      rows.forEach(r => {
+        const row = [
+          r.id ?? '',
+          r.rating ?? '',
+          csvEscape(r.text || ''),
+          csvEscape(r.reviewer_name || ''),
+          r.review_date || '',
+          r.sentiment_category || '',
+          r.sentiment_score ?? '',
+          csvEscape(r.keywords || ''),
+          r.language || '',
+        ];
+        lines.push(row.join(','));
+      });
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `reviews_${state.selectedCompany ? (state.selectedCompany.name || state.selectedCompany.id) : 'export'}.csv`;
+      a.click();
+    };
+
+    function csvEscape(s){
+      const needs = /[\",;\n]/.test(s);
+      return needs ? `"${(s||'').replace(/\"/g,'""')}"` : s;
+    }
+
+    /* ---------------------------------------------------------
+       LOGOUT (#27)
+       --------------------------------------------------------- */
+    document.getElementById('btnLogout').onclick = () => {
+      localStorage.removeItem('token');
+      // adapt to your auth flow:
+      window.location.href = '/logout';
+    };
+
+    /* ---------------------------------------------------------
+       UTILITIES
+       --------------------------------------------------------- */
+    function escapeHtml(str){
+      return (str ?? '').toString()
+        .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
+        .replaceAll('"','&quot;').replaceAll("'",'&#039;');
+    }
+
+    /* ---------------------------------------------------------
+       INITIALIZE
+       --------------------------------------------------------- */
+    window.addEventListener('DOMContentLoaded', async () => {
+      await loadCompanies();
+
+      // If no companies yet: prompt to add one
+      if(!state.companies.length){
+        showToast('No companies found. Add one by name to begin.');
+      }
+    });
+  </script>
 </body>
 </html>
