@@ -1,522 +1,656 @@
-"""
-Dashboard API Endpoints (for dashboard.html)
-This router centralizes endpoints needed by the world-class dashboard:
-- Sidebar companies list (+ add/delete)
-- Date defaults and parsing helpers
-- Unified dashboard payload (metrics, trend, sentiments, AI insights, etc.)
-- Paginated reviews table + export CSV
-- Google Places helpers to add a company by name only
-Integration:
-- Uses app/services/analysis.py for analytics payloads
-- Plays nicely with existing routes:
-  * /api/reviews/... (summary, list, google details/import, diagnostics)
-  * /api/companies/... (list/create/autocomplete/sync/list)
-Security:
-- Optional API token guard via API_TOKEN (same pattern as other routes)
-"""
-from __future__ import annotations
-import os
-import io
-import csv
-import logging
-from typing import Optional, Dict, Any, List, Tuple, Literal
-from datetime import datetime, timedelta, timezone
-import requests
-from fastapi import APIRouter, Depends, HTTPException, Query, Header, Path
-from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
-from sqlalchemy import or_
-from ..db import get_db
-from ..models import Company, Review
-from ..services.analysis import (
-    dashboard_payload as build_dashboard_payload,
-    reviews_table as build_reviews_table,
-)
+<!-- Filename: dashboard.html -->
+<!doctype html>
+<html lang="en" data-bs-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Operations Dashboard</title>
+  <meta name="description" content="Operations Dashboard with KPIs, trends, and performance charts." />
 
-# ─────────────────────────────────────────────────────────────
-# Router & Logger
-# ─────────────────────────────────────────────────────────────
-router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+  <!-- Bootstrap 5 -->
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+    integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+    crossorigin="anonymous"
+  />
+  <!-- Bootstrap Icons -->
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
+    rel="stylesheet"
+  />
 
-logger = logging.getLogger("dashboard")
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
-    logger.addHandler(handler)
-logger.setLevel(logging.INFO)
+  <!-- Chart.js -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+    integrity="sha384-h5VdtYp1TW0/QBv5xRXYqMZlJk1kWhaXoJzHnntkPi5D2v7J1Qw8GJmD0mW6mH9l"
+    crossorigin="anonymous"
+  ></script>
 
-# ─────────────────────────────────────────────────────────────
-# Config (env → fallback to provided keys)
-# ─────────────────────────────────────────────────────────────
-GOOGLE_MAPS_API_KEY: str = os.getenv(
-    "GOOGLE_MAPS_API_KEY",
-    "AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg",
-)
-GOOGLE_PLACES_API_KEY: str = os.getenv(
-    "GOOGLE_PLACES_API_KEY",
-    "AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg",
-)
-API_TOKEN = os.getenv("API_TOKEN")
-_G_TIMEOUT: Tuple[int, int] = (5, 15)  # (connect, read) seconds
+  <style>
+    /* Filename: dashboard.html — custom theme tweaks */
+    :root {
+      --sidebar-width: 260px;
+      --transition-fast: 150ms ease;
+    }
+    html, body {
+      height: 100%;
+      overflow-x: hidden;
+    }
+    body {
+      display: flex;
+      background: var(--bs-body-bg);
+      color: var(--bs-body-color);
+    }
+    .app-sidebar {
+      width: var(--sidebar-width);
+      min-height: 100vh;
+      border-right: 1px solid var(--bs-border-color);
+      background: var(--bs-tertiary-bg);
+      position: sticky;
+      top: 0;
+      left: 0;
+      padding-top: 1rem;
+      transition: transform var(--transition-fast);
+    }
+    .app-sidebar .nav-link {
+      color: var(--bs-body-color);
+      border-radius: .5rem;
+    }
+    .app-sidebar .nav-link.active,
+    .app-sidebar .nav-link:hover {
+      background: var(--bs-secondary-bg);
+      color: var(--bs-body-color);
+    }
+    .app-main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      max-width: 100%;
+    }
+    .app-navbar {
+      position: sticky;
+      top: 0;
+      z-index: 1020;
+      border-bottom: 1px solid var(--bs-border-color);
+      background: var(--bs-body-bg);
+    }
+    .kpi-card {
+      border: 1px solid var(--bs-border-color);
+      background: var(--bs-body-bg);
+      transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+    }
+    .kpi-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0.5rem 1rem rgba(0,0,0,.08);
+    }
+    .chart-card {
+      border: 1px solid var(--bs-border-color);
+      background: var(--bs-body-bg);
+    }
+    .badge-soft {
+      background-color: color-mix(in oklab, var(--bs-primary) 18%, transparent);
+      color: var(--bs-primary);
+    }
+    .toolbar .btn {
+      border-radius: 999px;
+    }
+    /* Mobile sidebar toggle */
+    @media (max-width: 991.98px) {
+      .app-sidebar {
+        position: fixed;
+        transform: translateX(-100%);
+        z-index: 1040;
+      }
+      .app-sidebar.show {
+        transform: translateX(0);
+      }
+      .sidebar-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,.35);
+        backdrop-filter: blur(2px);
+        display: none;
+        z-index: 1030;
+      }
+      .sidebar-backdrop.show {
+        display: block;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Sidebar -->
+  <aside id="sidebar" class="app-sidebar">
+    <div class="px-3 mb-4 d-flex align-items-center gap-2">
+      <i class="bi bi-speedometer2 fs-4"></i>
+      <strong class="fs-5">Ops Dashboard</strong>
+    </div>
+    <nav class="nav flex-column px-2">
+      <a class="nav-link active" href="#"><i class="bi bi-grid me-2"></i> Overview</a>
+      <a class="nav-link" href="#"><i class="bi bi-graph-up me-2"></i> Performance</a>
+      <a class="nav-link" href="#"><i class="bi bi-clipboard-data me-2"></i> Reports</a>
+      <a class="nav-link" href="#"><i class="bi bi-gear me-2"></i> Settings</a>
+    </nav>
+    <div class="px-3 py-4 small text-secondary-700">
+      <div class="d-flex align-items-center justify-content-between">
+        <span>Theme</span>
+        <div class="form-check form-switch m-0">
+          <input class="form-check-input" type="checkbox" role="switch" id="themeSwitch" />
+          <label class="form-check-label" for="themeSwitch">Dark</label>
+        </div>
+      </div>
+    </div>
+  </aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
-# The spec requires default start: 23/02/2026 (dd/mm/yyyy)
-_DEFAULT_START_DDMMYYYY = "23/02/2026"
+  <!-- Main -->
+  <main class="app-main">
+    <!-- Top navbar -->
+    <nav class="app-navbar navbar navbar-expand-lg px-3">
+      <div class="container-fluid px-0">
+        <div class="d-flex align-items-center gap-2">
+          <button id="sidebarToggle" class="btn btn-outline-secondary d-lg-none" aria-label="Toggle sidebar" aria-controls="sidebar" aria-expanded="false">
+            <i class="bi bi-list"></i>
+          </button>
+          <span class="navbar-brand mb-0 h1 d-none d-sm-inline">Overview</span>
+        </div>
+        <div class="ms-auto d-flex align-items-center gap-2 toolbar">
+          <!-- Date range -->
+          <div class="d-none d-md-flex align-items-center gap-2">
+            <input type="date" id="dateStart" class="form-control form-control-sm" aria-label="Start date" />
+            <span class="text-secondary">to</span>
+            <input type="date" id="dateEnd" class="form-control form-control-sm" aria-label="End date" />
+            <div class="btn-group btn-group-sm">
+              <button class="btn btn-outline-primary" data-range="7">7D</button>
+              <button class="btn btn-outline-primary" data-range="30">30D</button>
+              <button class="btn btn-outline-primary" data-range="90">90D</button>
+            </div>
+            <button id="applyRange" class="btn btn-primary btn-sm">
+              <i class="bi bi-funnel me-1"></i>Apply
+            </button>
+          </div>
+          <!-- Search -->
+          <div class="input-group input-group-sm" style="width: 240px;">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <input type="search" id="searchInput" class="form-control" placeholder="Search…" aria-label="Search"/>
+          </div>
+          <!-- Profile -->
+          <div class="dropdown">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+              <i class="bi bi-person-circle me-1"></i> Profile
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li class="dropdown-item disabled small">Signed in as<br><strong>Khan Roy Jamshaid</strong></li>
+              <li><hr class="dropdown-divider" /></li>
+              <li><a class="dropdown-item" href="#"><i class="bi bi-gear me-2"></i>Preferences</a></li>
+              <li><a class="dropdown-item" href="#"><i class="bi bi-box-arrow-right me-2"></i>Sign out</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </nav>
 
-# ─────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────
-def _validate_token(x_api_key: Optional[str], authorization: Optional[str]) -> None:
-    """Optional API token guard (if API_TOKEN is set)."""
-    if not API_TOKEN:
-        return
-    token = (x_api_key or "").strip()
-    if authorization and authorization.lower().startswith("bearer "):
-        token = authorization[7:].strip()
-    if token != API_TOKEN:
-        raise HTTPException(401, "Invalid API token")
+    <!-- Content -->
+    <div class="container-fluid py-4">
+      <!-- KPI Row -->
+      <div class="row g-3">
+        <div class="col-12 col-md-6 col-xxl-3">
+          <div class="p-3 rounded kpi-card">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <div class="text-secondary text-uppercase small fw-semibold">Total Orders</div>
+                <div class="fs-3 fw-bold" id="kpiOrders">12,840</div>
+                <span class="badge badge-soft"><i class="bi bi-arrow-up-right"></i> 5.2% WoW</span>
+              </div>
+              <i class="bi bi-bag fs-3 text-primary"></i>
+            </div>
+            <div class="small text-secondary mt-2">Last updated <span id="kpiOrdersUpdated">–</span></div>
+          </div>
+        </div>
+        <div class="col-12 col-md-6 col-xxl-3">
+          <div class="p-3 rounded kpi-card">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <div class="text-secondary text-uppercase small fw-semibold">On-Time Rate</div>
+                <div class="fs-3 fw-bold" id="kpiOnTime">96.4%</div>
+                <span class="badge badge-soft"><i class="bi bi-arrow-up-right"></i> 1.1% WoW</span>
+              </div>
+              <i class="bi bi-clock-history fs-3 text-success"></i>
+            </div>
+            <div class="small text-secondary mt-2">Last updated <span id="kpiOnTimeUpdated">–</span></div>
+          </div>
+        </div>
+        <div class="col-12 col-md-6 col-xxl-3">
+          <div class="p-3 rounded kpi-card">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <div class="text-secondary text-uppercase small fw-semibold">Backorders</div>
+                <div class="fs-3 fw-bold" id="kpiBackorders">312</div>
+                <span class="badge badge-soft"><i class="bi bi-arrow-down-right"></i> 3.8% WoW</span>
+              </div>
+              <i class="bi bi-exclamation-triangle fs-3 text-warning"></i>
+            </div>
+            <div class="small text-secondary mt-2">Last updated <span id="kpiBackordersUpdated">–</span></div>
+          </div>
+        </div>
+        <div class="col-12 col-md-6 col-xxl-3">
+          <div class="p-3 rounded kpi-card">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <div class="text-secondary text-uppercase small fw-semibold">Cost / Order</div>
+                <div class="fs-3 fw-bold" id="kpiCost">PKR 1,280</div>
+                <span class="badge badge-soft"><i class="bi bi-dash"></i> Flat</span>
+              </div>
+              <i class="bi bi-cash-coin fs-3 text-info"></i>
+            </div>
+            <div class="small text-secondary mt-2">Last updated <span id="kpiCostUpdated">–</span></div>
+          </div>
+        </div>
+      </div>
 
+      <!-- Charts Row 1 -->
+      <div class="row g-3 mt-1">
+        <div class="col-12 col-xl-8">
+          <div class="p-3 rounded chart-card h-100">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <h6 class="mb-0">Orders Trend</h6>
+              <div class="btn-group btn-group-sm" role="group" aria-label="Orders view">
+                <button class="btn btn-outline-secondary active" data-orders-view="daily">Daily</button>
+                <button class="btn btn-outline-secondary" data-orders-view="weekly">Weekly</button>
+                <button class="btn btn-outline-secondary" data-orders-view="monthly">Monthly</button>
+              </div>
+            </div>
+            <canvas id="ordersTrend" height="120" aria-label="Orders Trend" role="img"></canvas>
+          </div>
+        </div>
+        <div class="col-12 col-xl-4">
+          <div class="p-3 rounded chart-card h-100">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <h6 class="mb-0">Fulfillment Status</h6>
+              <span class="small text-secondary">Last 30 days</span>
+            </div>
+            <canvas id="fulfillmentPie" height="120" aria-label="Fulfillment Status" role="img"></canvas>
+          </div>
+        </div>
+      </div>
 
-def _parse_date(s: Optional[str]) -> Optional[datetime]:
-    """
-    Parse a date string in multiple formats:
-    - DD/MM/YYYY (per UI spec default)
-    - YYYY-MM-DD
-    - ISO 8601
-    Returns UTC-aware datetime (start of day, naive→UTC).
-    """
-    if not s:
-        return None
-    # Try DD/MM/YYYY
-    try:
-        dt = datetime.strptime(s, "%d/%m/%Y")
-        return dt.replace(tzinfo=timezone.utc)
-    except Exception:
-        pass
-    # Try YYYY-MM-DD
-    try:
-        dt = datetime.strptime(s, "%Y-%m-%d")
-        return dt.replace(tzinfo=timezone.utc)
-    except Exception:
-        pass
-    # Try ISO
-    try:
-        dt = datetime.fromisoformat(s)
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-    except Exception:
-        return None
+      <!-- Charts Row 2 -->
+      <div class="row g-3 mt-1">
+        <div class="col-12 col-xl-6">
+          <div class="p-3 rounded chart-card h-100">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <h6 class="mb-0">Top SKUs by Volume</h6>
+              <span class="small text-secondary">YTD</span>
+            </div>
+            <canvas id="topSkusBar" height="140" aria-label="Top SKUs by Volume" role="img"></canvas>
+          </div>
+        </div>
+        <div class="col-12 col-xl-6">
+          <div class="p-3 rounded chart-card h-100">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <h6 class="mb-0">Lead Time (Days) — Distribution</h6>
+              <span class="small text-secondary">Rolling 90D</span>
+            </div>
+            <canvas id="leadtimeBar" height="140" aria-label="Lead Time Distribution" role="img"></canvas>
+          </div>
+        </div>
+      </div>
 
+      <!-- Footer / Actions -->
+      <div class="d-flex align-items-center justify-content-between mt-4">
+        <div class="small text-secondary">
+          <i class="bi bi-info-circle me-1"></i>
+          Sample data shown. Connect your backend to populate live metrics.
+        </div>
+        <div class="d-flex gap-2">
+          <button id="btnExportPng" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-image me-1"></i>Export PNG
+          </button>
+          <button id="btnExportPptx" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-file-earmark-slides me-1"></i>Export PPTX
+          </button>
+          <button id="btnExportXlsx" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-file-earmark-spreadsheet me-1"></i>Export XLSX
+          </button>
+          <button id="btnGenerateReport" class="btn btn-primary btn-sm">
+            <i class="bi bi-file-text me-1"></i>Generate Report
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
 
-def _google_places_get(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    """Shared GET wrapper with consistent error handling."""
-    try:
-        resp = requests.get(url, params=params, timeout=_G_TIMEOUT)
-        resp.raise_for_status()
-        payload = resp.json()
-        status = payload.get("status")
-        # Places APIs return "OK" / "ZERO_RESULTS" / error statuses
-        if status not in ("OK", "ZERO_RESULTS") and status is not None:
-            logger.warning(f"Google Places API status: {status} | {payload.get('error_message')}")
-            raise HTTPException(502, f"Google status: {status}")
-        return payload
-    except requests.RequestException as e:
-        logger.error(f"Google Places request failed: {e}")
-        raise HTTPException(502, "External API error")
+  <!-- Scripts -->
+  <script>
+    /* Filename: dashboard.html — behavior script */
 
+    // ---------- Theme handling ----------
+    const htmlEl = document.documentElement;
+    const themeKey = 'ops_theme';
+    const themeSwitch = document.getElementById('themeSwitch');
 
-def _extract_city_from_components(components: List[Dict[str, Any]]) -> Optional[str]:
-    for comp in components or []:
-        types = comp.get("types", [])
-        if "locality" in types:
-            return comp.get("long_name")
-        if "postal_town" in types:
-            return comp.get("long_name")
-        if "administrative_area_level_2" in types:
-            return comp.get("long_name")
-    return None
-
-
-# ─────────────────────────────────────────────────────────────
-# Defaults & Companies
-# ─────────────────────────────────────────────────────────────
-@router.get("/defaults")
-def get_defaults():
-    """
-    Provide date defaults for the UI:
-    - default_start: '23/02/2026' (per spec)
-    - default_end: today (UTC)
-    - last_30_days_start: (default_end - 30 days)
-    """
-    default_start_str = _DEFAULT_START_DDMMYYYY
-    default_end = datetime.now(timezone.utc).replace(microsecond=0)
-    last_30 = (default_end - timedelta(days=30)).replace(microsecond=0)
-    return {
-        "default_start": default_start_str,
-        "default_end": default_end.date().isoformat(),
-        "last_30_days_start": last_30.date().isoformat(),
-        "server_time_utc": default_end.isoformat(),
+    function setTheme(mode) {
+      htmlEl.setAttribute('data-bs-theme', mode);
+      localStorage.setItem(themeKey, mode);
+      if (themeSwitch) themeSwitch.checked = (mode === 'dark');
+      // Update Chart.js theme dynamically
+      refreshChartsForTheme(mode);
     }
 
+    (function initTheme() {
+      const saved = localStorage.getItem(themeKey);
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const initial = saved || (prefersDark ? 'dark' : 'light');
+      setTheme(initial);
+    })();
 
-@router.get("/companies")
-def companies_list(
-    q: Optional[str] = Query(None, description="Search by name/city/address"),
-    status: Optional[str] = Query(None, description="Filter by status (e.g., active/inactive)"),
-    limit: int = Query(200, ge=1, le=1000),
-    db: Session = Depends(get_db),
-):
-    """
-    Sidebar companies list. Supports simple search and optional status filter.
-    """
-    query = db.query(Company)
-    if status:
-        query = query.filter(Company.status == status)
-    if q:
-        term = f"%{q.strip()}%"
-        query = query.filter(
-            or_(
-                Company.name.ilike(term),
-                Company.city.ilike(term),
-                Company.address.ilike(term),
-            )
-        )
-    query = query.order_by(Company.created_at.desc())
-    items = query.limit(limit).all()
+    themeSwitch?.addEventListener('change', (e) => {
+      setTheme(e.target.checked ? 'dark' : 'light');
+    });
 
-    def to_dict(c: Company) -> Dict[str, Any]:
-        return {
-            "id": c.id,
-            "name": c.name,
-            "city": c.city,
-            "status": c.status,
-            "place_id": c.place_id,
-            "created_at": c.created_at.isoformat() if c.created_at else None,
-        }
+    // ---------- Sidebar toggle (mobile) ----------
+    const sidebar = document.getElementById('sidebar');
+    const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+    const sidebarToggle = document.getElementById('sidebarToggle');
 
-    return {"items": [to_dict(c) for c in items]}
-
-
-@router.post("/companies/add")
-def companies_add(
-    name: str = Query(..., min_length=2, description="Company name as typed by user"),
-    language: Optional[str] = Query(None, description="e.g., en, ur, ar"),
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-    db: Session = Depends(get_db),
-):
-    """
-    Add a company by name only:
-    - Uses Google Places Find Place to get candidate
-    - Uses Places Details to enrich city/address/phone/website/lat/lng
-    - Saves Company; returns created row
-    """
-    _validate_token(x_api_key, authorization)
-    api_key = GOOGLE_PLACES_API_KEY or GOOGLE_MAPS_API_KEY
-    if not api_key:
-        raise HTTPException(503, "Google Places API not configured")
-
-    # 1) Find place by text
-    fp_params = {
-        "input": name,
-        "inputtype": "textquery",
-        "fields": "place_id,name,formatted_address",
-        "key": api_key,
+    function closeSidebar() {
+      sidebar?.classList.remove('show');
+      sidebarBackdrop?.classList.remove('show');
+      sidebarToggle?.setAttribute('aria-expanded', 'false');
     }
-    if language:
-        fp_params["language"] = language
-
-    fp_payload = _google_places_get(
-        "https://maps.googleapis.com/maps/api/place/findplacefromtext/json", fp_params
-    )
-    candidates = fp_payload.get("candidates") or []
-    if not candidates:
-        raise HTTPException(404, "No matching place found")
-
-    place_id = candidates[0].get("place_id")
-    display_name = candidates[0].get("name") or name
-
-    # 2) Details for enrichment
-    fields = ",".join([
-        "name", "formatted_address", "address_components", "geometry",
-        "website", "international_phone_number", "url"
-    ])
-    det_params = {"place_id": place_id, "fields": fields, "key": api_key}
-    if language:
-        det_params["language"] = language
-
-    det_payload = _google_places_get(
-        "https://maps.googleapis.com/maps/api/place/details/json", det_params
-    )
-    result = det_payload.get("result") or {}
-    loc = (result.get("geometry") or {}).get("location") or {}
-    city = _extract_city_from_components(result.get("address_components") or [])
-    address = result.get("formatted_address")
-    phone = result.get("international_phone_number")
-    website = result.get("website")
-    lat = loc.get("lat")
-    lng = loc.get("lng")
-
-    # Duplicate guard by place_id
-    existing = db.query(Company).filter(Company.place_id == place_id).first()
-    if existing:
-        return {"ok": True, "already_exists": True, "company": {
-            "id": existing.id, "name": existing.name, "city": existing.city
-        }}
-
-    row = Company(
-        name=result.get("name") or display_name,
-        place_id=place_id,
-        maps_link=result.get("url"),
-        city=city,
-        status="active",
-        logo_url=None,
-        created_at=datetime.now(timezone.utc),
-        lat=lat,
-        lng=lng,
-        email=None,
-        phone=phone,
-        address=address,
-        description=None,
-    )
-    db.add(row)
-    db.commit()
-    db.refresh(row)
-    return {"ok": True, "company": {
-        "id": row.id, "name": row.name, "city": row.city, "place_id": row.place_id
-    }}
-
-
-@router.delete("/companies/{company_id}")
-def companies_delete(
-    company_id: int = Path(..., ge=1),
-    db: Session = Depends(get_db),
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-):
-    """
-    Delete company (cascades Reviews/Replies per models.py relationships).
-    Frontend should show confirmation popup before calling this.
-    """
-    _validate_token(x_api_key, authorization)
-    c = db.query(Company).filter(Company.id == company_id).first()
-    if not c:
-        raise HTTPException(404, "Company not found")
-    db.delete(c)
-    db.commit()
-    return {"ok": True, "deleted_id": company_id}
-
-
-# (For drag & drop prioritization, add a sort_order INT column to Company and expose a reorder endpoint.)
-
-# ─────────────────────────────────────────────────────────────
-# Unified Dashboard Payload (metrics, trends, sentiments, AI insights)
-# ─────────────────────────────────────────────────────────────
-@router.get("/payload")
-def dashboard_payload(
-    company_id: int = Query(..., ge=1),
-    start: Optional[str] = Query(None, description="DD/MM/YYYY or YYYY-MM-DD"),
-    end: Optional[str] = Query(None, description="DD/MM/YYYY or YYYY-MM-DD"),
-    db: Session = Depends(get_db),
-):
-    # Use analysis.dashboard_payload (consistent math across backend)
-    return build_dashboard_payload(
-        db=db,
-        company_id=company_id,
-        start=start,
-        end=end,
-        top_keywords_n=20,
-        alerts_window_days=14,
-        revenue_months_back=6,
-    )
-
-
-# ─────────────────────────────────────────────────────────────
-# Reviews Table (search/sort/pagination) + CSV Export
-# ─────────────────────────────────────────────────────────────
-@router.get("/reviews")
-def dashboard_reviews(
-    company_id: int = Query(..., ge=1),
-    page: int = Query(1, ge=1),
-    limit: int = Query(25, ge=1, le=200),
-    search: Optional[str] = Query(None, min_length=1),
-    sort: Literal["review_date", "rating"] = Query("review_date"),
-    order: Literal["asc", "desc"] = Query("desc"),
-    start: Optional[str] = Query(None),
-    end: Optional[str] = Query(None),
-    db: Session = Depends(get_db),
-):
-    """
-    Returns the paginated table data with fields:
-    id, review_date, rating, text (comment), reviewer_name, sentiment_category, sentiment_score, language
-    """
-    # Use the same helper as /api/reviews/list but generalized
-    table = build_reviews_table(
-        db=db,
-        company_id=company_id,
-        page=page,
-        limit=limit,
-        search=search,
-        sort=sort,
-        order=order,
-        start=start,
-        end=end,
-    )
-    # Remap field names to match UI columns (Rating, Comment, Reviewer, Date)
-    for row in table["data"]:
-        row["comment"] = row.pop("text", None)
-        row["reviewer"] = row.pop("author", None) or row.pop("reviewer_name", None)
-    return table
-
-
-@router.get("/export")
-def dashboard_export_csv(
-    company_id: int = Query(..., ge=1),
-    start: Optional[str] = Query(None),
-    end: Optional[str] = Query(None),
-    db: Session = Depends(get_db),
-):
-    """
-    Export filtered reviews to CSV (Rating, Comment, Reviewer, Date).
-    """
-    q = db.query(Review).filter(Review.company_id == company_id)
-    start_dt = _parse_date(start)
-    end_dt = _parse_date(end)
-    if start_dt:
-        q = q.filter(Review.review_date >= start_dt)
-    if end_dt:
-        # include full end day
-        q = q.filter(Review.review_date < (end_dt + timedelta(days=1)))
-    q = q.order_by(Review.review_date.desc())
-    rows = q.all()
-
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(["Rating", "Comment", "Reviewer", "Date", "Sentiment", "Language"])
-    for r in rows:
-        writer.writerow([
-            r.rating or "",
-            r.text or "",
-            r.reviewer_name or "",
-            (r.review_date.astimezone(timezone.utc).isoformat() if r.review_date else ""),
-            r.sentiment_category or "",
-            r.language or "",
-        ])
-
-    buf.seek(0)
-    fname = f"reviews_company_{company_id}.csv"
-    return StreamingResponse(
-        iter([buf.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'}
-    )
-
-
-# ─────────────────────────────────────────────────────────────
-# Google Helpers for UI (Add company flow)
-# ─────────────────────────────────────────────────────────────
-@router.get("/google/places")
-def google_places_search(
-    q: str = Query(..., min_length=2, description="Free text (e.g., 'Pizza Hut Lahore')"),
-    limit: int = Query(5, ge=1, le=10),
-    language: Optional[str] = Query(None),
-):
-    api_key = GOOGLE_PLACES_API_KEY or GOOGLE_MAPS_API_KEY
-    if not api_key:
-        raise HTTPException(503, "Google Places API not configured")
-    params = {
-        "input": q,
-        "inputtype": "textquery",
-        "fields": "place_id,name,formatted_address",
-        "key": api_key,
+    function openSidebar() {
+      sidebar?.classList.add('show');
+      sidebarBackdrop?.classList.add('show');
+      sidebarToggle?.setAttribute('aria-expanded', 'true');
     }
-    if language:
-        params["language"] = language
-    payload = _google_places_get(
-        "https://maps.googleapis.com/maps/api/place/findplacefromtext/json", params
-    )
-    candidates = (payload.get("candidates") or [])[:limit]
-    return {
-        "ok": True,
-        "items": [
-            {
-                "place_id": c.get("place_id"),
-                "name": c.get("name"),
-                "formatted_address": c.get("formatted_address"),
+    sidebarToggle?.addEventListener('click', () => {
+      if (sidebar.classList.contains('show')) closeSidebar(); else openSidebar();
+    });
+    sidebarBackdrop?.addEventListener('click', closeSidebar);
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSidebar(); });
+
+    // ---------- Date range quick filters ----------
+    function setRangeDays(days) {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - (days - 1));
+      document.getElementById('dateStart').value = start.toISOString().slice(0,10);
+      document.getElementById('dateEnd').value = end.toISOString().slice(0,10);
+    }
+    document.querySelectorAll('[data-range]').forEach(btn => {
+      btn.addEventListener('click', () => setRangeDays(parseInt(btn.dataset.range, 10)));
+    });
+    document.getElementById('applyRange')?.addEventListener('click', () => {
+      // Hook: re-query data for chosen range and re-render charts/KPIs.
+      // integrate here with your backend or with record.py to log selections.
+      console.log('Apply range', dateStart.value, dateEnd.value);
+      updateKPIsTime();
+    });
+
+    // ---------- Sample Data (replace with live endpoints) ----------
+    const sample = {
+      labelsDaily: Array.from({length: 14}, (_, i) => {
+        const d = new Date(); d.setDate(d.getDate() - (13 - i));
+        return d.toISOString().slice(5,10);
+      }),
+      ordersDaily: [742, 681, 720, 770, 810, 845, 812, 790, 830, 862, 894, 901, 880, 920],
+      fulfillment: { fulfilled: 74, partial: 18, pending: 8 },
+      topSkus: {
+        labels: ['SKU-101', 'SKU-204', 'SKU-311', 'SKU-412', 'SKU-509', 'SKU-618', 'SKU-777'],
+        values: [1240, 1180, 980, 920, 860, 790, 720]
+      },
+      leadtimeBins: { labels: ['0-1', '2-3', '4-5', '6-7', '8-10', '11+'], values: [12, 28, 24, 18, 10, 8] }
+    };
+
+    // ---------- Charts ----------
+    let ordersChart, pieChart, barSkusChart, leadtimeChart;
+
+    function chartColors(theme) {
+      const root = getComputedStyle(document.documentElement);
+      const text = root.getPropertyValue('--bs-body-color').trim() || (theme === 'dark' ? '#e9ecef' : '#212529');
+      const grid = root.getPropertyValue('--bs-border-color').trim() || (theme === 'dark' ? '#2b3035' : '#dee2e6');
+      return { text, grid };
+    }
+
+    function buildOrdersChart(ctx, theme) {
+      const { text, grid } = chartColors(theme);
+      return new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: sample.labelsDaily,
+          datasets: [{
+            label: 'Orders',
+            data: sample.ordersDaily,
+            borderColor: getComputedStyle(document.documentElement).getPropertyValue('--bs-primary').trim() || '#0d6efd',
+            backgroundColor: 'rgba(13,110,253,.15)',
+            borderWidth: 2,
+            tension: .35,
+            fill: true,
+            pointRadius: 2.5,
+            pointHoverRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { labels: { color: text } },
+            tooltip: { mode: 'index', intersect: false }
+          },
+          interaction: { mode: 'nearest', intersect: false },
+          scales: {
+            x: {
+              ticks: { color: text },
+              grid: { color: grid }
+            },
+            y: {
+              beginAtZero: true,
+              ticks: { color: text },
+              grid: { color: grid }
             }
-            for c in candidates
-        ],
+          }
+        }
+      });
     }
 
-
-@router.get("/google/details")
-def google_place_details(
-    place_id: str = Query(..., min_length=10),
-    language: Optional[str] = Query(None),
-    include_reviews: bool = Query(False),
-):
-    api_key = GOOGLE_PLACES_API_KEY or GOOGLE_MAPS_API_KEY
-    if not api_key:
-        raise HTTPException(503, "Google Places API not configured")
-    fields = [
-        "name", "formatted_address", "formatted_phone_number", "international_phone_number",
-        "website", "address_components", "geometry", "rating", "user_ratings_total", "url"
-    ]
-    if include_reviews:
-        fields.append("reviews")
-    params = {"place_id": place_id, "fields": ",".join(fields), "key": api_key}
-    if language:
-        params["language"] = language
-    payload = _google_places_get(
-        "https://maps.googleapis.com/maps/api/place/details/json", params
-    )
-    result = payload.get("result") or {}
-    loc = (result.get("geometry") or {}).get("location") or {}
-    data: Dict[str, Any] = {
-        "name": result.get("name"),
-        "address": result.get("formatted_address"),
-        "phone": result.get("formatted_phone_number") or result.get("international_phone_number"),
-        "website": result.get("website"),
-        "city": _extract_city_from_components(result.get("address_components") or []),
-        "lat": loc.get("lat"),
-        "lng": loc.get("lng"),
-        "rating": result.get("rating"),
-        "user_ratings_total": result.get("user_ratings_total"),
-        "url": result.get("url"),
+    function buildPieChart(ctx, theme) {
+      const { text } = chartColors(theme);
+      const primary = getComputedStyle(document.documentElement).getPropertyValue('--bs-primary').trim() || '#0d6efd';
+      const success = getComputedStyle(document.documentElement).getPropertyValue('--bs-success').trim() || '#198754';
+      const warning = getComputedStyle(document.documentElement).getPropertyValue('--bs-warning').trim() || '#ffc107';
+      return new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Fulfilled', 'Partial', 'Pending'],
+          datasets: [{
+            data: [sample.fulfillment.fulfilled, sample.fulfillment.partial, sample.fulfillment.pending],
+            backgroundColor: [success, primary, warning],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          plugins: {
+            legend: { position: 'bottom', labels: { color: text } }
+          },
+          cutout: '60%'
+        }
+      });
     }
-    if include_reviews:
-        # Only a sample (max ~5) from Places Details
-        g_reviews = result.get("reviews") or []
-        items: List[Dict[str, Any]] = []
-        for r in g_reviews:
-            ts = r.get("time")
-            dt_iso = None
-            if isinstance(ts, (int, float)) and ts > 0:
-                dt_iso = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
-            items.append({
-                "author_name": r.get("author_name"),
-                "author_url": r.get("author_url"),
-                "profile_photo_url": r.get("profile_photo_url"),
-                "rating": r.get("rating"),
-                "text": r.get("text"),
-                "relative_time_description": r.get("relative_time_description"),
-                "time": ts,
-                "review_date": dt_iso,
-                "language": r.get("language"),
-            })
-        data["reviews"] = items
-    return data
 
+    function buildTopSkusChart(ctx, theme) {
+      const { text, grid } = chartColors(theme);
+      const info = getComputedStyle(document.documentElement).getPropertyValue('--bs-info').trim() || '#0dcaf0';
+      return new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: sample.topSkus.labels,
+          datasets: [{
+            label: 'Units',
+            data: sample.topSkus.values,
+            backgroundColor: info,
+            borderRadius: 6
+          }]
+        },
+        options: {
+          plugins: { legend: { labels: { color: text } } },
+          scales: {
+            x: { ticks: { color: text }, grid: { color: grid } },
+            y: { beginAtZero: true, ticks: { color: text }, grid: { color: grid } }
+          }
+        }
+      });
+    }
 
-# ─────────────────────────────────────────────────────────────
-# Startup logging – show which Google API keys are actually used
-# ─────────────────────────────────────────────────────────────
-def log_google_api_keys_at_startup():
-    maps_source = "environment" if os.getenv("GOOGLE_MAPS_API_KEY") else "fallback"
-    places_source = "environment" if os.getenv("GOOGLE_PLACES_API_KEY") else "fallback"
+    function buildLeadtimeChart(ctx, theme) {
+      const { text, grid } = chartColors(theme);
+      const danger = getComputedStyle(document.documentElement).getPropertyValue('--bs-danger').trim() || '#dc3545';
+      return new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: sample.leadtimeBins.labels,
+          datasets: [{
+            label: 'Orders',
+            data: sample.leadtimeBins.values,
+            backgroundColor: danger,
+            borderRadius: 6
+          }]
+        },
+        options: {
+          plugins: { legend: { labels: { color: text } } },
+          scales: {
+            x: { ticks: { color: text }, grid: { color: grid } },
+            y: { beginAtZero: true, ticks: { color: text }, grid: { color: grid } }
+          }
+        }
+      });
+    }
 
-    logger.info("Google API keys loaded at startup (dashboard router):")
-    logger.info(f"  GOOGLE_MAPS_API_KEY    = {GOOGLE_MAPS_API_KEY[:10]}... (source: {maps_source})")
-    logger.info(f"  GOOGLE_PLACES_API_KEY  = {GOOGLE_PLACES_API_KEY[:10]}... (source: {places_source})")
+    function destroyCharts() {
+      [ordersChart, pieChart, barSkusChart, leadtimeChart].forEach(c => { try { c?.destroy(); } catch(e) {} });
+    }
 
+    function refreshChartsForTheme(theme) {
+      // rebuild charts with updated colors
+      try {
+        destroyCharts();
+        const oCtx = document.getElementById('ordersTrend')?.getContext('2d');
+        const pCtx = document.getElementById('fulfillmentPie')?.getContext('2d');
+        const sCtx = document.getElementById('topSkusBar')?.getContext('2d');
+        const lCtx = document.getElementById('leadtimeBar')?.getContext('2d');
+        if (!window.Chart || !oCtx || !pCtx || !sCtx || !lCtx) return;
+        ordersChart = buildOrdersChart(oCtx, theme);
+        pieChart = buildPieChart(pCtx, theme);
+        barSkusChart = buildTopSkusChart(sCtx, theme);
+        leadtimeChart = buildLeadtimeChart(lCtx, theme);
+      } catch (err) {
+        console.error('Chart build failed:', err);
+      }
+    }
 
-# Execute once when the module is imported
-log_google_api_keys_at_startup()
+    // ---------- Orders view toggle ----------
+    document.querySelectorAll('[data-orders-view]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-orders-view]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        // Hook: swap dataset to weekly/monthly based on btn.dataset.ordersView
+        // For now, reuse daily labels with scaled values.
+        if (ordersChart) {
+          const mode = btn.dataset.ordersView;
+          if (mode === 'weekly') {
+            ordersChart.data.labels = ['W-1','W-2','W-3','W-4','W-5','W-6','W-7','W-8'];
+            ordersChart.data.datasets[0].data = [5200, 5480, 5310, 5600, 5750, 5920, 5840, 6100];
+          } else if (mode === 'monthly') {
+            ordersChart.data.labels = ['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb'];
+            ordersChart.data.datasets[0].data = [21800, 22400, 23150, 24200, 25600, 26400, 27150, 27900];
+          } else {
+            ordersChart.data.labels = sample.labelsDaily;
+            ordersChart.data.datasets[0].data = sample.ordersDaily;
+          }
+          ordersChart.update();
+        }
+      });
+    });
+
+    // ---------- KPI timestamps ----------
+    function updateKPIsTime() {
+      const now = new Date().toLocaleString();
+      ['kpiOrdersUpdated','kpiOnTimeUpdated','kpiBackordersUpdated','kpiCostUpdated'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = now;
+      });
+    }
+    updateKPIsTime();
+
+    // ---------- Export / Report Hooks ----------
+    document.getElementById('btnExportPng')?.addEventListener('click', async () => {
+      // Hook with record.py to export PNG snapshots of charts & KPIs
+      console.log('Export PNG clicked');
+      try {
+        // Example client-side export for a single canvas:
+        const canvas = document.getElementById('ordersTrend');
+        const url = canvas.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `orders_trend_${new Date().toISOString().slice(0,10)}.png`;
+        a.click();
+      } catch (e) {
+        console.error(e);
+      }
+    });
+
+    document.getElementById('btnExportPptx')?.addEventListener('click', () => {
+      // Integrate with record.py or backend endpoint to produce PPTX
+      // POST selected charts/images and metadata, then download file.
+      console.log('Export PPTX requested');
+      alert('PPTX export is wired for backend integration. (record.py)');
+    });
+
+    document.getElementById('btnExportXlsx')?.addEventListener('click', () => {
+      // Integrate with record.py to generate synthesized Excel from current view
+      console.log('Export XLSX requested');
+      alert('XLSX export is wired for backend integration. (record.py)');
+    });
+
+    document.getElementById('btnGenerateReport')?.addEventListener('click', () => {
+      // Hook with report.py and grader.py to compile an analytical PDF/PPTX
+      console.log('Generate Report requested');
+      alert('Report generation is wired for backend integration. (report.py / grader.py)');
+    });
+
+    // ---------- Resiliency: if Chart.js is not available ----------
+    window.addEventListener('load', () => {
+      const currentTheme = document.documentElement.getAttribute('data-bs-theme') || 'light';
+      if (window.Chart) {
+        refreshChartsForTheme(currentTheme);
+      } else {
+        console.warn('Chart.js failed to load. Showing placeholders.');
+        document.querySelectorAll('canvas').forEach(c => {
+          const holder = document.createElement('div');
+          holder.className = 'd-flex align-items-center justify-content-center text-secondary-emphasis';
+          holder.style.height = (c.getAttribute('height') || 160) + 'px';
+          holder.innerHTML = '<div class="text-center small">Chart unavailable</div>';
+          c.replaceWith(holder);
+        });
+      }
+    });
+
+    // ---------- Simple search (client-side filter demo) ----------
+    const searchInput = document.getElementById('searchInput');
+    searchInput?.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase();
+      document.querySelectorAll('.kpi-card').forEach(card => {
+        const text = card.innerText.toLowerCase();
+        card.style.display = text.includes(q) ? '' : 'none';
+      });
+    });
+  </script>
+
+  <!-- Bootstrap JS -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+    crossorigin="anonymous"
+  ></script>
+</body>
+</html>
