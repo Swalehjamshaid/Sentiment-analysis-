@@ -1,12 +1,15 @@
 # FILE: app/routes/companies.py
-
 from __future__ import annotations
+
 import os
 import logging
 from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timezone
 
 import requests
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, Path, status
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -57,6 +60,35 @@ ALLOWED_SORT_FIELDS = {
 }
 
 # ─────────────────────────────────────────────────────────────
+# Resilient HTTP Session (Retries, Backoff)
+# ─────────────────────────────────────────────────────────────
+_google_sess: Optional[requests.Session] = None
+
+
+def _google_session() -> requests.Session:
+    """
+    Shared Requests session with retry policy for transient Google API errors.
+    Retries on 429 and common 5xx with exponential backoff.
+    """
+    global _google_sess
+    if _google_sess is not None:
+        return _google_sess
+
+    sess = requests.Session()
+    retry = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET", "POST"]),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=50)
+    sess.mount("https://", adapter)
+    sess.mount("http://", adapter)
+    _google_sess = sess
+    return _google_sess
+
+# ─────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────
 def _validate_token(x_api_key: Optional[str], authorization: Optional[str]) -> None:
@@ -96,6 +128,30 @@ def _sentiment_from_rating(r: Optional[float]) -> str:
     return "Positive" if r >= 4 else "Negative"
 
 
+def _google_get(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    GET wrapper using the shared session with consistent error handling.
+    Accepts 'OK' and 'ZERO_RESULTS' as non-exception; raises for other statuses.
+    """
+    try:
+        sess = _google_session()
+        resp = sess.get(url, params=params, timeout=_G_TIMEOUT)
+        resp.raise_for_status()
+        payload = resp.json()
+        status_text = payload.get("status")
+        if status_text not in ("OK", "ZERO_RESULTS"):
+            logger.warning(
+                f"Google API status={status_text} url={url} err={payload.get('error_message')}"
+            )
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                f"Google API status: {status_text or 'UNKNOWN'}",
+            )
+        return payload
+    except requests.RequestException as e:
+        logger.error(f"Google API request failed: {e}")
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "External API error")
+
 # ─────────────────────────────────────────────────────────────
 # Google Places API Wrappers
 # ─────────────────────────────────────────────────────────────
@@ -104,19 +160,20 @@ def _google_place_details(
     language: Optional[str] = None,
     include_reviews: bool = False,
 ) -> Dict[str, Any]:
-    """Fetch Place Details from Google."""
+    """Fetch Place Details from Google Places Details API."""
     api_key = GOOGLE_PLACES_API_KEY or GOOGLE_MAPS_API_KEY
     if not api_key:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google Places API not configured")
-    
+
     url = "https://maps.googleapis.com/maps/api/place/details/json"
     fields = [
         "name", "formatted_address", "address_components", "geometry",
         "website", "international_phone_number", "rating", "user_ratings_total", "url"
     ]
     if include_reviews:
+        # Google returns at most 5 samples via Details API
         fields.append("reviews")
-        
+
     params = {
         "place_id": place_id,
         "fields": ",".join(fields),
@@ -125,48 +182,38 @@ def _google_place_details(
     if language:
         params["language"] = language
 
-    try:
-        resp = requests.get(url, params=params, timeout=_G_TIMEOUT)
-        resp.raise_for_status()
-        payload = resp.json()
-        status_text = payload.get("status")
-        if status_text == "ZERO_RESULTS":
-            return {}
-        if status_text != "OK":
-            logger.warning(f"Places Details status={status_text} error={payload.get('error_message')}")
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Google Places status: {status_text}")
-        return payload.get("result", {}) or {}
-    except requests.RequestException as e:
-        logger.error(f"Google Places request failed: {e}")
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Google Places request failed")
+    payload = _google_get(url, params)
+    return payload.get("result", {}) or {}
 
 
-def _google_places_autocomplete(q: str, language: Optional[str] = None) -> List[Dict[str, str]]:
-    """Fetch Autocomplete predictions from Google."""
+def _google_places_autocomplete(
+    q: str,
+    language: Optional[str] = None,
+    sessiontoken: Optional[str] = None,
+    types: Optional[str] = "establishment",
+) -> List[Dict[str, str]]:
+    """Fetch Autocomplete predictions from Google Places API."""
     api_key = GOOGLE_PLACES_API_KEY or GOOGLE_MAPS_API_KEY
     if not api_key:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google Places API not configured")
-        
+
     url = "https://maps.googleapis.com/maps/api/place/autocomplete/json"
-    params: Dict[str, Any] = {"input": q, "types": "establishment", "key": api_key}
+    params: Dict[str, Any] = {
+        "input": q,
+        "key": api_key,
+    }
     if language:
         params["language"] = language
+    if sessiontoken:
+        params["sessiontoken"] = sessiontoken
+    if types:
+        params["types"] = types
 
-    try:
-        resp = requests.get(url, params=params, timeout=_G_TIMEOUT)
-        resp.raise_for_status()
-        payload = resp.json()
-        status_text = payload.get("status")
-        if status_text not in ("OK", "ZERO_RESULTS"):
-            logger.warning(f"Autocomplete status={status_text} error={payload.get('error_message')}")
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Google Places status: {status_text}")
-        return [
-            {"description": p.get("description"), "place_id": p.get("place_id")}
-            for p in payload.get("predictions", [])
-        ]
-    except requests.RequestException as e:
-        logger.error(f"Autocomplete failed: {e}")
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Google Autocomplete failed")
+    payload = _google_get(url, params)
+    return [
+        {"description": p.get("description"), "place_id": p.get("place_id")}
+        for p in payload.get("predictions", [])
+    ]
 
 
 def _google_place_reviews(place_id: str, language: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -174,13 +221,17 @@ def _google_place_reviews(place_id: str, language: Optional[str] = None) -> List
     result = _google_place_details(place_id, language=language, include_reviews=True)
     return result.get("reviews", []) or []
 
-
 # ─────────────────────────────────────────────────────────────
 # Google Business Profile API (informational placeholder)
 # ─────────────────────────────────────────────────────────────
 def _google_business_accounts() -> Dict[str, Any]:
+    """
+    Informational connectivity test. Real GBP access requires OAuth 2.0 user consent and tokens,
+    which cannot be substituted by an API key. This endpoint will reflect that in response.
+    """
     if not GOOGLE_BUSINESS_API_KEY:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google Business API key not configured")
+
     url = "https://mybusinessbusinessinformation.googleapis.com/v1/accounts"
     headers = {"Authorization": f"Bearer {GOOGLE_BUSINESS_API_KEY}"}
     try:
@@ -198,11 +249,9 @@ def _google_business_accounts() -> Dict[str, Any]:
         logger.warning(f"GBP call failed: {e}")
         return {"ok": False, "message": "Failed to reach Google Business Profile API", "error": str(e)}
 
-
 # ─────────────────────────────────────────────────────────────
 # Routes
 # ─────────────────────────────────────────────────────────────
-
 @router.get("/", response_model=List[CompanyResponse])
 def list_companies(
     search: Optional[str] = Query(None, description="Search name, city, address"),
@@ -226,11 +275,11 @@ def list_companies(
                 Company.address.ilike(term),
             )
         )
-    
+
     sort_column = ALLOWED_SORT_FIELDS.get(sort)
     if sort_column is not None:
         query = query.order_by(sort_column.asc() if order == "asc" else sort_column.desc())
-        
+
     total_offset = (page - 1) * limit
     return query.offset(total_offset).limit(limit).all()
 
@@ -243,22 +292,26 @@ def create_company(
     authorization: Optional[str] = Header(None, alias="Authorization"),
     language: Optional[str] = Query(None),
 ):
-    """Create a company. If 'place_id' is supplied, enrich with Google Places Details."""
+    """
+    Create a company.
+    If 'place_id' is supplied, enrich with Google Places Details (name, address, lat/lng, website, phone, city, maps link).
+    """
     _validate_token(x_api_key, authorization)
-    
+
     if payload.place_id:
         existing = db.query(Company).filter(Company.place_id == payload.place_id).first()
         if existing:
             raise HTTPException(status.HTTP_409_CONFLICT, "Place already registered")
-            
+
     # Initial data from payload
     name, city, address = payload.name, payload.city, payload.address
     website, phone = payload.website, payload.phone
     lat, lng = payload.lat, payload.lng
     maps_link = None
-    
+
+    # Optional enrichment from Google Places
     if payload.place_id:
-        result = _google_place_details(payload.place_id, language=language)
+        result = _google_place_details(payload.place_id, language=language, include_reviews=False)
         name = result.get("name", name)
         address = result.get("formatted_address", address)
         website = result.get("website", website)
@@ -268,7 +321,7 @@ def create_company(
         lat = loc.get("lat", lat)
         lng = loc.get("lng", lng)
         maps_link = result.get("url")
-        
+
     new_company = Company(
         name=name,
         place_id=payload.place_id,
@@ -302,7 +355,7 @@ def delete_company(
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Company not found")
-        
+
     db.delete(company)
     db.commit()
     return {"ok": True, "deleted_id": company_id}
@@ -312,9 +365,11 @@ def delete_company(
 def autocomplete_company(
     q: str = Query(..., min_length=2, description="Free-text query"),
     language: Optional[str] = Query(None),
+    sessiontoken: Optional[str] = Query(None, description="Client-side session token for billing grouping"),
+    types: Optional[str] = Query("establishment", description="Restrict results (e.g., 'establishment')"),
 ):
-    """Google Places Autocomplete for establishments."""
-    return _google_places_autocomplete(q=q, language=language)
+    """Google Places Autocomplete for establishments (sessiontoken supported)."""
+    return _google_places_autocomplete(q=q, language=language, sessiontoken=sessiontoken, types=types)
 
 
 @router.get("/{company_id}", response_model=CompanyResponse)
@@ -337,25 +392,30 @@ def sync_company_reviews(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
     authorization: Optional[str] = Header(None, alias="Authorization"),
 ):
-    """Sync latest 5 reviews from Google Place Details."""
+    """
+    Sync latest (up to 5) Google reviews for the company's Place ID (via Places Details samples).
+    NOTE: For full-scale ingestion, wire your ingestion service or GBP APIs with OAuth.
+    """
     _validate_token(x_api_key, authorization)
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Company not found")
     if not company.place_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Company has no place_id configured")
-        
+
     reviews = _google_place_reviews(company.place_id, language=language)
     created, updated = 0, 0
-    
+
     for rv in reviews:
         ext_id = f"gplace:{company.place_id}:{rv.get('author_name','unknown')}:{rv.get('time')}"
-        existing = db.query(Review).filter(Review.company_id == company_id, Review.external_id == ext_id).first()
-        
+        existing = db.query(Review).filter(
+            Review.company_id == company_id, Review.external_id == ext_id
+        ).first()
+
         rating = rv.get("rating")
         sent_label = _sentiment_from_rating(float(rating) if rating is not None else None)
         sent_score = 0.7 if sent_label == "Positive" else (-0.7 if sent_label == "Negative" else 0.0)
-        
+
         if existing:
             existing.text = rv.get("text") or None
             existing.rating = rating
@@ -383,7 +443,7 @@ def sync_company_reviews(
             )
             db.add(row)
             created += 1
-            
+
     db.commit()
     return {"ok": True, "created": created, "updated": updated, "fetched": len(reviews)}
 
@@ -437,7 +497,6 @@ def get_google_business_info(
 ):
     _validate_token(x_api_key, authorization)
     return _google_business_accounts()
-
 
 # ─────────────────────────────────────────────────────────────
 # Startup logging
