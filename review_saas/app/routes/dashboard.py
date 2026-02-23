@@ -4,19 +4,19 @@ from fastapi import APIRouter, Request, Depends, HTTPException, Query
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 import os
 
 from ..db import get_db
-from ..models import Company, Review
+from ..models import Company, Review, Reply
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 templates = Jinja2Templates(directory="app/templates")
 
 
 # ============================================================
-# 1️⃣ RENDER DASHBOARD PAGE
+# 1️⃣ RENDER DASHBOARD
 # ============================================================
 
 @router.get("/", name="dashboard")
@@ -33,21 +33,19 @@ async def get_dashboard(
         if not initial_company:
             raise HTTPException(status_code=404, detail="Company not found")
 
-    maps_js_key = os.getenv("GOOGLE_MAPS_API_KEY")
-
     return templates.TemplateResponse(
         "dashboard.html",
         {
             "request": request,
             "current_company_id": company_id or 0,
             "initial_company_name": initial_company.name if initial_company else None,
-            "google_maps_api_key": maps_js_key,
+            "google_maps_api_key": os.getenv("GOOGLE_MAPS_API_KEY"),
         }
     )
 
 
 # ============================================================
-# 2️⃣ GET ALL COMPANIES (FOR DROPDOWN)
+# 2️⃣ GET ALL COMPANIES (Dropdown)
 # ============================================================
 
 @router.get("/api/companies")
@@ -56,7 +54,7 @@ def get_companies(db: Session = Depends(get_db)):
 
 
 # ============================================================
-# 3️⃣ DASHBOARD METRICS (WITH DATE FILTER)
+# 3️⃣ DASHBOARD METRICS (DATE FILTERED)
 # ============================================================
 
 @router.get("/api/metrics")
@@ -70,9 +68,14 @@ def get_dashboard_metrics(
     query = db.query(Review).filter(Review.company_id == company_id)
 
     if start_date:
-        query = query.filter(Review.created_at >= datetime.fromisoformat(start_date))
+        query = query.filter(
+            Review.review_date >= datetime.fromisoformat(start_date)
+        )
+
     if end_date:
-        query = query.filter(Review.created_at <= datetime.fromisoformat(end_date))
+        query = query.filter(
+            Review.review_date <= datetime.fromisoformat(end_date)
+        )
 
     total_reviews = query.count()
     avg_rating = query.with_entities(func.avg(Review.rating)).scalar() or 0
@@ -83,17 +86,22 @@ def get_dashboard_metrics(
         .all()
     )
 
+    sentiment_distribution = (
+        query.with_entities(Review.sentiment_category, func.count(Review.id))
+        .group_by(Review.sentiment_category)
+        .all()
+    )
+
     return {
         "total_reviews": total_reviews,
         "average_rating": round(avg_rating, 2),
-        "rating_distribution": {
-            str(r[0]): r[1] for r in rating_distribution
-        }
+        "rating_distribution": {str(r[0]): r[1] for r in rating_distribution},
+        "sentiment_distribution": {str(s[0]): s[1] for s in sentiment_distribution},
     }
 
 
 # ============================================================
-# 4️⃣ GET REVIEWS LIST
+# 4️⃣ GET REVIEWS (For Table)
 # ============================================================
 
 @router.get("/api/reviews")
@@ -107,61 +115,64 @@ def get_reviews(
     query = db.query(Review).filter(Review.company_id == company_id)
 
     if start_date:
-        query = query.filter(Review.created_at >= datetime.fromisoformat(start_date))
+        query = query.filter(
+            Review.review_date >= datetime.fromisoformat(start_date)
+        )
+
     if end_date:
-        query = query.filter(Review.created_at <= datetime.fromisoformat(end_date))
+        query = query.filter(
+            Review.review_date <= datetime.fromisoformat(end_date)
+        )
 
-    reviews = query.order_by(Review.created_at.desc()).all()
-
-    return reviews
+    return query.order_by(Review.review_date.desc()).all()
 
 
 # ============================================================
-# 5️⃣ AI SUMMARY (ACTIONABLE INSIGHT)
+# 5️⃣ AI INSIGHTS SUMMARY
 # ============================================================
 
 @router.get("/api/insights")
 def get_ai_summary(company_id: int, db: Session = Depends(get_db)):
 
-    reviews = (
-        db.query(Review)
-        .filter(Review.company_id == company_id)
-        .all()
-    )
+    reviews = db.query(Review).filter(
+        Review.company_id == company_id
+    ).all()
 
     if not reviews:
         return {"summary": "No reviews available for analysis."}
 
-    negative_reviews = [r for r in reviews if r.rating <= 2]
+    negative = [r for r in reviews if r.rating and r.rating <= 2]
+    positive = [r for r in reviews if r.rating and r.rating >= 4]
 
     summary = f"""
-    Total Reviews: {len(reviews)}
-    Negative Reviews: {len(negative_reviews)}
-    
-    Recommendation:
-    Focus on improving customer service response time and address recurring
-    complaints found in low-rated reviews.
+    📊 Review Overview:
+    - Total Reviews: {len(reviews)}
+    - Positive Reviews: {len(positive)}
+    - Negative Reviews: {len(negative)}
+
+    🔍 Recommended Actions:
+    - Address recurring complaints in low-rated reviews.
+    - Improve customer engagement and response time.
+    - Reinforce strengths highlighted in positive feedback.
     """
 
     return {"summary": summary.strip()}
 
 
 # ============================================================
-# 6️⃣ RECENT REPLIES
+# 6️⃣ RECENT REPLIES (From Reply Table)
 # ============================================================
 
 @router.get("/api/recent-replies")
 def get_recent_replies(company_id: int, db: Session = Depends(get_db)):
 
-    reviews = (
-        db.query(Review)
-        .filter(
-            Review.company_id == company_id,
-            Review.reply_text.isnot(None)
-        )
-        .order_by(Review.reply_at.desc())
+    replies = (
+        db.query(Reply)
+        .join(Review)
+        .filter(Review.company_id == company_id)
+        .order_by(Reply.suggested_at.desc())
         .limit(10)
         .all()
     )
 
-    return reviews
+    return replies
