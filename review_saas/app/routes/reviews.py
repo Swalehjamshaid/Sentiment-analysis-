@@ -1,273 +1,3 @@
-# FILE: review_saas/app/routes/reviews.py
-from fastapi import APIRouter, HTTPException, Depends, Header, Query
-from sqlalchemy.orm import Session
-from typing import List, Dict, Any, Optional, Tuple, Set
-from datetime import datetime, timezone, timedelta
-from collections import Counter, defaultdict
-import os
-import re
-import logging
-import time
-
-# Optional Google client
-try:
-    import googlemaps
-except ImportError:
-    googlemaps = None
-
-from ..db import get_db
-from ..models import Review, Company
-
-# ─────────────────────────────────────────────────────────────
-# Logger
-# ─────────────────────────────────────────────────────────────
-logger = logging.getLogger("reviews")
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
-    logger.addHandler(handler)
-logger.setLevel(logging.INFO)
-
-router = APIRouter(prefix="/reviews", tags=["reviews"])
-
-# ─────────────────────────────────────────────────────────────
-# Config / Google Client
-# ─────────────────────────────────────────────────────────────
-def _resolve_places_api_key() -> Tuple[Optional[str], str]:
-    """
-    Prefer GOOGLE_PLACES_API_KEY; fall back to GOOGLE_MAPS_API_KEY for Places API.
-    """
-    key = os.getenv("GOOGLE_PLACES_API_KEY")
-    if key:
-        return key, "GOOGLE_PLACES_API_KEY"
-    alt = os.getenv("GOOGLE_MAPS_API_KEY")
-    if alt:
-        logger.warning("Falling back to GOOGLE_MAPS_API_KEY → Places API")
-        return alt, "GOOGLE_MAPS_API_KEY"
-    return None, "NONE"
-
-api_key, api_src = _resolve_places_api_key()
-
-gmaps: Optional["googlemaps.Client"] = None
-if api_key and googlemaps:
-    try:
-        gmaps = googlemaps.Client(key=api_key)
-        logger.info(f"Google Places client initialized using {api_src}")
-    except Exception as e:
-        logger.warning(f"Failed to initialize Google Maps client: {e}")
-
-API_TOKEN = os.getenv("API_TOKEN")
-
-# Optional summary cache (simple in-process TTL cache)
-SUMMARY_TTL_SECONDS = int(os.getenv("SUMMARY_TTL_SECONDS", "0"))  # 0 disables cache
-_summary_cache: Dict[Tuple[int, Optional[str], Optional[str]], Tuple[float, Dict[str, Any]]] = {}
-
-# ─────────────────────────────────────────────────────────────
-# NLP helpers
-# ─────────────────────────────────────────────────────────────
-_STOPWORDS = {
-    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
-    "the", "this", "is", "it", "to", "with", "was", "of", "in", "on",
-    "or", "we", "you", "our", "your", "but", "not", "they", "them",
-    "very", "really", "just", "too", "i", "me", "my", "myself"
-}
-
-ASPECT_LEXICON: Dict[str, List[str]] = {
-    "Service": ["service", "staff", "attitude", "rude", "friendly", "helpful", "manager", "waiter", "waitress"],
-    "Speed": ["wait", "slow", "delay", "queue", "time", "late", "long"],
-    "Price": ["price", "expensive", "cheap", "overpriced", "value", "cost", "rip"],
-    "Cleanliness": ["clean", "dirty", "smell", "hygiene", "filthy", "bathroom"],
-    "Quality": ["quality", "defect", "broken", "taste", "fresh", "stale", "cold", "hot"],
-    "Availability": ["stock", "availability", "sold", "item", "out", "none"],
-    "Environment": ["noise", "crowd", "parking", "space", "ambience", "loud", "temperature"],
-    "Digital": ["payment", "card", "terminal", "app", "crash", "online", "wifi", "website"],
-}
-
-ACTION_MAP: Dict[str, str] = {
-    "wait": "Optimize peak-hour staffing and queue management",
-    "service": "Launch service excellence training program",
-    "rude": "Reinforce staff code-of-conduct & soft-skills coaching",
-    "price": "Conduct pricing benchmark vs local competitors",
-    "clean": "Implement daily cleaning checklists + audits",
-    "quality": "Audit suppliers and establish QA feedback loop",
-    "stock": "Improve demand forecasting + automated restock alerts",
-    "noise": "Add acoustic improvements or quieter zones",
-    "payment": "Monitor & upgrade payment terminal reliability",
-}
-
-def classify_sentiment(rating: Optional[float]) -> str:
-    if rating is None or rating == 3:
-        return "Neutral"
-    return "Positive" if rating >= 4 else "Negative"
-
-def _normalize(text: str) -> str:
-    if not text:
-        return ""
-    return re.sub(r"[^\w\s]", " ", text.lower())
-
-def extract_keywords(text: Optional[str]) -> List[str]:
-    if not text:
-        return []
-    words = _normalize(text).split()
-    return [w for w in words if w not in _STOPWORDS and len(w) >= 3]
-
-def map_aspects(tokens: List[str]) -> List[str]:
-    found: Set[str] = set()
-    for aspect, words in ASPECT_LEXICON.items():
-        if any(w in tokens for w in words):
-            found.add(aspect)
-    return list(found)
-
-def _action_for_keyword(keyword: str) -> str:
-    k_lower = keyword.lower()
-    for k, v in ACTION_MAP.items():
-        if k in k_lower:
-            return v
-    return "Perform root-cause analysis (5-Whys) and define corrective action"
-
-# ─────────────────────────────────────────────────────────────
-# Google Place Helpers
-# ─────────────────────────────────────────────────────────────
-def _city_country_from_components(components: List[Dict]) -> Tuple[Optional[str], Optional[str]]:
-    city = country = None
-    for comp in components:
-        types = comp.get("types", [])
-        if any(t in types for t in ["locality", "postal_town", "administrative_area_level_2"]):
-            city = city or comp.get("long_name")
-        if "country" in types:
-            country = comp.get("long_name")
-    return city, country
-
-def _enrich_place_detail(place_id: str) -> Dict[str, Any]:
-    """
-    Calls Places Details API and returns a normalized attribute payload.
-    """
-    if not gmaps:
-        return {}
-    try:
-        fields = [
-            "name", "place_id", "formatted_address", "address_components",
-            "website", "international_phone_number", "rating", "user_ratings_total",
-            "geometry", "opening_hours"
-        ]
-        res = gmaps.place(place_id=place_id, fields=fields).get("result", {}) or {}
-        city, country = _city_country_from_components(res.get("address_components", []))
-        loc = (res.get("geometry") or {}).get("location") or {}
-        return {
-            "name": res.get("name"),
-            "place_id": res.get("place_id"),
-            "formatted_address": res.get("formatted_address"),
-            "city": city,
-            "country": country,
-            "website": res.get("website"),
-            "international_phone_number": res.get("international_phone_number"),
-            "rating": res.get("rating"),
-            "user_ratings_total": res.get("user_ratings_total"),
-            "location": {"lat": loc.get("lat"), "lng": loc.get("lng")} if loc else None,
-            "opening_hours": {"weekday_text": (res.get("opening_hours") or {}).get("weekday_text", [])},
-        }
-    except Exception as e:
-        logger.error(f"Google place detail failed for {place_id}: {e}")
-        return {}
-
-# ─────────────────────────────────────────────────────────────
-# Date handling
-# ─────────────────────────────────────────────────────────────
-def _parse_review_date(r: Review) -> Optional[datetime]:
-    if not r.review_date:
-        return None
-    dt = r.review_date
-    if isinstance(dt, datetime):
-        return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-    return None
-
-def _parse_date_param(val: Optional[str], as_end: bool = False) -> Optional[datetime]:
-    if not val:
-        return None
-    s = val.strip()
-    formats = [
-        "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d", "%d.%m.%Y",
-        "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"
-    ]
-    for fmt in formats:
-        try:
-            dt = datetime.strptime(s, fmt)
-            dt = dt.replace(tzinfo=timezone.utc) if not dt.tzinfo else dt.astimezone(timezone.utc)
-            if "T" not in fmt:
-                if as_end:
-                    dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
-                else:
-                    dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-            return dt
-        except ValueError:
-            continue
-    raise HTTPException(422, "Invalid date format. Use YYYY-MM-DD or similar.")
-
-# ─────────────────────────────────────────────────────────────
-# DB & Google helpers
-# ─────────────────────────────────────────────────────────────
-def _preload_existing_keys(db: Session, company_id: int, since_days: int = 90) -> set:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
-    existing = db.query(Review).filter(
-        Review.company_id == company_id,
-        Review.fetch_at >= cutoff
-    ).all()
-    return {(r.text or "", r.rating, r.review_date) for r in existing}
-
-def fetch_and_save_reviews_places(company: Company, db: Session, max_reviews: int = 60) -> int:
-    """
-    Fetches recent reviews from Google Places for a company's place_id and saves
-    new ones only (dedup by text/rating/date). Also updates company aggregates.
-    """
-    if not gmaps or not getattr(company, "place_id", None):
-        return 0
-
-    existing_keys = _preload_existing_keys(db, company.id)
-
-    try:
-        result = gmaps.place(
-            place_id=company.place_id,
-            fields=["reviews", "rating", "user_ratings_total"]
-        ).get("result", {})
-    except Exception as e:
-        logger.error(f"Google Place API error for {company.place_id}: {e}")
-        return 0
-
-    reviews_data = (result.get("reviews") or [])[:max_reviews]
-    added = 0
-    now = datetime.now(timezone.utc)
-
-    for rev in reviews_data:
-        text = rev.get("text", "")
-        rating = rev.get("rating")
-        time_unix = rev.get("time")
-        review_date = datetime.fromtimestamp(time_unix, tz=timezone.utc) if time_unix else None
-
-        key = (text, rating, review_date)
-        if key in existing_keys:
-            continue
-
-        db.add(Review(
-            company_id=company.id,
-            text=text,
-            rating=rating,
-            reviewer_name=rev.get("author_name", "Anonymous"),
-            review_date=review_date,
-            fetch_at=now
-        ))
-        added += 1
-
-    if added:
-        db.commit()
-
-    if hasattr(company, "google_rating"):
-        company.google_rating = result.get("rating")
-    if hasattr(company, "user_ratings_total"):
-        company.user_ratings_total = result.get("user_ratings_total")
-    db.commit()
-
-    return added
-
 # ─────────────────────────────────────────────────────────────
 # Core analysis logic
 # ─────────────────────────────────────────────────────────────
@@ -304,6 +34,7 @@ def _daily_buckets_range(reviews: List[Review], start: datetime, end: datetime) 
         for d, b in sorted(buckets.items())
     ]
 
+
 def get_review_summary_data(
     reviews: List[Review],
     company: Company,
@@ -311,21 +42,13 @@ def get_review_summary_data(
     end: Optional[datetime] = None,
     include_aspects: bool = True
 ) -> Dict[str, Any]:
-    """
-    Single-fetch summary for a given company and date window.
-    Includes: totals, avg rating, sentiments, monthly trend, day-wise series,
-    risk score/level, and AI recommendations derived from negative tokens.
-    """
     now = datetime.now(timezone.utc)
-    start = start or (now - timedelta(days=180))  # Default: last 6 months
+    start = start or (now - timedelta(days=180))
     end = end or now
     if end < start:
         start, end = end, start
 
-    windowed = [
-        r for r in reviews
-        if (dt := _parse_review_date(r)) and start <= dt <= end
-    ]
+    windowed = [r for r in reviews if (dt := _parse_review_date(r)) and start <= dt <= end]
 
     if not windowed:
         return {
@@ -363,12 +86,8 @@ def get_review_summary_data(
         if dt:
             trend_data[dt.strftime("%Y-%m")].append(r.rating or 0)
 
-    trend_list = [
-        {"month": m, "avg_rating": round(sum(v)/len(v), 2)}
-        for m, v in sorted(trend_data.items())
-    ]
+    trend_list = [{"month": m, "avg_rating": round(sum(v)/len(v), 2)} for m, v in sorted(trend_data.items())]
 
-    # Trend signal from monthly buckets
     trend = {"signal": "insufficient_data", "delta": 0.0}
     if len(trend_list) >= 3:
         last = trend_list[-1]["avg_rating"]
@@ -376,7 +95,7 @@ def get_review_summary_data(
         delta = round(last - first, 2)
         if len(trend_list) >= 6:
             last3 = sum(x["avg_rating"] for x in trend_list[-3:]) / 3
-            prev3 = sum(x["avg_rating"] for x in trend_list[-6:-3]) / 3 if len(trend_list) >= 6 else last3
+            prev3 = sum(x["avg_rating"] for x in trend_list[-6:-3]) / 3
             delta = round(last3 - prev3, 2)
         if delta <= -0.3:
             trend = {"signal": "declining", "delta": delta}
@@ -425,15 +144,12 @@ def get_review_summary_data(
         "payload_version": "3.3"
     }
 
+
 # ─────────────────────────────────────────────────────────────
 # Endpoints
 # ─────────────────────────────────────────────────────────────
 @router.get("/google/places")
 def google_places_search(q: str = Query(..., min_length=2), limit: int = Query(5, ge=1, le=10)):
-    """
-    Search Google Places; returns candidates enriched with city/country/website/phone/rating
-    by calling Places Details for each candidate (best-effort).
-    """
     if not gmaps:
         return {"ok": False, "reason": "Google Places client not available"}
     try:
@@ -464,104 +180,6 @@ def google_places_search(q: str = Query(..., min_length=2), limit: int = Query(5
         logger.error(f"Places search failed: {e}")
         return {"ok": False, "reason": "external_api_error"}
 
-@router.get("/company/{company_id}/google_details")
-def google_details_for_company(company_id: int, db: Session = Depends(get_db)):
-    """
-    Fetch live Google attributes for the company's place_id and (best-effort) update DB fields.
-    """
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company:
-        raise HTTPException(404, "Company not found")
-    if not gmaps or not company.place_id:
-        return {"ok": False, "reason": "missing place_id or Google client"}
-
-    detail = _enrich_place_detail(company.place_id)
-    refreshed = False
-
-    try:
-        updates = {}
-        if detail.get("rating") is not None and hasattr(company, "google_rating"):
-            updates["google_rating"] = detail["rating"]
-        if detail.get("user_ratings_total") is not None and hasattr(company, "user_ratings_total"):
-            updates["user_ratings_total"] = detail["user_ratings_total"]
-        if detail.get("website") and hasattr(company, "website"):
-            updates["website"] = detail["website"]
-        if (city := detail.get("city")) or (country := detail.get("country")):
-            loc = ", ".join(filter(None, [city, country]))
-            if loc and hasattr(company, "location"):
-                updates["location"] = loc
-
-        if updates:
-            for k, v in updates.items():
-                setattr(company, k, v)
-            db.commit()
-            refreshed = True
-    except Exception as e:
-        logger.warning(f"Company update failed: {e}")
-
-    return {"ok": True, "refreshed": refreshed, "details": detail}
-
-# ⚠️ Deprecated in favor of app/routes/companies.py POST /api/companies
-@router.post("/company")
-def add_company(
-    payload: Dict[str, Any],
-    db: Session = Depends(get_db),
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
-    authorization: Optional[str] = Header(None, alias="Authorization")
-):
-    """
-    [DEPRECATED] Create a new company by name + place_id here.
-    Prefer POST /api/companies in app/routes/companies.py.
-    Kept for backward-compatibility.
-    """
-    if API_TOKEN:
-        token = (x_api_key or "").strip() or ""
-        if authorization and authorization.lower().startswith("bearer "):
-            token = authorization[7:].strip()
-        if token != API_TOKEN:
-            raise HTTPException(401, "Invalid API token")
-
-    name = (payload.get("name") or "").strip()
-    place_id = (payload.get("place_id") or "").strip()
-    if not name or not place_id:
-        raise HTTPException(422, "name and place_id required")
-
-    if db.query(Company).filter(Company.name.ilike(name)).first():
-        raise HTTPException(409, "Company name already exists")
-    if db.query(Company).filter(Company.place_id == place_id).first():
-        raise HTTPException(409, "Place ID already registered")
-
-    company = Company(name=name, place_id=place_id)
-    if hasattr(company, "website"):
-        company.website = (payload.get("website") or "").strip() or None
-    if hasattr(company, "location"):
-        company.location = (payload.get("location") or "").strip() or None
-
-    db.add(company)
-    db.commit()
-    db.refresh(company)
-
-    if gmaps and place_id:
-        detail = _enrich_place_detail(place_id)
-        if detail:
-            updates = {}
-            if detail.get("website") and hasattr(company, "website"):
-                updates["website"] = detail["website"]
-            if detail.get("city") or detail.get("country"):
-                loc = ", ".join(filter(None, [detail.get("city"), detail.get("country")]))
-                if loc and hasattr(company, "location"):
-                    updates["location"] = loc
-            if hasattr(company, "google_rating") and detail.get("rating") is not None:
-                updates["google_rating"] = detail["rating"]
-            if hasattr(company, "user_ratings_total") and detail.get("user_ratings_total") is not None:
-                updates["user_ratings_total"] = detail["user_ratings_total"]
-
-            if updates:
-                for k, v in updates.items():
-                    setattr(company, k, v)
-                db.commit()
-
-    return {"ok": True, "company_id": company.id}
 
 @router.get("/summary/{company_id}")
 def reviews_summary(
@@ -571,17 +189,12 @@ def reviews_summary(
     include_aspects: bool = Query(True),
     db: Session = Depends(get_db)
 ):
-    """
-    Single-fetch summary for a company over a date range (?start=&end=).
-    Uses a small optional TTL cache if SUMMARY_TTL_SECONDS > 0.
-    """
-    # Cache key uses the raw query values for stability
     cache_key = (company_id, start, end if end else None)
-    now = time.time()
+    now_ts = time.time()
 
     if SUMMARY_TTL_SECONDS > 0:
         cached = _summary_cache.get(cache_key)
-        if cached and (now - cached[0] < SUMMARY_TTL_SECONDS):
+        if cached and (now_ts - cached[0] < SUMMARY_TTL_SECONDS):
             return cached[1]
 
     company = db.query(Company).filter(Company.id == company_id).first()
@@ -591,21 +204,20 @@ def reviews_summary(
     start_dt = _parse_date_param(start, as_end=False) if start else None
     end_dt = _parse_date_param(end, as_end=True) if end else None
 
-    # Filter directly in database
-    query = db.query(Review).filter(Review.company_id == company_id)
+    reviews = db.query(Review).filter(Review.company_id == company_id)
     if start_dt:
-        query = query.filter(Review.review_date >= start_dt)
+        reviews = reviews.filter(Review.review_date >= start_dt)
     if end_dt:
-        query = query.filter(Review.review_date <= end_dt)
+        reviews = reviews.filter(Review.review_date <= end_dt)
 
-    # Safety cap
-    reviews = query.order_by(Review.review_date.desc()).limit(8000).all()
-    result = get_review_summary_data(reviews, company, start_dt, end_dt, include_aspects=include_aspects)
+    reviews_list = reviews.order_by(Review.review_date.desc()).limit(8000).all()
+    result = get_review_summary_data(reviews_list, company, start_dt, end_dt, include_aspects=include_aspects)
 
     if SUMMARY_TTL_SECONDS > 0:
-        _summary_cache[cache_key] = (now, result)
+        _summary_cache[cache_key] = (now_ts, result)
 
     return result
+
 
 @router.get("/list/{company_id}")
 def list_reviews(
@@ -618,10 +230,7 @@ def list_reviews(
     end: Optional[str] = Query(None),
     order: str = Query("desc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db)
-) -> Dict[str, Any]:
-    """
-    Paginated raw review list for UI tables & AI-reply workflows.
-    """
+):
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(404, "Company not found")
@@ -640,14 +249,10 @@ def list_reviews(
     if end_dt:
         qry = qry.filter(Review.review_date <= end_dt)
 
-    if order == "asc":
-        qry = qry.order_by(Review.review_date.asc())
-    else:
-        qry = qry.order_by(Review.review_date.desc())
-
+    qry = qry.order_by(Review.review_date.asc() if order == "asc" else Review.review_date.desc())
     total = qry.count()
     items = qry.offset((page - 1) * limit).limit(limit).all()
-    # Minimal serialization (adjust to your Pydantic schema if needed)
+
     data = [
         {
             "id": r.id,
@@ -660,12 +265,9 @@ def list_reviews(
     ]
     return {"total": total, "page": page, "limit": limit, "items": data}
 
+
 @router.get("/sync/{company_id}")
-def reviews_sync(
-    company_id: int,
-    db: Session = Depends(get_db),
-    max_reviews: int = Query(60, ge=1, le=200)
-):
+def reviews_sync(company_id: int, db: Session = Depends(get_db), max_reviews: int = Query(60, ge=1, le=200)):
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(404, "Company not found")
@@ -673,12 +275,12 @@ def reviews_sync(
         return {"ok": False, "reason": "Google client unavailable"}
 
     added = fetch_and_save_reviews_places(company, db, max_reviews=max_reviews)
-    # Invalidate summary cache for this company
     if SUMMARY_TTL_SECONDS > 0:
         keys_to_drop = [k for k in _summary_cache.keys() if k[0] == company_id]
         for k in keys_to_drop:
             _summary_cache.pop(k, None)
     return {"ok": True, "added": added, "message": "Sync completed"}
+
 
 @router.get("/diagnostics")
 def reviews_diagnostics():
@@ -690,4 +292,3 @@ def reviews_diagnostics():
         "default_window_days": 180,
         "summary_cache_ttl": SUMMARY_TTL_SECONDS
     }
-``
