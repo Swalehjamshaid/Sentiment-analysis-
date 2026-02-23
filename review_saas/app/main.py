@@ -92,10 +92,7 @@ def template_context(request: Request) -> Dict[str, Any]:
     - `googleMapsKey`: available to dashboard.html for map initialization.
     - `current_user`: None (auth disabled on this UI layer).
     """
-    # Expose API base for frontend fetch() calls – stays empty for same-origin
     api_base = ""
-
-    # Provide Maps key from ENV (fallback to known value if set in container)
     google_maps_key = os.getenv(
         "GOOGLE_MAPS_API_KEY",
         "AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg",  # fallback for dev
@@ -103,12 +100,12 @@ def template_context(request: Request) -> Dict[str, Any]:
 
     return {
         "request": request,
-        "current_user": None,            # Public UI; auth routed separately
+        "current_user": None,
         "apiBase": api_base,
         "googleMapsKey": google_maps_key,
     }
 
-# Also set globals so Jinja templates can access without passing explicitly
+# Make globals available to templates
 templates.env.globals["apiBase"] = ""
 templates.env.globals["googleMapsKey"] = os.getenv(
     "GOOGLE_MAPS_API_KEY",
@@ -132,10 +129,6 @@ def login_page(context: dict = Depends(template_context)):
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard_page(context: dict = Depends(template_context)):
-    # dashboard.html uses:
-    #  - fetch('/api/reviews/summary/{company_id}')
-    #  - fetch('/api/companies', '/api/companies/datatable', etc.)
-    #  - googleMapsKey injected for map init
     return templates.TemplateResponse("dashboard.html", context)
 
 @app.get("/companies", response_class=HTMLResponse)
@@ -149,16 +142,12 @@ def report_page(context: dict = Depends(template_context)):
 # ───────────────────────────────────────────────────────────────
 # API Routers
 # ───────────────────────────────────────────────────────────────
-# NOTE:
-# - `dashboard.router` exposes /api/* endpoints used by dashboard.html
-# - `activity_router` provides POST /api/activity (telemetry)
-# - `insights_router` provides GET /api/insights (AI panel)
 app.include_router(auth.router, prefix="/auth")
 app.include_router(companies.router)     # /api/companies/*
 app.include_router(reviews.router)       # /api/reviews/*
 app.include_router(reply.router)         # /api/reply/*
 app.include_router(reports.router)       # /api/reports/*
-app.include_router(dashboard.router)     # /api/* from routes/dashboard.py
+app.include_router(dashboard.router)     # /api/dashboard/* endpoints
 app.include_router(admin.router)         # /api/admin/*
 app.include_router(maps_router)          # /api/maps/*
 
@@ -175,11 +164,10 @@ def health():
 
 @app.get("/env-diagnostics")
 def env_diagnostics():
-    # Helps verify keys are present when front-end looks empty
     return JSONResponse({
         "google_maps_key_present": bool(os.getenv("GOOGLE_MAPS_API_KEY")),
         "google_business_key_present": bool(os.getenv("GOOGLE_BUSINESS_API_KEY")),
         "google_places_key_present": bool(os.getenv("GOOGLE_PLACES_API_KEY")),
         "force_https": getattr(settings, "FORCE_HTTPS", False),
-        "static_mounted": True,
+        "static_mounted": os.path.isdir("app/static"),
     })
