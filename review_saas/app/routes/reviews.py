@@ -1,13 +1,20 @@
 # FILE: app/routes/reviews.py
-
 from __future__ import annotations
+
 import os
 import sys
+import time
 import logging
 from typing import Optional, Dict, List, Any, Tuple, Literal
 from datetime import datetime, timedelta, timezone
+
 import requests
-from fastapi import APIRouter, Depends, HTTPException, Query, Header, Path, status
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
+
+from fastapi import (
+    APIRouter, Depends, HTTPException, Query, Header, Path, status
+)
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
@@ -46,6 +53,35 @@ GOOGLE_PLACES_API_KEY: str = os.getenv(
 API_TOKEN = os.getenv("API_TOKEN")
 REVIEWS_SCAN_LIMIT = int(os.getenv("REVIEWS_SCAN_LIMIT", "8000"))
 _G_TIMEOUT: Tuple[int, int] = (5, 15)  # (connect, read) seconds
+
+# ─────────────────────────────────────────────────────────────
+# Requests Session with Retries
+# ─────────────────────────────────────────────────────────────
+_google_sess: Optional[requests.Session] = None
+
+
+def _google_session() -> requests.Session:
+    """
+    Shared requests.Session with retries for transient Google API errors.
+    Retries on 429/5xx with exponential backoff.
+    """
+    global _google_sess
+    if _google_sess is not None:
+        return _google_sess
+
+    sess = requests.Session()
+    retry = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET", "POST"]),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=50)
+    sess.mount("https://", adapter)
+    sess.mount("http://", adapter)
+    _google_sess = sess
+    return _google_sess
 
 # ─────────────────────────────────────────────────────────────
 # Helpers
@@ -97,23 +133,78 @@ def _extract_city_from_components(components: List[Dict[str, Any]]) -> Optional[
 
 
 def _google_places_get(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    """Shared GET wrapper with consistent error handling."""
+    """Shared GET wrapper with consistent error handling + retries."""
     try:
-        resp = requests.get(url, params=params, timeout=_G_TIMEOUT)
+        sess = _google_session()
+        resp = sess.get(url, params=params, timeout=_G_TIMEOUT)
         resp.raise_for_status()
         payload = resp.json()
         status_text = payload.get("status")
+        # Places/Maps APIs: treat OK and ZERO_RESULTS as non-exception
         if status_text not in ("OK", "ZERO_RESULTS"):
-            logger.warning(f"Google Places API status: {status_text}")
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Google status: {status_text}")
+            # Handle common statuses gracefully
+            logger.warning(f"Google Places API status: {status_text} | url={url}")
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                f"Google status: {status_text or 'UNKNOWN'}",
+            )
         return payload
     except requests.RequestException as e:
         logger.error(f"Google Places request failed: {e}")
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "External API error")
 
 
+def _require_places_key():
+    if not GOOGLE_PLACES_API_KEY:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Google Places API not configured"
+        )
+
 # ─────────────────────────────────────────────────────────────
-# Google Places: Find place from text
+# Google Places: Autocomplete
+# ─────────────────────────────────────────────────────────────
+@router.get("/google/autocomplete")
+def google_places_autocomplete(
+    q: str = Query(..., min_length=2, description="Partial query (e.g., 'Pizza Hu')"),
+    language: Optional[str] = Query(None, description="Language code (e.g., en, ur, ar)"),
+    sessiontoken: Optional[str] = Query(None, description="Client-side session token for billing grouping"),
+    types: Optional[str] = Query(None, description="Restrict results (e.g., 'establishment')"),
+):
+    """
+    Places Autocomplete → returns prediction list for UI typeahead.
+    """
+    _require_places_key()
+    params: Dict[str, Any] = {
+        "input": q,
+        "key": GOOGLE_PLACES_API_KEY,
+    }
+    if language:
+        params["language"] = language
+    if sessiontoken:
+        params["sessiontoken"] = sessiontoken
+    if types:
+        params["types"] = types
+
+    payload = _google_places_get(
+        "https://maps.googleapis.com/maps/api/place/autocomplete/json", params
+    )
+    preds = payload.get("predictions") or []
+    return {
+        "ok": True,
+        "items": [
+            {
+                "place_id": p.get("place_id"),
+                "description": p.get("description"),
+                "structured_formatting": p.get("structured_formatting"),
+                "types": p.get("types"),
+            }
+            for p in preds
+        ],
+    }
+
+# ─────────────────────────────────────────────────────────────
+# Google Places: Find place from text (kept for compatibility)
 # ─────────────────────────────────────────────────────────────
 @router.get("/google/places")
 def google_places_search(
@@ -121,9 +212,7 @@ def google_places_search(
     limit: int = Query(5, ge=1, le=10, description="Max candidates to return"),
     language: Optional[str] = Query(None, description="Language code (e.g., en, ur, ar)"),
 ):
-    if not GOOGLE_PLACES_API_KEY:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google Places API not configured")
-
+    _require_places_key()
     params = {
         "input": q,
         "inputtype": "textquery",
@@ -137,7 +226,6 @@ def google_places_search(
         "https://maps.googleapis.com/maps/api/place/findplacefromtext/json", params
     )
     candidates = (payload.get("candidates") or [])[:limit]
-
     return {
         "ok": True,
         "items": [
@@ -150,6 +238,72 @@ def google_places_search(
         ],
     }
 
+# ─────────────────────────────────────────────────────────────
+# Google Places: Text Search (paged via next_page_token)
+# ─────────────────────────────────────────────────────────────
+@router.get("/google/search")
+def google_places_text_search(
+    q: Optional[str] = Query(None, description="Text search query (e.g., 'pizza in Lahore')"),
+    location: Optional[str] = Query(None, description="lat,lng (e.g., '31.5204,74.3587')"),
+    radius: Optional[int] = Query(None, ge=1, le=50000, description="Search radius in meters"),
+    type: Optional[str] = Query(None, description="Place type (e.g., restaurant, hospital)"),
+    language: Optional[str] = Query(None, description="Language code"),
+    page_token: Optional[str] = Query(None, alias="next_page_token", description="Google next_page_token"),
+):
+    """
+    Google Places Text Search with optional paging.
+    Either `q` OR (`location` + `radius`) should be provided.
+    Returns results + optional `next_page_token`.
+    """
+    _require_places_key()
+
+    if not q and not (location and radius):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Provide `q` or (`location` and `radius`).")
+
+    params: Dict[str, Any] = {
+        "key": GOOGLE_PLACES_API_KEY,
+    }
+    if q:
+        params["query"] = q
+    if location:
+        params["location"] = location
+    if radius:
+        params["radius"] = radius
+    if type:
+        params["type"] = type
+    if language:
+        params["language"] = language
+    if page_token:
+        # Per Google docs, next_page_token may need a short delay before use
+        params["pagetoken"] = page_token
+        time.sleep(2.0)
+
+    payload = _google_places_get(
+        "https://maps.googleapis.com/maps/api/place/textsearch/json", params
+    )
+
+    results = payload.get("results") or []
+    next_token = payload.get("next_page_token")
+    items = []
+    for r in results:
+        loc = (r.get("geometry") or {}).get("location") or {}
+        items.append({
+            "place_id": r.get("place_id"),
+            "name": r.get("name"),
+            "formatted_address": r.get("formatted_address"),
+            "rating": r.get("rating"),
+            "user_ratings_total": r.get("user_ratings_total"),
+            "lat": loc.get("lat"),
+            "lng": loc.get("lng"),
+            "types": r.get("types"),
+            "business_status": r.get("business_status"),
+        })
+
+    return {
+        "ok": True,
+        "items": items,
+        "next_page_token": next_token,
+    }
 
 # ─────────────────────────────────────────────────────────────
 # Google Places: Place Details (with optional reviews)
@@ -160,15 +314,14 @@ def google_place_details(
     language: Optional[str] = Query(None, description="Language code (e.g., en, ur, ar)"),
     include_reviews: bool = Query(False, description="Include up to 5 sample Google reviews"),
 ):
-    if not GOOGLE_PLACES_API_KEY:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google Places API not configured")
+    _require_places_key()
 
     fields_parts = [
         "name", "formatted_address", "formatted_phone_number", "international_phone_number",
         "website", "address_components", "geometry", "rating", "user_ratings_total", "url"
     ]
     if include_reviews:
-        fields_parts.append("reviews")
+        fields_parts.append("reviews")  # limited to up to 5 samples
     fields = ",".join(fields_parts)
 
     params = {
@@ -222,7 +375,6 @@ def google_place_details(
 
     return resp
 
-
 # ─────────────────────────────────────────────────────────────
 # Dashboard Summary
 # ─────────────────────────────────────────────────────────────
@@ -247,7 +399,6 @@ def reviews_summary(
         alerts_window_days=14,
         revenue_months_back=6,
     )
-
 
 # ─────────────────────────────────────────────────────────────
 # Paginated Review List
@@ -319,9 +470,8 @@ def list_reviews(
         ],
     }
 
-
 # ─────────────────────────────────────────────────────────────
-# Import sample Google reviews
+# Import sample Google reviews (up to 5 from Place Details)
 # ─────────────────────────────────────────────────────────────
 @router.post("/google/import/{company_id}")
 def import_google_reviews(
@@ -335,14 +485,19 @@ def import_google_reviews(
     if not company:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Company not found")
 
-    if not GOOGLE_PLACES_API_KEY:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google Places API not configured")
+    _require_places_key()
 
-    params = {"place_id": place_id, "fields": "name,reviews", "key": GOOGLE_PLACES_API_KEY}
+    params = {
+        "place_id": place_id,
+        "fields": "name,reviews",
+        "key": GOOGLE_PLACES_API_KEY
+    }
     if language:
         params["language"] = language
 
-    payload = _google_places_get("https://maps.googleapis.com/maps/api/place/details/json", params)
+    payload = _google_places_get(
+        "https://maps.googleapis.com/maps/api/place/details/json", params
+    )
     result = payload.get("result") or {}
     g_reviews: List[Dict[str, Any]] = (result.get("reviews") or [])[:max_reviews]
 
@@ -360,7 +515,10 @@ def import_google_reviews(
             if exists:
                 continue
 
-        dt = datetime.fromtimestamp(ts, tz=timezone.utc) if isinstance(ts, (int, float)) and ts > 0 else None
+        dt = (
+            datetime.fromtimestamp(ts, tz=timezone.utc)
+            if isinstance(ts, (int, float)) and ts > 0 else None
+        )
 
         row = Review(
             company_id=company_id,
@@ -384,9 +542,8 @@ def import_google_reviews(
 
     return {"ok": True, "imported": added}
 
-
 # ─────────────────────────────────────────────────────────────
-# Sync Reviews
+# Sync Reviews (delegates to ingestion service)
 # ─────────────────────────────────────────────────────────────
 @router.post("/sync/{company_id}")
 def reviews_sync(
@@ -413,7 +570,6 @@ def reviews_sync(
     except (ImportError, Exception) as e:
         logger.error(f"Sync failed for company {company_id}: {e}")
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Review ingestion failed")
-
 
 # ─────────────────────────────────────────────────────────────
 # Diagnostics
