@@ -216,7 +216,7 @@ def list_reviews(
     q: Optional[str] = Query(None, min_length=2),
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
-    order: str = Query("desc", pattern="^(asc|desc)$"),  # ← pydantic v2-compatible
+    order: str = Query("desc", regex="^(asc|desc)$"),
     db: Session = Depends(get_db),
 ):
     """
