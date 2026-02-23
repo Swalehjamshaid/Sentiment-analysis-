@@ -1,17 +1,12 @@
-# FILE: app/routes/reviews.py
-
 from __future__ import annotations
-
 import os
 import logging
 from typing import Optional, Dict, List, Any, Tuple, Literal
 from datetime import datetime, timedelta, timezone
-
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, Path
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-
 from ..db import get_db
 from ..models import Company, Review
 from ..services.analysis import dashboard_payload
@@ -44,10 +39,10 @@ GOOGLE_PLACES_API_KEY: str = os.getenv(
     "GOOGLE_PLACES_API_KEY",
     "AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg",
 )
+
 API_TOKEN = os.getenv("API_TOKEN")
 REVIEWS_SCAN_LIMIT = int(os.getenv("REVIEWS_SCAN_LIMIT", "8000"))
 _G_TIMEOUT: Tuple[int, int] = (5, 15)  # (connect, read) seconds
-
 
 # ─────────────────────────────────────────────────────────────
 # Helpers
@@ -139,6 +134,7 @@ def google_places_search(
         "https://maps.googleapis.com/maps/api/place/findplacefromtext/json", params
     )
     candidates = (payload.get("candidates") or [])[:limit]
+
     return {
         "ok": True,
         "items": [
@@ -210,7 +206,6 @@ def google_place_details(
             dt_iso = None
             if isinstance(ts, (int, float)) and ts > 0:
                 dt_iso = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
-
             items.append({
                 "author_name": r.get("author_name"),
                 "author_url": r.get("author_url"),
@@ -331,7 +326,7 @@ def list_reviews(
 # ─────────────────────────────────────────────────────────────
 # Import sample Google reviews into DB (via Place Details)
 # NOTE: Place Details returns only a *sample* set of reviews.
-#       For ongoing syncs, prefer a dedicated ingestion service.
+# For ongoing syncs, prefer a dedicated ingestion service.
 # ─────────────────────────────────────────────────────────────
 @router.post("/google/import/{company_id}")
 def import_google_reviews(
@@ -436,7 +431,6 @@ def reviews_sync(
             max_reviews=min(max_reviews, REVIEWS_SCAN_LIMIT),
         )
         return {"ok": True, "added": int(added or 0)}
-
     except Exception as e:
         logger.error(f"Sync failed for company {company_id}: {e}")
         raise HTTPException(502, "Review ingestion failed")
@@ -452,5 +446,32 @@ def reviews_diagnostics():
         "google_business_key_present": bool(GOOGLE_BUSINESS_API_KEY),
         "google_places_key_present": bool(GOOGLE_PLACES_API_KEY),
         "api_token_configured": bool(API_TOKEN),
-        "reviews_scan_li# ─────────────────────────────────────────────────────────────
-# Google API startup check
+        "reviews_scan_limit": REVIEWS_SCAN_LIMIT,
+        "reviews_scan_limit_effective": min(REVIEWS_SCAN_LIMIT, 8000),
+        "environment": os.getenv("ENVIRONMENT", "development"),
+        "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# Google API startup check (runs when module is imported)
+# ─────────────────────────────────────────────────────────────
+def check_google_api_keys_at_startup():
+    missing = []
+    if not GOOGLE_MAPS_API_KEY:
+        missing.append("GOOGLE_MAPS_API_KEY")
+    if not GOOGLE_BUSINESS_API_KEY:
+        missing.append("GOOGLE_BUSINESS_API_KEY")
+    if not GOOGLE_PLACES_API_KEY:
+        missing.append("GOOGLE_PLACES_API_KEY")
+
+    if missing:
+        logger.warning(
+            f"Missing Google API keys at startup: {', '.join(missing)}. "
+            "Some endpoints will return 503."
+        )
+    else:
+        logger.info("All Google API keys are configured.")
+
+# Run the check once when the module loads
+check_google_api_keys_at_startup()
