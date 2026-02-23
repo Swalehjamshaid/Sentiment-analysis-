@@ -1,16 +1,343 @@
-@app.get("/api/dashboard/summary/{company_id}")
-def get_summary(company_id: int, start: str = None, end: str = None):
-    # If no dates, set defaults
-    if not start or not end:
-        start = "2025-01-01"
-        end = "2026-12-31"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ReviewSaaS Intelligence | Enterprise Grade</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+        
+        :root { --brand-blue: #3b82f6; --bg-dark: #0f172a; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--bg-dark); color: #f8fafc; }
 
-    # Query reviews ONLY for this range
-    reviews = db.query(Review).filter(
-        Review.company_id == company_id,
-        Review.date >= start,
-        Review.date <= end
-    ).all()
-    
-    # If len(reviews) == 0 here, your dashboard shows 0!
-    # CHECK: Does your database actually have reviews for these dates?
+        /* Glassmorphism Effect */
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 1.25rem;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .sidebar-item {
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: all 0.2s ease;
+        }
+        .sidebar-item.active {
+            background: rgba(59, 130, 246, 0.1);
+            border-color: rgba(59, 130, 246, 0.3);
+            color: white;
+        }
+
+        /* Loading Shimmer */
+        .fetching-overlay {
+            opacity: 0.5;
+            pointer-events: none;
+            filter: grayscale(0.5);
+            cursor: wait;
+        }
+
+        .sync-active { animation: spin 2s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <nav class="h-20 glass-panel rounded-none border-t-0 border-x-0 px-8 flex items-center justify-between z-50">
+        <div class="flex items-center gap-4">
+            <div class="bg-gradient-to-br from-blue-600 to-indigo-600 p-2.5 rounded-2xl shadow-lg shadow-blue-500/30">
+                <i data-lucide="shield-check" class="text-white w-6 h-6"></i>
+            </div>
+            <div>
+                <h1 class="font-extrabold text-2xl tracking-tight">Review<span class="text-blue-500">SaaS</span></h1>
+                <p class="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">Enterprise Intelligence</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2 glass-panel px-4 py-2 border-slate-700 bg-slate-900/40">
+                <div class="flex flex-col">
+                    <label class="text-[9px] font-black text-slate-500 uppercase">From</label>
+                    <input type="date" id="startDate" class="bg-transparent text-xs font-bold outline-none text-white cursor-pointer">
+                </div>
+                <div class="h-6 w-[1px] bg-slate-700 mx-2"></div>
+                <div class="flex flex-col">
+                    <label class="text-[9px] font-black text-slate-500 uppercase">To</label>
+                    <input type="date" id="endDate" class="bg-transparent text-xs font-bold outline-none text-white cursor-pointer">
+                </div>
+                <button id="rangeUpdateBtn" class="ml-4 bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-xs font-black transition-all shadow-lg shadow-blue-600/20 active:scale-95">
+                    APPLY
+                </button>
+            </div>
+            <button onclick="handleLogout()" class="p-3 text-slate-400 hover:text-white transition-colors"><i data-lucide="log-out"></i></button>
+        </div>
+    </nav>
+
+    <div class="flex flex-1 overflow-hidden">
+        <aside class="w-80 border-r border-slate-800 bg-slate-900/30 flex flex-col p-6">
+            <div class="mb-8">
+                <div class="relative group">
+                    <input type="text" id="newCompanyName" placeholder="Add Client Portfolio..." 
+                           class="w-full bg-slate-800/50 border border-slate-700 rounded-2xl py-3 px-4 text-sm outline-none focus:border-blue-500 transition-all placeholder:text-slate-600">
+                    <button onclick="ui.addNewClient()" class="absolute right-3 top-3 text-blue-500 hover:text-blue-400">
+                        <i data-lucide="plus-circle" class="w-6 h-6"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 px-2">Active Portfolios</h3>
+            <div id="clientList" class="flex-1 overflow-y-auto space-y-2 pr-2">
+                </div>
+        </aside>
+
+        <main id="mainWorkspace" class="flex-1 overflow-y-auto p-8 custom-scrollbar hidden">
+            <div class="flex justify-between items-start mb-10">
+                <div>
+                    <div class="flex items-center gap-3 mb-2">
+                        <h2 id="currentClientName" class="text-4xl font-black text-white">--</h2>
+                        <span id="riskBadge" class="px-3 py-1 rounded-full text-[10px] font-black uppercase bg-blue-500/10 text-blue-500 border border-blue-500/20">--</span>
+                    </div>
+                    <p id="currentClientCity" class="text-slate-400 font-medium flex items-center gap-1.5"><i data-lucide="map-pin" class="w-4 h-4 text-red-500"></i> --</p>
+                </div>
+                
+                <button onclick="ui.syncGoogle()" id="syncActionBtn" class="flex items-center gap-3 bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-3.5 rounded-2xl font-bold text-sm shadow-xl shadow-blue-900/20 hover:scale-[1.02] active:scale-95 transition-all">
+                    <i data-lucide="refresh-cw" id="syncIcon" class="w-5 h-5"></i> Sync Intelligence
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+                <div class="glass-panel p-6">
+                    <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Volume</p>
+                    <h4 id="statTotal" class="text-3xl font-bold mt-2">0</h4>
+                </div>
+                <div class="glass-panel p-6 border-b-2 border-emerald-500/50">
+                    <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Sentiment Index</p>
+                    <h4 id="statAvg" class="text-3xl font-bold mt-2">0.0</h4>
+                </div>
+                <div class="glass-panel p-6 border-b-2 border-red-500/50">
+                    <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Risk Factor</p>
+                    <h4 id="statRiskScore" class="text-3xl font-bold mt-2">0</h4>
+                </div>
+                <div class="glass-panel p-6 bg-blue-600/5">
+                    <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Trend Signal</p>
+                    <h4 id="statSignal" class="text-3xl font-bold mt-2">--</h4>
+                </div>
+            </div>
+
+            <div class="glass-panel p-8 mb-10 border-indigo-500/20 bg-gradient-to-br from-indigo-500/5 to-transparent">
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-400"><i data-lucide="cpu" class="w-5 h-5"></i></div>
+                    <h3 class="font-bold text-lg">AI Narrative & Recommendations</h3>
+                </div>
+                <p id="aiContent" class="text-slate-300 text-sm leading-relaxed max-w-4xl italic">
+                    Analyzing historical sentiment data to generate strategic pivots...
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
+                <div class="glass-panel p-8">
+                    <h3 class="font-bold text-slate-200 mb-8 flex items-center gap-2">Performance Velocity</h3>
+                    <canvas id="chartTrend" height="180"></canvas>
+                </div>
+                <div class="glass-panel p-8">
+                    <h3 class="font-bold text-slate-200 mb-8 flex items-center gap-2">Sentiment Resonance</h3>
+                    <div class="max-w-[280px] mx-auto"><canvas id="chartSentiment"></canvas></div>
+                </div>
+            </div>
+        </main>
+
+        <div id="blankState" class="flex-1 flex flex-col items-center justify-center text-center p-12">
+            <div class="w-32 h-32 bg-slate-800/40 rounded-[2.5rem] flex items-center justify-center mb-8 border border-slate-700/50">
+                <i data-lucide="layout-grid" class="w-12 h-12 text-slate-700"></i>
+            </div>
+            <h2 class="text-2xl font-bold text-white mb-3">Portfolio Inactive</h2>
+            <p class="text-slate-500 text-sm max-w-xs leading-relaxed">Select a company from the sidebar to initialize the AI sentiment engine.</p>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * Enterprise State Manager
+         * Optimized for Python/FastAPI backends on Railway
+         */
+        const App = {
+            clientId: null,
+            syncing: false,
+            charts: { trend: null, sent: null }
+        };
+
+        // UI Controller Object
+        const ui = {
+            async init() {
+                lucide.createIcons();
+                this.setupDates();
+                await this.loadClients();
+                
+                document.getElementById('rangeUpdateBtn').onclick = () => {
+                    if (App.clientId) this.reloadDashboard();
+                };
+            },
+
+            setupDates() {
+                const end = new Date();
+                const start = new Date();
+                start.setDate(end.getDate() - 90);
+                document.getElementById('endDate').value = end.toISOString().split('T')[0];
+                document.getElementById('startDate').value = start.toISOString().split('T')[0];
+            },
+
+            async loadClients() {
+                try {
+                    const res = await fetch('/api/dashboard/init');
+                    const data = await res.json();
+                    const list = document.getElementById('clientList');
+                    list.innerHTML = data.companies.map(c => `
+                        <div class="sidebar-item p-4 rounded-2xl flex flex-col gap-1 mb-1" id="c-${c.id}" onclick="ui.selectClient(${c.id})">
+                            <span class="text-sm font-bold truncate">${c.name}</span>
+                            <span class="text-[9px] font-black text-slate-500 uppercase tracking-wider">${c.city || 'PENDING SYNC'}</span>
+                        </div>
+                    `).join('');
+                } catch (e) { console.error("Client load failed", e); }
+            },
+
+            async selectClient(id) {
+                App.clientId = id;
+                document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
+                document.getElementById(`c-${id}`).classList.add('active');
+                
+                document.getElementById('blankState').classList.add('hidden');
+                document.getElementById('mainWorkspace').classList.remove('hidden');
+                
+                await this.reloadDashboard();
+                // Check if data is zero, if so, trigger auto-sync
+                if (document.getElementById('statTotal').innerText === '0') {
+                    this.syncGoogle();
+                }
+            },
+
+            async reloadDashboard() {
+                if (!App.clientId) return;
+                const ws = document.getElementById('mainWorkspace');
+                ws.classList.add('fetching-overlay');
+
+                const start = document.getElementById('startDate').value;
+                const end = document.getElementById('endDate').value;
+
+                try {
+                    const res = await fetch(`/api/dashboard/summary/${App.clientId}?start=${start}&end=${end}`);
+                    const data = await res.json();
+                    this.updateMetrics(data);
+                } catch (e) { console.error("Refresh failed", e); }
+                finally { ws.classList.remove('fetching-overlay'); }
+            },
+
+            updateMetrics(data) {
+                document.getElementById('currentClientName').innerText = data.company.name;
+                document.getElementById('currentClientCity').innerHTML = `<i data-lucide="map-pin" class="w-4 h-4 text-red-500"></i> ${data.company.city || 'N/A'}`;
+                document.getElementById('statTotal').innerText = data.metrics.total.toLocaleString();
+                document.getElementById('statAvg').innerText = data.metrics.avg_rating.toFixed(1);
+                document.getElementById('statRiskScore').innerText = data.metrics.risk_score;
+                document.getElementById('riskBadge').innerText = data.metrics.risk_level;
+                document.getElementById('statSignal').innerText = data.trend.signal || 'Stable';
+                
+                document.getElementById('aiContent').innerText = data.ai_recommendations?.[0]?.action || "Review velocity is standard. Maintain organic engagement to protect rating resonance.";
+                
+                this.renderCharts(data);
+                lucide.createIcons();
+            },
+
+            async syncGoogle() {
+                if (App.syncing) return;
+                App.syncing = true;
+                const btn = document.getElementById('syncActionBtn');
+                const icon = document.getElementById('syncIcon');
+                
+                icon.classList.add('sync-active');
+                btn.classList.add('opacity-70');
+
+                try {
+                    const res = await fetch(`/api/reviews/sync/${App.clientId}`, { method: 'POST' });
+                    if (res.ok) await this.reloadDashboard();
+                } finally {
+                    App.syncing = false;
+                    icon.classList.remove('sync-active');
+                    btn.classList.remove('opacity-70');
+                }
+            },
+
+            renderCharts(data) {
+                const trendCtx = document.getElementById('chartTrend').getContext('2d');
+                const sentCtx = document.getElementById('chartSentiment').getContext('2d');
+
+                if (App.charts.trend) App.charts.trend.destroy();
+                if (App.charts.sent) App.charts.sent.destroy();
+
+                App.charts.trend = new Chart(trendCtx, {
+                    type: 'line',
+                    data: {
+                        labels: data.trend.labels,
+                        datasets: [{
+                            data: data.trend.data,
+                            borderColor: '#3b82f6',
+                            backgroundColor: 'rgba(59, 130, 246, 0.05)',
+                            fill: true,
+                            tension: 0.4,
+                            borderWidth: 3,
+                            pointRadius: 2
+                        }]
+                    },
+                    options: { 
+                        plugins: { legend: { display: false } },
+                        scales: { y: { min: 0, max: 5, grid: { color: 'rgba(255,255,255,0.05)' } } } 
+                    }
+                });
+
+                App.charts.sent = new Chart(sentCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Positive', 'Neutral', 'Negative'],
+                        datasets: [{
+                            data: [data.sentiment.Positive, data.sentiment.Neutral, data.sentiment.Negative],
+                            backgroundColor: ['#10b981', '#64748b', '#ef4444'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: { 
+                        cutout: '80%', 
+                        plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', font: { weight: 'bold' } } } } 
+                    }
+                });
+            },
+
+            async addNewClient() {
+                const name = document.getElementById('newCompanyName').value.trim();
+                if (!name) return;
+                const res = await fetch('/api/dashboard/companies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                if (res.ok) {
+                    document.getElementById('newCompanyName').value = '';
+                    this.loadClients();
+                }
+            }
+        };
+
+        // Global Logout Helper
+        function handleLogout() { location.href = '/login'; }
+
+        // Start App
+        ui.init();
+    </script>
+</body>
+</html>
