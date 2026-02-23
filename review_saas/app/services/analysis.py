@@ -133,9 +133,8 @@ def sources_block(db: Session, company_id: int, start: Optional[str] = None, end
 
     # Fallback if no rows
     if not buckets:
-        # count total in date range
-        total = db.query(func.count(Review.id)).filter(Review.company_id == company_id)
-        total = _apply_date_filter(total, start, end).scalar() or 0
+        total_q = db.query(func.count(Review.id)).filter(Review.company_id == company_id)
+        total = _apply_date_filter(total_q, start, end).scalar() or 0
         return {"labels": ["unknown"], "data": [int(total)]}
 
     labels = list(buckets.keys())
