@@ -1,16 +1,40 @@
-# app/services/replies.py
+# FILE: app/services/replies.py
 from typing import List, Optional, Dict
 
-# If you later want to fetch company defaults (email/phone) from DB, you can
-# import get_db and query within a helper. Kept simple and stateless for now.
-# from ..db import get_db
+"""
+English-only reply suggester for hotel reviews.
 
-MAX_LEN = 600  # A safe cap for Google/OTA platforms; adjust per channel.
+Public API:
+    suggest(
+        review_text: str,
+        sentiment: Optional[str] = None,           # 'positive' | 'negative' | 'neutral' | None (inferred)
+        *,
+        aspects: Optional[List[str]] = None,       # e.g., ["Service","Cleanliness","Price"]
+        tone: str = "polite",                      # 'polite' | 'concise' | 'empathetic' | 'professional'
+        hotel_name: str = "Our Hotel",
+        contact: str = "support@example.com",      # email/phone/URL
+        add_invite: bool = True,
+        add_closing: bool = True,
+        max_len: int = 600
+    ) -> str
 
-_NEGATIVE_TRIGGERS = {"bad", "terrible", "awful", "worst", "poor", "dirty", "noise", "noisy", "expensive", "rude"}
-_POSITIVE_TRIGGERS = {"great", "excellent", "love", "amazing", "best", "perfect", "wonderful", "clean", "friendly"}
+Notes:
+- We never echo back the original review verbatim.
+- We avoid including PII; do not insert reviewer names.
+- Keep replies brief and respectful; clamped by max_len.
+"""
 
-# Common hotel aspects we might receive from analysis:
+MAX_LEN = 600  # A safe cap for common platforms; adjust per channel.
+
+_NEGATIVE_TRIGGERS = {
+    "bad", "terrible", "awful", "worst", "poor", "dirty", "noise", "noisy", "expensive", "rude"
+}
+_POSITIVE_TRIGGERS = {
+    "great", "excellent", "love", "amazing", "best", "perfect", "wonderful", "clean", "friendly"
+}
+
+
+# Common hotel aspects we might receive from analysis
 # e.g., ["Service","Cleanliness","Price","Environment","Quality","Speed","Digital","Availability"]
 def _select_aspect_line(aspects: List[str]) -> str:
     if not aspects:
@@ -21,7 +45,7 @@ def _select_aspect_line(aspects: List[str]) -> str:
         "Cleanliness": "cleanliness",
         "Price": "pricing and value",
         "Environment": "noise or comfort",
-        "Quality": "room/amenities quality",
+        "Quality": "room and amenities quality",
         "Speed": "check-in speed and responsiveness",
         "Digital": "Wi‑Fi and digital services",
         "Availability": "availability and stock",
@@ -55,7 +79,7 @@ def _infer_sentiment(review_text: str, sentiment_hint: Optional[str]) -> str:
 
 def _english_templates(tone: str) -> Dict[str, str]:
     """
-    Returns small template snippets for English based on tone.
+    Returns template snippets for English based on tone.
     tone ∈ {polite, concise, empathetic, professional}
     """
     base = {
@@ -91,35 +115,6 @@ def _english_templates(tone: str) -> Dict[str, str]:
     return base
 
 
-def _urdu_templates(tone: str) -> Dict[str, str]:
-    # Simple Urdu scaffolding; expand as needed.
-    base = {
-        "greet": "آپ کی رائے کا شکریہ۔",
-        "brand": "{hotel_name}",
-        "contact": "براہِ کرم {contact} پر رابطہ کریں تاکہ ہم براہِ راست مدد کر سکیں۔",
-        "commit": "ہم آپ کی رائے کو بہتر کرنے کے لیے استعمال کریں گے۔",
-        "invite": "ہم امید کرتے ہیں کہ آپ دوبارہ تشریف لائیں گے۔",
-        "apology": "آپ کے ناخوشگوار تجربے پر ہمیں افسوس ہے۔",
-        "thanks": "اچھے الفاظ کے لیے شکریہ۔",
-        "closing": "نیک تمنائیں،\n{hotel_name} ٹیم",
-    }
-    if tone == "concise":
-        base.update({
-            "greet": "رائے کا شکریہ۔",
-            "apology": "معذرت خواہ ہیں۔",
-            "closing": "شکریہ،\n{hotel_name}",
-        })
-    return base
-
-
-def _pick_lang_templates(language: str, tone: str) -> Dict[str, str]:
-    lang = (language or "en").lower()
-    if lang.startswith("ur"):
-        return _urdu_templates(tone)
-    # default English
-    return _english_templates(tone)
-
-
 def suggest(
     review_text: str,
     sentiment: Optional[str] = None,
@@ -128,31 +123,15 @@ def suggest(
     tone: str = "polite",
     hotel_name: str = "Our Hotel",
     contact: str = "support@example.com",
-    language: str = "en",
     add_invite: bool = True,
     add_closing: bool = True,
     max_len: int = MAX_LEN
 ) -> str:
     """
-    Generate a suggested owner reply for a hotel review.
-
-    Args:
-        review_text: Original review text (never echoed back verbatim).
-        sentiment: Optional 'positive' | 'negative' | 'neutral'. If omitted, inferred heuristically.
-        aspects: Optional list of aspect names, e.g., ["Service","Cleanliness","Price"].
-        tone: One of 'polite' | 'concise' | 'empathetic' | 'professional'.
-        hotel_name: Brand shown in the signature.
-        contact: Email/phone/URL for direct resolution.
-        language: 'en' (default) or 'ur' scaffolded; extend as needed.
-        add_invite: Include a welcoming line.
-        add_closing: Include closing signature.
-        max_len: Character clamp to keep the response platform-safe.
-
-    Returns:
-        str: A crafted reply, clamped to max_len.
+    Generate a suggested owner reply for a hotel review (English only).
     """
     s = _infer_sentiment(review_text, sentiment)
-    t = _pick_lang_templates(language, tone)
+    t = _english_templates(tone)
     parts: List[str] = []
 
     # Greeting or thanks
