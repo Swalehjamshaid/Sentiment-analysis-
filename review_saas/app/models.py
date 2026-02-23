@@ -41,6 +41,54 @@ class User(Base):
 
 
 # =========================================================
+# VERIFICATION TOKEN MODEL
+# =========================================================
+
+class VerificationToken(Base):
+    __tablename__ = "verification_tokens"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token = Column(String(255), nullable=False, unique=True)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="verification_tokens")
+
+
+# =========================================================
+# RESET TOKEN MODEL
+# =========================================================
+
+class ResetToken(Base):
+    __tablename__ = "reset_tokens"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token = Column(String(255), nullable=False, unique=True)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="reset_tokens")
+
+
+# =========================================================
+# LOGIN ATTEMPT MODEL
+# =========================================================
+
+class LoginAttempt(Base):
+    __tablename__ = "login_attempts"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    success = Column(Boolean, nullable=False)
+    ip_address = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="login_attempts")
+
+
+# =========================================================
 # COMPANY MODEL
 # =========================================================
 
@@ -59,11 +107,9 @@ class Company(Base):
     logo_url = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    # Location
     lat = Column(Float, nullable=True)
     lng = Column(Float, nullable=True)
 
-    # Contact
     email = Column(String(255), nullable=True)
     phone = Column(String(50), nullable=True)
     address = Column(String(512), nullable=True)
@@ -82,7 +128,7 @@ class Company(Base):
 
 
 # =========================================================
-# REVIEW MODEL (CORE FOR DASHBOARD)
+# REVIEW MODEL
 # =========================================================
 
 class Review(Base):
@@ -95,14 +141,11 @@ class Review(Base):
     text = Column(Text, nullable=True)
     rating = Column(Integer, nullable=True)
 
-    # IMPORTANT: Used for dashboard date filtering
     review_date = Column(DateTime, nullable=True)
-
     reviewer_name = Column(String(255), nullable=True)
     reviewer_avatar = Column(String(255), nullable=True)
 
-    # Sentiment for charts
-    sentiment_category = Column(String(20), nullable=True)  # positive / neutral / negative
+    sentiment_category = Column(String(20), nullable=True)
     sentiment_score = Column(Float, nullable=True)
 
     keywords = Column(String(512), nullable=True)
