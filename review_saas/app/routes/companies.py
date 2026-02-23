@@ -32,6 +32,7 @@ logger.setLevel(logging.INFO)
 # Config
 # ─────────────────────────────────────────────────────────────
 GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")
+GOOGLE_BUSINESS_API_KEY = os.getenv("GOOGLE_BUSINESS_API_KEY")
 API_TOKEN = os.getenv("API_TOKEN")
 _G_TIMEOUT: Tuple[int, int] = (5, 15)
 
@@ -54,7 +55,9 @@ def _extract_city(components: List[Dict[str, Any]]) -> Optional[str]:
             return comp.get("long_name")
     return None
 
-
+# ─────────────────────────────────────────────────────────────
+# Google Places API
+# ─────────────────────────────────────────────────────────────
 def _google_place_details(place_id: str, language: Optional[str] = None) -> Dict[str, Any]:
     if not GOOGLE_PLACES_API_KEY:
         raise HTTPException(503, "Google Places API not configured")
@@ -81,37 +84,58 @@ def _google_place_details(place_id: str, language: Optional[str] = None) -> Dict
         payload = resp.json()
 
         status = payload.get("status")
-
         if status == "ZERO_RESULTS":
             return {}
-
         if status != "OK":
             logger.warning(f"Google Places status: {status}")
             raise HTTPException(502, f"Google status: {status}")
 
         return payload.get("result", {}) or {}
-
     except requests.RequestException as e:
         logger.error(f"Google request failed: {e}")
         raise HTTPException(502, "Google Places request failed")
 
+# ─────────────────────────────────────────────────────────────
+# Google Business Profile API
+# ─────────────────────────────────────────────────────────────
+def _google_business_locations() -> Dict[str, Any]:
+    """
+    Fetch all locations from Google Business Profile API using API key.
+    Note: OAuth token flow is recommended for full features.
+    """
+    if not GOOGLE_BUSINESS_API_KEY:
+        raise HTTPException(503, "Google Business API key not configured")
 
+    url = "https://mybusinessbusinessinformation.googleapis.com/v1/accounts"
+    headers = {
+        "Authorization": f"Bearer {GOOGLE_BUSINESS_API_KEY}"
+    }
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=_G_TIMEOUT)
+        resp.raise_for_status()
+        return resp.json()
+    except requests.RequestException as e:
+        logger.error(f"Google Business API request failed: {e}")
+        raise HTTPException(502, "Google Business API request failed")
+
+# ─────────────────────────────────────────────────────────────
+# Token Validation
+# ─────────────────────────────────────────────────────────────
 def _validate_token(x_api_key: Optional[str], authorization: Optional[str]):
     if not API_TOKEN:
         return
 
     token = (x_api_key or "").strip()
-
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[7:].strip()
-
     if token != API_TOKEN:
         raise HTTPException(401, "Invalid API token")
 
+# ─────────────────────────────────────────────────────────────
+# Routes
+# ─────────────────────────────────────────────────────────────
 
-# ─────────────────────────────────────────────────────────────
-# LIST COMPANIES
-# ─────────────────────────────────────────────────────────────
 @router.get("/", response_model=List[CompanyResponse])
 def list_companies(
     search: Optional[str] = Query(None),
@@ -126,7 +150,6 @@ def list_companies(
 
     if status:
         query = query.filter(Company.status == status)
-
     if search:
         term = f"%{search.strip()}%"
         query = query.filter(
@@ -137,7 +160,6 @@ def list_companies(
             )
         )
 
-    # Safe sorting
     sort_column = ALLOWED_SORT_FIELDS.get(sort)
     if sort_column is not None:
         query = query.order_by(
@@ -145,13 +167,9 @@ def list_companies(
         )
 
     total_offset = (page - 1) * limit
-
     return query.offset(total_offset).limit(limit).all()
 
 
-# ─────────────────────────────────────────────────────────────
-# CREATE COMPANY
-# ─────────────────────────────────────────────────────────────
 @router.post("/", response_model=CompanyResponse, status_code=201)
 def create_company(
     payload: CompanyCreate,
@@ -177,14 +195,11 @@ def create_company(
 
     if payload.place_id:
         result = _google_place_details(payload.place_id, language)
-
         name = result.get("name", name)
         address = result.get("formatted_address", address)
         website = result.get("website", website)
         phone = result.get("international_phone_number", phone)
-
         city = _extract_city(result.get("address_components")) or city
-
         loc = (result.get("geometry") or {}).get("location") or {}
         lat = loc.get("lat", lat)
         lng = loc.get("lng", lng)
@@ -207,13 +222,8 @@ def create_company(
     db.add(new_company)
     db.commit()
     db.refresh(new_company)
-
     return new_company
 
-
-# ─────────────────────────────────────────────────────────────
-# AUTOCOMPLETE
-# ─────────────────────────────────────────────────────────────
 @router.get("/autocomplete")
 def autocomplete_company(
     q: str = Query(..., min_length=2),
@@ -223,13 +233,11 @@ def autocomplete_company(
         raise HTTPException(503, "Google Places API not configured")
 
     url = "https://maps.googleapis.com/maps/api/place/autocomplete/json"
-
     params = {
         "input": q,
         "types": "establishment",
         "key": GOOGLE_PLACES_API_KEY,
     }
-
     if language:
         params["language"] = language
 
@@ -250,15 +258,11 @@ def autocomplete_company(
             }
             for p in payload.get("predictions", [])
         ]
-
     except requests.RequestException as e:
         logger.error(f"Autocomplete failed: {e}")
         raise HTTPException(502, "Google Autocomplete failed")
 
 
-# ─────────────────────────────────────────────────────────────
-# GET COMPANY BY ID
-# ─────────────────────────────────────────────────────────────
 @router.get("/{company_id}", response_model=CompanyResponse)
 def get_company(
     company_id: int = Path(..., ge=1),
@@ -267,5 +271,14 @@ def get_company(
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(404, "Company not found")
-
     return company
+
+# ─────────────────────────────────────────────────────────────
+# NEW ROUTE: Google Business API
+# ─────────────────────────────────────────────────────────────
+@router.get("/google/business")
+def get_google_business_info():
+    """
+    Fetch all accounts/locations from Google Business Profile API
+    """
+    return _google_business_locations()
