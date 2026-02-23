@@ -1,19 +1,32 @@
 # FILE: review_saas/app/services/replies.py
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field, validator
-from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
-import re
+"""
+Reply assistant for hotel reviews.
 
-router = APIRouter(prefix="/api/replies", tags=["replies"])
+Features
+- generate_reply(): drafts a single owner reply from rating + text
+- batch_generate_replies(): drafts replies for a list of reviews
+- Tone presets: polite, apologetic, brief, professional
+- Simple keyword/aspect extraction (no external libs)
+- Action suggestions mapped from detected issues
+
+NOTE:
+- Safe to use server-side for pre-drafting; you can still edit before posting.
+- If you already have aspect mining in reviews.py, you can pass aspects=... to
+  generate_reply() to skip re-parsing.
+"""
+
+from typing import Dict, List, Optional, Tuple
+import re
+from collections import Counter
 
 # ─────────────────────────────────────────────────────────────
-# Lightweight NLP helpers (aligned with your reviews logic)
+# NLP helpers (lightweight; mirrors your reviews.py choices)
 # ─────────────────────────────────────────────────────────────
 _STOPWORDS = {
-    "a","an","and","are","as","at","be","by","for","from","the","this","is","it","to",
-    "with","was","of","in","on","or","we","you","our","your","but","not","they","them",
-    "very","really","just","too","i","me","my","myself"
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+    "the", "this", "is", "it", "to", "with", "was", "of", "in", "on",
+    "or", "we", "you", "our", "your", "but", "not", "they", "them",
+    "very", "really", "just", "too", "i", "me", "my", "myself"
 }
 
 ASPECT_LEXICON: Dict[str, List[str]] = {
@@ -27,158 +40,190 @@ ASPECT_LEXICON: Dict[str, List[str]] = {
     "Digital": ["payment", "card", "terminal", "app", "crash", "online", "wifi", "website"],
 }
 
-def _normalize(text: str) -> str:
-    if not text:
-        return ""
-    return re.sub(r"[^\w\s]", " ", text.lower())
-
-def extract_keywords(text: Optional[str]) -> List[str]:
-    if not text:
-        return []
-    return [w for w in _normalize(text).split() if w not in _STOPWORDS and len(w) >= 3]
-
-def map_aspects(tokens: List[str]) -> List[str]:
-    found = set()
-    for aspect, words in ASPECT_LEXICON.items():
-        if any(w in tokens for w in words):
-            found.add(aspect)
-    return sorted(found)
-
-def classify_sentiment_by_rating(rating: Optional[float]) -> str:
-    if rating is None or rating == 3:
-        return "Neutral"
-    return "Positive" if rating >= 4 else "Negative"
-
-# ─────────────────────────────────────────────────────────────
-# Tone + Language banks
-# ─────────────────────────────────────────────────────────────
-TONE_PRESETS = {
-    "polite": {
-        "style": "polite",
-        "opening_en": "Thank you for sharing your feedback.",
-        "opening_ur": "آپ کی رائے دینے کا شکریہ۔",
-    },
-    "concise": {
-        "style": "concise",
-        "opening_en": "Thanks for your review.",
-        "opening_ur": "آپ کے ریویو کا شکریہ۔",
-    },
-    "apologetic": {
-        "style": "apologetic",
-        "opening_en": "We’re sorry for the experience you had.",
-        "opening_ur": "آپ کے تجربے پر ہمیں افسوس ہے۔",
-    },
-    "appreciative": {
-        "style": "appreciative",
-        "opening_en": "We truly appreciate your positive feedback!",
-        "opening_ur": "ہم آپ کے مثبت فیڈبیک کے بہت شکر گزار ہیں!",
-    },
+ACTION_MAP: Dict[str, str] = {
+    "wait": "we are adjusting peak-hour staffing and queue management.",
+    "service": "we are reinforcing our service standards with additional training.",
+    "rude": "we’ve reminded our team about our code of conduct and are coaching on soft skills.",
+    "price": "we’re reviewing pricing versus local competitors to ensure fair value.",
+    "clean": "we’ve added extra cleaning checks and supervision.",
+    "quality": "we’re auditing suppliers and tightening our quality checks.",
+    "stock": "we’re improving demand forecasting and restocking alerts.",
+    "noise": "we’re evaluating acoustic improvements and quieter seating.",
+    "payment": "we’re monitoring devices and working with our provider to prevent terminal issues.",
 }
 
-SUPPORTED_LANGS = {"en", "ur"}
+def _normalize(text: str) -> str:
+    return re.sub(r"[^\w\s]", " ", (text or "").lower())
 
-def _opening_line(tone: str, lang: str) -> str:
-    t = TONE_PRESETS.get(tone, TONE_PRESETS["polite"])
-    key = f"opening_{lang}"
-    return t.get(key, t["opening_en"])
+def _keywords(text: str) -> List[str]:
+    words = _normalize(text).split()
+    return [w for w in words if w not in _STOPWORDS and len(w) >= 3]
 
-def _thank_you_line(sentiment: str, lang: str) -> str:
-    if lang == "ur":
-        return "ہمارے ساتھ اپنے خیالات بانٹنے کے لیے شکریہ۔" if sentiment != "Positive" else "خوشی ہے کہ آپ کا تجربہ اچھا رہا۔"
-    return "Thank you for taking the time to share your thoughts." if sentiment != "Positive" else "We’re glad you had a good experience."
+def _map_aspects_from_text(text: str) -> Tuple[List[str], List[str]]:
+    toks = _keywords(text)
+    aspects: List[str] = []
+    for aspect, vocab in ASPECT_LEXICON.items():
+        if any(w in toks for w in vocab):
+            aspects.append(aspect)
+    # pick a few prominent tokens for issue phrasing
+    common = [w for w, _ in Counter(toks).most_common(5)]
+    return aspects, common
 
-def _acknowledge_aspects(aspects: List[str], lang: str) -> str:
-    if not aspects:
-        return ""
-    if lang == "ur":
-        return f"ہم نے درج ذیل نکات نوٹ کیے ہیں: {', '.join(aspects)}۔"
-    return f"We’ve noted the following areas: {', '.join(aspects)}."
+def _action_from_tokens(tokens: List[str]) -> Optional[str]:
+    for t in tokens:
+        for k, action in ACTION_MAP.items():
+            if k in t:
+                return action
+    return None
 
-def _next_steps(aspects: List[str], sentiment: str, lang: str) -> str:
-    if sentiment == "Negative" and aspects:
-        if lang == "ur":
-            return "ہم ان نکات پر فوری نظر ثانی کریں گے اور بہتری کے اقدامات نافذ کریں گے۔"
-        return "We will review these points promptly and implement corrective actions."
-    if sentiment == "Neutral" and aspects:
-        if lang == "ur":
-            return "مزید بہتری کے لیے ہم ان نکات کو اپنی ٹیم کے ساتھ شیئر کریں گے۔"
-        return "We’ll share these notes with the team to improve further."
-    if sentiment == "Positive":
-        if lang == "ur":
-            return "آپ کے مثبت الفاظ ہماری ٹیم کا حوصلہ بڑھاتے ہیں۔"
-        return "Your positive words encourage our team."
-    return ""
+# ─────────────────────────────────────────────────────────────
+# Tone presets & templates
+# ─────────────────────────────────────────────────────────────
+TONE_PREFIX = {
+    "polite":       "Thank you for sharing this.",
+    "apologetic":   "We’re truly sorry for the inconvenience.",
+    "brief":        "Thanks for the feedback.",
+    "professional": "Thank you for your feedback.",
+}
 
-def _invite_back(lang: str) -> str:
-    return "We hope to welcome you again soon." if lang == "en" else "ہم امید کرتے ہیں کہ جلد آپ کی دوبارہ میزبانی کریں گے۔"
+TONE_SIGNOFF = {
+    "polite":       "We hope to welcome you again.",
+    "apologetic":   "We appreciate the chance to make this right.",
+    "brief":        "We’ll improve.",
+    "professional": "Regards,\nManagement Team",
+}
 
-def _signoff(company_name: Optional[str], lang: str) -> str:
-    if lang == "ur":
-        return f"— ٹیم {company_name}" if company_name else "— ٹیم"
-    return f"— Team {company_name}" if company_name else "— Team"
+POSITIVE_PHRASE = "We’re thrilled you had a good experience."
+NEUTRAL_PHRASE  = "We appreciate your balanced feedback."
+NEGATIVE_PHRASE = "We take your concerns seriously and are acting on them."
+
+def _cap(s: str, max_chars: int) -> str:
+    if max_chars and len(s) > max_chars:
+        return s[: max_chars - 1].rstrip() + "…"
+    return s
 
 # ─────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────
 def generate_reply(
-    review_text: str,
-    rating: Optional[float],
+    text: str,
+    rating: Optional[int] = None,
+    *,
     company_name: Optional[str] = None,
+    reviewer_name: Optional[str] = None,
     tone: str = "polite",
     language: str = "en",
-    max_chars: int = 800
-) -> Dict[str, Any]:
+    aspects: Optional[List[str]] = None,
+    max_chars: int = 1200
+) -> Dict[str, str]:
     """
-    Creates an owner reply draft. No external APIs used.
-    - Uses rating to set sentiment (±/0).
-    - Extracts aspects via keyword mapping.
-    - Obeys tone (polite/concise/apologetic/appreciative) and language (en/ur).
+    Create a reply draft for a single review.
+
+    Returns:
+        {
+          "subject": "...",
+          "reply": "...",
+          "aspects": ["Service", ...],
+          "action_hint": "we are ...",
+          "tone": "polite"
+        }
     """
-    lang = language if language in SUPPORTED_LANGS else "en"
-    sentiment = classify_sentiment_by_rating(rating)
-    toks = extract_keywords(review_text)
-    aspects = map_aspects(toks)
+    tone = tone if tone in TONE_PREFIX else "polite"
+    prefix = TONE_PREFIX[tone]
+    signoff = TONE_SIGNOFF[tone]
 
-    # Choose default tone by sentiment if caller passed unknown tone
-    if tone not in TONE_PRESETS:
-        tone = "apologetic" if sentiment == "Negative" else ("appreciative" if sentiment == "Positive" else "polite")
+    # Determine sentiment band from rating (consistent with reviews.py)
+    if rating is None or rating == 3:
+        band = "neutral"
+        mid = NEUTRAL_PHRASE
+    elif rating >= 4:
+        band = "positive"
+        mid = POSITIVE_PHRASE
+    else:
+        band = "negative"
+        mid = NEGATIVE_PHRASE
 
-    parts = [
-        _opening_line(tone, lang),
-        _thank_you_line(sentiment, lang),
-        _acknowledge_aspects(aspects, lang),
-        _next_steps(aspects, sentiment, lang),
-        _invite_back(lang),
-        _signoff(company_name, lang)
-    ]
+    # Extract aspects/keywords if not provided
+    if aspects is None:
+        aspects, tokens = _map_aspects_from_text(text)
+    else:
+        # Also capture tokens to find an action hint
+        _, tokens = _map_aspects_from_text(text)
 
-    # Join and trim
-    reply = " ".join(p for p in parts if p).strip()
-    if max_chars and len(reply) > max_chars:
-        reply = reply[:max_chars - 1].rstrip() + "…"
+    # Build an issue/action sentence for negative reviews
+    action_hint = None
+    if band == "negative":
+        action_hint = _action_from_tokens(tokens)
+    if not action_hint and aspects:
+        # fallback: map first aspect to a generic improvement statement
+        action_hint = {
+            "Service": "we’re reinforcing our service standards.",
+            "Speed": "we’re improving queue and service speed.",
+            "Price": "we’ll review our pricing and value offers.",
+            "Cleanliness": "we’re increasing cleaning audits.",
+            "Quality": "we’re strengthening quality checks.",
+            "Availability": "we’re improving stock availability.",
+            "Environment": "we’re improving ambience and comfort.",
+            "Digital": "we’re ensuring smoother digital payments and Wi‑Fi.",
+        }.get(aspects[0], None)
+
+    # Subject line
+    subj_company = f" for {company_name}" if company_name else ""
+    subject = f"Thanks for your review{subj_company}"
+
+    # Body assembly
+    addressed = f"Hi {reviewer_name}," if reviewer_name else "Hello,"
+    aspect_line = ""
+    if aspects:
+        aspect_line = " We’ve noted your points about " + ", ".join(aspects[:3]) + "."
+
+    action_line = f" For transparency, {action_hint}" if action_hint else ""
+
+    body = (
+        f"{addressed}\n\n"
+        f"{prefix} {mid}{aspect_line}{action_line}\n\n"
+        f"If you’d like to discuss further, please contact the duty manager at the front desk or via this profile."
+        f"\n\n{signoff}"
+    )
 
     return {
-        "reply": reply,
-        "meta": {
-            "sentiment": sentiment,
-            "tone": tone,
-            "language": lang,
-            "aspects": aspects
-        }
+        "subject": _cap(subject, 120),
+        "reply": _cap(body, max_chars),
+        "aspects": aspects or [],
+        "action_hint": action_hint or "",
+        "tone": tone,
+        "sentiment_band": band,
+        "language": language,
     }
 
 def batch_generate_replies(
-    items: List[Dict[str, Any]],
+    reviews: List[Dict[str, Optional[str]]],
+    *,
     company_name: Optional[str] = None,
     tone: str = "polite",
-    language: str = "en",
-    max_chars: int = 800
-) -> List[Dict[str, Any]]:
+    max_chars: int = 1200
+) -> List[Dict[str, str]]:
     """
-    items: [{ 'text': str, 'rating': int|float, 'id': optional }]
-    Returns list with same order; each has {id?, reply, meta}.
+    Generate replies for a list of review dicts.
+
+    Each review item should look like:
+      {
+        "id": 123,
+        "text": "some review",
+        "rating": 2,
+        "reviewer_name": "Alice"  # optional
+      }
     """
-    out: List[Dict[str, Any]] = []
-    for it in items:
-        r = generate_reply(
-            review_text=it.get("text", "") or "",
+    out: List[Dict[str, str]] = []
+    for r in reviews:
+        reply = generate_reply(
+            r.get("text") or "",
+            rating=r.get("rating"),
+            company_name=company_name,
+            reviewer_name=r.get("reviewer_name"),
+            tone=tone,
+            max_chars=max_chars
+        )
+        reply["review_id"] = r.get("id")
+        out.append(reply)
+    return out
