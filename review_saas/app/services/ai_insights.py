@@ -1,29 +1,18 @@
 # FILE: app/services/ai_insights.py
 """
-AI Insights service for review analytics.
+AI Insights service for review analytics (dashboard-ready).
 
-This module centralizes the logic to compute metrics used by the dashboard:
-- Sentiment buckets (Positive / Neutral / Negative)
-- Average rating
-- Monthly trend signal (improving / stable / declining)
-- Risk score & level
-- Aspect mining from review text using a lightweight lexicon
-- Actionable recommendations mapped from negative keywords
-- Day-wise (daily) time series
+• Computes: sentiment buckets, averages, trend signal, risk score & level,
+  aspect counts, recommendations, daily time series.
+• Pure-Python: no DB/network access; routes must supply ORM rows.
+• Aligns with models in app/models.py (Review + Company).
 
-The functions are pure-Python and accept SQLAlchemy ORM objects or any objects
-that expose the attributes used below (id, rating, text, review_date, etc.).
-They DO NOT perform database or network I/O; routes should fetch data and then
-call into this module.
-
-Usage (from a FastAPI route):
-
-    from app.services.ai_insights import analyze_reviews
-
-    result = analyze_reviews(reviews, company, start_dt, end_dt, include_aspects=True)
-    return result
-
+This version:
+- Prefers Review.sentiment_category (fallback to rating) for sentiment.
+- Infers source="google" for external_id like 'gplace:...'.
+- Normalizes datetimes to UTC.
 """
+
 from __future__ import annotations
 
 from typing import List, Dict, Any, Optional, Tuple, Iterable
@@ -33,15 +22,15 @@ from collections import Counter, defaultdict
 import re
 
 # ─────────────────────────────────────────────────────────────
-# Configuration (tweak thresholds here if needed)
+# Configuration
 # ─────────────────────────────────────────────────────────────
 TREND_DELTA_THRESHOLD = 0.3  # ≥ +0.3 improving, ≤ -0.3 declining
 RISK_DECLINING_BONUS = 15    # extra points if trend is declining
-DEFAULT_WINDOW_DAYS = 180     # used only when start/end are None
+DEFAULT_WINDOW_DAYS = 180    # used only when start/end are None
 MAX_RECOMMENDATIONS = 6
 
 # ─────────────────────────────────────────────────────────────
-# Lightweight NLP helpers (no external dependencies)
+# Lightweight NLP helpers
 # ─────────────────────────────────────────────────────────────
 _STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
@@ -74,7 +63,7 @@ ACTION_MAP: Dict[str, str] = {
 }
 
 def classify_sentiment(rating: Optional[float]) -> str:
-    """Map star rating → sentiment label.
+    """Legacy rating→sentiment mapping.
     4–5 → Positive, 3/None → Neutral, 1–2 → Negative
     """
     if rating is None or rating == 3:
@@ -106,7 +95,6 @@ def _action_for_keyword(keyword: str) -> str:
             return v
     return "Perform root-cause analysis (5-Whys) and define corrective action"
 
-
 # ─────────────────────────────────────────────────────────────
 # Data shapes
 # ─────────────────────────────────────────────────────────────
@@ -115,28 +103,48 @@ class SimpleReview:
     rating: Optional[float]
     text: Optional[str]
     review_date: Optional[datetime]
+    # Optional / dashboard-friendly extras
     source: Optional[str] = None
     title: Optional[str] = None
     author: Optional[str] = None
     url: Optional[str] = None
     sentiment_category: Optional[str] = None
     keywords: Optional[str] = None
+    reviewer_name: Optional[str] = None
+    reviewer_avatar: Optional[str] = None
+    external_id: Optional[str] = None
+    language: Optional[str] = None
 
     @classmethod
     def from_any(cls, obj: Any) -> "SimpleReview":
-        # Accept ORM objects or dict-like payloads
+        """Tolerant adapter: pulls known attributes from ORM/dict-like rows."""
         rating = getattr(obj, "rating", None)
         text = getattr(obj, "text", None)
         review_date = getattr(obj, "review_date", None)
-        source = getattr(obj, "source", None)
+
+        # Align with your Review model (reviewer_name, reviewer_avatar, external_id, language)
+        reviewer_name = getattr(obj, "reviewer_name", None)
+        reviewer_avatar = getattr(obj, "reviewer_avatar", None)
+        external_id = getattr(obj, "external_id", None)
+        language = getattr(obj, "language", None)
+
+        # Generic fields some dashboards use
         title = getattr(obj, "title", None)
-        author = getattr(obj, "author", None)
         url = getattr(obj, "url", None)
+        # `author` fallback to reviewer_name
+        author = getattr(obj, "author", None) or reviewer_name
         sentiment_category = getattr(obj, "sentiment_category", None)
         keywords = getattr(obj, "keywords", None)
+
+        # Optional source: if not present, infer from external_id prefix
+        source = getattr(obj, "source", None)
+        if not source and isinstance(external_id, str) and external_id.startswith("gplace:"):
+            source = "google"
+
+        # Normalize datetime
         if review_date and not isinstance(review_date, datetime):
-            # best effort: ignore non-datetime
             review_date = None
+
         return cls(
             rating=rating,
             text=text,
@@ -147,8 +155,11 @@ class SimpleReview:
             url=url,
             sentiment_category=sentiment_category,
             keywords=keywords,
+            reviewer_name=reviewer_name,
+            reviewer_avatar=reviewer_avatar,
+            external_id=external_id,
+            language=language,
         )
-
 
 # ─────────────────────────────────────────────────────────────
 # Core computations
@@ -157,6 +168,17 @@ def _parse_review_date(dt: Optional[datetime]) -> Optional[datetime]:
     if not dt:
         return None
     return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+def _review_sentiment(sr: SimpleReview) -> str:
+    """Prefer explicit sentiment_category; fallback to rating."""
+    cat = (sr.sentiment_category or "").strip().lower()
+    if cat:
+        if cat.startswith("pos"):
+            return "Positive"
+        if cat.startswith("neg"):
+            return "Negative"
+        return "Neutral"
+    return classify_sentiment(sr.rating)
 
 def _daily_buckets_range(reviews: List[SimpleReview], start: datetime, end: datetime) -> List[Dict[str, Any]]:
     start_day = start.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
@@ -180,9 +202,9 @@ def _daily_buckets_range(reviews: List[SimpleReview], start: datetime, end: date
         if not dt or dt < start_day or dt > end_day:
             continue
         day_str = dt.date().isoformat()
-        lbl = classify_sentiment(r.rating)
+        lbl = _review_sentiment(r)
         score = 1.0 if lbl == "Positive" else -1.0 if lbl == "Negative" else 0.0
-        buckets[day_str]["ratings"].append(r.rating or 0)
+        buckets[day_str]["ratings"].append(r.rating or 0.0)
         buckets[day_str]["scores"].append(score)
         buckets[day_str]["counts"][lbl] += 1
 
@@ -225,34 +247,17 @@ def analyze_reviews(
     end: Optional[datetime] = None,
     include_aspects: bool = True,
 ) -> Dict[str, Any]:
-    """Compute the insight payload for the dashboard.
+    """Compute the insight payload for the dashboard."""
 
-    Parameters
-    ----------
-    reviews : Iterable[Any]
-        ORM Review objects or dict-like rows with .rating, .text, .review_date
-    company : Any
-        ORM Company object (used only for name fallback)
-    start, end : datetime (optional)
-        Inclusive window; defaults to last DEFAULT_WINDOW_DAYS
-    include_aspects : bool
-        When True (default), returns aspect counts from keyword mapping
-
-    Returns
-    -------
-    Dict[str, Any]
-        JSON-serializable dictionary ready for the dashboard.
-    """
     now = datetime.now(timezone.utc)
     start = start or (now - timedelta(days=DEFAULT_WINDOW_DAYS))
     end = end or now
     if end < start:
         start, end = end, start
 
-    # Normalize incoming rows
     simplified: List[SimpleReview] = [SimpleReview.from_any(r) for r in reviews]
 
-    # Filter by window
+    # Filter window
     windowed: List[SimpleReview] = []
     for r in simplified:
         dt = _parse_review_date(r.review_date)
@@ -275,7 +280,7 @@ def analyze_reviews(
             "daily_series": [],
             "aspects": [],
             "window": {"start": start.isoformat(), "end": end.isoformat()},
-            "payload_version": "3.3",
+            "payload_version": "3.4",
         }
 
     sentiments: Dict[str, int] = {"Positive": 0, "Neutral": 0, "Negative": 0}
@@ -284,11 +289,11 @@ def analyze_reviews(
     aspect_counter: Counter = Counter()
 
     for r in windowed:
-        lbl = classify_sentiment(r.rating)
+        lbl = _review_sentiment(r)
         sentiments[lbl] += 1
         dt = _parse_review_date(r.review_date)
         if dt:
-            month_to_ratings[dt.strftime("%Y-%m")].append(r.rating or 0)
+            month_to_ratings[dt.strftime("%Y-%m")].append(r.rating or 0.0)
         if r.text:
             toks = extract_keywords(r.text)
             if lbl == "Negative":
@@ -297,7 +302,6 @@ def analyze_reviews(
                 for a in map_aspects(toks):
                     aspect_counter[a] += 1
 
-    # Trend
     trend_list, trend = _compute_trend(month_to_ratings)
 
     total = len(windowed)
@@ -305,11 +309,10 @@ def analyze_reviews(
     avg_rating = round(sum(rated) / len(rated), 2) if rated else 0.0
 
     # Risk score: share of negatives plus a penalty if trend is declining
-    neg_share = sentiments["Negative"] / total if total else 0
+    neg_share = sentiments["Negative"] / total if total else 0.0
     risk_score = round(neg_share * 100 + (RISK_DECLINING_BONUS if trend["signal"] == "declining" else 0), 1)
     risk_level = "High" if risk_score >= 45 else "Medium" if risk_score >= 20 else "Low"
 
-    # Recommendations from most frequent negative keywords
     recs = []
     seen = set()
     for kw, count in Counter(neg_keywords).most_common(MAX_RECOMMENDATIONS):
@@ -323,9 +326,7 @@ def analyze_reviews(
             "action": _action_for_keyword(kw),
         })
 
-    # Day-wise series
     daily_series = _daily_buckets_range(windowed, start, end)
-
     aspects = [{"aspect": k, "count": v} for k, v in aspect_counter.most_common()] if include_aspects else []
 
     return {
@@ -341,23 +342,17 @@ def analyze_reviews(
         "daily_series": daily_series,
         "aspects": aspects,
         "window": {"start": start.isoformat(), "end": end.isoformat()},
-        "payload_version": "3.3",
+        "payload_version": "3.4",
     }
 
-
 # ─────────────────────────────────────────────────────────────
-# NEW: Dashboard-oriented helpers (pure Python)
-# These are thin adapters around the core logic above so your routes
-# can return exactly what dashboard.html expects.
+# Dashboard-oriented helpers
 # ─────────────────────────────────────────────────────────────
-
 def metrics_payload(
     reviews: Iterable[Any],
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
 ) -> Dict[str, Any]:
-    """Return minimal metrics block: total, avg_rating, risk_score, risk_level."""
-    # Leverage the same math used in analyze_reviews for consistency
     payload = analyze_reviews(reviews, company=type("C", (), {"name": ""})(), start=start, end=end, include_aspects=False)
     return {
         "total": payload.get("total_reviews", 0),
@@ -371,7 +366,6 @@ def trend_timeseries(
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
 ) -> Dict[str, List[Any]]:
-    """Average rating by day → {labels: [...], data: [...]} for Chart.js line."""
     now = datetime.now(timezone.utc)
     start = start or (now - timedelta(days=DEFAULT_WINDOW_DAYS))
     end = end or now
@@ -386,7 +380,6 @@ def sentiment_buckets(
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
 ) -> Dict[str, int]:
-    """Return counts for lowercase keys expected by the pie chart: pos/neu/neg."""
     now = datetime.now(timezone.utc)
     start = start or (now - timedelta(days=DEFAULT_WINDOW_DAYS))
     end = end or now
@@ -396,7 +389,7 @@ def sentiment_buckets(
         dt = _parse_review_date(r.review_date)
         if not dt or not (start <= dt <= end):
             continue
-        lbl = classify_sentiment(r.rating)
+        lbl = _review_sentiment(r)
         if lbl == "Positive":
             pos += 1
         elif lbl == "Negative":
@@ -410,7 +403,6 @@ def sources_breakdown(
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
 ) -> Dict[str, List[Any]]:
-    """Aggregate reviews by `source` → {labels: [...], data: [...]}."""
     now = datetime.now(timezone.utc)
     start = start or (now - timedelta(days=DEFAULT_WINDOW_DAYS))
     end = end or now
@@ -430,7 +422,6 @@ def hour_heatmap(
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
 ) -> Dict[str, List[int]]:
-    """Histogram of review counts by hour-of-day (0..23)."""
     now = datetime.now(timezone.utc)
     start = start or (now - timedelta(days=DEFAULT_WINDOW_DAYS))
     end = end or now
@@ -448,7 +439,6 @@ def top_keywords(
     end: Optional[datetime] = None,
     top_n: int = 20,
 ) -> Dict[str, List[Any]]:
-    """Return top keywords → {labels, data}. Uses Review.keywords if available."""
     now = datetime.now(timezone.utc)
     start = start or (now - timedelta(days=DEFAULT_WINDOW_DAYS))
     end = end or now
@@ -459,7 +449,6 @@ def top_keywords(
         if not dt or not (start <= dt <= end):
             continue
         if r.keywords:
-            # Handle comma/semicolon split
             parts = [p.strip().lower() for p in str(r.keywords).replace(";", ",").split(",") if p.strip()]
             for p in parts:
                 buckets[p] += 1
@@ -476,9 +465,7 @@ def detect_alerts(
     end: Optional[datetime] = None,
     window_days: int = 14,
 ) -> Dict[str, List[Dict[str, Any]]]:
-    """Detect simple alerts: rating drop/increase and volume spike."""
     now = datetime.now(timezone.utc)
-    # Use provided window if any, else derive from available data
     simplified = sorted(
         (SimpleReview.from_any(x) for x in reviews),
         key=lambda r: _parse_review_date(r.review_date) or datetime.min.replace(tzinfo=timezone.utc),
@@ -547,7 +534,6 @@ def revenue_proxy_monthly(
     end: Optional[datetime] = None,
     months_back: int = 6,
 ) -> Dict[str, List[Any]]:
-    """Heuristic revenue proxy by month based on review count × normalized rating."""
     now = datetime.now(timezone.utc)
     start = start or (now - timedelta(days=DEFAULT_WINDOW_DAYS))
     end = end or now
@@ -577,7 +563,6 @@ def revenue_proxy_monthly(
         data = [0, 0, 0, 0, 0, 0]
 
     return {"labels": labels, "data": data}
-
 
 __all__ = [
     # existing exports
