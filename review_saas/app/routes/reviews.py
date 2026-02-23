@@ -3,63 +3,54 @@
 from __future__ import annotations
 
 import os
-import time
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, List
 from datetime import datetime, timedelta, timezone
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from ..db import get_db
 from ..models import Company, Review
-
-# Analytics bridges (DB + pure-Python helpers)
-from ..services.analysis import (
-    dashboard_payload,
-    reviews_table,
-)
-from ..services.ai_insights import (
-    classify_sentiment,
-)
+from ..services.analysis import dashboard_payload
+from ..services.ai_insights import classify_sentiment
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
+# ----------------------------
+# Logger setup
+# ----------------------------
 logger = logging.getLogger("reviews")
 if not logger.handlers:
-    _h = logging.StreamHandler()
-    _h.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
-    logger.addHandler(_h)
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+    logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
-# ------------------------------------------------------------
+# ----------------------------
 # Config
-# ------------------------------------------------------------
+# ----------------------------
 GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")
-API_TOKEN = os.getenv("API_TOKEN")  # optional: protect sync
-REVIEWS_SCAN_LIMIT = int(os.getenv("REVIEWS_SCAN_LIMIT", "8000"))  # cap scan for summary fallback
+API_TOKEN = os.getenv("API_TOKEN")
+REVIEWS_SCAN_LIMIT = int(os.getenv("REVIEWS_SCAN_LIMIT", "8000"))
 _G_TIMEOUT = (5, 10)
 
 
-# ------------------------------------------------------------
-# Local helpers
-# ------------------------------------------------------------
-def _parse_date_param(s: Optional[str], *, as_end: bool = False) -> Optional[datetime]:
-    """
-    Parse 'YYYY-MM-DD' or ISO strings; if only date is supplied for end,
-    make it inclusive of the full end day by advancing to next day (open interval).
-    """
+# ----------------------------
+# Helpers
+# ----------------------------
+def _parse_date_param(s: Optional[str]) -> Optional[datetime]:
+    """Parse 'YYYY-MM-DD' or ISO strings into datetime."""
     if not s:
         return None
     try:
-        dt = datetime.strptime(s, "%Y-%m-%d")
-        # We keep dt as-is; route code will handle <= or < next day for inclusive end
-        return dt
-    except Exception:
+        return datetime.strptime(s, "%Y-%m-%d")
+    except ValueError:
         try:
             return datetime.fromisoformat(s)
-        except Exception:
+        except ValueError:
             return None
 
 
@@ -67,30 +58,28 @@ def _parse_review_date(r: Review) -> Optional[datetime]:
     dt = getattr(r, "review_date", None)
     if not dt:
         return None
-    if dt.tzinfo:
-        return dt.astimezone(timezone.utc)
-    return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-# ─────────────────────────────────────────────────────────────
-# Legacy-compatible core analysis (kept as thin delegate)
-# ─────────────────────────────────────────────────────────────
+# ----------------------------
+# Legacy daily bucket analytics (optional)
+# ----------------------------
 def _daily_buckets_range(reviews: List[Review], start: datetime, end: datetime) -> List[Dict]:
-    """
-    NOTE: Kept for compatibility with older code paths that may import this.
-    Internally, dashboard endpoints prefer using `dashboard_payload` which already
-    returns a daily series. This function mirrors the logic against ORM rows.
-    """
     start_day = start.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
     end_day = end.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
     days_diff = (end_day.date() - start_day.date()).days + 1
     if days_diff < 1:
         return []
 
-    buckets: Dict[str, Dict] = {}
-    for i in range(days_diff):
-        d = (start_day + timedelta(days=i)).date().isoformat()
-        buckets[d] = {"date": d, "ratings": [], "scores": [], "counts": {"Positive": 0, "Neutral": 0, "Negative": 0}}
+    buckets: Dict[str, Dict] = {
+        (start_day + timedelta(days=i)).date().isoformat(): {
+            "date": (start_day + timedelta(days=i)).date().isoformat(),
+            "ratings": [],
+            "scores": [],
+            "counts": {"Positive": 0, "Neutral": 0, "Negative": 0},
+        }
+        for i in range(days_diff)
+    }
 
     for r in reviews:
         dt = _parse_review_date(r)
@@ -108,33 +97,22 @@ def _daily_buckets_range(reviews: List[Review], start: datetime, end: datetime) 
             "date": d,
             "avg_rating": round(sum(b["ratings"]) / len(b["ratings"]), 2) if b["ratings"] else None,
             "sent_score": round(sum(b["scores"]) / len(b["scores"]), 3) if b["scores"] else 0.0,
-            **b["counts"]
+            **b["counts"],
         }
         for d, b in sorted(buckets.items())
     ]
 
 
-# ─────────────────────────────────────────────────────────────
+# ----------------------------
 # Endpoints
-# ─────────────────────────────────────────────────────────────
-
+# ----------------------------
 @router.get("/google/places")
-def google_places_search(
-    q: str = Query(..., min_length=2),
-    limit: int = Query(5, ge=1, le=10),
-):
-    """
-    Lightweight helper: delegates to Google Find Place, then enriches details.
-
-    NOTE: If you're already using /api/companies/autocomplete and
-    /api/companies/details from companies.py, prefer those in the UI.
-    This endpoint is provided for backward compatibility.
-    """
+def google_places_search(q: str = Query(..., min_length=2), limit: int = Query(5, ge=1, le=10)):
+    """Search Google Places and return enriched details."""
     if not GOOGLE_PLACES_API_KEY:
         return {"ok": False, "reason": "Google Places API not configured"}
 
     try:
-        # 1) Find Place
         fp_url = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
         fp_params = {
             "input": q,
@@ -142,12 +120,10 @@ def google_places_search(
             "fields": "place_id,name,formatted_address",
             "key": GOOGLE_PLACES_API_KEY,
         }
-        fp = requests.get(fp_url, params=fp_params, timeout=_G_TIMEOUT)
-        fp.raise_for_status()
-        fp_data = fp.json()
-        candidates = (fp_data.get("candidates") or [])[:limit]
+        fp_resp = requests.get(fp_url, params=fp_params, timeout=_G_TIMEOUT)
+        fp_resp.raise_for_status()
+        candidates = (fp_resp.json().get("candidates") or [])[:limit]
 
-        # 2) For each candidate, fetch details
         details_url = "https://maps.googleapis.com/maps/api/place/details/json"
         items = []
         for c in candidates:
@@ -156,14 +132,13 @@ def google_places_search(
             if pid:
                 dt_params = {
                     "place_id": pid,
-                    # NOTE: address_components (plural) is the valid field name
                     "fields": "name,formatted_address,address_components,geometry,website,international_phone_number,rating,user_ratings_total,url",
                     "key": GOOGLE_PLACES_API_KEY,
                 }
-                dt = requests.get(details_url, params=dt_params, timeout=_G_TIMEOUT)
-                if dt.ok:
-                    djson = dt.json().get("result", {}) or {}
-                    loc = ((djson.get("geometry") or {}).get("location") or {})
+                dt_resp = requests.get(details_url, params=dt_params, timeout=_G_TIMEOUT)
+                if dt_resp.ok:
+                    djson = dt_resp.json().get("result", {}) or {}
+                    loc = (djson.get("geometry") or {}).get("location") or {}
                     detail = {
                         "name": djson.get("name") or c.get("name"),
                         "formatted_address": djson.get("formatted_address") or c.get("formatted_address"),
@@ -174,13 +149,10 @@ def google_places_search(
                         "international_phone_number": djson.get("international_phone_number"),
                         "url": djson.get("url"),
                     }
-            items.append({
-                "place_id": pid,
-                **detail
-            })
+            items.append({"place_id": pid, **detail})
         return {"ok": True, "items": items}
     except Exception as e:
-        logger.warning(f"Places search failed: {e}")
+        logger.warning(f"Google Places search failed: {e}")
         return {"ok": False, "reason": "external_api_error"}
 
 
@@ -189,13 +161,10 @@ def reviews_summary(
     company_id: int,
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
-    include_aspects: bool = Query(True, description="Kept for compatibility; dashboard_payload includes aspects"),
+    include_aspects: bool = Query(True, description="Kept for compatibility"),
     db: Session = Depends(get_db),
 ):
-    """
-    Returns the full insight payload used by dashboard.html for a given company.
-    This delegates to services.analysis.dashboard_payload to stay consistent.
-    """
+    """Return full dashboard payload for a company."""
     return dashboard_payload(
         db=db,
         company_id=company_id,
@@ -216,46 +185,34 @@ def list_reviews(
     q: Optional[str] = Query(None, min_length=2),
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
-    order: str = Query("desc", regex="^(asc|desc)$"),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
 ):
-    """
-    Paginated review list for the table in dashboard.html.
-    - Supports: text search (q), rating filter, date range, sort by review_date asc/desc
-    """
-    # Base query
+    """Paginated list of reviews with filters and search."""
     query = db.query(Review).filter(Review.company_id == company_id)
-    # Date filter
-    start_dt = _parse_date_param(start, as_end=False)
-    end_dt = _parse_date_param(end, as_end=True)
+
+    start_dt = _parse_date_param(start)
+    end_dt = _parse_date_param(end)
     if start_dt:
         query = query.filter(Review.review_date >= start_dt)
     if end_dt:
-        # inclusive end-day
         if end_dt.hour == 0 and end_dt.minute == 0 and end_dt.second == 0:
             query = query.filter(Review.review_date < (end_dt + timedelta(days=1)))
         else:
             query = query.filter(Review.review_date <= end_dt)
 
-    # Rating filter
     if rating is not None:
         query = query.filter(Review.rating == rating)
 
-    # Text search across known columns
     if q:
-        s = f"%{q.strip()}%"
-        from sqlalchemy import or_
-        filters = [Review.text.ilike(s)]
+        search_term = f"%{q.strip()}%"
+        filters = [Review.text.ilike(search_term)]
         if hasattr(Review, "reviewer_name"):
-            filters.append(Review.reviewer_name.ilike(s))
+            filters.append(Review.reviewer_name.ilike(search_term))
         query = query.filter(or_(*filters))
 
     total = query.count()
-
-    # Sort
     query = query.order_by(Review.review_date.asc() if order == "asc" else Review.review_date.desc())
-
-    # Pagination
     items = query.offset((page - 1) * limit).limit(limit).all()
 
     data = [
@@ -283,45 +240,39 @@ def reviews_sync(
     authorization: Optional[str] = Header(None, alias="Authorization"),
     max_reviews: int = Query(60, ge=1, le=200),
 ):
-    """
-    Trigger a review sync for this company.
-
-    Integration points:
-    - If you have an ingestion function (e.g., fetch_and_save_reviews_places),
-      we will call it. Otherwise, we return a friendly 501 with guidance.
-    """
+    """Trigger review sync for a company."""
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
-        raise HTTPException(404, "Company not found")
+        raise HTTPException(status_code=404, detail="Company not found")
 
-    # Optional API token guard
+    # API token check
     if API_TOKEN:
         token = (x_api_key or "").strip()
         if authorization and authorization.lower().startswith("bearer "):
             token = authorization[7:].strip()
         if token != API_TOKEN:
-            raise HTTPException(401, "Invalid API token")
+            raise HTTPException(status_code=401, detail="Invalid API token")
 
-    # Attempt dynamic import of ingestion service
+    # Dynamic import of ingestion
     try:
-        from ..services.ingestion import fetch_and_save_reviews_places  # type: ignore
-    except Exception:
+        from ..services.ingestion import fetch_and_save_reviews_places
+    except ImportError:
         raise HTTPException(
             status_code=501,
-            detail="Reviews ingestion service not configured. "
-                   "Provide app/services/ingestion.py with fetch_and_save_reviews_places()."
+            detail="Reviews ingestion service not configured. Provide fetch_and_save_reviews_places().",
         )
 
     try:
-        added = fetch_and_save_reviews_places(company, db, max_reviews=max_reviews)  # user’s pipeline
+        added = fetch_and_save_reviews_places(company, db, max_reviews=max_reviews)
         return {"ok": True, "added": int(added or 0), "message": "Sync completed"}
     except Exception as e:
         logger.error(f"Sync failed for company {company_id}: {e}")
-        raise HTTPException(502, f"Ingestion error: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"Ingestion error: {str(e)}")
 
 
 @router.get("/diagnostics")
 def reviews_diagnostics():
+    """Return diagnostic information."""
     return {
         "google_places_key_present": bool(GOOGLE_PLACES_API_KEY),
         "api_token_configured": bool(API_TOKEN),
