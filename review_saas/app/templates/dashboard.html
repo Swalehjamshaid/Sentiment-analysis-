@@ -1,25 +1,26 @@
 <!--
-  File: dashbord.html
-  Description: ReviewSaaS Sentiment Dashboard (Bootstrap 5 + Chart.js)
-  Based on: review_saas/app/services/sentiment.py (stars_to_category, analyze_text)
+  FILE: review_saas/app/templates/dashboard.html
+  Purpose: ReviewSaaS Dashboard aligned with endpoints in app/routes/reviews.py
   Notes:
-    - Client-side JS mirrors your Python sentiment logic exactly:
-      * Positive tokens: (great|good|excellent|love|amazing|best)
-      * Negative tokens: (bad|poor|terrible|hate|awful|worst)
-      * score = clamp(0..1, 0.5 + 0.15 * (pos - neg))
-      * category: score > 0.6 → positive; score < 0.4 → negative; else neutral
-      * keywords: first 10 tokens matching /\w{6,}/
-      * lang: 'und' on the client; you can replace it with backend detection later.
-    - Dark/Light theme toggle with persistence (localStorage: rs_theme).
-    - Batch analysis (one review per line), charts, table, CSV export, debounced search.
-    - Shortcuts: Alt+Enter (analyze single), Ctrl/Cmd+Enter (analyze batch).
+    - Works with the following backend routes (prefix /api/reviews):
+        * GET  /diagnostics
+        * GET  /summary/{company_id}?start=&end=
+        * GET  /list/{company_id}?page=&limit=&q=&rating=&start=&end=&order=
+        * POST /sync/{company_id}   (optional API token via header; saved in localStorage)
+        * GET  /google/autocomplete?q=&language=&sessiontoken=
+        * GET  /google/search?q= OR (location=&radius=)&type=&language=&next_page_token=
+        * GET  /google/details?place_id=&language=&include_reviews=true
+        * POST /google/import/{company_id}?place_id=&language=&max_reviews=5
+    - Frontend: Bootstrap 5.3 + Chart.js 4 + Lucide icons + Dark/Light theme toggle
+    - Includes: Summary cards, trend & sentiment charts, paginated reviews table, Google search/import panel
+    - Persisted settings: theme, API token, last company id, filters, Google session token
 -->
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ReviewSaaS Sentiment Lab</title>
+  <title>ReviewSaaS | Dashboard</title>
   <meta name="theme-color" content="#0b1220" />
 
   <!-- Bootstrap 5.3 -->
@@ -34,56 +35,23 @@
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+    body { font-family: 'Plus Jakarta Sans', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
 
-    :root {
-      --rs-accent: #3b82f6;
-      --rs-muted: #94a3b8;
-      --rs-muted-2: #64748b;
-      --rs-card: rgba(15, 23, 42, 0.55);
-      --rs-border: rgba(148, 163, 184, 0.18);
-    }
-    [data-bs-theme="light"] {
-      --rs-card: rgba(255, 255, 255, 0.75);
-      --rs-border: rgba(15, 23, 42, 0.1);
-    }
-    body {
-      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-    }
-    .glass-card {
-      background: var(--rs-card);
-      backdrop-filter: blur(10px);
-      border: 1px solid var(--rs-border);
-      border-radius: 1rem;
-      box-shadow: 0 10px 28px rgba(2,6,23,0.25);
-    }
-    .chip {
-      display: inline-flex; align-items: center; gap: .35rem;
-      padding: .35rem .6rem; border-radius: 999px; font-size: .7rem; font-weight: 800;
-      text-transform: uppercase; letter-spacing: .08em; border: 1px solid transparent;
-    }
-    .chip-pos { background: rgba(16,185,129,.12); color: #10b981; border-color: rgba(16,185,129,.35); }
-    .chip-neu { background: rgba(100,116,139,.12); color: #64748b; border-color: rgba(100,116,139,.35); }
-    .chip-neg { background: rgba(239,68,68,.12); color: #ef4444; border-color: rgba(239,68,68,.35); }
+    .glass { background: rgba(15,23,42,.5); backdrop-filter: blur(10px); border: 1px solid rgba(148,163,184,.18); border-radius: 1rem; }
+    [data-bs-theme="light"] .glass { background: rgba(255,255,255,.7); border-color: rgba(15,23,42,.12); }
 
-    .skeleton { position: relative; overflow: hidden; border-radius: .75rem; min-height: 56px; }
-    .skeleton::after {
-      content: ""; position: absolute; inset: 0;
-      background: linear-gradient(90deg, rgba(148,163,184,0.06), rgba(148,163,184,0.16), rgba(148,163,184,0.06));
-      background-size: 300% 100%; animation: shimmer 1.6s linear infinite;
-    }
-    @keyframes shimmer { 0% { background-position: 0% 50% } 100% { background-position: 100% 50% } }
+    .chip { display:inline-flex; align-items:center; gap:.35rem; padding:.35rem .6rem; border-radius:999px; font-size:.7rem; font-weight:800; text-transform:uppercase; letter-spacing:.08em; border:1px solid transparent; }
+    .chip-ok { background: rgba(16,185,129,.14); color:#10b981; border-color: rgba(16,185,129,.35); }
+    .chip-bad{ background: rgba(239,68,68,.14); color:#ef4444; border-color: rgba(239,68,68,.35); }
+    .chip-warn{ background: rgba(245,158,11,.14); color:#f59e0b; border-color: rgba(245,158,11,.35); }
+
+    .stat-card { min-height: 110px; }
+    .btn-icon { display:inline-flex; align-items:center; justify-content:center; width:40px; height:38px; border-radius:.5rem; border:1px solid rgba(148,163,184,.18); background:transparent; }
+    .btn-icon:hover{ background: rgba(148,163,184,.12); }
+
+    .truncate-2 { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 
     .table-fixed { table-layout: fixed; }
-    .truncate-2 {
-      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-    }
-    .btn-icon {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 40px; height: 38px; border-radius: .5rem;
-      border: 1px solid var(--rs-border);
-      background: transparent;
-    }
-    .btn-icon:hover { background: rgba(148,163,184,.12); }
   </style>
 </head>
 <body class="bg-body-tertiary">
@@ -91,548 +59,503 @@
   <header class="border-bottom sticky-top" style="backdrop-filter: blur(6px);">
     <nav class="navbar navbar-expand-lg container py-2">
       <a class="navbar-brand d-flex align-items-center gap-2" href="#">
-        <span class="bg-primary-subtle rounded-3 p-2 d-inline-flex" style="box-shadow: 0 6px 18px rgba(59,130,246,.25);">
+        <span class="bg-primary-subtle rounded-3 p-2 d-inline-flex" style="box-shadow:0 6px 18px rgba(59,130,246,.25);">
           <i data-lucide="shield-check" class="text-primary" aria-hidden="true"></i>
         </span>
         <span class="fw-extrabold fs-4">Review<span class="text-primary">SaaS</span></span>
       </a>
       <div class="ms-auto d-flex align-items-center gap-2">
-        <button id="themeToggle" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1"
-                type="button" aria-label="Toggle theme">
+        <div class="input-group input-group-sm" style="width: 260px;">
+          <span class="input-group-text bg-transparent">Company</span>
+          <input type="number" min="1" id="companyId" class="form-control" placeholder="ID" aria-label="Company ID" />
+        </div>
+        <div class="input-group input-group-sm" style="width: 280px;">
+          <span class="input-group-text bg-transparent">API Token</span>
+          <input type="password" id="apiToken" class="form-control" placeholder="optional" aria-label="API Token" />
+          <button id="saveToken" class="btn btn-outline-secondary">Save</button>
+        </div>
+        <button id="themeToggle" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1" type="button" aria-label="Toggle theme">
           <i data-lucide="moon-star" class="me-1" aria-hidden="true"></i><span class="d-none d-md-inline">Theme</span>
         </button>
       </div>
     </nav>
   </header>
 
-  <!-- Main -->
   <main class="container py-4 py-md-5">
     <div class="row g-4">
-      <!-- Left Controls -->
+      <!-- Left Column: Filters + Google Tools -->
       <div class="col-lg-4">
-        <div class="glass-card p-3 p-md-4">
-          <div class="d-flex align-items-center gap-2 mb-3">
-            <div class="p-2 rounded bg-primary-subtle text-primary"><i data-lucide="cpu" aria-hidden="true"></i></div>
-            <h5 class="mb-0">Sentiment Engine</h5>
+        <section class="glass p-3 p-md-4 mb-4">
+          <h6 class="mb-3">Filters</h6>
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label small">Start</label>
+              <input type="date" id="startDate" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6">
+              <label class="form-label small">End</label>
+              <input type="date" id="endDate" class="form-control form-control-sm" />
+            </div>
+          </div>
+          <div class="d-flex gap-2 flex-wrap mb-2">
+            <button class="btn btn-outline-secondary btn-sm" id="quick90">Last 90d</button>
+            <button class="btn btn-outline-secondary btn-sm" id="quick30">30d</button>
+            <button class="btn btn-outline-secondary btn-sm" id="quick7">7d</button>
+          </div>
+          <div class="d-flex gap-2 flex-wrap">
+            <button id="loadSummary" class="btn btn-primary btn-sm d-flex align-items-center gap-1"><i data-lucide="refresh-ccw"></i>Load Summary</button>
+            <button id="syncBtn" class="btn btn-warning btn-sm d-flex align-items-center gap-1"><i data-lucide="refresh-cw"></i>Sync</button>
+          </div>
+        </section>
+
+        <section class="glass p-3 p-md-4 mb-4">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <h6 class="mb-0">Diagnostics</h6>
+            <button id="diagBtn" class="btn btn-sm btn-outline-secondary"><i data-lucide="activity"></i> Check</button>
+          </div>
+          <div id="diagChips" class="d-flex flex-wrap gap-2"></div>
+          <small id="diagMeta" class="text-secondary d-block mt-2"></small>
+        </section>
+
+        <section class="glass p-3 p-md-4">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <h6 class="mb-0">Google Places</h6>
+            <div class="input-group input-group-sm" style="max-width: 160px;">
+              <span class="input-group-text bg-transparent">Lang</span>
+              <input id="gLang" class="form-control" placeholder="en" />
+            </div>
           </div>
 
-          <!-- Single -->
-          <div class="mb-3">
-            <label class="form-label small fw-bold text-secondary" for="reviewInput">Single Review</label>
-            <textarea id="reviewInput" rows="4" class="form-control" placeholder="Paste a single review here..."></textarea>
-            <div class="form-text">Shortcut: <kbd>Alt</kbd> + <kbd>Enter</kbd> to Analyze</div>
-          </div>
-          <div class="d-flex flex-wrap gap-2 mb-4">
-            <button id="analyzeBtn" class="btn btn-primary d-flex align-items-center gap-1">
-              <i data-lucide="scan-line" aria-hidden="true"></i>Analyze
-            </button>
-            <button id="addToBatchBtn" class="btn btn-outline-primary d-flex align-items-center gap-1">
-              <i data-lucide="plus-circle" aria-hidden="true"></i>Add to Batch
-            </button>
-            <button id="demoBtn" class="btn-icon" title="Load demo reviews" aria-label="Load demo reviews">
-              <i data-lucide="sparkle" aria-hidden="true"></i>
-            </button>
+          <!-- Autocomplete -->
+          <div class="mb-2">
+            <label class="form-label small">Autocomplete</label>
+            <input id="acInput" class="form-control form-control-sm" placeholder="Start typing business name..." />
+            <div id="acList" class="list-group mt-2"></div>
           </div>
 
-          <!-- Stars -->
-          <div class="mb-4">
-            <label class="form-label small fw-bold text-secondary">Star Rating → Category</label>
-            <div class="d-flex align-items-center gap-2">
-              <div class="btn-group" role="group" aria-label="Star rating">
-                <input type="radio" class="btn-check" name="stars" id="stars1" autocomplete="off" value="1">
-                <label class="btn btn-outline-warning" for="stars1">1★</label>
-                <input type="radio" class="btn-check" name="stars" id="stars2" autocomplete="off" value="2">
-                <label class="btn btn-outline-warning" for="stars2">2★</label>
-                <input type="radio" class="btn-check" name="stars" id="stars3" autocomplete="off" value="3">
-                <label class="btn btn-outline-warning" for="stars3">3★</label>
-                <input type="radio" class="btn-check" name="stars" id="stars4" autocomplete="off" value="4">
-                <label class="btn btn-outline-warning" for="stars4">4★</label>
-                <input type="radio" class="btn-check" name="stars" id="stars5" autocomplete="off" value="5">
-                <label class="btn btn-outline-warning" for="stars5">5★</label>
+          <!-- Text Search -->
+          <div class="mb-2">
+            <label class="form-label small">Text Search</label>
+            <div class="input-group input-group-sm mb-2">
+              <span class="input-group-text bg-transparent">Query</span>
+              <input id="tsQuery" class="form-control" placeholder="e.g., pizza in Lahore" />
+            </div>
+            <div class="row g-2">
+              <div class="col-7">
+                <div class="input-group input-group-sm">
+                  <span class="input-group-text bg-transparent">Location</span>
+                  <input id="tsLocation" class="form-control" placeholder="lat,lng" />
+                </div>
               </div>
-              <span id="starCat" class="chip chip-neu">neutral</span>
-            </div>
-          </div>
-
-          <!-- Batch -->
-          <div class="mb-3">
-            <label class="form-label small fw-bold text-secondary" for="batchInput">Batch Reviews (one per line)</label>
-            <textarea id="batchInput" rows="6" class="form-control" placeholder="Paste multiple reviews here, one per line..."></textarea>
-            <div class="form-text">Shortcut: <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Enter</kbd> to Analyze Batch</div>
-          </div>
-          <div class="d-flex flex-wrap gap-2">
-            <button id="analyzeBatchBtn" class="btn btn-success d-flex align-items-center gap-1">
-              <i data-lucide="play" aria-hidden="true"></i>Analyze Batch
-            </button>
-            <button id="clearBatchBtn" class="btn btn-outline-secondary d-flex align-items-center gap-1">
-              <i data-lucide="eraser" aria-hidden="true"></i>Clear
-            </button>
-            <button id="exportCsvBtn" class="btn btn-outline-info d-flex align-items-center gap-1">
-              <i data-lucide="download" aria-hidden="true"></i>Export CSV
-            </button>
-          </div>
-        </div>
-
-        <!-- Single result -->
-        <div class="glass-card p-3 p-md-4 mt-4">
-          <h6 class="mb-3">Last Analysis (Single)</h6>
-          <div class="row g-3">
-            <div class="col-6">
-              <div class="small text-secondary">Category</div>
-              <div id="singleCategory" class="h5 text-capitalize">—</div>
-            </div>
-            <div class="col-6">
-              <div class="small text-secondary">Score (0–1)</div>
-              <div class="d-flex align-items-center gap-2">
-                <div id="singleScore" class="h5 mb-0">—</div>
+              <div class="col-5">
+                <div class="input-group input-group-sm">
+                  <span class="input-group-text bg-transparent">Radius</span>
+                  <input id="tsRadius" type="number" class="form-control" placeholder="meters" />
+                </div>
               </div>
             </div>
-            <div class="col-6">
-              <div class="small text-secondary">Language</div>
-              <div id="singleLang" class="h6">und</div>
+            <div class="d-flex gap-2 mt-2">
+              <button id="tsSearch" class="btn btn-outline-primary btn-sm"><i data-lucide="search"></i> Search</button>
+              <button id="tsMore" class="btn btn-outline-secondary btn-sm" disabled>Load more</button>
             </div>
-            <div class="col-12">
-              <div class="small text-secondary mb-1">Keywords (max 10)</div>
-              <div id="singleKeywords" class="d-flex flex-wrap gap-2"></div>
-            </div>
+            <div id="tsList" class="list-group mt-2"></div>
           </div>
-        </div>
+
+          <!-- Details & Import -->
+          <div class="mt-3">
+            <label class="form-label small">Selected Place ID</label>
+            <input id="placeId" class="form-control form-control-sm" placeholder="place_id" />
+            <div class="form-check form-switch mt-2">
+              <input class="form-check-input" type="checkbox" role="switch" id="includeReviews">
+              <label class="form-check-label small" for="includeReviews">Include 5 sample reviews</label>
+            </div>
+            <div class="d-flex gap-2 mt-2">
+              <button id="gDetailsBtn" class="btn btn-info btn-sm"><i data-lucide="info"></i> Details</button>
+              <button id="gImportBtn" class="btn btn-success btn-sm"><i data-lucide="download"></i> Import to Company</button>
+            </div>
+            <div id="gDetails" class="mt-3 small"></div>
+          </div>
+        </section>
       </div>
 
-      <!-- Right: Stats, Charts, Table -->
+      <!-- Right Column: Summary + Charts + Reviews -->
       <div class="col-lg-8">
-        <div class="row g-4">
-          <div class="col-md-4">
-            <div class="glass-card p-3 p-md-4 h-100 d-flex flex-column justify-content-between">
-              <div>
-                <div class="small text-secondary">Positive</div>
-                <div id="statPos" class="display-6 fw-bold">0</div>
-              </div>
-              <span class="chip chip-pos w-fit">positive</span>
+        <!-- Metrics -->
+        <div class="row g-3">
+          <div class="col-md-3">
+            <div class="glass p-3 stat-card h-100">
+              <div class="small text-secondary">Total Volume</div>
+              <div id="statTotal" class="display-6">0</div>
             </div>
           </div>
-          <div class="col-md-4">
-            <div class="glass-card p-3 p-md-4 h-100 d-flex flex-column justify-content-between">
-              <div>
-                <div class="small text-secondary">Neutral</div>
-                <div id="statNeu" class="display-6 fw-bold">0</div>
-              </div>
-              <span class="chip chip-neu w-fit">neutral</span>
+          <div class="col-md-3">
+            <div class="glass p-3 stat-card h-100">
+              <div class="small text-secondary">Avg Rating</div>
+              <div id="statAvg" class="display-6">0.0</div>
             </div>
           </div>
-          <div class="col-md-4">
-            <div class="glass-card p-3 p-md-4 h-100 d-flex flex-column justify-content-between">
-              <div>
-                <div class="small text-secondary">Negative</div>
-                <div id="statNeg" class="display-6 fw-bold">0</div>
-              </div>
-              <span class="chip chip-neg w-fit">negative</span>
+          <div class="col-md-3">
+            <div class="glass p-3 stat-card h-100">
+              <div class="small text-secondary">Risk Score</div>
+              <div id="statRisk" class="display-6">0</div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="glass p-3 stat-card h-100">
+              <div class="small text-secondary">Signal</div>
+              <div id="statSignal" class="display-6">—</div>
             </div>
           </div>
         </div>
 
-        <div class="row g-4 mt-1 mt-md-3">
+        <!-- AI Narrative -->
+        <div class="glass p-3 p-md-4 mt-3">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="p-2 rounded bg-primary-subtle text-primary"><i data-lucide="sparkles"></i></span>
+            <h6 class="mb-0">AI Narrative & Recommendations</h6>
+          </div>
+          <p id="aiContent" class="mb-0 fst-italic text-secondary">Select a company and load summary…</p>
+        </div>
+
+        <!-- Charts -->
+        <div class="row g-3 mt-1 mt-md-3">
           <div class="col-lg-6">
-            <div class="glass-card p-3 p-md-4">
-              <div class="d-flex align-items-center justify-content-between mb-3">
+            <div class="glass p-3 p-md-4 h-100">
+              <div class="d-flex align-items-center justify-content-between mb-2">
+                <h6 class="mb-0">Performance Trend</h6>
+                <button id="expTrend" class="btn btn-sm btn-outline-secondary"><i data-lucide="download"></i> PNG</button>
+              </div>
+              <div style="height: 280px"><canvas id="chartTrend"></canvas></div>
+            </div>
+          </div>
+          <div class="col-lg-6">
+            <div class="glass p-3 p-md-4 h-100">
+              <div class="d-flex align-items-center justify-content-between mb-2">
                 <h6 class="mb-0">Sentiment Mix</h6>
-                <button id="exportPie" class="btn btn-sm btn-outline-secondary">
-                  <i data-lucide="download" aria-hidden="true"></i> PNG
-                </button>
+                <button id="expSent" class="btn btn-sm btn-outline-secondary"><i data-lucide="download"></i> PNG</button>
               </div>
-              <div style="height: 280px"><canvas id="pieChart" aria-label="Sentiment mix chart" role="img"></canvas></div>
-            </div>
-          </div>
-          <div class="col-lg-6">
-            <div class="glass-card p-3 p-md-4">
-              <div class="d-flex align-items-center justify-content-between mb-3">
-                <h6 class="mb-0">Score Distribution</h6>
-                <button id="exportBar" class="btn btn-sm btn-outline-secondary">
-                  <i data-lucide="download" aria-hidden="true"></i> PNG
-                </button>
-              </div>
-              <div style="height: 280px"><canvas id="barChart" aria-label="Score distribution chart" role="img"></canvas></div>
+              <div style="height: 280px"><canvas id="chartSent"></canvas></div>
             </div>
           </div>
         </div>
 
-        <div class="glass-card p-3 p-md-4 mt-3">
-          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
-            <h6 class="mb-0">Top Keywords</h6>
-            <small class="text-secondary">from last batch (≥6 chars)</small>
-          </div>
-          <div id="topKeywords" class="d-flex flex-wrap gap-2"></div>
-        </div>
-
-        <div class="glass-card p-3 p-md-4 mt-3">
-          <div class="d-flex align-items-center justify-content-between mb-3">
-            <h6 class="mb-0">Analyzed Reviews</h6>
-            <div class="input-group input-group-sm" style="max-width: 280px;">
-              <span class="input-group-text bg-transparent text-secondary"><i data-lucide="search" aria-hidden="true"></i></span>
-              <input type="text" id="searchBox" class="form-control" placeholder="Search text/keyword..." />
+        <!-- Reviews Table -->
+        <div class="glass p-3 p-md-4 mt-3">
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+            <h6 class="mb-0">Reviews</h6>
+            <div class="d-flex flex-wrap gap-2">
+              <div class="input-group input-group-sm" style="width: 220px;">
+                <span class="input-group-text bg-transparent"><i data-lucide="search"></i></span>
+                <input id="revSearch" class="form-control" placeholder="Search…" />
+              </div>
+              <div class="input-group input-group-sm" style="width: 140px;">
+                <span class="input-group-text bg-transparent">Rating</span>
+                <select id="revRating" class="form-select">
+                  <option value="">All</option>
+                  <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+                </select>
+              </div>
+              <div class="input-group input-group-sm" style="width: 160px;">
+                <span class="input-group-text bg-transparent">Order</span>
+                <select id="revOrder" class="form-select">
+                  <option value="desc" selected>Newest</option>
+                  <option value="asc">Oldest</option>
+                </select>
+              </div>
+              <div class="input-group input-group-sm" style="width: 120px;">
+                <span class="input-group-text bg-transparent">Page</span>
+                <input id="revPage" type="number" min="1" class="form-control" value="1" />
+              </div>
+              <div class="input-group input-group-sm" style="width: 140px;">
+                <span class="input-group-text bg-transparent">Limit</span>
+                <select id="revLimit" class="form-select">
+                  <option>25</option><option selected>50</option><option>100</option><option>200</option>
+                </select>
+              </div>
+              <button id="revLoad" class="btn btn-sm btn-outline-primary"><i data-lucide="refresh-ccw"></i> Load</button>
             </div>
           </div>
           <div class="table-responsive">
-            <table class="table table-sm align-middle table-fixed" id="resultsTable">
+            <table class="table table-sm align-middle table-fixed">
               <thead class="table-dark">
                 <tr>
-                  <th style="width: 38%">Text</th>
-                  <th style="width: 12%">Category</th>
-                  <th style="width: 12%">Score</th>
-                  <th style="width: 26%">Keywords</th>
-                  <th style="width: 12%">Lang</th>
+                  <th style="width:38%">Text</th>
+                  <th style="width:10%">Rating</th>
+                  <th style="width:12%">Date</th>
+                  <th style="width:14%">Category</th>
+                  <th style="width:10%">Score</th>
+                  <th style="width:16%">Lang</th>
                 </tr>
               </thead>
-              <tbody id="resultsBody"></tbody>
+              <tbody id="revBody"></tbody>
             </table>
           </div>
+          <div id="revMeta" class="small text-secondary mt-1">—</div>
         </div>
       </div>
     </div>
   </main>
 
   <script>
-    /* ---------------------------------------
-     * Theme handling (Bootstrap 5.3)
-     * ------------------------------------- */
+    // Theme
     const themeKey = 'rs_theme';
-    const applyTheme = (theme) => {
+    function applyTheme(theme){
       document.documentElement.setAttribute('data-bs-theme', theme);
       localStorage.setItem(themeKey, theme);
       const meta = document.querySelector('meta[name="theme-color"]');
       meta && meta.setAttribute('content', theme === 'dark' ? '#0b1220' : '#f8f9fa');
-      Charts.renderAll(); // recolor charts
+      // recolor charts
+      Charts.renderAll();
       const icon = document.querySelector('#themeToggle i');
-      if (icon) icon.setAttribute('data-lucide', theme === 'dark' ? 'moon-star' : 'sun');
+      icon && icon.setAttribute('data-lucide', theme === 'dark' ? 'moon-star' : 'sun');
       lucide.createIcons();
-    };
+    }
     applyTheme(localStorage.getItem(themeKey) || 'dark');
-
-    document.getElementById('themeToggle').addEventListener('click', () => {
-      const next = (document.documentElement.getAttribute('data-bs-theme') === 'dark') ? 'light' : 'dark';
+    document.getElementById('themeToggle').addEventListener('click', ()=>{
+      const next = (document.documentElement.getAttribute('data-bs-theme')==='dark')?'light':'dark';
       applyTheme(next);
     });
 
-    /* ---------------------------------------
-     * Sentiment logic (mirrors Python)
-     * ------------------------------------- */
-    function starsToCategory(rating) {
-      const r = Number(rating) || 0;
-      if (r >= 4) return 'positive';
-      if (r === 3) return 'neutral';
-      return 'negative';
-    }
-
-    function analyzeText(text) {
-      const t = (text || '').trim();
-      let lang = 'und'; // client-side fallback
-
-      const posMatches = t.match(/(great|good|excellent|love|amazing|best)/gi) || [];
-      const negMatches = t.match(/(bad|poor|terrible|hate|awful|worst)/gi) || [];
-      const pos = posMatches.length;
-      const neg = negMatches.length;
-
-      let score = 0.5 + 0.15 * (pos - neg);
-      score = Math.max(0.0, Math.min(1.0, score));
-
-      let category = 'neutral';
-      if (score > 0.6) category = 'positive';
-      else if (score < 0.4) category = 'negative';
-
-      const keywords = (t.match(/\w{6,}/g) || []).slice(0, 10);
-      return { category, score, keywords, lang };
-    }
-
-    /* ---------------------------------------
-     * Elements
-     * ------------------------------------- */
-    const els = {
-      reviewInput: document.getElementById('reviewInput'),
-      analyzeBtn: document.getElementById('analyzeBtn'),
-      addToBatchBtn: document.getElementById('addToBatchBtn'),
-      batchInput: document.getElementById('batchInput'),
-      analyzeBatchBtn: document.getElementById('analyzeBatchBtn'),
-      clearBatchBtn: document.getElementById('clearBatchBtn'),
-      exportCsvBtn: document.getElementById('exportCsvBtn'),
-
-      singleCategory: document.getElementById('singleCategory'),
-      singleScore: document.getElementById('singleScore'),
-      singleLang: document.getElementById('singleLang'),
-      singleKeywords: document.getElementById('singleKeywords'),
-
-      starCat: document.getElementById('starCat'),
-
-      statPos: document.getElementById('statPos'),
-      statNeu: document.getElementById('statNeu'),
-      statNeg: document.getElementById('statNeg'),
-
-      resultsBody: document.getElementById('resultsBody'),
-      searchBox: document.getElementById('searchBox'),
-
-      pieCanvas: document.getElementById('pieChart'),
-      barCanvas: document.getElementById('barChart'),
-      exportPie: document.getElementById('exportPie'),
-      exportBar: document.getElementById('exportBar'),
-
-      topKeywords: document.getElementById('topKeywords'),
-      demoBtn: document.getElementById('demoBtn'),
+    // Persisted settings
+    const tokenKey='rs_api_token', companyKey='rs_company_id', sessKey='rs_google_session', filtersKey='rs_filters';
+    const apiTokenEl = document.getElementById('apiToken');
+    const companyEl = document.getElementById('companyId');
+    apiTokenEl.value = localStorage.getItem(tokenKey) || '';
+    companyEl.value = localStorage.getItem(companyKey) || '';
+    document.getElementById('saveToken').onclick = ()=>{
+      localStorage.setItem(tokenKey, apiTokenEl.value.trim());
     };
 
-    /* ---------------------------------------
-     * Stars mapping
-     * ------------------------------------- */
-    document.querySelectorAll('input[name="stars"]').forEach(r => {
-      r.addEventListener('change', () => {
-        const cat = starsToCategory(r.value);
-        els.starCat.textContent = cat;
-        els.starCat.className = 'chip ' + (cat === 'positive' ? 'chip-pos' : cat === 'negative' ? 'chip-neg' : 'chip-neu');
-      });
-    });
+    // Dates default → last 90 days
+    const end = new Date(); const start = new Date(); start.setDate(end.getDate()-90);
+    const startEl = document.getElementById('startDate');
+    const endEl = document.getElementById('endDate');
+    startEl.value = (localStorage.getItem(filtersKey+'-start') || start.toISOString().split('T')[0]);
+    endEl.value   = (localStorage.getItem(filtersKey+'-end')   || end.toISOString().split('T')[0]);
+    startEl.onchange = ()=> localStorage.setItem(filtersKey+'-start', startEl.value);
+    endEl.onchange   = ()=> localStorage.setItem(filtersKey+'-end', endEl.value);
+    document.getElementById('quick90').onclick=()=>{const e=new Date(), s=new Date(); s.setDate(e.getDate()-90); startEl.value=s.toISOString().split('T')[0]; endEl.value=e.toISOString().split('T')[0]; startEl.onchange(); endEl.onchange();}
+    document.getElementById('quick30').onclick=()=>{const e=new Date(), s=new Date(); s.setDate(e.getDate()-30); startEl.value=s.toISOString().split('T')[0]; endEl.value=e.toISOString().split('T')[0]; startEl.onchange(); endEl.onchange();}
+    document.getElementById('quick7').onclick =()=>{const e=new Date(), s=new Date(); s.setDate(e.getDate()-7 ); startEl.value=s.toISOString().split('T')[0]; endEl.value=e.toISOString().split('T')[0]; startEl.onchange(); endEl.onchange();}
 
-    /* ---------------------------------------
-     * Single analysis + Shortcuts
-     * ------------------------------------- */
-    function analyzeSingle() {
-      const text = els.reviewInput.value.trim();
-      if (!text) return;
-      const res = analyzeText(text);
-      els.singleCategory.textContent = res.category;
-      els.singleScore.textContent = res.score.toFixed(3);
-      els.singleLang.textContent = res.lang;
-      els.singleKeywords.innerHTML = '';
-      res.keywords.forEach(k => {
-        const span = document.createElement('span');
-        span.className = 'chip chip-neu';
-        span.textContent = k;
-        els.singleKeywords.appendChild(span);
-      });
+    // HTTP helpers
+    function headers(){
+      const h = { 'Content-Type':'application/json' };
+      const t = localStorage.getItem(tokenKey);
+      if(t){ h['Authorization'] = 'Bearer '+t; h['X-API-Key']=t; }
+      return h;
     }
-    els.analyzeBtn.addEventListener('click', analyzeSingle);
+    async function apiGet(path){
+      const r = await fetch(path, { headers: headers() });
+      if(!r.ok){ throw new Error('GET '+path+' failed: '+r.status); }
+      return r.json();
+    }
+    async function apiPost(path, body){
+      const r = await fetch(path, { method:'POST', headers: headers(), body: body?JSON.stringify(body):undefined });
+      if(!r.ok){ throw new Error('POST '+path+' failed: '+r.status); }
+      return r.json();
+    }
 
-    // Shortcut: Alt+Enter for single
-    els.reviewInput.addEventListener('keydown', (e) => {
-      if (e.altKey && e.key === 'Enter') {
-        e.preventDefault();
-        analyzeSingle();
+    // Diagnostics
+    async function loadDiagnostics(){
+      try{
+        const d = await apiGet('/api/reviews/diagnostics');
+        const chips = [];
+        chips.push(`<span class="chip ${d.google_places_key_present?'chip-ok':'chip-bad'}">Places Key</span>`);
+        chips.push(`<span class="chip ${d.google_maps_key_present?'chip-ok':'chip-bad'}">Maps Key</span>`);
+        chips.push(`<span class="chip ${d.google_business_key_present?'chip-ok':'chip-bad'}">Business Key</span>`);
+        chips.push(`<span class="chip ${d.api_token_configured?'chip-ok':'chip-warn'}">API Token</span>`);
+        document.getElementById('diagChips').innerHTML = chips.join(' ');
+        document.getElementById('diagMeta').textContent = `Env: ${d.environment} · Scan limit: ${d.reviews_scan_limit} · Python: ${d.python_version}`;
+      }catch(e){
+        document.getElementById('diagChips').innerHTML = '<span class="chip chip-bad">Diagnostics failed</span>';
+        document.getElementById('diagMeta').textContent = e.message;
       }
-    });
-
-    /* ---------------------------------------
-     * Batch analysis state + persistence
-     * ------------------------------------- */
-    let batchResults = []; // {text, category, score, keywords[], lang}
-    const batchKey = 'rs_batch_text';
-
-    // Load persisted batch text
-    const savedBatch = localStorage.getItem(batchKey);
-    if (savedBatch) els.batchInput.value = savedBatch;
-    els.batchInput.addEventListener('input', () => {
-      localStorage.setItem(batchKey, els.batchInput.value);
-    });
-
-    function recomputeAggregates() {
-      const counts = { positive: 0, neutral: 0, negative: 0 };
-      const buckets = Array(10).fill(0); // 0.0-0.1 ... 0.9-1.0
-      const kwMap = new Map();
-
-      batchResults.forEach(r => {
-        counts[r.category]++;
-        const idx = Math.min(9, Math.floor(r.score * 10));
-        buckets[idx]++;
-        r.keywords.forEach(k => {
-          kwMap.set(k, (kwMap.get(k) || 0) + 1);
-        });
-      });
-
-      // Update stats
-      els.statPos.textContent = counts.positive;
-      els.statNeu.textContent = counts.neutral;
-      els.statNeg.textContent = counts.negative;
-
-      // Charts
-      Charts.renderPie(counts);
-      Charts.renderBar(buckets);
-
-      // Top keywords
-      const top = [...kwMap.entries()].sort((a,b)=>b[1]-a[1]).slice(0, 14);
-      els.topKeywords.innerHTML = '';
-      top.forEach(([k, v]) => {
-        const span = document.createElement('span');
-        span.className = 'chip chip-neu';
-        span.textContent = `${k} · ${v}`;
-        els.topKeywords.appendChild(span);
-      });
     }
+    document.getElementById('diagBtn').onclick = loadDiagnostics; loadDiagnostics();
 
-    function escapeHtml(str) {
-      return str
-        .replaceAll('&','&amp;')
-        .replaceAll('<','&lt;')
-        .replaceAll('>','&gt;')
-        .replaceAll('"','&quot;')
-        .replaceAll("'", '&#39;');
-    }
-
-    function renderTable(filterTerm = '') {
-      const term = filterTerm.trim().toLowerCase();
-      els.resultsBody.innerHTML = '';
-      batchResults
-        .filter(r =>
-          !term ||
-          r.text.toLowerCase().includes(term) ||
-          r.keywords.some(k => k.toLowerCase().includes(term))
-        )
-        .forEach(r => {
-          const tr = document.createElement('tr');
-          const catBadge = r.category === 'positive' ? 'chip-pos' : (r.category === 'negative' ? 'chip-neg' : 'chip-neu');
-
-          const safeText = escapeHtml(r.text);
-          tr.innerHTML = `
-            <td><div class="truncate-2" title="${safeText}">${safeText}</div></td>
-            <td><span class="chip ${catBadge}">${r.category}</span></td>
-            <td><code>${r.score.toFixed(3)}</code></td>
-            <td>
-              <div class="d-flex flex-wrap gap-1">
-                ${r.keywords.map(k => `<span class="badge text-bg-secondary-subtle border">${escapeHtml(k)}</span>`).join(' ')}
-              </div>
-            </td>
-            <td>${r.lang}</td>
-          `;
-          els.resultsBody.appendChild(tr);
-        });
-    }
-
-    function analyzeBatch() {
-      const lines = els.batchInput.value.split(/\n+/).map(s => s.trim()).filter(Boolean);
-      if (!lines.length) return;
-      batchResults = lines.map(text => ({ text, ...analyzeText(text) }));
-      recomputeAggregates();
-      renderTable(els.searchBox.value || '');
-    }
-    els.analyzeBatchBtn.addEventListener('click', analyzeBatch);
-
-    els.clearBatchBtn.addEventListener('click', () => {
-      els.batchInput.value = '';
-      localStorage.removeItem(batchKey);
-      batchResults = [];
-      recomputeAggregates();
-      renderTable('');
-    });
-
-    // Shortcuts: Ctrl/Cmd+Enter for batch
-    els.batchInput.addEventListener('keydown', (e) => {
-      const isCmdEnter = (e.metaKey || e.ctrlKey) && e.key === 'Enter';
-      if (isCmdEnter) {
-        e.preventDefault();
-        analyzeBatch();
-      }
-    });
-
-    /* ---------------------------------------
-     * Debounced search
-     * ------------------------------------- */
-    function debounce(fn, wait=250) {
-      let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
-    }
-    els.searchBox.addEventListener('input', debounce(() => renderTable(els.searchBox.value), 200));
-
-    /* ---------------------------------------
-     * CSV Export
-     * ------------------------------------- */
-    els.exportCsvBtn.addEventListener('click', () => {
-      if (!batchResults.length) return;
-      const header = ['text','category','score','keywords','lang'];
-      const rows = batchResults.map(r => [
-        '"' + r.text.replaceAll('"', '""') + '"',
-        r.category,
-        r.score.toFixed(3),
-        '"' + r.keywords.join(' ') + '"',
-        r.lang
-      ].join(','));
-      const blob = new Blob([header.join(',') + '\n' + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'sentiment_batch.csv';
-      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-    });
-
-    /* ---------------------------------------
-     * Charts
-     * ------------------------------------- */
+    // Summary & Charts
     const Charts = {
-      pie: null,
-      bar: null,
-      palette() {
-        const theme = document.documentElement.getAttribute('data-bs-theme');
-        const isDark = theme === 'dark';
-        return {
-          grid: isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.08)',
-          label: isDark ? '#cbd5e1' : '#334155',
-          pos: '#10b981', neu: '#64748b', neg: '#ef4444',
-          bar: isDark ? '#3b82f6' : '#2563eb'
-        };
+      trend:null, sent:null,
+      palette(){
+        const dark = document.documentElement.getAttribute('data-bs-theme')==='dark';
+        return { grid: dark?'rgba(255,255,255,.08)':'rgba(0,0,0,.08)', label: dark?'#cbd5e1':'#334155', line: dark?'#3b82f6':'#2563eb', pos:'#10b981', neu:'#64748b', neg:'#ef4444' };
       },
-      renderPie(counts) {
+      renderAll(){ if(this._last) this.render(this._last); },
+      render(data){
+        this._last = data;
         const p = this.palette();
-        const data = {
-          labels: ['Positive','Neutral','Negative'],
-          datasets: [{ data: [counts.positive, counts.neutral, counts.negative], backgroundColor: [p.pos, p.neu, p.neg], borderWidth: 0 }]
-        };
-        const opts = { plugins: { legend: { position: 'bottom', labels: { color: p.label } } }, cutout: '70%' };
-        if (this.pie) { this.pie.data = data; this.pie.options = opts; this.pie.update(); return; }
-        this.pie = new Chart(els.pieCanvas.getContext('2d'), { type: 'doughnut', data, options: opts });
-      },
-      renderBar(buckets) {
-        const p = this.palette();
-        const labels = Array.from({length:10}, (_,i)=> `${(i/10).toFixed(1)}–${((i+1)/10).toFixed(1)}`);
-        const data = { labels, datasets: [{ label: 'Scores', data: buckets, backgroundColor: p.bar, borderRadius: 6 }] };
-        const opts = {
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { ticks: { color: p.label } },
-            y: { ticks: { color: p.label }, grid: { color: p.grid }, beginAtZero: true, precision: 0 }
-          }
-        };
-        if (this.bar) { this.bar.data = data; this.bar.options = opts; this.bar.update(); return; }
-        this.bar = new Chart(els.barCanvas.getContext('2d'), { type: 'bar', data, options: opts });
-      },
-      renderAll() {
-        const counts = {
-          positive: Number(els.statPos.textContent)||0,
-          neutral: Number(els.statNeu.textContent)||0,
-          negative: Number(els.statNeg.textContent)||0,
-        };
-        const buckets = this.bar ? this.bar.data.datasets[0].data : Array(10).fill(0);
-        this.renderPie(counts);
-        this.renderBar(buckets);
+
+        // Trend
+        const tctx = document.getElementById('chartTrend').getContext('2d');
+        this.trend && this.trend.destroy();
+        this.trend = new Chart(tctx, {
+          type:'line',
+          data:{ labels: (data.trend&&data.trend.labels)||[], datasets:[{ label:'Rating', data:(data.trend&&data.trend.data)||[], borderColor:p.line, backgroundColor:p.line+'22', tension:.35, borderWidth:3, pointRadius:2, fill:true }]},
+          options:{ plugins:{ legend:{display:false} }, scales:{ x:{ ticks:{color:p.label}}, y:{ ticks:{color:p.label}, grid:{color:p.grid}, min:0, max:5 } } }
+        });
+
+        // Sentiment
+        const sctx = document.getElementById('chartSent').getContext('2d');
+        this.sent && this.sent.destroy();
+        const pos = (data.sentiment&&data.sentiment.Positive)||0; const neu=(data.sentiment&&data.sentiment.Neutral)||0; const neg=(data.sentiment&&data.sentiment.Negative)||0;
+        this.sent = new Chart(sctx, { type:'doughnut', data:{ labels:['Positive','Neutral','Negative'], datasets:[{ data:[pos,neu,neg], backgroundColor:[p.pos,p.neu,p.neg], borderWidth:0 }] }, options:{ plugins:{ legend:{ position:'bottom', labels:{ color:p.label } } }, cutout:'72%' } });
       }
     };
 
-    // Export chart images
-    function exportCanvasPNG(canvas, filename) {
-      const url = canvas.toDataURL('image/png');
-      const a = document.createElement('a');
-      a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+    function setSummaryUI(data){
+      try{
+        document.getElementById('statTotal').textContent = (data.metrics&&data.metrics.total)||0;
+        document.getElementById('statAvg').textContent = ((data.metrics&&data.metrics.avg_rating)||0).toFixed?((+data.metrics.avg_rating).toFixed(1)):(data.metrics&&data.metrics.avg_rating)||'0.0';
+      }catch{ document.getElementById('statAvg').textContent='0.0'; }
+      document.getElementById('statRisk').textContent = (data.metrics&&data.metrics.risk_score)||0;
+      document.getElementById('statSignal').textContent = (data.trend&&data.trend.signal)||'—';
+      document.getElementById('aiContent').textContent = (data.ai_recommendations&&data.ai_recommendations[0]&&data.ai_recommendations[0].action)||'—';
+      Charts.render(data);
     }
-    els.exportPie.addEventListener('click', () => Charts.pie && exportCanvasPNG(els.pieCanvas, 'sentiment_mix.png'));
-    els.exportBar.addEventListener('click', () => Charts.bar && exportCanvasPNG(els.barCanvas, 'score_distribution.png'));
 
-    /* ---------------------------------------
-     * Demo data
-     * ------------------------------------- */
-    els.demoBtn.addEventListener('click', () => {
-      const demo = [
-        'Absolutely amazing support, best experience so far!',
-        'The UI is good but performance is poor on mobile.',
-        'I love the features, great onboarding, excellent docs.',
-        'Worst latency, awful bugs, terrible crashes, I hate it.',
-        'Good overall. Could be better but not bad.',
-        'Amazing product! Best in class.',
-        'Poor results and bad integration with our stack.'
-      ];
-      els.batchInput.value = demo.join('\n');
-      localStorage.setItem(batchKey, els.batchInput.value);
+    async function loadSummary(){
+      const cid = (companyEl.value||'').trim(); if(!cid) return;
+      localStorage.setItem(companyKey, cid);
+      const start = startEl.value; const end = endEl.value;
+      try{
+        const data = await apiGet(`/api/reviews/summary/${cid}?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+        setSummaryUI(data);
+      }catch(e){
+        console.error(e); alert('Failed to load summary');
+      }
+    }
+    document.getElementById('loadSummary').onclick = loadSummary;
+
+    // Export charts
+    function exportPNG(canvasId, filename){ const c=document.getElementById(canvasId); const a=document.createElement('a'); a.href=c.toDataURL('image/png'); a.download=filename; document.body.appendChild(a); a.click(); a.remove(); }
+    document.getElementById('expTrend').onclick=()=>exportPNG('chartTrend','trend.png');
+    document.getElementById('expSent').onclick =()=>exportPNG('chartSent','sentiment.png');
+
+    // Sync
+    document.getElementById('syncBtn').onclick = async ()=>{
+      const cid=(companyEl.value||'').trim(); if(!cid) return;
+      try{ const res=await apiPost(`/api/reviews/sync/${cid}`); alert(`Sync ok. Added: ${res.added}`); await loadSummary(); await loadReviews(); }
+      catch(e){ console.error(e); alert('Sync failed'); }
+    };
+
+    // Reviews list
+    const rev = {
+      page: 1, limit: 50, q:'', rating:'', order:'desc'
+    };
+    const revSearch = document.getElementById('revSearch');
+    const revRating = document.getElementById('revRating');
+    const revOrder  = document.getElementById('revOrder');
+    const revPage   = document.getElementById('revPage');
+    const revLimit  = document.getElementById('revLimit');
+
+    async function loadReviews(){
+      const cid=(companyEl.value||'').trim(); if(!cid) return;
+      const start=startEl.value, end=endEl.value;
+      rev.page = parseInt(revPage.value||'1',10)||1; rev.limit=parseInt(revLimit.value||'50',10)||50; rev.q=revSearch.value.trim(); rev.rating=revRating.value; rev.order=revOrder.value;
+      const url = new URL(location.origin+`/api/reviews/list/${cid}`);
+      url.searchParams.set('page', String(rev.page)); url.searchParams.set('limit', String(rev.limit));
+      if(rev.q) url.searchParams.set('q', rev.q);
+      if(rev.rating) url.searchParams.set('rating', rev.rating);
+      url.searchParams.set('order', rev.order);
+      url.searchParams.set('start', start); url.searchParams.set('end', end);
+      try{
+        const data = await apiGet(url.pathname + url.search);
+        const body = document.getElementById('revBody'); body.innerHTML='';
+        (data.items||[]).forEach(r=>{
+          const tr=document.createElement('tr');
+          const text=(r.text||'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+          tr.innerHTML = `
+            <td><div class="truncate-2" title="${text}">${text}</div></td>
+            <td>${r.rating ?? ''}</td>
+            <td><small>${(r.review_date||'').split('T')[0]}</small></td>
+            <td><span class="badge ${r.sentiment_category==='positive'?'text-bg-success-subtle':r.sentiment_category==='negative'?'text-bg-danger-subtle':'text-bg-secondary-subtle'}">${r.sentiment_category ?? ''}</span></td>
+            <td><code>${r.sentiment_score!=null ? Number(r.sentiment_score).toFixed(3) : ''}</code></td>
+            <td>${r.language ?? ''}</td>
+          `;
+          body.appendChild(tr);
+        });
+        document.getElementById('revMeta').textContent = `Total ${data.total} • Page ${data.page} • Limit ${data.limit}`;
+      }catch(e){ console.error(e); alert('Failed to load reviews'); }
+    }
+    document.getElementById('revLoad').onclick = loadReviews;
+
+    // Google Places Panel
+    function guid(){ return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2); }
+    const sessionToken = localStorage.getItem(sessKey) || guid(); localStorage.setItem(sessKey, sessionToken);
+    const gLang = document.getElementById('gLang'); gLang.value = (localStorage.getItem('rs_g_lang')||'en'); gLang.onchange=()=>localStorage.setItem('rs_g_lang', gLang.value);
+
+    // Autocomplete
+    const acInput = document.getElementById('acInput'); const acList=document.getElementById('acList');
+    let acDebounce;
+    acInput.addEventListener('input', ()=>{
+      clearTimeout(acDebounce);
+      const q = acInput.value.trim(); if(!q){ acList.innerHTML=''; return; }
+      acDebounce = setTimeout(async()=>{
+        try{
+          const res = await apiGet(`/api/reviews/google/autocomplete?q=${encodeURIComponent(q)}&language=${encodeURIComponent(gLang.value||'')}&sessiontoken=${encodeURIComponent(sessionToken)}`);
+          acList.innerHTML = (res.items||[]).map(p=>`<button type="button" class="list-group-item list-group-item-action" data-pid="${p.place_id}">${(p.description||'').replaceAll('<','&lt;')}</button>`).join('');
+          acList.querySelectorAll('button').forEach(b=> b.onclick = ()=>{ document.getElementById('placeId').value = b.getAttribute('data-pid'); acList.innerHTML=''; });
+        }catch(e){ acList.innerHTML='<div class="list-group-item text-danger">Autocomplete failed</div>'; }
+      }, 200);
     });
+
+    // Text Search
+    let nextToken = '';
+    async function doTextSearch(loadMore=false){
+      try{
+        const q = document.getElementById('tsQuery').value.trim();
+        const loc = document.getElementById('tsLocation').value.trim();
+        const rad = document.getElementById('tsRadius').value.trim();
+        let url = `/api/reviews/google/search?language=${encodeURIComponent(gLang.value||'')}`;
+        if(loadMore && nextToken){ url += `&next_page_token=${encodeURIComponent(nextToken)}`; }
+        else if(q){ url += `&q=${encodeURIComponent(q)}`; }
+        else if(loc && rad){ url += `&location=${encodeURIComponent(loc)}&radius=${encodeURIComponent(rad)}`; }
+        else { alert('Provide query or location+radius'); return; }
+        const res = await apiGet(url);
+        const list = document.getElementById('tsList');
+        if(!loadMore) list.innerHTML='';
+        (res.items||[]).forEach(it=>{
+          const btn = document.createElement('button'); btn.type='button'; btn.className='list-group-item list-group-item-action';
+          btn.innerHTML = `<div class='d-flex justify-content-between'><strong>${(it.name||'').replaceAll('<','&lt;')}</strong><span class='small text-secondary'>★${it.rating||'-'} (${it.user_ratings_total||0})</span></div><div class='small text-secondary'>${(it.formatted_address||'').replaceAll('<','&lt;')}</div>`;
+          btn.onclick = ()=>{ document.getElementById('placeId').value = it.place_id || ''; };
+          list.appendChild(btn);
+        });
+        nextToken = res.next_page_token || '';
+        const moreBtn = document.getElementById('tsMore'); moreBtn.disabled = !nextToken;
+      }catch(e){ console.error(e); alert('Text search failed'); }
+    }
+    document.getElementById('tsSearch').onclick=()=>doTextSearch(false);
+    document.getElementById('tsMore').onclick  =()=>doTextSearch(true);
+
+    // Details
+    document.getElementById('gDetailsBtn').onclick = async ()=>{
+      const pid=(document.getElementById('placeId').value||'').trim(); if(!pid) return;
+      const inc = document.getElementById('includeReviews').checked; const lang=gLang.value||'';
+      try{
+        const d = await apiGet(`/api/reviews/google/details?place_id=${encodeURIComponent(pid)}&language=${encodeURIComponent(lang)}&include_reviews=${inc}`);
+        const el = document.getElementById('gDetails');
+        el.innerHTML = `
+          <div><strong>${(d.name||'')}</strong></div>
+          <div class="text-secondary">${(d.address||'')}</div>
+          <div class="small">Rating: ${d.rating ?? '-'} · Reviews: ${d.user_ratings_total ?? 0}</div>
+          ${inc && d.reviews ? `<hr class='my-2'/>` : ''}
+          ${inc && d.reviews ? d.reviews.map(r=>`<div class='mb-2'><div class='small fw-bold'>${(r.author_name||'')}</div><div class='small text-secondary'>${r.relative_time_description||''} · ★${r.rating||'-'}</div><div>${(r.text||'').replaceAll('<','&lt;')}</div></div>`).join(''): ''}
+        `;
+      }catch(e){ alert('Details failed'); }
+    };
+
+    // Import sample reviews to company
+    document.getElementById('gImportBtn').onclick = async ()=>{
+      const cid=(companyEl.value||'').trim(); if(!cid){ alert('Enter company ID first'); return; }
+      const pid=(document.getElementById('placeId').value||'').trim(); if(!pid){ alert('Select a place first'); return; }
+      const lang=gLang.value||'';
+      try{
+        const res = await apiPost(`/api/reviews/google/import/${cid}?place_id=${encodeURIComponent(pid)}&language=${encodeURIComponent(lang)}&max_reviews=5`);
+        alert(`Imported ${res.imported} reviews`);
+        await loadSummary(); await loadReviews();
+      }catch(e){ console.error(e); alert('Import failed'); }
+    };
 
     // Initial icons
     lucide.createIcons();
