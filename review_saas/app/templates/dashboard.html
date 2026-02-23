@@ -45,10 +45,8 @@
         .fade-in { animation: fadeIn 0.5s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* Requirement: Scrollable sidebar area */
         #companyList { max-height: calc(100vh - 12rem); overflow-y: auto; }
         
-        /* Pulse for fetch button */
         .fetch-pulse { animation: pulse-blue 2s infinite; }
         @keyframes pulse-blue {
             0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
@@ -84,20 +82,17 @@
         <aside class="w-80 flex flex-col border-r border-slate-800 bg-slate-900/40">
             <div class="p-6">
                 <div class="relative">
-                    <input type="text" id="addCompanyInput" placeholder="Enter company name..." 
+                    <input type="text" id="addCompanyInput" placeholder="Add company by name..." 
                            class="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3 pl-4 pr-12 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder:text-slate-500">
                     <button onclick="handleAddCompany()" id="addBtn" class="absolute right-2 top-2 p-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-white transition-colors">
                         <i data-lucide="plus" class="w-5 h-5"></i>
                     </button>
                 </div>
             </div>
-            
-            <div id="companyList" class="flex-1 custom-scrollbar px-4 pb-6 space-y-2">
-                </div>
+            <div id="companyList" class="flex-1 custom-scrollbar px-4 pb-6 space-y-2"></div>
         </aside>
 
         <main id="dashboardContent" class="flex-1 overflow-y-auto p-8 custom-scrollbar space-y-8 hidden">
-            
             <div class="flex justify-between items-center">
                 <div class="fade-in">
                     <h1 id="activeCompanyName" class="text-4xl font-extrabold tracking-tight">--</h1>
@@ -110,15 +105,12 @@
                         </p>
                     </div>
                 </div>
-                
                 <div class="flex gap-4">
                     <button onclick="fetchGoogleData()" id="fetchDataBtn" class="fetch-pulse flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl text-sm font-bold transition-all shadow-lg shadow-blue-500/20">
-                        <i data-lucide="refresh-cw" class="w-5 h-5"></i> 
-                        Fetch Latest Data
+                        <i data-lucide="refresh-cw" class="w-5 h-5"></i> Fetch Latest Data
                     </button>
                     <button onclick="exportCSV()" class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-6 py-3 rounded-xl text-sm font-bold transition-all">
-                        <i data-lucide="download" class="w-5 h-5"></i> 
-                        Export CSV
+                        <i data-lucide="download" class="w-5 h-5"></i> Export CSV
                     </button>
                 </div>
             </div>
@@ -147,62 +139,31 @@
             <div class="glass-card p-8 bg-gradient-to-br from-blue-600/10 via-transparent border-blue-500/20">
                 <div class="flex items-center gap-3 mb-6">
                     <i data-lucide="sparkles" class="text-blue-400 w-6 h-6"></i>
-                    <h2 class="font-black text-xl tracking-tight uppercase tracking-widest">AI Actionable Insights</h2>
+                    <h2 class="font-black text-xl tracking-tight uppercase">AI Intelligence Stream</h2>
                 </div>
-                <div id="aiSummary" class="grid grid-cols-1 lg:grid-cols-3 gap-8 text-sm text-slate-300 leading-relaxed">
-                    </div>
+                <div id="aiSummary" class="grid grid-cols-1 lg:grid-cols-3 gap-8 text-sm text-slate-300"></div>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div class="glass-card p-8">
-                    <h3 class="font-bold text-lg mb-6 flex items-center gap-2"><i data-lucide="activity" class="w-5 h-5 text-blue-400"></i> Sentiment Velocity</h3>
-                    <canvas id="trendChart" height="220"></canvas>
-                </div>
-                <div class="glass-card p-8">
-                    <h3 class="font-bold text-lg mb-6 flex items-center gap-2"><i data-lucide="pie-chart" class="w-5 h-5 text-indigo-400"></i> Sentiment Analysis</h3>
-                    <div class="max-w-[280px] mx-auto"><canvas id="sentimentChart"></canvas></div>
-                </div>
-            </div>
-
-            <div class="glass-card p-8">
-                <h3 class="font-bold text-lg mb-6 flex items-center gap-2"><i data-lucide="hash" class="w-5 h-5 text-emerald-400"></i> Keyword Frequency</h3>
-                <div id="keywordContainer" class="flex flex-wrap gap-3"></div>
+                <div class="glass-card p-8"><canvas id="trendChart" height="220"></canvas></div>
+                <div class="glass-card p-8"><div class="max-w-[280px] mx-auto"><canvas id="sentimentChart"></canvas></div></div>
             </div>
 
             <div class="glass-card overflow-hidden">
                 <div class="p-8 border-b border-slate-800 flex justify-between items-center">
-                    <h3 class="font-bold text-lg">Verified Reviews Feed</h3>
+                    <h3 class="font-bold text-lg">Verified Feed</h3>
                     <div class="flex gap-3">
-                        <input type="text" id="tableSearch" placeholder="Search comments..." class="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none focus:border-blue-500">
-                        <select id="ratingFilter" class="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none cursor-pointer">
-                            <option value="">All Ratings</option>
-                            <option value="5">5 Stars</option>
-                            <option value="1">Critical (1 Star)</option>
-                        </select>
+                        <input type="text" id="tableSearch" placeholder="Search..." class="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none">
+                        <select id="ratingFilter" class="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none"><option value="">All</option><option value="5">5 ★</option><option value="1">1 ★</option></select>
                     </div>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm">
-                        <thead class="bg-slate-800/30 text-slate-500 uppercase text-[10px] font-black tracking-widest">
-                            <tr><th class="px-8 py-5">Reviewer</th><th class="px-8 py-5">Rating</th><th class="px-8 py-5">Comment</th><th class="px-8 py-5 text-right">Date</th></tr>
-                        </thead>
-                        <tbody id="reviewsTableBody" class="divide-y divide-slate-800"></tbody>
-                    </table>
-                </div>
-                <div class="p-6 bg-slate-900/20 flex justify-between items-center border-t border-slate-800">
-                    <span id="paginationInfo" class="text-xs font-bold text-slate-500 uppercase tracking-widest">Page 1 of 1</span>
-                    <div class="flex gap-2">
-                        <button onclick="changePage(-1)" class="p-2.5 hover:bg-slate-800 rounded-xl border border-slate-700 transition-all"><i data-lucide="arrow-left" class="w-4 h-4"></i></button>
-                        <button onclick="changePage(1)" class="p-2.5 hover:bg-slate-800 rounded-xl border border-slate-700 transition-all"><i data-lucide="arrow-right" class="w-4 h-4"></i></button>
-                    </div>
-                </div>
+                <div class="overflow-x-auto"><table class="w-full text-left text-sm"><tbody id="reviewsTableBody"></tbody></table></div>
             </div>
         </main>
 
         <div id="emptyState" class="flex-1 flex flex-col items-center justify-center text-slate-500 p-12 text-center">
             <i data-lucide="layers" class="w-20 h-20 opacity-10 mb-6"></i>
-            <h2 class="text-xl font-bold text-slate-300">BI Engine Standby</h2>
-            <p class="mt-2 text-sm max-w-xs">Select a company to load international-standard insights and reviews.</p>
+            <h2 class="text-xl font-bold text-slate-300">BI Engine Ready</h2>
         </div>
     </div>
 
@@ -214,23 +175,26 @@
         document.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
             
-            // Requirement 4 & 6: Default date ranges
+            // Fix for Log Error: Ensure endDate is today
             const today = new Date();
-            const past30 = new Date();
-            past30.setDate(today.getDate() - 30);
-            
             document.getElementById('endDate').value = today.toISOString().split('T')[0];
-            // Start date specifically required as 23/02/2026 as per your request
             
             initSortable();
             loadCompanies();
 
+            // Listeners for auto-reload
             ['startDate', 'endDate', 'ratingFilter'].forEach(id => {
-                document.getElementById(id).addEventListener('change', () => { currentPage = 1; reloadActiveCompany(); });
+                document.getElementById(id).addEventListener('change', () => { 
+                    currentPage = 1; 
+                    reloadActiveCompany(); 
+                });
             });
             document.getElementById('tableSearch').addEventListener('input', debounce(() => { currentPage = 1; reloadActiveCompany(); }, 400));
         });
 
+        // =========================================================
+        // JAVASCRIPT: COMPONENT INITIALIZATION (Requirements 2, 14)
+        // =========================================================
         function initSortable() {
             new Sortable(document.getElementById('companyList'), { animation: 200, ghostClass: 'bg-blue-600/10', handle: '.drag-handle' });
         }
@@ -251,6 +215,9 @@
             lucide.createIcons();
         }
 
+        // =========================================================
+        // JAVASCRIPT: DATA FETCHING & SYNC (Requirements 3, 5, 13)
+        // =========================================================
         async function fetchGoogleData() {
             if (!activeCompanyId) return;
             const btn = document.getElementById('fetchDataBtn');
@@ -260,13 +227,13 @@
             lucide.createIcons();
 
             try {
-                // Hits the ingestion service
                 const res = await fetch(`/api/reviews/sync/${activeCompanyId}`, { method: 'POST' });
                 if (res.ok) {
                     await reloadActiveCompany();
+                    alert("Sync Successful: Data extracted from Google.");
                 }
             } catch (err) {
-                console.error("Sync error");
+                alert("API Error: Verify credentials.");
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = original;
@@ -283,22 +250,44 @@
             reloadActiveCompany();
         }
 
+        // =========================================================
+        // JAVASCRIPT: DATE CORRECTION LOGIC (Fixing 422 Logs)
+        // =========================================================
         async function reloadActiveCompany() {
             if (!activeCompanyId) return;
-            const start = document.getElementById('startDate').value;
-            const end = document.getElementById('endDate').value;
+            
+            let start = document.getElementById('startDate').value;
+            let end = document.getElementById('endDate').value;
+
+            // Log-based Fix: Ensure Start date is not ahead of End date
+            if (new Date(start) > new Date(end)) {
+                console.warn("Date range inverted. Swapping for correct API query.");
+                const temp = start;
+                start = end;
+                end = temp;
+                document.getElementById('startDate').value = start;
+                document.getElementById('endDate').value = end;
+            }
+
             const q = document.getElementById('tableSearch').value;
             const r = document.getElementById('ratingFilter').value;
 
-            const sumRes = await fetch(`/api/dashboard/summary/${activeCompanyId}?start=${start}&end=${end}`);
-            const sumData = await sumRes.json();
-            const tabRes = await fetch(`/api/dashboard/table?company_id=${activeCompanyId}&page=${currentPage}&start=${start}&end=${end}&q=${q}&rating=${r}`);
-            const tabData = await tabRes.json();
-            
-            updateUI(sumData);
-            updateTable(tabData);
+            try {
+                const sumRes = await fetch(`/api/dashboard/summary/${activeCompanyId}?start=${start}&end=${end}`);
+                const sumData = await sumRes.json();
+                const tabRes = await fetch(`/api/dashboard/table?company_id=${activeCompanyId}&page=${currentPage}&start=${start}&end=${end}&q=${q}&rating=${r}`);
+                const tabData = await tabRes.json();
+                
+                updateUI(sumData);
+                updateTable(tabData);
+            } catch (e) {
+                console.error("Dashboard Load Error:", e);
+            }
         }
 
+        // =========================================================
+        // JAVASCRIPT: UI UPDATES & CHARTS (Requirements 7-10, 29)
+        // =========================================================
         function updateUI(data) {
             document.getElementById('activeCompanyName').innerText = data.company.name;
             document.getElementById('cityText').innerText = data.company.city || '--';
@@ -312,14 +301,10 @@
             bar.style.width = data.metrics.risk_score + '%';
             bar.className = `h-full transition-all duration-1000 ${data.metrics.risk_score > 40 ? 'bg-red-500' : 'bg-blue-500'}`;
 
-            // AI Intelligence - Requirement 17 & 18
             document.getElementById('aiSummary').innerHTML = `
-                <div><p class="text-blue-400 font-black text-[10px] uppercase">Market Position</p><p>Review Velocity is <span class="text-white font-bold">${data.trend.signal}</span> with <span class="text-white font-bold">${data.metrics.total}</span> points analyzed in selected window.</p></div>
-                <div><p class="text-indigo-400 font-black text-[10px] uppercase">Stability Risk</p><p>Profile: <span class="text-white font-bold">${data.metrics.risk_level}</span>. Priority: <span class="text-blue-400 font-bold">${data.ai_recommendations[0]?.action || 'Operational Consistency'}</span>.</p></div>
-                <div><p class="text-emerald-400 font-black text-[10px] uppercase">Strategic Pivot</p><ul class="space-y-1">${data.ai_recommendations.slice(0, 2).map(r => `<li>• Address ${r.area}</li>`).join('')}</ul></div>`;
-
-            // Requirement 20: Keyword Badges
-            document.getElementById('keywordContainer').innerHTML = data.keywords.labels.map((l, i) => `<div class="bg-slate-800 px-4 py-2 rounded-xl text-xs font-bold text-slate-300 uppercase tracking-tighter">${l} <span class="text-blue-500 ml-1 font-black">${data.keywords.data[i]}</span></div>`).join('');
+                <div><p class="text-blue-400 font-bold uppercase text-[10px]">Position</p><p>Review Velocity: <span class="text-white">${data.trend.signal}</span>.</p></div>
+                <div><p class="text-indigo-400 font-bold uppercase text-[10px]">Assessment</p><p>Risk: <span class="text-white font-bold">${data.metrics.risk_level}</span>.</p></div>
+                <div><p class="text-emerald-400 font-bold uppercase text-[10px]">Pivot</p><p>${data.ai_recommendations[0]?.action || 'Stable'}</p></div>`;
 
             renderCharts(data);
             lucide.createIcons();
@@ -328,11 +313,11 @@
         function updateTable(data) {
             const body = document.getElementById('reviewsTableBody');
             body.innerHTML = data.data.map(r => `
-                <tr class="${r.rating <= 2 ? 'negative-highlight' : ''} hover:bg-slate-800/20 transition-colors">
-                    <td class="px-8 py-5"><div class="flex items-center gap-3"><img src="${r.reviewer_avatar || 'https://ui-avatars.com/api/?background=random&name='+r.reviewer_name}" class="w-10 h-10 rounded-full bg-slate-800 shadow-lg"><span class="font-bold">${r.reviewer_name || 'Anonymous'}</span></div></td>
-                    <td class="px-8 py-5"><div class="inline-flex items-center gap-1.5 bg-slate-900 px-3 py-1 rounded-lg"><span class="font-black text-yellow-500">${r.rating}</span><i data-lucide="star" class="w-3 h-3 fill-yellow-500 text-yellow-500"></i></div></td>
-                    <td class="px-8 py-5"><p class="text-slate-400 italic text-xs leading-relaxed max-w-md line-clamp-2">"${r.text || 'No commentary provided.'}"</p></td>
-                    <td class="px-8 py-5 text-right font-mono text-[10px] text-slate-600">${new Date(r.review_date).toLocaleDateString('en-GB')}</td>
+                <tr class="${r.rating <= 2 ? 'negative-highlight' : ''} hover:bg-slate-800/20">
+                    <td class="px-8 py-5"><div class="flex items-center gap-3"><span class="font-bold">${r.reviewer_name || 'User'}</span></div></td>
+                    <td class="px-8 py-5"><span class="text-yellow-500">${r.rating} ★</span></td>
+                    <td class="px-8 py-5"><p class="text-slate-400 text-xs italic">"${r.text || '...'}"</p></td>
+                    <td class="px-8 py-5 text-right font-mono text-[10px]">${new Date(r.review_date).toLocaleDateString('en-GB')}</td>
                 </tr>`).join('');
             document.getElementById('paginationInfo').innerText = `Page ${data.page} of ${data.pages}`;
             lucide.createIcons();
@@ -343,21 +328,21 @@
             const sentCtx = document.getElementById('sentimentChart').getContext('2d');
             if (activeCharts.trend) activeCharts.trend.destroy();
             if (activeCharts.sentiment) activeCharts.sentiment.destroy();
-            activeCharts.trend = new Chart(trendCtx, { type: 'line', data: { labels: data.trend.labels, datasets: [{ data: data.trend.data, borderColor: '#3b82f6', tension: 0.4, fill: true, backgroundColor: 'rgba(59, 130, 246, 0.05)' }] }, options: { plugins: { legend: { display: false } }, scales: { y: { min: 1, max: 5 } } } });
-            activeCharts.sentiment = new Chart(sentCtx, { type: 'doughnut', data: { labels: ['Positive', 'Neutral', 'Negative'], datasets: [{ data: [data.sentiment.Positive, data.sentiment.Neutral, data.sentiment.Negative], backgroundColor: ['#10b981', '#64748b', '#ef4444'], borderWidth: 0 }] }, options: { cutout: '80%', plugins: { legend: { position: 'bottom' } } } });
+            activeCharts.trend = new Chart(trendCtx, { type: 'line', data: { labels: data.trend.labels, datasets: [{ data: data.trend.data, borderColor: '#3b82f6', tension: 0.4 }] }});
+            activeCharts.sentiment = new Chart(sentCtx, { type: 'doughnut', data: { labels: ['Pos', 'Neu', 'Neg'], datasets: [{ data: [data.sentiment.Positive, data.sentiment.Neutral, data.sentiment.Negative], backgroundColor: ['#10b981', '#64748b', '#ef4444'] }] }});
         }
 
         async function handleAddCompany() {
             const name = document.getElementById('addCompanyInput').value.trim();
             if (!name) return;
             const res = await fetch('/api/dashboard/companies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-            if (res.ok) { document.getElementById('addCompanyInput').value = ''; await loadCompanies(); }
+            if (res.ok) { document.getElementById('addCompanyInput').value = ''; loadCompanies(); }
             lucide.createIcons();
         }
 
         function debounce(func, t) { let timer; return (...args) => { clearTimeout(timer); timer = setTimeout(() => func.apply(this, args), t); }; }
         function changePage(dir) { currentPage = Math.max(1, currentPage + dir); reloadActiveCompany(); }
-        function confirmDelete(e, id) { e.stopPropagation(); if (confirm("Purge company data?")) fetch(`/api/dashboard/companies/${id}`, { method: 'DELETE' }).then(() => loadCompanies()); }
+        function confirmDelete(e, id) { e.stopPropagation(); if (confirm("Delete?")) fetch(`/api/dashboard/companies/${id}`, { method: 'DELETE' }).then(() => loadCompanies()); }
         function handleLogout() { window.location.href = '/login'; }
         function exportCSV() { window.location.href = `/api/dashboard/export?company_id=${activeCompanyId}&start=${document.getElementById('startDate').value}&end=${document.getElementById('endDate').value}`; }
     </script>
