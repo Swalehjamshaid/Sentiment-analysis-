@@ -115,6 +115,12 @@ class SimpleReview:
     rating: Optional[float]
     text: Optional[str]
     review_date: Optional[datetime]
+    source: Optional[str] = None
+    title: Optional[str] = None
+    author: Optional[str] = None
+    url: Optional[str] = None
+    sentiment_category: Optional[str] = None
+    keywords: Optional[str] = None
 
     @classmethod
     def from_any(cls, obj: Any) -> "SimpleReview":
@@ -122,10 +128,26 @@ class SimpleReview:
         rating = getattr(obj, "rating", None)
         text = getattr(obj, "text", None)
         review_date = getattr(obj, "review_date", None)
+        source = getattr(obj, "source", None)
+        title = getattr(obj, "title", None)
+        author = getattr(obj, "author", None)
+        url = getattr(obj, "url", None)
+        sentiment_category = getattr(obj, "sentiment_category", None)
+        keywords = getattr(obj, "keywords", None)
         if review_date and not isinstance(review_date, datetime):
             # best effort: ignore non-datetime
             review_date = None
-        return cls(rating=rating, text=text, review_date=review_date)
+        return cls(
+            rating=rating,
+            text=text,
+            review_date=review_date,
+            source=source,
+            title=title,
+            author=author,
+            url=url,
+            sentiment_category=sentiment_category,
+            keywords=keywords,
+        )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -323,11 +345,255 @@ def analyze_reviews(
     }
 
 
+# ─────────────────────────────────────────────────────────────
+# NEW: Dashboard-oriented helpers (pure Python)
+# These are thin adapters around the core logic above so your routes
+# can return exactly what dashboard.html expects.
+# ─────────────────────────────────────────────────────────────
+
+def metrics_payload(
+    reviews: Iterable[Any],
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    """Return minimal metrics block: total, avg_rating, risk_score, risk_level."""
+    # Leverage the same math used in analyze_reviews for consistency
+    payload = analyze_reviews(reviews, company=type("C", (), {"name": ""})(), start=start, end=end, include_aspects=False)
+    return {
+        "total": payload.get("total_reviews", 0),
+        "avg_rating": float(payload.get("avg_rating", 0.0)),
+        "risk_score": float(payload.get("risk_score", 0.0)),
+        "risk_level": payload.get("risk_level", "Low"),
+    }
+
+def trend_timeseries(
+    reviews: Iterable[Any],
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+) -> Dict[str, List[Any]]:
+    """Average rating by day → {labels: [...], data: [...]} for Chart.js line."""
+    now = datetime.now(timezone.utc)
+    start = start or (now - timedelta(days=DEFAULT_WINDOW_DAYS))
+    end = end or now
+    simplified = [SimpleReview.from_any(r) for r in reviews]
+    series = _daily_buckets_range(simplified, start, end)
+    labels = [row["date"] for row in series]
+    data = [float(row["avg_rating"] or 0.0) for row in series]
+    return {"labels": labels, "data": data}
+
+def sentiment_buckets(
+    reviews: Iterable[Any],
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+) -> Dict[str, int]:
+    """Return counts for lowercase keys expected by the pie chart: pos/neu/neg."""
+    now = datetime.now(timezone.utc)
+    start = start or (now - timedelta(days=DEFAULT_WINDOW_DAYS))
+    end = end or now
+    simplified = [SimpleReview.from_any(r) for r in reviews]
+    pos = neu = neg = 0
+    for r in simplified:
+        dt = _parse_review_date(r.review_date)
+        if not dt or not (start <= dt <= end):
+            continue
+        lbl = classify_sentiment(r.rating)
+        if lbl == "Positive":
+            pos += 1
+        elif lbl == "Negative":
+            neg += 1
+        else:
+            neu += 1
+    return {"pos": int(pos), "neu": int(neu), "neg": int(neg)}
+
+def sources_breakdown(
+    reviews: Iterable[Any],
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+) -> Dict[str, List[Any]]:
+    """Aggregate reviews by `source` → {labels: [...], data: [...]}."""
+    now = datetime.now(timezone.utc)
+    start = start or (now - timedelta(days=DEFAULT_WINDOW_DAYS))
+    end = end or now
+    buckets: Dict[str, int] = defaultdict(int)
+    for r in (SimpleReview.from_any(x) for x in reviews):
+        dt = _parse_review_date(r.review_date)
+        if not dt or not (start <= dt <= end):
+            continue
+        key = (r.source or "unknown").strip() or "unknown"
+        buckets[key] += 1
+    labels = list(buckets.keys())
+    data = [int(buckets[k]) for k in labels]
+    return {"labels": labels, "data": data}
+
+def hour_heatmap(
+    reviews: Iterable[Any],
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+) -> Dict[str, List[int]]:
+    """Histogram of review counts by hour-of-day (0..23)."""
+    now = datetime.now(timezone.utc)
+    start = start or (now - timedelta(days=DEFAULT_WINDOW_DAYS))
+    end = end or now
+    hours = [0] * 24
+    for r in (SimpleReview.from_any(x) for x in reviews):
+        dt = _parse_review_date(r.review_date)
+        if not dt or not (start <= dt <= end):
+            continue
+        hours[dt.hour] += 1
+    return {"labels": list(range(24)), "data": hours}
+
+def top_keywords(
+    reviews: Iterable[Any],
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    top_n: int = 20,
+) -> Dict[str, List[Any]]:
+    """Return top keywords → {labels, data}. Uses Review.keywords if available."""
+    now = datetime.now(timezone.utc)
+    start = start or (now - timedelta(days=DEFAULT_WINDOW_DAYS))
+    end = end or now
+    buckets: Dict[str, int] = defaultdict(int)
+
+    for r in (SimpleReview.from_any(x) for x in reviews):
+        dt = _parse_review_date(r.review_date)
+        if not dt or not (start <= dt <= end):
+            continue
+        if r.keywords:
+            # Handle comma/semicolon split
+            parts = [p.strip().lower() for p in str(r.keywords).replace(";", ",").split(",") if p.strip()]
+            for p in parts:
+                buckets[p] += 1
+        else:
+            for tok in extract_keywords(r.text or ""):
+                buckets[tok] += 1
+
+    items = sorted(buckets.items(), key=lambda x: x[1], reverse=True)[:max(1, min(100, top_n))]
+    return {"labels": [k for k, _ in items], "data": [int(v) for _, v in items]}
+
+def detect_alerts(
+    reviews: Iterable[Any],
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    window_days: int = 14,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Detect simple alerts: rating drop/increase and volume spike."""
+    now = datetime.now(timezone.utc)
+    # Use provided window if any, else derive from available data
+    simplified = sorted(
+        (SimpleReview.from_any(x) for x in reviews),
+        key=lambda r: _parse_review_date(r.review_date) or datetime.min.replace(tzinfo=timezone.utc),
+    )
+    dts = [d for d in (_parse_review_date(r.review_date) for r in simplified) if d]
+    if not dts:
+        return {"alerts": []}
+
+    min_dt, max_dt = (min(dts), max(dts))
+    start = start or min_dt
+    end = end or max_dt
+
+    recent_start = end - timedelta(days=window_days)
+    prev_start = recent_start - timedelta(days=window_days)
+    prev_end = recent_start
+
+    def _avg(rs: List[SimpleReview]) -> float:
+        vals = [float(r.rating) for r in rs if r.rating is not None]
+        return float(sum(vals) / len(vals)) if vals else 0.0
+
+    recent = [r for r in simplified if (dt := _parse_review_date(r.review_date)) and recent_start <= dt <= end]
+    prev = [r for r in simplified if (dt := _parse_review_date(r.review_date)) and prev_start <= dt < prev_end]
+
+    recent_avg = _avg(recent)
+    prev_avg = _avg(prev)
+    recent_cnt = len(recent)
+    prev_cnt = len(prev)
+
+    alerts: List[Dict[str, Any]] = []
+    delta = recent_avg - prev_avg
+
+    if delta <= -0.5 and recent_cnt >= 10:
+        alerts.append({
+            "type": "warning",
+            "title": "Rating drop detected",
+            "message": f"Average rating fell by {abs(round(delta, 2))} in last {window_days} days.",
+            "recent_avg": round(recent_avg, 2),
+            "previous_avg": round(prev_avg, 2),
+            "recent_count": recent_cnt,
+            "previous_count": prev_cnt,
+        })
+    if delta >= 0.5 and recent_cnt >= 10:
+        alerts.append({
+            "type": "success",
+            "title": "Rating improvement",
+            "message": f"Average rating increased by {round(delta, 2)} in last {window_days} days.",
+            "recent_avg": round(recent_avg, 2),
+            "previous_avg": round(prev_avg, 2),
+            "recent_count": recent_cnt,
+            "previous_count": prev_cnt,
+        })
+    if prev_cnt and recent_cnt >= prev_cnt * 2 and recent_cnt >= 20:
+        alerts.append({
+            "type": "info",
+            "title": "Volume spike",
+            "message": f"Review volume doubled ({recent_cnt} vs {prev_cnt}).",
+            "recent_count": recent_cnt,
+            "previous_count": prev_cnt,
+        })
+
+    return {"alerts": alerts}
+
+def revenue_proxy_monthly(
+    reviews: Iterable[Any],
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    months_back: int = 6,
+) -> Dict[str, List[Any]]:
+    """Heuristic revenue proxy by month based on review count × normalized rating."""
+    now = datetime.now(timezone.utc)
+    start = start or (now - timedelta(days=DEFAULT_WINDOW_DAYS))
+    end = end or now
+
+    monthly: Dict[str, Dict[str, float]] = defaultdict(lambda: {"count": 0, "sum_rating": 0.0})
+    for r in (SimpleReview.from_any(x) for x in reviews):
+        dt = _parse_review_date(r.review_date)
+        if not dt or not (start <= dt <= end):
+            continue
+        key = dt.strftime("%Y-%m")
+        monthly[key]["count"] += 1
+        monthly[key]["sum_rating"] += float(r.rating or 0.0)
+
+    keys = sorted(monthly.keys())[-months_back:]
+    labels: List[str] = []
+    data: List[float] = []
+    for key in keys:
+        ym = datetime.strptime(key, "%Y-%m")
+        labels.append(ym.strftime("%b %Y"))
+        cnt = monthly[key]["count"]
+        avg = (monthly[key]["sum_rating"] / cnt) if cnt else 0.0
+        proxy = max(0.0, cnt * (avg / 5.0) * 100.0)
+        data.append(round(proxy, 2))
+
+    if not labels:
+        labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
+        data = [0, 0, 0, 0, 0, 0]
+
+    return {"labels": labels, "data": data}
+
+
 __all__ = [
+    # existing exports
     "analyze_reviews",
     "classify_sentiment",
     "extract_keywords",
     "map_aspects",
     "ASPECT_LEXICON",
     "ACTION_MAP",
+    # new dashboard helpers
+    "metrics_payload",
+    "trend_timeseries",
+    "sentiment_buckets",
+    "sources_breakdown",
+    "hour_heatmap",
+    "top_keywords",
+    "detect_alerts",
+    "revenue_proxy_monthly",
 ]
