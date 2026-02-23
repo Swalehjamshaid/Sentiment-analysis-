@@ -1,399 +1,748 @@
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="light">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Review Intelligence Dashboard</title>
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1"
+  />
+  <title>Customer Reviews Dashboard</title>
 
-  <!-- Bootstrap 5 CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
 
-  <!-- Bootstrap Icons -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <!-- DataTables -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simple-datatables@9.0.3/dist/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/simple-datatables@9.0.3/dist/umd/simple-datatables.min.js"></script>
 
   <style>
-    body { background-color: #f8f9fa; padding-top: 70px; }
-    .navbar-brand { font-weight: 600; }
-    .card-header { background-color: #0d6efd; color: white; }
-    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 1055; }
-    #loadingOverlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-      display: none; justify-content: center; align-items: center; z-index: 9999;
+    :root {
+      --bg: #0b1020;
+      --panel: rgba(255,255,255,0.06);
+      --panel-2: rgba(255,255,255,0.08);
+      --text: #e7ecf7;
+      --muted: #aab3c7;
+      --border: rgba(255,255,255,0.12);
+      --primary: #7c3aed;  /* Indigo */
+      --primary-2: #38bdf8; /* Sky blue */
+      --accent: #10b981;   /* Emerald */
+      --warn: #f59e0b;     /* Amber */
+      --danger: #ef4444;   /* Red */
+      --success: #22c55e;  /* Green */
+      --glass: blur(10px) saturate(1.1);
+      --radius: 16px;
+      --card-shadow: 0 8px 30px rgba(0,0,0,0.25);
+      --grad-1: linear-gradient(135deg, rgba(124,58,237,0.35), rgba(16,185,129,0.25));
+      --chip-bg: rgba(56,189,248,0.1);
+      --chip-border: rgba(56,189,248,0.35);
     }
-    .metric-card { transition: transform 0.2s; }
-    .metric-card:hover { transform: translateY(-5px); }
+    .light {
+      --bg: #f5f7fb;
+      --panel: rgba(255,255,255,0.95);
+      --panel-2: rgba(255,255,255,1);
+      --text: #0f172a;
+      --muted: #475569;
+      --border: rgba(15, 23, 42, 0.08);
+      --card-shadow: 0 10px 30px rgba(15,23,42,0.10);
+      --grad-1: linear-gradient(135deg, rgba(124,58,237,0.08), rgba(16,185,129,0.08));
+      --chip-bg: rgba(124,58,237,0.08);
+      --chip-border: rgba(124,58,237,0.25);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 700px at 10% -10%, rgba(124,58,237,0.25), transparent 50%),
+        radial-gradient(800px 600px at 90% 10%, rgba(16,185,129,0.18), transparent 50%),
+        var(--bg);
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1400px;
+      padding: 24px;
+      margin: 0 auto;
+    }
+
+    .nav {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 22px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      backdrop-filter: var(--glass);
+      box-shadow: var(--card-shadow);
+    }
+    .brand {
+      display: flex; align-items: center; gap: 14px; font-weight: 800; font-size: 1.2rem;
+      letter-spacing: 0.2px;
+    }
+    .brand .logo {
+      width: 42px; height: 42px; border-radius: 10px;
+      background: var(--grad-1);
+      border: 1px solid var(--border);
+      box-shadow: 0 8px 24px rgba(124,58,237,0.25), inset 0 0 20px rgba(255,255,255,0.06);
+    }
+    .nav-actions { display: flex; align-items: center; gap: 10px; }
+    button, .btn {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .2s ease;
+    }
+    button:hover, .btn:hover { transform: translateY(-1px); border-color: rgba(124,58,237,0.45); }
+    .btn-primary {
+      background: linear-gradient(135deg, #7c3aed, #38bdf8);
+      border: none;
+      color: white;
+      box-shadow: 0 8px 24px rgba(124,58,237,0.35);
+    }
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--chip-border);
+      color: var(--text);
+    }
+
+    .filters {
+      margin-top: 18px;
+      display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 12px;
+      align-items: center;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      backdrop-filter: var(--glass);
+      box-shadow: var(--card-shadow);
+    }
+    .select, .date {
+      width: 100%;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 12px;
+      outline: none;
+    }
+
+    .grid {
+      display: grid; gap: 16px; margin-top: 18px;
+      grid-template-columns: repeat(12, 1fr);
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      backdrop-filter: var(--glass);
+      box-shadow: var(--card-shadow);
+    }
+    .card h3 {
+      margin: 0 0 12px; font-size: 0.95rem; color: var(--muted); font-weight: 700; letter-spacing: .3px;
+    }
+    .kpis {
+      display: grid; gap: 16px;
+      grid-template-columns: repeat(4, 1fr);
+    }
+    .kpi {
+      position: relative; overflow: hidden;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+    }
+    .kpi .value { font-size: 1.8rem; font-weight: 800; letter-spacing: .5px; }
+    .kpi .label { color: var(--muted); margin-top: 6px; font-weight: 600; }
+    .kpi .spark {
+      position: absolute; right: -30px; top: -30px; width: 140px; height: 140px; border-radius: 50%;
+      background: var(--grad-1); filter: blur(20px); opacity: .4;
+    }
+
+    /* Chips / Keywords */
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+      border: 1px solid var(--chip-border);
+      background: var(--chip-bg);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 999px;
+      font-size: .85rem;
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .chip .count {
+      background: rgba(124,58,237,0.15);
+      padding: 4px 8px; border-radius: 999px; border: 1px solid var(--chip-border);
+      font-weight: 700; font-size: .75rem;
+    }
+
+    .alerts { display: grid; gap: 12px; }
+    .alert {
+      display: flex; justify-content: space-between; align-items: center;
+      border-radius: 14px; padding: 10px 12px; border: 1px solid var(--border);
+      background: var(--panel-2);
+    }
+    .alert.warning { border-color: rgba(245,158,11,0.35); background: rgba(245,158,11,0.10); }
+    .alert.success { border-color: rgba(34,197,94,0.35); background: rgba(34,197,94,0.10); }
+    .alert.info    { border-color: rgba(56,189,248,0.35); background: rgba(56,189,248,0.10); }
+
+    /* Map */
+    #map {
+      width: 100%; height: 380px; border-radius: 14px; border: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    /* Table */
+    table.dataTable-table {
+      width: 100%;
+      border-collapse: collapse;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    table.dataTable-table thead th {
+      background: var(--panel-2);
+      color: var(--muted);
+      font-weight: 700;
+      border-bottom: 1px solid var(--border);
+    }
+    table.dataTable-table tbody tr:nth-child(even) {
+      background: rgba(255,255,255,0.03);
+    }
+    table.dataTable-table td, table.dataTable-table th {
+      border-bottom: 1px solid var(--border);
+      padding: 10px 12px;
+      color: var(--text);
+    }
+
+    .footer {
+      margin: 24px 0 12px; color: var(--muted); text-align: center; font-size: .9rem;
+    }
+
+    @media (max-width: 1200px) {
+      .kpis { grid-template-columns: repeat(2, 1fr); }
+      .filters { grid-template-columns: 1fr 1fr 1fr; }
+    }
+    @media (max-width: 768px) {
+      .grid { grid-template-columns: 1fr; }
+      .filters { grid-template-columns: 1fr; }
+      .kpis { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
-
-<!-- Navbar -->
-<nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
-  <div class="container-fluid">
-    <a class="navbar-brand" href="#">Review Intelligence</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-    <div class="collapse navbar-collapse" id="navbarContent">
-      <ul class="navbar-nav me-auto">
-        <li class="nav-item"><a class="nav-link active" href="#">Dashboard</a></li>
-        <li class="nav-item"><a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#addCompanyModal">Add Company</a></li>
-      </ul>
-    </div>
-  </div>
-</nav>
-
-<!-- Main Content -->
-<div class="container mt-4">
-  <div class="row mb-4">
-    <div class="col-lg-6">
-      <label for="companySelect" class="form-label fw-bold">Select Company</label>
-      <select id="companySelect" class="form-select form-select-lg">
-        <option disabled selected>Loading companies...</option>
-      </select>
-    </div>
-    <div class="col-lg-6 text-end pt-4 pt-lg-0">
-      <button class="btn btn-outline-primary btn-lg" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
-        <i class="bi bi-plus-lg"></i> Add New Company
-      </button>
-    </div>
-  </div>
-
-  <!-- Metrics Cards -->
-  <div class="row g-4" id="metricsContainer">
-    <div class="col-md-3">
-      <div class="card metric-card shadow-sm border-0">
-        <div class="card-body text-center">
-          <h6 class="text-muted">Total Reviews</h6>
-          <h2 id="totalReviews">—</h2>
-        </div>
+  <div class="container">
+    <!-- NAV -->
+    <div class="nav">
+      <div class="brand">
+        <div class="logo"></div>
+        <div>Customer Reviews Dashboard</div>
+      </div>
+      <div class="nav-actions">
+        <button id="themeToggle" title="Toggle theme">🌗 Theme</button>
+        <button id="syncBtn" class="btn-outline" title="Trigger review sync">🔄 Sync</button>
+        <a id="exportBtn" class="btn btn-primary" href="#" target="_blank" rel="noopener">⬇️ Export CSV</a>
       </div>
     </div>
-    <div class="col-md-3">
-      <div class="card metric-card shadow-sm border-0">
-        <div class="card-body text-center">
-          <h6 class="text-muted">Average Rating</h6>
-          <h2 id="avgRating">—</h2>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-3">
-      <div class="card metric-card shadow-sm border-0">
-        <div class="card-body text-center">
-          <h6 class="text-muted">Positive</h6>
-          <h3 id="positiveCount" class="text-success">—</h3>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-3">
-      <div class="card metric-card shadow-sm border-0">
-        <div class="card-body text-center">
-          <h6 class="text-muted">Negative</h6>
-          <h3 id="negativeCount" class="text-danger">—</h3>
-        </div>
-      </div>
-    </div>
-  </div>
 
-  <!-- Placeholder for charts / details -->
-  <div class="card mt-4 shadow-sm border-0">
-    <div class="card-header">
-      <h5 class="mb-0">Review Insights & Trends</h5>
+    <!-- FILTERS -->
+    <div class="filters">
+      <select id="companySelect" class="select"></select>
+      <input id="startDate" class="date" type="date" />
+      <input id="endDate" class="date" type="date" />
+      <button id="refreshBtn" class="btn">⚡ Refresh</button>
+      <button id="recenterBtn" class="btn">🗺️ Recenter Map</button>
     </div>
-    <div class="card-body">
-      <div class="text-center py-5 text-muted">
-        <i class="bi bi-bar-chart-line-fill fs-1"></i>
-        <p class="mt-3">Select a company to view trends, sentiments and recommendations</p>
-      </div>
-    </div>
-  </div>
-</div>
 
-<!-- Loading Overlay -->
-<div id="loadingOverlay">
-  <div class="spinner-border text-primary" style="width: 4rem; height: 4rem;" role="status">
-    <span class="visually-hidden">Loading...</span>
-  </div>
-</div>
-
-<!-- Toast Container -->
-<div class="toast-container"></div>
-
-<!-- Add Company Modal -->
-<div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="addCompanyModalLabel">Add New Company</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <form id="addCompanyForm">
-        <div class="modal-body">
-          <div class="mb-3">
-            <label for="placeSearchInput" class="form-label">Search Business (Google Places)</label>
-            <input type="text" class="form-control form-control-lg" id="placeSearchInput" placeholder="Type business name or address..." autocomplete="off" required>
+    <!-- KPIs -->
+    <div class="grid">
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="kpis">
+          <div class="kpi">
+            <div class="spark"></div>
+            <div class="value" id="kpiTotal">0</div>
+            <div class="label">Total Reviews</div>
           </div>
-          <div class="row g-3">
-            <div class="col-md-12">
-              <input type="text" class="form-control" id="companyName" placeholder="Company Name" required>
-            </div>
-            <div class="col-md-6">
-              <input type="text" class="form-control" id="companyCity" placeholder="City">
-            </div>
-            <div class="col-md-6">
-              <input type="text" class="form-control" id="companyPhone" placeholder="Phone Number">
-            </div>
-            <div class="col-12">
-              <input type="text" class="form-control" id="companyAddress" placeholder="Full Address">
-            </div>
-            <div class="col-md-12">
-              <input type="url" class="form-control" id="companyWebsite" placeholder="Website[](https://...)">
-            </div>
+          <div class="kpi">
+            <div class="spark"></div>
+            <div class="value" id="kpiAvg">0.0</div>
+            <div class="label">Average Rating</div>
           </div>
-          <!-- Hidden fields populated by autocomplete -->
-          <input type="hidden" id="placeIdHidden">
-          <input type="hidden" id="latHidden">
-          <input type="hidden" id="lngHidden">
+          <div class="kpi">
+            <div class="spark"></div>
+            <div class="value" id="kpiRisk">0</div>
+            <div class="label">Risk Score</div>
+          </div>
+          <div class="kpi">
+            <div class="spark"></div>
+            <div class="value" id="kpiLevel">—</div>
+            <div class="label">Risk Level</div>
+          </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="saveCompanyBtn">Save Company</button>
+      </div>
+
+      <!-- CHARTS LEFT -->
+      <div class="card" style="grid-column: span 8;">
+        <h3>Rating Trend</h3>
+        <canvas id="trendChart" height="120"></canvas>
+      </div>
+
+      <!-- SIDEBAR RIGHT -->
+      <div class="card" style="grid-column: span 4;">
+        <h3>Sentiment Breakdown</h3>
+        <canvas id="sentimentChart" height="220"></canvas>
+        <div style="margin-top:12px; font-size:.85rem; color:var(--muted)">
+          Positive / Neutral / Negative over the selected period.
         </div>
-      </form>
+      </div>
+
+      <!-- SOURCES + HEATMAP -->
+      <div class="card" style="grid-column: span 4;">
+        <h3>Review Sources</h3>
+        <canvas id="sourcesChart" height="220"></canvas>
+      </div>
+      <div class="card" style="grid-column: span 8;">
+        <h3>Activity by Hour</h3>
+        <canvas id="heatmapChart" height="100"></canvas>
+      </div>
+
+      <!-- AI INSIGHTS -->
+      <div class="card" style="grid-column: span 8;">
+        <h3>AI Recommendations</h3>
+        <div id="recoList" class="alerts"></div>
+        <h3 style="margin-top:16px;">Top Keywords</h3>
+        <div id="keywords" class="chips"></div>
+      </div>
+
+      <div class="card" style="grid-column: span 4;">
+        <h3>Alerts</h3>
+        <div id="alerts" class="alerts"></div>
+      </div>
+
+      <!-- MAP -->
+      <div class="card" style="grid-column: 1 / -1;">
+        <h3>Location</h3>
+        <div id="map"></div>
+      </div>
+
+      <!-- TABLE -->
+      <div class="card" style="grid-column: 1 / -1;">
+        <h3>Reviews</h3>
+        <div class="table-wrap">
+          <table id="reviewsTable" class="dataTable-table display">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Rating</th>
+                <th>Title</th>
+                <th>Text</th>
+                <th>Author</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody><!-- filled by script --></tbody>
+          </table>
+        </div>
+      </div>
     </div>
+
+    <div class="footer">© <span id="year"></span> Customer Reviews Intelligence • Powered by AI</div>
   </div>
-</div>
 
-<!-- Bootstrap JS + Popper -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+  <!-- GOOGLE MAPS (Frontend key per your instruction) -->
+  <script async defer
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&callback=initMap">
+  </script>
 
-<!-- Google Maps Places API (replace YOUR_API_KEY) -->
-<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&libraries=places" async defer></script>
-
-<script>
-// ----------------------------------------------------------
-// Global variables
-// ----------------------------------------------------------
-let currentCompanyId = null;
-let googleAutocomplete = null;
-
-// ----------------------------------------------------------
-// DOM ready
-// ----------------------------------------------------------
-document.addEventListener('DOMContentLoaded', () => {
-  loadCompanies();
-  initAutocomplete();
-  document.getElementById('addCompanyForm').addEventListener('submit', handleAddCompany);
-});
-
-// ----------------------------------------------------------
-// 1. Load companies list
-// ----------------------------------------------------------
-async function loadCompanies() {
-  const select = document.getElementById('companySelect');
-  select.innerHTML = '<option disabled selected>Loading companies...</option>';
-
-  try {
-    const res = await fetch('/api/companies?page=1&limit=100&status=active&sort=name&order=asc');
-    if (!res.ok) throw new Error(await res.text());
-
-    const companies = await res.json();
-
-    select.innerHTML = '<option value="" disabled selected>Select company...</option>';
-
-    if (companies.length === 0) {
-      select.innerHTML += '<option disabled>No companies found</option>';
-      showToast("No companies found", "warning");
-      return;
-    }
-
-    companies.forEach(c => {
-      const opt = document.createElement('option');
-      opt.value = c.id;
-      opt.textContent = c.name + (c.city ? ` (${c.city})` : '');
-      select.appendChild(opt);
+  <script>
+    // ========= THEME =========
+    const root = document.documentElement;
+    const themeToggle = document.getElementById('themeToggle');
+    const storedTheme = localStorage.getItem('theme') || 'dark';
+    if (storedTheme === 'light') document.body.classList.add('light');
+    themeToggle.addEventListener('click', () => {
+      document.body.classList.toggle('light');
+      localStorage.setItem('theme', document.body.classList.contains('light') ? 'light' : 'dark');
+      // Repaint charts to pick up CSS changes
+      setTimeout(redrawCharts, 50);
     });
 
-    // Auto-load first company
-    if (!currentCompanyId && companies.length > 0) {
-      currentCompanyId = companies[0].id;
-      select.value = currentCompanyId;
-      loadSummary(currentCompanyId);
-    }
-
-    select.onchange = () => {
-      currentCompanyId = select.value ? Number(select.value) : null;
-      if (currentCompanyId) loadSummary(currentCompanyId);
-      else clearMetrics();
+    // ========= GLOBALS =========
+    const API = {
+      companies: '/api/companies',               // GET (active companies) via dashboard router OR companies router
+      metrics: '/api/metrics',                   // GET ?company_id&start&end
+      trend: '/api/trend',                       // GET ?company_id&start&end
+      sentiment: '/api/sentiment',               // GET ?company_id&start&end
+      sources: '/api/sources',                   // GET ?company_id&start&end
+      heatmap: '/api/heatmap',                   // GET ?company_id&start&end
+      keywords: '/api/keywords',                 // GET ?company_id&start&end&top_n
+      alerts: '/api/alerts',                     // GET ?company_id&start&end&window_days
+      reviews: '/api/reviews',                   // GET ?company_id&page&limit&search&sort&order&start&end
+      export: '/api/export',                     // GET ?company_id&start&end
+      sync: '/api/reviews/sync',                 // POST ?company_id
+      companyById: id => `/api/companies/${id}`, // GET company details (lat/lng)
     };
 
-  } catch (err) {
-    console.error(err);
-    select.innerHTML = '<option disabled selected>Error loading companies</option>';
-    showToast("Failed to load companies", "danger");
-  }
-}
+    const qs = (sel) => document.querySelector(sel);
+    const companySelect = qs('#companySelect');
+    const startDate = qs('#startDate');
+    const endDate = qs('#endDate');
+    const refreshBtn = qs('#refreshBtn');
+    const recenterBtn = qs('#recenterBtn');
+    const syncBtn = qs('#syncBtn');
+    const exportBtn = qs('#exportBtn');
 
-// ----------------------------------------------------------
-// 2. Google Places Autocomplete
-// ----------------------------------------------------------
-function initAutocomplete() {
-  const input = document.getElementById('placeSearchInput');
-  if (!input || !window.google?.maps?.places) {
-    console.warn("Google Places library not loaded");
-    return;
-  }
+    const kpiTotal = qs('#kpiTotal');
+    const kpiAvg = qs('#kpiAvg');
+    const kpiRisk = qs('#kpiRisk');
+    const kpiLevel = qs('#kpiLevel');
 
-  googleAutocomplete = new google.maps.places.Autocomplete(input, {
-    types: ['establishment'],
-    fields: ['place_id', 'name', 'formatted_address', 'geometry.location', 'formatted_phone_number', 'website']
-  });
+    const recoList = qs('#recoList');
+    const keywordsWrap = qs('#keywords');
+    const alertsWrap = qs('#alerts');
 
-  googleAutocomplete.addListener('place_changed', () => {
-    const place = googleAutocomplete.getPlace();
-    if (!place.place_id) return;
+    document.getElementById('year').textContent = new Date().getFullYear();
 
-    document.getElementById('companyName').value = place.name || '';
-    document.getElementById('companyAddress').value = place.formatted_address || '';
-    document.getElementById('placeIdHidden').value = place.place_id;
+    // Default window: last 90 days
+    function fmtDate(d) { return d.toISOString().slice(0,10); }
+    const today = new Date();
+    const past = new Date(today.getTime() - 89*24*3600*1000);
+    startDate.value = fmtDate(past);
+    endDate.value = fmtDate(today);
 
-    if (place.geometry?.location) {
-      document.getElementById('latHidden').value = place.geometry.location.lat();
-      document.getElementById('lngHidden').value = place.geometry.location.lng();
+    // ========= MAP =========
+    let map, marker;
+    window.initMap = function initMap() {
+      map = new google.maps.Map(document.getElementById('map'), {
+        center: { lat: 31.5204, lng: 74.3587 }, // Lahore default
+        zoom: 10,
+        styles: document.body.classList.contains('light') ? [] : [
+          { elementType: 'geometry', stylers: [{color: '#1f2937'}]},
+          { elementType: 'labels.text.stroke', stylers: [{color: '#1f2937'}]},
+          { elementType: 'labels.text.fill', stylers: [{color: '#e5e7eb'}]},
+          { featureType: 'poi', stylers: [{visibility: 'off'}]},
+          { featureType: 'transit', stylers: [{visibility: 'off'}]},
+        ],
+        disableDefaultUI: false,
+        mapTypeControl: false,
+        streetViewControl: false,
+      });
+    };
+
+    async function recenterToCompany(id) {
+      try {
+        const res = await fetch(API.companyById(id));
+        if (!res.ok) return;
+        const c = await res.json();
+        if (c.lat && c.lng) {
+          const pos = { lat: c.lat, lng: c.lng };
+          map.setCenter(pos); map.setZoom(14);
+          if (!marker) marker = new google.maps.Marker({ map });
+          marker.setPosition(pos);
+          marker.setTitle(c.name || 'Company');
+        }
+      } catch (e) { console.warn('Map recenter failed', e); }
     }
 
-    // Optional: fetch more details
-    fetch(`/api/companies/details/${place.place_id}`)
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(data => {
-        document.getElementById('companyPhone').value = data.phone || '';
-        document.getElementById('companyWebsite').value = data.website || '';
-        document.getElementById('companyCity').value = data.city || '';
-      })
-      .catch(() => showToast("Could not load full details", "warning"));
-  });
-}
-
-// ----------------------------------------------------------
-// 3. Add company form submit
-// ----------------------------------------------------------
-async function handleAddCompany(e) {
-  e.preventDefault();
-  showLoading(true);
-
-  const payload = {
-    name: document.getElementById('companyName').value.trim(),
-    place_id: document.getElementById('placeIdHidden').value.trim(),
-    city: document.getElementById('companyCity').value.trim(),
-    address: document.getElementById('companyAddress').value.trim(),
-    phone: document.getElementById('companyPhone').value.trim(),
-    website: document.getElementById('companyWebsite').value.trim(),
-    lat: parseFloat(document.getElementById('latHidden').value) || null,
-    lng: parseFloat(document.getElementById('lngHidden').value) || null,
-  };
-
-  if (!payload.name) {
-    showToast("Company name is required", "danger");
-    showLoading(false);
-    return;
-  }
-
-  try {
-    const res = await fetch('/api/companies', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+    recenterBtn.addEventListener('click', () => {
+      const id = companySelect.value; if (id) recenterToCompany(id);
     });
 
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || "Failed to add company");
+    // ========= CHARTS =========
+    let trendChart, sentimentChart, sourcesChart, heatmapChart;
+    function chartColors() {
+      // Pull from CSS
+      const styles = getComputedStyle(document.body);
+      return {
+        primary: styles.getPropertyValue('--primary').trim(),
+        primary2: styles.getPropertyValue('--primary-2').trim(),
+        accent: styles.getPropertyValue('--accent').trim(),
+        warn: styles.getPropertyValue('--warn').trim(),
+        danger: styles.getPropertyValue('--danger').trim(),
+        success: styles.getPropertyValue('--success').trim(),
+        text: styles.getPropertyValue('--text').trim(),
+        grid: styles.getPropertyValue('--border').trim(),
+      };
+    }
+    function destroyCharts() {
+      [trendChart, sentimentChart, sourcesChart, heatmapChart].forEach(ch => ch && ch.destroy());
+    }
+    function redrawCharts() {
+      // Will be redrawn on next refresh call
+      refresh();
     }
 
-    const newCompany = await res.json();
-    showToast(`"${newCompany.name}" added successfully!`, "success");
+    // ========= DATA FETCH HELPERS =========
+    function params(obj) {
+      const u = new URLSearchParams();
+      Object.entries(obj).forEach(([k,v]) => (v !== undefined && v !== null && v !== '') && u.append(k, v));
+      return u.toString();
+    }
+    async function getJSON(url, query = {}) {
+      const full = `${url}?${params(query)}`;
+      const res = await fetch(full);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
+    async function postJSON(url, query = {}) {
+      const full = `${url}?${params(query)}`;
+      const res = await fetch(full, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
 
-    // Refresh list & close modal
-    loadCompanies();
-    bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
-
-    // Optional: auto-select the new company
-    setTimeout(() => {
-      const select = document.getElementById('companySelect');
-      const opt = Array.from(select.options).find(o => o.textContent.includes(newCompany.name));
-      if (opt) {
-        select.value = opt.value;
-        currentCompanyId = Number(opt.value);
-        loadSummary(currentCompanyId);
+    // ========= LOAD COMPANIES =========
+    async function loadCompanies() {
+      companySelect.innerHTML = `<option value="">Loading companies…</option>`;
+      try {
+        const list = await getJSON(API.companies);
+        const options = (list || []).map(c =>
+          `<option value="${c.id}">${c.name}${c.city ? ' — ' + c.city : ''}</option>`
+        ).join('');
+        companySelect.innerHTML = options || `<option value="">No companies</option>`;
+        if (companySelect.value) {
+          recenterToCompany(companySelect.value);
+        } else if (list && list[0]) {
+          companySelect.value = list[0].id;
+          recenterToCompany(list[0].id);
+        }
+      } catch (e) {
+        companySelect.innerHTML = `<option value="">Failed to load companies</option>`;
       }
-    }, 800);
+    }
 
-  } catch (err) {
-    showToast(err.message, "danger");
-  } finally {
-    showLoading(false);
-  }
-}
+    // ========= KPIs & CHARTS & INSIGHTS =========
+    async function refresh() {
+      const company_id = companySelect.value;
+      const start = startDate.value;
+      const end = endDate.value;
+      if (!company_id) return;
 
-// ----------------------------------------------------------
-// 4. Placeholder: Load summary/metrics (connect to your real endpoint)
-// ----------------------------------------------------------
-async function loadSummary(companyId) {
-  showLoading(true);
-  try {
-    // Replace with your real endpoint when ready
-    // const res = await fetch(`/api/reviews/summary/${companyId}`);
-    // const data = await res.json();
+      // Export / Sync URLs
+      exportBtn.href = `${API.export}?${params({ company_id, start, end })}`;
 
-    // For demo: fake data
-    const fakeData = {
-      total_reviews: 248,
-      average_rating: 4.2,
-      sentiment: { positive: 172, neutral: 41, negative: 35 }
-    };
+      // KPIs
+      try {
+        const m = await getJSON(API.metrics, { company_id, start, end });
+        kpiTotal.textContent = m.total ?? 0;
+        kpiAvg.textContent = Number(m.avg_rating || 0).toFixed(2);
+        kpiRisk.textContent = m.risk_score ?? 0;
+        kpiLevel.textContent = m.risk_level || '—';
+      } catch (e) {
+        console.warn('Metrics failed', e);
+      }
 
-    document.getElementById('totalReviews').textContent = fakeData.total_reviews;
-    document.getElementById('avgRating').textContent = fakeData.average_rating.toFixed(1);
-    document.getElementById('positiveCount').textContent = fakeData.sentiment.positive;
-    document.getElementById('negativeCount').textContent = fakeData.sentiment.negative;
+      // Trend
+      try {
+        const t = await getJSON(API.trend, { company_id, start, end });
+        const c = chartColors();
+        if (trendChart) trendChart.destroy();
+        const ctx = document.getElementById('trendChart').getContext('2d');
+        trendChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: t.labels,
+            datasets: [{
+              label: 'Avg Rating',
+              data: t.data,
+              borderColor: c.primary,
+              backgroundColor: 'transparent',
+              tension: 0.35,
+              borderWidth: 3,
+              pointRadius: 0,
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+              y: { beginAtZero: true, max: 5, grid: { color: c.grid }, ticks: { color: c.text }},
+              x: { grid: { display: false }, ticks: { color: c.text }},
+            },
+          }
+        });
+      } catch (e) { console.warn('Trend failed', e); }
 
-  } catch (err) {
-    console.error(err);
-    showToast("Failed to load metrics", "danger");
-  } finally {
-    showLoading(false);
-  }
-}
+      // Sentiment
+      try {
+        const s = await getJSON(API.sentiment, { company_id, start, end });
+        const c = chartColors();
+        if (sentimentChart) sentimentChart.destroy();
+        const ctx = document.getElementById('sentimentChart').getContext('2d');
+        sentimentChart = new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: ['Positive', 'Neutral', 'Negative'],
+            datasets: [{
+              data: [s.pos || 0, s.neu || 0, s.neg || 0],
+              backgroundColor: [c.success, c.warn, c.danger],
+              borderColor: 'transparent',
+            }]
+          },
+          options: {
+            plugins: { legend: { position: 'bottom', labels: { color: chartColors().text } } }
+          }
+        });
+      } catch (e) { console.warn('Sentiment failed', e); }
 
-function clearMetrics() {
-  document.getElementById('totalReviews').textContent = '—';
-  document.getElementById('avgRating').textContent = '—';
-  document.getElementById('positiveCount').textContent = '—';
-  document.getElementById('negativeCount').textContent = '—';
-}
+      // Sources
+      try {
+        const src = await getJSON(API.sources, { company_id, start, end });
+        const c = chartColors();
+        if (sourcesChart) sourcesChart.destroy();
+        const ctx = document.getElementById('sourcesChart').getContext('2d');
+        sourcesChart = new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: src.labels || [],
+            datasets: [{
+              data: src.data || [],
+              backgroundColor: [c.primary, c.primary2, c.accent, c.warn, c.success, c.danger],
+              borderColor: 'transparent',
+            }]
+          },
+          options: { plugins: { legend: { position: 'bottom', labels: { color: chartColors().text }}} }
+        });
+      } catch (e) { console.warn('Sources failed', e); }
 
-// ----------------------------------------------------------
-// Helpers
-// ----------------------------------------------------------
-function showLoading(show) {
-  document.getElementById('loadingOverlay').style.display = show ? 'flex' : 'none';
-}
+      // Heatmap (hour)
+      try {
+        const h = await getJSON(API.heatmap, { company_id, start, end });
+        const c = chartColors();
+        if (heatmapChart) heatmapChart.destroy();
+        const ctx = document.getElementById('heatmapChart').getContext('2d');
+        heatmapChart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: h.labels,
+            datasets: [{
+              label: 'Reviews',
+              data: h.data,
+              backgroundColor: c.primary2,
+              borderRadius: 6,
+            }]
+          },
+          options: {
+            plugins: { legend: { display: false } },
+            scales: {
+              y: { beginAtZero: true, grid: { color: c.grid }, ticks: { color: c.text }},
+              x: { grid: { display: false }, ticks: { color: c.text }},
+            },
+          }
+        });
+      } catch (e) { console.warn('Heatmap failed', e); }
 
-function showToast(message, type = 'info') {
-  const toastContainer = document.querySelector('.toast-container');
-  const toast = document.createElement('div');
-  toast.className = `toast align-items-center text-white bg-${type} border-0`;
-  toast.innerHTML = `
-    <div class="d-flex">
-      <div class="toast-body">${message}</div>
-      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-    </div>
-  `;
-  toastContainer.appendChild(toast);
-  new bootstrap.Toast(toast).show();
+      // Keywords
+      try {
+        keywordsWrap.innerHTML = '';
+        const kw = await getJSON(API.keywords, { company_id, start, end, top_n: 20 });
+        (kw.labels || []).forEach((label, idx) => {
+          const count = (kw.data || [])[idx] ?? 0;
+          const el = document.createElement('div');
+          el.className = 'chip';
+          el.innerHTML = `<span>#${label}</span> <span class="count">${count}</span>`;
+          keywordsWrap.appendChild(el);
+        });
+      } catch (e) { console.warn('Keywords failed', e); }
 
-  // Auto-remove after 5 seconds
-  setTimeout(() => toast.remove(), 5000);
-}
-</script>
+      // Alerts
+      try {
+        alertsWrap.innerHTML = '';
+        const al = await getJSON(API.alerts, { company_id, start, end, window_days: 14 });
+        (al.alerts || []).forEach(a => {
+          const div = document.createElement('div');
+          div.className = `alert ${a.type || 'info'}`;
+          div.innerHTML = `
+            <div><strong>${a.title}</strong><div style="color:var(--muted); font-size:.9rem;">${a.message}</div></div>
+            <div style="text-align:right; color:var(--muted); font-size:.85rem;">
+              ${a.recent_avg !== undefined ? `Recent: ${a.recent_avg} ⭐<br/>` : ''}
+              ${a.previous_avg !== undefined ? `Prev: ${a.previous_avg} ⭐` : ''}
+            </div>`;
+          alertsWrap.appendChild(div);
+        });
+        if (!al.alerts || !al.alerts.length) {
+          alertsWrap.innerHTML = `<div class="alert info"><div>No alerts in this period.</div></div>`;
+        }
+      } catch (e) { console.warn('Alerts failed', e); }
+
+      // Table
+      await loadTable(company_id, start, end);
+
+      // Map recenter
+      recenterToCompany(company_id);
+    }
+
+    // ========= REVIEWS TABLE (server-side) =========
+    let tableInstance = null;
+    async function loadTable(company_id, start, end) {
+      // Pull first page (we'll re-render the entire table for simplicity)
+      try {
+        const page = 1, limit = 50, sort = 'review_date', order = 'desc';
+        const data = await getJSON(API.reviews, { company_id, page, limit, sort, order, start, end });
+        const tbody = document.querySelector('#reviewsTable tbody');
+        tbody.innerHTML = (data.data || []).map(r => `
+          <tr>
+            <td>${r.review_date ? new Date(r.review_date).toLocaleString() : ''}</td>
+            <td>${r.rating ?? ''}</td>
+            <td>${r.title ?? ''}</td>
+            <td>${(r.text ?? '').slice(0, 160)}${(r.text && r.text.length > 160) ? '…' : ''}</td>
+            <td>${r.author ?? r.reviewer_name ?? ''}</td>
+            <td>${r.source ?? ''}</td>
+          </tr>
+        `).join('');
+
+        // (Re)init simple-datatables
+        if (tableInstance) {
+          tableInstance.destroy();
+          tableInstance = null;
+        }
+        const el = document.getElementById('reviewsTable');
+        tableInstance = new simpleDatatables.DataTable(el, {
+          searchable: true,
+          fixedHeight: true,
+          perPage: 10,
+        });
+      } catch (e) {
+        console.warn('Table load failed', e);
+      }
+    }
+
+    // ========= SYNC =========
+    syncBtn.addEventListener('click', async () => {
+      const company_id = companySelect.value;
+      if (!company_id) return;
+      try {
+        syncBtn.disabled = true;
+        syncBtn.textContent = 'Syncing…';
+        const resp = await postJSON(API.sync, { company_id });
+        alert(resp.message || 'Sync started');
+      } catch (e) {
+        alert('Sync failed');
+      } finally {
+        syncBtn.disabled = false; syncBtn.textContent = '🔄 Sync';
+      }
+    });
+
+    // ========= LISTENERS =========
+    refreshBtn.addEventListener('click', refresh);
+    companySelect.addEventListener('change', refresh);
+    startDate.addEventListener('change', refresh);
+    endDate.addEventListener('change', refresh);
+
+    // ========= BOOT =========
+    (async function boot() {
+      await loadCompanies();
+      await new Promise(r => setTimeout(r, 150)); // slight delay to ensure map script is ready
+      refresh();
+    })();
+  </script>
 </body>
 </html>
