@@ -12,7 +12,6 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         body { font-family: 'Inter', sans-serif; background: #0f172a; color: #f8fafc; scroll-behavior: smooth; }
         
-        /* Requirement 28: Glassmorphism Design */
         .glass-card {
             background: rgba(30, 41, 59, 0.6);
             backdrop-filter: blur(16px);
@@ -32,7 +31,6 @@
             color: white;
         }
 
-        /* Requirement 11 & 23: Automatic Negative Highlighting (Rating ≤ 2) */
         .negative-highlight { 
             background: rgba(239, 68, 68, 0.1) !important; 
             border-left: 4px solid #ef4444; 
@@ -41,10 +39,10 @@
         .custom-scrollbar::-webkit-scrollbar { width: 5px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
         
-        /* Requirement 31: Smooth Transitions */
         .fade-in { animation: fadeIn 0.5s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
+        /* Requirement: Scrollable sidebar area */
         #companyList { max-height: calc(100vh - 12rem); overflow-y: auto; }
         
         .fetch-pulse { animation: pulse-blue 2s infinite; }
@@ -67,9 +65,9 @@
         <div class="flex items-center gap-8">
             <div class="flex items-center gap-3 glass-card py-2 px-4 border-slate-700">
                 <i data-lucide="calendar" class="w-4 h-4 text-blue-400"></i>
-                <input type="date" id="startDate" class="bg-transparent outline-none text-sm font-medium" value="2026-02-23">
+                <input type="date" id="startDate" class="bg-transparent outline-none text-sm font-medium" value="2025-01-01">
                 <span class="text-slate-500 font-bold">→</span>
-                <input type="date" id="endDate" class="bg-transparent outline-none text-sm font-medium">
+                <input type="date" id="endDate" class="bg-transparent outline-none text-sm font-medium" value="2026-02-23">
             </div>
             <button onclick="handleLogout()" class="group flex items-center gap-2 text-slate-400 hover:text-white transition-all">
                 <span class="text-sm font-semibold">Logout</span>
@@ -89,7 +87,9 @@
                     </button>
                 </div>
             </div>
-            <div id="companyList" class="flex-1 custom-scrollbar px-4 pb-6 space-y-2"></div>
+            <div id="companyList" class="flex-1 custom-scrollbar px-4 pb-6 space-y-2">
+                <p class="text-slate-600 text-xs text-center mt-10">Initializing sidebar...</p>
+            </div>
         </aside>
 
         <main id="dashboardContent" class="flex-1 overflow-y-auto p-8 custom-scrollbar space-y-8 hidden">
@@ -164,6 +164,7 @@
         <div id="emptyState" class="flex-1 flex flex-col items-center justify-center text-slate-500 p-12 text-center">
             <i data-lucide="layers" class="w-20 h-20 opacity-10 mb-6"></i>
             <h2 class="text-xl font-bold text-slate-300">BI Engine Ready</h2>
+            <p class="mt-2 text-sm max-w-xs">Select a company to load international-standard insights and reviews.</p>
         </div>
     </div>
 
@@ -175,14 +176,13 @@
         document.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
             
-            // Fix for Log Error: Ensure endDate is today
-            const today = new Date();
-            document.getElementById('endDate').value = today.toISOString().split('T')[0];
+            // Default Dates based on request: Start 2025-01-01, End Today 2026-02-23
+            document.getElementById('startDate').value = "2025-01-01";
+            document.getElementById('endDate').value = new Date().toISOString().split('T')[0];
             
             initSortable();
             loadCompanies();
 
-            // Listeners for auto-reload
             ['startDate', 'endDate', 'ratingFilter'].forEach(id => {
                 document.getElementById(id).addEventListener('change', () => { 
                     currentPage = 1; 
@@ -192,32 +192,29 @@
             document.getElementById('tableSearch').addEventListener('input', debounce(() => { currentPage = 1; reloadActiveCompany(); }, 400));
         });
 
-        // =========================================================
-        // JAVASCRIPT: COMPONENT INITIALIZATION (Requirements 2, 14)
-        // =========================================================
         function initSortable() {
             new Sortable(document.getElementById('companyList'), { animation: 200, ghostClass: 'bg-blue-600/10', handle: '.drag-handle' });
         }
 
         async function loadCompanies() {
-            const res = await fetch('/api/dashboard/init');
-            const data = await res.json();
-            const list = document.getElementById('companyList');
-            list.innerHTML = data.companies.map(c => `
-                <div class="sidebar-item group flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all" id="company-item-${c.id}" onclick="selectCompany(${c.id})">
-                    <div class="flex items-center gap-3 overflow-hidden">
-                        <i data-lucide="grip-vertical" class="drag-handle w-4 h-4 text-slate-700 cursor-grab"></i>
-                        <div class="truncate"><p class="text-sm font-bold truncate group-hover:text-blue-400">${c.name}</p><p class="text-[10px] text-slate-500 uppercase font-bold">${c.city || 'Syncing...'}</p></div>
+            try {
+                const res = await fetch('/api/dashboard/init');
+                const data = await res.json();
+                const list = document.getElementById('companyList');
+                // Initially empty, populated only after fetch
+                list.innerHTML = data.companies.map(c => `
+                    <div class="sidebar-item group flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all" id="company-item-${c.id}" onclick="selectCompany(${c.id})">
+                        <div class="flex items-center gap-3 overflow-hidden">
+                            <i data-lucide="grip-vertical" class="drag-handle w-4 h-4 text-slate-700 cursor-grab"></i>
+                            <div class="truncate"><p class="text-sm font-bold truncate group-hover:text-blue-400">${c.name}</p><p class="text-[10px] text-slate-500 uppercase font-bold">${c.city || 'Processing...'}</p></div>
+                        </div>
+                        <button onclick="confirmDelete(event, ${c.id})" class="opacity-0 group-hover:opacity-100 p-1.5 hover:text-red-500 transition-all"><i data-lucide="x" class="w-4 h-4"></i></button>
                     </div>
-                    <button onclick="confirmDelete(event, ${c.id})" class="opacity-0 group-hover:opacity-100 p-1.5 hover:text-red-500 transition-all"><i data-lucide="x" class="w-4 h-4"></i></button>
-                </div>
-            `).join('');
-            lucide.createIcons();
+                `).join('');
+                lucide.createIcons();
+            } catch (err) { console.error("Sidebar load failed."); }
         }
 
-        // =========================================================
-        // JAVASCRIPT: DATA FETCHING & SYNC (Requirements 3, 5, 13)
-        // =========================================================
         async function fetchGoogleData() {
             if (!activeCompanyId) return;
             const btn = document.getElementById('fetchDataBtn');
@@ -230,38 +227,37 @@
                 const res = await fetch(`/api/reviews/sync/${activeCompanyId}`, { method: 'POST' });
                 if (res.ok) {
                     await reloadActiveCompany();
-                    alert("Sync Successful: Data extracted from Google.");
                 }
-            } catch (err) {
-                alert("API Error: Verify credentials.");
-            } finally {
+            } catch (err) { console.error("API error."); } 
+            finally {
                 btn.disabled = false;
                 btn.innerHTML = original;
                 lucide.createIcons();
             }
         }
 
+        // Logic Change: Selection immediately fetches data
         async function selectCompany(id) {
             activeCompanyId = id;
             document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
-            document.getElementById(`company-item-${id}`).classList.add('active');
+            const activeItem = document.getElementById(`company-item-${id}`);
+            if (activeItem) activeItem.classList.add('active');
+            
             document.getElementById('emptyState').classList.add('hidden');
             document.getElementById('dashboardContent').classList.remove('hidden');
-            reloadActiveCompany();
+            
+            // Immediate Fetch from Google API on selection
+            await fetchGoogleData();
         }
 
-        // =========================================================
-        // JAVASCRIPT: DATE CORRECTION LOGIC (Fixing 422 Logs)
-        // =========================================================
         async function reloadActiveCompany() {
             if (!activeCompanyId) return;
             
             let start = document.getElementById('startDate').value;
             let end = document.getElementById('endDate').value;
 
-            // Log-based Fix: Ensure Start date is not ahead of End date
+            // Logic Fix: Prevent inverted dates (fixing 422 error from logs)
             if (new Date(start) > new Date(end)) {
-                console.warn("Date range inverted. Swapping for correct API query.");
                 const temp = start;
                 start = end;
                 end = temp;
@@ -280,14 +276,9 @@
                 
                 updateUI(sumData);
                 updateTable(tabData);
-            } catch (e) {
-                console.error("Dashboard Load Error:", e);
-            }
+            } catch (e) { console.error("Dashboard sync error."); }
         }
 
-        // =========================================================
-        // JAVASCRIPT: UI UPDATES & CHARTS (Requirements 7-10, 29)
-        // =========================================================
         function updateUI(data) {
             document.getElementById('activeCompanyName').innerText = data.company.name;
             document.getElementById('cityText').innerText = data.company.city || '--';
