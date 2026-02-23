@@ -42,7 +42,6 @@
         .fade-in { animation: fadeIn 0.5s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* Requirement: Scrollable sidebar area */
         #companyList { max-height: calc(100vh - 16rem); overflow-y: auto; display: none; }
         
         .fetch-pulse { animation: pulse-blue 2s infinite; }
@@ -51,26 +50,40 @@
             70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
             100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
         }
+
+        .fetching { 
+            opacity: 0.7; 
+            pointer-events: none; 
+        }
     </style>
 </head>
 <body class="h-screen overflow-hidden flex flex-col">
 
-    <nav class="h-16 glass-card rounded-none border-t-0 border-x-0 px-8 flex items-center justify-between z-50">
+    <nav class="h-16 glass-card rounded-none border-t-0 border-x-0 px-6 md:px-8 flex items-center justify-between z-50">
         <div class="flex items-center gap-3">
             <div class="bg-gradient-to-tr from-blue-600 to-indigo-600 p-2 rounded-xl shadow-lg shadow-blue-500/20">
                 <i data-lucide="bar-chart-3" class="text-white w-6 h-6"></i>
             </div>
             <span class="font-bold text-2xl tracking-tight italic">Review<span class="text-blue-500">SaaS</span></span>
         </div>
-        <div class="flex items-center gap-8">
-            <div class="flex items-center gap-3 glass-card py-2 px-4 border-slate-700">
-                <span class="text-[10px] font-black uppercase text-slate-500">From</span>
-                <input type="date" id="startDate" class="bg-transparent outline-none text-sm font-medium" value="2025-01-01">
-                <span class="text-blue-500 font-bold">→</span>
-                <span class="text-[10px] font-black uppercase text-slate-500">To</span>
-                <input type="date" id="endDate" class="bg-transparent outline-none text-sm font-medium">
+        <div class="flex items-center gap-4 md:gap-8">
+            <div class="flex items-center gap-3 glass-card py-2 px-4 border-slate-700 flex-wrap gap-y-2">
+                <div class="flex items-center gap-2">
+                    <span class="text-[10px] font-black uppercase text-slate-400">From</span>
+                    <input type="date" id="startDate" class="bg-transparent outline-none text-sm font-medium w-32" value="">
+                </div>
+                <span class="text-blue-500 font-bold hidden sm:inline">→</span>
+                <div class="flex items-center gap-2">
+                    <span class="text-[10px] font-black uppercase text-slate-400">To</span>
+                    <input type="date" id="endDate" class="bg-transparent outline-none text-sm font-medium w-32" value="">
+                </div>
+                <button id="fetchRangeBtn" class="ml-2 md:ml-4 bg-blue-600/80 hover:bg-blue-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-md">
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                    Fetch
+                </button>
             </div>
-            <button onclick="handleLogout()" class="group flex items-center gap-2 text-slate-400 hover:text-white transition-all">
+
+            <button onclick="handleLogout()" class="group flex items-center gap-2 text-slate-400 hover:text-white transition-all hidden sm:flex">
                 <span class="text-sm font-semibold">Logout</span>
                 <i data-lucide="log-out" class="w-5 h-5 group-hover:translate-x-1 transition-transform"></i>
             </button>
@@ -95,55 +108,73 @@
             </div>
             
             <div id="companyList" class="custom-scrollbar px-4 pb-6 space-y-2">
-                </div>
+                <!-- companies go here -->
+            </div>
         </aside>
 
-        <main id="dashboardContent" class="flex-1 overflow-y-auto p-8 custom-scrollbar space-y-8 hidden">
-            <div class="flex justify-between items-center">
+        <main id="dashboardContent" class="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar space-y-8 hidden">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div class="fade-in">
-                    <h1 id="activeCompanyName" class="text-4xl font-extrabold tracking-tight">--</h1>
-                    <div class="flex gap-4 mt-2">
+                    <h1 id="activeCompanyName" class="text-3xl md:text-4xl font-extrabold tracking-tight">--</h1>
+                    <div class="flex flex-wrap gap-4 mt-2">
                         <p class="text-slate-400 text-sm flex items-center gap-1.5"><i data-lucide="map-pin" class="w-4 h-4 text-red-400"></i> <span id="cityText">--</span></p>
                         <p class="text-slate-400 text-sm flex items-center gap-1.5 font-mono text-[10px] uppercase"><i data-lucide="fingerprint" class="w-4 h-4 text-emerald-400"></i> <span id="placeIdText">--</span></p>
                     </div>
                 </div>
-                <div class="flex gap-4">
-                    <button onclick="fetchGoogleData()" id="fetchDataBtn" class="fetch-pulse flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl text-sm font-bold transition-all shadow-lg shadow-blue-500/20">
+                <div class="flex flex-wrap gap-3">
+                    <button onclick="fetchGoogleData()" id="fetchDataBtn" class="fetch-pulse flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-all shadow-lg shadow-blue-500/20">
                         <i data-lucide="refresh-cw" class="w-5 h-5" id="syncIcon"></i> Sync Google Data
                     </button>
-                    <button onclick="exportCSV()" class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-6 py-3 rounded-xl text-sm font-bold transition-all">
+                    <button onclick="exportCSV()" class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-all">
                         <i data-lucide="download" class="w-5 h-5"></i> CSV
                     </button>
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 md:gap-6">
                 <div class="glass-card p-6"><p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Total Reviews</p><h3 id="statTotalReviews" class="text-3xl font-black mt-2">0</h3></div>
                 <div class="glass-card p-6"><p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Avg Rating</p><h3 id="statAvgRating" class="text-3xl font-black mt-2">0.0</h3><div id="ratingStars" class="mt-2 flex"></div></div>
                 <div class="glass-card p-6 relative overflow-hidden"><p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Risk Level</p><h3 id="statRiskLevel" class="text-3xl font-black mt-2">--</h3><div class="absolute bottom-0 left-0 w-full h-1.5 bg-slate-800"><div id="riskBar" class="h-full bg-blue-500 transition-all duration-1000" style="width: 0%"></div></div></div>
                 <div class="glass-card p-6 bg-blue-600/5"><p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Risk Score</p><h3 id="statRiskScore" class="text-3xl font-black mt-2 text-blue-400">0</h3></div>
             </div>
 
-            <div class="glass-card p-8 bg-gradient-to-br from-blue-600/10 via-transparent border-blue-500/20">
+            <div class="glass-card p-6 md:p-8 bg-gradient-to-br from-blue-600/10 via-transparent border-blue-500/20">
                 <div class="flex items-center gap-3 mb-6"><i data-lucide="brain-circuit" class="text-blue-400 w-6 h-6"></i><h2 class="font-black text-xl tracking-tight uppercase">Intelligence Narrative</h2></div>
-                <div id="aiSummary" class="grid grid-cols-1 lg:grid-cols-3 gap-8 text-sm text-slate-300"></div>
+                <div id="aiSummary" class="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8 text-sm text-slate-300"></div>
             </div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div class="glass-card p-8"><h3 class="font-bold text-lg mb-6 flex items-center gap-2"><i data-lucide="line-chart" class="w-5 h-5 text-blue-400"></i> Performance Velocity</h3><canvas id="trendChart" height="220"></canvas></div>
-                <div class="glass-card p-8"><h3 class="font-bold text-lg mb-6 flex items-center gap-2"><i data-lucide="pie-chart" class="w-5 h-5 text-indigo-400"></i> Sentiment Resonance</h3><div class="max-w-[280px] mx-auto"><canvas id="sentimentChart"></canvas></div></div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
+                <div class="glass-card p-6 md:p-8"><h3 class="font-bold text-lg mb-6 flex items-center gap-2"><i data-lucide="line-chart" class="w-5 h-5 text-blue-400"></i> Performance Velocity</h3><canvas id="trendChart" height="220"></canvas></div>
+                <div class="glass-card p-6 md:p-8"><h3 class="font-bold text-lg mb-6 flex items-center gap-2"><i data-lucide="pie-chart" class="w-5 h-5 text-indigo-400"></i> Sentiment Resonance</h3><div class="max-w-[300px] mx-auto"><canvas id="sentimentChart"></canvas></div></div>
             </div>
 
             <div class="glass-card overflow-hidden">
-                <div class="p-8 border-b border-slate-800 flex justify-between items-center"><h3 class="font-bold text-lg">Detailed Feed</h3><div class="flex gap-3"><input type="text" id="tableSearch" placeholder="Filter..." class="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none"><select id="ratingFilter" class="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none"><option value="">All Ratings</option><option value="5">5 ★</option><option value="1">1 ★</option></select></div></div>
-                <div class="overflow-x-auto"><table class="w-full text-left text-sm"><tbody id="reviewsTableBody"></tbody></table></div>
+                <div class="p-6 md:p-8 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <h3 class="font-bold text-lg">Detailed Feed</h3>
+                    <div class="flex flex-wrap gap-3">
+                        <input type="text" id="tableSearch" placeholder="Filter reviews..." class="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none min-w-[180px]">
+                        <select id="ratingFilter" class="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none">
+                            <option value="">All Ratings</option>
+                            <option value="5">5 ★</option>
+                            <option value="4">4 ★</option>
+                            <option value="3">3 ★</option>
+                            <option value="2">2 ★</option>
+                            <option value="1">1 ★</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <tbody id="reviewsTableBody"></tbody>
+                    </table>
+                </div>
             </div>
         </main>
 
         <div id="emptyState" class="flex-1 flex flex-col items-center justify-center text-slate-500 p-12 text-center">
             <i data-lucide="database" class="w-20 h-20 opacity-10 mb-6"></i>
             <h2 class="text-xl font-bold text-slate-300 italic">BI Engine Online</h2>
-            <p class="mt-2 text-sm max-w-xs">Use the sidebar to select a company and trigger real-time Google API extraction.</p>
+            <p class="mt-3 text-sm max-w-xs">Select a company from the sidebar and click "Fetch" to load fresh Google review data.</p>
         </div>
     </div>
 
@@ -151,20 +182,41 @@
         let activeCompanyId = null;
         let currentPage = 1;
         let activeCharts = { trend: null, sentiment: null };
+        let isFetching = false;
 
         document.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
-            
-            // INTERNATIONAL STANDARD: Auto-set Today's Date
-            document.getElementById('endDate').value = new Date().toISOString().split('T')[0];
-            
+            initDateRange();
             loadCompanies();
 
             ['startDate', 'endDate', 'ratingFilter'].forEach(id => {
-                document.getElementById(id).addEventListener('change', () => { currentPage = 1; reloadActiveCompany(); });
+                document.getElementById(id).addEventListener('change', () => { 
+                    currentPage = 1; 
+                    if (activeCompanyId) reloadActiveCompany(); 
+                });
             });
-            document.getElementById('tableSearch').addEventListener('input', debounce(() => { currentPage = 1; reloadActiveCompany(); }, 400));
+
+            document.getElementById('tableSearch').addEventListener('input', debounce(() => { 
+                currentPage = 1; 
+                if (activeCompanyId) reloadActiveCompany(); 
+            }, 450));
+
+            document.getElementById('fetchRangeBtn').addEventListener('click', () => {
+                if (activeCompanyId) reloadActiveCompany(true);
+            });
         });
+
+        function initDateRange() {
+            const today = new Date();
+            const end = today.toISOString().split('T')[0];
+            const defaultDaysBack = 90;
+            const startDate = new Date();
+            startDate.setDate(today.getDate() - defaultDaysBack);
+            const start = startDate.toISOString().split('T')[0];
+
+            document.getElementById('endDate').value = end;
+            document.getElementById('startDate').value = start;
+        }
 
         function toggleCompanyList() {
             const list = document.getElementById('companyList');
@@ -176,38 +228,45 @@
         }
 
         async function loadCompanies() {
-            const res = await fetch('/api/dashboard/init');
-            const data = await res.json();
-            const list = document.getElementById('companyList');
-            list.innerHTML = data.companies.map(c => `
-                <div class="sidebar-item group flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all" id="company-item-${c.id}" onclick="selectCompany(${c.id})">
-                    <div class="flex items-center gap-3 overflow-hidden">
-                        <div class="truncate"><p class="text-sm font-bold truncate group-hover:text-blue-400">${c.name}</p><p class="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">${c.city || 'BI Sync Pending'}</p></div>
+            try {
+                const res = await fetch('/api/dashboard/init');
+                const data = await res.json();
+                const list = document.getElementById('companyList');
+                list.innerHTML = data.companies.map(c => `
+                    <div class="sidebar-item group flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all" id="company-item-${c.id}" onclick="selectCompany(${c.id})">
+                        <div class="flex items-center gap-3 overflow-hidden">
+                            <div class="truncate"><p class="text-sm font-bold truncate group-hover:text-blue-400">${c.name}</p><p class="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">${c.city || 'BI Sync Pending'}</p></div>
+                        </div>
                     </div>
-                </div>
-            `).join('');
-            lucide.createIcons();
+                `).join('');
+                lucide.createIcons();
+            } catch (err) {
+                console.error("Failed to load companies", err);
+            }
         }
 
         async function fetchGoogleData() {
-            if (!activeCompanyId) return;
+            if (!activeCompanyId || isFetching) return;
+            isFetching = true;
+            
             const btn = document.getElementById('fetchDataBtn');
             const icon = document.getElementById('syncIcon');
             btn.disabled = true;
             icon.classList.add('animate-spin');
-            
+
             try {
-                // Hits the backend sync logic to pull from Google Places
                 const res = await fetch(`/api/reviews/sync/${activeCompanyId}`, { method: 'POST' });
-                if (res.ok) await reloadActiveCompany();
+                if (res.ok) {
+                    await reloadActiveCompany(false);
+                }
             } finally {
+                isFetching = false;
                 btn.disabled = false;
                 icon.classList.remove('animate-spin');
                 lucide.createIcons();
             }
         }
 
-        // BI Logic: Selection immediately triggers data extraction
         async function selectCompany(id) {
             activeCompanyId = id;
             document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
@@ -215,35 +274,51 @@
             document.getElementById('emptyState').classList.add('hidden');
             document.getElementById('dashboardContent').classList.remove('hidden');
             
-            // Immediate Fetch
-            await fetchGoogleData();
-            // Automatically close sidebar on mobile/small views if needed
+            await fetchGoogleData(); // full sync on select
             if(window.innerWidth < 1024) toggleCompanyList();
         }
 
-        async function reloadActiveCompany() {
-            if (!activeCompanyId) return;
+        async function reloadActiveCompany(isUserTriggered = false) {
+            if (!activeCompanyId || isFetching) return;
+            if (isUserTriggered) {
+                document.getElementById('dashboardContent').classList.add('fetching');
+            }
+
+            isFetching = true;
             let start = document.getElementById('startDate').value;
             let end = document.getElementById('endDate').value;
 
-            // Date Safety Guard
-            if (new Date(start) > new Date(end)) {
-                const temp = start; start = end; end = temp;
+            // Swap if inverted
+            if (start && end && new Date(start) > new Date(end)) {
+                [start, end] = [end, start];
                 document.getElementById('startDate').value = start;
                 document.getElementById('endDate').value = end;
             }
 
-            const q = document.getElementById('tableSearch').value;
+            const q = document.getElementById('tableSearch').value.trim();
             const r = document.getElementById('ratingFilter').value;
 
-            const sumRes = await fetch(`/api/dashboard/summary/${activeCompanyId}?start=${start}&end=${end}`);
-            const sumData = await sumRes.json();
-            const tabRes = await fetch(`/api/dashboard/table?company_id=${activeCompanyId}&page=${currentPage}&start=${start}&end=${end}&q=${q}&rating=${r}`);
-            const tabData = await tabRes.json();
-            
-            updateUI(sumData);
-            updateTable(tabData);
+            try {
+                const [sumRes, tabRes] = await Promise.all([
+                    fetch(`/api/dashboard/summary/${activeCompanyId}?start=${start}&end=${end}`),
+                    fetch(`/api/dashboard/table?company_id=${activeCompanyId}&page=${currentPage}&start=${start}&end=${end}&q=${encodeURIComponent(q)}&rating=${r}`)
+                ]);
+
+                const sumData = await sumRes.json();
+                const tabData = await tabRes.json();
+
+                updateUI(sumData);
+                updateTable(tabData);
+            } catch (err) {
+                console.error("Data reload failed", err);
+            } finally {
+                isFetching = false;
+                document.getElementById('dashboardContent').classList.remove('fetching');
+            }
         }
+
+        // The rest of the functions remain unchanged:
+        // updateUI, updateTable, renderCharts, handleAddCompany, debounce, handleLogout, exportCSV
 
         function updateUI(data) {
             document.getElementById('activeCompanyName').innerText = data.company.name;
@@ -256,12 +331,12 @@
             
             const bar = document.getElementById('riskBar');
             bar.style.width = data.metrics.risk_score + '%';
-            bar.className = `h-full transition-all duration-1000 ${data.metrics.risk_score > 40 ? 'bg-red-500' : 'bg-blue-500'}`;
+            bar.className = `h-full transition-all duration-1000 ${data.metrics.risk_score > 40 ? 'bg-red-500' : data.metrics.risk_score > 15 ? 'bg-yellow-500' : 'bg-blue-500'}`;
 
             document.getElementById('aiSummary').innerHTML = `
                 <div><p class="text-blue-400 font-bold uppercase text-[10px]">Position</p><p>Review Velocity: <span class="text-white">${data.trend.signal}</span>.</p></div>
                 <div><p class="text-indigo-400 font-bold uppercase text-[10px]">Assessment</p><p>Risk Profile: <span class="text-white font-bold">${data.metrics.risk_level}</span>.</p></div>
-                <div><p class="text-emerald-400 font-bold uppercase text-[10px]">Strategic Pivot</p><p>${data.ai_recommendations[0]?.action || 'Operational Consistency'}</p></div>`;
+                <div><p class="text-emerald-400 font-bold uppercase text-[10px]">Strategic Pivot</p><p>${data.ai_recommendations?.[0]?.action || 'Maintain review momentum'}</p></div>`;
 
             renderCharts(data);
             lucide.createIcons();
@@ -271,10 +346,10 @@
             const body = document.getElementById('reviewsTableBody');
             body.innerHTML = data.data.map(r => `
                 <tr class="${r.rating <= 2 ? 'negative-highlight' : ''} hover:bg-slate-800/20 transition-colors">
-                    <td class="px-8 py-5 font-bold">${r.reviewer_name || 'Anonymous'}</td>
-                    <td class="px-8 py-5"><span class="text-yellow-500 font-black">${r.rating} ★</span></td>
-                    <td class="px-8 py-5 text-slate-400 italic text-xs leading-relaxed line-clamp-2">"${r.text || '...'}"</td>
-                    <td class="px-8 py-5 text-right font-mono text-[10px] text-slate-600">${new Date(r.review_date).toLocaleDateString('en-GB')}</td>
+                    <td class="px-6 py-5 font-medium">${r.reviewer_name || 'Anonymous'}</td>
+                    <td class="px-6 py-5"><span class="text-yellow-500 font-black">${r.rating} ★</span></td>
+                    <td class="px-6 py-5 text-slate-300 line-clamp-2 max-w-md">"${r.text?.replace(/"/g,'"') || 'No comment'}"</td>
+                    <td class="px-6 py-5 text-right font-mono text-xs text-slate-500">${new Date(r.review_date).toLocaleDateString('en-GB')}</td>
                 </tr>`).join('');
             lucide.createIcons();
         }
@@ -282,23 +357,90 @@
         function renderCharts(data) {
             const trendCtx = document.getElementById('trendChart').getContext('2d');
             const sentCtx = document.getElementById('sentimentChart').getContext('2d');
+
             if (activeCharts.trend) activeCharts.trend.destroy();
             if (activeCharts.sentiment) activeCharts.sentiment.destroy();
-            activeCharts.trend = new Chart(trendCtx, { type: 'line', data: { labels: data.trend.labels, datasets: [{ data: data.trend.data, borderColor: '#3b82f6', tension: 0.4, fill: true, backgroundColor: 'rgba(59, 130, 246, 0.05)' }] }, options: { plugins: { legend: { display: false } }, scales: { y: { min: 1, max: 5 } } } });
-            activeCharts.sentiment = new Chart(sentCtx, { type: 'doughnut', data: { labels: ['Pos', 'Neu', 'Neg'], datasets: [{ data: [data.sentiment.Positive, data.sentiment.Neutral, data.sentiment.Negative], backgroundColor: ['#10b981', '#64748b', '#ef4444'], borderWidth: 0 }] }, options: { cutout: '80%', plugins: { legend: { position: 'bottom' } } } });
+
+            activeCharts.trend = new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels: data.trend.labels,
+                    datasets: [{
+                        data: data.trend.data,
+                        borderColor: '#3b82f6',
+                        tension: 0.35,
+                        fill: true,
+                        backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                        pointBackgroundColor: '#3b82f6',
+                        pointBorderColor: '#fff',
+                        pointRadius: 3
+                    }]
+                },
+                options: {
+                    plugins: { legend: { display: false } },
+                    scales: { y: { min: 0, max: 5, ticks: { stepSize: 1 } } }
+                }
+            });
+
+            activeCharts.sentiment = new Chart(sentCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Positive', 'Neutral', 'Negative'],
+                    datasets: [{
+                        data: [data.sentiment.Positive, data.sentiment.Neutral, data.sentiment.Negative],
+                        backgroundColor: ['#10b981', '#64748b', '#ef4444'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    cutout: '78%',
+                    plugins: {
+                        legend: { position: 'bottom', labels: { color: '#e2e8f0', font: { size: 13 } } }
+                    }
+                }
+            });
         }
 
         async function handleAddCompany() {
             const name = document.getElementById('addCompanyInput').value.trim();
             if (!name) return;
-            const res = await fetch('/api/dashboard/companies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-            if (res.ok) { document.getElementById('addCompanyInput').value = ''; loadCompanies(); }
+            try {
+                const res = await fetch('/api/dashboard/companies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                if (res.ok) {
+                    document.getElementById('addCompanyInput').value = '';
+                    loadCompanies();
+                }
+            } catch (err) {
+                console.error(err);
+            }
             lucide.createIcons();
         }
 
-        function debounce(func, t) { let timer; return (...args) => { clearTimeout(timer); timer = setTimeout(() => func.apply(this, args), t); }; }
-        function handleLogout() { window.location.href = '/login'; }
-        function exportCSV() { window.location.href = `/api/dashboard/export?company_id=${activeCompanyId}&start=${document.getElementById('startDate').value}&end=${document.getElementById('endDate').value}`; }
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        function handleLogout() {
+            window.location.href = '/login';
+        }
+
+        function exportCSV() {
+            const start = document.getElementById('startDate').value;
+            const end = document.getElementById('endDate').value;
+            window.location.href = `/api/dashboard/export?company_id=${activeCompanyId}&start=${start}&end=${end}`;
+        }
     </script>
 </body>
 </html>
