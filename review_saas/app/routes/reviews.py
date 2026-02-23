@@ -1,12 +1,13 @@
 # FILE: review_saas/app/routes/reviews.py
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Set
 from datetime import datetime, timezone, timedelta
 from collections import Counter, defaultdict
 import os
 import re
 import logging
+import time
 
 # Optional Google client
 try:
@@ -56,6 +57,10 @@ if api_key and googlemaps:
         logger.warning(f"Failed to initialize Google Maps client: {e}")
 
 API_TOKEN = os.getenv("API_TOKEN")
+
+# Optional summary cache (simple in-process TTL cache)
+SUMMARY_TTL_SECONDS = int(os.getenv("SUMMARY_TTL_SECONDS", "0"))  # 0 disables cache
+_summary_cache: Dict[Tuple[int, Optional[str], Optional[str]], Tuple[float, Dict[str, Any]]] = {}
 
 # ─────────────────────────────────────────────────────────────
 # NLP helpers
@@ -107,7 +112,7 @@ def extract_keywords(text: Optional[str]) -> List[str]:
     return [w for w in words if w not in _STOPWORDS and len(w) >= 3]
 
 def map_aspects(tokens: List[str]) -> List[str]:
-    found = set()
+    found: Set[str] = set()
     for aspect, words in ASPECT_LEXICON.items():
         if any(w in tokens for w in words):
             found.add(aspect)
@@ -303,7 +308,8 @@ def get_review_summary_data(
     reviews: List[Review],
     company: Company,
     start: Optional[datetime] = None,
-    end: Optional[datetime] = None
+    end: Optional[datetime] = None,
+    include_aspects: bool = True
 ) -> Dict[str, Any]:
     """
     Single-fetch summary for a given company and date window.
@@ -333,19 +339,26 @@ def get_review_summary_data(
             "sentiments": {"Positive": 0, "Neutral": 0, "Negative": 0},
             "ai_recommendations": [],
             "daily_series": [],
+            "aspects": [],
             "window": {"start": start.isoformat(), "end": end.isoformat()},
-            "payload_version": "3.2"
+            "payload_version": "3.3"
         }
 
     sentiments: Dict[str, int] = {"Positive": 0, "Neutral": 0, "Negative": 0}
     trend_data: Dict[str, List[float]] = defaultdict(list)
     neg_keywords: List[str] = []
+    aspect_counter: Counter = Counter()
 
     for r in windowed:
         sent = classify_sentiment(r.rating)
         sentiments[sent] += 1
-        if sent == "Negative" and r.text:
-            neg_keywords.extend(extract_keywords(r.text))
+        if r.text:
+            toks = extract_keywords(r.text)
+            if sent == "Negative":
+                neg_keywords.extend(toks)
+            if include_aspects:
+                for a in map_aspects(toks):
+                    aspect_counter[a] += 1
         dt = _parse_review_date(r)
         if dt:
             trend_data[dt.strftime("%Y-%m")].append(r.rating or 0)
@@ -394,6 +407,7 @@ def get_review_summary_data(
         })
 
     daily_series = _daily_buckets_range(windowed, start, end)
+    aspects = [{"aspect": k, "count": v} for k, v in aspect_counter.most_common()]
 
     return {
         "company_name": getattr(company, "name", f"ID {company.id}"),
@@ -406,15 +420,16 @@ def get_review_summary_data(
         "risk_level": risk_level,
         "ai_recommendations": recs,
         "daily_series": daily_series,
+        "aspects": aspects,
         "window": {"start": start.isoformat(), "end": end.isoformat()},
-        "payload_version": "3.2"
+        "payload_version": "3.3"
     }
 
 # ─────────────────────────────────────────────────────────────
 # Endpoints
 # ─────────────────────────────────────────────────────────────
 @router.get("/google/places")
-def google_places_search(q: str = Query(..., min_length=2)):
+def google_places_search(q: str = Query(..., min_length=2), limit: int = Query(5, ge=1, le=10)):
     """
     Search Google Places; returns candidates enriched with city/country/website/phone/rating
     by calling Places Details for each candidate (best-effort).
@@ -427,7 +442,7 @@ def google_places_search(q: str = Query(..., min_length=2)):
             input_type="textquery",
             fields=["place_id", "name", "formatted_address"]
         )
-        candidates = (resp.get("candidates") or [])[:5]
+        candidates = (resp.get("candidates") or [])[:limit]
         items = []
         for c in candidates:
             pid = c.get("place_id")
@@ -486,6 +501,7 @@ def google_details_for_company(company_id: int, db: Session = Depends(get_db)):
 
     return {"ok": True, "refreshed": refreshed, "details": detail}
 
+# ⚠️ Deprecated in favor of app/routes/companies.py POST /api/companies
 @router.post("/company")
 def add_company(
     payload: Dict[str, Any],
@@ -494,9 +510,9 @@ def add_company(
     authorization: Optional[str] = Header(None, alias="Authorization")
 ):
     """
-    Create a new company by name + place_id.
-    If API_TOKEN is set, validates token via X-API-Key or Authorization Bearer.
-    Enriches company fields via Google details (best-effort).
+    [DEPRECATED] Create a new company by name + place_id here.
+    Prefer POST /api/companies in app/routes/companies.py.
+    Kept for backward-compatibility.
     """
     if API_TOKEN:
         token = (x_api_key or "").strip() or ""
@@ -516,7 +532,6 @@ def add_company(
         raise HTTPException(409, "Place ID already registered")
 
     company = Company(name=name, place_id=place_id)
-    # Accept optional provided values; may be overwritten by enrich below.
     if hasattr(company, "website"):
         company.website = (payload.get("website") or "").strip() or None
     if hasattr(company, "location"):
@@ -526,7 +541,6 @@ def add_company(
     db.commit()
     db.refresh(company)
 
-    # Enrich from Google if possible
     if gmaps and place_id:
         detail = _enrich_place_detail(place_id)
         if detail:
@@ -554,11 +568,22 @@ def reviews_summary(
     company_id: int,
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
+    include_aspects: bool = Query(True),
     db: Session = Depends(get_db)
 ):
     """
     Single-fetch summary for a company over a date range (?start=&end=).
+    Uses a small optional TTL cache if SUMMARY_TTL_SECONDS > 0.
     """
+    # Cache key uses the raw query values for stability
+    cache_key = (company_id, start, end if end else None)
+    now = time.time()
+
+    if SUMMARY_TTL_SECONDS > 0:
+        cached = _summary_cache.get(cache_key)
+        if cached and (now - cached[0] < SUMMARY_TTL_SECONDS):
+            return cached[1]
+
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(404, "Company not found")
@@ -575,17 +600,84 @@ def reviews_summary(
 
     # Safety cap
     reviews = query.order_by(Review.review_date.desc()).limit(8000).all()
-    return get_review_summary_data(reviews, company, start_dt, end_dt)
+    result = get_review_summary_data(reviews, company, start_dt, end_dt, include_aspects=include_aspects)
+
+    if SUMMARY_TTL_SECONDS > 0:
+        _summary_cache[cache_key] = (now, result)
+
+    return result
+
+@router.get("/list/{company_id}")
+def list_reviews(
+    company_id: int,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    rating: Optional[int] = Query(None, ge=1, le=5),
+    q: Optional[str] = Query(None, min_length=2),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Paginated raw review list for UI tables & AI-reply workflows.
+    """
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(404, "Company not found")
+
+    start_dt = _parse_date_param(start, as_end=False) if start else None
+    end_dt = _parse_date_param(end, as_end=True) if end else None
+
+    qry = db.query(Review).filter(Review.company_id == company_id)
+    if rating:
+        qry = qry.filter(Review.rating == rating)
+    if q:
+        s = f"%{q.lower().strip()}%"
+        qry = qry.filter(Review.text.ilike(s))
+    if start_dt:
+        qry = qry.filter(Review.review_date >= start_dt)
+    if end_dt:
+        qry = qry.filter(Review.review_date <= end_dt)
+
+    if order == "asc":
+        qry = qry.order_by(Review.review_date.asc())
+    else:
+        qry = qry.order_by(Review.review_date.desc())
+
+    total = qry.count()
+    items = qry.offset((page - 1) * limit).limit(limit).all()
+    # Minimal serialization (adjust to your Pydantic schema if needed)
+    data = [
+        {
+            "id": r.id,
+            "rating": r.rating,
+            "text": r.text,
+            "reviewer_name": r.reviewer_name,
+            "review_date": (_parse_review_date(r) or datetime.now(timezone.utc)).isoformat(),
+        }
+        for r in items
+    ]
+    return {"total": total, "page": page, "limit": limit, "items": data}
 
 @router.get("/sync/{company_id}")
-def reviews_sync(company_id: int, db: Session = Depends(get_db)):
+def reviews_sync(
+    company_id: int,
+    db: Session = Depends(get_db),
+    max_reviews: int = Query(60, ge=1, le=200)
+):
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(404, "Company not found")
     if not gmaps:
         return {"ok": False, "reason": "Google client unavailable"}
 
-    added = fetch_and_save_reviews_places(company, db)
+    added = fetch_and_save_reviews_places(company, db, max_reviews=max_reviews)
+    # Invalidate summary cache for this company
+    if SUMMARY_TTL_SECONDS > 0:
+        keys_to_drop = [k for k in _summary_cache.keys() if k[0] == company_id]
+        for k in keys_to_drop:
+            _summary_cache.pop(k, None)
     return {"ok": True, "added": added, "message": "Sync completed"}
 
 @router.get("/diagnostics")
@@ -595,5 +687,7 @@ def reviews_diagnostics():
         "places_client_active": gmaps is not None,
         "api_key_source": api_src,
         "api_token_configured": bool(API_TOKEN),
-        "default_window_days": 180
+        "default_window_days": 180,
+        "summary_cache_ttl": SUMMARY_TTL_SECONDS
     }
+``
