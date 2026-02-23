@@ -1,343 +1,805 @@
+<!--
+  File: reviewsaaS_dashboard.html
+  Description: Enterprise-grade ReviewSaaS Intelligence Dashboard (Tailwind + Chart.js)
+  Notes:
+    - Keeps your existing API endpoints (init, summary, sync, and create company).
+    - Includes theme toggle, deep-linking, skeletons, toasts, and resilient error handling.
+    - Demo Mode automatically activates if the API is unreachable (for instant preview).
+-->
+
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ReviewSaaS Intelligence | Enterprise Grade</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
-        
-        :root { --brand-blue: #3b82f6; --bg-dark: #0f172a; }
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--bg-dark); color: #f8fafc; }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ReviewSaaS Intelligence | Enterprise Grade</title>
 
-        /* Glassmorphism Effect */
-        .glass-panel {
-            background: rgba(30, 41, 59, 0.7);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 1.25rem;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        }
+  <!-- Tailwind (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
 
-        .sidebar-item {
-            cursor: pointer;
-            border: 1px solid transparent;
-            transition: all 0.2s ease;
-        }
-        .sidebar-item.active {
-            background: rgba(59, 130, 246, 0.1);
-            border-color: rgba(59, 130, 246, 0.3);
-            color: white;
-        }
+  <!-- Chart.js (v4) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
 
-        /* Loading Shimmer */
-        .fetching-overlay {
-            opacity: 0.5;
-            pointer-events: none;
-            filter: grayscale(0.5);
-            cursor: wait;
-        }
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
 
-        .sync-active { animation: spin 2s linear infinite; }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  <!-- Favicons / Meta -->
+  <meta name="theme-color" content="#0f172a" />
 
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar { width: 5px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
-    </style>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+    :root {
+      --brand-blue: #3b82f6;
+      --bg-dark: #0f172a;
+      --bg-card: rgba(30, 41, 59, 0.7);
+      --border: rgba(255, 255, 255, 0.08);
+      --muted: #94a3b8;
+      --muted-2: #64748b;
+      --text: #f8fafc;
+      --text-2: #cbd5e1;
+      --shadow: 0 10px 30px rgba(2, 6, 23, 0.35);
+    }
+
+    /* Light theme variables */
+    [data-theme="light"] {
+      --bg-dark: #f3f4f6;
+      --bg-card: rgba(255, 255, 255, 0.75);
+      --border: rgba(15, 23, 42, 0.08);
+      --muted: #475569;
+      --muted-2: #6b7280;
+      --text: #0f172a;
+      --text-2: #334155;
+      --shadow: 0 8px 24px rgba(0,0,0,0.08);
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: var(--bg-dark);
+      color: var(--text);
+    }
+
+    /* Glassmorphism Panels */
+    .glass-panel {
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: 1.25rem;
+      transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: var(--shadow);
+    }
+
+    /* Sidebar items */
+    .sidebar-item {
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: transform 0.12s ease, background 0.2s ease, border 0.2s ease;
+      outline: none;
+    }
+    .sidebar-item:hover { transform: translateY(-1px); }
+    .sidebar-item:focus-visible { box-shadow: 0 0 0 3px rgba(59,130,246,0.35); }
+    .sidebar-item.active {
+      background: rgba(59, 130, 246, 0.12);
+      border-color: rgba(59, 130, 246, 0.35);
+      color: var(--text);
+    }
+
+    /* Loading shimmer */
+    .fetching-overlay {
+      opacity: 0.55;
+      pointer-events: none;
+      filter: grayscale(0.4);
+      cursor: wait;
+    }
+    .skeleton {
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(90deg, rgba(148,163,184,0.08), rgba(148,163,184,0.18), rgba(148,163,184,0.08));
+      background-size: 300% 300%;
+      animation: shimmer 1.5s infinite linear;
+      border-radius: 0.75rem;
+    }
+    @keyframes shimmer {
+      0% { background-position: 0% 50% }
+      100% { background-position: 100% 50% }
+    }
+
+    .sync-active { animation: spin 1.25s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+
+    /* Utility */
+    .chip {
+      padding: 0.35rem 0.6rem;
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      letter-spacing: .12em;
+    }
+
+    /* Toasts */
+    #toasts {
+      position: fixed;
+      right: 1rem;
+      top: 5.25rem;
+      display: flex; 
+      flex-direction: column;
+      gap: .5rem;
+      z-index: 1000;
+    }
+    .toast {
+      padding: .75rem 1rem;
+      font-size: .9rem;
+      border-radius: .75rem;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text);
+      box-shadow: var(--shadow);
+    }
+    .toast-success { border-color: rgba(16,185,129,.3); }
+    .toast-error { border-color: rgba(239,68,68,.35); }
+    .toast-info { border-color: rgba(59,130,246,.35); }
+  </style>
 </head>
-<body class="h-screen flex flex-col overflow-hidden">
 
-    <nav class="h-20 glass-panel rounded-none border-t-0 border-x-0 px-8 flex items-center justify-between z-50">
-        <div class="flex items-center gap-4">
-            <div class="bg-gradient-to-br from-blue-600 to-indigo-600 p-2.5 rounded-2xl shadow-lg shadow-blue-500/30">
-                <i data-lucide="shield-check" class="text-white w-6 h-6"></i>
-            </div>
-            <div>
-                <h1 class="font-extrabold text-2xl tracking-tight">Review<span class="text-blue-500">SaaS</span></h1>
-                <p class="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">Enterprise Intelligence</p>
-            </div>
+<body class="h-screen flex flex-col overflow-hidden selection:bg-blue-500/30 selection:text-blue-100">
+  <!-- Toast container -->
+  <div id="toasts" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Top Nav -->
+  <nav class="h-20 glass-panel rounded-none border-t-0 border-x-0 px-4 md:px-8 flex items-center justify-between z-50">
+    <div class="flex items-center gap-4">
+      <div class="bg-gradient-to-br from-blue-600 to-indigo-600 p-2.5 rounded-2xl shadow-lg shadow-blue-500/30">
+        <i data-lucide="shield-check" class="text-white w-6 h-6" aria-hidden="true"></i>
+      </div>
+      <div>
+        <h1 class="font-extrabold text-2xl tracking-tight">Review<span class="text-blue-500">SaaS</span></h1>
+        <p class="text-[10px] text-slate-500 font-black uppercase tracking-[0.20em]">Enterprise Intelligence</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2 md:gap-3">
+      <!-- Theme toggle -->
+      <button id="themeToggle"
+              class="glass-panel bg-slate-900/40 border-slate-700 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:scale-[1.02] active:scale-95"
+              title="Toggle Theme" aria-label="Toggle Theme">
+        <i data-lucide="moon-star" class="w-4 h-4"></i>
+        <span class="hidden md:inline">Theme</span>
+      </button>
+
+      <!-- Range picker -->
+      <div class="hidden sm:flex items-center gap-2 glass-panel px-3 md:px-4 py-2 border-slate-700 bg-slate-900/40">
+        <div class="flex flex-col">
+          <label for="startDate" class="text-[9px] font-black text-slate-500 uppercase">From</label>
+          <input type="date" id="startDate"
+                 class="bg-transparent text-xs font-bold outline-none text-white cursor-pointer"
+                 aria-label="Start Date">
+        </div>
+        <div class="h-6 w-[1px] bg-slate-700 mx-2"></div>
+        <div class="flex flex-col">
+          <label for="endDate" class="text-[9px] font-black text-slate-500 uppercase">To</label>
+          <input type="date" id="endDate"
+                 class="bg-transparent text-xs font-bold outline-none text-white cursor-pointer"
+                 aria-label="End Date">
+        </div>
+        <button id="rangeUpdateBtn"
+                class="ml-2 md:ml-4 bg-blue-600 hover:bg-blue-500 px-3 md:px-4 py-2 rounded-xl text-xs font-black transition-all shadow-lg shadow-blue-600/20 active:scale-95">
+          APPLY
+        </button>
+      </div>
+
+      <button onclick="handleLogout()"
+              class="p-3 text-slate-400 hover:text-white transition-colors"
+              title="Logout" aria-label="Logout">
+        <i data-lucide="log-out"></i>
+      </button>
+    </div>
+  </nav>
+
+  <div class="flex flex-1 overflow-hidden">
+    <!-- Sidebar -->
+    <aside class="w-80 max-w-full border-r border-slate-800 bg-slate-900/30 flex flex-col p-4 md:p-6">
+      <div class="mb-6">
+        <div class="relative group">
+          <input type="text" id="newCompanyName" placeholder="Add Client Portfolio..."
+                 class="w-full bg-slate-800/50 border border-slate-700 rounded-2xl py-3 pl-4 pr-12 text-sm outline-none focus:border-blue-500 transition-all placeholder:text-slate-600"
+                 aria-label="Add Client Portfolio">
+          <button onclick="ui.addNewClient()"
+                  class="absolute right-3 top-3 text-blue-500 hover:text-blue-400"
+                  title="Add portfolio" aria-label="Add portfolio">
+            <i data-lucide="plus-circle" class="w-6 h-6"></i>
+          </button>
+        </div>
+      </div>
+
+      <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 px-2">Active Portfolios</h3>
+
+      <div id="clientList" class="flex-1 overflow-y-auto space-y-2 pr-1" role="listbox" aria-label="Client Portfolios">
+        <!-- Populated dynamically -->
+        <div class="skeleton h-12"></div>
+        <div class="skeleton h-12"></div>
+        <div class="skeleton h-12"></div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main id="mainWorkspace" class="flex-1 overflow-y-auto p-5 md:p-8 hidden">
+      <div class="flex flex-col md:flex-row md:justify-between md:items-start gap-5 mb-8">
+        <div>
+          <div class="flex items-center gap-3 mb-2">
+            <h2 id="currentClientName" class="text-3xl md:text-4xl font-black text-white">--</h2>
+            <span id="riskBadge" class="chip bg-blue-500/10 text-blue-400 border border-blue-500/20">--</span>
+          </div>
+          <p id="currentClientCity" class="text-slate-400 font-medium flex items-center gap-1.5">
+            <i data-lucide="map-pin" class="w-4 h-4 text-red-500" aria-hidden="true"></i> --
+          </p>
         </div>
 
         <div class="flex items-center gap-3">
-            <div class="flex items-center gap-2 glass-panel px-4 py-2 border-slate-700 bg-slate-900/40">
-                <div class="flex flex-col">
-                    <label class="text-[9px] font-black text-slate-500 uppercase">From</label>
-                    <input type="date" id="startDate" class="bg-transparent text-xs font-bold outline-none text-white cursor-pointer">
-                </div>
-                <div class="h-6 w-[1px] bg-slate-700 mx-2"></div>
-                <div class="flex flex-col">
-                    <label class="text-[9px] font-black text-slate-500 uppercase">To</label>
-                    <input type="date" id="endDate" class="bg-transparent text-xs font-bold outline-none text-white cursor-pointer">
-                </div>
-                <button id="rangeUpdateBtn" class="ml-4 bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-xs font-black transition-all shadow-lg shadow-blue-600/20 active:scale-95">
-                    APPLY
-                </button>
-            </div>
-            <button onclick="handleLogout()" class="p-3 text-slate-400 hover:text-white transition-colors"><i data-lucide="log-out"></i></button>
+          <button id="quickRange90" class="chip bg-slate-800/50 text-slate-300 border border-slate-700 hover:border-blue-500/40">Last 90d</button>
+          <button id="quickRange30" class="chip bg-slate-800/50 text-slate-300 border border-slate-700 hover:border-blue-500/40">30d</button>
+          <button id="quickRange7"  class="chip bg-slate-800/50 text-slate-300 border border-slate-700 hover:border-blue-500/40">7d</button>
+
+          <button onclick="ui.syncGoogle()" id="syncActionBtn"
+                  class="flex items-center gap-3 bg-gradient-to-r from-blue-600 to-indigo-600 px-6 md:px-8 py-3.5 rounded-2xl font-bold text-sm shadow-xl shadow-blue-900/20 hover:scale-[1.02] active:scale-95 transition-all">
+            <i data-lucide="refresh-cw" id="syncIcon" class="w-5 h-5"></i>
+            Sync Intelligence
+          </button>
         </div>
-    </nav>
+      </div>
 
-    <div class="flex flex-1 overflow-hidden">
-        <aside class="w-80 border-r border-slate-800 bg-slate-900/30 flex flex-col p-6">
-            <div class="mb-8">
-                <div class="relative group">
-                    <input type="text" id="newCompanyName" placeholder="Add Client Portfolio..." 
-                           class="w-full bg-slate-800/50 border border-slate-700 rounded-2xl py-3 px-4 text-sm outline-none focus:border-blue-500 transition-all placeholder:text-slate-600">
-                    <button onclick="ui.addNewClient()" class="absolute right-3 top-3 text-blue-500 hover:text-blue-400">
-                        <i data-lucide="plus-circle" class="w-6 h-6"></i>
-                    </button>
-                </div>
-            </div>
-            
-            <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 px-2">Active Portfolios</h3>
-            <div id="clientList" class="flex-1 overflow-y-auto space-y-2 pr-2">
-                </div>
-        </aside>
-
-        <main id="mainWorkspace" class="flex-1 overflow-y-auto p-8 custom-scrollbar hidden">
-            <div class="flex justify-between items-start mb-10">
-                <div>
-                    <div class="flex items-center gap-3 mb-2">
-                        <h2 id="currentClientName" class="text-4xl font-black text-white">--</h2>
-                        <span id="riskBadge" class="px-3 py-1 rounded-full text-[10px] font-black uppercase bg-blue-500/10 text-blue-500 border border-blue-500/20">--</span>
-                    </div>
-                    <p id="currentClientCity" class="text-slate-400 font-medium flex items-center gap-1.5"><i data-lucide="map-pin" class="w-4 h-4 text-red-500"></i> --</p>
-                </div>
-                
-                <button onclick="ui.syncGoogle()" id="syncActionBtn" class="flex items-center gap-3 bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-3.5 rounded-2xl font-bold text-sm shadow-xl shadow-blue-900/20 hover:scale-[1.02] active:scale-95 transition-all">
-                    <i data-lucide="refresh-cw" id="syncIcon" class="w-5 h-5"></i> Sync Intelligence
-                </button>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
-                <div class="glass-panel p-6">
-                    <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Volume</p>
-                    <h4 id="statTotal" class="text-3xl font-bold mt-2">0</h4>
-                </div>
-                <div class="glass-panel p-6 border-b-2 border-emerald-500/50">
-                    <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Sentiment Index</p>
-                    <h4 id="statAvg" class="text-3xl font-bold mt-2">0.0</h4>
-                </div>
-                <div class="glass-panel p-6 border-b-2 border-red-500/50">
-                    <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Risk Factor</p>
-                    <h4 id="statRiskScore" class="text-3xl font-bold mt-2">0</h4>
-                </div>
-                <div class="glass-panel p-6 bg-blue-600/5">
-                    <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Trend Signal</p>
-                    <h4 id="statSignal" class="text-3xl font-bold mt-2">--</h4>
-                </div>
-            </div>
-
-            <div class="glass-panel p-8 mb-10 border-indigo-500/20 bg-gradient-to-br from-indigo-500/5 to-transparent">
-                <div class="flex items-center gap-3 mb-4">
-                    <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-400"><i data-lucide="cpu" class="w-5 h-5"></i></div>
-                    <h3 class="font-bold text-lg">AI Narrative & Recommendations</h3>
-                </div>
-                <p id="aiContent" class="text-slate-300 text-sm leading-relaxed max-w-4xl italic">
-                    Analyzing historical sentiment data to generate strategic pivots...
-                </p>
-            </div>
-
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
-                <div class="glass-panel p-8">
-                    <h3 class="font-bold text-slate-200 mb-8 flex items-center gap-2">Performance Velocity</h3>
-                    <canvas id="chartTrend" height="180"></canvas>
-                </div>
-                <div class="glass-panel p-8">
-                    <h3 class="font-bold text-slate-200 mb-8 flex items-center gap-2">Sentiment Resonance</h3>
-                    <div class="max-w-[280px] mx-auto"><canvas id="chartSentiment"></canvas></div>
-                </div>
-            </div>
-        </main>
-
-        <div id="blankState" class="flex-1 flex flex-col items-center justify-center text-center p-12">
-            <div class="w-32 h-32 bg-slate-800/40 rounded-[2.5rem] flex items-center justify-center mb-8 border border-slate-700/50">
-                <i data-lucide="layout-grid" class="w-12 h-12 text-slate-700"></i>
-            </div>
-            <h2 class="text-2xl font-bold text-white mb-3">Portfolio Inactive</h2>
-            <p class="text-slate-500 text-sm max-w-xs leading-relaxed">Select a company from the sidebar to initialize the AI sentiment engine.</p>
+      <!-- Stat cards -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-5 md:gap-6 mb-8 md:mb-10">
+        <div class="glass-panel p-6">
+          <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Volume</p>
+          <h4 id="statTotal" class="text-3xl font-bold mt-2">0</h4>
         </div>
+        <div class="glass-panel p-6 border-b-2 border-emerald-500/50">
+          <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Sentiment Index</p>
+          <h4 id="statAvg" class="text-3xl font-bold mt-2">0.0</h4>
+        </div>
+        <div class="glass-panel p-6 border-b-2 border-red-500/50">
+          <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Risk Factor</p>
+          <h4 id="statRiskScore" class="text-3xl font-bold mt-2">0</h4>
+        </div>
+        <div class="glass-panel p-6 bg-blue-600/5">
+          <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Trend Signal</p>
+          <h4 id="statSignal" class="text-3xl font-bold mt-2">--</h4>
+        </div>
+      </div>
+
+      <!-- AI narrative -->
+      <div class="glass-panel p-6 md:p-8 mb-8 md:mb-10 border-indigo-500/20 bg-gradient-to-br from-indigo-500/5 to-transparent">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-400">
+            <i data-lucide="cpu" class="w-5 h-5"></i>
+          </div>
+          <h3 class="font-bold text-lg">AI Narrative & Recommendations</h3>
+        </div>
+        <p id="aiContent" class="text-slate-300 text-sm leading-relaxed max-w-4xl italic">
+          Analyzing historical sentiment data to generate strategic pivots...
+        </p>
+      </div>
+
+      <!-- Charts -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-8 md:mb-10">
+        <div class="glass-panel p-6 md:p-8">
+          <div class="flex items-center justify-between mb-6">
+            <h3 class="font-bold text-slate-200">Performance Velocity</h3>
+            <button id="exportTrend" class="chip bg-slate-800/50 text-slate-300 border border-slate-700 hover:border-blue-500/40">
+              <i data-lucide="download" class="w-3.5 h-3.5"></i> Export
+            </button>
+          </div>
+          <canvas id="chartTrend" height="180" aria-label="Performance Velocity Line Chart" role="img"></canvas>
+        </div>
+
+        <div class="glass-panel p-6 md:p-8">
+          <div class="flex items-center justify-between mb-6">
+            <h3 class="font-bold text-slate-200">Sentiment Resonance</h3>
+            <button id="exportSent" class="chip bg-slate-800/50 text-slate-300 border border-slate-700 hover:border-blue-500/40">
+              <i data-lucide="download" class="w-3.5 h-3.5"></i> Export
+            </button>
+          </div>
+          <div class="max-w-[320px] mx-auto"><canvas id="chartSentiment"></canvas></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Blank state -->
+    <div id="blankState" class="flex-1 flex flex-col items-center justify-center text-center p-12">
+      <div class="w-32 h-32 bg-slate-800/40 rounded-[2.5rem] flex items-center justify-center mb-8 border border-slate-700/50">
+        <i data-lucide="layout-grid" class="w-12 h-12 text-slate-700"></i>
+      </div>
+      <h2 class="text-2xl font-bold text-white mb-3">Portfolio Inactive</h2>
+      <p class="text-slate-500 text-sm max-w-xs leading-relaxed">
+        Select a company from the sidebar to initialize the AI sentiment engine.
+      </p>
     </div>
+  </div>
 
-    <script>
-        /**
-         * Enterprise State Manager
-         * Optimized for Python/FastAPI backends on Railway
-         */
-        const App = {
-            clientId: null,
-            syncing: false,
-            charts: { trend: null, sent: null }
+  <script>
+    /* -------------------------------------------------------
+     * Enterprise State Manager & Utilities
+     * ----------------------------------------------------- */
+    const App = {
+      clientId: null,
+      syncing: false,
+      charts: { trend: null, sent: null },
+      theme: localStorage.getItem('rs_theme') || 'dark',
+      demoMode: false, // will auto-enable if API fails
+    };
+
+    const qs = new URLSearchParams(location.search);
+
+    const $ = (s, r = document) => r.querySelector(s);
+    const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+    const toast = (msg, type = 'info', timeout = 2800) => {
+      const box = document.getElementById('toasts');
+      const div = document.createElement('div');
+      div.className = `toast toast-${type}`;
+      div.innerHTML = msg;
+      box.appendChild(div);
+      setTimeout(() => div.remove(), timeout);
+    };
+
+    const persistURL = () => {
+      if (!App.clientId) return;
+      const start = $('#startDate').value;
+      const end = $('#endDate').value;
+      const url = new URL(location.href);
+      url.searchParams.set('client', App.clientId);
+      url.searchParams.set('start', start);
+      url.searchParams.set('end', end);
+      history.replaceState(null, '', url.toString());
+    };
+
+    const clampDateOrder = () => {
+      const s = new Date($('#startDate').value);
+      const e = new Date($('#endDate').value);
+      if (e < s) {
+        $('#endDate').value = $('#startDate').value;
+      }
+    };
+
+    const fmtInt = (n) => (Number(n || 0)).toLocaleString();
+
+    const themeApply = (theme) => {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('rs_theme', theme);
+      // Update meta theme-color for mobile chrome
+      const meta = document.querySelector('meta[name="theme-color"]');
+      meta?.setAttribute('content', theme === 'dark' ? '#0f172a' : '#f3f4f6');
+      // Re-render charts to match theme
+      if (App.charts.trend || App.charts.sent) {
+        ui.renderCharts(ui._lastData || null);
+      }
+      // Swap icon
+      const themeIcon = document.querySelector('#themeToggle i');
+      themeIcon?.setAttribute('data-lucide', theme === 'dark' ? 'moon-star' : 'sun');
+      lucide.createIcons();
+    };
+
+    const gradient = (ctx, color) => {
+      const g = ctx.createLinearGradient(0, 0, 0, 240);
+      g.addColorStop(0, color.replace('1)', '0.28)')); // top
+      g.addColorStop(1, color.replace('1)', '0.02)')); // bottom
+      return g;
+    };
+
+    // Fallback demo data (when API is unavailable)
+    const demo = {
+      companies: [
+        { id: 101, name: 'Apex Mobility', city: 'Seattle' },
+        { id: 102, name: 'Helio Cloud', city: 'Berlin' },
+        { id: 103, name: 'NovaPulse Retail', city: 'Dubai' },
+      ],
+      summary(id, start, end) {
+        const seed = id % 7 + new Date(end).getDate();
+        const labels = Array.from({ length: 12 }, (_, i) => `W${i + 1}`);
+        const data = labels.map((_, i) => (Math.sin(i / 2.2 + seed) + 1) * 2.1 + (i % 3) * 0.12).map(v => Math.min(5, Math.max(0.4, v)));
+        const pos = Math.floor(55 + (seed % 12));
+        const neu = Math.floor(100 - pos - 18);
+        const neg = 100 - pos - neu;
+        const avg = (data.reduce((a,b)=>a+b,0)/data.length).toFixed(1);
+        const riskScore = Math.max(1, Math.round(120 - pos + (neg * 1.2)));
+        const riskLevel = riskScore > 90 ? 'CRITICAL' : riskScore > 60 ? 'HIGH' : riskScore > 35 ? 'MEDIUM' : 'LOW';
+        const signal = (data[data.length-1] - data[0]) > 0.2 ? 'Bullish' : (data[data.length-1] - data[0]) < -0.2 ? 'Bearish' : 'Stable';
+        return {
+          company: demo.companies.find(c => c.id === id) || demo.companies[0],
+          metrics: {
+            total: (seed * 137) + 420,
+            avg_rating: Number(avg),
+            risk_score: riskScore,
+            risk_level: riskLevel
+          },
+          trend: { labels, data, signal },
+          sentiment: { Positive: pos, Neutral: neu, Negative: neg },
+          ai_recommendations: [
+            { action: `Double down on ${signal.toLowerCase()} momentum. Prioritize categories with high intent; mitigate ${neg}% negative stack via response SLAs <24h.` }
+          ]
+        };
+      }
+    };
+
+    /* -------------------------------------------------------
+     * UI Controller
+     * ----------------------------------------------------- */
+    const ui = {
+      _lastData: null,
+      _resizeObserver: null,
+
+      async init() {
+        lucide.createIcons();
+        themeApply(App.theme);
+
+        this.setupDatesFromURLOrDefault();
+        this.bindEvents();
+
+        await this.loadClients();
+        // Deep link to client if present
+        const deepId = Number(qs.get('client'));
+        if (deepId) {
+          // Wait a tick for list to render
+          setTimeout(() => this.selectClient(deepId), 150);
+        }
+      },
+
+      bindEvents() {
+        $('#themeToggle').onclick = () => {
+          App.theme = (App.theme === 'dark') ? 'light' : 'dark';
+          themeApply(App.theme);
         };
 
-        // UI Controller Object
-        const ui = {
-            async init() {
-                lucide.createIcons();
-                this.setupDates();
-                await this.loadClients();
-                
-                document.getElementById('rangeUpdateBtn').onclick = () => {
-                    if (App.clientId) this.reloadDashboard();
-                };
-            },
+        $('#rangeUpdateBtn').onclick = () => {
+          if (App.clientId) this.reloadDashboard();
+        };
 
-            setupDates() {
-                const end = new Date();
-                const start = new Date();
-                start.setDate(end.getDate() - 90);
-                document.getElementById('endDate').value = end.toISOString().split('T')[0];
-                document.getElementById('startDate').value = start.toISOString().split('T')[0];
-            },
+        // Quick ranges
+        $('#quickRange90').onclick = () => this.setQuickRange(90);
+        $('#quickRange30').onclick = () => this.setQuickRange(30);
+        $('#quickRange7').onclick  = () => this.setQuickRange(7);
 
-            async loadClients() {
-                try {
-                    const res = await fetch('/api/dashboard/init');
-                    const data = await res.json();
-                    const list = document.getElementById('clientList');
-                    list.innerHTML = data.companies.map(c => `
-                        <div class="sidebar-item p-4 rounded-2xl flex flex-col gap-1 mb-1" id="c-${c.id}" onclick="ui.selectClient(${c.id})">
-                            <span class="text-sm font-bold truncate">${c.name}</span>
-                            <span class="text-[9px] font-black text-slate-500 uppercase tracking-wider">${c.city || 'PENDING SYNC'}</span>
-                        </div>
-                    `).join('');
-                } catch (e) { console.error("Client load failed", e); }
-            },
+        // Date order clamp
+        $('#startDate').addEventListener('change', () => { clampDateOrder(); persistURL(); });
+        $('#endDate').addEventListener('change', () => { clampDateOrder(); persistURL(); });
 
-            async selectClient(id) {
-                App.clientId = id;
-                document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
-                document.getElementById(`c-${id}`).classList.add('active');
-                
-                document.getElementById('blankState').classList.add('hidden');
-                document.getElementById('mainWorkspace').classList.remove('hidden');
-                
-                await this.reloadDashboard();
-                // Check if data is zero, if so, trigger auto-sync
-                if (document.getElementById('statTotal').innerText === '0') {
-                    this.syncGoogle();
+        // Keyboard support for client list
+        $('#clientList').addEventListener('keydown', (e) => {
+          const items = $$('.sidebar-item');
+          const current = document.activeElement;
+          const idx = items.indexOf(current);
+          if (e.key === 'ArrowDown')   { (items[idx + 1] || items[0])?.focus(); e.preventDefault(); }
+          if (e.key === 'ArrowUp')     { (items[idx - 1] || items[items.length - 1])?.focus(); e.preventDefault(); }
+          if (e.key === 'Enter' || e.key === ' ') { current?.click(); e.preventDefault(); }
+        });
+
+        // Chart export
+        $('#exportTrend').onclick = () => this.exportChart('chartTrend', 'performance_velocity.png');
+        $('#exportSent').onclick  = () => this.exportChart('chartSentiment', 'sentiment_resonance.png');
+
+        // Resize aware charts
+        this._resizeObserver = new ResizeObserver(() => {
+          if (this._lastData) this.renderCharts(this._lastData);
+        });
+        this._resizeObserver.observe($('#mainWorkspace'));
+      },
+
+      setupDatesFromURLOrDefault() {
+        const end = qs.get('end') ? new Date(qs.get('end')) : new Date();
+        const start = qs.get('start') ? new Date(qs.get('start')) : new Date(new Date().setDate(end.getDate() - 90));
+        $('#endDate').value = end.toISOString().split('T')[0];
+        $('#startDate').value = start.toISOString().split('T')[0];
+      },
+
+      setQuickRange(days) {
+        const end = new Date();
+        const start = new Date();
+        start.setDate(end.getDate() - days);
+        $('#endDate').value = end.toISOString().split('T')[0];
+        $('#startDate').value = start.toISOString().split('T')[0];
+        persistURL();
+        if (App.clientId) this.reloadDashboard();
+      },
+
+      async loadClients() {
+        try {
+          const res = await fetch('/api/dashboard/init');
+          if (!res.ok) throw new Error('Init failed');
+          const data = await res.json();
+          this.renderClientList(data.companies);
+          App.demoMode = false;
+        } catch (e) {
+          // Demo mode fallback
+          this.renderClientList(demo.companies);
+          App.demoMode = true;
+          toast('Demo Mode: API unreachable — loaded mock companies.', 'info', 4000);
+          console.warn('Client load failed, switched to demo mode', e);
+        }
+      },
+
+      renderClientList(companies = []) {
+        const list = $('#clientList');
+        if (!companies.length) {
+          list.innerHTML = `<div class="text-sm text-slate-500 px-2 py-4">No portfolios. Add one above.</div>`;
+          return;
+        }
+        list.innerHTML = companies.map(c => `
+          <div class="sidebar-item p-4 rounded-2xl flex flex-col gap-1 mb-1 focus:outline-none"
+               id="c-${c.id}" role="option" tabindex="0" aria-selected="false"
+               onclick="ui.selectClient(${c.id})">
+            <span class="text-sm font-bold truncate">${c.name}</span>
+            <span class="text-[9px] font-black text-slate-500 uppercase tracking-wider">
+              ${c.city || 'PENDING SYNC'}
+            </span>
+          </div>
+        `).join('');
+      },
+
+      async selectClient(id) {
+        App.clientId = id;
+
+        $$('.sidebar-item').forEach(el => {
+          el.classList.remove('active');
+          el.setAttribute('aria-selected', 'false');
+        });
+        const el = document.getElementById(`c-${id}`);
+        el?.classList.add('active');
+        el?.setAttribute('aria-selected', 'true');
+
+        $('#blankState').classList.add('hidden');
+        $('#mainWorkspace').classList.remove('hidden');
+
+        persistURL();
+        await this.reloadDashboard();
+
+        // Auto-sync if total = 0 and not demo
+        if ($('#statTotal').innerText === '0' && !App.demoMode) {
+          this.syncGoogle();
+        }
+      },
+
+      async reloadDashboard() {
+        if (!App.clientId) return;
+        const ws = $('#mainWorkspace');
+        ws.classList.add('fetching-overlay');
+
+        const start = $('#startDate').value;
+        const end = $('#endDate').value;
+
+        try {
+          let data;
+          if (App.demoMode) {
+            await new Promise(r => setTimeout(r, 450));
+            data = demo.summary(App.clientId, start, end);
+          } else {
+            const res = await fetch(`/api/dashboard/summary/${App.clientId}?start=${start}&end=${end}`);
+            if (!res.ok) throw new Error('Summary failed');
+            data = await res.json();
+          }
+          this.updateMetrics(data);
+          persistURL();
+          toast('Dashboard refreshed', 'success', 1800);
+        } catch (e) {
+          console.error('Refresh failed', e);
+          toast('Unable to refresh dashboard. Showing last known values.', 'error', 3500);
+        } finally {
+          ws.classList.remove('fetching-overlay');
+        }
+      },
+
+      updateMetrics(data) {
+        this._lastData = data;
+
+        $('#currentClientName').innerText = data.company.name;
+        $('#currentClientCity').innerHTML = `<i data-lucide="map-pin" class="w-4 h-4 text-red-500"></i> ${data.company.city || 'N/A'}`;
+        $('#statTotal').innerText = fmtInt(data.metrics.total);
+        $('#statAvg').innerText = Number(data.metrics.avg_rating || 0).toFixed(1);
+        $('#statRiskScore').innerText = fmtInt(data.metrics.risk_score);
+        $('#riskBadge').innerText = data.metrics.risk_level || '--';
+        $('#statSignal').innerText = data.trend?.signal || 'Stable';
+
+        // Colorize risk badge
+        const risk = (data.metrics.risk_level || '').toUpperCase();
+        const rb = $('#riskBadge');
+        rb.className = 'chip border';
+        if (risk === 'CRITICAL') rb.classList.add('bg-red-500/10','text-red-400','border-red-500/30');
+        else if (risk === 'HIGH') rb.classList.add('bg-orange-500/10','text-orange-400','border-orange-500/30');
+        else if (risk === 'MEDIUM') rb.classList.add('bg-amber-500/10','text-amber-400','border-amber-500/30');
+        else rb.classList.add('bg-emerald-500/10','text-emerald-400','border-emerald-500/30');
+
+        // AI content
+        $('#aiContent').innerText = data.ai_recommendations?.[0]?.action ||
+          'Review velocity is standard. Maintain organic engagement to protect rating resonance.';
+
+        this.renderCharts(data);
+        lucide.createIcons();
+      },
+
+      async syncGoogle() {
+        if (!App.clientId || App.syncing) return;
+        if (App.demoMode) {
+          toast('Demo Mode: Sync is simulated.', 'info', 2500);
+          return;
+        }
+
+        App.syncing = true;
+        const btn = $('#syncActionBtn');
+        const icon = $('#syncIcon');
+
+        icon.classList.add('sync-active');
+        btn.classList.add('opacity-70');
+
+        try {
+          const res = await fetch(`/api/reviews/sync/${App.clientId}`, { method: 'POST' });
+          if (res.ok) {
+            toast('Sync completed', 'success');
+            await this.reloadDashboard();
+          } else {
+            throw new Error('Sync failed');
+          }
+        } catch (e) {
+          console.error(e);
+          toast('Sync failed. Try again in a moment.', 'error', 3500);
+        } finally {
+          App.syncing = false;
+          icon.classList.remove('sync-active');
+          btn.classList.remove('opacity-70');
+        }
+      },
+
+      renderCharts(data) {
+        const trendCanvas = document.getElementById('chartTrend');
+        const sentCanvas  = document.getElementById('chartSentiment');
+
+        if (!trendCanvas || !sentCanvas) return;
+
+        const trendCtx = trendCanvas.getContext('2d');
+        const sentCtx  = sentCanvas.getContext('2d');
+
+        // Destroy existing
+        App.charts.trend?.destroy();
+        App.charts.sent?.destroy();
+
+        // Theme-aware colors
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.08)';
+        const labelColor = isDark ? '#cbd5e1' : '#334155';
+        const borderColor = isDark ? '#3b82f6' : '#2563eb';
+        const bgGradient = gradient(trendCtx, isDark ? 'rgba(59,130,246,1)' : 'rgba(37,99,235,1)');
+
+        // Trend chart
+        App.charts.trend = new Chart(trendCtx, {
+          type: 'line',
+          data: {
+            labels: data.trend.labels,
+            datasets: [{
+              label: 'Rating',
+              data: data.trend.data,
+              borderColor,
+              backgroundColor: bgGradient,
+              fill: true,
+              tension: 0.35,
+              borderWidth: 3,
+              pointRadius: 2,
+              pointBackgroundColor: borderColor
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: ctx => ` ${ctx.parsed.y.toFixed(2)} ★`
                 }
+              }
             },
-
-            async reloadDashboard() {
-                if (!App.clientId) return;
-                const ws = document.getElementById('mainWorkspace');
-                ws.classList.add('fetching-overlay');
-
-                const start = document.getElementById('startDate').value;
-                const end = document.getElementById('endDate').value;
-
-                try {
-                    const res = await fetch(`/api/dashboard/summary/${App.clientId}?start=${start}&end=${end}`);
-                    const data = await res.json();
-                    this.updateMetrics(data);
-                } catch (e) { console.error("Refresh failed", e); }
-                finally { ws.classList.remove('fetching-overlay'); }
-            },
-
-            updateMetrics(data) {
-                document.getElementById('currentClientName').innerText = data.company.name;
-                document.getElementById('currentClientCity').innerHTML = `<i data-lucide="map-pin" class="w-4 h-4 text-red-500"></i> ${data.company.city || 'N/A'}`;
-                document.getElementById('statTotal').innerText = data.metrics.total.toLocaleString();
-                document.getElementById('statAvg').innerText = data.metrics.avg_rating.toFixed(1);
-                document.getElementById('statRiskScore').innerText = data.metrics.risk_score;
-                document.getElementById('riskBadge').innerText = data.metrics.risk_level;
-                document.getElementById('statSignal').innerText = data.trend.signal || 'Stable';
-                
-                document.getElementById('aiContent').innerText = data.ai_recommendations?.[0]?.action || "Review velocity is standard. Maintain organic engagement to protect rating resonance.";
-                
-                this.renderCharts(data);
-                lucide.createIcons();
-            },
-
-            async syncGoogle() {
-                if (App.syncing) return;
-                App.syncing = true;
-                const btn = document.getElementById('syncActionBtn');
-                const icon = document.getElementById('syncIcon');
-                
-                icon.classList.add('sync-active');
-                btn.classList.add('opacity-70');
-
-                try {
-                    const res = await fetch(`/api/reviews/sync/${App.clientId}`, { method: 'POST' });
-                    if (res.ok) await this.reloadDashboard();
-                } finally {
-                    App.syncing = false;
-                    icon.classList.remove('sync-active');
-                    btn.classList.remove('opacity-70');
-                }
-            },
-
-            renderCharts(data) {
-                const trendCtx = document.getElementById('chartTrend').getContext('2d');
-                const sentCtx = document.getElementById('chartSentiment').getContext('2d');
-
-                if (App.charts.trend) App.charts.trend.destroy();
-                if (App.charts.sent) App.charts.sent.destroy();
-
-                App.charts.trend = new Chart(trendCtx, {
-                    type: 'line',
-                    data: {
-                        labels: data.trend.labels,
-                        datasets: [{
-                            data: data.trend.data,
-                            borderColor: '#3b82f6',
-                            backgroundColor: 'rgba(59, 130, 246, 0.05)',
-                            fill: true,
-                            tension: 0.4,
-                            borderWidth: 3,
-                            pointRadius: 2
-                        }]
-                    },
-                    options: { 
-                        plugins: { legend: { display: false } },
-                        scales: { y: { min: 0, max: 5, grid: { color: 'rgba(255,255,255,0.05)' } } } 
-                    }
-                });
-
-                App.charts.sent = new Chart(sentCtx, {
-                    type: 'doughnut',
-                    data: {
-                        labels: ['Positive', 'Neutral', 'Negative'],
-                        datasets: [{
-                            data: [data.sentiment.Positive, data.sentiment.Neutral, data.sentiment.Negative],
-                            backgroundColor: ['#10b981', '#64748b', '#ef4444'],
-                            borderWidth: 0
-                        }]
-                    },
-                    options: { 
-                        cutout: '80%', 
-                        plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', font: { weight: 'bold' } } } } 
-                    }
-                });
-            },
-
-            async addNewClient() {
-                const name = document.getElementById('newCompanyName').value.trim();
-                if (!name) return;
-                const res = await fetch('/api/dashboard/companies', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name })
-                });
-                if (res.ok) {
-                    document.getElementById('newCompanyName').value = '';
-                    this.loadClients();
-                }
+            scales: {
+              x: {
+                ticks: { color: labelColor, maxRotation: 0, autoSkip: true },
+                grid: { color: 'transparent' }
+              },
+              y: {
+                min: 0, max: 5,
+                ticks: { color: labelColor },
+                grid: { color: gridColor }
+              }
             }
-        };
+          }
+        });
 
-        // Global Logout Helper
-        function handleLogout() { location.href = '/login'; }
+        // Sentiment chart
+        const pos = Number(data.sentiment.Positive || 0);
+        const neu = Number(data.sentiment.Neutral || 0);
+        const neg = Number(data.sentiment.Negative || 0);
 
-        // Start App
-        ui.init();
-    </script>
+        App.charts.sent = new Chart(sentCtx, {
+          type: 'doughnut',
+          data: {
+            labels: ['Positive', 'Neutral', 'Negative'],
+            datasets: [{
+              data: [pos, neu, neg],
+              backgroundColor: ['#10b981', '#64748b', '#ef4444'],
+              borderWidth: 0,
+              hoverOffset: 6
+            }]
+          },
+          options: {
+            cutout: '78%',
+            plugins: {
+              legend: {
+                position: 'bottom',
+                labels: { color: labelColor, font: { weight: 'bold' } }
+              },
+              tooltip: {
+                callbacks: {
+                  label: ctx => ` ${ctx.label}: ${ctx.parsed} %`
+                }
+              }
+            }
+          }
+        });
+      },
+
+      exportChart(canvasId, filename) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        const url = canvas.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        toast('Chart exported', 'success', 1500);
+      },
+
+      async addNewClient() {
+        const nameEl = $('#newCompanyName');
+        const name = nameEl.value.trim();
+        if (!name) return;
+        if (App.demoMode) {
+          toast('Demo Mode: Adding portfolios is simulated.', 'info', 3000);
+          nameEl.value = '';
+          return;
+        }
+        try {
+          const res = await fetch('/api/dashboard/companies', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+          });
+          if (res.ok) {
+            nameEl.value = '';
+            toast('Portfolio added', 'success');
+            await this.loadClients();
+          } else {
+            throw new Error('Create company failed');
+          }
+        } catch (e) {
+          console.error(e);
+          toast('Unable to add portfolio. Try again.', 'error', 3500);
+        }
+      }
+    };
+
+    // Global Logout Helper
+    function handleLogout() { location.href = '/login'; }
+
+    // Start App
+    (async function start() {
+      // Initial icon render
+      lucide.createIcons();
+      await ui.init();
+    })();
+  </script>
 </body>
 </html>
