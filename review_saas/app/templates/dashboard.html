@@ -1,805 +1,641 @@
 <!--
-  File: reviewsaaS_dashboard.html
-  Description: Enterprise-grade ReviewSaaS Intelligence Dashboard (Tailwind + Chart.js)
+  File: dashbord.html
+  Description: ReviewSaaS Sentiment Dashboard (Bootstrap 5 + Chart.js)
+  Based on: review_saas/app/services/sentiment.py (stars_to_category, analyze_text)
   Notes:
-    - Keeps your existing API endpoints (init, summary, sync, and create company).
-    - Includes theme toggle, deep-linking, skeletons, toasts, and resilient error handling.
-    - Demo Mode automatically activates if the API is unreachable (for instant preview).
+    - Client-side JS mirrors your Python sentiment logic exactly:
+      * Positive tokens: (great|good|excellent|love|amazing|best)
+      * Negative tokens: (bad|poor|terrible|hate|awful|worst)
+      * score = clamp(0..1, 0.5 + 0.15 * (pos - neg))
+      * category: score > 0.6 → positive; score < 0.4 → negative; else neutral
+      * keywords: first 10 tokens matching /\w{6,}/
+      * lang: 'und' on the client; you can replace it with backend detection later.
+    - Dark/Light theme toggle with persistence (localStorage: rs_theme).
+    - Batch analysis (one review per line), charts, table, CSV export, debounced search.
+    - Shortcuts: Alt+Enter (analyze single), Ctrl/Cmd+Enter (analyze batch).
 -->
-
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-bs-theme="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>ReviewSaaS Intelligence | Enterprise Grade</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ReviewSaaS Sentiment Lab</title>
+  <meta name="theme-color" content="#0b1220" />
 
-  <!-- Tailwind (CDN) -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Bootstrap 5.3 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-  <!-- Chart.js (v4) -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+  <!-- Chart.js v4 -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
-
-  <!-- Favicons / Meta -->
-  <meta name="theme-color" content="#0f172a" />
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
 
     :root {
-      --brand-blue: #3b82f6;
-      --bg-dark: #0f172a;
-      --bg-card: rgba(30, 41, 59, 0.7);
-      --border: rgba(255, 255, 255, 0.08);
-      --muted: #94a3b8;
-      --muted-2: #64748b;
-      --text: #f8fafc;
-      --text-2: #cbd5e1;
-      --shadow: 0 10px 30px rgba(2, 6, 23, 0.35);
+      --rs-accent: #3b82f6;
+      --rs-muted: #94a3b8;
+      --rs-muted-2: #64748b;
+      --rs-card: rgba(15, 23, 42, 0.55);
+      --rs-border: rgba(148, 163, 184, 0.18);
     }
-
-    /* Light theme variables */
-    [data-theme="light"] {
-      --bg-dark: #f3f4f6;
-      --bg-card: rgba(255, 255, 255, 0.75);
-      --border: rgba(15, 23, 42, 0.08);
-      --muted: #475569;
-      --muted-2: #6b7280;
-      --text: #0f172a;
-      --text-2: #334155;
-      --shadow: 0 8px 24px rgba(0,0,0,0.08);
+    [data-bs-theme="light"] {
+      --rs-card: rgba(255, 255, 255, 0.75);
+      --rs-border: rgba(15, 23, 42, 0.1);
     }
-
     body {
       font-family: 'Plus Jakarta Sans', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      background: var(--bg-dark);
-      color: var(--text);
     }
-
-    /* Glassmorphism Panels */
-    .glass-panel {
-      background: var(--bg-card);
-      backdrop-filter: blur(12px);
-      border: 1px solid var(--border);
-      border-radius: 1.25rem;
-      transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-      box-shadow: var(--shadow);
+    .glass-card {
+      background: var(--rs-card);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--rs-border);
+      border-radius: 1rem;
+      box-shadow: 0 10px 28px rgba(2,6,23,0.25);
     }
-
-    /* Sidebar items */
-    .sidebar-item {
-      cursor: pointer;
-      border: 1px solid transparent;
-      transition: transform 0.12s ease, background 0.2s ease, border 0.2s ease;
-      outline: none;
-    }
-    .sidebar-item:hover { transform: translateY(-1px); }
-    .sidebar-item:focus-visible { box-shadow: 0 0 0 3px rgba(59,130,246,0.35); }
-    .sidebar-item.active {
-      background: rgba(59, 130, 246, 0.12);
-      border-color: rgba(59, 130, 246, 0.35);
-      color: var(--text);
-    }
-
-    /* Loading shimmer */
-    .fetching-overlay {
-      opacity: 0.55;
-      pointer-events: none;
-      filter: grayscale(0.4);
-      cursor: wait;
-    }
-    .skeleton {
-      position: relative;
-      overflow: hidden;
-      background: linear-gradient(90deg, rgba(148,163,184,0.08), rgba(148,163,184,0.18), rgba(148,163,184,0.08));
-      background-size: 300% 300%;
-      animation: shimmer 1.5s infinite linear;
-      border-radius: 0.75rem;
-    }
-    @keyframes shimmer {
-      0% { background-position: 0% 50% }
-      100% { background-position: 100% 50% }
-    }
-
-    .sync-active { animation: spin 1.25s linear infinite; }
-    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
-
-    /* Utility */
     .chip {
-      padding: 0.35rem 0.6rem;
-      font-size: 10px;
-      font-weight: 900;
-      text-transform: uppercase;
-      border-radius: 999px;
-      border: 1px solid transparent;
-      letter-spacing: .12em;
+      display: inline-flex; align-items: center; gap: .35rem;
+      padding: .35rem .6rem; border-radius: 999px; font-size: .7rem; font-weight: 800;
+      text-transform: uppercase; letter-spacing: .08em; border: 1px solid transparent;
     }
+    .chip-pos { background: rgba(16,185,129,.12); color: #10b981; border-color: rgba(16,185,129,.35); }
+    .chip-neu { background: rgba(100,116,139,.12); color: #64748b; border-color: rgba(100,116,139,.35); }
+    .chip-neg { background: rgba(239,68,68,.12); color: #ef4444; border-color: rgba(239,68,68,.35); }
 
-    /* Toasts */
-    #toasts {
-      position: fixed;
-      right: 1rem;
-      top: 5.25rem;
-      display: flex; 
-      flex-direction: column;
-      gap: .5rem;
-      z-index: 1000;
+    .skeleton { position: relative; overflow: hidden; border-radius: .75rem; min-height: 56px; }
+    .skeleton::after {
+      content: ""; position: absolute; inset: 0;
+      background: linear-gradient(90deg, rgba(148,163,184,0.06), rgba(148,163,184,0.16), rgba(148,163,184,0.06));
+      background-size: 300% 100%; animation: shimmer 1.6s linear infinite;
     }
-    .toast {
-      padding: .75rem 1rem;
-      font-size: .9rem;
-      border-radius: .75rem;
-      border: 1px solid var(--border);
-      background: var(--bg-card);
-      color: var(--text);
-      box-shadow: var(--shadow);
+    @keyframes shimmer { 0% { background-position: 0% 50% } 100% { background-position: 100% 50% } }
+
+    .table-fixed { table-layout: fixed; }
+    .truncate-2 {
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
     }
-    .toast-success { border-color: rgba(16,185,129,.3); }
-    .toast-error { border-color: rgba(239,68,68,.35); }
-    .toast-info { border-color: rgba(59,130,246,.35); }
+    .btn-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 40px; height: 38px; border-radius: .5rem;
+      border: 1px solid var(--rs-border);
+      background: transparent;
+    }
+    .btn-icon:hover { background: rgba(148,163,184,.12); }
   </style>
 </head>
-
-<body class="h-screen flex flex-col overflow-hidden selection:bg-blue-500/30 selection:text-blue-100">
-  <!-- Toast container -->
-  <div id="toasts" aria-live="polite" aria-atomic="true"></div>
-
-  <!-- Top Nav -->
-  <nav class="h-20 glass-panel rounded-none border-t-0 border-x-0 px-4 md:px-8 flex items-center justify-between z-50">
-    <div class="flex items-center gap-4">
-      <div class="bg-gradient-to-br from-blue-600 to-indigo-600 p-2.5 rounded-2xl shadow-lg shadow-blue-500/30">
-        <i data-lucide="shield-check" class="text-white w-6 h-6" aria-hidden="true"></i>
-      </div>
-      <div>
-        <h1 class="font-extrabold text-2xl tracking-tight">Review<span class="text-blue-500">SaaS</span></h1>
-        <p class="text-[10px] text-slate-500 font-black uppercase tracking-[0.20em]">Enterprise Intelligence</p>
-      </div>
-    </div>
-
-    <div class="flex items-center gap-2 md:gap-3">
-      <!-- Theme toggle -->
-      <button id="themeToggle"
-              class="glass-panel bg-slate-900/40 border-slate-700 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:scale-[1.02] active:scale-95"
-              title="Toggle Theme" aria-label="Toggle Theme">
-        <i data-lucide="moon-star" class="w-4 h-4"></i>
-        <span class="hidden md:inline">Theme</span>
-      </button>
-
-      <!-- Range picker -->
-      <div class="hidden sm:flex items-center gap-2 glass-panel px-3 md:px-4 py-2 border-slate-700 bg-slate-900/40">
-        <div class="flex flex-col">
-          <label for="startDate" class="text-[9px] font-black text-slate-500 uppercase">From</label>
-          <input type="date" id="startDate"
-                 class="bg-transparent text-xs font-bold outline-none text-white cursor-pointer"
-                 aria-label="Start Date">
-        </div>
-        <div class="h-6 w-[1px] bg-slate-700 mx-2"></div>
-        <div class="flex flex-col">
-          <label for="endDate" class="text-[9px] font-black text-slate-500 uppercase">To</label>
-          <input type="date" id="endDate"
-                 class="bg-transparent text-xs font-bold outline-none text-white cursor-pointer"
-                 aria-label="End Date">
-        </div>
-        <button id="rangeUpdateBtn"
-                class="ml-2 md:ml-4 bg-blue-600 hover:bg-blue-500 px-3 md:px-4 py-2 rounded-xl text-xs font-black transition-all shadow-lg shadow-blue-600/20 active:scale-95">
-          APPLY
+<body class="bg-body-tertiary">
+  <!-- Header -->
+  <header class="border-bottom sticky-top" style="backdrop-filter: blur(6px);">
+    <nav class="navbar navbar-expand-lg container py-2">
+      <a class="navbar-brand d-flex align-items-center gap-2" href="#">
+        <span class="bg-primary-subtle rounded-3 p-2 d-inline-flex" style="box-shadow: 0 6px 18px rgba(59,130,246,.25);">
+          <i data-lucide="shield-check" class="text-primary" aria-hidden="true"></i>
+        </span>
+        <span class="fw-extrabold fs-4">Review<span class="text-primary">SaaS</span></span>
+      </a>
+      <div class="ms-auto d-flex align-items-center gap-2">
+        <button id="themeToggle" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1"
+                type="button" aria-label="Toggle theme">
+          <i data-lucide="moon-star" class="me-1" aria-hidden="true"></i><span class="d-none d-md-inline">Theme</span>
         </button>
       </div>
+    </nav>
+  </header>
 
-      <button onclick="handleLogout()"
-              class="p-3 text-slate-400 hover:text-white transition-colors"
-              title="Logout" aria-label="Logout">
-        <i data-lucide="log-out"></i>
-      </button>
-    </div>
-  </nav>
-
-  <div class="flex flex-1 overflow-hidden">
-    <!-- Sidebar -->
-    <aside class="w-80 max-w-full border-r border-slate-800 bg-slate-900/30 flex flex-col p-4 md:p-6">
-      <div class="mb-6">
-        <div class="relative group">
-          <input type="text" id="newCompanyName" placeholder="Add Client Portfolio..."
-                 class="w-full bg-slate-800/50 border border-slate-700 rounded-2xl py-3 pl-4 pr-12 text-sm outline-none focus:border-blue-500 transition-all placeholder:text-slate-600"
-                 aria-label="Add Client Portfolio">
-          <button onclick="ui.addNewClient()"
-                  class="absolute right-3 top-3 text-blue-500 hover:text-blue-400"
-                  title="Add portfolio" aria-label="Add portfolio">
-            <i data-lucide="plus-circle" class="w-6 h-6"></i>
-          </button>
-        </div>
-      </div>
-
-      <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 px-2">Active Portfolios</h3>
-
-      <div id="clientList" class="flex-1 overflow-y-auto space-y-2 pr-1" role="listbox" aria-label="Client Portfolios">
-        <!-- Populated dynamically -->
-        <div class="skeleton h-12"></div>
-        <div class="skeleton h-12"></div>
-        <div class="skeleton h-12"></div>
-      </div>
-    </aside>
-
-    <!-- Main -->
-    <main id="mainWorkspace" class="flex-1 overflow-y-auto p-5 md:p-8 hidden">
-      <div class="flex flex-col md:flex-row md:justify-between md:items-start gap-5 mb-8">
-        <div>
-          <div class="flex items-center gap-3 mb-2">
-            <h2 id="currentClientName" class="text-3xl md:text-4xl font-black text-white">--</h2>
-            <span id="riskBadge" class="chip bg-blue-500/10 text-blue-400 border border-blue-500/20">--</span>
+  <!-- Main -->
+  <main class="container py-4 py-md-5">
+    <div class="row g-4">
+      <!-- Left Controls -->
+      <div class="col-lg-4">
+        <div class="glass-card p-3 p-md-4">
+          <div class="d-flex align-items-center gap-2 mb-3">
+            <div class="p-2 rounded bg-primary-subtle text-primary"><i data-lucide="cpu" aria-hidden="true"></i></div>
+            <h5 class="mb-0">Sentiment Engine</h5>
           </div>
-          <p id="currentClientCity" class="text-slate-400 font-medium flex items-center gap-1.5">
-            <i data-lucide="map-pin" class="w-4 h-4 text-red-500" aria-hidden="true"></i> --
-          </p>
-        </div>
 
-        <div class="flex items-center gap-3">
-          <button id="quickRange90" class="chip bg-slate-800/50 text-slate-300 border border-slate-700 hover:border-blue-500/40">Last 90d</button>
-          <button id="quickRange30" class="chip bg-slate-800/50 text-slate-300 border border-slate-700 hover:border-blue-500/40">30d</button>
-          <button id="quickRange7"  class="chip bg-slate-800/50 text-slate-300 border border-slate-700 hover:border-blue-500/40">7d</button>
-
-          <button onclick="ui.syncGoogle()" id="syncActionBtn"
-                  class="flex items-center gap-3 bg-gradient-to-r from-blue-600 to-indigo-600 px-6 md:px-8 py-3.5 rounded-2xl font-bold text-sm shadow-xl shadow-blue-900/20 hover:scale-[1.02] active:scale-95 transition-all">
-            <i data-lucide="refresh-cw" id="syncIcon" class="w-5 h-5"></i>
-            Sync Intelligence
-          </button>
-        </div>
-      </div>
-
-      <!-- Stat cards -->
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-5 md:gap-6 mb-8 md:mb-10">
-        <div class="glass-panel p-6">
-          <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Volume</p>
-          <h4 id="statTotal" class="text-3xl font-bold mt-2">0</h4>
-        </div>
-        <div class="glass-panel p-6 border-b-2 border-emerald-500/50">
-          <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Sentiment Index</p>
-          <h4 id="statAvg" class="text-3xl font-bold mt-2">0.0</h4>
-        </div>
-        <div class="glass-panel p-6 border-b-2 border-red-500/50">
-          <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Risk Factor</p>
-          <h4 id="statRiskScore" class="text-3xl font-bold mt-2">0</h4>
-        </div>
-        <div class="glass-panel p-6 bg-blue-600/5">
-          <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Trend Signal</p>
-          <h4 id="statSignal" class="text-3xl font-bold mt-2">--</h4>
-        </div>
-      </div>
-
-      <!-- AI narrative -->
-      <div class="glass-panel p-6 md:p-8 mb-8 md:mb-10 border-indigo-500/20 bg-gradient-to-br from-indigo-500/5 to-transparent">
-        <div class="flex items-center gap-3 mb-4">
-          <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-400">
-            <i data-lucide="cpu" class="w-5 h-5"></i>
+          <!-- Single -->
+          <div class="mb-3">
+            <label class="form-label small fw-bold text-secondary" for="reviewInput">Single Review</label>
+            <textarea id="reviewInput" rows="4" class="form-control" placeholder="Paste a single review here..."></textarea>
+            <div class="form-text">Shortcut: <kbd>Alt</kbd> + <kbd>Enter</kbd> to Analyze</div>
           </div>
-          <h3 class="font-bold text-lg">AI Narrative & Recommendations</h3>
-        </div>
-        <p id="aiContent" class="text-slate-300 text-sm leading-relaxed max-w-4xl italic">
-          Analyzing historical sentiment data to generate strategic pivots...
-        </p>
-      </div>
-
-      <!-- Charts -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-8 md:mb-10">
-        <div class="glass-panel p-6 md:p-8">
-          <div class="flex items-center justify-between mb-6">
-            <h3 class="font-bold text-slate-200">Performance Velocity</h3>
-            <button id="exportTrend" class="chip bg-slate-800/50 text-slate-300 border border-slate-700 hover:border-blue-500/40">
-              <i data-lucide="download" class="w-3.5 h-3.5"></i> Export
+          <div class="d-flex flex-wrap gap-2 mb-4">
+            <button id="analyzeBtn" class="btn btn-primary d-flex align-items-center gap-1">
+              <i data-lucide="scan-line" aria-hidden="true"></i>Analyze
+            </button>
+            <button id="addToBatchBtn" class="btn btn-outline-primary d-flex align-items-center gap-1">
+              <i data-lucide="plus-circle" aria-hidden="true"></i>Add to Batch
+            </button>
+            <button id="demoBtn" class="btn-icon" title="Load demo reviews" aria-label="Load demo reviews">
+              <i data-lucide="sparkle" aria-hidden="true"></i>
             </button>
           </div>
-          <canvas id="chartTrend" height="180" aria-label="Performance Velocity Line Chart" role="img"></canvas>
-        </div>
 
-        <div class="glass-panel p-6 md:p-8">
-          <div class="flex items-center justify-between mb-6">
-            <h3 class="font-bold text-slate-200">Sentiment Resonance</h3>
-            <button id="exportSent" class="chip bg-slate-800/50 text-slate-300 border border-slate-700 hover:border-blue-500/40">
-              <i data-lucide="download" class="w-3.5 h-3.5"></i> Export
+          <!-- Stars -->
+          <div class="mb-4">
+            <label class="form-label small fw-bold text-secondary">Star Rating → Category</label>
+            <div class="d-flex align-items-center gap-2">
+              <div class="btn-group" role="group" aria-label="Star rating">
+                <input type="radio" class="btn-check" name="stars" id="stars1" autocomplete="off" value="1">
+                <label class="btn btn-outline-warning" for="stars1">1★</label>
+                <input type="radio" class="btn-check" name="stars" id="stars2" autocomplete="off" value="2">
+                <label class="btn btn-outline-warning" for="stars2">2★</label>
+                <input type="radio" class="btn-check" name="stars" id="stars3" autocomplete="off" value="3">
+                <label class="btn btn-outline-warning" for="stars3">3★</label>
+                <input type="radio" class="btn-check" name="stars" id="stars4" autocomplete="off" value="4">
+                <label class="btn btn-outline-warning" for="stars4">4★</label>
+                <input type="radio" class="btn-check" name="stars" id="stars5" autocomplete="off" value="5">
+                <label class="btn btn-outline-warning" for="stars5">5★</label>
+              </div>
+              <span id="starCat" class="chip chip-neu">neutral</span>
+            </div>
+          </div>
+
+          <!-- Batch -->
+          <div class="mb-3">
+            <label class="form-label small fw-bold text-secondary" for="batchInput">Batch Reviews (one per line)</label>
+            <textarea id="batchInput" rows="6" class="form-control" placeholder="Paste multiple reviews here, one per line..."></textarea>
+            <div class="form-text">Shortcut: <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Enter</kbd> to Analyze Batch</div>
+          </div>
+          <div class="d-flex flex-wrap gap-2">
+            <button id="analyzeBatchBtn" class="btn btn-success d-flex align-items-center gap-1">
+              <i data-lucide="play" aria-hidden="true"></i>Analyze Batch
+            </button>
+            <button id="clearBatchBtn" class="btn btn-outline-secondary d-flex align-items-center gap-1">
+              <i data-lucide="eraser" aria-hidden="true"></i>Clear
+            </button>
+            <button id="exportCsvBtn" class="btn btn-outline-info d-flex align-items-center gap-1">
+              <i data-lucide="download" aria-hidden="true"></i>Export CSV
             </button>
           </div>
-          <div class="max-w-[320px] mx-auto"><canvas id="chartSentiment"></canvas></div>
+        </div>
+
+        <!-- Single result -->
+        <div class="glass-card p-3 p-md-4 mt-4">
+          <h6 class="mb-3">Last Analysis (Single)</h6>
+          <div class="row g-3">
+            <div class="col-6">
+              <div class="small text-secondary">Category</div>
+              <div id="singleCategory" class="h5 text-capitalize">—</div>
+            </div>
+            <div class="col-6">
+              <div class="small text-secondary">Score (0–1)</div>
+              <div class="d-flex align-items-center gap-2">
+                <div id="singleScore" class="h5 mb-0">—</div>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="small text-secondary">Language</div>
+              <div id="singleLang" class="h6">und</div>
+            </div>
+            <div class="col-12">
+              <div class="small text-secondary mb-1">Keywords (max 10)</div>
+              <div id="singleKeywords" class="d-flex flex-wrap gap-2"></div>
+            </div>
+          </div>
         </div>
       </div>
-    </main>
 
-    <!-- Blank state -->
-    <div id="blankState" class="flex-1 flex flex-col items-center justify-center text-center p-12">
-      <div class="w-32 h-32 bg-slate-800/40 rounded-[2.5rem] flex items-center justify-center mb-8 border border-slate-700/50">
-        <i data-lucide="layout-grid" class="w-12 h-12 text-slate-700"></i>
+      <!-- Right: Stats, Charts, Table -->
+      <div class="col-lg-8">
+        <div class="row g-4">
+          <div class="col-md-4">
+            <div class="glass-card p-3 p-md-4 h-100 d-flex flex-column justify-content-between">
+              <div>
+                <div class="small text-secondary">Positive</div>
+                <div id="statPos" class="display-6 fw-bold">0</div>
+              </div>
+              <span class="chip chip-pos w-fit">positive</span>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="glass-card p-3 p-md-4 h-100 d-flex flex-column justify-content-between">
+              <div>
+                <div class="small text-secondary">Neutral</div>
+                <div id="statNeu" class="display-6 fw-bold">0</div>
+              </div>
+              <span class="chip chip-neu w-fit">neutral</span>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="glass-card p-3 p-md-4 h-100 d-flex flex-column justify-content-between">
+              <div>
+                <div class="small text-secondary">Negative</div>
+                <div id="statNeg" class="display-6 fw-bold">0</div>
+              </div>
+              <span class="chip chip-neg w-fit">negative</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="row g-4 mt-1 mt-md-3">
+          <div class="col-lg-6">
+            <div class="glass-card p-3 p-md-4">
+              <div class="d-flex align-items-center justify-content-between mb-3">
+                <h6 class="mb-0">Sentiment Mix</h6>
+                <button id="exportPie" class="btn btn-sm btn-outline-secondary">
+                  <i data-lucide="download" aria-hidden="true"></i> PNG
+                </button>
+              </div>
+              <div style="height: 280px"><canvas id="pieChart" aria-label="Sentiment mix chart" role="img"></canvas></div>
+            </div>
+          </div>
+          <div class="col-lg-6">
+            <div class="glass-card p-3 p-md-4">
+              <div class="d-flex align-items-center justify-content-between mb-3">
+                <h6 class="mb-0">Score Distribution</h6>
+                <button id="exportBar" class="btn btn-sm btn-outline-secondary">
+                  <i data-lucide="download" aria-hidden="true"></i> PNG
+                </button>
+              </div>
+              <div style="height: 280px"><canvas id="barChart" aria-label="Score distribution chart" role="img"></canvas></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="glass-card p-3 p-md-4 mt-3">
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+            <h6 class="mb-0">Top Keywords</h6>
+            <small class="text-secondary">from last batch (≥6 chars)</small>
+          </div>
+          <div id="topKeywords" class="d-flex flex-wrap gap-2"></div>
+        </div>
+
+        <div class="glass-card p-3 p-md-4 mt-3">
+          <div class="d-flex align-items-center justify-content-between mb-3">
+            <h6 class="mb-0">Analyzed Reviews</h6>
+            <div class="input-group input-group-sm" style="max-width: 280px;">
+              <span class="input-group-text bg-transparent text-secondary"><i data-lucide="search" aria-hidden="true"></i></span>
+              <input type="text" id="searchBox" class="form-control" placeholder="Search text/keyword..." />
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle table-fixed" id="resultsTable">
+              <thead class="table-dark">
+                <tr>
+                  <th style="width: 38%">Text</th>
+                  <th style="width: 12%">Category</th>
+                  <th style="width: 12%">Score</th>
+                  <th style="width: 26%">Keywords</th>
+                  <th style="width: 12%">Lang</th>
+                </tr>
+              </thead>
+              <tbody id="resultsBody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
-      <h2 class="text-2xl font-bold text-white mb-3">Portfolio Inactive</h2>
-      <p class="text-slate-500 text-sm max-w-xs leading-relaxed">
-        Select a company from the sidebar to initialize the AI sentiment engine.
-      </p>
     </div>
-  </div>
+  </main>
 
   <script>
-    /* -------------------------------------------------------
-     * Enterprise State Manager & Utilities
-     * ----------------------------------------------------- */
-    const App = {
-      clientId: null,
-      syncing: false,
-      charts: { trend: null, sent: null },
-      theme: localStorage.getItem('rs_theme') || 'dark',
-      demoMode: false, // will auto-enable if API fails
-    };
-
-    const qs = new URLSearchParams(location.search);
-
-    const $ = (s, r = document) => r.querySelector(s);
-    const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-
-    const toast = (msg, type = 'info', timeout = 2800) => {
-      const box = document.getElementById('toasts');
-      const div = document.createElement('div');
-      div.className = `toast toast-${type}`;
-      div.innerHTML = msg;
-      box.appendChild(div);
-      setTimeout(() => div.remove(), timeout);
-    };
-
-    const persistURL = () => {
-      if (!App.clientId) return;
-      const start = $('#startDate').value;
-      const end = $('#endDate').value;
-      const url = new URL(location.href);
-      url.searchParams.set('client', App.clientId);
-      url.searchParams.set('start', start);
-      url.searchParams.set('end', end);
-      history.replaceState(null, '', url.toString());
-    };
-
-    const clampDateOrder = () => {
-      const s = new Date($('#startDate').value);
-      const e = new Date($('#endDate').value);
-      if (e < s) {
-        $('#endDate').value = $('#startDate').value;
-      }
-    };
-
-    const fmtInt = (n) => (Number(n || 0)).toLocaleString();
-
-    const themeApply = (theme) => {
-      document.documentElement.setAttribute('data-theme', theme);
-      localStorage.setItem('rs_theme', theme);
-      // Update meta theme-color for mobile chrome
+    /* ---------------------------------------
+     * Theme handling (Bootstrap 5.3)
+     * ------------------------------------- */
+    const themeKey = 'rs_theme';
+    const applyTheme = (theme) => {
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      localStorage.setItem(themeKey, theme);
       const meta = document.querySelector('meta[name="theme-color"]');
-      meta?.setAttribute('content', theme === 'dark' ? '#0f172a' : '#f3f4f6');
-      // Re-render charts to match theme
-      if (App.charts.trend || App.charts.sent) {
-        ui.renderCharts(ui._lastData || null);
-      }
-      // Swap icon
-      const themeIcon = document.querySelector('#themeToggle i');
-      themeIcon?.setAttribute('data-lucide', theme === 'dark' ? 'moon-star' : 'sun');
+      meta && meta.setAttribute('content', theme === 'dark' ? '#0b1220' : '#f8f9fa');
+      Charts.renderAll(); // recolor charts
+      const icon = document.querySelector('#themeToggle i');
+      if (icon) icon.setAttribute('data-lucide', theme === 'dark' ? 'moon-star' : 'sun');
       lucide.createIcons();
     };
+    applyTheme(localStorage.getItem(themeKey) || 'dark');
 
-    const gradient = (ctx, color) => {
-      const g = ctx.createLinearGradient(0, 0, 0, 240);
-      g.addColorStop(0, color.replace('1)', '0.28)')); // top
-      g.addColorStop(1, color.replace('1)', '0.02)')); // bottom
-      return g;
+    document.getElementById('themeToggle').addEventListener('click', () => {
+      const next = (document.documentElement.getAttribute('data-bs-theme') === 'dark') ? 'light' : 'dark';
+      applyTheme(next);
+    });
+
+    /* ---------------------------------------
+     * Sentiment logic (mirrors Python)
+     * ------------------------------------- */
+    function starsToCategory(rating) {
+      const r = Number(rating) || 0;
+      if (r >= 4) return 'positive';
+      if (r === 3) return 'neutral';
+      return 'negative';
+    }
+
+    function analyzeText(text) {
+      const t = (text || '').trim();
+      let lang = 'und'; // client-side fallback
+
+      const posMatches = t.match(/(great|good|excellent|love|amazing|best)/gi) || [];
+      const negMatches = t.match(/(bad|poor|terrible|hate|awful|worst)/gi) || [];
+      const pos = posMatches.length;
+      const neg = negMatches.length;
+
+      let score = 0.5 + 0.15 * (pos - neg);
+      score = Math.max(0.0, Math.min(1.0, score));
+
+      let category = 'neutral';
+      if (score > 0.6) category = 'positive';
+      else if (score < 0.4) category = 'negative';
+
+      const keywords = (t.match(/\w{6,}/g) || []).slice(0, 10);
+      return { category, score, keywords, lang };
+    }
+
+    /* ---------------------------------------
+     * Elements
+     * ------------------------------------- */
+    const els = {
+      reviewInput: document.getElementById('reviewInput'),
+      analyzeBtn: document.getElementById('analyzeBtn'),
+      addToBatchBtn: document.getElementById('addToBatchBtn'),
+      batchInput: document.getElementById('batchInput'),
+      analyzeBatchBtn: document.getElementById('analyzeBatchBtn'),
+      clearBatchBtn: document.getElementById('clearBatchBtn'),
+      exportCsvBtn: document.getElementById('exportCsvBtn'),
+
+      singleCategory: document.getElementById('singleCategory'),
+      singleScore: document.getElementById('singleScore'),
+      singleLang: document.getElementById('singleLang'),
+      singleKeywords: document.getElementById('singleKeywords'),
+
+      starCat: document.getElementById('starCat'),
+
+      statPos: document.getElementById('statPos'),
+      statNeu: document.getElementById('statNeu'),
+      statNeg: document.getElementById('statNeg'),
+
+      resultsBody: document.getElementById('resultsBody'),
+      searchBox: document.getElementById('searchBox'),
+
+      pieCanvas: document.getElementById('pieChart'),
+      barCanvas: document.getElementById('barChart'),
+      exportPie: document.getElementById('exportPie'),
+      exportBar: document.getElementById('exportBar'),
+
+      topKeywords: document.getElementById('topKeywords'),
+      demoBtn: document.getElementById('demoBtn'),
     };
 
-    // Fallback demo data (when API is unavailable)
-    const demo = {
-      companies: [
-        { id: 101, name: 'Apex Mobility', city: 'Seattle' },
-        { id: 102, name: 'Helio Cloud', city: 'Berlin' },
-        { id: 103, name: 'NovaPulse Retail', city: 'Dubai' },
-      ],
-      summary(id, start, end) {
-        const seed = id % 7 + new Date(end).getDate();
-        const labels = Array.from({ length: 12 }, (_, i) => `W${i + 1}`);
-        const data = labels.map((_, i) => (Math.sin(i / 2.2 + seed) + 1) * 2.1 + (i % 3) * 0.12).map(v => Math.min(5, Math.max(0.4, v)));
-        const pos = Math.floor(55 + (seed % 12));
-        const neu = Math.floor(100 - pos - 18);
-        const neg = 100 - pos - neu;
-        const avg = (data.reduce((a,b)=>a+b,0)/data.length).toFixed(1);
-        const riskScore = Math.max(1, Math.round(120 - pos + (neg * 1.2)));
-        const riskLevel = riskScore > 90 ? 'CRITICAL' : riskScore > 60 ? 'HIGH' : riskScore > 35 ? 'MEDIUM' : 'LOW';
-        const signal = (data[data.length-1] - data[0]) > 0.2 ? 'Bullish' : (data[data.length-1] - data[0]) < -0.2 ? 'Bearish' : 'Stable';
+    /* ---------------------------------------
+     * Stars mapping
+     * ------------------------------------- */
+    document.querySelectorAll('input[name="stars"]').forEach(r => {
+      r.addEventListener('change', () => {
+        const cat = starsToCategory(r.value);
+        els.starCat.textContent = cat;
+        els.starCat.className = 'chip ' + (cat === 'positive' ? 'chip-pos' : cat === 'negative' ? 'chip-neg' : 'chip-neu');
+      });
+    });
+
+    /* ---------------------------------------
+     * Single analysis + Shortcuts
+     * ------------------------------------- */
+    function analyzeSingle() {
+      const text = els.reviewInput.value.trim();
+      if (!text) return;
+      const res = analyzeText(text);
+      els.singleCategory.textContent = res.category;
+      els.singleScore.textContent = res.score.toFixed(3);
+      els.singleLang.textContent = res.lang;
+      els.singleKeywords.innerHTML = '';
+      res.keywords.forEach(k => {
+        const span = document.createElement('span');
+        span.className = 'chip chip-neu';
+        span.textContent = k;
+        els.singleKeywords.appendChild(span);
+      });
+    }
+    els.analyzeBtn.addEventListener('click', analyzeSingle);
+
+    // Shortcut: Alt+Enter for single
+    els.reviewInput.addEventListener('keydown', (e) => {
+      if (e.altKey && e.key === 'Enter') {
+        e.preventDefault();
+        analyzeSingle();
+      }
+    });
+
+    /* ---------------------------------------
+     * Batch analysis state + persistence
+     * ------------------------------------- */
+    let batchResults = []; // {text, category, score, keywords[], lang}
+    const batchKey = 'rs_batch_text';
+
+    // Load persisted batch text
+    const savedBatch = localStorage.getItem(batchKey);
+    if (savedBatch) els.batchInput.value = savedBatch;
+    els.batchInput.addEventListener('input', () => {
+      localStorage.setItem(batchKey, els.batchInput.value);
+    });
+
+    function recomputeAggregates() {
+      const counts = { positive: 0, neutral: 0, negative: 0 };
+      const buckets = Array(10).fill(0); // 0.0-0.1 ... 0.9-1.0
+      const kwMap = new Map();
+
+      batchResults.forEach(r => {
+        counts[r.category]++;
+        const idx = Math.min(9, Math.floor(r.score * 10));
+        buckets[idx]++;
+        r.keywords.forEach(k => {
+          kwMap.set(k, (kwMap.get(k) || 0) + 1);
+        });
+      });
+
+      // Update stats
+      els.statPos.textContent = counts.positive;
+      els.statNeu.textContent = counts.neutral;
+      els.statNeg.textContent = counts.negative;
+
+      // Charts
+      Charts.renderPie(counts);
+      Charts.renderBar(buckets);
+
+      // Top keywords
+      const top = [...kwMap.entries()].sort((a,b)=>b[1]-a[1]).slice(0, 14);
+      els.topKeywords.innerHTML = '';
+      top.forEach(([k, v]) => {
+        const span = document.createElement('span');
+        span.className = 'chip chip-neu';
+        span.textContent = `${k} · ${v}`;
+        els.topKeywords.appendChild(span);
+      });
+    }
+
+    function escapeHtml(str) {
+      return str
+        .replaceAll('&','&amp;')
+        .replaceAll('<','&lt;')
+        .replaceAll('>','&gt;')
+        .replaceAll('"','&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function renderTable(filterTerm = '') {
+      const term = filterTerm.trim().toLowerCase();
+      els.resultsBody.innerHTML = '';
+      batchResults
+        .filter(r =>
+          !term ||
+          r.text.toLowerCase().includes(term) ||
+          r.keywords.some(k => k.toLowerCase().includes(term))
+        )
+        .forEach(r => {
+          const tr = document.createElement('tr');
+          const catBadge = r.category === 'positive' ? 'chip-pos' : (r.category === 'negative' ? 'chip-neg' : 'chip-neu');
+
+          const safeText = escapeHtml(r.text);
+          tr.innerHTML = `
+            <td><div class="truncate-2" title="${safeText}">${safeText}</div></td>
+            <td><span class="chip ${catBadge}">${r.category}</span></td>
+            <td><code>${r.score.toFixed(3)}</code></td>
+            <td>
+              <div class="d-flex flex-wrap gap-1">
+                ${r.keywords.map(k => `<span class="badge text-bg-secondary-subtle border">${escapeHtml(k)}</span>`).join(' ')}
+              </div>
+            </td>
+            <td>${r.lang}</td>
+          `;
+          els.resultsBody.appendChild(tr);
+        });
+    }
+
+    function analyzeBatch() {
+      const lines = els.batchInput.value.split(/\n+/).map(s => s.trim()).filter(Boolean);
+      if (!lines.length) return;
+      batchResults = lines.map(text => ({ text, ...analyzeText(text) }));
+      recomputeAggregates();
+      renderTable(els.searchBox.value || '');
+    }
+    els.analyzeBatchBtn.addEventListener('click', analyzeBatch);
+
+    els.clearBatchBtn.addEventListener('click', () => {
+      els.batchInput.value = '';
+      localStorage.removeItem(batchKey);
+      batchResults = [];
+      recomputeAggregates();
+      renderTable('');
+    });
+
+    // Shortcuts: Ctrl/Cmd+Enter for batch
+    els.batchInput.addEventListener('keydown', (e) => {
+      const isCmdEnter = (e.metaKey || e.ctrlKey) && e.key === 'Enter';
+      if (isCmdEnter) {
+        e.preventDefault();
+        analyzeBatch();
+      }
+    });
+
+    /* ---------------------------------------
+     * Debounced search
+     * ------------------------------------- */
+    function debounce(fn, wait=250) {
+      let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
+    }
+    els.searchBox.addEventListener('input', debounce(() => renderTable(els.searchBox.value), 200));
+
+    /* ---------------------------------------
+     * CSV Export
+     * ------------------------------------- */
+    els.exportCsvBtn.addEventListener('click', () => {
+      if (!batchResults.length) return;
+      const header = ['text','category','score','keywords','lang'];
+      const rows = batchResults.map(r => [
+        '"' + r.text.replaceAll('"', '""') + '"',
+        r.category,
+        r.score.toFixed(3),
+        '"' + r.keywords.join(' ') + '"',
+        r.lang
+      ].join(','));
+      const blob = new Blob([header.join(',') + '\n' + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'sentiment_batch.csv';
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    });
+
+    /* ---------------------------------------
+     * Charts
+     * ------------------------------------- */
+    const Charts = {
+      pie: null,
+      bar: null,
+      palette() {
+        const theme = document.documentElement.getAttribute('data-bs-theme');
+        const isDark = theme === 'dark';
         return {
-          company: demo.companies.find(c => c.id === id) || demo.companies[0],
-          metrics: {
-            total: (seed * 137) + 420,
-            avg_rating: Number(avg),
-            risk_score: riskScore,
-            risk_level: riskLevel
-          },
-          trend: { labels, data, signal },
-          sentiment: { Positive: pos, Neutral: neu, Negative: neg },
-          ai_recommendations: [
-            { action: `Double down on ${signal.toLowerCase()} momentum. Prioritize categories with high intent; mitigate ${neg}% negative stack via response SLAs <24h.` }
-          ]
+          grid: isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.08)',
+          label: isDark ? '#cbd5e1' : '#334155',
+          pos: '#10b981', neu: '#64748b', neg: '#ef4444',
+          bar: isDark ? '#3b82f6' : '#2563eb'
         };
+      },
+      renderPie(counts) {
+        const p = this.palette();
+        const data = {
+          labels: ['Positive','Neutral','Negative'],
+          datasets: [{ data: [counts.positive, counts.neutral, counts.negative], backgroundColor: [p.pos, p.neu, p.neg], borderWidth: 0 }]
+        };
+        const opts = { plugins: { legend: { position: 'bottom', labels: { color: p.label } } }, cutout: '70%' };
+        if (this.pie) { this.pie.data = data; this.pie.options = opts; this.pie.update(); return; }
+        this.pie = new Chart(els.pieCanvas.getContext('2d'), { type: 'doughnut', data, options: opts });
+      },
+      renderBar(buckets) {
+        const p = this.palette();
+        const labels = Array.from({length:10}, (_,i)=> `${(i/10).toFixed(1)}–${((i+1)/10).toFixed(1)}`);
+        const data = { labels, datasets: [{ label: 'Scores', data: buckets, backgroundColor: p.bar, borderRadius: 6 }] };
+        const opts = {
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: p.label } },
+            y: { ticks: { color: p.label }, grid: { color: p.grid }, beginAtZero: true, precision: 0 }
+          }
+        };
+        if (this.bar) { this.bar.data = data; this.bar.options = opts; this.bar.update(); return; }
+        this.bar = new Chart(els.barCanvas.getContext('2d'), { type: 'bar', data, options: opts });
+      },
+      renderAll() {
+        const counts = {
+          positive: Number(els.statPos.textContent)||0,
+          neutral: Number(els.statNeu.textContent)||0,
+          negative: Number(els.statNeg.textContent)||0,
+        };
+        const buckets = this.bar ? this.bar.data.datasets[0].data : Array(10).fill(0);
+        this.renderPie(counts);
+        this.renderBar(buckets);
       }
     };
 
-    /* -------------------------------------------------------
-     * UI Controller
-     * ----------------------------------------------------- */
-    const ui = {
-      _lastData: null,
-      _resizeObserver: null,
+    // Export chart images
+    function exportCanvasPNG(canvas, filename) {
+      const url = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+    }
+    els.exportPie.addEventListener('click', () => Charts.pie && exportCanvasPNG(els.pieCanvas, 'sentiment_mix.png'));
+    els.exportBar.addEventListener('click', () => Charts.bar && exportCanvasPNG(els.barCanvas, 'score_distribution.png'));
 
-      async init() {
-        lucide.createIcons();
-        themeApply(App.theme);
+    /* ---------------------------------------
+     * Demo data
+     * ------------------------------------- */
+    els.demoBtn.addEventListener('click', () => {
+      const demo = [
+        'Absolutely amazing support, best experience so far!',
+        'The UI is good but performance is poor on mobile.',
+        'I love the features, great onboarding, excellent docs.',
+        'Worst latency, awful bugs, terrible crashes, I hate it.',
+        'Good overall. Could be better but not bad.',
+        'Amazing product! Best in class.',
+        'Poor results and bad integration with our stack.'
+      ];
+      els.batchInput.value = demo.join('\n');
+      localStorage.setItem(batchKey, els.batchInput.value);
+    });
 
-        this.setupDatesFromURLOrDefault();
-        this.bindEvents();
-
-        await this.loadClients();
-        // Deep link to client if present
-        const deepId = Number(qs.get('client'));
-        if (deepId) {
-          // Wait a tick for list to render
-          setTimeout(() => this.selectClient(deepId), 150);
-        }
-      },
-
-      bindEvents() {
-        $('#themeToggle').onclick = () => {
-          App.theme = (App.theme === 'dark') ? 'light' : 'dark';
-          themeApply(App.theme);
-        };
-
-        $('#rangeUpdateBtn').onclick = () => {
-          if (App.clientId) this.reloadDashboard();
-        };
-
-        // Quick ranges
-        $('#quickRange90').onclick = () => this.setQuickRange(90);
-        $('#quickRange30').onclick = () => this.setQuickRange(30);
-        $('#quickRange7').onclick  = () => this.setQuickRange(7);
-
-        // Date order clamp
-        $('#startDate').addEventListener('change', () => { clampDateOrder(); persistURL(); });
-        $('#endDate').addEventListener('change', () => { clampDateOrder(); persistURL(); });
-
-        // Keyboard support for client list
-        $('#clientList').addEventListener('keydown', (e) => {
-          const items = $$('.sidebar-item');
-          const current = document.activeElement;
-          const idx = items.indexOf(current);
-          if (e.key === 'ArrowDown')   { (items[idx + 1] || items[0])?.focus(); e.preventDefault(); }
-          if (e.key === 'ArrowUp')     { (items[idx - 1] || items[items.length - 1])?.focus(); e.preventDefault(); }
-          if (e.key === 'Enter' || e.key === ' ') { current?.click(); e.preventDefault(); }
-        });
-
-        // Chart export
-        $('#exportTrend').onclick = () => this.exportChart('chartTrend', 'performance_velocity.png');
-        $('#exportSent').onclick  = () => this.exportChart('chartSentiment', 'sentiment_resonance.png');
-
-        // Resize aware charts
-        this._resizeObserver = new ResizeObserver(() => {
-          if (this._lastData) this.renderCharts(this._lastData);
-        });
-        this._resizeObserver.observe($('#mainWorkspace'));
-      },
-
-      setupDatesFromURLOrDefault() {
-        const end = qs.get('end') ? new Date(qs.get('end')) : new Date();
-        const start = qs.get('start') ? new Date(qs.get('start')) : new Date(new Date().setDate(end.getDate() - 90));
-        $('#endDate').value = end.toISOString().split('T')[0];
-        $('#startDate').value = start.toISOString().split('T')[0];
-      },
-
-      setQuickRange(days) {
-        const end = new Date();
-        const start = new Date();
-        start.setDate(end.getDate() - days);
-        $('#endDate').value = end.toISOString().split('T')[0];
-        $('#startDate').value = start.toISOString().split('T')[0];
-        persistURL();
-        if (App.clientId) this.reloadDashboard();
-      },
-
-      async loadClients() {
-        try {
-          const res = await fetch('/api/dashboard/init');
-          if (!res.ok) throw new Error('Init failed');
-          const data = await res.json();
-          this.renderClientList(data.companies);
-          App.demoMode = false;
-        } catch (e) {
-          // Demo mode fallback
-          this.renderClientList(demo.companies);
-          App.demoMode = true;
-          toast('Demo Mode: API unreachable — loaded mock companies.', 'info', 4000);
-          console.warn('Client load failed, switched to demo mode', e);
-        }
-      },
-
-      renderClientList(companies = []) {
-        const list = $('#clientList');
-        if (!companies.length) {
-          list.innerHTML = `<div class="text-sm text-slate-500 px-2 py-4">No portfolios. Add one above.</div>`;
-          return;
-        }
-        list.innerHTML = companies.map(c => `
-          <div class="sidebar-item p-4 rounded-2xl flex flex-col gap-1 mb-1 focus:outline-none"
-               id="c-${c.id}" role="option" tabindex="0" aria-selected="false"
-               onclick="ui.selectClient(${c.id})">
-            <span class="text-sm font-bold truncate">${c.name}</span>
-            <span class="text-[9px] font-black text-slate-500 uppercase tracking-wider">
-              ${c.city || 'PENDING SYNC'}
-            </span>
-          </div>
-        `).join('');
-      },
-
-      async selectClient(id) {
-        App.clientId = id;
-
-        $$('.sidebar-item').forEach(el => {
-          el.classList.remove('active');
-          el.setAttribute('aria-selected', 'false');
-        });
-        const el = document.getElementById(`c-${id}`);
-        el?.classList.add('active');
-        el?.setAttribute('aria-selected', 'true');
-
-        $('#blankState').classList.add('hidden');
-        $('#mainWorkspace').classList.remove('hidden');
-
-        persistURL();
-        await this.reloadDashboard();
-
-        // Auto-sync if total = 0 and not demo
-        if ($('#statTotal').innerText === '0' && !App.demoMode) {
-          this.syncGoogle();
-        }
-      },
-
-      async reloadDashboard() {
-        if (!App.clientId) return;
-        const ws = $('#mainWorkspace');
-        ws.classList.add('fetching-overlay');
-
-        const start = $('#startDate').value;
-        const end = $('#endDate').value;
-
-        try {
-          let data;
-          if (App.demoMode) {
-            await new Promise(r => setTimeout(r, 450));
-            data = demo.summary(App.clientId, start, end);
-          } else {
-            const res = await fetch(`/api/dashboard/summary/${App.clientId}?start=${start}&end=${end}`);
-            if (!res.ok) throw new Error('Summary failed');
-            data = await res.json();
-          }
-          this.updateMetrics(data);
-          persistURL();
-          toast('Dashboard refreshed', 'success', 1800);
-        } catch (e) {
-          console.error('Refresh failed', e);
-          toast('Unable to refresh dashboard. Showing last known values.', 'error', 3500);
-        } finally {
-          ws.classList.remove('fetching-overlay');
-        }
-      },
-
-      updateMetrics(data) {
-        this._lastData = data;
-
-        $('#currentClientName').innerText = data.company.name;
-        $('#currentClientCity').innerHTML = `<i data-lucide="map-pin" class="w-4 h-4 text-red-500"></i> ${data.company.city || 'N/A'}`;
-        $('#statTotal').innerText = fmtInt(data.metrics.total);
-        $('#statAvg').innerText = Number(data.metrics.avg_rating || 0).toFixed(1);
-        $('#statRiskScore').innerText = fmtInt(data.metrics.risk_score);
-        $('#riskBadge').innerText = data.metrics.risk_level || '--';
-        $('#statSignal').innerText = data.trend?.signal || 'Stable';
-
-        // Colorize risk badge
-        const risk = (data.metrics.risk_level || '').toUpperCase();
-        const rb = $('#riskBadge');
-        rb.className = 'chip border';
-        if (risk === 'CRITICAL') rb.classList.add('bg-red-500/10','text-red-400','border-red-500/30');
-        else if (risk === 'HIGH') rb.classList.add('bg-orange-500/10','text-orange-400','border-orange-500/30');
-        else if (risk === 'MEDIUM') rb.classList.add('bg-amber-500/10','text-amber-400','border-amber-500/30');
-        else rb.classList.add('bg-emerald-500/10','text-emerald-400','border-emerald-500/30');
-
-        // AI content
-        $('#aiContent').innerText = data.ai_recommendations?.[0]?.action ||
-          'Review velocity is standard. Maintain organic engagement to protect rating resonance.';
-
-        this.renderCharts(data);
-        lucide.createIcons();
-      },
-
-      async syncGoogle() {
-        if (!App.clientId || App.syncing) return;
-        if (App.demoMode) {
-          toast('Demo Mode: Sync is simulated.', 'info', 2500);
-          return;
-        }
-
-        App.syncing = true;
-        const btn = $('#syncActionBtn');
-        const icon = $('#syncIcon');
-
-        icon.classList.add('sync-active');
-        btn.classList.add('opacity-70');
-
-        try {
-          const res = await fetch(`/api/reviews/sync/${App.clientId}`, { method: 'POST' });
-          if (res.ok) {
-            toast('Sync completed', 'success');
-            await this.reloadDashboard();
-          } else {
-            throw new Error('Sync failed');
-          }
-        } catch (e) {
-          console.error(e);
-          toast('Sync failed. Try again in a moment.', 'error', 3500);
-        } finally {
-          App.syncing = false;
-          icon.classList.remove('sync-active');
-          btn.classList.remove('opacity-70');
-        }
-      },
-
-      renderCharts(data) {
-        const trendCanvas = document.getElementById('chartTrend');
-        const sentCanvas  = document.getElementById('chartSentiment');
-
-        if (!trendCanvas || !sentCanvas) return;
-
-        const trendCtx = trendCanvas.getContext('2d');
-        const sentCtx  = sentCanvas.getContext('2d');
-
-        // Destroy existing
-        App.charts.trend?.destroy();
-        App.charts.sent?.destroy();
-
-        // Theme-aware colors
-        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-        const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.08)';
-        const labelColor = isDark ? '#cbd5e1' : '#334155';
-        const borderColor = isDark ? '#3b82f6' : '#2563eb';
-        const bgGradient = gradient(trendCtx, isDark ? 'rgba(59,130,246,1)' : 'rgba(37,99,235,1)');
-
-        // Trend chart
-        App.charts.trend = new Chart(trendCtx, {
-          type: 'line',
-          data: {
-            labels: data.trend.labels,
-            datasets: [{
-              label: 'Rating',
-              data: data.trend.data,
-              borderColor,
-              backgroundColor: bgGradient,
-              fill: true,
-              tension: 0.35,
-              borderWidth: 3,
-              pointRadius: 2,
-              pointBackgroundColor: borderColor
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { display: false },
-              tooltip: {
-                callbacks: {
-                  label: ctx => ` ${ctx.parsed.y.toFixed(2)} ★`
-                }
-              }
-            },
-            scales: {
-              x: {
-                ticks: { color: labelColor, maxRotation: 0, autoSkip: true },
-                grid: { color: 'transparent' }
-              },
-              y: {
-                min: 0, max: 5,
-                ticks: { color: labelColor },
-                grid: { color: gridColor }
-              }
-            }
-          }
-        });
-
-        // Sentiment chart
-        const pos = Number(data.sentiment.Positive || 0);
-        const neu = Number(data.sentiment.Neutral || 0);
-        const neg = Number(data.sentiment.Negative || 0);
-
-        App.charts.sent = new Chart(sentCtx, {
-          type: 'doughnut',
-          data: {
-            labels: ['Positive', 'Neutral', 'Negative'],
-            datasets: [{
-              data: [pos, neu, neg],
-              backgroundColor: ['#10b981', '#64748b', '#ef4444'],
-              borderWidth: 0,
-              hoverOffset: 6
-            }]
-          },
-          options: {
-            cutout: '78%',
-            plugins: {
-              legend: {
-                position: 'bottom',
-                labels: { color: labelColor, font: { weight: 'bold' } }
-              },
-              tooltip: {
-                callbacks: {
-                  label: ctx => ` ${ctx.label}: ${ctx.parsed} %`
-                }
-              }
-            }
-          }
-        });
-      },
-
-      exportChart(canvasId, filename) {
-        const canvas = document.getElementById(canvasId);
-        if (!canvas) return;
-        const url = canvas.toDataURL('image/png');
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        toast('Chart exported', 'success', 1500);
-      },
-
-      async addNewClient() {
-        const nameEl = $('#newCompanyName');
-        const name = nameEl.value.trim();
-        if (!name) return;
-        if (App.demoMode) {
-          toast('Demo Mode: Adding portfolios is simulated.', 'info', 3000);
-          nameEl.value = '';
-          return;
-        }
-        try {
-          const res = await fetch('/api/dashboard/companies', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name })
-          });
-          if (res.ok) {
-            nameEl.value = '';
-            toast('Portfolio added', 'success');
-            await this.loadClients();
-          } else {
-            throw new Error('Create company failed');
-          }
-        } catch (e) {
-          console.error(e);
-          toast('Unable to add portfolio. Try again.', 'error', 3500);
-        }
-      }
-    };
-
-    // Global Logout Helper
-    function handleLogout() { location.href = '/login'; }
-
-    // Start App
-    (async function start() {
-      // Initial icon render
-      lucide.createIcons();
-      await ui.init();
-    })();
+    // Initial icons
+    lucide.createIcons();
   </script>
 </body>
 </html>
