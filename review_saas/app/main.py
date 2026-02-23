@@ -14,6 +14,10 @@ from .routes import auth, companies, reviews, reply, reports, dashboard, admin
 from .core.config import settings
 from .routes.maps_routes import router as maps_router
 
+# NEW: Routers aligned with your architecture diagram
+from .routes.activity import router as activity_router     # /api/activity – UI telemetry
+from .routes.insights import router as insights_router     # /api/insights – AI summaries & recs
+
 # ───────────────────────────────────────────────────────────────
 # HTTPS Redirect Middleware
 # ───────────────────────────────────────────────────────────────
@@ -98,6 +102,12 @@ app.include_router(reports.router)
 app.include_router(dashboard.router)
 app.include_router(admin.router)
 app.include_router(maps_router)
+
+# NEW: Activity logger endpoint for “always record what I am doing”
+app.include_router(activity_router)
+
+# NEW: AI insights endpoint (used by dashboard.html for AI recommendations)
+app.include_router(insights_router)
 
 # ───────────────────────────────────────────────────────────────
 # Health check
