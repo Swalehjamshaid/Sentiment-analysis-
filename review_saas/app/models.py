@@ -1,4 +1,4 @@
-# Filename: app/models.py
+# FILE: app/models.py
 
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy import (
@@ -13,10 +13,9 @@ from sqlalchemy import (
     UniqueConstraint,
     Index,
 )
-from datetime import datetime
+from datetime import datetime, timezone
 
 Base = declarative_base()
-
 
 # =========================================================
 # USER MODEL
@@ -31,7 +30,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     status = Column(String(20), default="pending", nullable=False)
     profile_pic_url = Column(String(255), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     companies = relationship("Company", back_populates="owner", cascade="all, delete-orphan")
     verification_tokens = relationship("VerificationToken", back_populates="user", cascade="all, delete-orphan")
@@ -41,7 +40,7 @@ class User(Base):
 
 
 # =========================================================
-# VERIFICATION TOKEN MODEL
+# TOKEN & LOG MODELS
 # =========================================================
 
 class VerificationToken(Base):
@@ -51,14 +50,10 @@ class VerificationToken(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token = Column(String(255), nullable=False, unique=True)
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     user = relationship("User", back_populates="verification_tokens")
 
-
-# =========================================================
-# RESET TOKEN MODEL
-# =========================================================
 
 class ResetToken(Base):
     __tablename__ = "reset_tokens"
@@ -67,14 +62,10 @@ class ResetToken(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token = Column(String(255), nullable=False, unique=True)
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     user = relationship("User", back_populates="reset_tokens")
 
-
-# =========================================================
-# LOGIN ATTEMPT MODEL
-# =========================================================
 
 class LoginAttempt(Base):
     __tablename__ = "login_attempts"
@@ -83,7 +74,7 @@ class LoginAttempt(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     success = Column(Boolean, nullable=False)
     ip_address = Column(String(50), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     user = relationship("User", back_populates="login_attempts")
 
@@ -105,7 +96,7 @@ class Company(Base):
     city = Column(String(128), nullable=True)
     status = Column(String(20), default="active", nullable=False)
     logo_url = Column(String(255), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     lat = Column(Float, nullable=True)
     lng = Column(Float, nullable=True)
@@ -151,7 +142,7 @@ class Review(Base):
     keywords = Column(String(512), nullable=True)
     language = Column(String(10), nullable=True)
 
-    fetch_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    fetch_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     fetch_status = Column(String(20), default="Success", nullable=False)
 
     company = relationship("Company", back_populates="reviews")
@@ -166,7 +157,7 @@ class Review(Base):
 
 
 # =========================================================
-# REPLY MODEL
+# SUPPORTING MODELS
 # =========================================================
 
 class Reply(Base):
@@ -179,15 +170,11 @@ class Reply(Base):
     edited_text = Column(Text, nullable=True)
 
     status = Column(String(20), default="Draft", nullable=False)
-    suggested_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    suggested_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     sent_at = Column(DateTime, nullable=True)
 
     review = relationship("Review", back_populates="replies")
 
-
-# =========================================================
-# REPORT MODEL
-# =========================================================
 
 class Report(Base):
     __tablename__ = "reports"
@@ -198,14 +185,10 @@ class Report(Base):
     title = Column(String(255), nullable=True)
     path = Column(String(512), nullable=True)
     meta = Column(Text, nullable=True)
-    generated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    generated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     company = relationship("Company", back_populates="reports")
 
-
-# =========================================================
-# NOTIFICATION MODEL
-# =========================================================
 
 class Notification(Base):
     __tablename__ = "notifications"
@@ -217,7 +200,7 @@ class Notification(Base):
     kind = Column(String(50), nullable=True)
     payload = Column(Text, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     read = Column(Boolean, default=False, nullable=False)
 
     user = relationship("User", back_populates="notifications")
