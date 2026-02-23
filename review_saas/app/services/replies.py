@@ -65,7 +65,6 @@ def _map_aspects_from_text(text: str) -> Tuple[List[str], List[str]]:
     for aspect, vocab in ASPECT_LEXICON.items():
         if any(w in toks for w in vocab):
             aspects.append(aspect)
-    # pick a few prominent tokens for issue phrasing
     common = [w for w, _ in Counter(toks).most_common(5)]
     return aspects, common
 
@@ -116,23 +115,10 @@ def generate_reply(
     aspects: Optional[List[str]] = None,
     max_chars: int = 1200
 ) -> Dict[str, str]:
-    """
-    Create a reply draft for a single review.
-
-    Returns:
-        {
-          "subject": "...",
-          "reply": "...",
-          "aspects": ["Service", ...],
-          "action_hint": "we are ...",
-          "tone": "polite"
-        }
-    """
     tone = tone if tone in TONE_PREFIX else "polite"
     prefix = TONE_PREFIX[tone]
     signoff = TONE_SIGNOFF[tone]
 
-    # Determine sentiment band from rating (consistent with reviews.py)
     if rating is None or rating == 3:
         band = "neutral"
         mid = NEUTRAL_PHRASE
@@ -143,19 +129,15 @@ def generate_reply(
         band = "negative"
         mid = NEGATIVE_PHRASE
 
-    # Extract aspects/keywords if not provided
     if aspects is None:
         aspects, tokens = _map_aspects_from_text(text)
     else:
-        # Also capture tokens to find an action hint
         _, tokens = _map_aspects_from_text(text)
 
-    # Build an issue/action sentence for negative reviews
     action_hint = None
     if band == "negative":
         action_hint = _action_from_tokens(tokens)
     if not action_hint and aspects:
-        # fallback: map first aspect to a generic improvement statement
         action_hint = {
             "Service": "we’re reinforcing our service standards.",
             "Speed": "we’re improving queue and service speed.",
@@ -167,11 +149,9 @@ def generate_reply(
             "Digital": "we’re ensuring smoother digital payments and Wi‑Fi.",
         }.get(aspects[0], None)
 
-    # Subject line
     subj_company = f" for {company_name}" if company_name else ""
     subject = f"Thanks for your review{subj_company}"
 
-    # Body assembly
     addressed = f"Hi {reviewer_name}," if reviewer_name else "Hello,"
     aspect_line = ""
     if aspects:
@@ -203,17 +183,6 @@ def batch_generate_replies(
     tone: str = "polite",
     max_chars: int = 1200
 ) -> List[Dict[str, str]]:
-    """
-    Generate replies for a list of review dicts.
-
-    Each review item should look like:
-      {
-        "id": 123,
-        "text": "some review",
-        "rating": 2,
-        "reviewer_name": "Alice"  # optional
-      }
-    """
     out: List[Dict[str, str]] = []
     for r in reviews:
         reply = generate_reply(
@@ -227,3 +196,9 @@ def batch_generate_replies(
         reply["review_id"] = r.get("id")
         out.append(reply)
     return out
+
+# ─────────────────────────────────────────────────────────────
+# Fix for "ImportError: cannot import name 'suggest'"
+# ─────────────────────────────────────────────────────────────
+# Provide a 'suggest' alias for backwards compatibility
+suggest = generate_reply
