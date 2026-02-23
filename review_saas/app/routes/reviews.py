@@ -1,7 +1,91 @@
+# FILE: app/routes/review.py
+
+from __future__ import annotations
+
+import os
+import time
+import logging
+from typing import Optional, Dict, Any, List
+from datetime import datetime, timedelta, timezone
+
+import requests
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+
+from ..db import get_db
+from ..models import Company, Review
+
+# Analytics bridges (DB + pure-Python helpers)
+from ..services.analysis import (
+    dashboard_payload,
+    reviews_table,
+)
+from ..services.ai_insights import (
+    classify_sentiment,
+    extract_keywords,
+    map_aspects,
+    # _action_for_keyword not needed in this file because we use dashboard_payload
+)
+
+router = APIRouter(prefix="/api/reviews", tags=["reviews"])
+
+logger = logging.getLogger("reviews")
+if not logger.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+    logger.addHandler(_h)
+logger.setLevel(logging.INFO)
+
+# ------------------------------------------------------------
+# Config
+# ------------------------------------------------------------
+GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")
+API_TOKEN = os.getenv("API_TOKEN")  # optional: protect sync
+REVIEWS_SCAN_LIMIT = int(os.getenv("REVIEWS_SCAN_LIMIT", "8000"))  # cap scan for summary fallback
+_G_TIMEOUT = (5, 10)
+
+
+# ------------------------------------------------------------
+# Local helpers
+# ------------------------------------------------------------
+def _parse_date_param(s: Optional[str], *, as_end: bool = False) -> Optional[datetime]:
+    """
+    Parse 'YYYY-MM-DD' or ISO strings; if only date is supplied for end,
+    make it inclusive of the full end day by advancing to next day (open interval).
+    """
+    if not s:
+        return None
+    try:
+        dt = datetime.strptime(s, "%Y-%m-%d")
+        if as_end:
+            return dt  # we'll handle inclusive filtering where used
+        return dt
+    except Exception:
+        try:
+            return datetime.fromisoformat(s)
+        except Exception:
+            return None
+
+
+def _parse_review_date(r: Review) -> Optional[datetime]:
+    dt = getattr(r, "review_date", None)
+    if not dt:
+        return None
+    if dt.tzinfo:
+        return dt.astimezone(timezone.utc)
+    return dt.replace(tzinfo=timezone.utc)
+
+
 # ─────────────────────────────────────────────────────────────
-# Core analysis logic
+# Legacy-compatible core analysis (kept as thin delegate)
 # ─────────────────────────────────────────────────────────────
 def _daily_buckets_range(reviews: List[Review], start: datetime, end: datetime) -> List[Dict]:
+    """
+    NOTE: Kept for compatibility with older code paths that may import this.
+    Internally, dashboard endpoints prefer using `dashboard_payload` which already
+    returns a daily series. This function mirrors the logic against ORM rows.
+    """
     start_day = start.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
     end_day = end.replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
     days_diff = (end_day.date() - start_day.date()).days + 1
@@ -18,7 +102,7 @@ def _daily_buckets_range(reviews: List[Review], start: datetime, end: datetime) 
         if not dt or dt < start_day or dt > end_day:
             continue
         day_str = dt.date().isoformat()
-        lbl = classify_sentiment(r.rating)
+        lbl = classify_sentiment(getattr(r, "rating", None))
         score = 1.0 if lbl == "Positive" else -1.0 if lbl == "Negative" else 0.0
         buckets[day_str]["ratings"].append(r.rating or 0)
         buckets[day_str]["scores"].append(score)
@@ -35,149 +119,72 @@ def _daily_buckets_range(reviews: List[Review], start: datetime, end: datetime) 
     ]
 
 
-def get_review_summary_data(
-    reviews: List[Review],
-    company: Company,
-    start: Optional[datetime] = None,
-    end: Optional[datetime] = None,
-    include_aspects: bool = True
-) -> Dict[str, Any]:
-    now = datetime.now(timezone.utc)
-    start = start or (now - timedelta(days=180))
-    end = end or now
-    if end < start:
-        start, end = end, start
-
-    windowed = [r for r in reviews if (dt := _parse_review_date(r)) and start <= dt <= end]
-
-    if not windowed:
-        return {
-            "company_name": getattr(company, "name", f"ID {company.id}"),
-            "total_reviews": 0,
-            "avg_rating": 0.0,
-            "risk_score": 0,
-            "risk_level": "Low",
-            "trend_data": [],
-            "trend": {"signal": "insufficient_data", "delta": 0.0},
-            "sentiments": {"Positive": 0, "Neutral": 0, "Negative": 0},
-            "ai_recommendations": [],
-            "daily_series": [],
-            "aspects": [],
-            "window": {"start": start.isoformat(), "end": end.isoformat()},
-            "payload_version": "3.3"
-        }
-
-    sentiments: Dict[str, int] = {"Positive": 0, "Neutral": 0, "Negative": 0}
-    trend_data: Dict[str, List[float]] = defaultdict(list)
-    neg_keywords: List[str] = []
-    aspect_counter: Counter = Counter()
-
-    for r in windowed:
-        sent = classify_sentiment(r.rating)
-        sentiments[sent] += 1
-        if r.text:
-            toks = extract_keywords(r.text)
-            if sent == "Negative":
-                neg_keywords.extend(toks)
-            if include_aspects:
-                for a in map_aspects(toks):
-                    aspect_counter[a] += 1
-        dt = _parse_review_date(r)
-        if dt:
-            trend_data[dt.strftime("%Y-%m")].append(r.rating or 0)
-
-    trend_list = [{"month": m, "avg_rating": round(sum(v)/len(v), 2)} for m, v in sorted(trend_data.items())]
-
-    trend = {"signal": "insufficient_data", "delta": 0.0}
-    if len(trend_list) >= 3:
-        last = trend_list[-1]["avg_rating"]
-        first = trend_list[0]["avg_rating"]
-        delta = round(last - first, 2)
-        if len(trend_list) >= 6:
-            last3 = sum(x["avg_rating"] for x in trend_list[-3:]) / 3
-            prev3 = sum(x["avg_rating"] for x in trend_list[-6:-3]) / 3
-            delta = round(last3 - prev3, 2)
-        if delta <= -0.3:
-            trend = {"signal": "declining", "delta": delta}
-        elif delta >= 0.3:
-            trend = {"signal": "improving", "delta": delta}
-        else:
-            trend = {"signal": "stable", "delta": delta}
-
-    total = len(windowed)
-    rated = [r.rating for r in windowed if r.rating is not None]
-    avg_rating = round(sum(rated)/len(rated), 2) if rated else 0.0
-
-    neg_share = sentiments["Negative"] / total if total else 0
-    risk_score = round(neg_share * 100 + (15 if trend["signal"] == "declining" else 0), 1)
-    risk_level = "High" if risk_score >= 45 else "Medium" if risk_score >= 20 else "Low"
-
-    recs = []
-    seen = set()
-    for kw, count in Counter(neg_keywords).most_common(6):
-        if kw in seen:
-            continue
-        seen.add(kw)
-        recs.append({
-            "area": kw,
-            "count": count,
-            "priority": "High" if count >= 5 else "Medium",
-            "action": _action_for_keyword(kw)
-        })
-
-    daily_series = _daily_buckets_range(windowed, start, end)
-    aspects = [{"aspect": k, "count": v} for k, v in aspect_counter.most_common()]
-
-    return {
-        "company_name": getattr(company, "name", f"ID {company.id}"),
-        "total_reviews": total,
-        "avg_rating": avg_rating,
-        "sentiments": sentiments,
-        "trend_data": trend_list,
-        "trend": trend,
-        "risk_score": risk_score,
-        "risk_level": risk_level,
-        "ai_recommendations": recs,
-        "daily_series": daily_series,
-        "aspects": aspects,
-        "window": {"start": start.isoformat(), "end": end.isoformat()},
-        "payload_version": "3.3"
-    }
-
-
 # ─────────────────────────────────────────────────────────────
 # Endpoints
 # ─────────────────────────────────────────────────────────────
+
 @router.get("/google/places")
-def google_places_search(q: str = Query(..., min_length=2), limit: int = Query(5, ge=1, le=10)):
-    if not gmaps:
-        return {"ok": False, "reason": "Google Places client not available"}
+def google_places_search(
+    q: str = Query(..., min_length=2),
+    limit: int = Query(5, ge=1, le=10),
+):
+    """
+    Lightweight helper: delegates to Google Find Place, then enriches details.
+
+    NOTE: If you're already using /api/companies/autocomplete and
+    /api/companies/details from companies.py, prefer those in the UI.
+    This endpoint is provided for backward compatibility.
+    """
+    if not GOOGLE_PLACES_API_KEY:
+        return {"ok": False, "reason": "Google Places API not configured"}
+
     try:
-        resp = gmaps.find_place(
-            input=q,
-            input_type="textquery",
-            fields=["place_id", "name", "formatted_address"]
-        )
-        candidates = (resp.get("candidates") or [])[:limit]
+        # 1) Find Place
+        fp_url = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
+        fp_params = {
+            "input": q,
+            "inputtype": "textquery",
+            "fields": "place_id,name,formatted_address",
+            "key": GOOGLE_PLACES_API_KEY,
+        }
+        fp = requests.get(fp_url, params=fp_params, timeout=_G_TIMEOUT)
+        fp.raise_for_status()
+        fp_data = fp.json()
+        candidates = (fp_data.get("candidates") or [])[:limit]
+
+        # 2) For each candidate, fetch details
+        details_url = "https://maps.googleapis.com/maps/api/place/details/json"
         items = []
         for c in candidates:
             pid = c.get("place_id")
-            detail = _enrich_place_detail(pid) if pid else {}
+            detail = {}
+            if pid:
+                dt_params = {
+                    "place_id": pid,
+                    "fields": "name,formatted_address,address_component,geometry,website,international_phone_number,rating,user_ratings_total,url",
+                    "key": GOOGLE_PLACES_API_KEY,
+                }
+                dt = requests.get(details_url, params=dt_params, timeout=_G_TIMEOUT)
+                if dt.ok:
+                    djson = dt.json().get("result", {}) or {}
+                    loc = ((djson.get("geometry") or {}).get("location") or {})
+                    detail = {
+                        "name": djson.get("name") or c.get("name"),
+                        "formatted_address": djson.get("formatted_address") or c.get("formatted_address"),
+                        "rating": djson.get("rating"),
+                        "user_ratings_total": djson.get("user_ratings_total"),
+                        "location": {"lat": loc.get("lat"), "lng": loc.get("lng")},
+                        "website": djson.get("website"),
+                        "international_phone_number": djson.get("international_phone_number"),
+                        "url": djson.get("url"),
+                    }
             items.append({
-                "name": detail.get("name") or c.get("name"),
                 "place_id": pid,
-                "formatted_address": detail.get("formatted_address") or c.get("formatted_address"),
-                "city": detail.get("city"),
-                "country": detail.get("country"),
-                "rating": detail.get("rating"),
-                "user_ratings_total": detail.get("user_ratings_total"),
-                "location": detail.get("location"),
-                "website": detail.get("website"),
-                "international_phone_number": detail.get("international_phone_number"),
+                **detail
             })
         return {"ok": True, "items": items}
     except Exception as e:
-        logger.error(f"Places search failed: {e}")
+        logger.warning(f"Places search failed: {e}")
         return {"ok": False, "reason": "external_api_error"}
 
 
@@ -186,37 +193,24 @@ def reviews_summary(
     company_id: int,
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
-    include_aspects: bool = Query(True),
-    db: Session = Depends(get_db)
+    include_aspects: bool = Query(True, description="Kept for compatibility; dashboard_payload includes aspects"),
+    db: Session = Depends(get_db),
 ):
-    cache_key = (company_id, start, end if end else None)
-    now_ts = time.time()
-
-    if SUMMARY_TTL_SECONDS > 0:
-        cached = _summary_cache.get(cache_key)
-        if cached and (now_ts - cached[0] < SUMMARY_TTL_SECONDS):
-            return cached[1]
-
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company:
-        raise HTTPException(404, "Company not found")
-
-    start_dt = _parse_date_param(start, as_end=False) if start else None
-    end_dt = _parse_date_param(end, as_end=True) if end else None
-
-    reviews = db.query(Review).filter(Review.company_id == company_id)
-    if start_dt:
-        reviews = reviews.filter(Review.review_date >= start_dt)
-    if end_dt:
-        reviews = reviews.filter(Review.review_date <= end_dt)
-
-    reviews_list = reviews.order_by(Review.review_date.desc()).limit(8000).all()
-    result = get_review_summary_data(reviews_list, company, start_dt, end_dt, include_aspects=include_aspects)
-
-    if SUMMARY_TTL_SECONDS > 0:
-        _summary_cache[cache_key] = (now_ts, result)
-
-    return result
+    """
+    Returns the full insight payload used by dashboard.html for a given company.
+    This delegates to services.analysis.dashboard_payload to stay consistent.
+    """
+    # dashboard_payload already includes: metrics, trend, sentiments, daily_series,
+    # aspects, ai_recommendations, sources, heatmap, keywords, alerts, revenue, window
+    return dashboard_payload(
+        db=db,
+        company_id=company_id,
+        start=start,
+        end=end,
+        top_keywords_n=20,
+        alerts_window_days=14,
+        revenue_months_back=6,
+    )
 
 
 @router.get("/list/{company_id}")
@@ -228,30 +222,47 @@ def list_reviews(
     q: Optional[str] = Query(None, min_length=2),
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
-    order: str = Query("desc", pattern="^(asc|desc)$"),
-    db: Session = Depends(get_db)
+    order: str = Query("desc", regex="^(asc|desc)$"),
+    db: Session = Depends(get_db),
 ):
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company:
-        raise HTTPException(404, "Company not found")
-
-    start_dt = _parse_date_param(start, as_end=False) if start else None
-    end_dt = _parse_date_param(end, as_end=True) if end else None
-
-    qry = db.query(Review).filter(Review.company_id == company_id)
-    if rating:
-        qry = qry.filter(Review.rating == rating)
-    if q:
-        s = f"%{q.lower().strip()}%"
-        qry = qry.filter(Review.text.ilike(s))
+    """
+    Paginated review list for the table in dashboard.html.
+    - Supports: text search (q), rating filter, date range, sort by review_date asc/desc
+    """
+    # Base query
+    query = db.query(Review).filter(Review.company_id == company_id)
+    # Date filter
+    start_dt = _parse_date_param(start, as_end=False)
+    end_dt = _parse_date_param(end, as_end=True)
     if start_dt:
-        qry = qry.filter(Review.review_date >= start_dt)
+        query = query.filter(Review.review_date >= start_dt)
     if end_dt:
-        qry = qry.filter(Review.review_date <= end_dt)
+        # inclusive end-day
+        if end_dt.hour == 0 and end_dt.minute == 0 and end_dt.second == 0:
+            query = query.filter(Review.review_date < (end_dt + timedelta(days=1)))
+        else:
+            query = query.filter(Review.review_date <= end_dt)
 
-    qry = qry.order_by(Review.review_date.asc() if order == "asc" else Review.review_date.desc())
-    total = qry.count()
-    items = qry.offset((page - 1) * limit).limit(limit).all()
+    # Rating filter
+    if rating is not None:
+        query = query.filter(Review.rating == rating)
+
+    # Text search across known columns
+    if q:
+        s = f"%{q.strip()}%"
+        from sqlalchemy import or_
+        filters = [Review.text.ilike(s)]
+        if hasattr(Review, "reviewer_name"):
+            filters.append(Review.reviewer_name.ilike(s))
+        query = query.filter(or_(*filters))
+
+    total = query.count()
+
+    # Sort
+    query = query.order_by(Review.review_date.asc() if order == "asc" else Review.review_date.desc())
+
+    # Pagination
+    items = query.offset((page - 1) * limit).limit(limit).all()
 
     data = [
         {
@@ -260,35 +271,66 @@ def list_reviews(
             "text": r.text,
             "reviewer_name": r.reviewer_name,
             "review_date": (_parse_review_date(r) or datetime.now(timezone.utc)).isoformat(),
+            "sentiment_category": r.sentiment_category,
+            "sentiment_score": r.sentiment_score,
+            "keywords": r.keywords,
+            "language": r.language,
         }
         for r in items
     ]
     return {"total": total, "page": page, "limit": limit, "items": data}
 
 
-@router.get("/sync/{company_id}")
-def reviews_sync(company_id: int, db: Session = Depends(get_db), max_reviews: int = Query(60, ge=1, le=200)):
+@router.post("/sync/{company_id}")
+def reviews_sync(
+    company_id: int,
+    db: Session = Depends(get_db),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    max_reviews: int = Query(60, ge=1, le=200),
+):
+    """
+    Trigger a review sync for this company.
+
+    Integration points:
+    - If you have an ingestion function (e.g., fetch_and_save_reviews_places),
+      we will call it. Otherwise, we return a friendly 501 with guidance.
+    """
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         raise HTTPException(404, "Company not found")
-    if not gmaps:
-        return {"ok": False, "reason": "Google client unavailable"}
 
-    added = fetch_and_save_reviews_places(company, db, max_reviews=max_reviews)
-    if SUMMARY_TTL_SECONDS > 0:
-        keys_to_drop = [k for k in _summary_cache.keys() if k[0] == company_id]
-        for k in keys_to_drop:
-            _summary_cache.pop(k, None)
-    return {"ok": True, "added": added, "message": "Sync completed"}
+    # Optional API token guard
+    if API_TOKEN:
+        token = (x_api_key or "").strip()
+        if authorization and authorization.lower().startswith("bearer "):
+            token = authorization[7:].strip()
+        if token != API_TOKEN:
+            raise HTTPException(401, "Invalid API token")
+
+    # Attempt dynamic import of ingestion service
+    try:
+        from ..services.ingestion import fetch_and_save_reviews_places  # type: ignore
+    except Exception:
+        raise HTTPException(
+            status_code=501,
+            detail="Reviews ingestion service not configured. "
+                   "Provide app/services/ingestion.py with fetch_and_save_reviews_places()."
+        )
+
+    try:
+        added = fetch_and_save_reviews_places(company, db, max_reviews=max_reviews)  # user’s pipeline
+        return {"ok": True, "added": int(added or 0), "message": "Sync completed"}
+    except Exception as e:
+        logger.error(f"Sync failed for company {company_id}: {e}")
+        raise HTTPException(502, f"Ingestion error: {str(e)}")
 
 
 @router.get("/diagnostics")
 def reviews_diagnostics():
     return {
-        "googlemaps_imported": googlemaps is not None,
-        "places_client_active": gmaps is not None,
-        "api_key_source": api_src,
+        "google_places_key_present": bool(GOOGLE_PLACES_API_KEY),
         "api_token_configured": bool(API_TOKEN),
         "default_window_days": 180,
-        "summary_cache_ttl": SUMMARY_TTL_SECONDS
+        "reviews_scan_limit": REVIEWS_SCAN_LIMIT,
     }
