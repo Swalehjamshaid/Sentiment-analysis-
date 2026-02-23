@@ -14,7 +14,7 @@ from .routes import auth, companies, reviews, reply, reports, dashboard, admin
 from .core.config import settings
 from .routes.maps_routes import router as maps_router
 
-# NEW: Routers aligned with your architecture diagram
+# Routers aligned with the dashboard architecture
 from .routes.activity import router as activity_router     # /api/activity – UI telemetry
 from .routes.insights import router as insights_router     # /api/insights – AI summaries & recs
 
@@ -37,6 +37,7 @@ templates = Jinja2Templates(directory="app/templates")
 
 app.add_middleware(HTTPSRedirectMiddleware)
 
+# Mounts
 if os.path.isdir("app_uploads"):
     app.mount("/uploads", StaticFiles(directory="app_uploads"), name="uploads")
 
@@ -94,19 +95,21 @@ def report_page(context: dict = Depends(template_context)):
 # ───────────────────────────────────────────────────────────────
 # API Routers
 # ───────────────────────────────────────────────────────────────
+# NOTE:
+# - `dashboard.router` should expose `/api/...` endpoints used by dashboard.html
+# - `activity_router` provides POST /api/activity (telemetry)
+# - `insights_router` provides GET /api/insights (AI panel)
 app.include_router(auth.router, prefix="/auth")
 app.include_router(companies.router)
 app.include_router(reviews.router)
 app.include_router(reply.router)
 app.include_router(reports.router)
-app.include_router(dashboard.router)
+app.include_router(dashboard.router)  # exposes /api/* endpoints defined in routes/dashboard.py
 app.include_router(admin.router)
 app.include_router(maps_router)
 
-# NEW: Activity logger endpoint for “always record what I am doing”
+# Always-record activity & AI insights
 app.include_router(activity_router)
-
-# NEW: AI insights endpoint (used by dashboard.html for AI recommendations)
 app.include_router(insights_router)
 
 # ───────────────────────────────────────────────────────────────
