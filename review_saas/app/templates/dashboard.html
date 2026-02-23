@@ -169,119 +169,342 @@
 </div>
 
 <script>
+/* =========================
+   Utilities
+========================= */
 const $ = id => document.getElementById(id);
+const qs = (sel, root=document) => root.querySelector(sel);
 
-// ------------------ Theme ------------------
+/* Create/stash a simple session id for correlating activity */
+function getSessionId() {
+  const KEY = 'ri_session_id';
+  let s = localStorage.getItem(KEY);
+  if (!s) {
+    s = (crypto?.randomUUID?.() || Math.random().toString(36).slice(2)) + '-' + Date.now();
+    localStorage.setItem(KEY, s);
+  }
+  return s;
+}
+
+/* =========================
+   Activity Logger (Always Record)
+   - endpoint: POST /api/activity
+   - offline queue with retry
+========================= */
+const ACTIVITY_QUEUE_KEY = 'ri_activity_queue_v1';
+
+function loadQueue() {
+  try { return JSON.parse(localStorage.getItem(ACTIVITY_QUEUE_KEY) || '[]'); }
+  catch { return []; }
+}
+function saveQueue(q) {
+  try { localStorage.setItem(ACTIVITY_QUEUE_KEY, JSON.stringify(q)); } catch {}
+}
+async function sendEvent(evt) {
+  const res = await fetch('/api/activity', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(evt),
+    credentials: 'same-origin'
+  });
+  if (!res.ok) throw new Error('activity not accepted');
+  return res.json().catch(()=> ({}));
+}
+async function recordAction(action, details = {}) {
+  const payload = {
+    timestamp: new Date().toISOString(),
+    action,
+    details,
+    userAgent: navigator.userAgent,
+    path: location.pathname + location.search,
+    sessionId: getSessionId()
+  };
+  try {
+    await sendEvent(payload);
+  } catch {
+    const q = loadQueue();
+    q.push(payload);
+    saveQueue(q);
+  }
+}
+async function flushQueue() {
+  const q = loadQueue();
+  if (!q.length) return;
+  const remain = [];
+  for (const evt of q) {
+    try { await sendEvent(evt); }
+    catch { remain.push(evt); }
+  }
+  saveQueue(remain);
+}
+window.addEventListener('online', flushQueue);
+
+/* =========================
+   Theme Toggle (with logging)
+========================= */
 function toggleTheme() {
   const html = document.documentElement;
   const isDark = html.getAttribute('data-bs-theme') === 'dark';
-  html.setAttribute('data-bs-theme', isDark ? 'light' : 'dark');
-  localStorage.setItem('theme', isDark ? 'light' : 'dark');
+  const next = isDark ? 'light' : 'dark';
+  html.setAttribute('data-bs-theme', next);
+  localStorage.setItem('theme', next);
   const icon = document.querySelector('.theme-toggle i');
   icon.className = isDark ? 'fas fa-moon' : 'fas fa-sun';
+  recordAction('theme:toggle', { theme: next });
 }
 (function initTheme() {
   const saved = localStorage.getItem('theme');
-  if(saved==='dark'||(!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) toggleTheme();
+  if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    toggleTheme();
+  }
 })();
 
-// ------------------ Charts ------------------
+/* =========================
+   Animations (metrics)
+========================= */
+anime({
+  targets: '.metric',
+  scale:[0.8,1],
+  duration:1500,
+  easing:'easeOutElastic(1, .6)',
+  delay: anime.stagger(200)
+});
+
+/* =========================
+   Charts
+========================= */
 let trendChart, sentimentChart, revenueChart;
 function initCharts(){
-  trendChart = new Chart($('#trendChart'), { type:'line', data:{labels:[], datasets:[{label:'Rating', data:[], borderColor:'#6366f1', backgroundColor:'rgba(99,102,241,0.2)'}]}, options:{responsive:true}});
-  sentimentChart = new Chart($('#sentimentChart'), { type:'doughnut', data:{labels:['Positive','Neutral','Negative'], datasets:[{data:[0,0,0], backgroundColor:['#10b981','#f59e0b','#ef4444']}]}, options:{responsive:true}});
-  revenueChart = new Chart($('#revenueChart'), { type:'bar', data:{labels:['Jan','Feb','Mar','Apr','May'], datasets:[{label:'Predicted Revenue', data:[0,0,0,0,0], backgroundColor:'#6366f1'}]}, options:{responsive:true}});
+  trendChart = new Chart($('#trendChart'), {
+    type:'line',
+    data:{labels:[], datasets:[{label:'Rating', data:[], borderColor:'#6366f1', backgroundColor:'rgba(99,102,241,0.2)'}]},
+    options:{responsive:true, plugins:{legend:{display:true}}}
+  });
+  sentimentChart = new Chart($('#sentimentChart'), {
+    type:'doughnut',
+    data:{labels:['Positive','Neutral','Negative'], datasets:[{data:[0,0,0], backgroundColor:['#10b981','#f59e0b','#ef4444']}]},
+    options:{responsive:true, plugins:{legend:{position:'bottom'}}}
+  });
+  revenueChart = new Chart($('#revenueChart'), {
+    type:'bar',
+    data:{labels:['Jan','Feb','Mar','Apr','May'], datasets:[{label:'Predicted Revenue', data:[0,0,0,0,0], backgroundColor:'#6366f1'}]},
+    options:{responsive:true, plugins:{legend:{display:true}}}
+  });
 }
 
-// ------------------ Fetch Companies ------------------
+/* =========================
+   Data Fetchers (keep your endpoints)
+========================= */
+function currentFilters(){
+  return {
+    companyId: $('#companySelect').value || '',
+    start: $('#startDate').value || '',
+    end: $('#endDate').value || ''
+  };
+}
+
 async function loadCompanies() {
-    try {
-        const res = await fetch('/api/companies');
-        if(!res.ok) throw new Error('Failed to load companies');
-        const companies = await res.json();
-        const select = $('#companySelect');
-        select.innerHTML = '<option value="">-- Select Company --</option>';
-        companies.forEach(c => {
-            const opt = document.createElement('option');
-            opt.value = c.id;
-            opt.textContent = c.name;
-            select.appendChild(opt);
-        });
-    } catch(err) {
-        console.error(err);
-        alert('Error loading companies');
-    }
+  try {
+    const res = await fetch('/api/companies');
+    if(!res.ok) throw new Error('Failed to load companies');
+    const companies = await res.json();
+    const select = $('#companySelect');
+    select.innerHTML = '<option value="">-- Select Company --</option>';
+    companies.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.name;
+      select.appendChild(opt);
+    });
+    recordAction('companies:load', { count: companies.length });
+  } catch(err) {
+    console.error(err);
+    alert('Error loading companies');
+    recordAction('companies:error', { message: String(err) });
+  }
 }
 
-// ------------------ Fetch Metrics ------------------
 async function fetchMetrics(companyId, start, end) {
-    if(!companyId) return;
-    try {
-        const res = await fetch(`/api/metrics?company_id=${companyId}&start=${start}&end=${end}`);
-        if(!res.ok) throw new Error('Failed to fetch metrics');
-        const data = await res.json();
-        $('#metricTotal').textContent = data.total ?? '—';
-        $('#metricAvg').textContent = data.avg_rating?.toFixed(2) ?? '—';
-        $('#metricRisk').textContent = data.risk_score?.toFixed(2) ?? '—';
-        const badge = $('#riskBadge');
-        badge.textContent = data.risk_level ?? '—';
-        badge.className = 'badge fs-5 px-4 py-2 mt-2 ' + 
-          (data.risk_level==='High'?'badge-risk-high':data.risk_level==='Medium'?'badge-risk-medium':'badge-risk-low');
-    } catch(err) { console.error(err); }
+  if(!companyId) return;
+  try {
+    const res = await fetch(`/api/metrics?company_id=${encodeURIComponent(companyId)}&start=${encodeURIComponent(start||'')}&end=${encodeURIComponent(end||'')}`);
+    if(!res.ok) throw new Error('Failed to fetch metrics');
+    const data = await res.json();
+    $('#metricTotal').textContent = data.total ?? '—';
+    $('#metricAvg').textContent = (typeof data.avg_rating === 'number') ? data.avg_rating.toFixed(2) : '—';
+    $('#metricRisk').textContent = (typeof data.risk_score === 'number') ? data.risk_score.toFixed(2) : '—';
+
+    const badge = $('#riskBadge');
+    const level = (data.risk_level || '—');
+    badge.textContent = level;
+    badge.classList.remove('badge-risk-low','badge-risk-medium','badge-risk-high');
+    if (level.toLowerCase() === 'high')      badge.classList.add('badge-risk-high');
+    else if (level.toLowerCase() === 'medium') badge.classList.add('badge-risk-medium');
+    else                                       badge.classList.add('badge-risk-low');
+
+    recordAction('metrics:success', { companyId, start, end });
+  } catch(err) {
+    console.error(err);
+    recordAction('metrics:error', { companyId, message: String(err) });
+  }
 }
 
-// ------------------ Fetch AI Insights ------------------
 async function fetchAIInsights(companyId, start, end) {
-    if(!companyId) return;
-    try {
-        const res = await fetch(`/api/insights?company_id=${companyId}&start=${start}&end=${end}`);
-        if(!res.ok) throw new Error('Failed to fetch AI insights');
-        const data = await res.json();
-        $('#aiInsights').textContent = data?.insights || 'No insights available';
-        const recContainer = $('#recommendations');
-        recContainer.innerHTML = '';
-        (data.recommendations || []).forEach(r => {
-            const div = document.createElement('div');
-            div.className='rec-item';
-            div.textContent = r;
-            recContainer.appendChild(div);
-        });
-    } catch(err){ console.error(err); }
+  if(!companyId) return;
+  try {
+    const res = await fetch(`/api/insights?company_id=${encodeURIComponent(companyId)}&start=${encodeURIComponent(start||'')}&end=${encodeURIComponent(end||'')}`);
+    if(!res.ok) throw new Error('Failed to fetch AI insights');
+    const data = await res.json();
+
+    $('#aiInsights').textContent = data?.insights || 'No insights available';
+
+    const recContainer = $('#recommendations');
+    recContainer.innerHTML = '';
+    (data.recommendations || []).forEach((r, idx) => {
+      const div = document.createElement('div');
+      div.className = 'rec-item';
+      div.style.animationDelay = `${idx * 100}ms`;
+      // If backend later returns objects {title, desc, priority}, this will still show string safely
+      div.innerHTML = (typeof r === 'string')
+        ? r
+        : `<div class="d-flex justify-content-between">
+             <div>
+               <div class="fw-semibold">${r.title || 'Action'}</div>
+               <div class="text-muted small">${r.desc || ''}</div>
+             </div>
+             <span class="badge ${r.priority==='high'?'badge-risk-high': r.priority==='medium'?'badge-risk-medium':'badge-risk-low'}">
+               ${(r.priority||'low').toUpperCase()}
+             </span>
+           </div>`;
+      recContainer.appendChild(div);
+    });
+
+    recordAction('insights:success', { companyId, start, end, recs: (data.recommendations||[]).length });
+  } catch(err){
+    console.error(err);
+    recordAction('insights:error', { companyId, message: String(err) });
+  }
 }
 
-// ------------------ Apply Date Range ------------------
+async function fetchTrend(companyId, start, end) {
+  if(!companyId) return;
+  try {
+    const res = await fetch(`/api/trend?company_id=${encodeURIComponent(companyId)}&start=${encodeURIComponent(start||'')}&end=${encodeURIComponent(end||'')}`);
+    if(!res.ok) throw new Error('Failed to fetch trend');
+    const t = await res.json(); // {labels:[], data:[]}
+    trendChart.data.labels = t.labels || [];
+    trendChart.data.datasets[0].data = t.data || [];
+    trendChart.update();
+    recordAction('trend:success', { companyId, n: (t.data||[]).length });
+  } catch(err){
+    // Graceful fallback
+    trendChart.data.labels = [];
+    trendChart.data.datasets[0].data = [];
+    trendChart.update();
+    recordAction('trend:error', { companyId, message: String(err) });
+  }
+}
+
+async function fetchSentiment(companyId, start, end) {
+  if(!companyId) return;
+  try {
+    const res = await fetch(`/api/sentiment?company_id=${encodeURIComponent(companyId)}&start=${encodeURIComponent(start||'')}&end=${encodeURIComponent(end||'')}`);
+    if(!res.ok) throw new Error('Failed to fetch sentiment');
+    const s = await res.json(); // {pos, neu, neg}
+    sentimentChart.data.datasets[0].data = [s.pos||0, s.neu||0, s.neg||0];
+    sentimentChart.update();
+    recordAction('sentiment:success', { companyId, ...s });
+  } catch(err){
+    sentimentChart.data.datasets[0].data = [0,0,0];
+    sentimentChart.update();
+    recordAction('sentiment:error', { companyId, message: String(err) });
+  }
+}
+
+async function fetchRevenuePredict(companyId, start, end) {
+  if(!companyId) return;
+  try {
+    const res = await fetch(`/api/revenue/predict?company_id=${encodeURIComponent(companyId)}&start=${encodeURIComponent(start||'')}&end=${encodeURIComponent(end||'')}`);
+    if(!res.ok) throw new Error('Failed to fetch revenue prediction');
+    const r = await res.json(); // {labels:[], data:[]}
+    revenueChart.data.labels = r.labels || [];
+    revenueChart.data.datasets[0].data = r.data || [];
+    revenueChart.update();
+    recordAction('revenue:success', { companyId, n: (r.data||[]).length });
+  } catch(err){
+    revenueChart.data.labels = ['Jan','Feb','Mar','Apr','May'];
+    revenueChart.data.datasets[0].data = [0,0,0,0,0];
+    revenueChart.update();
+    recordAction('revenue:error', { companyId, message: String(err) });
+  }
+}
+
+/* =========================
+   Actions
+========================= */
 function applyDateRange() {
-    const companyId = $('#companySelect').value;
-    const start = $('#startDate').value;
-    const end = $('#endDate').value;
-    fetchMetrics(companyId, start, end);
-    fetchAIInsights(companyId, start, end);
+  const { companyId, start, end } = currentFilters();
+  if(!companyId) { alert('Select a company first'); return; }
+  recordAction('dateRange:apply', { companyId, start, end });
+
+  // Fetch everything in parallel
+  Promise.allSettled([
+    fetchMetrics(companyId, start, end),
+    fetchAIInsights(companyId, start, end),
+    fetchTrend(companyId, start, end),
+    fetchSentiment(companyId, start, end),
+    fetchRevenuePredict(companyId, start, end)
+  ]).then(()=> recordAction('dashboard:refresh', { companyId, start, end }));
 }
 
-// ------------------ Sync Reviews ------------------
 async function syncReviews() {
-    const btn = $('#btnSync');
-    const spinner = btn.querySelector('.spinner-border');
-    const label = btn.querySelector('.sync-label');
-    const companyId = $('#companySelect').value;
-    if(!companyId) return alert('Select a company first');
-    spinner.classList.remove('d-none');
-    label.textContent='Syncing...';
-    try {
-        const res = await fetch(`/api/reviews/sync?company_id=${companyId}`, {method:'POST'});
-        if(!res.ok) throw new Error('Sync failed');
-        const data = await res.json();
-        alert(data.message || 'Reviews synced successfully');
-        applyDateRange();
-    } catch(err){ console.error(err); alert('Error syncing reviews'); }
-    finally { spinner.classList.add('d-none'); label.textContent='Sync Reviews'; }
+  const btn = $('#btnSync');
+  const spinner = btn.querySelector('.spinner-border');
+  const label = btn.querySelector('.sync-label');
+  const { companyId } = currentFilters();
+  if(!companyId) return alert('Select a company first');
+
+  spinner.classList.remove('d-none');
+  label.textContent='Syncing...';
+  btn.disabled = true;
+
+  recordAction('sync:start', { companyId });
+
+  try {
+    const res = await fetch(`/api/reviews/sync?company_id=${encodeURIComponent(companyId)}`, { method:'POST' });
+    if(!res.ok) throw new Error('Sync failed');
+    const data = await res.json().catch(()=> ({}));
+    alert(data.message || 'Reviews synced successfully');
+
+    recordAction('sync:success', { companyId });
+    applyDateRange();
+  } catch(err){
+    console.error(err);
+    alert('Error syncing reviews');
+    recordAction('sync:error', { companyId, message: String(err) });
+  } finally {
+    spinner.classList.add('d-none');
+    label.textContent='Sync Reviews';
+    btn.disabled = false;
+  }
 }
 
-// ------------------ Init ------------------
-document.addEventListener('DOMContentLoaded', async () => { 
-  initCharts(); 
+/* =========================
+   Init
+========================= */
+document.addEventListener('DOMContentLoaded', async () => {
+  initCharts();
   await loadCompanies();
-  $('#companySelect').addEventListener('change', applyDateRange);
+  recordAction('page:load', { ready: true });
+
+  $('#companySelect').addEventListener('change', () => {
+    const { companyId } = currentFilters();
+    recordAction('company:select', { companyId });
+    if (companyId) applyDateRange();
+  });
+
+  // attempt to flush any queued activity
+  flushQueue();
 });
 </script>
 
