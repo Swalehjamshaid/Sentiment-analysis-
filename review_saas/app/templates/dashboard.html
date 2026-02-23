@@ -1,748 +1,813 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, maximum-scale=1"
-  />
-  <title>Customer Reviews Dashboard</title>
+  <!--
+    DASHBOARD.HTML
+    Integrated with:
+      - /api/companies (list/add; DELETE optional for removal)
+      - /api/reviews (summary, list, google places, import, sync, diagnostics)
+    Features:
+      - Company CRUD (add via Google Places; delete with graceful fallback)
+      - KPIs (total, avg rating, risk score/level)
+      - Trend (daily avg rating), Sentiment, Heatmap, Keywords
+      - Alerts (drop/increase/volume spike)
+      - Reviews table (paging, search, rating filter, date range)
+      - Sync + Import buttons
+      - Diagnostics modal
+    NOTE:
+      - If your backend requires an API token, paste it in the "API Token" box.
+      - Deleting companies calls DELETE /api/companies/{id}; if not implemented, UI shows a warning.
+  -->
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Reviews Dashboard</title>
 
-  <!-- Fonts -->
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <!-- Bootstrap 5 & Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
-  <!-- DataTables -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simple-datatables@9.0.3/dist/style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/simple-datatables@9.0.3/dist/umd/simple-datatables.min.js"></script>
+  <!-- Day.js for date handling -->
+  <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/dayjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/plugin/utc.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/plugin/timezone.js"></script>
+  <script>
+    dayjs.extend(dayjs_plugin_utc);
+    dayjs.extend(dayjs_plugin_timezone);
+  </script>
 
   <style>
-    :root {
-      --bg: #0b1020;
-      --panel: rgba(255,255,255,0.06);
-      --panel-2: rgba(255,255,255,0.08);
-      --text: #e7ecf7;
-      --muted: #aab3c7;
-      --border: rgba(255,255,255,0.12);
-      --primary: #7c3aed;  /* Indigo */
-      --primary-2: #38bdf8; /* Sky blue */
-      --accent: #10b981;   /* Emerald */
-      --warn: #f59e0b;     /* Amber */
-      --danger: #ef4444;   /* Red */
-      --success: #22c55e;  /* Green */
-      --glass: blur(10px) saturate(1.1);
-      --radius: 16px;
-      --card-shadow: 0 8px 30px rgba(0,0,0,0.25);
-      --grad-1: linear-gradient(135deg, rgba(124,58,237,0.35), rgba(16,185,129,0.25));
-      --chip-bg: rgba(56,189,248,0.1);
-      --chip-border: rgba(56,189,248,0.35);
-    }
-    .light {
-      --bg: #f5f7fb;
-      --panel: rgba(255,255,255,0.95);
-      --panel-2: rgba(255,255,255,1);
-      --text: #0f172a;
-      --muted: #475569;
-      --border: rgba(15, 23, 42, 0.08);
-      --card-shadow: 0 10px 30px rgba(15,23,42,0.10);
-      --grad-1: linear-gradient(135deg, rgba(124,58,237,0.08), rgba(16,185,129,0.08));
-      --chip-bg: rgba(124,58,237,0.08);
-      --chip-border: rgba(124,58,237,0.25);
-    }
-
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-      color: var(--text);
-      background:
-        radial-gradient(1200px 700px at 10% -10%, rgba(124,58,237,0.25), transparent 50%),
-        radial-gradient(800px 600px at 90% 10%, rgba(16,185,129,0.18), transparent 50%),
-        var(--bg);
-      min-height: 100vh;
-    }
-
-    .container {
-      max-width: 1400px;
-      padding: 24px;
-      margin: 0 auto;
-    }
-
-    .nav {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 16px 22px;
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      backdrop-filter: var(--glass);
-      box-shadow: var(--card-shadow);
-    }
-    .brand {
-      display: flex; align-items: center; gap: 14px; font-weight: 800; font-size: 1.2rem;
-      letter-spacing: 0.2px;
-    }
-    .brand .logo {
-      width: 42px; height: 42px; border-radius: 10px;
-      background: var(--grad-1);
-      border: 1px solid var(--border);
-      box-shadow: 0 8px 24px rgba(124,58,237,0.25), inset 0 0 20px rgba(255,255,255,0.06);
-    }
-    .nav-actions { display: flex; align-items: center; gap: 10px; }
-    button, .btn {
-      background: var(--panel-2);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 10px 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all .2s ease;
-    }
-    button:hover, .btn:hover { transform: translateY(-1px); border-color: rgba(124,58,237,0.45); }
-    .btn-primary {
-      background: linear-gradient(135deg, #7c3aed, #38bdf8);
-      border: none;
-      color: white;
-      box-shadow: 0 8px 24px rgba(124,58,237,0.35);
-    }
-    .btn-outline {
-      background: transparent;
-      border: 1px solid var(--chip-border);
-      color: var(--text);
-    }
-
-    .filters {
-      margin-top: 18px;
-      display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 12px;
-      align-items: center;
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 14px 16px;
-      backdrop-filter: var(--glass);
-      box-shadow: var(--card-shadow);
-    }
-    .select, .date {
-      width: 100%;
-      background: var(--panel-2);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 10px 12px;
-      border-radius: 12px;
-      outline: none;
-    }
-
-    .grid {
-      display: grid; gap: 16px; margin-top: 18px;
-      grid-template-columns: repeat(12, 1fr);
-    }
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 16px;
-      backdrop-filter: var(--glass);
-      box-shadow: var(--card-shadow);
-    }
-    .card h3 {
-      margin: 0 0 12px; font-size: 0.95rem; color: var(--muted); font-weight: 700; letter-spacing: .3px;
-    }
-    .kpis {
-      display: grid; gap: 16px;
-      grid-template-columns: repeat(4, 1fr);
-    }
-    .kpi {
-      position: relative; overflow: hidden;
-      background: var(--panel-2);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 18px;
-    }
-    .kpi .value { font-size: 1.8rem; font-weight: 800; letter-spacing: .5px; }
-    .kpi .label { color: var(--muted); margin-top: 6px; font-weight: 600; }
-    .kpi .spark {
-      position: absolute; right: -30px; top: -30px; width: 140px; height: 140px; border-radius: 50%;
-      background: var(--grad-1); filter: blur(20px); opacity: .4;
-    }
-
-    /* Chips / Keywords */
-    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-    .chip {
-      border: 1px solid var(--chip-border);
-      background: var(--chip-bg);
-      color: var(--text);
-      padding: 8px 10px;
-      border-radius: 999px;
-      font-size: .85rem;
-      display: inline-flex; align-items: center; gap: 8px;
-    }
-    .chip .count {
-      background: rgba(124,58,237,0.15);
-      padding: 4px 8px; border-radius: 999px; border: 1px solid var(--chip-border);
-      font-weight: 700; font-size: .75rem;
-    }
-
-    .alerts { display: grid; gap: 12px; }
-    .alert {
-      display: flex; justify-content: space-between; align-items: center;
-      border-radius: 14px; padding: 10px 12px; border: 1px solid var(--border);
-      background: var(--panel-2);
-    }
-    .alert.warning { border-color: rgba(245,158,11,0.35); background: rgba(245,158,11,0.10); }
-    .alert.success { border-color: rgba(34,197,94,0.35); background: rgba(34,197,94,0.10); }
-    .alert.info    { border-color: rgba(56,189,248,0.35); background: rgba(56,189,248,0.10); }
-
-    /* Map */
-    #map {
-      width: 100%; height: 380px; border-radius: 14px; border: 1px solid var(--border);
-      overflow: hidden;
-    }
-
-    /* Table */
-    table.dataTable-table {
-      width: 100%;
-      border-collapse: collapse;
-      border-radius: 12px;
-      overflow: hidden;
-    }
-    table.dataTable-table thead th {
-      background: var(--panel-2);
-      color: var(--muted);
-      font-weight: 700;
-      border-bottom: 1px solid var(--border);
-    }
-    table.dataTable-table tbody tr:nth-child(even) {
-      background: rgba(255,255,255,0.03);
-    }
-    table.dataTable-table td, table.dataTable-table th {
-      border-bottom: 1px solid var(--border);
-      padding: 10px 12px;
-      color: var(--text);
-    }
-
-    .footer {
-      margin: 24px 0 12px; color: var(--muted); text-align: center; font-size: .9rem;
-    }
-
-    @media (max-width: 1200px) {
-      .kpis { grid-template-columns: repeat(2, 1fr); }
-      .filters { grid-template-columns: 1fr 1fr 1fr; }
-    }
-    @media (max-width: 768px) {
-      .grid { grid-template-columns: 1fr; }
-      .filters { grid-template-columns: 1fr; }
-      .kpis { grid-template-columns: 1fr; }
-    }
+    body { background: #f7f8fa; }
+    .kpi-card { min-height: 120px; }
+    .card-title small { color: #6c757d; font-weight: 400; }
+    .sidebar { max-width: 360px; }
+    .sticky-top-20 { position: sticky; top: 20px; }
+    .cursor-pointer { cursor: pointer; }
+    #companyList .active { background: #f1f5ff; border-color: #cfe2ff; }
+    .chart-container { position: relative; height: 280px; }
+    .toast-container { z-index: 2000; }
+    .table-wrap { overflow-x: auto; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <!-- NAV -->
-    <div class="nav">
-      <div class="brand">
-        <div class="logo"></div>
-        <div>Customer Reviews Dashboard</div>
-      </div>
-      <div class="nav-actions">
-        <button id="themeToggle" title="Toggle theme">🌗 Theme</button>
-        <button id="syncBtn" class="btn-outline" title="Trigger review sync">🔄 Sync</button>
-        <a id="exportBtn" class="btn btn-primary" href="#" target="_blank" rel="noopener">⬇️ Export CSV</a>
+  <!-- Top Bar -->
+  <nav class="navbar navbar-expand-lg bg-white border-bottom">
+    <div class="container-fluid">
+      <a class="navbar-brand fw-semibold" href="#">
+        <i class="bi bi-graph-up-arrow me-2"></i> Reviews Dashboard
+      </a>
+
+      <div class="d-flex gap-2 ms-auto">
+        <input id="apiTokenInput" class="form-control form-control-sm" style="width: 320px" placeholder="Optional API Token (Bearer)…" />
+        <button class="btn btn-outline-secondary btn-sm" id="btnDiagnostics">
+          Diagnostics
+        </button>
       </div>
     </div>
+  </nav>
 
-    <!-- FILTERS -->
-    <div class="filters">
-      <select id="companySelect" class="select"></select>
-      <input id="startDate" class="date" type="date" />
-      <input id="endDate" class="date" type="date" />
-      <button id="refreshBtn" class="btn">⚡ Refresh</button>
-      <button id="recenterBtn" class="btn">🗺️ Recenter Map</button>
-    </div>
+  <div class="container-fluid py-3">
+    <div class="row g-3">
+      <!-- Sidebar: Companies -->
+      <div class="col-12 col-lg-3">
+        <div class="sidebar">
+          <div class="card shadow-sm sticky-top-20">
+            <div class="card-header bg-white">
+              <div class="d-flex align-items-center justify-content-between">
+                <h6 class="m-0"><i class="bi bi-buildings me-1"></i> Your Companies</h6>
+                <button class="btn btn-sm btn-primary" data-bs-toggle="collapse" data-bs-target="#addCompanySection">
+                  <i class="bi bi-plus-lg"></i> Add
+                </button>
+              </div>
+            </div>
+            <div class="card-body p-0">
+              <div class="list-group list-group-flush" id="companyList">
+                <!-- Populated by JS -->
+                <div class="p-3 text-center text-muted" id="companiesEmpty">Loading companies…</div>
+              </div>
 
-    <!-- KPIs -->
-    <div class="grid">
-      <div class="card" style="grid-column: 1 / -1;">
-        <div class="kpis">
-          <div class="kpi">
-            <div class="spark"></div>
-            <div class="value" id="kpiTotal">0</div>
-            <div class="label">Total Reviews</div>
-          </div>
-          <div class="kpi">
-            <div class="spark"></div>
-            <div class="value" id="kpiAvg">0.0</div>
-            <div class="label">Average Rating</div>
-          </div>
-          <div class="kpi">
-            <div class="spark"></div>
-            <div class="value" id="kpiRisk">0</div>
-            <div class="label">Risk Score</div>
-          </div>
-          <div class="kpi">
-            <div class="spark"></div>
-            <div class="value" id="kpiLevel">—</div>
-            <div class="label">Risk Level</div>
+              <!-- Add Company (via Google Places) -->
+              <div class="collapse border-top" id="addCompanySection">
+                <div class="p-3">
+                  <div class="small text-muted mb-2">Search on Google Places and add</div>
+                  <div class="input-group mb-2">
+                    <input class="form-control" id="placeSearchInput" placeholder="e.g., Pizza Hut Lahore" />
+                    <button class="btn btn-outline-secondary" id="btnPlaceSearch">
+                      <i class="bi bi-search"></i>
+                    </button>
+                  </div>
+                  <div id="placeSearchResults" class="list-group mb-2"></div>
+
+                  <div class="form-text">Or add by Place ID directly</div>
+                  <div class="input-group mt-1">
+                    <input class="form-control" id="placeIdInput" placeholder="Place ID…" />
+                    <button class="btn btn-success" id="btnAddPlaceId">Add</button>
+                  </div>
+
+                  <div class="mt-2 small text-muted">
+                    On add, server enriches company via Google Place Details.
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="card-footer bg-white">
+              <div class="form-text">Tip: Use the search to add accurate locations.</div>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- CHARTS LEFT -->
-      <div class="card" style="grid-column: span 8;">
-        <h3>Rating Trend</h3>
-        <canvas id="trendChart" height="120"></canvas>
-      </div>
-
-      <!-- SIDEBAR RIGHT -->
-      <div class="card" style="grid-column: span 4;">
-        <h3>Sentiment Breakdown</h3>
-        <canvas id="sentimentChart" height="220"></canvas>
-        <div style="margin-top:12px; font-size:.85rem; color:var(--muted)">
-          Positive / Neutral / Negative over the selected period.
+      <!-- Main: Analytics & Reviews -->
+      <div class="col-12 col-lg-9">
+        <!-- Filters -->
+        <div class="card shadow-sm mb-3">
+          <div class="card-body">
+            <div class="row g-2 align-items-end">
+              <div class="col-sm-4 col-md-3">
+                <label class="form-label">Date Start</label>
+                <input type="date" class="form-control" id="filterStart" />
+              </div>
+              <div class="col-sm-4 col-md-3">
+                <label class="form-label">Date End</label>
+                <input type="date" class="form-control" id="filterEnd" />
+              </div>
+              <div class="col-sm-4 col-md-3">
+                <label class="form-label">Rating</label>
+                <select id="filterRating" class="form-select">
+                  <option value="">All</option>
+                  <option value="5">5</option>
+                  <option value="4">4</option>
+                  <option value="3">3</option>
+                  <option value="2">2</option>
+                  <option value="1">1</option>
+                </select>
+              </div>
+              <div class="col-sm-8 col-md-3">
+                <label class="form-label">Search text</label>
+                <div class="input-group">
+                  <input class="form-control" id="filterQuery" placeholder="e.g., slow service" />
+                  <button class="btn btn-outline-secondary" id="btnApplyFilters">Apply</button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <!-- SOURCES + HEATMAP -->
-      <div class="card" style="grid-column: span 4;">
-        <h3>Review Sources</h3>
-        <canvas id="sourcesChart" height="220"></canvas>
-      </div>
-      <div class="card" style="grid-column: span 8;">
-        <h3>Activity by Hour</h3>
-        <canvas id="heatmapChart" height="100"></canvas>
-      </div>
-
-      <!-- AI INSIGHTS -->
-      <div class="card" style="grid-column: span 8;">
-        <h3>AI Recommendations</h3>
-        <div id="recoList" class="alerts"></div>
-        <h3 style="margin-top:16px;">Top Keywords</h3>
-        <div id="keywords" class="chips"></div>
-      </div>
-
-      <div class="card" style="grid-column: span 4;">
-        <h3>Alerts</h3>
-        <div id="alerts" class="alerts"></div>
-      </div>
-
-      <!-- MAP -->
-      <div class="card" style="grid-column: 1 / -1;">
-        <h3>Location</h3>
-        <div id="map"></div>
-      </div>
-
-      <!-- TABLE -->
-      <div class="card" style="grid-column: 1 / -1;">
-        <h3>Reviews</h3>
-        <div class="table-wrap">
-          <table id="reviewsTable" class="dataTable-table display">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Rating</th>
-                <th>Title</th>
-                <th>Text</th>
-                <th>Author</th>
-                <th>Source</th>
-              </tr>
-            </thead>
-            <tbody><!-- filled by script --></tbody>
-          </table>
+        <!-- KPIs -->
+        <div class="row g-3 mb-1">
+          <div class="col-md-3">
+            <div class="card kpi-card shadow-sm">
+              <div class="card-body">
+                <div class="card-title">Total Reviews <small>(window)</small></div>
+                <div class="display-6 fw-semibold" id="kpiTotal">—</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card kpi-card shadow-sm">
+              <div class="card-body">
+                <div class="card-title">Average Rating</div>
+                <div class="display-6 fw-semibold" id="kpiAvg">—</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card kpi-card shadow-sm">
+              <div class="card-body">
+                <div class="card-title">Risk Score</div>
+                <div class="display-6 fw-semibold" id="kpiRisk">—</div>
+                <div class="text-muted small" id="kpiRiskLevel">—</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3 d-grid gap-2">
+            <button class="btn btn-primary btn-lg" id="btnSync">
+              <i class="bi bi-arrow-clockwise me-1"></i> Sync Reviews
+            </button>
+            <div class="input-group">
+              <input class="form-control" id="importPlaceId" placeholder="Import via Place ID…" />
+              <button class="btn btn-success" id="btnImport">
+                <i class="bi bi-cloud-download"></i>
+              </button>
+            </div>
+          </div>
         </div>
+
+        <!-- Charts -->
+        <div class="row g-3 mt-1">
+          <div class="col-md-6">
+            <div class="card shadow-sm">
+              <div class="card-header bg-white">
+                <strong>Trend: Average Rating (Daily)</strong>
+              </div>
+              <div class="card-body">
+                <div class="chart-container">
+                  <canvas id="chartTrend"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card shadow-sm">
+              <div class="card-header bg-white">
+                <strong>Sentiment</strong>
+              </div>
+              <div class="card-body">
+                <div class="chart-container">
+                  <canvas id="chartSentiment"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card shadow-sm">
+              <div class="card-header bg-white">
+                <strong>Heatmap (Hour)</strong>
+              </div>
+              <div class="card-body">
+                <div class="chart-container">
+                  <canvas id="chartHeatmap"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alerts + Keywords -->
+        <div class="row g-3 mt-1">
+          <div class="col-md-6">
+            <div class="card shadow-sm h-100">
+              <div class="card-header bg-white">
+                <strong>Alerts</strong>
+              </div>
+              <div class="card-body" id="alertsWrap">
+                <div class="text-muted">No alerts.</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card shadow-sm h-100">
+              <div class="card-header bg-white">
+                <strong>Top Keywords</strong>
+              </div>
+              <div class="card-body" id="keywordsWrap">
+                <div class="text-muted">No keywords.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Reviews Table -->
+        <div class="card shadow-sm mt-3">
+          <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <strong>Reviews</strong>
+            <div class="small text-muted" id="tableMeta">—</div>
+          </div>
+          <div class="card-body table-wrap">
+            <table class="table table-sm align-middle">
+              <thead>
+                <tr>
+                  <th style="width: 70px;">Rating</th>
+                  <th>Text</th>
+                  <th style="width: 180px;">Reviewer</th>
+                  <th style="width: 180px;">Date</th>
+                </tr>
+              </thead>
+              <tbody id="reviewsTbody">
+                <tr><td colspan="4" class="text-center text-muted">No data</td></tr>
+              </tbody>
+            </table>
+            <div class="d-flex justify-content-between align-items-center">
+              <div>
+                <button class="btn btn-outline-secondary btn-sm" id="btnPrev">Prev</button>
+                <button class="btn btn-outline-secondary btn-sm" id="btnNext">Next</button>
+              </div>
+              <div class="small text-muted" id="pagingInfo">—</div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
-
-    <div class="footer">© <span id="year"></span> Customer Reviews Intelligence • Powered by AI</div>
   </div>
 
-  <!-- GOOGLE MAPS (Frontend key per your instruction) -->
-  <script async defer
-    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&callback=initMap">
-  </script>
+  <!-- Diagnostics Modal -->
+  <div class="modal fade" id="diagModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h6 class="modal-title"><i class="bi bi-activity me-1"></i> Diagnostics</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"/>
+        </div>
+        <div class="modal-body">
+          <pre class="bg-light p-3 rounded" id="diagPre">Loading…</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toasts -->
+  <div class="toast-container position-fixed top-0 end-0 p-3" id="toastArea"></div>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
   <script>
-    // ========= THEME =========
-    const root = document.documentElement;
-    const themeToggle = document.getElementById('themeToggle');
-    const storedTheme = localStorage.getItem('theme') || 'dark';
-    if (storedTheme === 'light') document.body.classList.add('light');
-    themeToggle.addEventListener('click', () => {
-      document.body.classList.toggle('light');
-      localStorage.setItem('theme', document.body.classList.contains('light') ? 'light' : 'dark');
-      // Repaint charts to pick up CSS changes
-      setTimeout(redrawCharts, 50);
-    });
-
-    // ========= GLOBALS =========
-    const API = {
-      companies: '/api/companies',               // GET (active companies) via dashboard router OR companies router
-      metrics: '/api/metrics',                   // GET ?company_id&start&end
-      trend: '/api/trend',                       // GET ?company_id&start&end
-      sentiment: '/api/sentiment',               // GET ?company_id&start&end
-      sources: '/api/sources',                   // GET ?company_id&start&end
-      heatmap: '/api/heatmap',                   // GET ?company_id&start&end
-      keywords: '/api/keywords',                 // GET ?company_id&start&end&top_n
-      alerts: '/api/alerts',                     // GET ?company_id&start&end&window_days
-      reviews: '/api/reviews',                   // GET ?company_id&page&limit&search&sort&order&start&end
-      export: '/api/export',                     // GET ?company_id&start&end
-      sync: '/api/reviews/sync',                 // POST ?company_id
-      companyById: id => `/api/companies/${id}`, // GET company details (lat/lng)
+    // -----------------------------------------------------------
+    // GLOBAL STATE
+    // -----------------------------------------------------------
+    const state = {
+      token: '',
+      companies: [],
+      currentCompanyId: null,
+      reviewsPage: 1,
+      reviewsLimit: 20,
+      charts: {
+        trend: null,
+        sentiment: null,
+        heatmap: null
+      }
     };
 
-    const qs = (sel) => document.querySelector(sel);
-    const companySelect = qs('#companySelect');
-    const startDate = qs('#startDate');
-    const endDate = qs('#endDate');
-    const refreshBtn = qs('#refreshBtn');
-    const recenterBtn = qs('#recenterBtn');
-    const syncBtn = qs('#syncBtn');
-    const exportBtn = qs('#exportBtn');
-
-    const kpiTotal = qs('#kpiTotal');
-    const kpiAvg = qs('#kpiAvg');
-    const kpiRisk = qs('#kpiRisk');
-    const kpiLevel = qs('#kpiLevel');
-
-    const recoList = qs('#recoList');
-    const keywordsWrap = qs('#keywords');
-    const alertsWrap = qs('#alerts');
-
-    document.getElementById('year').textContent = new Date().getFullYear();
-
-    // Default window: last 90 days
-    function fmtDate(d) { return d.toISOString().slice(0,10); }
-    const today = new Date();
-    const past = new Date(today.getTime() - 89*24*3600*1000);
-    startDate.value = fmtDate(past);
-    endDate.value = fmtDate(today);
-
-    // ========= MAP =========
-    let map, marker;
-    window.initMap = function initMap() {
-      map = new google.maps.Map(document.getElementById('map'), {
-        center: { lat: 31.5204, lng: 74.3587 }, // Lahore default
-        zoom: 10,
-        styles: document.body.classList.contains('light') ? [] : [
-          { elementType: 'geometry', stylers: [{color: '#1f2937'}]},
-          { elementType: 'labels.text.stroke', stylers: [{color: '#1f2937'}]},
-          { elementType: 'labels.text.fill', stylers: [{color: '#e5e7eb'}]},
-          { featureType: 'poi', stylers: [{visibility: 'off'}]},
-          { featureType: 'transit', stylers: [{visibility: 'off'}]},
-        ],
-        disableDefaultUI: false,
-        mapTypeControl: false,
-        streetViewControl: false,
-      });
-    };
-
-    async function recenterToCompany(id) {
-      try {
-        const res = await fetch(API.companyById(id));
-        if (!res.ok) return;
-        const c = await res.json();
-        if (c.lat && c.lng) {
-          const pos = { lat: c.lat, lng: c.lng };
-          map.setCenter(pos); map.setZoom(14);
-          if (!marker) marker = new google.maps.Marker({ map });
-          marker.setPosition(pos);
-          marker.setTitle(c.name || 'Company');
-        }
-      } catch (e) { console.warn('Map recenter failed', e); }
+    // Utility: show toast
+    function toast(msg, type = 'info', delay = 3000) {
+      const id = 't' + Math.random().toString(36).slice(2);
+      const el = document.createElement('div');
+      el.className = 'toast align-items-center text-bg-' + (type === 'error' ? 'danger' : (type === 'success' ? 'success' : (type === 'warning' ? 'warning' : 'secondary'))) + ' border-0';
+      el.id = id;
+      el.role = 'alert';
+      el.innerHTML = `
+        <div class="d-flex">
+          <div class="toast-body">${msg}</div>
+          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>`;
+      document.getElementById('toastArea').appendChild(el);
+      const t = new bootstrap.Toast(el, { delay });
+      t.show();
+      el.addEventListener('hidden.bs.toast', () => el.remove());
     }
 
-    recenterBtn.addEventListener('click', () => {
-      const id = companySelect.value; if (id) recenterToCompany(id);
-    });
+    // API Fetch wrapper with optional token
+    async function apiFetch(path, options = {}) {
+      const headers = options.headers || {};
+      headers['Content-Type'] = 'application/json';
+      const token = state.token || document.getElementById('apiTokenInput').value.trim();
+      if (token) headers['Authorization'] = 'Bearer ' + token;
+      const opts = { ...options, headers };
+      const res = await fetch(path, opts);
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
+      }
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json')) return res.json();
+      return res.text();
+    }
 
-    // ========= CHARTS =========
-    let trendChart, sentimentChart, sourcesChart, heatmapChart;
-    function chartColors() {
-      // Pull from CSS
-      const styles = getComputedStyle(document.body);
-      return {
-        primary: styles.getPropertyValue('--primary').trim(),
-        primary2: styles.getPropertyValue('--primary-2').trim(),
-        accent: styles.getPropertyValue('--accent').trim(),
-        warn: styles.getPropertyValue('--warn').trim(),
-        danger: styles.getPropertyValue('--danger').trim(),
-        success: styles.getPropertyValue('--success').trim(),
-        text: styles.getPropertyValue('--text').trim(),
-        grid: styles.getPropertyValue('--border').trim(),
+    // -----------------------------------------------------------
+    // COMPANIES
+    // -----------------------------------------------------------
+    async function loadCompanies() {
+      // Pull active companies
+      const params = new URLSearchParams({ status: 'active', page: '1', limit: '100', sort: 'created_at', order: 'desc' });
+      const items = await apiFetch(`/api/companies?${params.toString()}`);
+      state.companies = items || [];
+      renderCompanyList();
+    }
+
+    function renderCompanyList() {
+      const list = document.getElementById('companyList');
+      list.innerHTML = '';
+
+      if (!state.companies.length) {
+        document.getElementById('companiesEmpty').innerText = 'No companies yet. Use Add to create one.';
+      } else {
+        document.getElementById('companiesEmpty').remove();
+      }
+
+      state.companies.forEach((c) => {
+        const div = document.createElement('div');
+        div.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center ' + (state.currentCompanyId === c.id ? 'active' : '');
+        div.innerHTML = `
+          <div class="me-2">
+            <div class="fw-semibold">${c.name}</div>
+            <div class="small text-muted">${c.city || ''}</div>
+          </div>
+          <div class="btn-group btn-group-sm">
+            <button class="btn btn-outline-secondary" title="Details"><i class="bi bi-eye"></i></button>
+            <button class="btn btn-outline-danger" title="Delete"><i class="bi bi-trash"></i></button>
+          </div>
+        `;
+        div.querySelector('.btn-outline-secondary').addEventListener('click', () => selectCompany(c.id));
+        div.querySelector('.btn-outline-danger').addEventListener('click', () => deleteCompany(c.id));
+        list.appendChild(div);
+      });
+
+      // Auto-select first company if none selected
+      if (!state.currentCompanyId && state.companies.length) {
+        selectCompany(state.companies[0].id);
+      }
+    }
+
+    async function deleteCompany(id) {
+      if (!confirm('Delete this company and all its reviews? This cannot be undone.')) return;
+      try {
+        // Attempt DELETE route; if backend not implemented, show info toast.
+        await apiFetch(`/api/companies/${id}`, { method: 'DELETE' });
+        toast('Company deleted', 'success');
+        // Remove from local state
+        state.companies = state.companies.filter(x => x.id !== id);
+        if (state.currentCompanyId === id) state.currentCompanyId = null;
+        renderCompanyList();
+        clearDashboard();
+      } catch (err) {
+        toast('Delete not supported by server (implement DELETE /api/companies/{id}).', 'warning', 5000);
+        console.warn(err);
+      }
+    }
+
+    async function addCompanyByPlaceId(placeId) {
+      if (!placeId) return toast('Provide a Place ID', 'warning');
+      try {
+        const body = { name: '', city: '', place_id: placeId };
+        const item = await apiFetch('/api/companies', { method: 'POST', body: JSON.stringify(body) });
+        toast('Company added', 'success');
+        // Refresh list
+        await loadCompanies();
+        selectCompany(item.id);
+      } catch (err) {
+        toast('Add company failed: ' + err.message, 'error', 6000);
+      }
+    }
+
+    async function searchPlaces() {
+      const q = document.getElementById('placeSearchInput').value.trim();
+      if (q.length < 2) return toast('Enter at least 2 characters', 'warning');
+      try {
+        const params = new URLSearchParams({ q, limit: '5' });
+        const res = await apiFetch(`/api/reviews/google/places?${params.toString()}`);
+        const box = document.getElementById('placeSearchResults');
+        box.innerHTML = '';
+        (res.items || []).forEach(it => {
+          const a = document.createElement('button');
+          a.className = 'list-group-item list-group-item-action text-start';
+          a.innerHTML = `<div class="fw-semibold">${it.name}</div><div class="small text-muted">${it.formatted_address || ''}</div>`;
+          a.addEventListener('click', () => addCompanyByPlaceId(it.place_id));
+          box.appendChild(a);
+        });
+        if (!res.items?.length) {
+          box.innerHTML = `<div class="list-group-item text-muted">No candidates.</div>`;
+        }
+      } catch (err) {
+        toast('Google Places search failed: ' + err.message, 'error');
+      }
+    }
+
+    // -----------------------------------------------------------
+    // DASHBOARD (summary + charts + table)
+    // -----------------------------------------------------------
+    function getDateFilters() {
+      const start = document.getElementById('filterStart').value || '';
+      const end = document.getElementById('filterEnd').value || '';
+      return { start, end };
+    }
+
+    function clearDashboard() {
+      document.getElementById('kpiTotal').innerText = '—';
+      document.getElementById('kpiAvg').innerText = '—';
+      document.getElementById('kpiRisk').innerText = '—';
+      document.getElementById('kpiRiskLevel').innerText = '—';
+      renderAlerts([]);
+      renderKeywords([]);
+      renderTrend([], []);
+      renderSentiment({ pos: 0, neu: 0, neg: 0 });
+      renderHeatmap([]);
+      renderReviewsTable([], 0, 1, state.reviewsLimit);
+    }
+
+    async function selectCompany(id) {
+      state.currentCompanyId = id;
+      // Highlight selected
+      renderCompanyList();
+      // Reset paging
+      state.reviewsPage = 1;
+      await refreshDashboard();
+    }
+
+    async function refreshDashboard() {
+      if (!state.currentCompanyId) return;
+      const { start, end } = getDateFilters();
+
+      // Load summary (KPIs + charts + alerts + keywords)
+      try {
+        const summary = await apiFetch(`/api/reviews/summary/${state.currentCompanyId}?` + new URLSearchParams({ start, end }).toString());
+        // KPIs
+        document.getElementById('kpiTotal').innerText = summary?.metrics?.total ?? 0;
+        document.getElementById('kpiAvg').innerText = (summary?.metrics?.avg_rating ?? 0).toFixed(2);
+        document.getElementById('kpiRisk').innerText = (summary?.metrics?.risk_score ?? 0).toFixed(1);
+        document.getElementById('kpiRiskLevel').innerText = summary?.metrics?.risk_level ?? '—';
+
+        // Trend (convert from daily_series if available; else from trend.labels)
+        const trendLabels = summary?.daily_series?.map(x => x.date) || summary?.trend?.labels || [];
+        const trendData = summary?.daily_series?.map(x => x.avg_rating ?? 0) || summary?.trend?.data || [];
+        renderTrend(trendLabels, trendData);
+
+        // Sentiment
+        renderSentiment({
+          pos: summary?.sentiment?.Positive ?? 0,
+          neu: summary?.sentiment?.Neutral ?? 0,
+          neg: summary?.sentiment?.Negative ?? 0
+        });
+
+        // Heatmap
+        renderHeatmap(summary?.heatmap?.data || []);
+
+        // Keywords
+        const kw = (summary?.keywords?.labels || []).map((k, i) => ({ k, v: summary?.keywords?.data?.[i] || 0 }));
+        renderKeywords(kw);
+
+        // Alerts
+        renderAlerts(summary?.alerts || []);
+      } catch (err) {
+        toast('Summary load failed: ' + err.message, 'error', 6000);
+        console.error(err);
+      }
+
+      // Load first page of reviews
+      await loadReviewsPage(1);
+    }
+
+    // -----------------------------------------------------------
+    // CHARTS
+    // -----------------------------------------------------------
+    function destroyChart(ref) { if (ref && typeof ref.destroy === 'function') ref.destroy(); }
+
+    function renderTrend(labels, data) {
+      const ctx = document.getElementById('chartTrend');
+      destroyChart(state.charts.trend);
+      state.charts.trend = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Avg Rating',
+            data,
+            borderColor: '#0d6efd',
+            backgroundColor: 'rgba(13,110,253,.12)',
+            tension: .3,
+            fill: true,
+            pointRadius: 2
+          }]
+        },
+        options: {
+          scales: { y: { min: 0, max: 5, ticks: { stepSize: 1 } } },
+          plugins: { legend: { display: false } },
+          responsive: true,
+          maintainAspectRatio: false
+        }
+      });
+    }
+
+    function renderSentiment({ pos, neu, neg }) {
+      const ctx = document.getElementById('chartSentiment');
+      destroyChart(state.charts.sentiment);
+      state.charts.sentiment = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Positive', 'Neutral', 'Negative'],
+          datasets: [{
+            data: [pos || 0, neu || 0, neg || 0],
+            backgroundColor: ['#198754', '#6c757d', '#dc3545'],
+          }]
+        },
+        options: {
+          plugins: { legend: { position: 'bottom' } },
+          responsive: true,
+          maintainAspectRatio: false
+        }
+      });
+    }
+
+    function renderHeatmap(hoursData) {
+      const ctx = document.getElementById('chartHeatmap');
+      destroyChart(state.charts.heatmap);
+      const labels = Array.from({ length: 24 }, (_, i) => i);
+      const data = (hoursData?.length === 24) ? hoursData : labels.map(() => 0);
+      state.charts.heatmap = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{ label: 'Reviews / Hour', data, backgroundColor: '#20c997' }]
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+    }
+
+    // -----------------------------------------------------------
+    // ALERTS & KEYWORDS
+    // -----------------------------------------------------------
+    function renderAlerts(items) {
+      const wrap = document.getElementById('alertsWrap');
+      wrap.innerHTML = '';
+      if (!items || !items.length) {
+        wrap.innerHTML = `<div class="text-muted">No alerts.</div>`;
+        return;
+      }
+      items.forEach(a => {
+        const color = a.type === 'warning' ? 'warning' : (a.type === 'success' ? 'success' : 'info');
+        const div = document.createElement('div');
+        div.className = `alert alert-${color}`;
+        div.innerHTML = `<strong>${a.title}</strong><br/><span class="small">${a.message || ''}</span>`;
+        wrap.appendChild(div);
+      });
+    }
+
+    function renderKeywords(items) {
+      const wrap = document.getElementById('keywordsWrap');
+      wrap.innerHTML = '';
+      if (!items || !items.length) {
+        wrap.innerHTML = `<div class="text-muted">No keywords.</div>`;
+        return;
+      }
+      const ul = document.createElement('div');
+      items.forEach(({ k, v }) => {
+        const b = document.createElement('span');
+        b.className = 'badge text-bg-light border me-2 mb-2';
+        b.innerText = `${k} (${v})`;
+        ul.appendChild(b);
+      });
+      wrap.appendChild(ul);
+    }
+
+    // -----------------------------------------------------------
+    // REVIEWS TABLE
+    // -----------------------------------------------------------
+    async function loadReviewsPage(pageDeltaOrNumber) {
+      if (!state.currentCompanyId) return;
+      if (typeof pageDeltaOrNumber === 'number') {
+        if (pageDeltaOrNumber >= 1 && pageDeltaOrNumber !== Infinity) {
+          // absolute page
+          state.reviewsPage = pageDeltaOrNumber;
+        }
+      }
+      const page = state.reviewsPage;
+      const limit = state.reviewsLimit;
+      const rating = document.getElementById('filterRating').value;
+      const q = document.getElementById('filterQuery').value;
+      const { start, end } = getDateFilters();
+
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+        order: 'desc',
+      });
+      if (rating) params.set('rating', rating);
+      if (q) params.set('q', q);
+      if (start) params.set('start', start);
+      if (end) params.set('end', end);
+
+      try {
+        const data = await apiFetch(`/api/reviews/list/${state.currentCompanyId}?${params.toString()}`);
+        renderReviewsTable(data.items || [], data.total || 0, data.page || 1, data.limit || limit);
+      } catch (err) {
+        toast('Reviews load failed: ' + err.message, 'error');
+      }
+    }
+
+    function renderReviewsTable(items, total, page, limit) {
+      const tbody = document.getElementById('reviewsTbody');
+      tbody.innerHTML = '';
+      if (!items.length) {
+        tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted">No reviews in this window.</td></tr>`;
+      } else {
+        items.forEach(r => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td><span class="badge ${badgeForRating(r.rating)}">${r.rating ?? '-'}</span></td>
+            <td>${escapeHtml(r.text || '')}</td>
+            <td>
+              <div>${escapeHtml(r.reviewer_name || '')}</div>
+              ${r.reviewer_avatar ? `<img src="${r.reviewer_avatar}" class="rounded mt-1" width="36" height="36" />` : ''}
+            </td>
+            <td>${formatDate(r.review_date)}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+      const totalPages = Math.max(1, Math.ceil(total / limit));
+      document.getElementById('pagingInfo').innerText = `Page ${page} of ${totalPages} • ${total} total`;
+      document.getElementById('tableMeta').innerText = `${total} items`;
+
+      document.getElementById('btnPrev').disabled = (page <= 1);
+      document.getElementById('btnNext').disabled = (page >= totalPages);
+      document.getElementById('btnPrev').onclick = () => {
+        if (state.reviewsPage > 1) {
+          state.reviewsPage--;
+          loadReviewsPage(state.reviewsPage);
+        }
+      };
+      document.getElementById('btnNext').onclick = () => {
+        state.reviewsPage++;
+        loadReviewsPage(state.reviewsPage);
       };
     }
-    function destroyCharts() {
-      [trendChart, sentimentChart, sourcesChart, heatmapChart].forEach(ch => ch && ch.destroy());
-    }
-    function redrawCharts() {
-      // Will be redrawn on next refresh call
-      refresh();
+
+    function badgeForRating(r) {
+      if (r >= 4) return 'text-bg-success';
+      if (r == 3) return 'text-bg-secondary';
+      if (r >= 1) return 'text-bg-danger';
+      return 'text-bg-light';
     }
 
-    // ========= DATA FETCH HELPERS =========
-    function params(obj) {
-      const u = new URLSearchParams();
-      Object.entries(obj).forEach(([k,v]) => (v !== undefined && v !== null && v !== '') && u.append(k, v));
-      return u.toString();
-    }
-    async function getJSON(url, query = {}) {
-      const full = `${url}?${params(query)}`;
-      const res = await fetch(full);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
-    }
-    async function postJSON(url, query = {}) {
-      const full = `${url}?${params(query)}`;
-      const res = await fetch(full, { method: 'POST' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
+    function formatDate(iso) {
+      if (!iso) return '—';
+      try { return dayjs(iso).format('YYYY-MM-DD HH:mm'); } catch { return iso; }
     }
 
-    // ========= LOAD COMPANIES =========
-    async function loadCompanies() {
-      companySelect.innerHTML = `<option value="">Loading companies…</option>`;
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+    }
+
+    // -----------------------------------------------------------
+    // ACTIONS: Sync / Import / Diagnostics
+    // -----------------------------------------------------------
+    async function syncReviews() {
+      if (!state.currentCompanyId) return toast('Select a company first', 'warning');
       try {
-        const list = await getJSON(API.companies);
-        const options = (list || []).map(c =>
-          `<option value="${c.id}">${c.name}${c.city ? ' — ' + c.city : ''}</option>`
-        ).join('');
-        companySelect.innerHTML = options || `<option value="">No companies</option>`;
-        if (companySelect.value) {
-          recenterToCompany(companySelect.value);
-        } else if (list && list[0]) {
-          companySelect.value = list[0].id;
-          recenterToCompany(list[0].id);
-        }
-      } catch (e) {
-        companySelect.innerHTML = `<option value="">Failed to load companies</option>`;
+        await apiFetch(`/api/reviews/sync/${state.currentCompanyId}`, { method: 'POST' });
+        toast('Sync started/completed (see server logs)', 'success');
+        await refreshDashboard();
+      } catch (err) {
+        toast('Sync failed: ' + err.message, 'error', 6000);
       }
     }
 
-    // ========= KPIs & CHARTS & INSIGHTS =========
-    async function refresh() {
-      const company_id = companySelect.value;
-      const start = startDate.value;
-      const end = endDate.value;
-      if (!company_id) return;
-
-      // Export / Sync URLs
-      exportBtn.href = `${API.export}?${params({ company_id, start, end })}`;
-
-      // KPIs
+    async function importReviews() {
+      if (!state.currentCompanyId) return toast('Select a company first', 'warning');
+      const pid = document.getElementById('importPlaceId').value.trim();
+      if (!pid) return toast('Enter Place ID to import sample reviews', 'warning');
       try {
-        const m = await getJSON(API.metrics, { company_id, start, end });
-        kpiTotal.textContent = m.total ?? 0;
-        kpiAvg.textContent = Number(m.avg_rating || 0).toFixed(2);
-        kpiRisk.textContent = m.risk_score ?? 0;
-        kpiLevel.textContent = m.risk_level || '—';
-      } catch (e) {
-        console.warn('Metrics failed', e);
-      }
-
-      // Trend
-      try {
-        const t = await getJSON(API.trend, { company_id, start, end });
-        const c = chartColors();
-        if (trendChart) trendChart.destroy();
-        const ctx = document.getElementById('trendChart').getContext('2d');
-        trendChart = new Chart(ctx, {
-          type: 'line',
-          data: {
-            labels: t.labels,
-            datasets: [{
-              label: 'Avg Rating',
-              data: t.data,
-              borderColor: c.primary,
-              backgroundColor: 'transparent',
-              tension: 0.35,
-              borderWidth: 3,
-              pointRadius: 0,
-            }]
-          },
-          options: {
-            responsive: true,
-            plugins: { legend: { display: false } },
-            scales: {
-              y: { beginAtZero: true, max: 5, grid: { color: c.grid }, ticks: { color: c.text }},
-              x: { grid: { display: false }, ticks: { color: c.text }},
-            },
-          }
-        });
-      } catch (e) { console.warn('Trend failed', e); }
-
-      // Sentiment
-      try {
-        const s = await getJSON(API.sentiment, { company_id, start, end });
-        const c = chartColors();
-        if (sentimentChart) sentimentChart.destroy();
-        const ctx = document.getElementById('sentimentChart').getContext('2d');
-        sentimentChart = new Chart(ctx, {
-          type: 'doughnut',
-          data: {
-            labels: ['Positive', 'Neutral', 'Negative'],
-            datasets: [{
-              data: [s.pos || 0, s.neu || 0, s.neg || 0],
-              backgroundColor: [c.success, c.warn, c.danger],
-              borderColor: 'transparent',
-            }]
-          },
-          options: {
-            plugins: { legend: { position: 'bottom', labels: { color: chartColors().text } } }
-          }
-        });
-      } catch (e) { console.warn('Sentiment failed', e); }
-
-      // Sources
-      try {
-        const src = await getJSON(API.sources, { company_id, start, end });
-        const c = chartColors();
-        if (sourcesChart) sourcesChart.destroy();
-        const ctx = document.getElementById('sourcesChart').getContext('2d');
-        sourcesChart = new Chart(ctx, {
-          type: 'doughnut',
-          data: {
-            labels: src.labels || [],
-            datasets: [{
-              data: src.data || [],
-              backgroundColor: [c.primary, c.primary2, c.accent, c.warn, c.success, c.danger],
-              borderColor: 'transparent',
-            }]
-          },
-          options: { plugins: { legend: { position: 'bottom', labels: { color: chartColors().text }}} }
-        });
-      } catch (e) { console.warn('Sources failed', e); }
-
-      // Heatmap (hour)
-      try {
-        const h = await getJSON(API.heatmap, { company_id, start, end });
-        const c = chartColors();
-        if (heatmapChart) heatmapChart.destroy();
-        const ctx = document.getElementById('heatmapChart').getContext('2d');
-        heatmapChart = new Chart(ctx, {
-          type: 'bar',
-          data: {
-            labels: h.labels,
-            datasets: [{
-              label: 'Reviews',
-              data: h.data,
-              backgroundColor: c.primary2,
-              borderRadius: 6,
-            }]
-          },
-          options: {
-            plugins: { legend: { display: false } },
-            scales: {
-              y: { beginAtZero: true, grid: { color: c.grid }, ticks: { color: c.text }},
-              x: { grid: { display: false }, ticks: { color: c.text }},
-            },
-          }
-        });
-      } catch (e) { console.warn('Heatmap failed', e); }
-
-      // Keywords
-      try {
-        keywordsWrap.innerHTML = '';
-        const kw = await getJSON(API.keywords, { company_id, start, end, top_n: 20 });
-        (kw.labels || []).forEach((label, idx) => {
-          const count = (kw.data || [])[idx] ?? 0;
-          const el = document.createElement('div');
-          el.className = 'chip';
-          el.innerHTML = `<span>#${label}</span> <span class="count">${count}</span>`;
-          keywordsWrap.appendChild(el);
-        });
-      } catch (e) { console.warn('Keywords failed', e); }
-
-      // Alerts
-      try {
-        alertsWrap.innerHTML = '';
-        const al = await getJSON(API.alerts, { company_id, start, end, window_days: 14 });
-        (al.alerts || []).forEach(a => {
-          const div = document.createElement('div');
-          div.className = `alert ${a.type || 'info'}`;
-          div.innerHTML = `
-            <div><strong>${a.title}</strong><div style="color:var(--muted); font-size:.9rem;">${a.message}</div></div>
-            <div style="text-align:right; color:var(--muted); font-size:.85rem;">
-              ${a.recent_avg !== undefined ? `Recent: ${a.recent_avg} ⭐<br/>` : ''}
-              ${a.previous_avg !== undefined ? `Prev: ${a.previous_avg} ⭐` : ''}
-            </div>`;
-          alertsWrap.appendChild(div);
-        });
-        if (!al.alerts || !al.alerts.length) {
-          alertsWrap.innerHTML = `<div class="alert info"><div>No alerts in this period.</div></div>`;
-        }
-      } catch (e) { console.warn('Alerts failed', e); }
-
-      // Table
-      await loadTable(company_id, start, end);
-
-      // Map recenter
-      recenterToCompany(company_id);
-    }
-
-    // ========= REVIEWS TABLE (server-side) =========
-    let tableInstance = null;
-    async function loadTable(company_id, start, end) {
-      // Pull first page (we'll re-render the entire table for simplicity)
-      try {
-        const page = 1, limit = 50, sort = 'review_date', order = 'desc';
-        const data = await getJSON(API.reviews, { company_id, page, limit, sort, order, start, end });
-        const tbody = document.querySelector('#reviewsTable tbody');
-        tbody.innerHTML = (data.data || []).map(r => `
-          <tr>
-            <td>${r.review_date ? new Date(r.review_date).toLocaleString() : ''}</td>
-            <td>${r.rating ?? ''}</td>
-            <td>${r.title ?? ''}</td>
-            <td>${(r.text ?? '').slice(0, 160)}${(r.text && r.text.length > 160) ? '…' : ''}</td>
-            <td>${r.author ?? r.reviewer_name ?? ''}</td>
-            <td>${r.source ?? ''}</td>
-          </tr>
-        `).join('');
-
-        // (Re)init simple-datatables
-        if (tableInstance) {
-          tableInstance.destroy();
-          tableInstance = null;
-        }
-        const el = document.getElementById('reviewsTable');
-        tableInstance = new simpleDatatables.DataTable(el, {
-          searchable: true,
-          fixedHeight: true,
-          perPage: 10,
-        });
-      } catch (e) {
-        console.warn('Table load failed', e);
+        const params = new URLSearchParams({ place_id: pid, max_reviews: '5' });
+        await apiFetch(`/api/reviews/google/import/${state.currentCompanyId}?${params.toString()}`, { method: 'POST' });
+        toast('Imported up to 5 Google reviews', 'success');
+        await refreshDashboard();
+      } catch (err) {
+        toast('Import failed: ' + err.message, 'error', 6000);
       }
     }
 
-    // ========= SYNC =========
-    syncBtn.addEventListener('click', async () => {
-      const company_id = companySelect.value;
-      if (!company_id) return;
+    async function openDiagnostics() {
+      const pre = document.getElementById('diagPre');
+      pre.textContent = 'Loading…';
       try {
-        syncBtn.disabled = true;
-        syncBtn.textContent = 'Syncing…';
-        const resp = await postJSON(API.sync, { company_id });
-        alert(resp.message || 'Sync started');
-      } catch (e) {
-        alert('Sync failed');
-      } finally {
-        syncBtn.disabled = false; syncBtn.textContent = '🔄 Sync';
+        const diag = await apiFetch('/api/reviews/diagnostics');
+        pre.textContent = JSON.stringify(diag, null, 2);
+      } catch (err) {
+        pre.textContent = 'Diagnostics failed: ' + err.message;
       }
-    });
+      const modal = new bootstrap.Modal(document.getElementById('diagModal'));
+      modal.show();
+    }
 
-    // ========= LISTENERS =========
-    refreshBtn.addEventListener('click', refresh);
-    companySelect.addEventListener('change', refresh);
-    startDate.addEventListener('change', refresh);
-    endDate.addEventListener('change', refresh);
+    // -----------------------------------------------------------
+    // INIT
+    // -----------------------------------------------------------
+    function defaultDateRange() {
+      // Default last 90 days
+      const end = dayjs().format('YYYY-MM-DD');
+      const start = dayjs().subtract(90, 'day').format('YYYY-MM-DD');
+      document.getElementById('filterStart').value = start;
+      document.getElementById('filterEnd').value = end;
+    }
 
-    // ========= BOOT =========
-    (async function boot() {
-      await loadCompanies();
-      await new Promise(r => setTimeout(r, 150)); // slight delay to ensure map script is ready
-      refresh();
-    })();
+    function bindEvents() {
+      document.getElementById('btnPlaceSearch').addEventListener('click', searchPlaces);
+      document.getElementById('btnAddPlaceId').addEventListener('click', () => addCompanyByPlaceId(document.getElementById('placeIdInput').value.trim()));
+      document.getElementById('btnApplyFilters').addEventListener('click', refreshDashboard);
+      document.getElementById('btnSync').addEventListener('click', syncReviews);
+      document.getElementById('btnImport').addEventListener('click', importReviews);
+      document.getElementById('btnDiagnostics').addEventListener('click', openDiagnostics);
+      document.getElementById('apiTokenInput').addEventListener('change', (e) => { state.token = e.target.value.trim(); });
+    }
+
+    async function bootstrapApp() {
+      defaultDateRange();
+      bindEvents();
+      try {
+        await loadCompanies();
+      } catch (err) {
+        toast('Failed to load companies: ' + err.message, 'error', 6000);
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', bootstrapApp);
   </script>
 </body>
 </html>
