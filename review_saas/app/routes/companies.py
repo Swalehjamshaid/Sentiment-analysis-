@@ -1,15 +1,14 @@
 # FILE: app/routes/companies.py
-from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
+from sqlalchemy.orm import Session, defer
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 import requests
-import logging
 import os
+import logging
 from ..db import get_db
 from ..models import Company
-from ..schemas import CompanyCreate, CompanyResponse  # assuming you have these in schemas.py
+from ..schemas import CompanyCreate, CompanyResponse
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
@@ -32,7 +31,7 @@ _G_TIMEOUT = (5, 10)  # connect / read timeout in seconds
 def _extract_city_from_components(components: List[Dict[str, Any]]) -> Optional[str]:
     """
     Returns best-effort city from Google address components.
-    Prefers 'locality' → 'postal_town' → 'administrative_area_level_2'
+    Prefers 'locality'; falls back to 'postal_town' or admin level 2.
     """
     for comp in components or []:
         types = comp.get("types", [])
@@ -67,28 +66,34 @@ def _google_place_details(place_id: str, language: Optional[str] = None) -> Dict
         resp = requests.get(url, params=params, timeout=_G_TIMEOUT)
         resp.raise_for_status()
         payload = resp.json()
-        if payload.get("status") not in ("OK", "ZERO_RESULTS"):
-            raise ValueError(f"Google status: {payload.get('status')}")
+        status = payload.get("status")
+        if status not in ("OK", "ZERO_RESULTS"):
+            raise HTTPException(502, f"Google Places status: {status}")
         return payload.get("result", {}) or {}
-    except Exception as e:
-        logger.warning(f"Google Place Details failed for {place_id}: {e}")
+    except requests.RequestException as e:
+        logger.warning(f"Places Details failed for {place_id}: {e}")
         raise HTTPException(502, f"Google Places error: {str(e)}")
 
 
 # ─────────────────────────────────────────────────────────────
-# 1. GET /api/companies - List with search, pagination, sort, filter
+# 1. GET /api/companies - List companies (paginated, searchable)
 # ─────────────────────────────────────────────────────────────
 @router.get("/", response_model=List[CompanyResponse])
 def get_companies(
-    search: Optional[str] = Query(None, description="Search in name/city/address"),
-    page: int = Query(1, ge=1),
-    limit: int = Query(30, ge=5, le=200),
+    search: Optional[str] = Query(None, min_length=1, description="Search name, city or address"),
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    limit: int = Query(30, ge=5, le=200, description="Items per page"),
     status: Optional[str] = Query("active", description="Filter by status"),
-    sort: str = Query("name", regex="^(name|city|created_at)$"),
-    order: str = Query("asc", regex="^(asc|desc)$"),
+    sort: str = Query("name", regex=r"^(name|city|created_at)$", description="Sort field"),
+    order: str = Query("asc", regex=r"^(asc|desc)$", description="Sort direction"),
     db: Session = Depends(get_db),
 ):
     query = db.query(Company)
+
+    # Optional: defer columns that may not exist yet in DB
+    for col in ["lat", "lng", "email", "phone", "address", "description"]:
+        if hasattr(Company, col):
+            query = query.options(defer(getattr(Company, col)))
 
     if status:
         query = query.filter(Company.status == status)
@@ -136,7 +141,6 @@ def create_company(
         if db.query(Company).filter(Company.place_id == payload.place_id).first():
             raise HTTPException(409, "Place ID already registered")
 
-    # Secondary check (name + city)
     if payload.name and payload.city:
         dup = db.query(Company).filter(
             Company.name.ilike(payload.name),
@@ -145,18 +149,16 @@ def create_company(
         if dup:
             raise HTTPException(409, "Company with same name & city already exists")
 
-    # Start with payload values
+    # Start with input values
     name = payload.name
     city = payload.city
     address = payload.address
     phone = payload.phone
-    website = payload.website
+    website = getattr(payload, "website", None)
     lat = payload.lat
     lng = payload.lng
-    email = payload.email
-    description = payload.description
 
-    # Enrich from Google if place_id provided
+    # Enrich from Google
     if payload.place_id and GOOGLE_PLACES_API_KEY:
         result = _google_place_details(payload.place_id, language=language)
         name = result.get("name", name)
@@ -174,11 +176,11 @@ def create_company(
         city=city,
         lat=lat,
         lng=lng,
-        email=email,
+        email=payload.email,
         phone=phone,
         address=address,
         website=website,
-        description=description,
+        description=payload.description,
         status="active",
         created_at=datetime.now(timezone.utc),
     )
@@ -191,20 +193,20 @@ def create_company(
 
 
 # ─────────────────────────────────────────────────────────────
-# 3. GET /api/companies/autocomplete - Google Places Autocomplete
+# 3. GET /api/companies/autocomplete - Google Places autocomplete
 # ─────────────────────────────────────────────────────────────
 @router.get("/autocomplete", response_model=List[Dict[str, str]])
-def autocomplete(
-    q: str = Query(..., min_length=2),
-    lat: Optional[float] = Query(None),
-    lng: Optional[float] = Query(None),
-    radius: Optional[int] = Query(50000, ge=1000, le=100000),
-    language: Optional[str] = Query(None),
+def autocomplete_company(
+    q: str = Query(..., min_length=2, description="Search term"),
+    lat: Optional[float] = Query(None, description="Latitude for location bias"),
+    lng: Optional[float] = Query(None, description="Longitude for location bias"),
+    radius: Optional[int] = Query(50000, ge=1000, le=100000, description="Radius in meters"),
+    language: Optional[str] = Query(None, description="Language code"),
 ):
     if not GOOGLE_PLACES_API_KEY:
         raise HTTPException(503, "Google Places API not configured")
 
-    params = {
+    params: Dict[str, Any] = {
         "input": q,
         "types": "establishment",
         "key": GOOGLE_PLACES_API_KEY,
@@ -224,7 +226,7 @@ def autocomplete(
         resp.raise_for_status()
         data = resp.json()
         if data.get("status") != "OK":
-            raise ValueError(data.get("status"))
+            raise ValueError(f"Google status: {data.get('status')}")
         return [
             {"description": p.get("description"), "place_id": p.get("place_id")}
             for p in data.get("predictions", [])
@@ -235,15 +237,14 @@ def autocomplete(
 
 
 # ─────────────────────────────────────────────────────────────
-# 4. GET /api/companies/details/{place_id} - Preview place before create
+# 4. GET /api/companies/details/{place_id} - Get full place details
 # ─────────────────────────────────────────────────────────────
 @router.get("/details/{place_id}", response_model=Dict[str, Any])
-def get_place_details(
+def google_details(
     place_id: str,
-    language: Optional[str] = Query(None),
+    language: Optional[str] = Query(None, description="Google response language"),
 ):
     result = _google_place_details(place_id, language=language)
-
     loc = (result.get("geometry") or {}).get("location") or {}
 
     return {
@@ -255,6 +256,6 @@ def get_place_details(
         "lat": loc.get("lat"),
         "lng": loc.get("lng"),
         "rating": result.get("rating"),
-        "total_ratings": result.get("user_ratings_total"),
+        "user_ratings_total": result.get("user_ratings_total"),
         "url": result.get("url"),
     }
