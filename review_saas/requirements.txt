@@ -59,9 +59,11 @@ openpyxl==3.1.5
 apscheduler==3.10.4
 
 # ────────────────────────────────────────────────────────────────
-# Language Detection
+# Language Detection & Sentiment Analysis (Updated)
 # ────────────────────────────────────────────────────────────────
 langdetect==1.0.9
+textblob==0.18.0.post0
+vaderSentiment==3.3.2
 
 # ────────────────────────────────────────────────────────────────
 # Google Maps / Places API Integration
