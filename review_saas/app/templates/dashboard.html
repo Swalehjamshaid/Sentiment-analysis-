@@ -12,6 +12,11 @@
   <!-- Chart.js (v4) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha256-bvZxkq8J8Z9KcXInwq0tBstq8f7L9sR7S7Z2O0K0q3w=" crossorigin="anonymous"></script>
 
+  <!-- Flatpickr (world-class date picker) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/en.js"></script>
+
   <style>
     :root{
       --bg:#0f172a;           /* slate-900 */
@@ -27,36 +32,48 @@
       --card:#0b1220;
       --chip:#1f2937;         /* gray-800 */
       --border:#1f2937;
-      --shadow: 0 6px 20px rgba(0,0,0,.25);
+      --shadow: 0 8px 24px rgba(0,0,0,.30);
+      --shadow-soft: 0 6px 20px rgba(0,0,0,.20);
+      --radius: 12px;
     }
     html,body{
       margin:0; padding:0; background:var(--bg); color:var(--text);
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji";
     }
-    .container{ max-width:1250px; margin:0 auto; padding:24px 16px; }
+    .container{ max-width:1280px; margin:0 auto; padding:24px 16px; }
+
     header{
       display:flex; gap:16px; align-items:center; justify-content:space-between; margin-bottom:18px;
     }
-    header .title{
-      display:flex; align-items:center; gap:12px;
-    }
+    header .title{ display:flex; align-items:center; gap:12px; }
     header h1{ font-size:22px; margin:0; letter-spacing:.3px; }
+
     .toolbar{
+      position:sticky; top:0; z-index:50;
       display:flex; flex-wrap:wrap; gap:10px; align-items:center;
-      background:var(--panel); padding:12px; border-radius:10px; border:1px solid var(--border);
+      background:linear-gradient(180deg, #111827 0%, #0f172a 100%);
+      padding:12px; border-radius:var(--radius); border:1px solid var(--border);
+      box-shadow: var(--shadow-soft);
     }
     .toolbar .group{ display:flex; gap:8px; align-items:center; }
-    select, input[type="date"]{
+    select, input[type="text"].date-input, .fp-input, .range-btn{
       background:var(--card); color:var(--text); border:1px solid var(--border);
-      padding:8px 10px; border-radius:8px; outline:none;
+      padding:9px 11px; border-radius:10px; outline:none; min-height:38px;
     }
+    .range-btn{
+      background:transparent; border:1px dashed var(--border); color:var(--muted);
+      transition: all .2s ease;
+    }
+    .range-btn:hover{ border-color:#334155; color:#cbd5e1; }
+
     button, .btn{
-      background:var(--brand); color:white; border:none; border-radius:8px;
-      padding:9px 12px; cursor:pointer; box-shadow:var(--shadow);
+      background:var(--brand); color:white; border:none; border-radius:10px;
+      padding:10px 12px; cursor:pointer; box-shadow:var(--shadow); transition: transform .05s ease;
     }
     button.secondary{ background:var(--chip); color:var(--text); }
     button.warn{ background:var(--warn); color:black; }
     button:disabled{ opacity:.6; cursor:not-allowed; }
+    button:active{ transform: translateY(1px); }
 
     .grid{ display:grid; gap:14px; }
     .grid.cols-4{ grid-template-columns: repeat(4, 1fr); }
@@ -66,19 +83,17 @@
     @media (max-width:700px){ .grid.cols-3, .grid.cols-2{ grid-template-columns: 1fr; } .grid.cols-4{ grid-template-columns: 1fr; } }
 
     .card{
-      background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px; box-shadow:var(--shadow);
+      background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:14px; box-shadow:var(--shadow-soft);
     }
     .kpi{
-      background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px;
+      background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:14px;
       display:flex; justify-content:space-between; align-items:flex-end; min-height:90px;
     }
     .kpi h3{ font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin:0 0 6px; }
     .kpi .value{ font-size:26px; font-weight:700; }
     .kpi .sub{ font-size:12px; color:var(--muted); }
 
-    .legend{
-      display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;
-    }
+    .legend{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; }
     .chip{
       background:var(--chip); color:var(--text); border:1px solid var(--border);
       border-radius:999px; padding:6px 10px; font-size:12px;
@@ -106,6 +121,29 @@
     .pager{ display:flex; gap:8px; align-items:center; }
     .error{ color:#fecaca; }
     .loading{ color:#93c5fd; }
+
+    /* ---------- Add Company Modal ---------- */
+    .modal-backdrop{
+      position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; z-index:100;
+    }
+    .modal{
+      width:min(720px, 95vw); background:var(--panel); border:1px solid var(--border);
+      border-radius:14px; box-shadow:var(--shadow); padding:16px;
+    }
+    .modal header{ margin-bottom:8px; }
+    .modal h3{ margin:0; }
+    .modal .row{ display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+    .modal input, .modal textarea{
+      background:var(--card); color:var(--text); border:1px solid var(--border); padding:9px 11px; border-radius:10px; outline:none; flex:1;
+    }
+    .modal .list{
+      max-height:220px; overflow:auto; border:1px solid var(--border); border-radius:10px; padding:6px; background:var(--bg-soft);
+    }
+    .modal .list-item{
+      padding:8px 10px; border-radius:8px; cursor:pointer; border:1px solid transparent;
+    }
+    .modal .list-item:hover{ background:rgba(255,255,255,.04); border-color:#334155; }
+    .modal footer{ display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
   </style>
 </head>
 <body>
@@ -128,13 +166,21 @@
         <select id="companySelect" aria-label="Company selector">
           <option value="">Select company…</option>
         </select>
+        <button id="addCompanyBtn" class="secondary" title="Add a new company via Google">+ Add Company</button>
       </div>
-      <div class="group">
+
+      <div class="group" style="gap:6px;">
         <label for="startDate" class="muted">Start</label>
-        <input id="startDate" type="date" />
+        <input id="startDate" class="date-input" type="text" placeholder="DD/MM/YYYY" />
         <label for="endDate" class="muted">End</label>
-        <input id="endDate" type="date" />
+        <input id="endDate" class="date-input" type="text" placeholder="DD/MM/YYYY" />
+        <button class="range-btn" data-range="today">Today</button>
+        <button class="range-btn" data-range="7">Last 7d</button>
+        <button class="range-btn" data-range="30">Last 30d</button>
+        <button class="range-btn" data-range="90">Last 90d</button>
+        <button class="range-btn" data-range="month">This Month</button>
       </div>
+
       <div class="group">
         <button id="refreshBtn">Refresh</button>
         <button id="syncBtn" class="secondary" title="Trigger a background sync of latest reviews">Sync Reviews</button>
@@ -241,7 +287,7 @@
               <th style="width:120px;">Date</th>
               <th style="width:80px;">Rating</th>
               <th>Text</th>
-              <th style="width:220px;">Meta</th>
+              <th style="width:240px;">Meta</th>
             </tr>
           </thead>
           <tbody id="reviewsBody">
@@ -263,6 +309,58 @@
     <footer class="muted" style="margin:20px 2px 6px;">© <span id="yearNow"></span> Customer Insights</footer>
   </div>
 
+  <!-- Add Company Modal -->
+  <div id="addCompanyModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="addCompanyTitle">
+    <div class="modal">
+      <header style="display:flex; align-items:center; justify-content:space-between;">
+        <h3 id="addCompanyTitle">Add Company via Google</h3>
+        <button id="closeAddCompany" class="secondary">Close</button>
+      </header>
+
+      <div class="row">
+        <input id="companySearch" type="text" placeholder="Search business name or address…" autocomplete="off">
+        <button id="companySearchBtn" class="secondary">Search</button>
+      </div>
+
+      <div id="suggestions" class="list" style="margin-top:8px; display:none;"></div>
+
+      <div id="placePreview" class="card" style="margin-top:10px; display:none;">
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+          <div style="flex:1 1 280px;">
+            <div class="muted">Name</div>
+            <div id="pvName" style="font-weight:600;">—</div>
+          </div>
+          <div style="flex:1 1 200px;">
+            <div class="muted">City</div>
+            <div id="pvCity">—</div>
+          </div>
+          <div style="flex:1 1 260px;">
+            <div class="muted">Address</div>
+            <div id="pvAddress">—</div>
+          </div>
+        </div>
+        <div class="row">
+          <div style="flex:1 1 200px;">
+            <div class="muted">Phone</div>
+            <div id="pvPhone">—</div>
+          </div>
+          <div style="flex:1 1 260px;">
+            <div class="muted">Website</div>
+            <div id="pvWebsite">—</div>
+          </div>
+          <div style="flex:1 1 200px;">
+            <div class="muted">Coordinates</div>
+            <div id="pvCoords">—</div>
+          </div>
+        </div>
+      </div>
+
+      <footer>
+        <button id="createCompanyBtn" disabled>Create & Select</button>
+      </footer>
+    </div>
+  </div>
+
   <script>
     // --------------- Utilities ---------------
     const $ = (sel, root=document) => root.querySelector(sel);
@@ -274,12 +372,23 @@
       statusLine.className = "group " + (kind === "error" ? "error" : kind === "loading" ? "loading" : "muted");
     }
 
-    function formatDateISO(d){
-      if(!d) return "";
-      const dt = (d instanceof Date) ? d : new Date(d);
-      const m = String(dt.getMonth()+1).padStart(2,"0");
-      const day = String(dt.getDate()).padStart(2,"0");
-      return `${dt.getFullYear()}-${m}-${day}`;
+    function formatISOFromDMY(dmy){
+      // Accept "DD/MM/YYYY" or "YYYY-MM-DD" or Date; return "YYYY-MM-DD"
+      if(!dmy) return "";
+      if(dmy instanceof Date) return dmy.toISOString().slice(0,10);
+      const s = String(dmy).trim();
+      // ISO already?
+      if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+      // D/M/Y or DD/MM/YYYY
+      const m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
+      if(m){
+        const dd = m[1].padStart(2,"0"), mm = m[2].padStart(2,"0"), yyyy = m[3];
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      // fallback Date parse
+      const dt = new Date(s);
+      if(!isNaN(dt)) return dt.toISOString().slice(0,10);
+      return "";
     }
 
     function qs(params){
@@ -314,25 +423,58 @@
         sort: "review_date",
         order: "desc",
       },
-      charts: {
-        trend: null,
-        sentiment: null,
-        sources: null,
-        heatmap: null,
-        keywords: null,
-        revenue: null,
-      }
+      charts: { trend: null, sentiment: null, sources: null, heatmap: null, keywords: null, revenue: null },
+      addCompany: { selected: null }
     };
+
+    // --------------- Dates (Flatpickr) ---------------
+    let fpStart, fpEnd;
+    function initDates(){
+      const now = new Date();
+      const startDefault = new Date(now.getTime() - 29*86400000);
+
+      fpStart = flatpickr("#startDate", {
+        dateFormat: "d/m/Y",
+        defaultDate: startDefault,
+        allowInput: true,
+        altInput: false,
+      });
+      fpEnd = flatpickr("#endDate", {
+        dateFormat: "d/m/Y",
+        defaultDate: now,
+        allowInput: true,
+        altInput: false,
+      });
+
+      // Quick ranges
+      $$(".range-btn").forEach(btn=>{
+        btn.addEventListener("click", ()=>{
+          const t = btn.dataset.range;
+          const today = new Date();
+          let s = new Date(today);
+          if(t === "today"){ s = today; }
+          else if(t === "7"){ s = new Date(today.getTime() - 6*86400000); }
+          else if(t === "30"){ s = new Date(today.getTime() - 29*86400000); }
+          else if(t === "90"){ s = new Date(today.getTime() - 89*86400000); }
+          else if(t === "month"){
+            s = new Date(today.getFullYear(), today.getMonth(), 1);
+          }
+          fpStart.setDate(s, true);
+          fpEnd.setDate(today, true);
+        });
+      });
+    }
+
+    function getDateRangeISO(){
+      const s = formatISOFromDMY($("#startDate").value);
+      const e = formatISOFromDMY($("#endDate").value);
+      return { start: s, end: e };
+    }
 
     // --------------- Bootstrap ---------------
     (function init(){
-      // Default date window: last 30 days
-      const now = new Date();
-      const startDefault = new Date(now.getTime() - 29*86400000);
-      $("#startDate").value = formatDateISO(startDefault);
-      $("#endDate").value = formatDateISO(now);
+      initDates();
       $("#yearNow").textContent = new Date().getFullYear();
-
       bindEvents();
       populateCompanies();
     })();
@@ -342,8 +484,6 @@
       $("#companySelect").addEventListener("change", () => {
         state.companyId = $("#companySelect").value;
       });
-      $("#startDate").addEventListener("change", ()=>{});
-      $("#endDate").addEventListener("change", ()=>{});
 
       $("#reviewSearch").addEventListener("keyup", debounce(()=>{
         state.reviews.page = 1;
@@ -364,6 +504,13 @@
       });
 
       $("#syncBtn").addEventListener("click", doSync);
+
+      // Add Company Modal
+      $("#addCompanyBtn").addEventListener("click", openAddCompany);
+      $("#closeAddCompany").addEventListener("click", closeAddCompany);
+      $("#companySearchBtn").addEventListener("click", doPlacesSearch);
+      $("#companySearch").addEventListener("keyup", debounce(doPlacesSearch, 450));
+      $("#createCompanyBtn").addEventListener("click", createCompany);
     }
 
     function debounce(fn, ms){
@@ -374,6 +521,7 @@
     async function populateCompanies(){
       try{
         setStatus("Loading companies…", "loading");
+        // Use dashboard API to list active companies (from your /api/companies in dashboard router)
         const rows = await getJSON(`/api/companies`);
         const sel = $("#companySelect");
         sel.innerHTML = `<option value="">Select company…</option>`;
@@ -400,8 +548,13 @@
         setStatus("Please select a company.", "error");
         return;
       }
-      state.start = $("#startDate").value || "";
-      state.end = $("#endDate").value || "";
+      const range = getDateRangeISO();
+      state.start = range.start; state.end = range.end;
+
+      if(!state.start || !state.end){
+        setStatus("Please pick a valid date range (DD/MM/YYYY).", "error");
+        return;
+      }
 
       // Update export link
       const expQS = qs({ company_id: state.companyId, start: state.start, end: state.end });
@@ -450,7 +603,7 @@
         state.reviews.page = 1;
         loadReviews();
 
-        // Version (from ai_insights payload when routed via /dashboard payload; here leave static)
+        // Version
         $("#payloadVersion").textContent = "3.3";
         $("#kpiLastUpdated").textContent = new Date().toLocaleString();
 
@@ -581,7 +734,7 @@
         return;
       }
       for(const r of rows){
-        // Model has reviewer_name & reviewer_avatar; API may return author (None) — show gracefully.
+        // Model has reviewer_name & reviewer_avatar; keep graceful fallback for older payloads.
         const name = r.reviewer_name || r.author || "—";
         const avatar = r.reviewer_avatar || "";
         const date = r.review_date ? new Date(r.review_date).toLocaleString() : "—";
@@ -608,7 +761,7 @@
     }
 
     function escapeHtml(s){
-      return String(s || "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      return String(s || "").replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
 
     // --------------- Sync & Export ---------------
@@ -618,11 +771,100 @@
         setStatus("Syncing reviews…", "loading");
         const res = await getJSON(`/api/reviews/sync?${qs({company_id: state.companyId})}`, { method: "POST" });
         setStatus(res?.message || "Sync started.");
-        // Optionally refresh after a delay
         setTimeout(()=> refreshAll(), 1200);
       }catch(err){
         console.error(err);
         setStatus("Failed to start sync", "error");
+      }
+    }
+
+    // --------------- Add Company (via backend Google integration) ---------------
+    function openAddCompany(){
+      $("#addCompanyModal").style.display = "flex";
+      $("#companySearch").focus();
+      $("#suggestions").innerHTML = ""; $("#suggestions").style.display = "none";
+      $("#placePreview").style.display = "none";
+      $("#createCompanyBtn").disabled = true;
+      state.addCompany.selected = null;
+    }
+    function closeAddCompany(){ $("#addCompanyModal").style.display = "none"; }
+
+    async function doPlacesSearch(){
+      const q = $("#companySearch").value.trim();
+      if(q.length < 2){ $("#suggestions").style.display = "none"; return; }
+      try{
+        const rows = await getJSON(`/api/companies/autocomplete?${qs({q})}`);
+        const box = $("#suggestions");
+        box.innerHTML = "";
+        for(const r of rows){
+          const div = document.createElement("div");
+          div.className = "list-item";
+          div.textContent = r.description || r.place_id;
+          div.addEventListener("click", ()=> selectPlace(r.place_id));
+          box.appendChild(div);
+        }
+        box.style.display = rows.length ? "block" : "none";
+      }catch(e){
+        console.error(e);
+      }
+    }
+
+    async function selectPlace(place_id){
+      try{
+        const d = await getJSON(`/api/companies/details/${encodeURIComponent(place_id)}`);
+        state.addCompany.selected = { place_id, details: d };
+        $("#suggestions").style.display = "none";
+        $("#placePreview").style.display = "block";
+        $("#pvName").textContent = d.name || "—";
+        $("#pvCity").textContent = d.city || "—";
+        $("#pvAddress").textContent = d.address || "—";
+        $("#pvPhone").textContent = d.phone || "—";
+        $("#pvWebsite").textContent = d.website || "—";
+        $("#pvCoords").textContent = (d.lat != null && d.lng != null) ? `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}` : "—";
+        $("#createCompanyBtn").disabled = false;
+      }catch(e){
+        console.error(e);
+        setStatus("Failed to load place details", "error");
+      }
+    }
+
+    async function createCompany(){
+      const sel = state.addCompany.selected;
+      if(!sel || !sel.place_id) return;
+      try{
+        setStatus("Creating company…", "loading");
+        const payload = {
+          place_id: sel.place_id,
+          // Server will enrich the rest. We still pass fallback fields for your DB schema:
+          name: sel.details?.name || null,
+          city: sel.details?.city || null,
+          address: sel.details?.address || null,
+          phone: sel.details?.phone || null,
+          lat: sel.details?.lat ?? null,
+          lng: sel.details?.lng ?? null,
+          email: null, description: null, // optional in your schema
+        };
+        const res = await getJSON(`/api/companies`, {
+          method: "POST",
+          headers: { "Content-Type":"application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        // Add to dropdown and select
+        const selEl = $("#companySelect");
+        const opt = document.createElement("option");
+        opt.value = res.id;
+        opt.textContent = res.name + (res.city ? ` — ${res.city}` : "");
+        selEl.appendChild(opt);
+        selEl.value = res.id;
+        state.companyId = res.id;
+
+        closeAddCompany();
+        setStatus("Company added");
+        refreshAll();
+      }catch(e){
+        console.error(e);
+        setStatus("Failed to create company (might already exist).", "error");
       }
     }
   </script>
