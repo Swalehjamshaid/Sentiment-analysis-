@@ -1,850 +1,529 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Reviews Intelligence Dashboard</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+# FILE: app/routes/dashboard.py
+"""
+Dashboard API Endpoints (for dashboard.html)
 
-  <!-- ===== Styles: Glassmorphism + Responsive Layout ===== -->
-  <style>
-    :root{
-      --bg: #0f1221;
-      --card: rgba(255,255,255,0.08);
-      --card-hover: rgba(255,255,255,0.12);
-      --border: rgba(255,255,255,0.2);
-      --text: #e8ecf1;
-      --muted: #9aa6b2;
-      --primary: #6dd5ed;
-      --accent: #b892ff;
-      --success: #2bd39b;
-      --warning: #ffc658;
-      --error: #ff7b7b;
-      --glass-blur: 10px;
-      --shadow: 0 10px 30px rgba(0,0,0,0.35);
-    }
-    *{ box-sizing: border-box; }
-    html, body{ margin:0; padding:0; background:linear-gradient(135deg,#0b0e1a,#121634 60%,#1c103a); color:var(--text); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;}
-    a{ color:inherit; text-decoration:none; }
-    button{ cursor:pointer; }
+This router centralizes endpoints needed by the world-class dashboard:
+- Sidebar companies list (+ add/delete)
+- Date defaults and parsing helpers
+- Unified dashboard payload (metrics, trend, sentiments, AI insights, etc.)
+- Paginated reviews table + export CSV
+- Google Places helpers to add a company by name only
 
-    /* Top Navbar */
-    .navbar{
-      position: sticky; top:0; z-index: 9;
-      display:flex; align-items:center; justify-content:space-between;
-      padding:12px 16px; border-bottom:1px solid var(--border);
-      background: linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0.15));
-      backdrop-filter: blur(var(--glass-blur));
-    }
-    .brand{ display:flex; align-items:center; gap:10px; }
-    .brand .logo{
-      width:34px; height:34px; border-radius:10px; background:
-        linear-gradient(135deg,var(--primary), var(--accent)); box-shadow: var(--shadow);
-    }
-    .brand h1{ font-size:16px; font-weight:600; letter-spacing: .4px; }
-    .nav-actions{ display:flex; gap:8px; align-items:center; }
+Integration:
+- Uses app/services/analysis.py for analytics payloads
+- Plays nicely with existing routes:
+  * /api/reviews/... (summary, list, google details/import, diagnostics)
+  * /api/companies/... (list/create/autocomplete/sync/list)
 
-    .btn{
-      padding:10px 14px; border:1px solid var(--border);
-      background:var(--card); color:var(--text); border-radius:10px;
-      transition: all .2s ease; backdrop-filter: blur(var(--glass-blur));
-    }
-    .btn:hover{ background:var(--card-hover); transform: translateY(-1px); }
-    .btn.primary{ border-color: transparent; background: linear-gradient(135deg,var(--primary),var(--accent)); color:#1a1a1a; font-weight:600; }
-    .btn.danger{ border-color: rgba(255,100,100,.35); background: rgba(255,0,0,.1); color:#ffd7d7; }
-    .btn.sm{ padding:6px 10px; font-size:12px; }
+Security:
+- Optional API token guard via API_TOKEN (same pattern as other routes)
+"""
 
-    /* Layout */
-    .layout{
-      display:grid; grid-template-columns: 280px 1fr; gap:14px;
-      padding:14px; min-height: calc(100dvh - 60px);
-    }
-    .sidebar{
-      border:1px solid var(--border); background:var(--card); border-radius:14px;
-      padding:12px; backdrop-filter: blur(var(--glass-blur));
-      box-shadow: var(--shadow);
-      display:flex; flex-direction:column; gap:12px;
-      min-height: 70vh;
-    }
-    .main{
-      display:flex; flex-direction:column; gap:14px;
-    }
+from __future__ import annotations
 
-    /* Sidebar: Companies */
-    .sidebar .title{ font-size:14px; color:var(--muted); text-transform: uppercase; letter-spacing: .8px; }
-    .companies{ display:flex; flex-direction:column; gap:8px; min-height:200px; }
-    .company-item{
-      padding:10px; border:1px solid var(--border); background: rgba(255,255,255,0.06);
-      border-radius:10px; transition: all .2s ease; display:flex; gap:8px; align-items:center; justify-content:space-between;
-    }
-    .company-item:hover{ background: rgba(255,255,255,0.1); transform: translateY(-1px); }
-    .company-item.active{ border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
-    .company-name{ font-size:13px; font-weight:600; }
-    .company-meta{ font-size:12px; color:var(--muted); }
-    .company-actions{ display:flex; gap:6px; }
-    .draggable{ cursor:grab; opacity:.95; }
-    .drag-over{ outline:2px dashed var(--primary); }
+import os
+import io
+import csv
+import logging
+from typing import Optional, Dict, Any, List, Tuple, Literal
+from datetime import datetime, timedelta, timezone
 
-    .add-box{
-      display:flex; gap:8px; align-items:center;
-    }
-    .add-box input{
-      flex:1; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:rgba(0,0,0,.2); color:var(--text);
-      outline:none;
-    }
+import requests
+from fastapi import APIRouter, Depends, HTTPException, Query, Header, Path
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
-    /* Filters / Date range */
-    .filters{
-      display:grid; grid-template-columns: repeat(12,1fr); gap:12px;
-    }
-    .filters .card{
-      grid-column: span 12;
-      border:1px solid var(--border); background:var(--card);
-      padding:10px; border-radius:12px; backdrop-filter: blur(var(--glass-blur));
-    }
-    .filters-row{
-      display:flex; flex-wrap:wrap; gap:10px; align-items:center;
-    }
-    .filters-row label{ font-size:12px; color:var(--muted); }
-    .filters-row input, .filters-row select{
-      padding:10px; border-radius:10px; border:1px solid var(--border);
-      background:rgba(0,0,0,.2); color:var(--text); outline:none;
-    }
+from ..db import get_db
+from ..models import Company, Review
+from ..services.analysis import (
+    dashboard_payload as build_dashboard_payload,
+    reviews_table as build_reviews_table,
+)
+# ─────────────────────────────────────────────────────────────
+# Router & Logger
+# ─────────────────────────────────────────────────────────────
+router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
-    /* KPIs */
-    .grid{
-      display:grid; grid-template-columns: repeat(12,1fr); gap:12px;
-    }
-    .card{
-      border:1px solid var(--border); background:var(--card); backdrop-filter: blur(var(--glass-blur));
-      border-radius:12px; padding:14px; transition: all .2s ease; box-shadow: var(--shadow);
-    }
-    .card:hover{ background:var(--card-hover); transform: translateY(-1px); }
-    .kpi{ grid-column: span 3; }
-    .kpi h3{ margin:0 0 6px 0; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; }
-    .kpi .value{ font-size:24px; font-weight:700; }
-    .kpi .sub{ font-size:12px; color:var(--muted); margin-top:4px; }
+logger = logging.getLogger("dashboard")
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
-    /* Charts and AI box */
-    .charts{ grid-column: span 8; min-height: 320px; }
-    .sentiment{ grid-column: span 4; min-height: 320px; }
-    .ai-summary{ grid-column: span 12; }
+# ─────────────────────────────────────────────────────────────
+# Config (env → fallback to provided keys)
+# ─────────────────────────────────────────────────────────────
+GOOGLE_MAPS_API_KEY: str = os.getenv(
+    "GOOGLE_MAPS_API_KEY",
+    "AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg",
+)
+GOOGLE_PLACES_API_KEY: str = os.getenv(
+    "GOOGLE_PLACES_API_KEY",
+    "AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg",
+)
+API_TOKEN = os.getenv("API_TOKEN")
 
-    /* Keywords */
-    .badges{ display:flex; flex-wrap:wrap; gap:8px; }
-    .badge{
-      padding:6px 10px; border-radius:999px; border:1px solid var(--border);
-      background: rgba(255,255,255,0.06); font-size:12px; color:var(--text);
-    }
+_G_TIMEOUT: Tuple[int, int] = (5, 15)  # (connect, read) seconds
 
-    /* Reviews Table */
-    .table-card{ grid-column: span 12; }
-    table{ width:100%; border-collapse: collapse; }
-    th, td{ padding:10px; border-bottom:1px dashed var(--border); font-size:13px; }
-    th{ color:var(--muted); text-align:left; text-transform: uppercase; letter-spacing:.6px; font-size:12px; }
-    tr:hover{ background: rgba(255,255,255,0.04); }
-    .neg{ background: rgba(255, 100, 100, 0.08); border-left:3px solid var(--error); }
-    .table-actions{ display:flex; gap:8px; align-items:center; }
-    .pagination{ display:flex; justify-content:flex-end; gap:8px; margin-top:10px; align-items:center; color:var(--muted); }
-    .muted{ color:var(--muted); }
+# The spec requires default start: 23/02/2026 (dd/mm/yyyy)
+_DEFAULT_START_DDMMYYYY = "23/02/2026"
 
-    /* Alerts */
-    .alert{ padding:10px; border-radius:10px; margin:6px 0; }
-    .alert.info{ background: rgba(80,170,255,.12); border:1px solid rgba(80,170,255,.35); }
-    .alert.success{ background: rgba(50,220,170,.12); border:1px solid rgba(50,220,170,.35); }
-    .alert.warning{ background: rgba(255,200,80,.12); border:1px solid rgba(255,200,80,.35); }
 
-    /* Modal */
-    .modal-backdrop{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background: rgba(0,0,0,.55); z-index:50; }
-    .modal{ width: min(480px, 92vw); background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; backdrop-filter: blur(var(--glass-blur)); }
-    .modal.show{ display:flex; }
+# ─────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────
+def _validate_token(x_api_key: Optional[str], authorization: Optional[str]) -> None:
+    """Optional API token guard (if API_TOKEN is set)."""
+    if not API_TOKEN:
+        return
+    token = (x_api_key or "").strip()
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    if token != API_TOKEN:
+        raise HTTPException(401, "Invalid API token")
 
-    /* Responsive */
-    @media (max-width: 1100px){
-      .layout{ grid-template-columns: 1fr; }
-      .sidebar{ order:2; }
-      .main{ order:1; }
-      .kpi{ grid-column: span 6; }
-      .charts{ grid-column: span 12; }
-      .sentiment{ grid-column: span 12; }
-    }
-    @media (max-width: 640px){
-      .kpi{ grid-column: span 12; }
-    }
-  </style>
 
-  <!-- ===== Chart.js (CDN) ===== -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-</head>
-<body>
-  <!-- ===== Navbar ===== -->
-  <div class="navbar">
-    <div class="brand">
-      <div class="logo"></div>
-      <h1>Reviews Intelligence</h1>
-    </div>
-    <div class="nav-actions">
-      <button id="btnExportCsv" class="btn sm">Export CSV</button>
-      <button id="btnLogout" class="btn danger sm">Logout</button>
-    </div>
-  </div>
+def _parse_date(s: Optional[str]) -> Optional[datetime]:
+    """
+    Parse a date string in multiple formats:
+    - DD/MM/YYYY (per UI spec default)
+    - YYYY-MM-DD
+    - ISO 8601
+    Returns UTC-aware datetime (start of day, naive→UTC).
+    """
+    if not s:
+        return None
+    # Try DD/MM/YYYY
+    try:
+        dt = datetime.strptime(s, "%d/%m/%Y")
+        return dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        pass
+    # Try YYYY-MM-DD
+    try:
+        dt = datetime.strptime(s, "%Y-%m-%d")
+        return dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        pass
+    # Try ISO
+    try:
+        dt = datetime.fromisoformat(s)
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
 
-  <!-- ===== Layout ===== -->
-  <div class="layout">
-    <!-- ===== Sidebar: Companies ===== -->
-    <aside class="sidebar">
-      <div class="title">Companies</div>
-      <div id="companiesList" class="companies" aria-live="polite"></div>
 
-      <!-- Add company -->
-      <div class="add-box">
-        <input id="addCompanyInput" type="text" placeholder="Add company by name…" />
-        <button id="btnAddCompany" class="btn primary sm">Add</button>
-      </div>
-      <small class="muted">Tip: Drag-and-drop to prioritize companies (saved locally).</small>
-    </aside>
+def _google_places_get(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Shared GET wrapper with consistent error handling."""
+    try:
+        resp = requests.get(url, params=params, timeout=_G_TIMEOUT)
+        resp.raise_for_status()
+        payload = resp.json()
+        status = payload.get("status")
+        # Places APIs return "OK" / "ZERO_RESULTS" / error statuses
+        if status not in ("OK", "ZERO_RESULTS") and status is not None:
+            logger.warning(f"Google Places API status: {status} | {payload.get('error_message')}")
+            raise HTTPException(502, f"Google status: {status}")
+        return payload
+    except requests.RequestException as e:
+        logger.error(f"Google Places request failed: {e}")
+        raise HTTPException(502, "External API error")
 
-    <!-- ===== Main Content ===== -->
-    <main class="main">
-      <!-- Filters / Dates -->
-      <div class="filters">
-        <div class="card">
-          <div class="filters-row">
-            <label>Company: <span id="activeCompanyName" class="muted">None</span></label>
-            <label>Start</label>
-            <input id="startDate" type="text" placeholder="DD/MM/YYYY" />
-            <label>End</label>
-            <input id="endDate" type="text" placeholder="DD/MM/YYYY" />
-            <button id="btnApplyDates" class="btn sm">Apply</button>
-            <button id="btnLast30" class="btn sm">Last 30 Days</button>
-            <span class="muted" id="rowCountNote"></span>
-          </div>
-        </div>
-      </div>
 
-      <!-- KPIs -->
-      <section class="grid">
-        <div class="card kpi">
-          <h3>Total Reviews</h3>
-          <div class="value" id="kpiTotal">0</div>
-          <div class="sub">In selected period</div>
-        </div>
-        <div class="card kpi">
-          <h3>Average Rating</h3>
-          <div class="value" id="kpiAvg">0.0</div>
-          <div class="sub">Stars (0–5)</div>
-        </div>
-        <div class="card kpi">
-          <h3>Risk</h3>
-          <div class="value"><span id="kpiRiskScore">0</span> / <span id="kpiRiskLevel">Low</span></div>
-          <div class="sub">Score &amp; Level</div>
-        </div>
-        <div class="card kpi">
-          <h3>AI Highlights</h3>
-          <div class="sub">Key Recommendations</div>
-          <div id="aiRecs"></div>
-        </div>
+def _extract_city_from_components(components: List[Dict[str, Any]]) -> Optional[str]:
+    for comp in components or []:
+        types = comp.get("types", [])
+        if "locality" in types:
+            return comp.get("long_name")
+        if "postal_town" in types:
+            return comp.get("long_name")
+        if "administrative_area_level_2" in types:
+            return comp.get("long_name")
+    return None
 
-        <!-- Trend Chart -->
-        <div class="card charts">
-          <h3 class="muted">Trend (Average Rating)</h3>
-          <canvas id="trendChart" height="100"></canvas>
-        </div>
 
-        <!-- Sentiment Chart -->
-        <div class="card sentiment">
-          <h3 class="muted">Sentiment Distribution</h3>
-          <canvas id="sentimentChart" height="100"></canvas>
-          <div id="alertsBox"></div>
-        </div>
-
-        <!-- AI Executive Summary -->
-        <div class="card ai-summary">
-          <h3 class="muted">AI Executive Summary</h3>
-          <div id="aiSummaryText" style="line-height:1.6"></div>
-        </div>
-
-        <!-- Keywords -->
-        <div class="card" style="grid-column: span 12;">
-          <h3 class="muted">Top Keywords</h3>
-          <div id="keywordsBox" class="badges"></div>
-        </div>
-
-        <!-- Reviews Table -->
-        <div class="card table-card">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-            <div class="muted">Reviews (auto-highlights rating ≤ 2)</div>
-            <div class="table-actions">
-              <select id="filterRating">
-                <option value="">All Ratings</option>
-                <option value="5">5 ★</option>
-                <option value="4">4 ★</option>
-                <option value="3">3 ★</option>
-                <option value="2">2 ★</option>
-                <option value="1">1 ★</option>
-              </select>
-              <input id="filterSearch" type="text" placeholder="Search comment/author…" />
-              <button id="btnApplyTableFilters" class="btn sm">Filter</button>
-            </div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th style="width:80px;">Rating</th>
-                <th>Comment</th>
-                <th style="width:180px;">Reviewer</th>
-                <th style="width:160px;">Date</th>
-              </tr>
-            </thead>
-            <tbody id="reviewsTbody"></tbody>
-          </table>
-          <div class="pagination">
-            <button id="prevPage" class="btn sm">Prev</button>
-            <span id="pageInfo">Page 1 / 1</span>
-            <button id="nextPage" class="btn sm">Next</button>
-          </div>
-        </div>
-      </section>
-    </main>
-  </div>
-
-  <!-- ===== Delete Confirmation Modal ===== -->
-  <div id="modalDelete" class="modal-backdrop" role="dialog" aria-modal="true">
-    <div class="modal">
-      <h3>Delete Company</h3>
-      <p class="muted">Are you sure you want to delete <strong id="delCompanyName"></strong>? This action cannot be undone.</p>
-      <div style="display:flex; gap:8px; justify-content:flex-end;">
-        <button class="btn sm" onclick="closeDeleteModal()">Cancel</button>
-        <button class="btn danger sm" id="btnConfirmDelete">Delete</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ===== Scripts ===== -->
-  <script>
-    /* ---------------------------------------------------------
-       API CONFIG & HELPERS
-       --------------------------------------------------------- */
-    const API = {
-      COMPANIES: '/api/companies',
-      COMP_AUTOCOMPLETE: '/api/companies/autocomplete',
-      REVIEWS_SUMMARY: (id) => `/api/reviews/summary/${id}`,
-      REVIEWS_LIST: (id) => `/api/reviews/list/${id}`,
-      // Optional delete endpoint (if implemented server-side)
-      COMPANY_DELETE: (id) => `/api/companies/${id}`,
-    };
-
-    const state = {
-      companies: [],
-      selectedCompany: null,
-      // Default date range: start=23/02/2026 (DD/MM/YYYY), end=today
-      startDDMMYYYY: '23/02/2026',
-      endDDMMYYYY: toDDMMYYYY(new Date()),
-      reviewsPage: 1,
-      reviewsLimit: 20,
-      reviewsTotal: 0,
-      filterRating: '',
-      filterSearch: '',
-      charts: { trend: null, sentiment: null },
-      lastFetchedReviews: [],
-    };
-
-    function authHeaders() {
-      const h = { 'Content-Type': 'application/json' };
-      const token = localStorage.getItem('token');
-      if (token) {
-        h['Authorization'] = `Bearer ${token}`;
-        h['X-API-Key'] = token; // optional server-side acceptance
-      }
-      return h;
+# ─────────────────────────────────────────────────────────────
+# Defaults & Companies
+# ─────────────────────────────────────────────────────────────
+@router.get("/defaults")
+def get_defaults():
+    """
+    Provide date defaults for the UI:
+    - default_start: '23/02/2026' (per spec)
+    - default_end: today (UTC)
+    - last_30_days_start: (default_end - 30 days)
+    """
+    default_start_str = _DEFAULT_START_DDMMYYYY
+    default_end = datetime.now(timezone.utc).replace(microsecond=0)
+    last_30 = (default_end - timedelta(days=30)).replace(microsecond=0)
+    return {
+        "default_start": default_start_str,
+        "default_end": default_end.date().isoformat(),
+        "last_30_days_start": last_30.date().isoformat(),
+        "server_time_utc": default_end.isoformat(),
     }
 
-    function showToast(msg){
-      console.log('[toast]', msg);
-    }
 
-    // Convert DD/MM/YYYY ↔ YYYY-MM-DD
-    function toISO(dmy) {
-      // expects DD/MM/YYYY
-      const [d, m, y] = dmy.split('/');
-      return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
-    }
-    function toDDMMYYYY(date){
-      const d = new Date(date);
-      const dd = String(d.getDate()).padStart(2,'0');
-      const mm = String(d.getMonth()+1).padStart(2,'0');
-      const yy = d.getFullYear();
-      return `${dd}/${mm}/${yy}`;
-    }
-    function isoToPretty(iso){
-      if(!iso) return '';
-      const d = new Date(iso);
-      return d.toLocaleString();
-    }
+@router.get("/companies")
+def companies_list(
+    q: Optional[str] = Query(None, description="Search by name/city/address"),
+    status: Optional[str] = Query(None, description="Filter by status (e.g., active/inactive)"),
+    limit: int = Query(200, ge=1, le=1000),
+    db: Session = Depends(get_db),
+):
+    """
+    Sidebar companies list. Supports simple search and optional status filter.
+    """
+    query = db.query(Company)
+    if status:
+        query = query.filter(Company.status == status)
+    if q:
+        term = f"%{q.strip()}%"
+        query = query.filter(
+            or_(
+                Company.name.ilike(term),
+                Company.city.ilike(term),
+                Company.address.ilike(term),
+            )
+        )
+    query = query.order_by(Company.created_at.desc())
+    items = query.limit(limit).all()
 
-    /* ---------------------------------------------------------
-       SIDEBAR: LOAD, RENDER, DRAG & DROP
-       --------------------------------------------------------- */
-    async function loadCompanies(){
-      const url = `${API.COMPANIES}?status=active&limit=200&sort=name`;
-      const res = await fetch(url, { headers: authHeaders() });
-      if(!res.ok){ showToast('Failed to load companies'); return; }
-      state.companies = await res.json();
-
-      // Apply local drag order if exists
-      const saved = JSON.parse(localStorage.getItem('companyOrder') || '[]');
-      if(saved.length){
-        const map = new Map(state.companies.map(c => [c.id, c]));
-        state.companies = saved.map(id => map.get(id)).filter(Boolean)
-          .concat(state.companies.filter(c => !saved.includes(c.id)));
-      }
-      renderCompanies();
-      if(state.companies.length){
-        selectCompany(state.companies[0]);
-      } else {
-        state.selectedCompany = null;
-        document.getElementById('activeCompanyName').textContent = 'None';
-      }
-    }
-
-    function renderCompanies(){
-      const wrap = document.getElementById('companiesList');
-      wrap.innerHTML = '';
-      state.companies.forEach(c => {
-        const div = document.createElement('div');
-        div.className = `company-item draggable ${state.selectedCompany && c.id === state.selectedCompany.id ? 'active':''}`;
-        div.draggable = true;
-        div.dataset.id = c.id;
-
-        const left = document.createElement('div');
-        left.style.display='flex';
-        left.style.flexDirection='column';
-        left.style.gap='2px';
-
-        const nm = document.createElement('div');
-        nm.className = 'company-name';
-        nm.textContent = c.name || `Company #${c.id}`;
-        const meta = document.createElement('div');
-        meta.className = 'company-meta';
-        meta.textContent = [c.city, c.status].filter(Boolean).join(' • ');
-
-        left.appendChild(nm); left.appendChild(meta);
-
-        const actions = document.createElement('div');
-        actions.className = 'company-actions';
-
-        const btnOpen = document.createElement('button');
-        btnOpen.className = 'btn sm'; btnOpen.textContent = 'Open';
-        btnOpen.onclick = (e) => { e.stopPropagation(); selectCompany(c); };
-
-        const btnDel = document.createElement('button');
-        btnDel.className = 'btn danger sm'; btnDel.textContent = 'Delete';
-        btnDel.onclick = (e) => { e.stopPropagation(); openDeleteModal(c); };
-
-        actions.appendChild(btnOpen); actions.appendChild(btnDel);
-
-        div.appendChild(left); div.appendChild(actions);
-
-        // Click anywhere on item selects company
-        div.onclick = () => selectCompany(c);
-
-        // Drag & Drop
-        div.addEventListener('dragstart', handleDragStart);
-        div.addEventListener('dragover', handleDragOver);
-        div.addEventListener('dragleave', handleDragLeave);
-        div.addEventListener('drop', handleDrop);
-        wrap.appendChild(div);
-      });
-    }
-
-    let dragSrcId = null;
-    function handleDragStart(e){
-      dragSrcId = parseInt(e.currentTarget.dataset.id);
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', dragSrcId);
-    }
-    function handleDragOver(e){
-      e.preventDefault();
-      e.currentTarget.classList.add('drag-over');
-    }
-    function handleDragLeave(e){
-      e.currentTarget.classList.remove('drag-over');
-    }
-    function handleDrop(e){
-      e.preventDefault();
-      e.currentTarget.classList.remove('drag-over');
-      const targetId = parseInt(e.currentTarget.dataset.id);
-      if(dragSrcId === targetId) return;
-
-      const list = state.companies.slice();
-      const fromIdx = list.findIndex(x => x.id === dragSrcId);
-      const toIdx = list.findIndex(x => x.id === targetId);
-      const [item] = list.splice(fromIdx, 1);
-      list.splice(toIdx, 0, item);
-      state.companies = list;
-      renderCompanies();
-
-      // Persist order locally
-      localStorage.setItem('companyOrder', JSON.stringify(state.companies.map(x => x.id)));
-    }
-
-    /* ---------------------------------------------------------
-       SELECT COMPANY → LOAD SUMMARY + REVIEWS
-       --------------------------------------------------------- */
-    async function selectCompany(company){
-      state.selectedCompany = company;
-      document.getElementById('activeCompanyName').textContent = company.name || `#${company.id}`;
-      state.reviewsPage = 1;
-      // Load everything
-      await Promise.all([ loadSummary(), loadReviews() ]);
-      renderCompanies(); // refresh highlight
-    }
-
-    /* ---------------------------------------------------------
-       SUMMARY: KPIs, Charts, Keywords, Alerts, AI text
-       GET /api/reviews/summary/{company_id}
-       --------------------------------------------------------- */
-    async function loadSummary(){
-      if(!state.selectedCompany) return;
-
-      const start = toISO(state.startDDMMYYYY);
-      const end = toISO(state.endDDMMYYYY);
-      const url = `${API.REVIEWS_SUMMARY(state.selectedCompany.id)}?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
-
-      const res = await fetch(url, { headers: authHeaders() });
-      if(!res.ok){ showToast('Failed to load summary'); return; }
-      const data = await res.json();
-
-      // KPIs
-      document.getElementById('kpiTotal').textContent = data?.metrics?.total ?? data?.total_reviews ?? 0;
-      document.getElementById('kpiAvg').textContent = (data?.metrics?.avg_rating ?? data?.avg_rating ?? 0).toFixed(2);
-      document.getElementById('kpiRiskScore').textContent = Math.round(data?.metrics?.risk_score ?? data?.risk_score ?? 0);
-      document.getElementById('kpiRiskLevel').textContent = data?.metrics?.risk_level ?? data?.risk_level ?? 'Low';
-
-      // AI Recs (mini list)
-      const aiRecs = data?.ai_recommendations || [];
-      document.getElementById('aiRecs').innerHTML = aiRecs.slice(0,4).map(r => `
-        <div class="badge">${escapeHtml(r.area || 'issue')}: ${escapeHtml(r.action || 'review')}</div>
-      `).join('') || `<div class="muted">No recommendations.</div>`;
-
-      // Keywords (badges)
-      const kwLabels = data?.keywords?.labels || [];
-      const kwData = data?.keywords?.data || [];
-      const keywordsBox = document.getElementById('keywordsBox');
-      keywordsBox.innerHTML = '';
-      if(kwLabels.length){
-        kwLabels.forEach((label, i) => {
-          const b = document.createElement('div');
-          b.className = 'badge';
-          b.textContent = `${label} • ${kwData[i] || 0}`;
-          keywordsBox.appendChild(b);
-        });
-      } else {
-        keywordsBox.innerHTML = `<span class="muted">No keywords in this period.</span>`;
-      }
-
-      // Alerts
-      const alerts = data?.alerts || [];
-      const alertsBox = document.getElementById('alertsBox');
-      alertsBox.innerHTML = alerts.map(a => `
-        <div class="alert ${a.type}">
-          <strong>${escapeHtml(a.title || 'Alert')}</strong><br/>
-          <span class="muted">${escapeHtml(a.message || '')}</span>
-        </div>
-      `).join('') || '';
-
-      // AI Executive Summary (requirement #16-18)
-      const total = data?.metrics?.total ?? data?.total_reviews ?? 0;
-      const avg = data?.metrics?.avg_rating ?? data?.avg_rating ?? 0;
-      const neg = (data?.sentiment?.Negative ?? 0);
-      const recTxt = aiRecs.slice(0,2).map(r => r.action).filter(Boolean).join('; ');
-      const trendSignal = data?.trend?.signal || 'stable';
-      const trendDelta = data?.trend?.delta || 0;
-      const keyNeg = (kwLabels || []).slice(0,3).join(', ') || 'none';
-      const aiSummary = `
-        Total reviews: <b>${total}</b>, Avg rating: <b>${(+avg).toFixed(2)}</b>.
-        Trend is <b>${trendSignal}</b> (Δ ${trendDelta}).
-        Negative focus: <b>${neg}</b> negative reviews. Key keywords: <b>${escapeHtml(keyNeg)}</b>.
-        Recommendations: ${escapeHtml(recTxt || 'None')}.
-      `;
-      document.getElementById('aiSummaryText').innerHTML = aiSummary;
-
-      // Trend Chart (line)
-      const trendLabels = data?.trend?.labels || (data?.trend_data || []).map(x => x.month);
-      const trendSeries = data?.trend?.data || (data?.trend_data || []).map(x => x.avg_rating);
-      renderTrendChart(trendLabels, trendSeries);
-
-      // Sentiment Chart (doughnut)
-      const pos = (data?.sentiment?.Positive ?? 0), neu = (data?.sentiment?.Neutral ?? 0), negCnt = (data?.sentiment?.Negative ?? 0);
-      renderSentimentChart([pos, neu, negCnt]);
-
-    }
-
-    function renderTrendChart(labels, dataArr){
-      const ctx = document.getElementById('trendChart').getContext('2d');
-      if(state.charts.trend){ state.charts.trend.destroy(); }
-      state.charts.trend = new Chart(ctx, {
-        type:'line',
-        data:{
-          labels,
-          datasets:[{
-            label:'Avg Rating',
-            data: dataArr,
-            fill:false,
-            borderColor: '#6dd5ed',
-            backgroundColor: 'rgba(109,213,237,.25)',
-            tension:.25,
-          }]
-        },
-        options:{
-          responsive:true,
-          plugins:{ legend:{ display:false } },
-          scales:{
-            y:{ beginAtZero:true, suggestedMax:5 }
-          }
+    def to_dict(c: Company) -> Dict[str, Any]:
+        return {
+            "id": c.id,
+            "name": c.name,
+            "city": c.city,
+            "status": c.status,
+            "place_id": c.place_id,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
         }
-      });
+
+    return {"items": [to_dict(c) for c in items]}
+
+
+@router.post("/companies/add")
+def companies_add(
+    name: str = Query(..., min_length=2, description="Company name as typed by user"),
+    language: Optional[str] = Query(None, description="e.g., en, ur, ar"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    db: Session = Depends(get_db),
+):
+    """
+    Add a company by name only:
+    - Uses Google Places Find Place to get candidate
+    - Uses Places Details to enrich city/address/phone/website/lat/lng
+    - Saves Company; returns created row
+    """
+    _validate_token(x_api_key, authorization)
+
+    api_key = GOOGLE_PLACES_API_KEY or GOOGLE_MAPS_API_KEY
+    if not api_key:
+        raise HTTPException(503, "Google Places API not configured")
+
+    # 1) Find place by text
+    fp_params = {
+        "input": name,
+        "inputtype": "textquery",
+        "fields": "place_id,name,formatted_address",
+        "key": api_key,
     }
-    function renderSentimentChart(vals){
-      const ctx = document.getElementById('sentimentChart').getContext('2d');
-      if(state.charts.sentiment){ state.charts.sentiment.destroy(); }
-      state.charts.sentiment = new Chart(ctx, {
-        type:'doughnut',
-        data:{
-          labels:['Positive','Neutral','Negative'],
-          datasets:[{
-            data: vals,
-            backgroundColor:['#2bd39b','#9aa6b2','#ff7b7b'],
-            borderColor: ['transparent','transparent','transparent']
-          }]
-        },
-        options:{
-          plugins:{ legend:{ position:'bottom', labels:{ color:'#cfd7df' } } }
-        }
-      });
+    if language:
+        fp_params["language"] = language
+
+    fp_payload = _google_places_get(
+        "https://maps.googleapis.com/maps/api/place/findplacefromtext/json", fp_params
+    )
+    candidates = fp_payload.get("candidates") or []
+    if not candidates:
+        raise HTTPException(404, "No matching place found")
+
+    place_id = candidates[0].get("place_id")
+    display_name = candidates[0].get("name") or name
+
+    # 2) Details for enrichment
+    fields = ",".join([
+        "name", "formatted_address", "address_components", "geometry",
+        "website", "international_phone_number", "url"
+    ])
+    det_params = {"place_id": place_id, "fields": fields, "key": api_key}
+    if language:
+        det_params["language"] = language
+
+    det_payload = _google_places_get(
+        "https://maps.googleapis.com/maps/api/place/details/json", det_params
+    )
+    result = det_payload.get("result") or {}
+    loc = (result.get("geometry") or {}).get("location") or {}
+
+    city = _extract_city_from_components(result.get("address_components") or [])
+    address = result.get("formatted_address")
+    phone = result.get("international_phone_number")
+    website = result.get("website")
+    lat = loc.get("lat")
+    lng = loc.get("lng")
+
+    # Duplicate guard by place_id
+    existing = db.query(Company).filter(Company.place_id == place_id).first()
+    if existing:
+        return {"ok": True, "already_exists": True, "company": {
+            "id": existing.id, "name": existing.name, "city": existing.city
+        }}
+
+    row = Company(
+        name=result.get("name") or display_name,
+        place_id=place_id,
+        maps_link=result.get("url"),
+        city=city,
+        status="active",
+        logo_url=None,
+        created_at=datetime.now(timezone.utc),
+        lat=lat,
+        lng=lng,
+        email=None,
+        phone=phone,
+        address=address,
+        description=None,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    return {"ok": True, "company": {
+        "id": row.id, "name": row.name, "city": row.city, "place_id": row.place_id
+    }}
+
+
+@router.delete("/companies/{company_id}")
+def companies_delete(
+    company_id: int = Path(..., ge=1),
+    db: Session = Depends(get_db),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    """
+    Delete company (cascades Reviews/Replies per models.py relationships).
+    Frontend should show confirmation popup before calling this.
+    """
+    _validate_token(x_api_key, authorization)
+
+    c = db.query(Company).filter(Company.id == company_id).first()
+    if not c:
+        raise HTTPException(404, "Company not found")
+    db.delete(c)
+    db.commit()
+    return {"ok": True, "deleted_id": company_id}
+# (For drag & drop prioritization, add a sort_order INT column to Company and expose a reorder endpoint.)
+
+
+# ─────────────────────────────────────────────────────────────
+# Unified Dashboard Payload (metrics, trends, sentiments, AI insights)
+# ─────────────────────────────────────────────────────────────
+@router.get("/payload")
+def dashboard_payload(
+    company_id: int = Query(..., ge=1),
+    start: Optional[str] = Query(None, description="DD/MM/YYYY or YYYY-MM-DD"),
+    end: Optional[str] = Query(None, description="DD/MM/YYYY or YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+):
+    # Use analysis.dashboard_payload (consistent math across backend)
+    return build_dashboard_payload(
+        db=db,
+        company_id=company_id,
+        start=start,
+        end=end,
+        top_keywords_n=20,
+        alerts_window_days=14,
+        revenue_months_back=6,
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+# Reviews Table (search/sort/pagination) + CSV Export
+# ─────────────────────────────────────────────────────────────
+@router.get("/reviews")
+def dashboard_reviews(
+    company_id: int = Query(..., ge=1),
+    page: int = Query(1, ge=1),
+    limit: int = Query(25, ge=1, le=200),
+    search: Optional[str] = Query(None, min_length=1),
+    sort: Literal["review_date", "rating"] = Query("review_date"),
+    order: Literal["asc", "desc"] = Query("desc"),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns the paginated table data with fields:
+    id, review_date, rating, text (comment), reviewer_name, sentiment_category, sentiment_score, language
+    """
+    # Use the same helper as /api/reviews/list but generalized
+    table = build_reviews_table(
+        db=db,
+        company_id=company_id,
+        page=page,
+        limit=limit,
+        search=search,
+        sort=sort,
+        order=order,
+        start=start,
+        end=end,
+    )
+
+    # Remap field names to match UI columns (Rating, Comment, Reviewer, Date)
+    for row in table["data"]:
+        row["comment"] = row.pop("text", None)
+        row["reviewer"] = row.pop("author", None) or row.pop("reviewer_name", None)
+
+    return table
+
+
+@router.get("/export")
+def dashboard_export_csv(
+    company_id: int = Query(..., ge=1),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Export filtered reviews to CSV (Rating, Comment, Reviewer, Date).
+    """
+    q = db.query(Review).filter(Review.company_id == company_id)
+    start_dt = _parse_date(start)
+    end_dt = _parse_date(end)
+
+    if start_dt:
+        q = q.filter(Review.review_date >= start_dt)
+    if end_dt:
+        # include full end day
+        q = q.filter(Review.review_date < (end_dt + timedelta(days=1)))
+
+    q = q.order_by(Review.review_date.desc())
+    rows = q.all()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Rating", "Comment", "Reviewer", "Date", "Sentiment", "Language"])
+    for r in rows:
+        writer.writerow([
+            r.rating or "",
+            r.text or "",
+            r.reviewer_name or "",
+            (r.review_date.astimezone(timezone.utc).isoformat() if r.review_date else ""),
+            r.sentiment_category or "",
+            r.language or "",
+        ])
+
+    buf.seek(0)
+    fname = f"reviews_company_{company_id}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'}
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+# Google Helpers for UI (Add company flow)
+# ─────────────────────────────────────────────────────────────
+@router.get("/google/places")
+def google_places_search(
+    q: str = Query(..., min_length=2, description="Free text (e.g., 'Pizza Hut Lahore')"),
+    limit: int = Query(5, ge=1, le=10),
+    language: Optional[str] = Query(None),
+):
+    api_key = GOOGLE_PLACES_API_KEY or GOOGLE_MAPS_API_KEY
+    if not api_key:
+        raise HTTPException(503, "Google Places API not configured")
+
+    params = {
+        "input": q,
+        "inputtype": "textquery",
+        "fields": "place_id,name,formatted_address",
+        "key": api_key,
+    }
+    if language:
+        params["language"] = language
+
+    payload = _google_places_get(
+        "https://maps.googleapis.com/maps/api/place/findplacefromtext/json", params
+    )
+    candidates = (payload.get("candidates") or [])[:limit]
+    return {
+        "ok": True,
+        "items": [
+            {
+                "place_id": c.get("place_id"),
+                "name": c.get("name"),
+                "formatted_address": c.get("formatted_address"),
+            }
+            for c in candidates
+        ],
     }
 
-    /* ---------------------------------------------------------
-       REVIEWS TABLE (pagination, filters, negative highlight)
-       GET /api/reviews/list/{company_id}
-       --------------------------------------------------------- */
-    async function loadReviews(){
-      if(!state.selectedCompany) return;
-      const start = toISO(state.startDDMMYYYY);
-      const end = toISO(state.endDDMMYYYY);
-      const params = new URLSearchParams({
-        page: String(state.reviewsPage),
-        limit: String(state.reviewsLimit),
-        order: 'desc'
-      });
-      if(state.filterRating) params.set('rating', state.filterRating);
-      if(state.filterSearch) params.set('q', state.filterSearch);
-      params.set('start', start);
-      params.set('end', end);
 
-      const url = `${API.REVIEWS_LIST(state.selectedCompany.id)}?${params.toString()}`;
-      const res = await fetch(url, { headers: authHeaders() });
-      if(!res.ok){ showToast('Failed to load reviews'); return; }
-      const data = await res.json();
+@router.get("/google/details")
+def google_place_details(
+    place_id: str = Query(..., min_length=10),
+    language: Optional[str] = Query(None),
+    include_reviews: bool = Query(False),
+):
+    api_key = GOOGLE_PLACES_API_KEY or GOOGLE_MAPS_API_KEY
+    if not api_key:
+        raise HTTPException(503, "Google Places API not configured")
 
-      state.reviewsTotal = data.total || 0;
-      state.lastFetchedReviews = data.items || [];
+    fields = [
+        "name", "formatted_address", "formatted_phone_number", "international_phone_number",
+        "website", "address_components", "geometry", "rating", "user_ratings_total", "url"
+    ]
+    if include_reviews:
+        fields.append("reviews")
+    params = {"place_id": place_id, "fields": ",".join(fields), "key": api_key}
+    if language:
+        params["language"] = language
 
-      const tbody = document.getElementById('reviewsTbody');
-      tbody.innerHTML = '';
-      (data.items || []).forEach(item => {
-        const tr = document.createElement('tr');
-        if((item.rating ?? 0) <= 2) tr.classList.add('neg'); // auto-highlight negatives
-        tr.innerHTML = `
-          <td>${Number(item.rating ?? 0).toFixed(1)}</td>
-          <td>${escapeHtml(item.text || '')}</td>
-          <td>${escapeHtml(item.reviewer_name || '')}</td>
-          <td>${isoToPretty(item.review_date)}</td>
-        `;
-        tbody.appendChild(tr);
-      });
+    payload = _google_places_get(
+        "https://maps.googleapis.com/maps/api/place/details/json", params
+    )
+    result = payload.get("result") or {}
+    loc = (result.get("geometry") or {}).get("location") or {}
 
-      const totalPages = Math.max(1, Math.ceil((state.reviewsTotal) / state.reviewsLimit));
-      document.getElementById('pageInfo').textContent = `Page ${state.reviewsPage} / ${totalPages}`;
-      document.getElementById('rowCountNote').textContent = `${state.reviewsTotal} reviews in range`;
+    data: Dict[str, Any] = {
+        "name": result.get("name"),
+        "address": result.get("formatted_address"),
+        "phone": result.get("formatted_phone_number") or result.get("international_phone_number"),
+        "website": result.get("website"),
+        "city": _extract_city_from_components(result.get("address_components") or []),
+        "lat": loc.get("lat"),
+        "lng": loc.get("lng"),
+        "rating": result.get("rating"),
+        "user_ratings_total": result.get("user_ratings_total"),
+        "url": result.get("url"),
     }
 
-    // Pagination controls
-    document.getElementById('prevPage').onclick = () => {
-      if(state.reviewsPage > 1){ state.reviewsPage--; loadReviews(); }
-    };
-    document.getElementById('nextPage').onclick = () => {
-      const totalPages = Math.max(1, Math.ceil((state.reviewsTotal) / state.reviewsLimit));
-      if(state.reviewsPage < totalPages){ state.reviewsPage++; loadReviews(); }
-    };
+    if include_reviews:
+        # Only a sample (max ~5) from Places Details
+        g_reviews = result.get("reviews") or []
+        items: List[Dict[str, Any]] = []
+        for r in g_reviews:
+            ts = r.get("time")
+            dt_iso = None
+            if isinstance(ts, (int, float)) and ts > 0:
+                dt_iso = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+            items.append({
+                "author_name": r.get("author_name"),
+                "author_url": r.get("author_url"),
+                "profile_photo_url": r.get("profile_photo_url"),
+                "rating": r.get("rating"),
+                "text": r.get("text"),
+                "relative_time_description": r.get("relative_time_description"),
+                "time": ts,
+                "review_date": dt_iso,
+                "language": r.get("language"),
+            })
+        data["reviews"] = items
 
-    // Table filter controls
-    document.getElementById('btnApplyTableFilters').onclick = () => {
-      state.filterRating = document.getElementById('filterRating').value || '';
-      state.filterSearch = document.getElementById('filterSearch').value.trim();
-      state.reviewsPage = 1;
-      loadReviews();
-    };
-
-    /* ---------------------------------------------------------
-       DATE CONTROLS (#4, #5, #6)
-       --------------------------------------------------------- */
-    // Set inputs to defaults
-    document.getElementById('startDate').value = state.startDDMMYYYY;
-    document.getElementById('endDate').value = state.endDDMMYYYY;
-
-    document.getElementById('btnApplyDates').onclick = async () => {
-      const sd = (document.getElementById('startDate').value || '').trim();
-      const ed = (document.getElementById('endDate').value || '').trim();
-      if(sd) state.startDDMMYYYY = sd;
-      if(ed) state.endDDMMYYYY = ed;
-      state.reviewsPage = 1;
-      await loadSummary();
-      await loadReviews();
-    };
-
-    // Last 30 days for selected company
-    document.getElementById('btnLast30').onclick = async () => {
-      const today = new Date();
-      const start = new Date(today.getTime() - 29*86400*1000);
-      state.startDDMMYYYY = toDDMMYYYY(start);
-      state.endDDMMYYYY = toDDMMYYYY(today);
-      document.getElementById('startDate').value = state.startDDMMYYYY;
-      document.getElementById('endDate').value = state.endDDMMYYYY;
-      state.reviewsPage = 1;
-      await loadSummary();
-      await loadReviews();
-    };
-
-    /* ---------------------------------------------------------
-       ADD COMPANY (#12-14)
-       - Use backend autocomplete → then POST create
-       --------------------------------------------------------- */
-    document.getElementById('btnAddCompany').onclick = async () => {
-      const input = document.getElementById('addCompanyInput');
-      const name = (input.value || '').trim();
-      if(!name){ showToast('Enter a company name'); return; }
-
-      // 1) Try autocomplete to get place_id
-      const acUrl = `${API.COMP_AUTOCOMPLETE}?q=${encodeURIComponent(name)}`;
-      const acRes = await fetch(acUrl, { headers: authHeaders() });
-      if(!acRes.ok){ showToast('Autocomplete failed'); return; }
-      const acData = await acRes.json();
-      const first = (acData || [])[0] || null;
-      const payload = { name };
-
-      if(first && first.place_id){
-        // backend will enrich details from Google
-        payload.place_id = first.place_id;
-      }
-
-      // 2) Create
-      const cr = await fetch(API.COMPANIES, {
-        method:'POST',
-        headers: authHeaders(),
-        body: JSON.stringify(payload)
-      });
-      if(!cr.ok){
-        const errText = await cr.text();
-        showToast(`Create failed: ${errText}`);
-        return;
-      }
-      input.value = '';
-      await loadCompanies(); // sidebar refresh (#14)
-      showToast('Company added');
-    };
-
-    /* ---------------------------------------------------------
-       DELETE COMPANY (#15)
-       - Attempts DELETE /api/companies/{id}
-       - If your backend lacks DELETE, a helpful message is shown
-       --------------------------------------------------------- */
-    let deleteTarget = null;
-    function openDeleteModal(company){
-      deleteTarget = company;
-      document.getElementById('delCompanyName').textContent = company.name || `#${company.id}`;
-      document.getElementById('modalDelete').classList.add('show');
-    }
-    function closeDeleteModal(){
-      deleteTarget = null;
-      document.getElementById('modalDelete').classList.remove('show');
-    }
-    document.getElementById('btnConfirmDelete').onclick = async () => {
-      if(!deleteTarget){ return; }
-      const url = API.COMPANY_DELETE(deleteTarget.id);
-      const res = await fetch(url, { method:'DELETE', headers: authHeaders() });
-      if(!res.ok){
-        closeDeleteModal();
-        showToast('Delete endpoint not available. Please add DELETE /api/companies/{id} in backend or archive via status.');
-        return;
-      }
-      closeDeleteModal();
-      showToast('Company deleted');
-      await loadCompanies();
-    };
-
-    /* ---------------------------------------------------------
-       EXPORT CSV (#26) of currently visible reviews
-       --------------------------------------------------------- */
-    document.getElementById('btnExportCsv').onclick = () => {
-      const rows = state.lastFetchedReviews || [];
-      if(!rows.length){ showToast('No rows to export'); return; }
-      const header = ['id','rating','text','reviewer','review_date','sentiment_category','sentiment_score','keywords','language'];
-      const lines = [header.join(',')];
-      rows.forEach(r => {
-        const row = [
-          r.id ?? '',
-          r.rating ?? '',
-          csvEscape(r.text || ''),
-          csvEscape(r.reviewer_name || ''),
-          r.review_date || '',
-          r.sentiment_category || '',
-          r.sentiment_score ?? '',
-          csvEscape(r.keywords || ''),
-          r.language || '',
-        ];
-        lines.push(row.join(','));
-      });
-      const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `reviews_${state.selectedCompany ? (state.selectedCompany.name || state.selectedCompany.id) : 'export'}.csv`;
-      a.click();
-    };
-
-    function csvEscape(s){
-      const needs = /[\",;\n]/.test(s);
-      return needs ? `"${(s||'').replace(/\"/g,'""')}"` : s;
-    }
-
-    /* ---------------------------------------------------------
-       LOGOUT (#27)
-       --------------------------------------------------------- */
-    document.getElementById('btnLogout').onclick = () => {
-      localStorage.removeItem('token');
-      // adapt to your auth flow:
-      window.location.href = '/logout';
-    };
-
-    /* ---------------------------------------------------------
-       UTILITIES
-       --------------------------------------------------------- */
-    function escapeHtml(str){
-      return (str ?? '').toString()
-        .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
-        .replaceAll('"','&quot;').replaceAll("'",'&#039;');
-    }
-
-    /* ---------------------------------------------------------
-       INITIALIZE
-       --------------------------------------------------------- */
-    window.addEventListener('DOMContentLoaded', async () => {
-      await loadCompanies();
-
-      // If no companies yet: prompt to add one
-      if(!state.companies.length){
-        showToast('No companies found. Add one by name to begin.');
-      }
-    });
-  </script>
-</body>
-</html>
+    return data
