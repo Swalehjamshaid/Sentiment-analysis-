@@ -30,6 +30,7 @@ logger.setLevel(logging.INFO)
 
 # ─────────────────────────────────────────────────────────────
 # Config (env → fallback to provided keys)
+# NOTE: In production, set keys via environment variables instead of hardcoding.
 # ─────────────────────────────────────────────────────────────
 GOOGLE_MAPS_API_KEY: str = os.getenv(
     "GOOGLE_MAPS_API_KEY",
@@ -67,6 +68,7 @@ def _parse_date_param(s: Optional[str]) -> Optional[datetime]:
 
 
 def _normalize_review_date(dt: Optional[datetime]) -> Optional[datetime]:
+    """Ensure review_date is timezone-aware UTC."""
     if not dt:
         return None
     return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
@@ -84,6 +86,7 @@ def _validate_token(x_api_key: Optional[str], authorization: Optional[str]) -> N
 
 
 def _extract_city_from_components(components: List[Dict[str, Any]]) -> Optional[str]:
+    """Best-effort city extractor from Google address components."""
     for comp in components or []:
         types = comp.get("types", [])
         if "locality" in types:
@@ -185,6 +188,7 @@ def google_place_details(
     loc = (result.get("geometry") or {}).get("location") or {}
 
     resp: Dict[str, Any] = {
+        "place_id": place_id,
         "name": result.get("name"),
         "address": result.get("formatted_address"),
         "phone": result.get("formatted_phone_number") or result.get("international_phone_number"),
@@ -234,6 +238,11 @@ def reviews_summary(
     include_aspects: bool = Query(True),  # kept for forward-compat; computed server-side
     db: Session = Depends(get_db),
 ):
+    # Validate company to provide a clear 404 instead of empty data
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(404, "Company not found")
+
     return dashboard_payload(
         db=db,
         company_id=company_id,
@@ -260,6 +269,11 @@ def list_reviews(
     order: Literal["asc", "desc"] = Query("desc", description="Sort review_date ascending/descending"),
     db: Session = Depends(get_db),
 ):
+    # Validate company so the UI gets an explicit 404 if ID is wrong
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(404, "Company not found")
+
     query = db.query(Review).filter(Review.company_id == company_id)
 
     start_dt = _parse_date_param(start)
@@ -351,7 +365,7 @@ def import_google_reviews(
         # Create a stable external_id using author_url + time (falls back if missing)
         author_url = gr.get("author_url") or ""
         ts = gr.get("time")  # unix seconds
-        ext_id = f"{author_url}|{ts}" if author_url or ts else None
+        ext_id = f"{author_url}|{ts}" if (author_url or ts) else None
 
         # Respect unique constraint (company_id, external_id)
         if ext_id:
