@@ -1,12 +1,16 @@
+# FILE: app/routes/reviews.py
+
 from __future__ import annotations
 import os
+import sys
 import logging
 from typing import Optional, Dict, List, Any, Tuple, Literal
 from datetime import datetime, timedelta, timezone
 import requests
-from fastapi import APIRouter, Depends, HTTPException, Query, Header, Path
+from fastapi import APIRouter, Depends, HTTPException, Query, Header, Path, status
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
+
 from ..db import get_db
 from ..models import Company, Review
 from ..services.analysis import dashboard_payload
@@ -25,7 +29,6 @@ logger.setLevel(logging.INFO)
 
 # ─────────────────────────────────────────────────────────────
 # Config (env → fallback to provided keys)
-# NOTE: In production, set keys via environment variables instead of hardcoding.
 # ─────────────────────────────────────────────────────────────
 GOOGLE_MAPS_API_KEY: str = os.getenv(
     "GOOGLE_MAPS_API_KEY",
@@ -77,7 +80,7 @@ def _validate_token(x_api_key: Optional[str], authorization: Optional[str]) -> N
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[7:].strip()
     if token != API_TOKEN:
-        raise HTTPException(401, "Invalid API token")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid API token")
 
 
 def _extract_city_from_components(components: List[Dict[str, Any]]) -> Optional[str]:
@@ -99,14 +102,14 @@ def _google_places_get(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
         resp = requests.get(url, params=params, timeout=_G_TIMEOUT)
         resp.raise_for_status()
         payload = resp.json()
-        status = payload.get("status")
-        if status not in ("OK", "ZERO_RESULTS"):
-            logger.warning(f"Google Places API status: {status}")
-            raise HTTPException(502, f"Google status: {status}")
+        status_text = payload.get("status")
+        if status_text not in ("OK", "ZERO_RESULTS"):
+            logger.warning(f"Google Places API status: {status_text}")
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Google status: {status_text}")
         return payload
     except requests.RequestException as e:
         logger.error(f"Google Places request failed: {e}")
-        raise HTTPException(502, "External API error")
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "External API error")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -119,7 +122,7 @@ def google_places_search(
     language: Optional[str] = Query(None, description="Language code (e.g., en, ur, ar)"),
 ):
     if not GOOGLE_PLACES_API_KEY:
-        raise HTTPException(503, "Google Places API not configured")
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google Places API not configured")
 
     params = {
         "input": q,
@@ -158,9 +161,8 @@ def google_place_details(
     include_reviews: bool = Query(False, description="Include up to 5 sample Google reviews"),
 ):
     if not GOOGLE_PLACES_API_KEY:
-        raise HTTPException(503, "Google Places API not configured")
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google Places API not configured")
 
-    # Note: 'reviews' is a valid field in Place Details (samples only).
     fields_parts = [
         "name", "formatted_address", "formatted_phone_number", "international_phone_number",
         "website", "address_components", "geometry", "rating", "user_ratings_total", "url"
@@ -198,11 +200,10 @@ def google_place_details(
     }
 
     if include_reviews:
-        # Normalize Google sample reviews to a compact list
         g_reviews = result.get("reviews") or []
         items: List[Dict[str, Any]] = []
         for r in g_reviews:
-            ts = r.get("time")  # unix seconds
+            ts = r.get("time")
             dt_iso = None
             if isinstance(ts, (int, float)) and ts > 0:
                 dt_iso = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
@@ -223,20 +224,19 @@ def google_place_details(
 
 
 # ─────────────────────────────────────────────────────────────
-# Dashboard Summary (unified payload for dashboard.html)
+# Dashboard Summary
 # ─────────────────────────────────────────────────────────────
 @router.get("/summary/{company_id}")
 def reviews_summary(
     company_id: int = Path(..., ge=1),
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
-    include_aspects: bool = Query(True),  # kept for forward-compat; computed server-side
+    include_aspects: bool = Query(True),
     db: Session = Depends(get_db),
 ):
-    # Validate company to provide a clear 404 instead of empty data
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
-        raise HTTPException(404, "Company not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Company not found")
 
     return dashboard_payload(
         db=db,
@@ -250,7 +250,7 @@ def reviews_summary(
 
 
 # ─────────────────────────────────────────────────────────────
-# Paginated Review List (search/sort/paginate)
+# Paginated Review List
 # ─────────────────────────────────────────────────────────────
 @router.get("/list/{company_id}")
 def list_reviews(
@@ -261,23 +261,20 @@ def list_reviews(
     q: Optional[str] = Query(None, min_length=2),
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
-    order: Literal["asc", "desc"] = Query("desc", description="Sort review_date ascending/descending"),
+    order: Literal["asc", "desc"] = Query("desc"),
     db: Session = Depends(get_db),
 ):
-    # Validate company so the UI gets an explicit 404 if ID is wrong
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
-        raise HTTPException(404, "Company not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Company not found")
 
     query = db.query(Review).filter(Review.company_id == company_id)
-
     start_dt = _parse_date_param(start)
     end_dt = _parse_date_param(end)
 
     if start_dt:
         query = query.filter(Review.review_date >= start_dt)
     if end_dt:
-        # include end day fully
         query = query.filter(Review.review_date < (end_dt + timedelta(days=1)))
 
     if rating is not None:
@@ -324,45 +321,37 @@ def list_reviews(
 
 
 # ─────────────────────────────────────────────────────────────
-# Import sample Google reviews into DB (via Place Details)
-# NOTE: Place Details returns only a *sample* set of reviews.
-# For ongoing syncs, prefer a dedicated ingestion service.
+# Import sample Google reviews
 # ─────────────────────────────────────────────────────────────
 @router.post("/google/import/{company_id}")
 def import_google_reviews(
     company_id: int = Path(..., ge=1),
-    place_id: str = Query(..., min_length=10, description="Google Place ID to import from"),
-    language: Optional[str] = Query(None, description="Language code, e.g., en, ur, ar"),
-    max_reviews: int = Query(5, ge=1, le=5, description="Max reviews from Place Details (API caps at 5)"),
+    place_id: str = Query(..., min_length=10),
+    language: Optional[str] = Query(None),
+    max_reviews: int = Query(5, ge=1, le=5),
     db: Session = Depends(get_db),
 ):
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
-        raise HTTPException(404, "Company not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Company not found")
 
     if not GOOGLE_PLACES_API_KEY:
-        raise HTTPException(503, "Google Places API not configured")
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google Places API not configured")
 
-    # Request place details including reviews
-    fields = "name,reviews"
-    params = {"place_id": place_id, "fields": fields, "key": GOOGLE_PLACES_API_KEY}
+    params = {"place_id": place_id, "fields": "name,reviews", "key": GOOGLE_PLACES_API_KEY}
     if language:
         params["language"] = language
 
-    payload = _google_places_get(
-        "https://maps.googleapis.com/maps/api/place/details/json", params
-    )
+    payload = _google_places_get("https://maps.googleapis.com/maps/api/place/details/json", params)
     result = payload.get("result") or {}
     g_reviews: List[Dict[str, Any]] = (result.get("reviews") or [])[:max_reviews]
 
     added = 0
     for gr in g_reviews:
-        # Create a stable external_id using author_url + time (falls back if missing)
         author_url = gr.get("author_url") or ""
-        ts = gr.get("time")  # unix seconds
+        ts = gr.get("time")
         ext_id = f"{author_url}|{ts}" if (author_url or ts) else None
 
-        # Respect unique constraint (company_id, external_id)
         if ext_id:
             exists = db.query(Review).filter(
                 Review.company_id == company_id,
@@ -371,9 +360,7 @@ def import_google_reviews(
             if exists:
                 continue
 
-        dt = None
-        if isinstance(ts, (int, float)) and ts > 0:
-            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc) if isinstance(ts, (int, float)) and ts > 0 else None
 
         row = Review(
             company_id=company_id,
@@ -399,7 +386,7 @@ def import_google_reviews(
 
 
 # ─────────────────────────────────────────────────────────────
-# Sync Reviews (delegates to ingestion service)
+# Sync Reviews
 # ─────────────────────────────────────────────────────────────
 @router.post("/sync/{company_id}")
 def reviews_sync(
@@ -411,29 +398,21 @@ def reviews_sync(
 ):
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
-        raise HTTPException(404, "Company not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Company not found")
 
     _validate_token(x_api_key, authorization)
 
     try:
-        # Expecting: services/ingestion.py with function below
         from ..services.ingestion import fetch_and_save_reviews_places
-    except ImportError:
-        raise HTTPException(
-            501,
-            "Ingestion service missing. Provide fetch_and_save_reviews_places().",
-        )
-
-    try:
         added = fetch_and_save_reviews_places(
             company,
             db,
             max_reviews=min(max_reviews, REVIEWS_SCAN_LIMIT),
         )
         return {"ok": True, "added": int(added or 0)}
-    except Exception as e:
+    except (ImportError, Exception) as e:
         logger.error(f"Sync failed for company {company_id}: {e}")
-        raise HTTPException(502, "Review ingestion failed")
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Review ingestion failed")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -447,31 +426,22 @@ def reviews_diagnostics():
         "google_places_key_present": bool(GOOGLE_PLACES_API_KEY),
         "api_token_configured": bool(API_TOKEN),
         "reviews_scan_limit": REVIEWS_SCAN_LIMIT,
-        "reviews_scan_limit_effective": min(REVIEWS_SCAN_LIMIT, 8000),
         "environment": os.getenv("ENVIRONMENT", "development"),
         "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
     }
 
-
 # ─────────────────────────────────────────────────────────────
-# Google API startup check (runs when module is imported)
+# Startup Check
 # ─────────────────────────────────────────────────────────────
 def check_google_api_keys_at_startup():
     missing = []
-    if not GOOGLE_MAPS_API_KEY:
-        missing.append("GOOGLE_MAPS_API_KEY")
-    if not GOOGLE_BUSINESS_API_KEY:
-        missing.append("GOOGLE_BUSINESS_API_KEY")
-    if not GOOGLE_PLACES_API_KEY:
-        missing.append("GOOGLE_PLACES_API_KEY")
+    if not GOOGLE_MAPS_API_KEY: missing.append("GOOGLE_MAPS_API_KEY")
+    if not GOOGLE_BUSINESS_API_KEY: missing.append("GOOGLE_BUSINESS_API_KEY")
+    if not GOOGLE_PLACES_API_KEY: missing.append("GOOGLE_PLACES_API_KEY")
 
     if missing:
-        logger.warning(
-            f"Missing Google API keys at startup: {', '.join(missing)}. "
-            "Some endpoints will return 503."
-        )
+        logger.warning(f"Missing Google API keys at startup: {', '.join(missing)}")
     else:
         logger.info("All Google API keys are configured.")
 
-# Run the check once when the module loads
 check_google_api_keys_at_startup()
