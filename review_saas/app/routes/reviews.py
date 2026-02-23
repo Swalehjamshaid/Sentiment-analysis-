@@ -452,6 +452,17 @@ def reviews_diagnostics():
         "google_business_key_present": bool(GOOGLE_BUSINESS_API_KEY),
         "google_places_key_present": bool(GOOGLE_PLACES_API_KEY),
         "api_token_configured": bool(API_TOKEN),
-        "reviews_scan_limit": REVIEWS_SCAN_LIMIT,
+        "reviews_scan_li# ─────────────────────────────────────────────────────────────
+# Google API startup check
+# ─────────────────────────────────────────────────────────────
+try:
+    if GOOGLE_BUSINESS_API_KEY:
+        # Simple "dummy" request to just confirm the key is present
+        # We won't actually hit Google API to avoid errors
+        logger.info(f"✅ Google Business API key successfully loaded: {GOOGLE_BUSINESS_API_KEY[:8]}***")
+    else:
+        logger.warning("⚠️ GOOGLE_BUSINESS_API_KEY is not set!")
+except Exception as e:
+    logger.error(f"❌ Failed to validate GOOGLE_BUSINESS_API_KEY: {e}")mit": REVIEWS_SCAN_LIMIT,
         "server_time_utc": datetime.now(timezone.utc).isoformat(),
     }
