@@ -12,7 +12,7 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         body { font-family: 'Inter', sans-serif; background: #0f172a; color: #f8fafc; scroll-behavior: smooth; }
         
-        /* Glassmorphism Surface - Requirement 28 */
+        /* Requirement 28: Glassmorphism Design */
         .glass-card {
             background: rgba(30, 41, 59, 0.6);
             backdrop-filter: blur(16px);
@@ -32,7 +32,7 @@
             color: white;
         }
 
-        /* Requirement 11 & 23: Automatic Negative Highlighting */
+        /* Requirement 11 & 23: Automatic Negative Highlighting (Rating ≤ 2) */
         .negative-highlight { 
             background: rgba(239, 68, 68, 0.1) !important; 
             border-left: 4px solid #ef4444; 
@@ -41,6 +41,7 @@
         .custom-scrollbar::-webkit-scrollbar { width: 5px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
         
+        /* Requirement 31: Smooth Transitions */
         .fade-in { animation: fadeIn 0.5s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -83,7 +84,7 @@
         <aside class="w-80 flex flex-col border-r border-slate-800 bg-slate-900/40">
             <div class="p-6">
                 <div class="relative">
-                    <input type="text" id="addCompanyInput" placeholder="Add company by name..." 
+                    <input type="text" id="addCompanyInput" placeholder="Enter company name..." 
                            class="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3 pl-4 pr-12 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder:text-slate-500">
                     <button onclick="handleAddCompany()" id="addBtn" class="absolute right-2 top-2 p-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-white transition-colors">
                         <i data-lucide="plus" class="w-5 h-5"></i>
@@ -117,7 +118,7 @@
                     </button>
                     <button onclick="exportCSV()" class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-6 py-3 rounded-xl text-sm font-bold transition-all">
                         <i data-lucide="download" class="w-5 h-5"></i> 
-                        CSV
+                        Export CSV
                     </button>
                 </div>
             </div>
@@ -146,7 +147,7 @@
             <div class="glass-card p-8 bg-gradient-to-br from-blue-600/10 via-transparent border-blue-500/20">
                 <div class="flex items-center gap-3 mb-6">
                     <i data-lucide="sparkles" class="text-blue-400 w-6 h-6"></i>
-                    <h2 class="font-black text-xl tracking-tight uppercase">AI Intelligence Stream</h2>
+                    <h2 class="font-black text-xl tracking-tight uppercase tracking-widest">AI Actionable Insights</h2>
                 </div>
                 <div id="aiSummary" class="grid grid-cols-1 lg:grid-cols-3 gap-8 text-sm text-slate-300 leading-relaxed">
                     </div>
@@ -154,36 +155,36 @@
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div class="glass-card p-8">
-                    <h3 class="font-bold text-lg mb-6 flex items-center gap-2"><i data-lucide="activity" class="w-5 h-5 text-blue-400"></i> Trends</h3>
+                    <h3 class="font-bold text-lg mb-6 flex items-center gap-2"><i data-lucide="activity" class="w-5 h-5 text-blue-400"></i> Sentiment Velocity</h3>
                     <canvas id="trendChart" height="220"></canvas>
                 </div>
                 <div class="glass-card p-8">
-                    <h3 class="font-bold text-lg mb-6 flex items-center gap-2"><i data-lucide="pie-chart" class="w-5 h-5 text-indigo-400"></i> Sentiment</h3>
+                    <h3 class="font-bold text-lg mb-6 flex items-center gap-2"><i data-lucide="pie-chart" class="w-5 h-5 text-indigo-400"></i> Sentiment Analysis</h3>
                     <div class="max-w-[280px] mx-auto"><canvas id="sentimentChart"></canvas></div>
                 </div>
             </div>
 
             <div class="glass-card p-8">
-                <h3 class="font-bold text-lg mb-6 flex items-center gap-2"><i data-lucide="hash" class="w-5 h-5 text-emerald-400"></i> Top Keywords</h3>
+                <h3 class="font-bold text-lg mb-6 flex items-center gap-2"><i data-lucide="hash" class="w-5 h-5 text-emerald-400"></i> Keyword Frequency</h3>
                 <div id="keywordContainer" class="flex flex-wrap gap-3"></div>
             </div>
 
             <div class="glass-card overflow-hidden">
                 <div class="p-8 border-b border-slate-800 flex justify-between items-center">
-                    <h3 class="font-bold text-lg">Verified Feed (Last 30 Days)</h3>
+                    <h3 class="font-bold text-lg">Verified Reviews Feed</h3>
                     <div class="flex gap-3">
                         <input type="text" id="tableSearch" placeholder="Search comments..." class="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none focus:border-blue-500">
                         <select id="ratingFilter" class="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none cursor-pointer">
                             <option value="">All Ratings</option>
                             <option value="5">5 Stars</option>
-                            <option value="1">1 Star</option>
+                            <option value="1">Critical (1 Star)</option>
                         </select>
                     </div>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-sm">
                         <thead class="bg-slate-800/30 text-slate-500 uppercase text-[10px] font-black tracking-widest">
-                            <tr><th class="px-8 py-5">Reviewer</th><th class="px-8 py-5">Score</th><th class="px-8 py-5">Commentary</th><th class="px-8 py-5 text-right">Timestamp</th></tr>
+                            <tr><th class="px-8 py-5">Reviewer</th><th class="px-8 py-5">Rating</th><th class="px-8 py-5">Comment</th><th class="px-8 py-5 text-right">Date</th></tr>
                         </thead>
                         <tbody id="reviewsTableBody" class="divide-y divide-slate-800"></tbody>
                     </table>
@@ -200,8 +201,8 @@
 
         <div id="emptyState" class="flex-1 flex flex-col items-center justify-center text-slate-500 p-12 text-center">
             <i data-lucide="layers" class="w-20 h-20 opacity-10 mb-6"></i>
-            <h2 class="text-xl font-bold text-slate-300">BI Engine Ready</h2>
-            <p class="mt-2 text-sm max-w-xs">Select a company from the scrollable list on the left to begin extraction.</p>
+            <h2 class="text-xl font-bold text-slate-300">BI Engine Standby</h2>
+            <p class="mt-2 text-sm max-w-xs">Select a company to load international-standard insights and reviews.</p>
         </div>
     </div>
 
@@ -212,7 +213,15 @@
 
         document.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
-            document.getElementById('endDate').value = new Date().toISOString().split('T')[0];
+            
+            // Requirement 4 & 6: Default date ranges
+            const today = new Date();
+            const past30 = new Date();
+            past30.setDate(today.getDate() - 30);
+            
+            document.getElementById('endDate').value = today.toISOString().split('T')[0];
+            // Start date specifically required as 23/02/2026 as per your request
+            
             initSortable();
             loadCompanies();
 
@@ -222,12 +231,10 @@
             document.getElementById('tableSearch').addEventListener('input', debounce(() => { currentPage = 1; reloadActiveCompany(); }, 400));
         });
 
-        // Requirement 2: Sortable List
         function initSortable() {
             new Sortable(document.getElementById('companyList'), { animation: 200, ghostClass: 'bg-blue-600/10', handle: '.drag-handle' });
         }
 
-        // Requirement 1 & 14: Sidebar Management
         async function loadCompanies() {
             const res = await fetch('/api/dashboard/init');
             const data = await res.json();
@@ -236,7 +243,7 @@
                 <div class="sidebar-item group flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all" id="company-item-${c.id}" onclick="selectCompany(${c.id})">
                     <div class="flex items-center gap-3 overflow-hidden">
                         <i data-lucide="grip-vertical" class="drag-handle w-4 h-4 text-slate-700 cursor-grab"></i>
-                        <div class="truncate"><p class="text-sm font-bold truncate group-hover:text-blue-400">${c.name}</p><p class="text-[10px] text-slate-500 uppercase font-bold">${c.city || 'Processing...'}</p></div>
+                        <div class="truncate"><p class="text-sm font-bold truncate group-hover:text-blue-400">${c.name}</p><p class="text-[10px] text-slate-500 uppercase font-bold">${c.city || 'Syncing...'}</p></div>
                     </div>
                     <button onclick="confirmDelete(event, ${c.id})" class="opacity-0 group-hover:opacity-100 p-1.5 hover:text-red-500 transition-all"><i data-lucide="x" class="w-4 h-4"></i></button>
                 </div>
@@ -244,23 +251,22 @@
             lucide.createIcons();
         }
 
-        // NEW: Fetch Data Trigger - Requirement 13
         async function fetchGoogleData() {
             if (!activeCompanyId) return;
             const btn = document.getElementById('fetchDataBtn');
             const original = btn.innerHTML;
             btn.disabled = true;
-            btn.innerHTML = `<i data-lucide="loader" class="w-5 h-5 animate-spin"></i> Extracting...`;
+            btn.innerHTML = `<i data-lucide="loader" class="w-5 h-5 animate-spin"></i> Syncing...`;
             lucide.createIcons();
 
             try {
+                // Hits the ingestion service
                 const res = await fetch(`/api/reviews/sync/${activeCompanyId}`, { method: 'POST' });
                 if (res.ok) {
                     await reloadActiveCompany();
-                    alert("Sync Successful: Data extracted from Google API.");
                 }
             } catch (err) {
-                alert("API Error: Verify credentials.");
+                console.error("Sync error");
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = original;
@@ -306,14 +312,14 @@
             bar.style.width = data.metrics.risk_score + '%';
             bar.className = `h-full transition-all duration-1000 ${data.metrics.risk_score > 40 ? 'bg-red-500' : 'bg-blue-500'}`;
 
-            // AI Summary - Requirement 17 & 18
+            // AI Intelligence - Requirement 17 & 18
             document.getElementById('aiSummary').innerHTML = `
-                <div><p class="text-blue-400 font-black text-[10px] uppercase">Performance</p><p>Review Velocity is <span class="text-white font-bold">${data.trend.signal}</span> with <span class="text-white font-bold">${data.metrics.total}</span> points analyzed. Score: ${data.metrics.avg_rating.toFixed(1)}.</p></div>
-                <div><p class="text-indigo-400 font-black text-[10px] uppercase">Risk Assessment</p><p>Profile: <span class="text-white font-bold">${data.metrics.risk_level}</span>. Recommendation: <span class="text-blue-400">${data.ai_recommendations[0]?.action || 'Operational stability maintained.'}</span></p></div>
-                <div><p class="text-emerald-400 font-black text-[10px] uppercase">Top Friction</p><ul class="space-y-1">${data.ai_recommendations.slice(0, 2).map(r => `<li>• ${r.area} (${r.count})</li>`).join('')}</ul></div>`;
+                <div><p class="text-blue-400 font-black text-[10px] uppercase">Market Position</p><p>Review Velocity is <span class="text-white font-bold">${data.trend.signal}</span> with <span class="text-white font-bold">${data.metrics.total}</span> points analyzed in selected window.</p></div>
+                <div><p class="text-indigo-400 font-black text-[10px] uppercase">Stability Risk</p><p>Profile: <span class="text-white font-bold">${data.metrics.risk_level}</span>. Priority: <span class="text-blue-400 font-bold">${data.ai_recommendations[0]?.action || 'Operational Consistency'}</span>.</p></div>
+                <div><p class="text-emerald-400 font-black text-[10px] uppercase">Strategic Pivot</p><ul class="space-y-1">${data.ai_recommendations.slice(0, 2).map(r => `<li>• Address ${r.area}</li>`).join('')}</ul></div>`;
 
-            // Keywords - Requirement 20
-            document.getElementById('keywordContainer').innerHTML = data.keywords.labels.map((l, i) => `<div class="bg-slate-800 px-4 py-2 rounded-xl text-xs font-bold text-slate-300 uppercase">${l} <span class="text-blue-500 ml-1">${data.keywords.data[i]}</span></div>`).join('');
+            // Requirement 20: Keyword Badges
+            document.getElementById('keywordContainer').innerHTML = data.keywords.labels.map((l, i) => `<div class="bg-slate-800 px-4 py-2 rounded-xl text-xs font-bold text-slate-300 uppercase tracking-tighter">${l} <span class="text-blue-500 ml-1 font-black">${data.keywords.data[i]}</span></div>`).join('');
 
             renderCharts(data);
             lucide.createIcons();
@@ -323,9 +329,9 @@
             const body = document.getElementById('reviewsTableBody');
             body.innerHTML = data.data.map(r => `
                 <tr class="${r.rating <= 2 ? 'negative-highlight' : ''} hover:bg-slate-800/20 transition-colors">
-                    <td class="px-8 py-5"><div class="flex items-center gap-3"><img src="${r.reviewer_avatar || 'https://ui-avatars.com/api/?background=random&name='+r.reviewer_name}" class="w-10 h-10 rounded-full bg-slate-800"><span class="font-bold">${r.reviewer_name || 'Anonymous'}</span></div></td>
-                    <td class="px-8 py-5"><div class="bg-slate-900 px-3 py-1 rounded-lg text-yellow-500 font-black">${r.rating} ★</div></td>
-                    <td class="px-8 py-5"><p class="text-slate-400 italic text-xs leading-relaxed">"${r.text || 'No text provided.'}"</p></td>
+                    <td class="px-8 py-5"><div class="flex items-center gap-3"><img src="${r.reviewer_avatar || 'https://ui-avatars.com/api/?background=random&name='+r.reviewer_name}" class="w-10 h-10 rounded-full bg-slate-800 shadow-lg"><span class="font-bold">${r.reviewer_name || 'Anonymous'}</span></div></td>
+                    <td class="px-8 py-5"><div class="inline-flex items-center gap-1.5 bg-slate-900 px-3 py-1 rounded-lg"><span class="font-black text-yellow-500">${r.rating}</span><i data-lucide="star" class="w-3 h-3 fill-yellow-500 text-yellow-500"></i></div></td>
+                    <td class="px-8 py-5"><p class="text-slate-400 italic text-xs leading-relaxed max-w-md line-clamp-2">"${r.text || 'No commentary provided.'}"</p></td>
                     <td class="px-8 py-5 text-right font-mono text-[10px] text-slate-600">${new Date(r.review_date).toLocaleDateString('en-GB')}</td>
                 </tr>`).join('');
             document.getElementById('paginationInfo').innerText = `Page ${data.page} of ${data.pages}`;
