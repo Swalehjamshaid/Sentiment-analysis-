@@ -66,12 +66,12 @@ langdetect==1.0.9
 googlemaps>=4.10.0
 
 # ────────────────────────────────────────────────────────────────
-# NEW ADDITIONS (Google-related APIs & retry support)
+# Google-related APIs & retry support
 # ────────────────────────────────────────────────────────────────
-google-api-python-client>=2.149.0      # For Business Profile API (if you go OAuth/service account route later)
-google-auth>=2.35.0                    # Required for google-api-python-client
-google-auth-oauthlib>=1.2.1            # OAuth flow support
-tenacity==9.0.0                        # Retry logic for API calls (very useful for rate limits)
+google-api-python-client>=2.149.0
+google-auth>=2.35.0
+google-auth-oauthlib>=1.2.1
+tenacity==9.0.0
 
 # ────────────────────────────────────────────────────────────────
 # Optional: Dev & Debugging
