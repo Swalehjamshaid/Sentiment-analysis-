@@ -15,7 +15,6 @@ from sqlalchemy import or_
 from ..db import get_db
 from ..models import Company, Review
 from ..services.analysis import dashboard_payload
-from ..services.ai_insights import classify_sentiment
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
@@ -30,12 +29,23 @@ if not logger.handlers:
 logger.setLevel(logging.INFO)
 
 # ─────────────────────────────────────────────────────────────
-# Config
+# Config (env overrides; provided keys as defaults)
 # ─────────────────────────────────────────────────────────────
-GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")
+GOOGLE_MAPS_API_KEY = os.getenv(
+    "GOOGLE_MAPS_API_KEY",
+    "AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg",
+)
+GOOGLE_BUSINESS_API_KEY = os.getenv(
+    "GOOGLE_BUSINESS_API_KEY",
+    "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc",
+)
+GOOGLE_PLACES_API_KEY = os.getenv(
+    "GOOGLE_PLACES_API_KEY",
+    "AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg",
+)
 API_TOKEN = os.getenv("API_TOKEN")
 REVIEWS_SCAN_LIMIT = int(os.getenv("REVIEWS_SCAN_LIMIT", "8000"))
-_G_TIMEOUT = (5, 15)
+_G_TIMEOUT = (5, 15)  # (connect, read) seconds
 
 
 # ─────────────────────────────────────────────────────────────
@@ -44,6 +54,7 @@ _G_TIMEOUT = (5, 15)
 def _parse_date_param(s: Optional[str]) -> Optional[datetime]:
     if not s:
         return None
+    # Try date-only first (YYYY-MM-DD), then ISO
     try:
         dt = datetime.strptime(s, "%Y-%m-%d")
         return dt.replace(tzinfo=timezone.utc)
@@ -61,13 +72,24 @@ def _normalize_review_date(dt: Optional[datetime]) -> Optional[datetime]:
     return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+def _validate_token(x_api_key: Optional[str], authorization: Optional[str]) -> None:
+    """Optional API token validator. No-op if API_TOKEN unset."""
+    if not API_TOKEN:
+        return
+    token = (x_api_key or "").strip()
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    if token != API_TOKEN:
+        raise HTTPException(401, "Invalid API token")
+
+
 # ─────────────────────────────────────────────────────────────
-# Google Places Search
+# Google Places: Find place from text
 # ─────────────────────────────────────────────────────────────
 @router.get("/google/places")
 def google_places_search(
-    q: str = Query(..., min_length=2),
-    limit: int = Query(5, ge=1, le=10),
+    q: str = Query(..., min_length=2, description="Free text query"),
+    limit: int = Query(5, ge=1, le=10, description="Max candidates to return"),
 ):
     if not GOOGLE_PLACES_API_KEY:
         raise HTTPException(503, "Google Places API not configured")
@@ -87,7 +109,7 @@ def google_places_search(
 
         status = payload.get("status")
         if status not in ("OK", "ZERO_RESULTS"):
-            logger.warning(f"Google Places error: {status}")
+            logger.warning(f"Google Places findplace error: {status}")
             raise HTTPException(502, f"Google status: {status}")
 
         candidates = (payload.get("candidates") or [])[:limit]
@@ -110,7 +132,73 @@ def google_places_search(
 
 
 # ─────────────────────────────────────────────────────────────
-# Dashboard Summary
+# Google Places: Place Details (for dashboard drilldowns)
+# ─────────────────────────────────────────────────────────────
+@router.get("/google/details")
+def google_place_details(
+    place_id: str = Query(..., min_length=10, description="Google Place ID"),
+    language: Optional[str] = Query(None, description="Language code (e.g., en, ur, ar)"),
+):
+    if not GOOGLE_PLACES_API_KEY:
+        raise HTTPException(503, "Google Places API not configured")
+
+    url = "https://maps.googleapis.com/maps/api/place/details/json"
+    fields = (
+        "name,formatted_address,formatted_phone_number,international_phone_number,"
+        "website,address_components,geometry,rating,user_ratings_total,url"
+    )
+    params = {
+        "place_id": place_id,
+        "fields": fields,
+        "key": GOOGLE_PLACES_API_KEY,
+    }
+    if language:
+        params["language"] = language
+
+    try:
+        resp = requests.get(url, params=params, timeout=_G_TIMEOUT)
+        resp.raise_for_status()
+        payload = resp.json()
+        status = payload.get("status")
+        if status not in ("OK", "ZERO_RESULTS"):
+            logger.warning(f"Place Details status: {status}")
+            raise HTTPException(502, f"Google status: {status}")
+
+        result = payload.get("result") or {}
+        loc = (result.get("geometry") or {}).get("location") or {}
+
+        # Normalize to a compact payload for dashboards
+        return {
+            "name": result.get("name"),
+            "address": result.get("formatted_address"),
+            "phone": result.get("formatted_phone_number") or result.get("international_phone_number"),
+            "website": result.get("website"),
+            "city": _extract_city_from_components(result.get("address_components") or []),
+            "lat": loc.get("lat"),
+            "lng": loc.get("lng"),
+            "rating": result.get("rating"),
+            "user_ratings_total": result.get("user_ratings_total"),
+            "url": result.get("url"),
+        }
+    except requests.RequestException as e:
+        logger.error(f"Place Details failed: {e}")
+        raise HTTPException(502, "Google Place Details failed")
+
+
+def _extract_city_from_components(components: List[Dict]) -> Optional[str]:
+    for comp in components:
+        types = comp.get("types", [])
+        if "locality" in types:
+            return comp.get("long_name")
+        if "postal_town" in types:
+            return comp.get("long_name")
+        if "administrative_area_level_2" in types:
+            return comp.get("long_name")
+    return None
+
+
+# ─────────────────────────────────────────────────────────────
+# Dashboard Summary (unified payload)
 # ─────────────────────────────────────────────────────────────
 @router.get("/summary/{company_id}")
 def reviews_summary(
@@ -143,7 +231,7 @@ def list_reviews(
     q: Optional[str] = Query(None, min_length=2),
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
-    order: str = Query("desc", pattern="^(asc|desc)$"),
+    order: str = Query("desc", regex="^(asc|desc)$"),
     db: Session = Depends(get_db),
 ):
     query = db.query(Review).filter(Review.company_id == company_id)
@@ -154,7 +242,8 @@ def list_reviews(
     if start_dt:
         query = query.filter(Review.review_date >= start_dt)
     if end_dt:
-        query = query.filter(Review.review_date <= end_dt + timedelta(days=1))
+        # include end day fully
+        query = query.filter(Review.review_date < (end_dt + timedelta(days=1)))
 
     if rating is not None:
         query = query.filter(Review.rating == rating)
@@ -188,10 +277,10 @@ def list_reviews(
                 "review_date": (
                     _normalize_review_date(r.review_date) or datetime.now(timezone.utc)
                 ).isoformat(),
-                "sentiment_category": r.sentiment_category,
-                "sentiment_score": r.sentiment_score,
-                "keywords": r.keywords,
-                "language": r.language,
+                "sentiment_category": getattr(r, "sentiment_category", None),
+                "sentiment_score": getattr(r, "sentiment_score", None),
+                "keywords": getattr(r, "keywords", None),
+                "language": getattr(r, "language", None),
             }
             for r in items
         ],
@@ -199,7 +288,7 @@ def list_reviews(
 
 
 # ─────────────────────────────────────────────────────────────
-# Sync Reviews
+# Sync Reviews (delegates to ingestion service)
 # ─────────────────────────────────────────────────────────────
 @router.post("/sync/{company_id}")
 def reviews_sync(
@@ -213,14 +302,10 @@ def reviews_sync(
     if not company:
         raise HTTPException(404, "Company not found")
 
-    if API_TOKEN:
-        token = (x_api_key or "").strip()
-        if authorization and authorization.lower().startswith("bearer "):
-            token = authorization[7:].strip()
-        if token != API_TOKEN:
-            raise HTTPException(401, "Invalid API token")
+    _validate_token(x_api_key, authorization)
 
     try:
+        # Expecting: services/ingestion.py with function below
         from ..services.ingestion import fetch_and_save_reviews_places
     except ImportError:
         raise HTTPException(
@@ -247,6 +332,8 @@ def reviews_sync(
 @router.get("/diagnostics")
 def reviews_diagnostics():
     return {
+        "google_maps_key_present": bool(GOOGLE_MAPS_API_KEY),
+        "google_business_key_present": bool(GOOGLE_BUSINESS_API_KEY),
         "google_places_key_present": bool(GOOGLE_PLACES_API_KEY),
         "api_token_configured": bool(API_TOKEN),
         "reviews_scan_limit": REVIEWS_SCAN_LIMIT,
