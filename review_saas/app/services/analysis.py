@@ -1,32 +1,15 @@
 # FILE: app/services/analysis.py
 """
 Database-aware analysis helpers aligned to app/models.py for dashboard.html.
-
-This module bridges SQLAlchemy ORM models (Company, Review) with
-pure-Python analytics in `app/services/ai_insights.py` and returns
-ready-to-serialize payloads for the dashboard.
-
-Key capabilities
-----------------
-- Date parsing and inclusive date filtering (by review_date)
-- Safe, defensive access to optional Review fields (keywords, language, etc.)
-- Metrics/trend/sentiment/keywords/alerts/revenue blocks
-- Server-side reviews table (search/sort/pagination)
-- Unified dashboard payload (single call)
-
-Note: The `Review` model (see app/models.py) includes: text, rating, review_date,
-reviewer_name, reviewer_avatar, sentiment_category, sentiment_score, keywords,
-language, fetch_at, fetch_status. There is no `source`, `title`, or `url`.
-This module avoids referencing non-existent fields and adds sensible fallbacks.
 """
 from __future__ import annotations
 
 from typing import Optional, Dict, Any, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from math import ceil
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from ..models import Company, Review
 from .ai_insights import (
@@ -40,35 +23,33 @@ from .ai_insights import (
     analyze_reviews,
 )
 
-
 # ─────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────
 
 def _parse_date(s: Optional[str]) -> Optional[datetime]:
-    """Parse 'YYYY-MM-DD' or ISO datetime string into a datetime.
-    Returns None on failure.
-    """
+    """Parse 'YYYY-MM-DD' or ISO datetime string into a UTC datetime."""
     if not s:
         return None
     try:
-        return datetime.strptime(s, "%Y-%m-%d")
+        dt = datetime.strptime(s, "%Y-%m-%d")
+        return dt.replace(tzinfo=timezone.utc)
     except Exception:
         try:
-            return datetime.fromisoformat(s)
+            dt = datetime.fromisoformat(s)
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
         except Exception:
             return None
 
 
 def _apply_date_filter(query, start: Optional[str], end: Optional[str]):
-    """Apply inclusive date range filters on Review.review_date.
-    If only date (no time) is provided for end, include the entire end day.
-    """
+    """Apply inclusive date range filters on Review.review_date."""
     start_dt = _parse_date(start)
     end_dt = _parse_date(end)
-    if start_dt is not None:
+    if start_dt:
         query = query.filter(Review.review_date >= start_dt)
-    if end_dt is not None:
+    if end_dt:
+        # If end_dt is a pure date (00:00:00), include the entire day up to 23:59:59
         if end_dt.hour == 0 and end_dt.minute == 0 and end_dt.second == 0:
             query = query.filter(Review.review_date < (end_dt + timedelta(days=1)))
         else:
@@ -79,7 +60,7 @@ def _apply_date_filter(query, start: Optional[str], end: Optional[str]):
 def get_company_or_404(db: Session, company_id: int) -> Company:
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company:
-        raise ValueError("Company not found")
+        raise ValueError(f"Company ID {company_id} not found")
     return company
 
 
@@ -95,7 +76,7 @@ def fetch_reviews(
 
 
 # ─────────────────────────────────────────────────────────────
-# Blocks (DB-backed → pure helpers)
+# Dashboard Blocks
 # ─────────────────────────────────────────────────────────────
 
 def metrics_block(db: Session, company_id: int, start: Optional[str] = None, end: Optional[str] = None) -> Dict[str, Any]:
@@ -114,24 +95,17 @@ def sentiment_block(db: Session, company_id: int, start: Optional[str] = None, e
 
 
 def sources_block(db: Session, company_id: int, start: Optional[str] = None, end: Optional[str] = None) -> Dict[str, Any]:
-    """Aggregate by a best-effort 'source' proxy.
-    Since the Review model has no explicit source, we fallback to `language`.
-    If language is missing, return a single "unknown" bucket.
-    """
+    """Aggregate by language as a proxy for source."""
     q = db.query(Review.language, func.count(Review.id)).filter(Review.company_id == company_id)
     q = _apply_date_filter(q, start, end)
     q = q.group_by(Review.language)
     rows = q.all()
 
-    # Build buckets
     buckets: Dict[str, int] = {}
-    total = 0
     for lang, cnt in rows:
         key = (lang or "unknown").strip() or "unknown"
         buckets[key] = int(cnt)
-        total += int(cnt)
 
-    # Fallback if no rows
     if not buckets:
         total_q = db.query(func.count(Review.id)).filter(Review.company_id == company_id)
         total = _apply_date_filter(total_q, start, end).scalar() or 0
@@ -147,56 +121,33 @@ def heatmap_block(db: Session, company_id: int, start: Optional[str] = None, end
     return hour_heatmap(reviews, _parse_date(start), _parse_date(end))
 
 
-def keywords_block(
-    db: Session,
-    company_id: int,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-    top_n: int = 20,
-) -> Dict[str, Any]:
+def keywords_block(db: Session, company_id: int, start: Optional[str] = None, end: Optional[str] = None, top_n: int = 20) -> Dict[str, Any]:
     reviews = fetch_reviews(db, company_id, start, end)
     return top_keywords(reviews, _parse_date(start), _parse_date(end), top_n=top_n)
 
 
-def alerts_block(
-    db: Session,
-    company_id: int,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-    window_days: int = 14,
-) -> Dict[str, Any]:
+def alerts_block(db: Session, company_id: int, start: Optional[str] = None, end: Optional[str] = None, window_days: int = 14) -> Dict[str, Any]:
     reviews = fetch_reviews(db, company_id, start, end)
     return detect_alerts(reviews, _parse_date(start), _parse_date(end), window_days=window_days)
 
 
-def revenue_block(
-    db: Session,
-    company_id: int,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-    months_back: int = 6,
-) -> Dict[str, Any]:
+def revenue_block(db: Session, company_id: int, start: Optional[str] = None, end: Optional[str] = None, months_back: int = 6) -> Dict[str, Any]:
     reviews = fetch_reviews(db, company_id, start, end)
     return revenue_proxy_monthly(reviews, _parse_date(start), _parse_date(end), months_back=months_back)
 
 
 # ─────────────────────────────────────────────────────────────
-# Reviews table (server-side pagination)
+# Reviews Table Logic
 # ─────────────────────────────────────────────────────────────
 
 def _apply_search_filters(q, search: Optional[str]):
     if not search:
         return q
     s = f"%{search.strip()}%"
-    from sqlalchemy import or_
-    filters = []
-    # Available columns in Review per models.py
-    for col in ("text", "reviewer_name", "keywords", "language", "sentiment_category", "fetch_status"):
-        if hasattr(Review, col):
-            filters.append(getattr(Review, col).ilike(s))
-    if filters:
-        q = q.filter(or_(*filters))
-    return q
+    # Filterable columns based on model availability
+    cols_to_search = ["text", "reviewer_name", "keywords", "language", "sentiment_category"]
+    filters = [getattr(Review, col).ilike(s) for col in cols_to_search if hasattr(Review, col)]
+    return q.filter(or_(*filters)) if filters else q
 
 
 def reviews_table(
@@ -216,48 +167,41 @@ def reviews_table(
 
     total = q.count()
 
-    # Sorting (allowed: review_date, rating, sentiment_category, fetch_at)
-    allowed = {"review_date", "rating", "sentiment_category", "fetch_at"}
-    sort_key = sort if sort in allowed else "review_date"
+    allowed_sorts = {"review_date", "rating", "sentiment_category", "fetch_at"}
+    sort_key = sort if sort in allowed_sorts else "review_date"
     sort_col = getattr(Review, sort_key)
     q = q.order_by(sort_col.desc() if order == "desc" else sort_col.asc())
 
-    # Pagination
     page = max(1, int(page))
     limit = max(1, min(500, int(limit)))
-    offset = (page - 1) * limit
+    rows = q.offset((page - 1) * limit).limit(limit).all()
 
-    rows: List[Review] = q.offset(offset).limit(limit).all()
-
-    def to_dict(r: Review) -> Dict[str, Any]:
-        return {
-            "id": getattr(r, "id", None),
-            "review_date": (getattr(r, "review_date", None).isoformat() if getattr(r, "review_date", None) else None),
-            "rating": int(getattr(r, "rating", 0) or 0),
-            "text": getattr(r, "text", None),
-            "reviewer_name": getattr(r, "reviewer_name", None),
-            "reviewer_avatar": getattr(r, "reviewer_avatar", None),
-            "sentiment_category": getattr(r, "sentiment_category", None),
-            "sentiment_score": float(getattr(r, "sentiment_score", 0.0) or 0.0),
-            "keywords": getattr(r, "keywords", None),
-            "language": getattr(r, "language", None),
-            "fetch_at": (getattr(r, "fetch_at", None).isoformat() if getattr(r, "fetch_at", None) else None),
-            "fetch_status": getattr(r, "fetch_status", None),
-        }
-
-    data = [to_dict(r) for r in rows]
+    data = [{
+        "id": r.id,
+        "review_date": r.review_date.isoformat() if r.review_date else None,
+        "rating": int(r.rating or 0),
+        "text": r.text,
+        "reviewer_name": r.reviewer_name,
+        "reviewer_avatar": r.reviewer_avatar,
+        "sentiment_category": r.sentiment_category,
+        "sentiment_score": float(r.sentiment_score or 0.0),
+        "keywords": r.keywords,
+        "language": r.language,
+        "fetch_at": r.fetch_at.isoformat() if r.fetch_at else None,
+        "fetch_status": r.fetch_status,
+    } for r in rows]
 
     return {
         "page": page,
         "limit": limit,
         "total": total,
-        "pages": ceil(total / limit) if limit else 1,
+        "pages": ceil(total / limit) if limit > 0 else 1,
         "data": data,
     }
 
 
 # ─────────────────────────────────────────────────────────────
-# Unified dashboard payload
+# Unified Payload
 # ─────────────────────────────────────────────────────────────
 
 def dashboard_payload(
@@ -272,24 +216,15 @@ def dashboard_payload(
     company = get_company_or_404(db, company_id)
     reviews = fetch_reviews(db, company_id, start, end)
 
-    # core insights from AI module (includes trend, sentiments, risk, aspects, daily series)
-    core = analyze_reviews(reviews, company, _parse_date(start), _parse_date(end), include_aspects=True)
-
-    # extra widgets
-    heatmap = hour_heatmap(reviews, _parse_date(start), _parse_date(end))
-    keywords = top_keywords(reviews, _parse_date(start), _parse_date(end), top_n=top_keywords_n)
-    alerts = detect_alerts(reviews, _parse_date(start), _parse_date(end), window_days=alerts_window_days)
-    revenue = revenue_proxy_monthly(reviews, _parse_date(start), _parse_date(end), months_back=revenue_months_back)
-
-    # best-effort proxy for sources by language
-    sources = sources_block(db, company_id, start, end)
+    start_dt, end_dt = _parse_date(start), _parse_date(end)
+    core = analyze_reviews(reviews, company, start_dt, end_dt, include_aspects=True)
 
     return {
         "company": {
-            "id": getattr(company, "id", None),
-            "name": getattr(company, "name", None),
-            "city": getattr(company, "city", None),
-            "status": getattr(company, "status", None),
+            "id": company.id,
+            "name": company.name,
+            "city": company.city,
+            "status": company.status,
         },
         "metrics": {
             "total": core.get("total_reviews", 0),
@@ -307,13 +242,13 @@ def dashboard_payload(
         "daily_series": core.get("daily_series", []),
         "aspects": core.get("aspects", []),
         "ai_recommendations": core.get("ai_recommendations", []),
-        "sources": sources,
-        "heatmap": heatmap,
-        "keywords": keywords,
-        "alerts": alerts.get("alerts", []),
-        "revenue": revenue,
+        "sources": sources_block(db, company_id, start, end),
+        "heatmap": hour_heatmap(reviews, start_dt, end_dt),
+        "keywords": top_keywords(reviews, start_dt, end_dt, top_n=top_keywords_n),
+        "alerts": detect_alerts(reviews, start_dt, end_dt, window_days=alerts_window_days).get("alerts", []),
+        "revenue": revenue_proxy_monthly(reviews, start_dt, end_dt, months_back=revenue_months_back),
         "window": core.get("window", {}),
-        "version": core.get("payload_version", "3.3"),
+        "version": "3.5",
     }
 
 
