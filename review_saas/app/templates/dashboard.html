@@ -43,7 +43,7 @@
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
         /* Requirement: Scrollable sidebar area */
-        #companyList { max-height: calc(100vh - 12rem); overflow-y: auto; }
+        #companyList { max-height: calc(100vh - 16rem); overflow-y: auto; display: none; }
         
         .fetch-pulse { animation: pulse-blue 2s infinite; }
         @keyframes pulse-blue {
@@ -64,10 +64,11 @@
         </div>
         <div class="flex items-center gap-8">
             <div class="flex items-center gap-3 glass-card py-2 px-4 border-slate-700">
-                <i data-lucide="calendar" class="w-4 h-4 text-blue-400"></i>
+                <span class="text-[10px] font-black uppercase text-slate-500">From</span>
                 <input type="date" id="startDate" class="bg-transparent outline-none text-sm font-medium" value="2025-01-01">
-                <span class="text-slate-500 font-bold">→</span>
-                <input type="date" id="endDate" class="bg-transparent outline-none text-sm font-medium" value="2026-02-23">
+                <span class="text-blue-500 font-bold">→</span>
+                <span class="text-[10px] font-black uppercase text-slate-500">To</span>
+                <input type="date" id="endDate" class="bg-transparent outline-none text-sm font-medium">
             </div>
             <button onclick="handleLogout()" class="group flex items-center gap-2 text-slate-400 hover:text-white transition-all">
                 <span class="text-sm font-semibold">Logout</span>
@@ -79,17 +80,22 @@
     <div class="flex flex-1 overflow-hidden">
         <aside class="w-80 flex flex-col border-r border-slate-800 bg-slate-900/40">
             <div class="p-6">
-                <div class="relative">
-                    <input type="text" id="addCompanyInput" placeholder="Add company by name..." 
+                <div class="relative mb-6">
+                    <input type="text" id="addCompanyInput" placeholder="Add new company..." 
                            class="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-3 pl-4 pr-12 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder:text-slate-500">
                     <button onclick="handleAddCompany()" id="addBtn" class="absolute right-2 top-2 p-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-white transition-colors">
                         <i data-lucide="plus" class="w-5 h-5"></i>
                     </button>
                 </div>
+                
+                <button onclick="toggleCompanyList()" class="w-full flex items-center justify-between p-4 glass-card border-slate-700 hover:bg-slate-800 transition-all">
+                    <span class="text-xs font-black uppercase tracking-widest text-blue-400">Select Company</span>
+                    <i data-lucide="chevron-down" id="chevronIcon" class="w-4 h-4 transition-transform"></i>
+                </button>
             </div>
-            <div id="companyList" class="flex-1 custom-scrollbar px-4 pb-6 space-y-2">
-                <p class="text-slate-600 text-xs text-center mt-10">Initializing sidebar...</p>
-            </div>
+            
+            <div id="companyList" class="custom-scrollbar px-4 pb-6 space-y-2">
+                </div>
         </aside>
 
         <main id="dashboardContent" class="flex-1 overflow-y-auto p-8 custom-scrollbar space-y-8 hidden">
@@ -97,74 +103,47 @@
                 <div class="fade-in">
                     <h1 id="activeCompanyName" class="text-4xl font-extrabold tracking-tight">--</h1>
                     <div class="flex gap-4 mt-2">
-                        <p class="text-slate-400 text-sm flex items-center gap-1.5">
-                            <i data-lucide="map-pin" class="w-4 h-4 text-red-400"></i> <span id="cityText">--</span>
-                        </p>
-                        <p class="text-slate-400 text-sm flex items-center gap-1.5 font-mono text-[10px] uppercase">
-                            <i data-lucide="fingerprint" class="w-4 h-4 text-emerald-400"></i> <span id="placeIdText">--</span>
-                        </p>
+                        <p class="text-slate-400 text-sm flex items-center gap-1.5"><i data-lucide="map-pin" class="w-4 h-4 text-red-400"></i> <span id="cityText">--</span></p>
+                        <p class="text-slate-400 text-sm flex items-center gap-1.5 font-mono text-[10px] uppercase"><i data-lucide="fingerprint" class="w-4 h-4 text-emerald-400"></i> <span id="placeIdText">--</span></p>
                     </div>
                 </div>
                 <div class="flex gap-4">
                     <button onclick="fetchGoogleData()" id="fetchDataBtn" class="fetch-pulse flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl text-sm font-bold transition-all shadow-lg shadow-blue-500/20">
-                        <i data-lucide="refresh-cw" class="w-5 h-5"></i> Fetch Latest Data
+                        <i data-lucide="refresh-cw" class="w-5 h-5" id="syncIcon"></i> Sync Google Data
                     </button>
                     <button onclick="exportCSV()" class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-6 py-3 rounded-xl text-sm font-bold transition-all">
-                        <i data-lucide="download" class="w-5 h-5"></i> Export CSV
+                        <i data-lucide="download" class="w-5 h-5"></i> CSV
                     </button>
                 </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div class="glass-card p-6">
-                    <p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Total Reviews</p>
-                    <h3 id="statTotalReviews" class="text-3xl font-black mt-2">0</h3>
-                </div>
-                <div class="glass-card p-6">
-                    <p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Avg Rating</p>
-                    <h3 id="statAvgRating" class="text-3xl font-black mt-2">0.0</h3>
-                    <div id="ratingStars" class="mt-2 flex"></div>
-                </div>
-                <div class="glass-card p-6 relative overflow-hidden">
-                    <p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Risk Level</p>
-                    <h3 id="statRiskLevel" class="text-3xl font-black mt-2">--</h3>
-                    <div class="absolute bottom-0 left-0 w-full h-1.5 bg-slate-800"><div id="riskBar" class="h-full bg-blue-500" style="width: 0%"></div></div>
-                </div>
-                <div class="glass-card p-6 bg-blue-600/5">
-                    <p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Risk Score</p>
-                    <h3 id="statRiskScore" class="text-3xl font-black mt-2 text-blue-400">0</h3>
-                </div>
+                <div class="glass-card p-6"><p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Total Reviews</p><h3 id="statTotalReviews" class="text-3xl font-black mt-2">0</h3></div>
+                <div class="glass-card p-6"><p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Avg Rating</p><h3 id="statAvgRating" class="text-3xl font-black mt-2">0.0</h3><div id="ratingStars" class="mt-2 flex"></div></div>
+                <div class="glass-card p-6 relative overflow-hidden"><p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Risk Level</p><h3 id="statRiskLevel" class="text-3xl font-black mt-2">--</h3><div class="absolute bottom-0 left-0 w-full h-1.5 bg-slate-800"><div id="riskBar" class="h-full bg-blue-500 transition-all duration-1000" style="width: 0%"></div></div></div>
+                <div class="glass-card p-6 bg-blue-600/5"><p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Risk Score</p><h3 id="statRiskScore" class="text-3xl font-black mt-2 text-blue-400">0</h3></div>
             </div>
 
             <div class="glass-card p-8 bg-gradient-to-br from-blue-600/10 via-transparent border-blue-500/20">
-                <div class="flex items-center gap-3 mb-6">
-                    <i data-lucide="sparkles" class="text-blue-400 w-6 h-6"></i>
-                    <h2 class="font-black text-xl tracking-tight uppercase">AI Intelligence Stream</h2>
-                </div>
+                <div class="flex items-center gap-3 mb-6"><i data-lucide="brain-circuit" class="text-blue-400 w-6 h-6"></i><h2 class="font-black text-xl tracking-tight uppercase">Intelligence Narrative</h2></div>
                 <div id="aiSummary" class="grid grid-cols-1 lg:grid-cols-3 gap-8 text-sm text-slate-300"></div>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div class="glass-card p-8"><canvas id="trendChart" height="220"></canvas></div>
-                <div class="glass-card p-8"><div class="max-w-[280px] mx-auto"><canvas id="sentimentChart"></canvas></div></div>
+                <div class="glass-card p-8"><h3 class="font-bold text-lg mb-6 flex items-center gap-2"><i data-lucide="line-chart" class="w-5 h-5 text-blue-400"></i> Performance Velocity</h3><canvas id="trendChart" height="220"></canvas></div>
+                <div class="glass-card p-8"><h3 class="font-bold text-lg mb-6 flex items-center gap-2"><i data-lucide="pie-chart" class="w-5 h-5 text-indigo-400"></i> Sentiment Resonance</h3><div class="max-w-[280px] mx-auto"><canvas id="sentimentChart"></canvas></div></div>
             </div>
 
             <div class="glass-card overflow-hidden">
-                <div class="p-8 border-b border-slate-800 flex justify-between items-center">
-                    <h3 class="font-bold text-lg">Verified Feed</h3>
-                    <div class="flex gap-3">
-                        <input type="text" id="tableSearch" placeholder="Search..." class="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none">
-                        <select id="ratingFilter" class="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none"><option value="">All</option><option value="5">5 ★</option><option value="1">1 ★</option></select>
-                    </div>
-                </div>
+                <div class="p-8 border-b border-slate-800 flex justify-between items-center"><h3 class="font-bold text-lg">Detailed Feed</h3><div class="flex gap-3"><input type="text" id="tableSearch" placeholder="Filter..." class="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none"><select id="ratingFilter" class="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none"><option value="">All Ratings</option><option value="5">5 ★</option><option value="1">1 ★</option></select></div></div>
                 <div class="overflow-x-auto"><table class="w-full text-left text-sm"><tbody id="reviewsTableBody"></tbody></table></div>
             </div>
         </main>
 
         <div id="emptyState" class="flex-1 flex flex-col items-center justify-center text-slate-500 p-12 text-center">
-            <i data-lucide="layers" class="w-20 h-20 opacity-10 mb-6"></i>
-            <h2 class="text-xl font-bold text-slate-300">BI Engine Ready</h2>
-            <p class="mt-2 text-sm max-w-xs">Select a company to load international-standard insights and reviews.</p>
+            <i data-lucide="database" class="w-20 h-20 opacity-10 mb-6"></i>
+            <h2 class="text-xl font-bold text-slate-300 italic">BI Engine Online</h2>
+            <p class="mt-2 text-sm max-w-xs">Use the sidebar to select a company and trigger real-time Google API extraction.</p>
         </div>
     </div>
 
@@ -176,91 +155,80 @@
         document.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
             
-            // Default Dates based on request: Start 2025-01-01, End Today 2026-02-23
-            document.getElementById('startDate').value = "2025-01-01";
+            // INTERNATIONAL STANDARD: Auto-set Today's Date
             document.getElementById('endDate').value = new Date().toISOString().split('T')[0];
             
-            initSortable();
             loadCompanies();
 
             ['startDate', 'endDate', 'ratingFilter'].forEach(id => {
-                document.getElementById(id).addEventListener('change', () => { 
-                    currentPage = 1; 
-                    reloadActiveCompany(); 
-                });
+                document.getElementById(id).addEventListener('change', () => { currentPage = 1; reloadActiveCompany(); });
             });
             document.getElementById('tableSearch').addEventListener('input', debounce(() => { currentPage = 1; reloadActiveCompany(); }, 400));
         });
 
-        function initSortable() {
-            new Sortable(document.getElementById('companyList'), { animation: 200, ghostClass: 'bg-blue-600/10', handle: '.drag-handle' });
+        function toggleCompanyList() {
+            const list = document.getElementById('companyList');
+            const icon = document.getElementById('chevronIcon');
+            const isOpen = list.style.display === 'block';
+            
+            list.style.display = isOpen ? 'none' : 'block';
+            icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
         }
 
         async function loadCompanies() {
-            try {
-                const res = await fetch('/api/dashboard/init');
-                const data = await res.json();
-                const list = document.getElementById('companyList');
-                // Initially empty, populated only after fetch
-                list.innerHTML = data.companies.map(c => `
-                    <div class="sidebar-item group flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all" id="company-item-${c.id}" onclick="selectCompany(${c.id})">
-                        <div class="flex items-center gap-3 overflow-hidden">
-                            <i data-lucide="grip-vertical" class="drag-handle w-4 h-4 text-slate-700 cursor-grab"></i>
-                            <div class="truncate"><p class="text-sm font-bold truncate group-hover:text-blue-400">${c.name}</p><p class="text-[10px] text-slate-500 uppercase font-bold">${c.city || 'Processing...'}</p></div>
-                        </div>
-                        <button onclick="confirmDelete(event, ${c.id})" class="opacity-0 group-hover:opacity-100 p-1.5 hover:text-red-500 transition-all"><i data-lucide="x" class="w-4 h-4"></i></button>
+            const res = await fetch('/api/dashboard/init');
+            const data = await res.json();
+            const list = document.getElementById('companyList');
+            list.innerHTML = data.companies.map(c => `
+                <div class="sidebar-item group flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all" id="company-item-${c.id}" onclick="selectCompany(${c.id})">
+                    <div class="flex items-center gap-3 overflow-hidden">
+                        <div class="truncate"><p class="text-sm font-bold truncate group-hover:text-blue-400">${c.name}</p><p class="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">${c.city || 'BI Sync Pending'}</p></div>
                     </div>
-                `).join('');
-                lucide.createIcons();
-            } catch (err) { console.error("Sidebar load failed."); }
+                </div>
+            `).join('');
+            lucide.createIcons();
         }
 
         async function fetchGoogleData() {
             if (!activeCompanyId) return;
             const btn = document.getElementById('fetchDataBtn');
-            const original = btn.innerHTML;
+            const icon = document.getElementById('syncIcon');
             btn.disabled = true;
-            btn.innerHTML = `<i data-lucide="loader" class="w-5 h-5 animate-spin"></i> Syncing...`;
-            lucide.createIcons();
-
+            icon.classList.add('animate-spin');
+            
             try {
+                // Hits the backend sync logic to pull from Google Places
                 const res = await fetch(`/api/reviews/sync/${activeCompanyId}`, { method: 'POST' });
-                if (res.ok) {
-                    await reloadActiveCompany();
-                }
-            } catch (err) { console.error("API error."); } 
-            finally {
+                if (res.ok) await reloadActiveCompany();
+            } finally {
                 btn.disabled = false;
-                btn.innerHTML = original;
+                icon.classList.remove('animate-spin');
                 lucide.createIcons();
             }
         }
 
-        // Logic Change: Selection immediately fetches data
+        // BI Logic: Selection immediately triggers data extraction
         async function selectCompany(id) {
             activeCompanyId = id;
             document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
-            const activeItem = document.getElementById(`company-item-${id}`);
-            if (activeItem) activeItem.classList.add('active');
-            
+            document.getElementById(`company-item-${id}`).classList.add('active');
             document.getElementById('emptyState').classList.add('hidden');
             document.getElementById('dashboardContent').classList.remove('hidden');
             
-            // Immediate Fetch from Google API on selection
+            // Immediate Fetch
             await fetchGoogleData();
+            // Automatically close sidebar on mobile/small views if needed
+            if(window.innerWidth < 1024) toggleCompanyList();
         }
 
         async function reloadActiveCompany() {
             if (!activeCompanyId) return;
-            
             let start = document.getElementById('startDate').value;
             let end = document.getElementById('endDate').value;
 
-            // Logic Fix: Prevent inverted dates (fixing 422 error from logs)
+            // Date Safety Guard
             if (new Date(start) > new Date(end)) {
-                const temp = start;
-                start = end;
-                end = temp;
+                const temp = start; start = end; end = temp;
                 document.getElementById('startDate').value = start;
                 document.getElementById('endDate').value = end;
             }
@@ -268,15 +236,13 @@
             const q = document.getElementById('tableSearch').value;
             const r = document.getElementById('ratingFilter').value;
 
-            try {
-                const sumRes = await fetch(`/api/dashboard/summary/${activeCompanyId}?start=${start}&end=${end}`);
-                const sumData = await sumRes.json();
-                const tabRes = await fetch(`/api/dashboard/table?company_id=${activeCompanyId}&page=${currentPage}&start=${start}&end=${end}&q=${q}&rating=${r}`);
-                const tabData = await tabRes.json();
-                
-                updateUI(sumData);
-                updateTable(tabData);
-            } catch (e) { console.error("Dashboard sync error."); }
+            const sumRes = await fetch(`/api/dashboard/summary/${activeCompanyId}?start=${start}&end=${end}`);
+            const sumData = await sumRes.json();
+            const tabRes = await fetch(`/api/dashboard/table?company_id=${activeCompanyId}&page=${currentPage}&start=${start}&end=${end}&q=${q}&rating=${r}`);
+            const tabData = await tabRes.json();
+            
+            updateUI(sumData);
+            updateTable(tabData);
         }
 
         function updateUI(data) {
@@ -294,8 +260,8 @@
 
             document.getElementById('aiSummary').innerHTML = `
                 <div><p class="text-blue-400 font-bold uppercase text-[10px]">Position</p><p>Review Velocity: <span class="text-white">${data.trend.signal}</span>.</p></div>
-                <div><p class="text-indigo-400 font-bold uppercase text-[10px]">Assessment</p><p>Risk: <span class="text-white font-bold">${data.metrics.risk_level}</span>.</p></div>
-                <div><p class="text-emerald-400 font-bold uppercase text-[10px]">Pivot</p><p>${data.ai_recommendations[0]?.action || 'Stable'}</p></div>`;
+                <div><p class="text-indigo-400 font-bold uppercase text-[10px]">Assessment</p><p>Risk Profile: <span class="text-white font-bold">${data.metrics.risk_level}</span>.</p></div>
+                <div><p class="text-emerald-400 font-bold uppercase text-[10px]">Strategic Pivot</p><p>${data.ai_recommendations[0]?.action || 'Operational Consistency'}</p></div>`;
 
             renderCharts(data);
             lucide.createIcons();
@@ -304,13 +270,12 @@
         function updateTable(data) {
             const body = document.getElementById('reviewsTableBody');
             body.innerHTML = data.data.map(r => `
-                <tr class="${r.rating <= 2 ? 'negative-highlight' : ''} hover:bg-slate-800/20">
-                    <td class="px-8 py-5"><div class="flex items-center gap-3"><span class="font-bold">${r.reviewer_name || 'User'}</span></div></td>
-                    <td class="px-8 py-5"><span class="text-yellow-500">${r.rating} ★</span></td>
-                    <td class="px-8 py-5"><p class="text-slate-400 text-xs italic">"${r.text || '...'}"</p></td>
-                    <td class="px-8 py-5 text-right font-mono text-[10px]">${new Date(r.review_date).toLocaleDateString('en-GB')}</td>
+                <tr class="${r.rating <= 2 ? 'negative-highlight' : ''} hover:bg-slate-800/20 transition-colors">
+                    <td class="px-8 py-5 font-bold">${r.reviewer_name || 'Anonymous'}</td>
+                    <td class="px-8 py-5"><span class="text-yellow-500 font-black">${r.rating} ★</span></td>
+                    <td class="px-8 py-5 text-slate-400 italic text-xs leading-relaxed line-clamp-2">"${r.text || '...'}"</td>
+                    <td class="px-8 py-5 text-right font-mono text-[10px] text-slate-600">${new Date(r.review_date).toLocaleDateString('en-GB')}</td>
                 </tr>`).join('');
-            document.getElementById('paginationInfo').innerText = `Page ${data.page} of ${data.pages}`;
             lucide.createIcons();
         }
 
@@ -319,8 +284,8 @@
             const sentCtx = document.getElementById('sentimentChart').getContext('2d');
             if (activeCharts.trend) activeCharts.trend.destroy();
             if (activeCharts.sentiment) activeCharts.sentiment.destroy();
-            activeCharts.trend = new Chart(trendCtx, { type: 'line', data: { labels: data.trend.labels, datasets: [{ data: data.trend.data, borderColor: '#3b82f6', tension: 0.4 }] }});
-            activeCharts.sentiment = new Chart(sentCtx, { type: 'doughnut', data: { labels: ['Pos', 'Neu', 'Neg'], datasets: [{ data: [data.sentiment.Positive, data.sentiment.Neutral, data.sentiment.Negative], backgroundColor: ['#10b981', '#64748b', '#ef4444'] }] }});
+            activeCharts.trend = new Chart(trendCtx, { type: 'line', data: { labels: data.trend.labels, datasets: [{ data: data.trend.data, borderColor: '#3b82f6', tension: 0.4, fill: true, backgroundColor: 'rgba(59, 130, 246, 0.05)' }] }, options: { plugins: { legend: { display: false } }, scales: { y: { min: 1, max: 5 } } } });
+            activeCharts.sentiment = new Chart(sentCtx, { type: 'doughnut', data: { labels: ['Pos', 'Neu', 'Neg'], datasets: [{ data: [data.sentiment.Positive, data.sentiment.Neutral, data.sentiment.Negative], backgroundColor: ['#10b981', '#64748b', '#ef4444'], borderWidth: 0 }] }, options: { cutout: '80%', plugins: { legend: { position: 'bottom' } } } });
         }
 
         async function handleAddCompany() {
@@ -332,8 +297,6 @@
         }
 
         function debounce(func, t) { let timer; return (...args) => { clearTimeout(timer); timer = setTimeout(() => func.apply(this, args), t); }; }
-        function changePage(dir) { currentPage = Math.max(1, currentPage + dir); reloadActiveCompany(); }
-        function confirmDelete(e, id) { e.stopPropagation(); if (confirm("Delete?")) fetch(`/api/dashboard/companies/${id}`, { method: 'DELETE' }).then(() => loadCompanies()); }
         function handleLogout() { window.location.href = '/login'; }
         function exportCSV() { window.location.href = `/api/dashboard/export?company_id=${activeCompanyId}&start=${document.getElementById('startDate').value}&end=${document.getElementById('endDate').value}`; }
     </script>
