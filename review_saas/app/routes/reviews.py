@@ -11,7 +11,6 @@ from datetime import datetime, timedelta, timezone
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from ..db import get_db
 from ..models import Company, Review
@@ -23,9 +22,6 @@ from ..services.analysis import (
 )
 from ..services.ai_insights import (
     classify_sentiment,
-    extract_keywords,
-    map_aspects,
-    # _action_for_keyword not needed in this file because we use dashboard_payload
 )
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
@@ -58,8 +54,7 @@ def _parse_date_param(s: Optional[str], *, as_end: bool = False) -> Optional[dat
         return None
     try:
         dt = datetime.strptime(s, "%Y-%m-%d")
-        if as_end:
-            return dt  # we'll handle inclusive filtering where used
+        # We keep dt as-is; route code will handle <= or < next day for inclusive end
         return dt
     except Exception:
         try:
@@ -161,7 +156,8 @@ def google_places_search(
             if pid:
                 dt_params = {
                     "place_id": pid,
-                    "fields": "name,formatted_address,address_component,geometry,website,international_phone_number,rating,user_ratings_total,url",
+                    # NOTE: address_components (plural) is the valid field name
+                    "fields": "name,formatted_address,address_components,geometry,website,international_phone_number,rating,user_ratings_total,url",
                     "key": GOOGLE_PLACES_API_KEY,
                 }
                 dt = requests.get(details_url, params=dt_params, timeout=_G_TIMEOUT)
@@ -200,8 +196,6 @@ def reviews_summary(
     Returns the full insight payload used by dashboard.html for a given company.
     This delegates to services.analysis.dashboard_payload to stay consistent.
     """
-    # dashboard_payload already includes: metrics, trend, sentiments, daily_series,
-    # aspects, ai_recommendations, sources, heatmap, keywords, alerts, revenue, window
     return dashboard_payload(
         db=db,
         company_id=company_id,
@@ -222,7 +216,7 @@ def list_reviews(
     q: Optional[str] = Query(None, min_length=2),
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
-    order: str = Query("desc", regex="^(asc|desc)$"),
+    order: str = Query("desc", pattern="^(asc|desc)$"),  # ← pydantic v2-compatible
     db: Session = Depends(get_db),
 ):
     """
