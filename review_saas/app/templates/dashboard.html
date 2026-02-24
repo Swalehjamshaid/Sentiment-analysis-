@@ -3,40 +3,30 @@
 {% block title %}BizChat • Review Dashboard{% endblock %}
 
 {% block content %}
-<div class="flex flex-col">
+<div class="flex flex-col p-6 space-y-10">
 
-  <!-- Controls Bar -->
-  <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-10">
+  <!-- Header & Company Switcher -->
+  <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
     <h1 class="text-3xl font-bold bg-gradient-to-r from-violet-300 to-accent bg-clip-text text-transparent"
-        x-text="selectedCompany ? selectedCompany.name : 'All Companies Dashboard'"></h1>
+        x-data x-text="'All Companies Dashboard'"></h1>
 
-    <!-- Company Switcher -->
     <div x-data="{ open: false }" class="relative w-full md:w-80">
       <button @click="open = !open"
               class="w-full flex justify-between items-center px-4 py-3 bg-slate-800/70 border border-slate-600 rounded-xl hover:border-accent transition">
-        <span x-text="selectedCompany ? selectedCompany.name : 'Select Company'"></span>
+        <span>Select Company</span>
         <svg class="w-5 h-5 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
         </svg>
       </button>
       <div x-show="open" @click.away="open = false"
            class="absolute w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-80 overflow-y-auto z-30">
-        <div class="p-2">
-          <template x-for="company in dashboard?.companies || []" :key="company.id">
-            <button @click="selectedCompany = company; open = false"
-                    class="w-full text-left px-4 py-2.5 hover:bg-slate-700/70 rounded-lg transition"
-                    x-text="company.name"></button>
-          </template>
-          <div x-show="!(dashboard?.companies || []).length" class="px-4 py-2.5 text-slate-400 italic">
-            No companies found
-          </div>
-        </div>
+        <div class="p-2 text-slate-400 italic">No companies found</div>
       </div>
     </div>
   </div>
 
   <!-- Date Range Picker -->
-  <div class="card p-6 mb-10 bg-card rounded-xl">
+  <div class="card p-6 bg-card rounded-xl">
     <h3 class="text-lg font-semibold mb-4 flex items-center justify-between">
       <span>Date Range Filter</span>
       <button @click="showReviews = !showReviews" class="text-sm text-accent hover:underline">
@@ -47,66 +37,45 @@
     <div class="flex flex-col sm:flex-row gap-4 items-end">
       <div class="flex-1">
         <label class="block text-sm text-slate-400 mb-1.5">Start Date</label>
-        <input type="date" x-model="dateStart"
-               class="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg focus:border-accent focus:ring-1 focus:ring-accent outline-none">
+        <input type="date" class="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg outline-none">
       </div>
       <div class="flex-1">
         <label class="block text-sm text-slate-400 mb-1.5">End Date</label>
-        <input type="date" x-model="dateEnd"
-               class="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg focus:border-accent focus:ring-1 focus:ring-accent outline-none">
+        <input type="date" class="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg outline-none">
       </div>
-      <button @click="$dispatch('apply-date-range', {start: dateStart, end: dateEnd})"
-              class="px-6 py-2.5 bg-accent hover:bg-accentdark text-white font-medium rounded-lg transition">
+      <button class="px-6 py-2.5 bg-accent hover:bg-accentdark text-white font-medium rounded-lg transition">
         Apply Filter
       </button>
     </div>
   </div>
 
   <!-- Key Metrics -->
-  <div class="card mb-10 bg-card rounded-xl">
-    <button @click="metricsOpen = !metricsOpen" class="w-full flex justify-between items-center p-6 text-left">
-      <h2 class="text-xl font-semibold">Key Metrics</h2>
-      <svg class="w-6 h-6 transition-transform" :class="metricsOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-      </svg>
-    </button>
-    <div x-show="metricsOpen" class="section-collapse px-6 pb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+  <div class="card p-6 bg-card rounded-xl">
+    <h2 class="text-xl font-semibold mb-6">Key Metrics</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
       <div class="text-center">
         <p class="text-sm text-slate-400 uppercase tracking-wide">Total Reviews</p>
-        <p class="stat-number mt-2 text-accent" x-text="(dashboard?.metrics?.total || 0).toLocaleString()"></p>
+        <p class="stat-number mt-2 text-accent">2,946</p>
       </div>
       <div class="text-center">
         <p class="text-sm text-slate-400 uppercase tracking-wide">Avg Rating</p>
-        <p class="stat-number mt-2"
-           :class="(dashboard?.metrics?.avg_rating || 0) >= 4 ? 'text-emerald-400' : (dashboard?.metrics?.avg_rating || 0) >= 3 ? 'text-amber-400' : 'text-rose-400'"
-           x-text="(dashboard?.metrics?.avg_rating || 0).toFixed(1) + ' ★'"></p>
+        <p class="stat-number mt-2 text-emerald-400">4.2 ★</p>
       </div>
       <div class="text-center">
         <p class="text-sm text-slate-400 uppercase tracking-wide">Risk Score</p>
-        <p class="stat-number mt-2"
-           :class="dashboard?.metrics?.risk_level === 'High' ? 'text-rose-400' : dashboard?.metrics?.risk_level === 'Medium' ? 'text-amber-400' : 'text-emerald-400'"
-           x-text="(dashboard?.metrics?.risk_score || 0).toFixed(1)"></p>
+        <p class="stat-number mt-2 text-amber-400">2.8</p>
       </div>
       <div class="text-center">
         <p class="text-sm text-slate-400 uppercase tracking-wide">Trend</p>
-        <p class="stat-number mt-2 flex justify-center items-center gap-2"
-           :class="dashboard?.trend?.signal === 'improving' ? 'text-emerald-400' : dashboard?.trend?.signal === 'declining' ? 'text-rose-400' : 'text-slate-300'">
-          <span x-text="dashboard?.trend?.signal || 'No data'"></span>
-          <span x-text="dashboard?.trend?.delta ? (dashboard.trend.delta > 0 ? '+' + dashboard.trend.delta.toFixed(2) : dashboard.trend.delta.toFixed(2)) : ''"></span>
-        </p>
+        <p class="stat-number mt-2 text-emerald-400">Improving +0.35</p>
       </div>
     </div>
   </div>
 
   <!-- Charts Grid -->
-  <div class="card mb-10 bg-card rounded-xl">
-    <button @click="chartsOpen = !chartsOpen" class="w-full flex justify-between items-center p-6 text-left">
-      <h2 class="text-xl font-semibold">Visual Analytics</h2>
-      <svg class="w-6 h-6 transition-transform" :class="chartsOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-      </svg>
-    </button>
-    <div x-show="chartsOpen" class="section-collapse px-6 pb-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
+  <div class="card p-6 bg-card rounded-xl">
+    <h2 class="text-xl font-semibold mb-6">Visual Analytics</h2>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <div>
         <h3 class="text-lg font-semibold mb-4">Rating Trend</h3>
         <canvas id="trendChart" height="260"></canvas>
@@ -123,9 +92,9 @@
   </div>
 
   <!-- Reviews Table -->
-  <div x-show="showReviews" class="card p-6 bg-card rounded-xl">
+  <div x-data="{ showReviews: true }" x-show="showReviews" class="card p-6 bg-card rounded-xl">
     <h3 class="text-xl font-semibold mb-6">Recent Reviews</h3>
-    <div class="overflow-x-auto" x-show="(dashboard?.reviews?.data || []).length > 0">
+    <div class="overflow-x-auto">
       <table class="w-full text-sm text-left">
         <thead class="text-xs uppercase bg-slate-800/50">
           <tr>
@@ -137,84 +106,76 @@
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-700">
-          <template x-for="review in paginatedReviews" :key="review.id">
-            <tr class="hover:bg-slate-800/40 transition">
-              <td class="px-6 py-4" x-text="review.review_date ? new Date(review.review_date).toLocaleDateString() : '-'"></td>
-              <td class="px-6 py-4 font-medium" x-text="review.rating || 'N/A'"></td>
-              <td class="px-6 py-4" x-text="review.reviewer_name || 'Anonymous'"></td>
-              <td class="px-6 py-4 max-w-md truncate" x-text="review.text || 'No comment'"></td>
-              <td class="px-6 py-4">
-                <span class="px-2.5 py-1 rounded-full text-xs font-medium"
-                      :class="review.sentiment_category === 'Positive' ? 'bg-emerald-900/40 text-emerald-300' : review.sentiment_category === 'Negative' ? 'bg-rose-900/40 text-rose-300' : 'bg-slate-700 text-slate-300'"
-                      x-text="review.sentiment_category || 'Neutral'"></span>
-              </td>
-            </tr>
-          </template>
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="px-6 py-4">2026-02-24</td>
+            <td class="px-6 py-4 font-medium">5</td>
+            <td class="px-6 py-4">John Doe</td>
+            <td class="px-6 py-4 max-w-md truncate">Excellent service!</td>
+            <td class="px-6 py-4"><span class="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-900/40 text-emerald-300">Positive</span></td>
+          </tr>
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="px-6 py-4">2026-02-23</td>
+            <td class="px-6 py-4 font-medium">3</td>
+            <td class="px-6 py-4">Jane Smith</td>
+            <td class="px-6 py-4 max-w-md truncate">Average experience.</td>
+            <td class="px-6 py-4"><span class="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-700 text-slate-300">Neutral</span></td>
+          </tr>
         </tbody>
       </table>
-    </div>
-
-    <div x-show="(dashboard?.reviews?.data || []).length === 0" class="text-center py-10 text-slate-400 italic">
-      No reviews found in this period.
     </div>
   </div>
 
 </div>
+{% endblock content %}
 
 {% block extra_js %}
 <script>
-  const dashboard = {{ dashboard_payload | tojson | safe }} || {};
-
-  document.addEventListener('DOMContentLoaded', () => {
-    // Trend Chart
-    new Chart(document.getElementById('trendChart'), {
-      type: 'line',
-      data: {
-        labels: dashboard.trend?.labels || [],
-        datasets: [{
-          label: 'Avg Rating',
-          data: dashboard.trend?.data || [],
-          borderColor: '#7c3aed',
-          backgroundColor: 'rgba(124, 58, 237, 0.15)',
-          tension: 0.4,
-          fill: true
-        }]
-      },
-      options: { responsive: true, scales: { y: { min: 1, max: 5 } } }
-    });
-
-    // Sentiment Donut
-    new Chart(document.getElementById('sentimentChart'), {
-      type: 'doughnut',
-      data: {
-        labels: ['Positive', 'Neutral', 'Negative'],
-        datasets: [{
-          data: [
-            dashboard.sentiment?.Positive || 0,
-            dashboard.sentiment?.Neutral  || 0,
-            dashboard.sentiment?.Negative || 0
-          ],
-          backgroundColor: ['#10b981', '#64748b', '#ef4444'],
-          borderWidth: 0
-        }]
-      },
-      options: { responsive: true, cutout: '70%', plugins: { legend: { position: 'bottom' } } }
-    });
-
-    // Heatmap Bar
-    new Chart(document.getElementById('heatmapChart'), {
-      type: 'bar',
-      data: {
-        labels: dashboard.heatmap?.labels?.map(h => `${h}:00`) || [],
-        datasets: [{
-          label: 'Reviews',
-          data: dashboard.heatmap?.data || [],
-          backgroundColor: '#7c3aed',
-          borderRadius: 8
-        }]
-      },
-      options: { responsive: true, scales: { y: { beginAtZero: true } } }
-    });
+document.addEventListener('DOMContentLoaded', () => {
+  // Placeholder Trend Chart
+  new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: {
+      labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      datasets: [{
+        label: 'Avg Rating',
+        data: [4, 4.2, 4.1, 4.3, 4.2, 4.4, 4.2],
+        borderColor: '#7c3aed',
+        backgroundColor: 'rgba(124, 58, 237, 0.15)',
+        tension: 0.4,
+        fill: true
+      }]
+    },
+    options: { responsive: true, scales: { y: { min: 1, max: 5 } } }
   });
+
+  // Placeholder Sentiment Chart
+  new Chart(document.getElementById('sentimentChart'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Positive', 'Neutral', 'Negative'],
+      datasets: [{
+        data: [18, 5, 3],
+        backgroundColor: ['#10b981', '#64748b', '#ef4444'],
+        borderWidth: 0
+      }]
+    },
+    options: { responsive: true, cutout: '70%', plugins: { legend: { position: 'bottom' } } }
+  });
+
+  // Placeholder Heatmap Chart
+  new Chart(document.getElementById('heatmapChart'), {
+    type: 'bar',
+    data: {
+      labels: Array.from({length: 24}, (_, i) => i + ':00'),
+      datasets: [{
+        label: 'Reviews',
+        data: Array.from({length: 24}, () => Math.floor(Math.random() * 10)),
+        backgroundColor: '#7c3aed',
+        borderRadius: 8
+      }]
+    },
+    options: { responsive: true, scales: { y: { beginAtZero: true } } }
+  });
+});
 </script>
-{% endblock %}
+{% endblock extra_js %}
