@@ -70,19 +70,16 @@ metrics = Metrics()
 # -------------------------------
 
 def aggregate_trends(metric_name: str, labels: dict = None):
-    """
-    Aggregate trends stub.
-    Replace with actual logic to compute trends if needed.
-    """
+    """Stub for trend aggregation"""
     labels = labels or {}
-    # Example: return empty list or dummy trend data
     return {"metric": metric_name, "labels": labels, "values": []}
 
 def aggregate_rating_distribution(metric_name: str, labels: dict = None):
-    """
-    Aggregate rating distribution stub.
-    Replace with actual logic to compute rating distributions.
-    """
+    """Stub for rating distribution aggregation"""
     labels = labels or {}
-    # Example: return dummy rating distribution
     return {"metric": metric_name, "labels": labels, "distribution": {}}
+
+def compute_rating_sentiment_correlation(metric_name: str, labels: dict = None):
+    """Stub for rating-sentiment correlation computation"""
+    labels = labels or {}
+    return {"metric": metric_name, "labels": labels, "correlation": 0.0}
