@@ -1,7 +1,8 @@
 import os
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Dict, Any
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -12,32 +13,41 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
 # Internal relative imports
-from .db import engine, init_db
-from .models import Base, Company
+from .db import init_db
 from .routes import auth, companies, reviews, reply, reports, dashboard, admin
 from .routes.maps_routes import router as maps_router
 from .routes.activity import router as activity_router
 from .routes.insights import router as insights_router
 
 # ───────────────────────────────────────────────────────────────
-# PATH RESOLUTION & TEMPLATE INITIALIZATION (Permanent Rule)
+# PATH RESOLUTION (Railway Safe)
 # ───────────────────────────────────────────────────────────────
-# Rule 1: Always resolve absolute paths to prevent Railway directory nesting issues.
-BASE_DIR = Path(__file__).resolve().parent 
 
-# Rule 2: Fallback logic ensures the /templates folder is found regardless of mount point.
+BASE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = BASE_DIR.parent
+
 TEMPLATE_DIR = BASE_DIR / "templates"
-if not TEMPLATE_DIR.exists():
-    TEMPLATE_DIR = Path(os.getcwd()) / "app" / "templates"
-
 STATIC_DIR = BASE_DIR / "static"
 
-# Logger Setup
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("main")
-logger.info(f"System Check: Templates directory resolved to {TEMPLATE_DIR}")
+# Fallback for Railway nested mount cases
+if not TEMPLATE_DIR.exists():
+    TEMPLATE_DIR = PROJECT_ROOT / "app" / "templates"
 
-# Configuration fallback
+# ───────────────────────────────────────────────────────────────
+# Logging
+# ───────────────────────────────────────────────────────────────
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("review_saas")
+
+logger.info(f"Base directory: {BASE_DIR}")
+logger.info(f"Templates directory: {TEMPLATE_DIR}")
+logger.info(f"Static directory: {STATIC_DIR}")
+
+# ───────────────────────────────────────────────────────────────
+# Settings fallback (safe)
+# ───────────────────────────────────────────────────────────────
+
 try:
     from .core.config import settings
 except Exception:
@@ -45,32 +55,49 @@ except Exception:
         APP_NAME: str = "ReviewSaaS"
         FORCE_HTTPS: bool = bool(int(os.getenv("FORCE_HTTPS", "0")))
         CORS_ALLOW_ORIGINS: str = os.getenv("CORS_ALLOW_ORIGINS", "*")
+
     settings = _Settings()
 
 # ───────────────────────────────────────────────────────────────
-# FastAPI app initialization
+# Lifespan (Modern FastAPI Startup)
 # ───────────────────────────────────────────────────────────────
-app = FastAPI(title=getattr(settings, "APP_NAME", "ReviewSaaS"))
 
-# Initialize Templates (Shared globally across routes)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Initializing database...")
+    try:
+        init_db(drop_existing=os.getenv("DROP_ALL_TABLES") == "1")
+        logger.info("Database initialized successfully.")
+    except Exception as e:
+        logger.error(f"Database startup failed: {e}")
+    yield
+    logger.info("Application shutdown.")
+
+# ───────────────────────────────────────────────────────────────
+# FastAPI App
+# ───────────────────────────────────────────────────────────────
+
+app = FastAPI(
+    title=getattr(settings, "APP_NAME", "ReviewSaaS"),
+    lifespan=lifespan
+)
+
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
-# Mount Static Files
+# Mount static files safely
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-    logger.info("Static files mounted successfully.")
+    logger.info("Static files mounted.")
 
-# Global Template Variables
-templates.env.globals["googleMapsKey"] = os.getenv(
-    "GOOGLE_MAPS_API_KEY", 
-    "AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg"
-)
+# Global template variables
+templates.env.globals["googleMapsKey"] = os.getenv("GOOGLE_MAPS_API_KEY", "")
 templates.env.globals["apiBase"] = ""
 templates.env.globals["currentDate"] = "2026-02-24"
 
 # ───────────────────────────────────────────────────────────────
-# Middlewares
+# Middleware
 # ───────────────────────────────────────────────────────────────
+
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         proto = request.headers.get("x-forwarded-proto", request.url.scheme)
@@ -92,29 +119,21 @@ app.add_middleware(
 )
 
 # ───────────────────────────────────────────────────────────────
-# Database Startup
+# Template Context
 # ───────────────────────────────────────────────────────────────
-@app.on_event("startup")
-async def startup_event():
-    logger.info("Initializing database...")
-    try:
-        init_db(drop_existing=os.getenv("DROP_ALL_TABLES") == "1")
-    except Exception as e:
-        logger.error(f"Database startup failed: {e}")
 
-# Context Dependency for shared template data
 def template_context(request: Request) -> Dict[str, Any]:
-    # Huda is the confirmed user for this session
     return {
         "request": request,
-        "current_user": {"name": "Huda", "id": 1}, 
+        "current_user": {"name": "Huda", "id": 1},
         "apiBase": "",
-        "googleMapsKey": os.getenv("GOOGLE_MAPS_API_KEY", "AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg"),
+        "googleMapsKey": os.getenv("GOOGLE_MAPS_API_KEY", ""),
     }
 
 # ───────────────────────────────────────────────────────────────
 # UI Routes
 # ───────────────────────────────────────────────────────────────
+
 @app.get("/", response_class=HTMLResponse)
 async def home(context: dict = Depends(template_context)):
     return templates.TemplateResponse("home.html", context)
@@ -125,12 +144,12 @@ async def login_page(context: dict = Depends(template_context)):
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(context: dict = Depends(template_context)):
-    # Rule 3: Corrected spelling to dashboard.html to match physical file name.
     return templates.TemplateResponse("dashboard.html", context)
 
 # ───────────────────────────────────────────────────────────────
-# API & Router Registration
+# Routers
 # ───────────────────────────────────────────────────────────────
+
 app.include_router(auth.router, prefix="/auth")
 app.include_router(companies.router)
 app.include_router(reviews.router)
@@ -141,6 +160,14 @@ app.include_router(maps_router)
 app.include_router(activity_router, prefix="/api/activity", tags=["telemetry"])
 app.include_router(insights_router, prefix="/api/insights", tags=["ai"])
 
+# ───────────────────────────────────────────────────────────────
+# Health Check
+# ───────────────────────────────────────────────────────────────
+
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "service": settings.APP_NAME, "date": "2026-02-24"}
+    return {
+        "status": "healthy",
+        "service": settings.APP_NAME,
+        "date": "2026-02-24"
+    }
