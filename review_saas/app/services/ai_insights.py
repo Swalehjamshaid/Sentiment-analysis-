@@ -1,11 +1,14 @@
 # FILE: app/services/ai_insights.py
 """
-AI Intelligence Engine v7.0 (Enterprise Frontend-Ready)
+AI Intelligence Engine v7.1 (Enterprise Frontend-Ready)
 Fully compliant with all 31 Executive Requirements.
+Refined, Safe, Production-Optimized.
 """
 
 from __future__ import annotations
-import logging, re
+
+import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional, Iterable
@@ -17,8 +20,9 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 # Requirement #24: Multi-Language Support
 try:
     from langdetect import detect
-except ImportError:
-    def detect(text): return "en"
+except Exception:
+    def detect(text: str) -> str:
+        return "en"
 
 logger = logging.getLogger(__name__)
 analyzer = SentimentIntensityAnalyzer()
@@ -46,38 +50,54 @@ ASPECT_LEXICON = {
 # Core Intelligence Engine
 # ─────────────────────────────────────────────────────────────
 
-def _get_intelligence(text: str, rating: Optional[float]) -> Dict[str, Any]:
+def _get_intelligence(text: Optional[str], rating: Optional[float]) -> Dict[str, Any]:
 
-    if not text:
+    text = text or ""
+
+    # If no text fallback to rating-based logic
+    if not text.strip():
         cat = "Positive" if (rating or 0) >= 4 else "Negative" if (rating or 0) <= 2 else "Neutral"
         return {
-            "sentiment": cat, "confidence": 0.5,
-            "emotion": "Neutral", "aspects": {}, "lang": "en",
+            "sentiment": cat,
+            "confidence": 0.5,
+            "emotion": "Neutral",
+            "aspects": {},
+            "lang": "en",
             "keywords": []
         }
 
-    try: lang = detect(text)
-    except: lang = "en"
+    try:
+        lang = detect(text)
+    except Exception:
+        lang = "en"
 
     vs = analyzer.polarity_scores(text)
-    compound = vs['compound']
-    sentiment = "Positive" if compound >= 0.05 else "Negative" if compound <= -0.05 else "Neutral"
+    compound = vs.get("compound", 0)
+
+    if compound >= 0.05:
+        sentiment = "Positive"
+    elif compound <= -0.05:
+        sentiment = "Negative"
+    else:
+        sentiment = "Neutral"
 
     t_lower = text.lower()
 
+    # Emotion detection
     emotion = "Neutral"
-    for emo, kw in EMOTION_LEXICON.items():
-        if any(k in t_lower for k in kw):
+    for emo, keywords in EMOTION_LEXICON.items():
+        if any(word in t_lower for word in keywords):
             emotion = emo
             break
 
-    aspects = {
-        asp: sentiment for asp, kw in ASPECT_LEXICON.items()
-        if any(k in t_lower for k in kw)
-    }
+    # Aspect detection
+    aspects = {}
+    for asp, keywords in ASPECT_LEXICON.items():
+        if any(word in t_lower for word in keywords):
+            aspects[asp] = sentiment
 
-    # Requirement #6: Keyword & Topic Extraction
-    words = re.findall(r"\w+", t_lower)
+    # Keyword extraction
+    words = re.findall(r"\b\w+\b", t_lower)
     keywords = [w for w in words if len(w) > 4]
 
     return {
@@ -93,75 +113,103 @@ def _get_intelligence(text: str, rating: Optional[float]) -> Dict[str, Any]:
 # Master Review Analytics (Frontend-Ready)
 # ─────────────────────────────────────────────────────────────
 
-def analyze_reviews(reviews: Iterable[Any], company: Any, start=None, end=None) -> Dict[str, Any]:
+def analyze_reviews(
+    reviews: Iterable[Any],
+    company: Any,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None
+) -> Dict[str, Any]:
 
-    simple = [SimpleReview.from_any(r) for r in reviews]
+    simple_reviews = [SimpleReview.from_any(r) for r in reviews]
 
     if start and end:
-        simple = [r for r in simple if r.review_date and start <= r.review_date <= end]
+        simple_reviews = [
+            r for r in simple_reviews
+            if r.review_date and start <= r.review_date <= end
+        ]
 
-    if not simple:
-        return {"status": "No Data", "total_reviews": 0, "avg_rating": 0}
+    if not simple_reviews:
+        return {
+            "status": "No Data",
+            "total_reviews": 0,
+            "avg_rating": 0,
+            "payload_version": "7.1-Enterprise"
+        }
 
-    ratings = []
-    sentiments, emotions = Counter(), Counter()
+    ratings: List[float] = []
+    sentiments = Counter()
+    emotions = Counter()
     aspect_scores = defaultdict(list)
     keyword_cloud = Counter()
     dates = Counter()
     source_mix = Counter()
-    sentiment_values, correlation_bucket = [], []
 
-    # Track response behavior (#14 & #26)
-    response_times = []
+    sentiment_values = []
+    correlation_x = []
+    correlation_y = []
 
-    for r in simple:
-        source_mix[r.source] += 1
-        intel = _get_intelligence(r.text, r.rating)
+    for review in simple_reviews:
+
+        source_mix[review.source] += 1
+        intel = _get_intelligence(review.text, review.rating)
 
         sentiments[intel["sentiment"]] += 1
         emotions[intel["emotion"]] += 1
-
         keyword_cloud.update(intel["keywords"])
 
-        if r.review_date:
-            dates[r.review_date.date()] += 1
+        if review.review_date:
+            dates[review.review_date.date()] += 1
 
-        if r.rating:
-            ratings.append(r.rating)
+        if review.rating is not None:
+            ratings.append(review.rating)
+            correlation_x.append(review.rating)
+            correlation_y.append(intel["confidence"])
 
-        sentiment_values.append(1 if intel["sentiment"] == "Positive" else -1 if intel["sentiment"] == "Negative" else 0)
-        correlation_bucket.append((r.rating, intel["confidence"]))
+        sentiment_values.append(
+            1 if intel["sentiment"] == "Positive"
+            else -1 if intel["sentiment"] == "Negative"
+            else 0
+        )
 
         for asp, sent in intel["aspects"].items():
-            aspect_scores[asp].append(1 if sent == "Positive" else -1)
+            aspect_scores[asp].append(
+                1 if sent == "Positive"
+                else -1 if sent == "Negative"
+                else 0
+            )
 
-    total = len(simple)
-    avg_rating = np.mean(ratings) if ratings else 0
+    total = len(simple_reviews)
+    avg_rating = float(np.mean(ratings)) if ratings else 0.0
 
-    # Predictive Insights (#21)
+    # Predictive Insight
     prediction = "Stable"
     if len(ratings) > 5:
-        slope = np.polyfit(range(len(ratings)), ratings, 1)[0]
-        prediction = "Improving" if slope > 0.05 else "Declining" if slope < -0.05 else "Stable"
+        try:
+            slope = np.polyfit(range(len(ratings)), ratings, 1)[0]
+            if slope > 0.05:
+                prediction = "Improving"
+            elif slope < -0.05:
+                prediction = "Declining"
+        except Exception:
+            prediction = "Stable"
 
-    # Rating Distribution (#9)
     rating_distribution = {
         str(i): ratings.count(i) for i in range(1, 6)
     }
 
-    # Correlation Analysis (#10)
-    if correlation_bucket:
-        x = [x for x, _ in correlation_bucket]
-        y = [y for _, y in correlation_bucket]
-        correlation = float(np.corrcoef(x, y)[0][1]) if len(set(x)) > 1 else 0
-    else:
-        correlation = 0
+    # Correlation
+    correlation = 0.0
+    if len(correlation_x) > 1 and len(set(correlation_x)) > 1:
+        try:
+            correlation = float(np.corrcoef(correlation_x, correlation_y)[0][1])
+        except Exception:
+            correlation = 0.0
 
-    # Anomaly Detection (#27)
+    # Anomaly Detection
     anomaly = False
     if len(ratings) > 10:
-        recent = np.mean(ratings[-3:])
-        if recent < (avg_rating - 1.2):
+        recent_avg = float(np.mean(ratings[-3:]))
+        if recent_avg < (avg_rating - 1.2):
             anomaly = True
 
     return {
@@ -169,7 +217,6 @@ def analyze_reviews(reviews: Iterable[Any], company: Any, start=None, end=None) 
         "total_reviews": total,
         "avg_rating": round(avg_rating, 2),
 
-        # Requirement #20: Executive Summary
         "executive_summary": {
             "sentiment_score": round((sentiments["Positive"] / total) * 100, 1),
             "risk_level": "High" if anomaly or prediction == "Declining" else "Low",
@@ -177,65 +224,72 @@ def analyze_reviews(reviews: Iterable[Any], company: Any, start=None, end=None) 
             "top_keywords": keyword_cloud.most_common(15)
         },
 
-        # Requirement #7: Trend Visualization Data
         "trends": {
             "daily_review_count": dict(sorted(dates.items())),
             "sentiment_distribution": dict(sentiments),
             "rating_distribution": rating_distribution
         },
 
-        # Requirement #4
         "emotion_breakdown": dict(emotions),
 
-        # Requirement #5
         "aspect_performance": {
-            k: round(np.mean(v) * 100, 1) for k, v in aspect_scores.items()
+            k: round(float(np.mean(v)) * 100, 1)
+            for k, v in aspect_scores.items()
+            if v
         },
 
-        # Requirement #10
         "rating_sentiment_correlation": round(correlation, 3),
 
-        # Requirement #1
         "source_distribution": dict(source_mix),
 
-        # Requirement #27
         "anomaly_alert": anomaly,
 
-        # Requirement #14 & #26 — Response Metrics (stub if values exist later)
         "response_metrics": {
             "avg_response_time_hours": None,
             "response_rate": None
         },
 
-        # Requirement #11 & #12 — Benchmark & Geo placeholders for FE
         "benchmarking": {
             "competitors": []
         },
+
         "geo_insights": {
             "locations": []
         },
 
-        # Requirement #23
         "api_status": {
             "google_api_health": "OK",
             "sync_timestamp": datetime.now(timezone.utc).isoformat()
         },
 
-        "payload_version": "7.0-Enterprise"
+        "payload_version": "7.1-Enterprise"
     }
 
 # ─────────────────────────────────────────────────────────────
 
-def hour_heatmap(reviews, start=None, end=None):
+def hour_heatmap(
+    reviews: Iterable[Any],
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None
+) -> Dict[str, Any]:
+
     now = datetime.now(timezone.utc)
-    start, end = start or (now - timedelta(days=30)), end or now
+    start = start or (now - timedelta(days=30))
+    end = end or now
 
     hours = [0] * 24
-    for r in (SimpleReview.from_any(x) for x in reviews):
-        dt = r.review_date
-        if dt and (start <= dt <= end):
+
+    for review in (SimpleReview.from_any(r) for r in reviews):
+        dt = review.review_date
+        if dt and start <= dt <= end:
             hours[dt.hour] += 1
-    return {"labels": list(range(24)), "data": hours}
+
+    return {
+        "labels": list(range(24)),
+        "data": hours
+    }
+
+# ─────────────────────────────────────────────────────────────
 
 @dataclass
 class SimpleReview:
@@ -245,13 +299,22 @@ class SimpleReview:
     source: str = "google"
 
     @classmethod
-    def from_any(cls, obj):
+    def from_any(cls, obj: Any):
+
         dt = getattr(obj, "review_date", None)
-        if dt and isinstance(dt, datetime) and dt.tzinfo is None:
+
+        if isinstance(dt, datetime) and dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
+
+        rating = getattr(obj, "rating", None)
+        try:
+            rating = float(rating) if rating is not None else None
+        except Exception:
+            rating = None
+
         return cls(
-            rating=float(getattr(obj, "rating", 0)),
-            text=getattr(obj, "text", ""),
+            rating=rating,
+            text=getattr(obj, "text", "") or "",
             review_date=dt,
             source=getattr(obj, "source_type", "google")
         )
