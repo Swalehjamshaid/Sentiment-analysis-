@@ -90,9 +90,11 @@ if STATIC_DIR.exists():
     logger.info("Static files mounted.")
 
 # Global template variables
-templates.env.globals["googleMapsKey"] = os.getenv("GOOGLE_MAPS_API_KEY", "")
-templates.env.globals["apiBase"] = ""
-templates.env.globals["currentDate"] = "2026-02-24"
+templates.env.globals.update({
+    "googleMapsKey": os.getenv("GOOGLE_MAPS_API_KEY", ""),
+    "apiBase": "",
+    "currentDate": "2026-02-24"
+})
 
 # ───────────────────────────────────────────────────────────────
 # Middleware
@@ -142,9 +144,8 @@ async def home(context: dict = Depends(template_context)):
 async def login_page(context: dict = Depends(template_context)):
     return templates.TemplateResponse("login.html", context)
 
-@app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard_page(context: dict = Depends(template_context)):
-    return templates.TemplateResponse("dashboard.html", context)
+# Removed duplicate /dashboard route since dashboard.router handles it
+# If you still want a direct route, you can keep it, but ensure template name matches "dashboard.html"
 
 # ───────────────────────────────────────────────────────────────
 # Routers
@@ -153,7 +154,7 @@ async def dashboard_page(context: dict = Depends(template_context)):
 app.include_router(auth.router, prefix="/auth")
 app.include_router(companies.router)
 app.include_router(reviews.router)
-app.include_router(dashboard.router)
+app.include_router(dashboard.router)  # dashboard.html must exist inside templates
 app.include_router(reports.router)
 app.include_router(admin.router)
 app.include_router(maps_router)
