@@ -1,8 +1,18 @@
 <!DOCTYPE html>
 <html lang="en" class="scroll-smooth" x-data="{
   darkMode: localStorage.getItem('darkMode') === 'true' || (!localStorage.getItem('darkMode') && window.matchMedia('(prefers-color-scheme: dark)').matches),
-  toggleDark() { this.darkMode = !this.darkMode; localStorage.setItem('darkMode', this.darkMode); },
-  init() { if(this.darkMode) document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); this.$watch('darkMode', val => { if(val) document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); }); }
+  toggleDark() { 
+    this.darkMode = !this.darkMode; 
+    localStorage.setItem('darkMode', this.darkMode); 
+  },
+  init() { 
+    if(this.darkMode) document.documentElement.classList.add('dark'); 
+    else document.documentElement.classList.remove('dark'); 
+    this.$watch('darkMode', val => { 
+      if(val) document.documentElement.classList.add('dark'); 
+      else document.documentElement.classList.remove('dark'); 
+    }); 
+  }
 }" :class="{ 'dark': darkMode }">
 <head>
   <meta charset="UTF-8">
@@ -13,7 +23,15 @@
   <script>
     tailwind.config = {
       darkMode: 'class',
-      theme: { extend: { colors: { accent: '#7c3aed', accentdark: '#6d28d9', card: 'rgba(30,41,59,0.6)' } } }
+      theme: { 
+        extend: { 
+          colors: { 
+            accent: '#7c3aed', 
+            accentdark: '#6d28d9', 
+            card: 'rgba(30,41,59,0.6)' 
+          } 
+        } 
+      }
     }
   </script>
 
