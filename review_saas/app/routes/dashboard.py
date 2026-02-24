@@ -17,7 +17,7 @@ logger = logging.getLogger("dashboard")
 router = APIRouter(tags=["dashboard"])
 
 # 2. Dynamic Template Path Discovery
-# This finds the absolute path to the templates folder to fix Railway "Not Found" errors
+# Rule: Use absolute paths so Railway doesn't get lost in nested folders
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
 
@@ -30,11 +30,6 @@ logger.info(f"Dashboard Route Module Loaded. Templates path: {TEMPLATE_DIR}")
 async def get_dashboard(request: Request, db: Session = Depends(get_db)):
     """
     Renders the Unified Executive Dashboard for Huda.
-    
-    Flow:
-    1. Fetch high-level portfolio counts (Companies & Reviews).
-    2. Pass the 'request' object for Jinja2 rendering.
-    3. Serve 'dashbord.html' from the absolute template path.
     """
     try:
         # Fetch actual DB counts for the dashboard header
@@ -51,21 +46,19 @@ async def get_dashboard(request: Request, db: Session = Depends(get_db)):
             }
         }
 
-        # IMPORTANT: Ensure the filename on your disk is 'dashbord.html'
-        return templates.TemplateResponse("dashbord.html", context)
+        # RULE: Changed 'dashbord.html' to 'dashboard.html' to fix the Warning
+        return templates.TemplateResponse("dashboard.html", context)
 
     except Exception as e:
         logger.error(f"Failed to load dashboard: {str(e)}")
-        # If the file is missing, this raises a clear error in Railway logs
         raise HTTPException(
             status_code=500, 
-            detail=f"Dashboard template error. Check if 'dashbord.html' exists in {TEMPLATE_DIR}"
+            detail=f"Dashboard template error. Check if 'dashboard.html' exists in {TEMPLATE_DIR}"
         )
 
 # 4. API Health Check for Dashboard
 @router.get("/api/dashboard/status")
 async def get_dashboard_status(db: Session = Depends(get_db)):
-    """Backend status check specifically for dashboard data availability."""
     return {
         "status": "online",
         "database_connected": True,
