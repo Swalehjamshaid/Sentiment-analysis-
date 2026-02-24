@@ -1,106 +1,11 @@
-<!DOCTYPE html>
-<html lang="en" class="scroll-smooth" x-data="{
-  darkMode: localStorage.getItem('darkMode') === 'true' || (!localStorage.getItem('darkMode') && window.matchMedia('(prefers-color-scheme: dark)').matches),
-  toggleDark() { this.darkMode = !this.darkMode; localStorage.setItem('darkMode', this.darkMode); },
-  dateStart: '',
-  dateEnd: '',
-  selectedCompany: null,
-  currentPage: 1,
-  pageSize: 10,
-  showReviews: false,
-  init() {
-    if (this.darkMode) document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
-    this.$watch('darkMode', val => {
-      if (val) document.documentElement.classList.add('dark');
-      else document.documentElement.classList.remove('dark');
-    });
-  },
-  get paginatedReviews() {
-    if (!dashboard.reviews?.data) return [];
-    const start = (this.currentPage - 1) * this.pageSize;
-    return dashboard.reviews.data.slice(start, start + this.pageSize);
-  },
-  get totalPages() {
-    return dashboard.reviews?.pages || 1;
-  },
-  prevPage() { if (this.currentPage > 1) this.currentPage--; },
-  nextPage() { if (this.currentPage < this.totalPages) this.currentPage++; },
-  goToPage(p) { this.currentPage = p; }
-}" :class="{ 'dark': darkMode }">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>BizChat • Review Dashboard</title>
+{% extends "base.html" %}
 
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            accent: '#7c3aed',      // violet-600
-            accentdark: '#6d28d9',
-            card: 'rgba(30, 41, 59, 0.6)',
-          }
-        }
-      }
-    }
-  </script>
+{% block title %}BizChat • Review Dashboard{% endblock %}
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-
-  <style>
-    .card { @apply backdrop-blur-md bg-card border border-slate-700/50 shadow-xl rounded-2xl overflow-hidden transition-all duration-300; }
-    .stat-number { @apply text-4xl font-extrabold tracking-tight; }
-    .section-collapse { @apply transition-all duration-500 ease-in-out overflow-hidden; }
-  </style>
-</head>
-<body class="bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-slate-100 min-h-screen font-sans antialiased">
-
+{% block content %}
   <div class="flex flex-col min-h-screen">
 
-    <!-- Header -->
-    <header class="bg-slate-900/80 backdrop-blur-md border-b border-slate-700/50 sticky top-0 z-40">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between items-center h-16">
-          <div class="flex items-center gap-4">
-            <span class="text-2xl font-bold bg-gradient-to-r from-violet-400 to-accent bg-clip-text text-transparent">BizChat</span>
-            <span class="text-sm text-slate-400">Review Intelligence Platform</span>
-          </div>
-
-          <div class="flex items-center gap-5">
-            <!-- Dark mode toggle -->
-            <button @click="toggleDark()" class="p-2 rounded-full hover:bg-slate-800 transition">
-              <template x-if="darkMode">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
-              </template>
-              <template x-if="!darkMode">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
-              </template>
-            </button>
-
-            <!-- User menu -->
-            <div x-data="{ open: false }" class="relative">
-              <button @click="open = !open" class="flex items-center gap-3 hover:opacity-90 transition">
-                <div class="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-accent flex items-center justify-center font-semibold">RJ</div>
-                <span class="hidden md:inline font-medium">Rai Jamshaid</span>
-              </button>
-              <div x-show="open" @click.away="open = false" class="absolute right-0 mt-3 w-56 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl py-2 z-50">
-                <a href="#" class="block px-5 py-2.5 hover:bg-slate-700/70 transition">Profile</a>
-                <a href="#" class="block px-5 py-2.5 hover:bg-slate-700/70 transition">Settings</a>
-                <hr class="my-2 border-slate-700"/>
-                <a href="#" class="block px-5 py-2.5 text-rose-400 hover:bg-rose-950/30 transition">Sign out</a>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </header>
-
-    <!-- Main -->
+    <!-- Main Content -->
     <main class="flex-grow py-10 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
       <!-- Controls Bar -->
       <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-10">
@@ -117,6 +22,9 @@
               <template x-for="company in dashboard.companies || []" :key="company.id">
                 <button @click="selectedCompany = company; open = false" class="w-full text-left px-4 py-2.5 hover:bg-slate-700/70 rounded-lg transition" x-text="company.name"></button>
               </template>
+              <button x-show="!(dashboard.companies || []).length" class="w-full text-left px-4 py-2.5 text-slate-400 italic">
+                No companies found
+              </button>
             </div>
           </div>
         </div>
@@ -155,24 +63,24 @@
         <div x-show="metricsOpen" class="section-collapse px-6 pb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           <div class="text-center">
             <p class="text-sm text-slate-400 uppercase tracking-wide">Total Reviews</p>
-            <p class="stat-number mt-2 text-accent" x-text="dashboard.metrics.total.toLocaleString()"></p>
+            <p class="stat-number mt-2 text-accent" x-text="(dashboard.metrics?.total || 0).toLocaleString()"></p>
           </div>
           <div class="text-center">
             <p class="text-sm text-slate-400 uppercase tracking-wide">Avg Rating</p>
-            <p class="stat-number mt-2" :class="dashboard.metrics.avg_rating >= 4 ? 'text-emerald-400' : dashboard.metrics.avg_rating >= 3 ? 'text-amber-400' : 'text-rose-400'"
-               x-text="dashboard.metrics.avg_rating.toFixed(1) + ' ★'"></p>
+            <p class="stat-number mt-2" :class="dashboard.metrics?.avg_rating >= 4 ? 'text-emerald-400' : dashboard.metrics?.avg_rating >= 3 ? 'text-amber-400' : 'text-rose-400'"
+               x-text="(dashboard.metrics?.avg_rating || 0).toFixed(1) + ' ★'"></p>
           </div>
           <div class="text-center">
             <p class="text-sm text-slate-400 uppercase tracking-wide">Risk Score</p>
-            <p class="stat-number mt-2" :class="dashboard.metrics.risk_level === 'High' ? 'text-rose-400' : dashboard.metrics.risk_level === 'Medium' ? 'text-amber-400' : 'text-emerald-400'"
-               x-text="dashboard.metrics.risk_score.toFixed(1)"></p>
+            <p class="stat-number mt-2" :class="dashboard.metrics?.risk_level === 'High' ? 'text-rose-400' : dashboard.metrics?.risk_level === 'Medium' ? 'text-amber-400' : 'text-emerald-400'"
+               x-text="(dashboard.metrics?.risk_score || 0).toFixed(1)"></p>
           </div>
           <div class="text-center">
             <p class="text-sm text-slate-400 uppercase tracking-wide">Trend</p>
             <p class="stat-number mt-2 flex justify-center items-center gap-2"
-               :class="dashboard.trend.signal === 'improving' ? 'text-emerald-400' : dashboard.trend.signal === 'declining' ? 'text-rose-400' : 'text-slate-300'">
-              <span x-text="dashboard.trend.signal"></span>
-              <span x-text="dashboard.trend.delta > 0 ? '+' + dashboard.trend.delta.toFixed(2) : dashboard.trend.delta.toFixed(2)"></span>
+               :class="dashboard.trend?.signal === 'improving' ? 'text-emerald-400' : dashboard.trend?.signal === 'declining' ? 'text-rose-400' : 'text-slate-300'">
+              <span x-text="dashboard.trend?.signal || 'No data'"></span>
+              <span x-text="dashboard.trend?.delta ? (dashboard.trend.delta > 0 ? '+' + dashboard.trend.delta.toFixed(2) : dashboard.trend.delta.toFixed(2)) : ''"></span>
             </p>
           </div>
         </div>
@@ -207,7 +115,7 @@
       <div x-show="showReviews" class="card p-6">
         <h3 class="text-xl font-semibold mb-6">Recent Reviews</h3>
 
-        <div class="overflow-x-auto">
+        <div class="overflow-x-auto" x-show="dashboard.reviews?.data?.length > 0">
           <table class="w-full text-sm text-left">
             <thead class="text-xs uppercase bg-slate-800/50">
               <tr>
@@ -222,13 +130,13 @@
               <template x-for="review in paginatedReviews" :key="review.id">
                 <tr class="hover:bg-slate-800/40 transition">
                   <td class="px-6 py-4" x-text="review.review_date ? new Date(review.review_date).toLocaleDateString() : '-'"></td>
-                  <td class="px-6 py-4 font-medium" x-text="review.rating"></td>
+                  <td class="px-6 py-4 font-medium" x-text="review.rating || 'N/A'"></td>
                   <td class="px-6 py-4" x-text="review.reviewer_name || 'Anonymous'"></td>
-                  <td class="px-6 py-4 max-w-md truncate" x-text="review.text || ''"></td>
+                  <td class="px-6 py-4 max-w-md truncate" x-text="review.text || 'No comment'"></td>
                   <td class="px-6 py-4">
                     <span class="px-2.5 py-1 rounded-full text-xs font-medium"
                           :class="review.sentiment_category === 'Positive' ? 'bg-emerald-900/40 text-emerald-300' : review.sentiment_category === 'Negative' ? 'bg-rose-900/40 text-rose-300' : 'bg-slate-700 text-slate-300'"
-                          x-text="review.sentiment_category"></span>
+                          x-text="review.sentiment_category || 'Neutral'"></span>
                   </td>
                 </tr>
               </template>
@@ -236,8 +144,12 @@
           </table>
         </div>
 
+        <div x-show="!dashboard.reviews?.data?.length" class="text-center py-10 text-slate-400 italic">
+          No reviews found in this period.
+        </div>
+
         <!-- Pagination -->
-        <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6">
+        <div x-show="dashboard.reviews?.data?.length > 0" class="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6">
           <div class="text-sm text-slate-400">
             Showing <span x-text="(currentPage - 1) * pageSize + 1"></span>–
             <span x-text="Math.min(currentPage * pageSize, dashboard.reviews?.total || 0)"></span>
@@ -321,5 +233,4 @@
     });
   </script>
 
-</body>
-</html>
+{% endblock %}
