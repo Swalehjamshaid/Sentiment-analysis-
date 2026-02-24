@@ -2,46 +2,298 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Executive Dashboard | ReviewSaaS</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <title>Executive Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
-<body class="bg-gray-50 font-sans">
+<body class="bg-gray-100 font-sans">
 
-    <header class="bg-white shadow-sm border-b">
-        <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
-            <h1 class="text-2xl font-bold text-gray-900">Executive Dashboard</h1>
-            <div class="text-sm text-gray-500 font-medium">
-                System Date: <span id="current-date">2026-02-24</span>
-            </div>
-        </div>
+    <!-- Header -->
+    <header class="bg-blue-700 text-white p-6 shadow-lg">
+        <h1 class="text-3xl font-bold">Company Executive Dashboard</h1>
+        <p class="mt-1">Date: <span id="system-date">{{ initial_stats.system_date if initial_stats.system_date else '' }}</span></p>
     </header>
 
-    <main class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 mb-8">
-            <div class="bg-white overflow-hidden shadow rounded-lg border border-gray-200">
-                <div class="px-4 py-5 sm:p-6">
-                    <dt class="text-sm font-medium text-gray-500 truncate">Total Companies</dt>
-                    <dd class="mt-1 text-3xl font-semibold text-indigo-600">{{ stats.total_companies }}</dd>
-                </div>
-            </div>
+    <main class="p-6 space-y-8">
 
-            <div class="bg-white overflow-hidden shadow rounded-lg border border-gray-200">
-                <div class="px-4 py-5 sm:p-6">
-                    <dt class="text-sm font-medium text-gray-500 truncate">Total Reviews Audited</dt>
-                    <dd class="mt-1 text-3xl font-semibold text-green-600">{{ stats.total_reviews }}</dd>
-                </div>
-            </div>
-        </div>
+        <!-- Company Selection & Date Range -->
+        <section class="bg-white shadow-lg rounded-lg p-6 flex flex-col md:flex-row items-center gap-4">
+            <select id="company-select" class="p-2 border rounded w-full md:w-1/3">
+                <!-- Options populated dynamically -->
+            </select>
+            <input type="date" id="from-date" class="p-2 border rounded" />
+            <input type="date" id="to-date" class="p-2 border rounded" />
+            <button id="fetch-data" class="px-6 py-2 bg-blue-700 text-white rounded hover:bg-blue-800">Fetch Data</button>
+        </section>
 
-        <div class="bg-white shadow rounded-lg p-6 border border-gray-100 min-h-[400px]">
-            <h2 class="text-lg font-medium text-gray-900 mb-4">Portfolio Analysis for Huda</h2>
-            <div class="flex flex-col items-center justify-center h-64 border-2 border-dashed border-gray-200 rounded-md">
-                <p class="text-gray-400">Database connected. Dashboard modules are live.</p>
+        <!-- Summary Cards -->
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="bg-white shadow-lg rounded-lg p-6 flex flex-col items-center">
+                <h2 class="text-gray-500 font-semibold">Total Companies</h2>
+                <p id="total-companies" class="text-3xl font-bold text-blue-700">{{ initial_stats.companies }}</p>
             </div>
-        </div>
+            <div class="bg-white shadow-lg rounded-lg p-6 flex flex-col items-center">
+                <h2 class="text-gray-500 font-semibold">Total Reviews</h2>
+                <p id="total-reviews" class="text-3xl font-bold text-green-600">{{ initial_stats.reviews }}</p>
+            </div>
+            <div class="bg-white shadow-lg rounded-lg p-6 flex flex-col items-center">
+                <h2 class="text-gray-500 font-semibold">System Status</h2>
+                <p class="text-3xl font-bold text-gray-800" id="system-status">Operational</p>
+            </div>
+        </section>
+
+        <!-- Charts Section -->
+        <section class="bg-white shadow-lg rounded-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">Review Ratings Distribution</h2>
+            <canvas id="reviews-chart" class="w-full"></canvas>
+        </section>
+
+        <!-- Review Search & Table -->
+        <section class="bg-white shadow-lg rounded-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">Recent Reviews</h2>
+            <input type="text" id="review-search" placeholder="Search reviews..." class="w-full p-2 border rounded mb-4">
+            <div class="overflow-x-auto">
+                <table class="min-w-full border border-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-2 border-b">Reviewer</th>
+                            <th class="px-4 py-2 border-b">Rating</th>
+                            <th class="px-4 py-2 border-b">Review</th>
+                            <th class="px-4 py-2 border-b">Date</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reviews-table-body" class="divide-y divide-gray-100"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- AI Summary & Recommendations with Trend Charts -->
+        <section class="bg-white shadow-lg rounded-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">AI Summary & Recommendations</h2>
+            <div id="ai-summary" class="space-y-4 text-gray-700">
+                <p>Select a company and date range, then click 'Fetch Data' to view a comprehensive summary and recommendations.</p>
+            </div>
+        </section>
+
+        <!-- Add New Company -->
+        <section id="add-company-modal" class="bg-white shadow-lg rounded-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">Add New Company</h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-gray-700 mb-1">Company Name</label>
+                    <input type="text" id="new-company-name" placeholder="Type company name..." class="w-full p-2 border rounded" />
+                    <ul id="company-suggestions" class="border rounded mt-1 max-h-40 overflow-y-auto bg-white"></ul>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-gray-700 mb-1">Address</label>
+                        <input type="text" id="new-company-address" class="w-full p-2 border rounded" />
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 mb-1">City</label>
+                        <input type="text" id="new-company-city" class="w-full p-2 border rounded" />
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 mb-1">State</label>
+                        <input type="text" id="new-company-state" class="w-full p-2 border rounded" />
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 mb-1">Country</label>
+                        <input type="text" id="new-company-country" class="w-full p-2 border rounded" />
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 mb-1">Postal Code</label>
+                        <input type="text" id="new-company-postal" class="w-full p-2 border rounded" />
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 mb-1">Latitude</label>
+                        <input type="text" id="new-company-lat" class="w-full p-2 border rounded" readonly />
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 mb-1">Longitude</label>
+                        <input type="text" id="new-company-lng" class="w-full p-2 border rounded" readonly />
+                    </div>
+                </div>
+
+                <button id="add-company-btn" class="mt-4 px-6 py-2 bg-blue-700 text-white rounded hover:bg-blue-800">Add Company</button>
+            </div>
+        </section>
     </main>
 
-</body>
-</html>
+    <script>
+        // ------------------ Dashboard Stats ------------------
+        async function fetchDashboardStats() {
+            try {
+                const res = await axios.get("/api/dashboard/stats");
+                document.getElementById("total-companies").innerText = res.data.total_companies;
+                document.getElementById("total-reviews").innerText = res.data.total_reviews;
+                document.getElementById("system-status").innerText = res.data.system_status;
+                fetchCompanies();
+            } catch(err){ console.error(err); }
+        }
+
+        // ------------------ Fetch Companies ------------------
+        async function fetchCompanies() {
+            try {
+                const res = await axios.get("/api/companies/list");
+                const select = document.getElementById("company-select");
+                select.innerHTML = "";
+                res.data.items.forEach(c => {
+                    const opt = document.createElement("option");
+                    opt.value = c.id;
+                    opt.textContent = c.name;
+                    select.appendChild(opt);
+                });
+            } catch(err){ console.error(err); }
+        }
+
+        // ------------------ Reviews ------------------
+        async function fetchReviews(companyId, fromDate="", toDate="") {
+            try {
+                const res = await axios.get(`/api/reviews/list/${companyId}?from=${fromDate}&to=${toDate}&limit=20`);
+                const tbody = document.getElementById("reviews-table-body");
+                tbody.innerHTML = "";
+                res.data.items.forEach(r=>{
+                    const tr = document.createElement("tr");
+                    tr.classList.add("hover:bg-gray-50");
+                    tr.innerHTML = `
+                        <td class="px-4 py-2">${r.reviewer_name || "Anonymous"}</td>
+                        <td class="px-4 py-2">${r.rating}</td>
+                        <td class="px-4 py-2">${r.text}</td>
+                        <td class="px-4 py-2">${new Date(r.review_date).toLocaleString()}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+                updateReviewChart(res.data.items);
+            } catch(err){ console.error(err); }
+        }
+
+        // ------------------ Review Chart ------------------
+        const ctx = document.getElementById('reviews-chart').getContext('2d');
+        const reviewsChart = new Chart(ctx, {
+            type: 'bar',
+            data: { labels:['1','2','3','4','5'], datasets:[{label:'Number of Reviews',data:[0,0,0,0,0], backgroundColor:['#ef4444','#f97316','#facc15','#22c55e','#3b82f6']}]},
+            options:{ responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
+        });
+        function updateReviewChart(items){
+            const counts=[0,0,0,0,0];
+            items.forEach(r=>{ if(r.rating>=1&&r.rating<=5) counts[r.rating-1]+=1; });
+            reviewsChart.data.datasets[0].data=counts;
+            reviewsChart.update();
+        }
+
+        // ------------------ Review Search ------------------
+        document.getElementById("review-search").addEventListener("input", e=>fetchReviews(document.getElementById("company-select").value, document.getElementById("from-date").value, document.getElementById("to-date").value));
+
+        // ------------------ AI Summary ------------------
+        let sparklineCharts={};
+        async function fetchAIAnalysis(companyId, fromDate, toDate){
+            try{
+                const res = await axios.post("/api/analysis/summary",{company_id:companyId,from:fromDate,to:toDate});
+                const data=res.data;
+                const summaryDiv=document.getElementById("ai-summary");
+                summaryDiv.innerHTML="";
+
+                // KPI Cards with mini charts
+                const kpiHtml=`
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                        <div class="bg-green-100 text-green-800 rounded-lg p-4 text-center">
+                            <h3 class="font-semibold">Average Rating</h3>
+                            <p class="text-2xl font-bold">${data.avg_rating.toFixed(1)}</p>
+                            <canvas id="spark-avg-rating" class="mt-2"></canvas>
+                        </div>
+                        <div class="bg-blue-100 text-blue-800 rounded-lg p-4 text-center">
+                            <h3 class="font-semibold">Total Reviews</h3>
+                            <p class="text-2xl font-bold">${data.total_reviews}</p>
+                            <canvas id="spark-total-reviews" class="mt-2"></canvas>
+                        </div>
+                        <div class="bg-green-50 text-green-800 rounded-lg p-4 text-center">
+                            <h3 class="font-semibold">Positive Reviews %</h3>
+                            <p class="text-2xl font-bold">${data.positive_pct}%</p>
+                            <canvas id="spark-positive" class="mt-2"></canvas>
+                        </div>
+                        <div class="bg-red-50 text-red-800 rounded-lg p-4 text-center">
+                            <h3 class="font-semibold">Negative Reviews %</h3>
+                            <p class="text-2xl font-bold">${data.negative_pct}%</p>
+                            <canvas id="spark-negative" class="mt-2"></canvas>
+                        </div>
+                    </div>
+                `;
+                summaryDiv.insertAdjacentHTML("beforeend", kpiHtml);
+
+                const sparkOptions={type:'line',data:{labels:data.trend_avg_rating.map((_,i)=>`Week ${i+1}`),datasets:[{label:'',data:[],borderWidth:2,fill:false,tension:0.3,pointRadius:0}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{display:false},y:{display:false}}}};
+                Object.values(sparklineCharts).forEach(c=>c.destroy());
+                sparklineCharts['avg']=new Chart(document.getElementById('spark-avg-rating').getContext('2d'),{...sparkOptions,data:{...sparkOptions.data,datasets:[{...sparkOptions.data.datasets[0],data:data.trend_avg_rating,borderColor:'#16a34a'}]}});
+                sparklineCharts['total']=new Chart(document.getElementById('spark-total-reviews').getContext('2d'),{...sparkOptions,data:{...sparkOptions.data,datasets:[{...sparkOptions.data.datasets[0],data:data.trend_total_reviews,borderColor:'#1d4ed8'}]}});
+                sparklineCharts['positive']=new Chart(document.getElementById('spark-positive').getContext('2d'),{...sparkOptions,data:{...sparkOptions.data,datasets:[{...sparkOptions.data.datasets[0],data:data.trend_positive_pct,borderColor:'#15803d'}]}});
+                sparklineCharts['negative']=new Chart(document.getElementById('spark-negative').getContext('2d'),{...sparkOptions,data:{...sparkOptions.data,datasets:[{...sparkOptions.data.datasets[0],data:data.trend_negative_pct,borderColor:'#dc2626'}]}});
+
+                // Top Positive Reviews
+                if(data.top_positive.length>0){
+                    let posHtml=`<div class="mb-4"><h3 class="font-semibold text-green-700 mb-2">Top Positive Reviews</h3>`;
+                    data.top_positive.forEach(r=>{ posHtml+=`<div class="border-l-4 border-green-500 bg-green-50 p-3 mb-2 rounded"><p class="font-semibold">${r.reviewer_name||"Anonymous"} - Rating: ${r.rating}</p><p>${r.text}</p></div>`; });
+                    posHtml+=`</div>`; summaryDiv.insertAdjacentHTML("beforeend",posHtml);
+                }
+
+                // Top Negative Reviews
+                if(data.top_negative.length>0){
+                    let negHtml=`<div class="mb-4"><h3 class="font-semibold text-red-700 mb-2">Top Negative Reviews</h3>`;
+                    data.top_negative.forEach(r=>{ negHtml+=`<div class="border-l-4 border-red-500 bg-red-50 p-3 mb-2 rounded"><p class="font-semibold">${r.reviewer_name||"Anonymous"} - Rating: ${r.rating}</p><p>${r.text}</p></div>`; });
+                    negHtml+=`</div>`; summaryDiv.insertAdjacentHTML("beforeend",negHtml);
+                }
+
+                // Actionable Insights
+                if(data.insights.length>0){
+                    let insHtml=`<div><h3 class="font-semibold text-gray-800 mb-2">Actionable Insights & Recommendations</h3><ul class="list-disc pl-5 space-y-1">`;
+                    data.insights.forEach(i=>{ insHtml+=`<li>${i}</li>`; }); insHtml+=`</ul></div>`;
+                    summaryDiv.insertAdjacentHTML("beforeend",insHtml);
+                }
+
+            } catch(err){ console.error(err); document.getElementById("ai-summary").innerHTML=`<p class="text-red-600">Failed to load summary. Please try again.</p>`; }
+        }
+
+        // ------------------ Add Company ------------------
+        const companyNameInput=document.getElementById("new-company-name");
+        const suggestionList=document.getElementById("company-suggestions");
+        let selectedPlace=null;
+
+        companyNameInput.addEventListener("input", async e=>{
+            const query=e.target.value; if(query.length<2) return suggestionList.innerHTML="";
+            try{
+                const res=await axios.get("/api/companies/google/autocomplete",{params:{q:query}});
+                suggestionList.innerHTML="";
+                res.data.items.forEach(item=>{
+                    const li=document.createElement("li");
+                    li.textContent=item.description;
+                    li.classList.add("p-2","hover:bg-gray-100","cursor-pointer");
+                    li.addEventListener("click", async ()=>{
+                        companyNameInput.value=item.structured_formatting.main_text;
+                        suggestionList.innerHTML="";
+                        selectedPlace=item.place_id;
+                        const detailsRes=await axios.get("/api/companies/google/details",{params:{place_id:selectedPlace}});
+                        const details=detailsRes.data;
+                        document.getElementById("new-company-address").value=details.address||'';
+                        document.getElementById("new-company-city").value=details.city||'';
+                        document.getElementById("new-company-state").value=details.state||'';
+                        document.getElementById("new-company-country").value=details.country||'';
+                        document.getElementById("new-company-postal").value=details.postal_code||'';
+                        document.getElementById("new-company-lat").value=details.latitude||'';
+                        document.getElementById("new-company-lng").value=details.longitude||'';
+                    });
+                    suggestionList.appendChild(li);
+                });
+            } catch(err){ console.error(err); }
+        });
+
+        document.getElementById("add-company-btn").addEventListener("click", async ()=>{
+            const payload={
+                name:document.getElementById("new-company-name").value,
+                address:document.getElementById("new-company-address").value,
+                city:document.getElementById("new-company-city").value,
+                state:document.getElementById("new-company-state").value,
+                country:document.getElementById("new-company-country").value,
+                postal_code:document.getElementById("new-company-postal").value,
+                latitude:document.getElementById("new-company-lat").value,
+                longitude:document.getElementById("new
