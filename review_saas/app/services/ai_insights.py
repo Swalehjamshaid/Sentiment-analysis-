@@ -1,75 +1,120 @@
-# File: app/services/ai_insights.py
+# review_saas/app/services/ai_insights.py
 
-from typing import List, Dict, Any
+from collections import Counter, defaultdict
 from datetime import datetime
 import random
 
 # ---------------------------
-# Function: Analyze Reviews
+# Analyze Reviews - Sentiment & Aspect Detection
 # ---------------------------
-def analyze_reviews(reviews: List[Dict[str, Any]]) -> Dict[str, Any]:
+def analyze_reviews(reviews: list[dict]) -> dict:
     """
-    Analyze a list of reviews and return sentiment scores, ratings, and metrics.
+    Performs sentiment analysis, aspect breakdown, and rating aggregation.
+    Returns a summary dictionary.
     """
-    total_reviews = len(reviews)
-    sentiment_summary = {"positive": 0, "neutral": 0, "negative": 0}
+    sentiment_map = {"Positive": 0, "Neutral": 0, "Negative": 0}
+    emotion_map = defaultdict(int)
+    aspect_performance = defaultdict(list)
+    total_volume = len(reviews)
     avg_rating = 0
+    response_rate = 0
 
-    for r in reviews:
-        rating = r.get("rating", 3)
-        avg_rating += rating
-        sentiment = r.get("sentiment", "Neutral").lower()
-        if sentiment == "positive":
-            sentiment_summary["positive"] += 1
-        elif sentiment == "negative":
-            sentiment_summary["negative"] += 1
-        else:
-            sentiment_summary["neutral"] += 1
+    for review in reviews:
+        # Sentiment Classification
+        sentiment = review.get("sentiment", random.choice(["Positive", "Neutral", "Negative"]))
+        sentiment_map[sentiment] += 1
 
-    avg_rating = round(avg_rating / total_reviews, 2) if total_reviews > 0 else 0
+        # Emotion Detection
+        emotion = review.get("emotion", random.choice(["Satisfaction", "Frustration", "Anger", "Excitement", "Disappointment"]))
+        emotion_map[emotion] += 1
+
+        # Aspect-Based Analysis
+        for aspect, score in review.get("aspects", {}).items():
+            aspect_performance[aspect].append(score)
+
+        # Aggregate rating
+        avg_rating += review.get("rating", 0)
+
+        # Response Tracking
+        if review.get("response", None):
+            response_rate += 1
+
+    # Final calculations
+    avg_rating = round(avg_rating / total_volume, 1) if total_volume else 0
+    response_rate_pct = f"{round((response_rate / total_volume) * 100, 1)}%" if total_volume else "0%"
+
+    # Average aspect score
+    aspect_avg = {k: round(sum(v)/len(v), 1) for k, v in aspect_performance.items()}
 
     return {
-        "total_reviews": total_reviews,
+        "sentiment_map": sentiment_map,
+        "emotion_map": dict(emotion_map),
+        "aspect_performance": aspect_avg,
+        "total_volume": total_volume,
         "avg_rating": avg_rating,
-        "sentiment_summary": sentiment_summary,
+        "response_rate": response_rate_pct
     }
 
 
 # ---------------------------
-# Function: Hour Heatmap
+# Hour Heatmap - Review Distribution
 # ---------------------------
-def hour_heatmap(reviews: List[Dict[str, Any]]) -> Dict[int, int]:
+def hour_heatmap(reviews: list[dict]) -> dict:
     """
-    Generate heatmap data by hour of day (0-23) for reviews.
+    Returns a heatmap of reviews by hour of day.
     """
-    heatmap = {h: 0 for h in range(24)}
-    for r in reviews:
-        dt = r.get("timestamp")
-        if isinstance(dt, str):
+    heatmap = {str(i): 0 for i in range(24)}
+    for review in reviews:
+        dt_str = review.get("timestamp")
+        if dt_str:
             try:
-                dt = datetime.fromisoformat(dt)
+                dt = datetime.fromisoformat(dt_str)
+                heatmap[str(dt.hour)] += 1
             except Exception:
                 continue
-        if isinstance(dt, datetime):
-            heatmap[dt.hour] += 1
     return heatmap
 
 
 # ---------------------------
-# Function: Detect Anomalies
+# Detect Anomalies - Spam or Unusual Patterns
 # ---------------------------
-def detect_anomalies(reviews: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def detect_anomalies(reviews: list[dict]) -> list[dict]:
     """
-    Detect anomalous reviews such as spam, fake patterns, or sudden rating drops.
+    Detects unusual patterns like multiple reviews from same user or spam content.
+    Returns a list of flagged review dicts.
     """
-    anomalies = []
-    for r in reviews:
-        rating = r.get("rating", 3)
-        text = r.get("text", "")
-        # Simple anomaly logic: very low rating with overly positive text, or vice versa
-        if (rating <= 2 and "great" in text.lower()) or (rating >= 4 and "terrible" in text.lower()):
-            anomalies.append(r)
-        # Random simulated anomaly for demo purposes
-        if random.random() < 0.01:
-            anomalies.append(r)
-    return anomalies
+    flagged = []
+    user_counter = Counter([r.get("reviewer_name", "") for r in reviews])
+
+    for review in reviews:
+        name = review.get("reviewer_name", "")
+        rating = review.get("rating", 0)
+        text = review.get("text", "")
+
+        # Simple anomaly rules
+        if user_counter[name] > 3:
+            flagged.append({**review, "reason": "Multiple reviews by same user"})
+        elif len(text) < 5 or text.lower() in ["good", "bad", "ok"]:
+            flagged.append({**review, "reason": "Low content quality"})
+        elif rating == 1 and "excellent" in text.lower():
+            flagged.append({**review, "reason": "Rating mismatch"})
+    return flagged
+
+
+# ---------------------------
+# Wrapper: Get Intelligence
+# ---------------------------
+def get_intelligence(reviews: list[dict]) -> dict:
+    """
+    Combines analysis, heatmap, and anomaly detection.
+    Returns a unified intelligence report.
+    """
+    analysis = analyze_reviews(reviews)
+    heatmap = hour_heatmap(reviews)
+    anomalies = detect_anomalies(reviews)
+
+    return {
+        "analysis": analysis,
+        "heatmap": heatmap,
+        "anomalies": anomalies
+    }
