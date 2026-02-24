@@ -20,7 +20,13 @@
       </button>
       <div x-show="open" @click.away="open = false"
            class="absolute w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-80 overflow-y-auto z-30">
-        <div class="p-2 text-slate-400 italic">No companies found</div>
+        {% if companies %}
+          {% for company in companies %}
+            <div class="p-2 hover:bg-slate-700/50 cursor-pointer">{{ company.name }}</div>
+          {% endfor %}
+        {% else %}
+          <div class="p-2 text-slate-400 italic">No companies found</div>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -55,7 +61,7 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
       <div class="text-center">
         <p class="text-sm text-slate-400 uppercase tracking-wide">Total Reviews</p>
-        <p class="stat-number mt-2 text-accent">2,946</p>
+        <p class="stat-number mt-2 text-accent">{{ reviews_count }}</p>
       </div>
       <div class="text-center">
         <p class="text-sm text-slate-400 uppercase tracking-wide">Avg Rating</p>
@@ -106,20 +112,22 @@
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-700">
+          {% for review in reviews %}
           <tr class="hover:bg-slate-800/40 transition">
-            <td class="px-6 py-4">2026-02-24</td>
-            <td class="px-6 py-4 font-medium">5</td>
-            <td class="px-6 py-4">John Doe</td>
-            <td class="px-6 py-4 max-w-md truncate">Excellent service!</td>
-            <td class="px-6 py-4"><span class="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-900/40 text-emerald-300">Positive</span></td>
+            <td class="px-6 py-4">{{ review.date }}</td>
+            <td class="px-6 py-4 font-medium">{{ review.rating }}</td>
+            <td class="px-6 py-4">{{ review.reviewer }}</td>
+            <td class="px-6 py-4 max-w-md truncate">{{ review.comment }}</td>
+            <td class="px-6 py-4">
+              <span class="px-2.5 py-1 rounded-full text-xs font-medium
+                {% if review.sentiment == 'Positive' %} bg-emerald-900/40 text-emerald-300
+                {% elif review.sentiment == 'Neutral' %} bg-slate-700 text-slate-300
+                {% else %} bg-rose-900/40 text-rose-400 {% endif %}">
+                {{ review.sentiment }}
+              </span>
+            </td>
           </tr>
-          <tr class="hover:bg-slate-800/40 transition">
-            <td class="px-6 py-4">2026-02-23</td>
-            <td class="px-6 py-4 font-medium">3</td>
-            <td class="px-6 py-4">Jane Smith</td>
-            <td class="px-6 py-4 max-w-md truncate">Average experience.</td>
-            <td class="px-6 py-4"><span class="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-700 text-slate-300">Neutral</span></td>
-          </tr>
+          {% endfor %}
         </tbody>
       </table>
     </div>
@@ -131,50 +139,35 @@
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  // Placeholder Trend Chart
+  // Trend Chart
   new Chart(document.getElementById('trendChart'), {
     type: 'line',
     data: {
-      labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-      datasets: [{
-        label: 'Avg Rating',
-        data: [4, 4.2, 4.1, 4.3, 4.2, 4.4, 4.2],
-        borderColor: '#7c3aed',
-        backgroundColor: 'rgba(124, 58, 237, 0.15)',
-        tension: 0.4,
-        fill: true
-      }]
+      labels: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+      datasets: [{ label: 'Avg Rating', data: [4,4.2,4.1,4.3,4.2,4.4,4.2],
+                   borderColor:'#7c3aed', backgroundColor:'rgba(124,58,237,0.15)', tension:0.4, fill:true }]
     },
-    options: { responsive: true, scales: { y: { min: 1, max: 5 } } }
+    options: { responsive:true, scales:{ y:{ min:1, max:5 } } }
   });
 
-  // Placeholder Sentiment Chart
+  // Sentiment Chart
   new Chart(document.getElementById('sentimentChart'), {
     type: 'doughnut',
     data: {
-      labels: ['Positive', 'Neutral', 'Negative'],
-      datasets: [{
-        data: [18, 5, 3],
-        backgroundColor: ['#10b981', '#64748b', '#ef4444'],
-        borderWidth: 0
-      }]
+      labels:['Positive','Neutral','Negative'],
+      datasets:[{ data:[18,5,3], backgroundColor:['#10b981','#64748b','#ef4444'], borderWidth:0 }]
     },
-    options: { responsive: true, cutout: '70%', plugins: { legend: { position: 'bottom' } } }
+    options:{ responsive:true, cutout:'70%', plugins:{ legend:{ position:'bottom' } } }
   });
 
-  // Placeholder Heatmap Chart
+  // Heatmap Chart
   new Chart(document.getElementById('heatmapChart'), {
     type: 'bar',
     data: {
-      labels: Array.from({length: 24}, (_, i) => i + ':00'),
-      datasets: [{
-        label: 'Reviews',
-        data: Array.from({length: 24}, () => Math.floor(Math.random() * 10)),
-        backgroundColor: '#7c3aed',
-        borderRadius: 8
-      }]
+      labels:Array.from({length:24}, (_,i)=>i+':00'),
+      datasets:[{ label:'Reviews', data:Array.from({length:24},()=>Math.floor(Math.random()*10)), backgroundColor:'#7c3aed', borderRadius:8 }]
     },
-    options: { responsive: true, scales: { y: { beginAtZero: true } } }
+    options:{ responsive:true, scales:{ y:{ beginAtZero:true } } }
   });
 });
 </script>
