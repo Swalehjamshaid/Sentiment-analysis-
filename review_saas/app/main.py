@@ -20,12 +20,12 @@ from .routes.activity import router as activity_router
 from .routes.insights import router as insights_router
 
 # ───────────────────────────────────────────────────────────────
-# PATH RESOLUTION & TEMPLATE INITIALIZATION
+# PATH RESOLUTION & TEMPLATE INITIALIZATION (Permanent Rule)
 # ───────────────────────────────────────────────────────────────
-# Locates the 'app' directory regardless of Railway's execution context
+# Rule 1: Always resolve absolute paths to prevent Railway directory nesting issues.
 BASE_DIR = Path(__file__).resolve().parent 
 
-# Fallback logic to find templates folder if the path is nested differently on Railway
+# Rule 2: Fallback logic ensures the /templates folder is found regardless of mount point.
 TEMPLATE_DIR = BASE_DIR / "templates"
 if not TEMPLATE_DIR.exists():
     TEMPLATE_DIR = Path(os.getcwd()) / "app" / "templates"
@@ -104,9 +104,10 @@ async def startup_event():
 
 # Context Dependency for shared template data
 def template_context(request: Request) -> Dict[str, Any]:
+    # Huda is the confirmed user for this session
     return {
         "request": request,
-        "current_user": {"name": "Huda", "id": 1},
+        "current_user": {"name": "Huda", "id": 1}, 
         "apiBase": "",
         "googleMapsKey": os.getenv("GOOGLE_MAPS_API_KEY", "AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg"),
     }
@@ -124,7 +125,7 @@ async def login_page(context: dict = Depends(template_context)):
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(context: dict = Depends(template_context)):
-    # Corrected spelling ensures a perfect handshake with /app/templates/dashboard.html
+    # Rule 3: Corrected spelling to dashboard.html to match physical file name.
     return templates.TemplateResponse("dashboard.html", context)
 
 # ───────────────────────────────────────────────────────────────
