@@ -1,3 +1,4 @@
+# File: app/main.py
 import os
 import logging
 from pathlib import Path
@@ -19,6 +20,9 @@ from .routes.maps_routes import router as maps_router
 from .routes.activity import router as activity_router
 from .routes.insights import router as insights_router
 
+# Import the shared dependency to break the circle
+from .dependencies import get_current_user
+
 # ───────────────────────────────────────────────────────────────
 # PATH RESOLUTION
 # ───────────────────────────────────────────────────────────────
@@ -31,17 +35,11 @@ if not TEMPLATE_DIR.exists():
     STATIC_DIR = PROJECT_ROOT / "app" / "static"
 
 # ───────────────────────────────────────────────────────────────
-# Logging
+# Logging & Settings
 # ───────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("review_saas")
-logger.info(f"Base directory: {BASE_DIR}")
-logger.info(f"Templates directory: {TEMPLATE_DIR}")
-logger.info(f"Static directory: {STATIC_DIR}")
 
-# ───────────────────────────────────────────────────────────────
-# Settings fallback
-# ───────────────────────────────────────────────────────────────
 try:
     from .core.config import settings
 except ImportError:
@@ -59,23 +57,15 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing database...")
     try:
         init_db(drop_existing=os.getenv("DROP_ALL_TABLES") == "1")
-        logger.info("Database initialized successfully.")
     except Exception as e:
         logger.error(f"Database startup failed: {e}")
     yield
-    logger.info("Application shutdown.")
 
 # ───────────────────────────────────────────────────────────────
-# FastAPI App
+# FastAPI App & Middleware
 # ───────────────────────────────────────────────────────────────
-app = FastAPI(
-    title=getattr(settings, "APP_NAME", "ReviewSaaS"),
-    lifespan=lifespan
-)
+app = FastAPI(title=getattr(settings, "APP_NAME", "ReviewSaaS"), lifespan=lifespan)
 
-# ───────────────────────────────────────────────────────────────
-# Middleware
-# ───────────────────────────────────────────────────────────────
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "supersecretkey123"))
 
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
@@ -88,15 +78,7 @@ class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(HTTPSRedirectMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
-
-_allow_origins = getattr(settings, "CORS_ALLOW_ORIGINS", "*")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[o.strip() for o in _allow_origins.split(",")] if _allow_origins != "*" else ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 # ───────────────────────────────────────────────────────────────
 # Templates & Static
@@ -104,21 +86,6 @@ app.add_middleware(
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-    logger.info("Static files mounted.")
-else:
-    logger.warning(f"Static directory not found: {STATIC_DIR}")
-
-# ───────────────────────────────────────────────────────────────
-# Authentication dependency (session-based)
-# ───────────────────────────────────────────────────────────────
-# This is the REAL get_current_user used by dashboard/companies/etc.
-# Import it in route files as: from app.main import get_current_user
-def get_current_user(request: Request) -> Optional[Dict[str, Any]]:
-    """
-    Get user from session. Returns None if not logged in.
-    """
-    user = request.session.get("user")
-    return user if user else None
 
 def common_context(request: Request) -> Dict[str, Any]:
     user = get_current_user(request)
@@ -132,7 +99,7 @@ def common_context(request: Request) -> Dict[str, Any]:
     }
 
 # ───────────────────────────────────────────────────────────────
-# Public UI Routes
+# Routes
 # ───────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -144,9 +111,6 @@ async def login_page(request: Request):
         return RedirectResponse(url="/dashboard")
     return templates.TemplateResponse("login.html", common_context(request))
 
-# ───────────────────────────────────────────────────────────────
-# Routers
-# ───────────────────────────────────────────────────────────────
 app.include_router(auth.router, prefix="/auth")
 app.include_router(companies.router)
 app.include_router(reviews.router)
@@ -157,13 +121,6 @@ app.include_router(maps_router)
 app.include_router(activity_router, prefix="/api/activity", tags=["telemetry"])
 app.include_router(insights_router, prefix="/api/insights", tags=["ai"])
 
-# ───────────────────────────────────────────────────────────────
-# Health Check
-# ───────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
-    return {
-        "status": "healthy",
-        "service": getattr(settings, "APP_NAME", "ReviewSaaS"),
-        "date": "2026-02-24"
-    }
+    return {"status": "healthy", "service": "ReviewSaaS"}
