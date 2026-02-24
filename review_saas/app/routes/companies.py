@@ -1,20 +1,22 @@
-# File: companies.py
+# File: app/routes/companies.py
 
 from __future__ import annotations
 
 import os
 import logging
-from typing import Dict, Any
+from typing import Any
 
 from fastapi import APIRouter, Request, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-# Internal relative imports
-from ..db import get_db
-from ..models import Company, Review
-from ..auth import get_current_user  # ✅ This is required for injecting current_user
+# ───────────────────────────────────────────────
+# Absolute imports (fixed)
+# ───────────────────────────────────────────────
+from app.db import get_db
+from app.models import Company, Review
+from app.auth import get_current_user  # ✅ Fixed absolute import
 
 # ───────────────────────────────────────────────
 # Logger Configuration
@@ -46,9 +48,6 @@ async def render_dashboard(
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_current_user)  # ✅ Inject current_user
 ):
-    """
-    Renders the main dashboard page using dashboard.html
-    """
     try:
         company_count = db.query(Company).count()
         review_count = db.query(Review).count()
@@ -56,10 +55,10 @@ async def render_dashboard(
         logger.info(f"Dashboard accessed by {current_user.email}. Stats: {company_count} companies, {review_count} reviews.")
 
         return templates.TemplateResponse(
-            "dashboard.html",  # ✅ Correct filename
+            "dashboard.html",
             {
                 "request": request,
-                "current_user": current_user,  # ✅ Pass current_user to Jinja2
+                "current_user": current_user,
                 "initial_stats": {
                     "companies": company_count,
                     "reviews": review_count
@@ -79,9 +78,6 @@ async def render_dashboard(
 @router.get("/dashbord", response_class=HTMLResponse)
 @router.get("/dashbord.html", response_class=HTMLResponse)
 async def redirect_legacy_dashboard():
-    """
-    Redirect legacy /dashbord URL requests to /dashboard
-    """
     logger.warning("Redirecting legacy /dashbord request → /dashboard")
     return RedirectResponse(url="/dashboard")
 
@@ -90,9 +86,6 @@ async def redirect_legacy_dashboard():
 # ───────────────────────────────────────────────
 @router.get("/api/dashboard/stats")
 async def get_global_stats(db: Session = Depends(get_db)):
-    """
-    Returns lightweight JSON metrics for the dashboard
-    """
     company_count = db.query(Company).count()
     review_count = db.query(Review).count()
 
@@ -107,7 +100,6 @@ async def get_global_stats(db: Session = Depends(get_db)):
 # Startup Diagnostic
 # ───────────────────────────────────────────────
 def log_dashboard_init():
-    """Confirm dashboard template exists at startup"""
     template_path = os.path.join(TEMPLATE_DIR, "dashboard.html")
     if os.path.exists(template_path):
         logger.info(f"Dashboard template verified → {template_path}")
