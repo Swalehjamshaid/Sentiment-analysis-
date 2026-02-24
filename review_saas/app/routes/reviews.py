@@ -1,142 +1,461 @@
 # FILE: app/routers/reviews.py
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, status
+from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy.orm import Session
-from typing import List, Optional
-import googlemaps
+from sqlalchemy import func, case, and_, or_, cast, Float
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
+import asyncio
+import logging
 
 from ..db import get_db
 from .. import models, schemas
-from ..services.ai_insights import _get_intelligence, detect_anomalies
-from ..services.analysis import dashboard_payload
+from ..services.ai_insights import (
+    get_intelligence,           # renamed from _get_intelligence for public use
+    detect_anomalies,
+    forecast_sentiment_and_rating  # new: predictive (#21)
+)
+from ..services.google_api import GoogleAPIService, get_google_api_service
+from ..services.rbac import get_current_user, require_roles
+from ..services.exports import export_reviews_report
+from ..services.metrics import (
+    aggregate_trends,
+    aggregate_rating_distribution,
+    compute_rating_sentiment_correlation,
+    aggregate_benchmark,
+    aggregate_geo_insights,
+    compute_engagement_metrics,
+    build_kpi_snapshot,
+    build_executive_summary
+)
+from ..services.notifications import notify_alerts
 
 router = APIRouter(
     prefix="/api/reviews",
     tags=["Review Intelligence & Google Sync"]
 )
 
+log = logging.getLogger("reviews")
+log.setLevel(logging.INFO)
+
 # ─────────────────────────────────────────────────────────────
-# 1. Google API Sync & Real-Time Ingestion (#1, #2, #23)
+# 0. Common helpers
 # ─────────────────────────────────────────────────────────────
 
-@router.post("/sync/{company_id}")
-async def sync_google_reviews(
-    company_id: int, 
-    background_tasks: BackgroundTasks, 
-    db: Session = Depends(get_db)
+def _parse_iso_date(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        # Support 'YYYY-MM-DD' or full ISO; default to UTC
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {value}. Use ISO 8601 (e.g., 2025-12-31 or 2025-12-31T00:00:00Z).")
+
+def _base_review_query(db: Session, company_id: int):
+    return db.query(models.Review).filter(models.Review.company_id == company_id)
+
+# ─────────────────────────────────────────────────────────────
+# 1. Multi-Source + Google API Sync & Real-Time Ingestion (#1, #2, #23, #31)
+# ─────────────────────────────────────────────────────────────
+
+@router.post("/sync/{company_id}", status_code=status.HTTP_202_ACCEPTED)
+async def sync_reviews(
+    company_id: int,
+    background_tasks: BackgroundTasks,
+    source: str = Query("google", description="Data source: google|facebook|instagram|twitter|playstore|appstore|survey (google implemented)"),
+    db: Session = Depends(get_db),
+    api: GoogleAPIService = Depends(get_google_api_service),
+    user: models.User = Depends(get_current_user),
+    _: None = Depends(require_roles(["owner", "manager", "analyst"]))  # #22 RBAC
 ):
     """
-    Requirement #2: Real-Time Data Sync.
-    Requirement #23: API Health Monitoring.
-    Triggers the Google Places API to fetch the latest reviews and run AI analysis.
+    #2: Real-Time Data Sync
+    #1: Multi-Source (extensible)
+    #23 & #31: Centralized API health, logging, rate limits, OAuth-ready
     """
     company = db.query(models.Company).filter(models.Company.id == company_id).first()
-    if not company or not company.place_id:
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found.")
+
+    if source == "google" and not company.place_id:
         raise HTTPException(status_code=400, detail="Company Place ID missing for Google Sync.")
 
-    # In a real production environment, the API Key would be in env vars
-    gmaps = googlemaps.Client(key="YOUR_GOOGLE_MAPS_API_KEY")
-
-    try:
-        # Fetching reviews from Google
-        place_details = gmaps.place(place_id=company.place_id, fields=['reviews'])
-        google_reviews = place_details.get('result', {}).get('reviews', [])
-        
-        new_count = 0
-        for gr in google_reviews:
-            # Check if review already exists (#1 Scalability)
-            existing = db.query(models.Review).filter(
-                models.Review.external_id == gr['time'], # Google uses timestamp as ID in basic API
-                models.Review.company_id == company_id
-            ).first()
-
-            if not existing:
-                # Requirement #3, #4, #5: Run Intelligence Pipeline
-                intel = _get_intelligence(gr.get('text', ''), gr.get('rating'))
-                
-                new_review = models.Review(
-                    company_id=company_id,
-                    external_id=str(gr['time']),
-                    source_type="google",
-                    reviewer_name=gr.get('author_name'),
-                    text=gr.get('text'),
-                    rating=gr.get('rating'),
-                    review_date=datetime.fromtimestamp(gr['time'], tz=timezone.utc),
-                    sentiment_category=intel['sentiment'],
-                    sentiment_score=intel['confidence'],
-                    detected_emotion=intel['emotion'],
-                    aspects=intel['aspects'], # Stored as JSON (#5)
-                    language=intel['lang']     # #24 Multi-language
-                )
-                db.add(new_review)
-                new_count += 1
-        
-        company.last_synced_at = datetime.now(timezone.utc)
+    async def _do_sync():
+        sync_log = models.SyncLog(
+            company_id=company_id,
+            source=source,
+            started_at=datetime.now(timezone.utc),
+            status="running"
+        )
+        db.add(sync_log)
         db.commit()
-        
-        # Requirement #15: Trigger Anomaly Detection after sync
-        alerts = detect_anomalies(db.query(models.Review).filter_by(company_id=company_id).all())
-        
-        return {"status": "success", "new_reviews_synced": new_count, "alerts": alerts}
+        db.refresh(sync_log)
 
-    except Exception as e:
-        # #23: Health Monitoring
-        company.sync_status = "Failed"
-        db.commit()
-        raise HTTPException(status_code=500, detail=f"Google API Health Error: {str(e)}")
+        try:
+            new_count = 0
+            page_token = None
+            # Paginate/rate-limit aware loop
+            while True:
+                if source == "google":
+                    batch = await api.fetch_reviews_async(place_id=company.place_id, page_token=page_token)
+                else:
+                    # Placeholder for other connectors – plug via service layer adapters
+                    batch = {"reviews": [], "next_page_token": None}
+
+                reviews = batch.get("reviews", [])
+                for r in reviews:
+                    external_id = str(r["external_id"])
+                    existing = db.query(models.Review).filter(
+                        models.Review.company_id == company_id,
+                        models.Review.source_type == source,
+                        models.Review.external_id == external_id
+                    ).first()
+
+                    # Intelligence pipeline (#3 #4 #5 #6 #24 #25)
+                    intel = get_intelligence(
+                        text=r.get("text") or "",
+                        rating=r.get("rating"),
+                        lang_hint=r.get("language"),
+                    )
+
+                    if not existing:
+                        obj = models.Review(
+                            company_id=company_id,
+                            external_id=external_id,
+                            source_type=source,
+                            reviewer_name=r.get("author_name"),
+                            reviewer_profile_url=r.get("author_url"),
+                            text=r.get("text"),
+                            rating=r.get("rating"),
+                            review_date=r.get("review_date") or datetime.now(timezone.utc),
+                            sentiment_category=intel.sentiment,     # Positive/Negative/Neutral
+                            sentiment_score=intel.confidence,        # confidence score
+                            detected_emotion=intel.emotion,          # #4
+                            aspects=intel.aspects,                    # #5 JSON {aspect: score}
+                            topics=intel.topics,                      # #6 keywords/topics
+                            language=intel.lang,                      # #24
+                            journey_stage=intel.journey_stage         # #25
+                        )
+                        db.add(obj)
+                        new_count += 1
+                    else:
+                        # If Google rating updated or text edited – keep in sync (#2)
+                        existing.rating = r.get("rating", existing.rating)
+                        existing.text = r.get("text", existing.text)
+                        existing.review_date = r.get("review_date", existing.review_date)
+                        existing.sentiment_category = intel.sentiment
+                        existing.sentiment_score = intel.confidence
+                        existing.detected_emotion = intel.emotion
+                        existing.aspects = intel.aspects
+                        existing.topics = intel.topics
+                        existing.language = intel.lang
+                        existing.journey_stage = intel.journey_stage
+
+                db.commit()
+
+                page_token = batch.get("next_page_token")
+                if not page_token:
+                    break
+                # Respect backoff between pages if Google requires it
+                await asyncio.sleep(batch.get("recommended_backoff_sec", 0.5))
+
+            # Post-sync housekeeping
+            company.last_synced_at = datetime.now(timezone.utc)
+            company.sync_status = "OK"
+            db.commit()
+
+            # #27/#15 – detect anomalies and notify
+            alerts = detect_anomalies(db.query(models.Review).filter_by(company_id=company_id).all())
+            if alerts:
+                notify_alerts(company_id=company_id, alerts=alerts, db=db)
+
+            # Finish log
+            sync_log.finished_at = datetime.now(timezone.utc)
+            sync_log.status = "success"
+            sync_log.metrics = {"new_reviews_synced": new_count}
+            db.commit()
+
+        except Exception as e:
+            log.exception("Sync failed")
+            company.sync_status = "Failed"
+            db.commit()
+            sync_log.finished_at = datetime.now(timezone.utc)
+            sync_log.status = "failed"
+            sync_log.error_message = str(e)
+            db.commit()
+
+    # Run async in background for responsiveness
+    background_tasks.add_task(asyncio.create_task, _do_sync())
+    return {"status": "accepted", "message": "Sync started in background."}
 
 # ─────────────────────────────────────────────────────────────
-# 2. Advanced Filtering & Drill-Down (#8, #16)
+# 2. Advanced Filtering & Drill-Down (#8, #16, #24)
 # ─────────────────────────────────────────────────────────────
 
 @router.get("/", response_model=schemas.ReviewListResponse)
 def get_intelligent_reviews(
     company_id: int,
-    # #8: Custom Date Range
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    # #16: Drill-Down Segments
+    start_date: Optional[str] = Query(None, description="ISO date or datetime"),
+    end_date: Optional[str] = Query(None, description="ISO date or datetime"),
     emotion: Optional[str] = None,
     aspect: Optional[str] = None,
     sentiment: Optional[str] = None,
-    db: Session = Depends(get_db)
+    language: Optional[str] = None,
+    min_rating: Optional[int] = None,
+    max_rating: Optional[int] = None,
+    source: Optional[str] = None,
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    _: None = Depends(require_roles(["owner", "manager", "analyst"]))
 ):
-    """
-    Handles dashboard 'Drill-Downs'. If a user clicks 'Frustration' in the chart,
-    this endpoint filters the list to show only frustrating reviews.
-    """
-    query = db.query(models.Review).filter(models.Review.company_id == company_id)
+    query = _base_review_query(db, company_id)
 
-    if start_date: query = query.filter(models.Review.review_date >= start_date)
-    if end_date: query = query.filter(models.Review.review_date <= end_date)
+    sdt = _parse_iso_date(start_date)
+    edt = _parse_iso_date(end_date)
+    if sdt: query = query.filter(models.Review.review_date >= sdt)
+    if edt: query = query.filter(models.Review.review_date <= edt)
     if emotion: query = query.filter(models.Review.detected_emotion == emotion)
     if sentiment: query = query.filter(models.Review.sentiment_category == sentiment)
-    
-    # #5: Filtering by JSON aspect (PostgreSQL syntax example)
+    if language: query = query.filter(models.Review.language == language)
+    if source: query = query.filter(models.Review.source_type == source)
+    if min_rating is not None: query = query.filter(models.Review.rating >= min_rating)
+    if max_rating is not None: query = query.filter(models.Review.rating <= max_rating)
+
+    # #5: Filter by JSON aspect key – PostgreSQL JSONB
     if aspect:
-        query = query.filter(models.Review.aspects.has_key(aspect))
+        query = query.filter(models.Review.aspects.has_key(aspect))  # type: ignore[attr-defined]
 
-    reviews = query.order_by(models.Review.review_date.desc()).all()
-    return {"total": len(reviews), "data": reviews}
+    total = query.count()
+    reviews = query.order_by(models.Review.review_date.desc()).offset(offset).limit(limit).all()
+    return {"total": total, "data": reviews}
 
 # ─────────────────────────────────────────────────────────────
-# 3. Engagement & Response Tracking (#14, #26)
+# 3. Trends, Distribution, Correlation, Volume (#7, #9, #10, #13)
 # ─────────────────────────────────────────────────────────────
+
+@router.get("/trends")
+def get_trends(
+    company_id: int,
+    period: str = Query("daily", pattern="^(daily|weekly|monthly|quarterly)$"),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    _: None = Depends(require_roles(["owner", "manager", "analyst"]))
+):
+    sdt = _parse_iso_date(start_date)
+    edt = _parse_iso_date(end_date)
+    return aggregate_trends(db, company_id, period, sdt, edt)
+
+@router.get("/ratings/distribution")
+def get_rating_distribution(
+    company_id: int,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    _: None = Depends(require_roles(["owner", "manager", "analyst"]))
+):
+    sdt = _parse_iso_date(start_date)
+    edt = _parse_iso_date(end_date)
+    return aggregate_rating_distribution(db, company_id, sdt, edt)
+
+@router.get("/correlation")
+def get_correlation(
+    company_id: int,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    _: None = Depends(require_roles(["owner", "manager", "analyst"]))
+):
+    sdt = _parse_iso_date(start_date)
+    edt = _parse_iso_date(end_date)
+    return compute_rating_sentiment_correlation(db, company_id, sdt, edt)
+
+# ─────────────────────────────────────────────────────────────
+# 4. Benchmarking, Geo Insights, KPIs, Executive Summary (#11, #12, #17, #20, #18 optional)
+# ─────────────────────────────────────────────────────────────
+
+@router.get("/benchmark")
+def benchmark_companies(
+    company_ids: List[int] = Query(..., description="IDs of own branches and/or competitors"),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    _: None = Depends(require_roles(["owner", "manager", "analyst"]))
+):
+    sdt = _parse_iso_date(start_date)
+    edt = _parse_iso_date(end_date)
+    return aggregate_benchmark(db, company_ids, sdt, edt)
+
+@router.get("/geo")
+def get_geo_insights(
+    company_id: int,
+    group_by: str = Query("branch", pattern="^(branch|city|region)$"),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    _: None = Depends(require_roles(["owner", "manager", "analyst"]))
+):
+    sdt = _parse_iso_date(start_date)
+    edt = _parse_iso_date(end_date)
+    return aggregate_geo_insights(db, company_id, group_by, sdt, edt)
+
+@router.get("/kpis")
+def kpi_dashboard(
+    company_id: int,
+    # owners can configure which KPIs to show (#17)
+    kpis: List[str] = Query(
+        default=["avg_rating", "sentiment_score", "review_count", "response_time", "review_growth"],
+        description="KPI keys to include"
+    ),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    _: None = Depends(require_roles(["owner", "manager", "analyst"]))
+):
+    sdt = _parse_iso_date(start_date)
+    edt = _parse_iso_date(end_date)
+    return build_kpi_snapshot(db, company_id, kpis, sdt, edt)
+
+@router.get("/executive-summary")
+def executive_summary(
+    company_id: int,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    _: None = Depends(require_roles(["owner", "manager", "analyst"]))
+):
+    sdt = _parse_iso_date(start_date)
+    edt = _parse_iso_date(end_date)
+    return build_executive_summary(db, company_id, sdt, edt)
+
+# ─────────────────────────────────────────────────────────────
+# 5. Predictive Insights, Alerts, Engagement (#21, #15, #14, #26, #27)
+# ─────────────────────────────────────────────────────────────
+
+@router.get("/forecast")
+def forecast(
+    company_id: int,
+    horizon_days: int = Query(30, ge=7, le=180),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    _: None = Depends(require_roles(["owner", "manager", "analyst"]))
+):
+    return forecast_sentiment_and_rating(db, company_id, horizon_days)
+
+@router.get("/alerts")
+def get_alerts(
+    company_id: int,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    _: None = Depends(require_roles(["owner", "manager", "analyst"]))
+):
+    alerts = (db.query(models.Alert)
+                .filter_by(company_id=company_id)
+                .order_by(models.Alert.created_at.desc())
+                .limit(limit)
+                .all())
+    return {"total": len(alerts), "data": alerts}
 
 @router.patch("/{review_id}/respond")
 def update_response_status(
-    review_id: int, 
-    db: Session = Depends(get_db)
+    review_id: int,
+    response_text: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    _: None = Depends(require_roles(["owner", "manager"]))
 ):
     """
-    Requirement #14: Monitoring if business responded.
-    Requirement #26: Metrics for response time.
+    #14: Monitor business responses
+    #26: Measure response time and effectiveness
     """
     review = db.query(models.Review).filter(models.Review.id == review_id).first()
     if not review:
         raise HTTPException(status_code=404, detail="Review not found")
-    
+
     review.is_responded = True
     review.response_date = datetime.now(timezone.utc)
+    review.response_text = response_text
     db.commit()
+
+    # Optional effectiveness metric: faster responses on negative sentiment
     return {"status": "Response tracked"}
+
+@router.get("/engagement")
+def get_engagement_metrics(
+    company_id: int,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    _: None = Depends(require_roles(["owner", "manager", "analyst"]))
+):
+    sdt = _parse_iso_date(start_date)
+    edt = _parse_iso_date(end_date)
+    return compute_engagement_metrics(db, company_id, sdt, edt)
+
+# ─────────────────────────────────────────────────────────────
+# 6. Export & Reporting (#19)
+# ─────────────────────────────────────────────────────────────
+
+@router.get("/export")
+def export_reports(
+    company_id: int,
+    format: str = Query("csv", pattern="^(csv|xlsx|pdf)$"),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    _: None = Depends(require_roles(["owner", "manager", "analyst"]))
+):
+    sdt = _parse_iso_date(start_date)
+    edt = _parse_iso_date(end_date)
+    stream, filename, media_type = export_reviews_report(db, company_id, format, sdt, edt)
+    return StreamingResponse(stream, media_type=media_type, headers={
+        "Content-Disposition": f'attachment; filename="{filename}"'
+    })
+
+# ─────────────────────────────────────────────────────────────
+# 7. API Health & Data Integrity (#23)
+# ─────────────────────────────────────────────────────────────
+
+@router.get("/health")
+def api_health(
+    company_id: int,
+    db: Session = Depends(get_db),
+    api: GoogleAPIService = Depends(get_google_api_service),
+    user: models.User = Depends(get_current_user),
+    _: None = Depends(require_roles(["owner", "manager", "analyst"]))
+):
+    company = db.query(models.Company).filter(models.Company.id == company_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    google_status = api.health_check(place_id=company.place_id) if company.place_id else {"status": "no_place_id"}
+    last_sync = db.query(models.SyncLog).filter_by(company_id=company_id).order_by(models.SyncLog.started_at.desc()).first()
+
+    # Basic data integrity checks
+    review_count = db.query(models.Review).filter_by(company_id=company_id).count()
+    has_duplicates = db.query(models.Review.external_id)\
+        .filter(models.Review.company_id == company_id)\
+        .group_by(models.Review.external_id)\
+        .having(func.count(models.Review.external_id) > 1).count() > 0
+
+    return {
+        "google_api": google_status,
+        "last_sync": last_sync,
+        "data_integrity": {
+            "total_reviews": review_count,
+            "duplicate_external_ids": has_duplicates
+        }
+    }
