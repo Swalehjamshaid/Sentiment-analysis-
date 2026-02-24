@@ -17,15 +17,24 @@
         background: rgba(30, 41, 59, 0.6);
     }
     .insight-pill {
-        @apply px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider;
+        /* Tailwind-like pill; keep as utility class */
+        padding: 0.25rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 10px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
     }
     [x-cloak] { display: none !important; }
-    
+
     .custom-scroll::-webkit-scrollbar { height: 6px; }
     .custom-scroll::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.3); border-radius: 10px; }
-    
+
     .text-gradient {
-        @apply bg-gradient-to-r from-brand-400 via-indigo-400 to-purple-400 bg-clip-text text-transparent;
+        background: linear-gradient(to right, #60a5fa, #818cf8, #a78bfa);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
     }
 </style>
 {% endblock %}
@@ -47,7 +56,7 @@
                 <span class="text-gradient" x-text="selectedCompany.name || 'Select Company'"></span>
             </h1>
             <div class="flex items-center gap-3 mt-2">
-                <span class="insight-pill bg-brand-500/10 text-brand-400 border border-brand-500/20">Google API Integrated</span>
+                <span class="insight-pill" style="background:rgba(79,70,229,.1);color:#818cf8;border:1px solid rgba(129,140,248,.2);">Google API Integrated</span>
                 <span class="text-slate-600 text-[10px] font-bold uppercase tracking-widest" 
                       x-text="'Last Sync: ' + (dashboardData.company?.last_synced || 'Never')"></span>
             </div>
@@ -91,11 +100,11 @@
                 </div>
                 <div class="space-y-1">
                     <p class="text-slate-500 text-[9px] font-bold uppercase">Risk Index</p>
-                    <p class="text-lg font-black text-white" x-text="(dashboardData.metrics?.risk_score || 0).toFixed(1) + '%'"></p>
+                    <p class="text-lg font-black text-white" x-text="((dashboardData.metrics?.risk_score ?? 0)).toFixed(1) + '%'"></p>
                 </div>
                 <div class="space-y-1">
                     <p class="text-slate-500 text-[9px] font-bold uppercase">Rating Delta</p>
-                    <p class="text-lg font-black text-indigo-400" x-text="(dashboardData.trend?.delta || 0.0).toFixed(2)"></p>
+                    <p class="text-lg font-black text-indigo-400" x-text="((dashboardData.trend?.delta ?? 0.0)).toFixed(2)"></p>
                 </div>
             </div>
         </div>
@@ -103,7 +112,7 @@
         <div class="metric-card p-8 rounded-[2.5rem] flex flex-col justify-center text-center">
             <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-4">Avg Google Experience</p>
             <div class="relative inline-flex items-center justify-center">
-                <p class="text-7xl font-black text-amber-400" x-text="(dashboardData.metrics?.avg_rating || 0).toFixed(1)"></p>
+                <p class="text-7xl font-black text-amber-400" x-text="((dashboardData.metrics?.avg_rating ?? 0)).toFixed(1)"></p>
                 <span class="text-2xl text-slate-600 ml-2 font-bold italic">★</span>
             </div>
             <p class="text-slate-400 text-[10px] mt-4 font-bold" x-text="(dashboardData.metrics?.total || 0) + ' Data Points'"></p>
@@ -162,13 +171,13 @@
                             </td>
                             <td class="px-8 py-6">
                                 <div class="flex items-center gap-3 mb-2">
-                                    <span class="text-amber-400 font-black text-xs" x-text="review.rating + '.0 ★'"></span>
+                                    <span class="text-amber-400 font-black text-xs" x-text="(review.rating || 0).toFixed ? review.rating.toFixed(1) + ' ★' : (review.rating + '.0 ★')"></span>
                                     <span class="insight-pill" 
                                           :class="{
                                               'bg-emerald-500/10 text-emerald-500': review.sentiment_category === 'Positive',
                                               'bg-rose-500/10 text-rose-500': review.sentiment_category === 'Negative',
                                               'bg-slate-500/10 text-slate-500': review.sentiment_category === 'Neutral'
-                                          }" x-text="review.sentiment_category"></span>
+                                          }" x-text="review.sentiment_category || 'Neutral'"></span>
                                 </div>
                                 <p class="text-slate-400 text-xs italic line-clamp-2 group-hover:line-clamp-none transition-all duration-500" x-text="review.text || 'No comment text detected.'"></p>
                             </td>
@@ -238,7 +247,7 @@ function dashboardHandler() {
                 setTimeout(() => {
                     this.loading = false;
                     this.renderVisuals();
-                }, 1000);
+                }, 600);
             });
         },
 
@@ -257,21 +266,23 @@ function dashboardHandler() {
         prevPage() { if (this.currentPage > 1) this.currentPage--; },
 
         /**
-         * SAFETY GATE: Fixes the 422 Unprocessable Content error.
-         * Ensures company_id is present before redirecting.
+         * SAFETY GATE: prevents 422 by ensuring company and normalizing dates.
          */
         applyFilter() {
             if (!this.selectedCompany.id || this.selectedCompany.id === "") {
-                alert("Please select a company from the sidebar or dropdown before filtering.");
+                alert("Please select a company before filtering.");
                 return;
             }
-            
+
+            // Normalize date order if user selected them in reverse
+            let s = this.dateStart || "";
+            let e = this.dateEnd || "";
+            if (s && e && s > e) { const t = s; s = e; e = t; }
+
             this.loading = true;
-            const params = new URLSearchParams({
-                company_id: this.selectedCompany.id,
-                start: this.dateStart,
-                end: this.dateEnd
-            });
+            const params = new URLSearchParams({ company_id: this.selectedCompany.id });
+            if (s) params.set('start', s);
+            if (e) params.set('end', e);
             window.location.href = `/dashboard?${params.toString()}`;
         },
 
@@ -283,13 +294,14 @@ function dashboardHandler() {
                 if (res.ok) console.log("Google API Sync Triggered...");
             } catch (err) {
                 console.error("Sync Failure:", err);
+            } finally {
                 this.syncing = false;
             }
         },
 
         generateAIReply(review) {
             const name = review.reviewer_name || 'Customer';
-            const rating = review.rating;
+            const rating = review.rating ?? 0;
             const text = review.text || 'your feedback';
             
             let draft = `Hi ${name}, thank you for your ${rating}-star review. `;
@@ -302,42 +314,42 @@ function dashboardHandler() {
         },
 
         renderVisuals() {
-            const data = this.dashboardData;
+            const data = this.dashboardData || {};
             if (!data.metrics) return;
 
             Chart.defaults.color = '#64748b';
             Chart.defaults.font.family = 'Inter, sans-serif';
 
-            // 1. Daily Growth Chart
+            // 1) Daily Trend (Total, Positive, Negative)
             const dailyCtx = document.getElementById('dailyCountsChart');
             if (dailyCtx && data.daily_counts) {
                 new Chart(dailyCtx, {
                     type: 'line',
                     data: {
-                        labels: data.daily_counts.labels,
+                        labels: data.daily_counts.labels || [],
                         datasets: [
-                            { label: 'Positive', data: data.daily_counts.datasets.positive, borderColor: '#10b981', tension: 0.4, fill: false, pointRadius: 0 },
-                            { label: 'Negative', data: data.daily_counts.datasets.negative, borderColor: '#ef4444', tension: 0.4, fill: false, pointRadius: 0 },
-                            { label: 'Total', data: data.daily_counts.datasets.total, borderColor: '#6366f1', borderDash: [5, 5], tension: 0.4, fill: false, pointRadius: 0 }
+                            { label: 'Positive', data: (data.daily_counts.datasets?.positive || []), borderColor: '#10b981', tension: 0.4, fill: false, pointRadius: 0 },
+                            { label: 'Negative', data: (data.daily_counts.datasets?.negative || []), borderColor: '#ef4444', tension: 0.4, fill: false, pointRadius: 0 },
+                            { label: 'Total', data: (data.daily_counts.datasets?.total || []), borderColor: '#6366f1', borderDash: [5, 5], tension: 0.4, fill: false, pointRadius: 0 }
                         ]
                     },
                     options: { 
                         maintainAspectRatio: false, 
                         plugins: { legend: { position: 'top', labels: { boxWidth: 10, font: { size: 9, weight: 'bold' } } } }, 
-                        scales: { x: { grid: { display: false }, ticks: { display: false } }, y: { grid: { color: 'rgba(255,255,255,0.02)' } } } 
+                        scales: { x: { grid: { display: false }, ticks: { display: false } }, y: { grid: { color: 'rgba(255,255,255,0.06)' } } } 
                     }
                 });
             }
 
-            // 2. Sentiment Ring
+            // 2) Sentiment Ring
             const ringCtx = document.getElementById('sentimentRingChart');
             if (ringCtx && data.sentiment_ring) {
                 new Chart(ringCtx, {
                     type: 'doughnut',
                     data: {
-                        labels: data.sentiment_ring.labels,
+                        labels: data.sentiment_ring.labels || ['Positive','Negative','Neutral'],
                         datasets: [{
-                            data: data.sentiment_ring.data,
+                            data: data.sentiment_ring.data || [0,0,0],
                             backgroundColor: ['#10b981', '#ef4444', '#64748b'],
                             borderWidth: 0,
                             hoverOffset: 15
