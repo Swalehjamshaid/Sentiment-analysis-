@@ -1,7 +1,6 @@
 # File: review_saas/app/routes/dashboard.py
 from __future__ import annotations
 
-import os
 import logging
 from pathlib import Path
 from typing import Dict, Any
@@ -18,10 +17,12 @@ from ..models import Company, Review
 # Logger Configuration
 # ─────────────────────────────────────────────────────────────
 logger = logging.getLogger("dashboard")
+
 if not logger.handlers:
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
     logger.addHandler(handler)
+
 logger.setLevel(logging.INFO)
 
 # ─────────────────────────────────────────────────────────────
@@ -30,12 +31,12 @@ logger.setLevel(logging.INFO)
 router = APIRouter(tags=["dashboard"])
 
 # Reliable path calculation
-BASE_DIR = Path(__file__).resolve().parent.parent  # → review_saas/app
-TEMPLATE_DIR = BASE_DIR / "templates"               # → review_saas/app/templates
+BASE_DIR = Path(__file__).resolve().parent.parent      # → review_saas/app
+TEMPLATE_DIR = BASE_DIR / "templates"                   # → review_saas/app/templates
 
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
-logger.info(f"Dashboard Route Module Loaded. Templates path: {TEMPLATE_DIR}")
+logger.info(f"Dashboard module loaded → template directory: {TEMPLATE_DIR}")
 
 # ─────────────────────────────────────────────────────────────
 # Routes
@@ -45,45 +46,45 @@ logger.info(f"Dashboard Route Module Loaded. Templates path: {TEMPLATE_DIR}")
 async def render_dashboard(
     request: Request,
     db: Session = Depends(get_db),
-    # current_user = Depends(get_current_user)  # ← uncomment when auth is ready
+    # current_user = Depends(get_current_user)   # ← activate when auth is ready
 ):
     """
-    Renders the Unified Dashboard using dashboard.html
-    
-    Expected template location: review_saas/app/templates/dashboard.html
+    Renders the main dashboard page using dashboard.html
     """
     try:
         company_count = db.query(Company).count()
         review_count = db.query(Review).count()
 
-        logger.info(f"Dashboard accessed. Stats: {company_count} companies, {review_count} reviews.")
+        logger.info(f"Dashboard loaded → {company_count} companies, {review_count} reviews")
 
         return templates.TemplateResponse(
-            "dashboard.html",  # Correct filename
+            "dashboard.html",   # ← correct filename (this line renders the template)
             {
                 "request": request,
-                # "current_user": current_user,          # ← uncomment when auth ready
+                # "current_user": current_user,        # ← activate when ready
                 "initial_stats": {
                     "companies": company_count,
                     "reviews": review_count
                 }
             }
         )
+
     except Exception as e:
-        logger.error(f"Critical error rendering dashboard: {str(e)}", exc_info=True)
+        logger.error(f"Dashboard render failed: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error loading dashboard. Template directory: {TEMPLATE_DIR}"
+            detail=f"Cannot render dashboard. Template folder: {TEMPLATE_DIR}"
         )
 
 
 @router.get("/api/dashboard/stats")
 async def get_global_stats(db: Session = Depends(get_db)):
     """
-    Lightweight API endpoint for dashboard metrics (JSON).
+    Simple JSON stats endpoint (used by frontend if needed)
     """
     company_count = db.query(Company).count()
     review_count = db.query(Review).count()
+
     return {
         "total_companies": company_count,
         "total_reviews": review_count,
@@ -93,20 +94,20 @@ async def get_global_stats(db: Session = Depends(get_db)):
 
 
 # ─────────────────────────────────────────────────────────────
-# Startup Diagnostic (runs once when module is imported)
+# One-time startup check (runs when module is imported)
 # ─────────────────────────────────────────────────────────────
-def log_dashboard_init():
+def check_dashboard_template():
     """
-    One-time check at startup: verify dashboard.html exists.
+    Startup diagnostic: confirm dashboard.html exists
     """
-    template_file = TEMPLATE_DIR / "dashboard.html"
-    
-    if template_file.is_file():
-        logger.info(f"Dashboard template found and verified: {template_file}")
+    file_path = TEMPLATE_DIR / "dashboard.html"
+
+    if file_path.is_file():
+        logger.info(f"Dashboard template OK → {file_path}")
     else:
-        logger.warning(f"Dashboard template MISSING: {template_file}")
-        logger.warning("Expected exact filename: dashboard.html (lowercase)")
+        logger.warning(f"Missing dashboard template → {file_path}")
+        logger.warning("Expected: review_saas/app/templates/dashboard.html")
 
 
-# Execute the check once
-log_dashboard_init()
+# Run check once
+check_dashboard_template()
