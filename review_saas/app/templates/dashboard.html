@@ -1,29 +1,26 @@
 {% extends "base.html" %}
 
-{% block title %}BizChat • Review Dashboard{% endblock %}
+{% block title %}BizChat • Executive Intelligence{% endblock %}
 
 {% block extra_head %}
 <style>
-    /* Glassmorphism effects for the dark theme */
     .metric-card {
         background: rgba(30, 41, 59, 0.4);
-        backdrop-filter: blur(8px);
+        backdrop-filter: blur(12px);
         border: 1px solid rgba(255, 255, 255, 0.05);
-        transition: transform 0.2s ease, border-color 0.2s ease;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
     .metric-card:hover {
-        border-color: rgba(99, 102, 241, 0.3);
-        transform: translateY(-2px);
+        border-color: rgba(99, 102, 241, 0.4);
+        transform: translateY(-4px);
+        background: rgba(30, 41, 59, 0.6);
     }
-    input[type="date"]::-webkit-calendar-picker-indicator {
-        filter: invert(1);
-        cursor: pointer;
+    .insight-pill {
+        @apply px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider;
     }
     [x-cloak] { display: none !important; }
     
-    /* Custom Scrollbar for the table */
     .custom-scroll::-webkit-scrollbar { height: 6px; }
-    .custom-scroll::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.1); }
     .custom-scroll::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.3); border-radius: 10px; }
 </style>
 {% endblock %}
@@ -32,174 +29,164 @@
 <div class="space-y-8" x-cloak x-data="dashboardHandler()">
 
     <div x-show="loading" 
-         class="fixed inset-0 z-[60] bg-slate-950/80 backdrop-blur-md flex items-center justify-center transition-opacity duration-500">
+         class="fixed inset-0 z-[70] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center">
         <div class="text-center">
-            <div class="w-16 h-16 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p class="text-brand-400 font-bold tracking-widest uppercase text-xs animate-pulse">Analyzing Review Sentiments...</p>
+            <div class="w-20 h-20 border-t-4 border-brand-500 rounded-full animate-spin mx-auto mb-6"></div>
+            <p class="text-brand-400 font-black tracking-widest uppercase text-xs animate-pulse">Running Neural Sentiment Audit...</p>
         </div>
     </div>
 
     <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
         <div>
-            <h1 class="text-4xl font-extrabold tracking-tight text-white">
-                <span class="bg-gradient-to-r from-brand-400 to-indigo-400 bg-clip-text text-transparent" x-text="selectedCompany.name"></span>
+            <h1 class="text-5xl font-black tracking-tighter text-white">
+                <span class="bg-gradient-to-r from-brand-400 via-indigo-400 to-purple-400 bg-clip-text text-transparent" x-text="selectedCompany.name"></span>
             </h1>
-            {% if selected_company %}
-            <p class="text-slate-500 text-[10px] mt-1 uppercase tracking-[0.2em]">
-                Last Google Sync: {{ selected_company.last_synced_at.strftime('%Y-%m-%d %H:%M') if selected_company.last_synced_at else 'Never' }}
-            </p>
-            {% endif %}
+            <div class="flex items-center gap-3 mt-2">
+                <span class="insight-pill bg-brand-500/10 text-brand-400 border border-brand-500/20">v3.5 Intelligence Engine</span>
+                <span class="text-slate-600 text-[10px] font-bold uppercase tracking-widest" x-text="'ID: ' + selectedCompany.id"></span>
+            </div>
         </div>
 
-        <div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
-            <button @click="triggerSync()" :disabled="syncing || !selectedCompany.id"
-                    class="flex items-center justify-center gap-2 px-6 py-3 bg-brand-600 text-white rounded-xl hover:bg-brand-700 transition-all text-sm font-bold disabled:opacity-50 group">
-                <i class="fas fa-sync-alt group-hover:rotate-180 transition-transform duration-500" :class="syncing ? 'fa-spin' : ''"></i>
-                <span x-text="syncing ? 'Syncing...' : 'Sync Now'"></span>
+        <div class="flex flex-wrap gap-3">
+            <button @click="triggerSync()" :disabled="syncing"
+                    class="flex items-center gap-2 px-8 py-4 bg-brand-600 text-white rounded-2xl hover:bg-brand-500 transition-all font-black text-xs shadow-2xl shadow-brand-600/30 active:scale-95 disabled:opacity-50">
+                <i class="fas fa-bolt" :class="syncing ? 'animate-pulse' : ''"></i>
+                <span x-text="syncing ? 'UPDATING DB...' : 'FORCE GOOGLE SYNC'"></span>
             </button>
-
-            <div class="relative" x-data="{ menuOpen: false }">
-                <button @click="menuOpen = !menuOpen" @click.away="menuOpen = false" 
-                        class="w-full sm:w-64 flex justify-between items-center px-4 py-3 bg-slate-900/50 border border-slate-700 rounded-xl hover:border-brand-500 transition-all text-sm font-medium text-white group">
-                    <span class="flex items-center gap-2">
-                        <i class="fas fa-building text-brand-500 group-hover:scale-110 transition-transform"></i>
-                        <span x-text="selectedCompany.name"></span>
-                    </span>
-                    <i class="fas fa-chevron-down text-[10px] transition-transform" :class="menuOpen ? 'rotate-180' : ''"></i>
-                </button>
-                <div x-show="menuOpen" x-transition class="absolute right-0 w-full mt-2 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
-                    <div class="max-h-60 overflow-y-auto p-2">
-                        <a href="/dashboard" class="block px-4 py-2 hover:bg-brand-600/20 rounded-lg text-sm text-slate-300 transition-colors">Global Overview</a>
-                        <div class="h-px bg-slate-800 my-1"></div>
-                        {% for company in companies %}
-                        <div class="px-4 py-2 hover:bg-brand-600/20 cursor-pointer rounded-lg text-sm text-slate-300 transition-colors" 
-                             @click="selectedCompany = {id: '{{ company.id }}', name: '{{ company.name }}'}; menuOpen = false; applyFilter()">
-                            {{ company.name }}
-                        </div>
-                        {% endfor %}
-                    </div>
-                </div>
-            </div>
             
-            <div class="flex bg-slate-900/50 border border-slate-700 rounded-xl p-1.5 gap-1">
-                <input type="date" x-model="dateStart" class="bg-transparent border-none text-[11px] text-white px-2 focus:ring-0 outline-none w-28">
-                <span class="text-slate-700 self-center text-xs">→</span>
-                <input type="date" x-model="dateEnd" class="bg-transparent border-none text-[11px] text-white px-2 focus:ring-0 outline-none w-28">
-                <button @click="applyFilter()" class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 shadow-lg shadow-brand-600/20">Apply</button>
+            <div class="flex bg-slate-900/80 border border-slate-700 rounded-2xl p-2 gap-2 shadow-inner">
+                <input type="date" x-model="dateStart" class="bg-transparent border-none text-[11px] text-white px-2 focus:ring-0 w-32">
+                <span class="text-slate-800 self-center">/</span>
+                <input type="date" x-model="dateEnd" class="bg-transparent border-none text-[11px] text-white px-2 focus:ring-0 w-32">
+                <button @click="applyFilter()" class="bg-indigo-600 text-white px-6 py-2 rounded-xl text-[11px] font-black hover:bg-indigo-500 transition-all">APPLY</button>
             </div>
         </div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="metric-card p-6 rounded-2xl">
-            <p class="text-slate-500 text-[10px] font-bold uppercase tracking-[0.15em]">Total Reviews</p>
-            <p class="text-3xl font-bold mt-2 text-white" x-text="dashboardData.metrics?.total || 0"></p>
-        </div>
-        <div class="metric-card p-6 rounded-2xl">
-            <p class="text-slate-500 text-[10px] font-bold uppercase tracking-[0.15em]">Avg Rating</p>
-            <div class="flex items-baseline gap-2">
-                <p class="text-3xl font-bold mt-2 text-amber-400" x-text="(dashboardData.metrics?.avg_rating || 0).toFixed(1)"></p>
-                <div class="flex gap-0.5 text-[10px] text-amber-500/50">
-                    <i class="fas fa-star"></i><i class="fas fa-star"></i><i class="fas fa-star"></i><i class="fas fa-star"></i><i class="fas fa-star"></i>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="lg:col-span-2 metric-card p-8 rounded-[2.5rem] relative overflow-hidden">
+            <div class="absolute top-0 right-0 p-8 opacity-10">
+                <i class="fas fa-robot text-8xl text-indigo-400"></i>
+            </div>
+            <h3 class="text-indigo-400 font-black text-xs uppercase tracking-[0.3em] mb-4">Executive 30-Day Snapshot</h3>
+            <p class="text-2xl font-bold text-slate-100 leading-tight mb-6" x-text="dashboardData.ai_recommendations?.[0]?.action || 'Analysis complete. System is monitoring current trends.'"></p>
+            
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
+                <div class="space-y-1">
+                    <p class="text-slate-500 text-[9px] font-bold uppercase">Signal</p>
+                    <p class="text-lg font-black capitalize" :class="dashboardData.trend?.signal === 'improving' ? 'text-emerald-400' : 'text-rose-400'" x-text="dashboardData.trend?.signal || 'Stable'"></p>
+                </div>
+                <div class="space-y-1">
+                    <p class="text-slate-500 text-[9px] font-bold uppercase">Risk Score</p>
+                    <p class="text-lg font-black text-white" x-text="dashboardData.metrics?.risk_score + '%'"></p>
+                </div>
+                <div class="space-y-1">
+                    <p class="text-slate-500 text-[9px] font-bold uppercase">Risk Level</p>
+                    <span class="insight-pill" :class="dashboardData.metrics?.risk_level === 'High' ? 'bg-rose-500/10 text-rose-500' : 'bg-emerald-500/10 text-emerald-500'" x-text="dashboardData.metrics?.risk_level"></span>
+                </div>
+                <div class="space-y-1">
+                    <p class="text-slate-500 text-[9px] font-bold uppercase">Trend Delta</p>
+                    <p class="text-lg font-black text-indigo-400" x-text="(dashboardData.trend?.delta || 0.0).toFixed(2)"></p>
                 </div>
             </div>
         </div>
-        <div class="metric-card p-6 rounded-2xl border-l-4" :class="dashboardData.metrics?.risk_level === 'High' ? 'border-l-rose-500' : 'border-l-emerald-500'">
-            <p class="text-slate-500 text-[10px] font-bold uppercase tracking-[0.15em]">Risk Analysis</p>
-            <p class="text-3xl font-bold mt-2" :class="dashboardData.metrics?.risk_level === 'High' ? 'text-rose-500' : 'text-emerald-500'" x-text="dashboardData.metrics?.risk_level || 'Safe'"></p>
-        </div>
-        <div class="metric-card p-6 rounded-2xl">
-            <p class="text-slate-500 text-[10px] font-bold uppercase tracking-[0.15em]">Market Trend</p>
-            <p class="text-2xl font-bold mt-2 capitalize text-white" x-text="dashboardData.trend?.signal || 'Neutral'"></p>
+
+        <div class="metric-card p-8 rounded-[2.5rem] flex flex-col justify-center text-center">
+            <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-4">Average Experience Rating</p>
+            <div class="relative inline-flex items-center justify-center">
+                <p class="text-6xl font-black text-amber-400" x-text="(dashboardData.metrics?.avg_rating || 0).toFixed(1)"></p>
+                <span class="text-2xl text-slate-600 ml-2 font-bold">★</span>
+            </div>
+            <p class="text-slate-400 text-[10px] mt-4 font-bold" x-text="'Based on ' + (dashboardData.metrics?.total || 0) + ' verified reviews'"></p>
         </div>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="metric-card p-6 rounded-2xl">
-            <h3 class="font-bold text-sm mb-6 text-slate-300 flex items-center gap-2">
-                <span class="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
-                Activity Heatmap
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div class="metric-card p-8 rounded-[2rem]">
+            <h3 class="text-white font-bold text-sm mb-8 flex items-center justify-between">
+                <span><i class="fas fa-wave-square text-brand-400 mr-2"></i>Review Velocity Heatmap</span>
+                <span class="text-[9px] text-slate-500 font-normal">REAL-TIME TRAFFIC DATA</span>
             </h3>
-            <div class="h-[300px]"><canvas id="heatmapChart"></canvas></div>
+            <div class="h-64"><canvas id="heatmapChart"></canvas></div>
         </div>
-        <div class="metric-card p-6 rounded-2xl">
-            <h3 class="font-bold text-sm mb-6 text-slate-300 flex items-center gap-2">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                Sentiment Distribution
+        <div class="metric-card p-8 rounded-[2rem]">
+            <h3 class="text-white font-bold text-sm mb-8 flex items-center justify-between">
+                <span><i class="fas fa-circle-notch text-emerald-400 mr-2"></i>Sentiment Analysis Distribution</span>
+                <span class="text-[9px] text-slate-500 font-normal">AI CLASSIFICATION MIX</span>
             </h3>
-            <div class="h-[300px] flex items-center justify-center"><canvas id="sentimentChart"></canvas></div>
+            <div class="h-64 flex items-center justify-center"><canvas id="sentimentChart"></canvas></div>
         </div>
     </div>
 
-    <div class="metric-card rounded-2xl overflow-hidden">
-        <div class="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/40">
-            <h3 class="font-bold text-lg text-white">Review Intelligence Log</h3>
-            <div class="flex items-center gap-3">
-                <span class="px-2 py-1 bg-brand-500/10 text-brand-400 text-[10px] font-bold rounded-md" x-text="(dashboardData.metrics?.total || 0) + ' TOTAL RECORDS'"></span>
+    <div class="metric-card rounded-[2rem] overflow-hidden">
+        <div class="p-8 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
+            <div>
+                <h3 class="text-white font-black text-xl tracking-tight">Intelligence Log</h3>
+                <p class="text-slate-500 text-[10px] uppercase tracking-widest mt-1">Direct feedback from verified customers</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-[9px] font-black text-brand-400 bg-brand-400/10 px-4 py-2 rounded-full border border-brand-500/20" x-text="dashboardData.metrics?.total + ' TOTAL DATAPOINTS'"></span>
             </div>
         </div>
+        
         <div class="overflow-x-auto custom-scroll">
-            <table class="w-full text-sm text-left">
-                <thead class="bg-slate-900/80 text-slate-500 uppercase text-[9px] font-bold tracking-widest">
+            <table class="w-full text-left">
+                <thead class="bg-black/20 text-slate-500 text-[9px] font-black uppercase tracking-[0.25em]">
                     <tr>
-                        <th class="px-6 py-4">Date</th>
-                        <th class="px-6 py-4">Rating</th>
-                        <th class="px-6 py-4">Reviewer</th>
-                        <th class="px-6 py-4">Snippet & Analysis</th>
-                        <th class="px-6 py-4 text-right">Actions</th>
+                        <th class="px-8 py-5">Customer Metadata</th>
+                        <th class="px-8 py-5">Sentiment Intelligence</th>
+                        <th class="px-8 py-5 text-right">Autonomous Actions</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-800">
+                <tbody class="divide-y divide-white/5">
                     <template x-for="review in paginatedReviews" :key="review.id">
-                        <tr class="hover:bg-brand-500/5 transition-colors group">
-                            <td class="px-6 py-4 text-slate-400 text-xs" x-text="new Date(review.review_date).toLocaleDateString()"></td>
-                            <td class="px-6 py-4">
-                                <div class="flex items-center gap-1">
-                                    <span class="font-bold text-amber-400" x-text="review.rating"></span>
-                                    <i class="fas fa-star text-amber-500/40 text-[10px]"></i>
+                        <tr class="hover:bg-brand-500/[0.03] transition-colors group">
+                            <td class="px-8 py-6">
+                                <div class="flex items-center gap-4">
+                                    <div class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-brand-400 font-bold border border-white/5">
+                                        <span x-text="review.reviewer_name?.[0] || 'U'"></span>
+                                    </div>
+                                    <div>
+                                        <p class="text-white font-black text-sm" x-text="review.reviewer_name || 'Verified User'"></p>
+                                        <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest" x-text="new Date(review.review_date).toLocaleDateString()"></p>
+                                    </div>
                                 </div>
                             </td>
-                            <td class="px-6 py-4">
-                                <span class="font-semibold text-slate-200" x-text="review.reviewer_name || 'Anonymous User'"></span>
-                            </td>
-                            <td class="px-6 py-4">
-                                <div class="max-w-xs">
-                                    <p class="text-slate-400 italic text-xs line-clamp-2" x-text="review.text || 'No comment text provided'"></p>
-                                    <span class="text-[9px] px-2 py-0.5 rounded-full border mt-1 inline-block" 
-                                          :class="{
-                                              'bg-emerald-500/10 border-emerald-500/20 text-emerald-400': review.sentiment_category === 'Positive',
-                                              'bg-rose-500/10 border-rose-500/20 text-rose-400': review.sentiment_category === 'Negative',
-                                              'bg-slate-500/10 border-slate-500/20 text-slate-400': review.sentiment_category === 'Neutral'
-                                          }" x-text="review.sentiment_category"></span>
+                            <td class="px-8 py-6">
+                                <div class="flex items-center gap-3 mb-2">
+                                    <span class="text-amber-400 font-black text-xs" x-text="review.rating + '.0 ★'"></span>
+                                    <span class="insight-pill" :class="{
+                                        'bg-emerald-500/10 text-emerald-500': review.sentiment_category === 'Positive',
+                                        'bg-rose-500/10 text-rose-500': review.sentiment_category === 'Negative',
+                                        'bg-slate-500/10 text-slate-500': review.sentiment_category === 'Neutral'
+                                    }" x-text="review.sentiment_category"></span>
                                 </div>
+                                <p class="text-slate-400 text-xs italic line-clamp-2 group-hover:line-clamp-none transition-all duration-300" x-text="review.text || 'No textual feedback provided'"></p>
                             </td>
-                            <td class="px-6 py-4 text-right">
-                                <button @click="generateAIReply(review)" class="px-4 py-1.5 bg-brand-600/10 text-brand-400 border border-brand-500/20 rounded-lg text-[10px] font-bold hover:bg-brand-600 hover:text-white transition-all transform group-hover:scale-105">
-                                    <i class="fas fa-robot mr-1"></i> AUTO REPLY
+                            <td class="px-8 py-6 text-right">
+                                <button @click="generateAIReply(review)" class="px-5 py-2.5 bg-brand-500/10 text-brand-400 border border-brand-500/20 rounded-xl text-[10px] font-black hover:bg-brand-600 hover:text-white transition-all shadow-lg active:scale-95">
+                                    <i class="fas fa-magic mr-2"></i>DRAFT REPLY
                                 </button>
-                            </td>
-                        </tr>
-                    </template>
-
-                    <template x-if="paginatedReviews.length === 0">
-                        <tr>
-                            <td colspan="5" class="px-6 py-24 text-center">
-                                <div class="flex flex-col items-center justify-center opacity-30">
-                                    <i class="fas fa-folder-open text-6xl mb-4 text-slate-500"></i>
-                                    <p class="text-sm font-medium">No live reviews matching your filters found.</p>
-                                </div>
                             </td>
                         </tr>
                     </template>
                 </tbody>
             </table>
+            
+            <div x-show="paginatedReviews.length === 0" class="py-32 text-center">
+                <div class="w-24 h-24 bg-slate-900 rounded-full flex items-center justify-center mx-auto mb-6 border border-white/5">
+                    <i class="fas fa-database text-slate-700 text-3xl"></i>
+                </div>
+                <p class="text-slate-500 font-black text-xs uppercase tracking-[0.3em]">No Intelligence Found</p>
+                <p class="text-slate-600 text-[10px] mt-2 font-bold">Synchronize with Google to fetch new reviews.</p>
+            </div>
         </div>
         
-        <div class="px-6 py-4 bg-slate-900/30 flex items-center justify-between border-t border-slate-800">
-            <p class="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Page <span class="text-brand-400" x-text="currentPage"></span> / <span x-text="totalPages"></span></p>
+        <div class="px-8 py-6 bg-black/10 flex items-center justify-between border-t border-white/5">
+            <p class="text-[9px] text-slate-600 font-black uppercase tracking-widest">Page <span class="text-brand-400" x-text="currentPage"></span> / <span x-text="totalPages"></span></p>
             <div class="flex gap-2">
-                <button @click="prevPage()" :disabled="currentPage === 1" class="px-4 py-2 bg-slate-800 hover:bg-brand-600 disabled:opacity-20 rounded-xl text-xs text-white transition-all font-bold">PREV</button>
-                <button @click="nextPage()" :disabled="currentPage === totalPages" class="px-4 py-2 bg-slate-800 hover:bg-brand-600 disabled:opacity-20 rounded-xl text-xs text-white transition-all font-bold">NEXT</button>
+                <button @click="prevPage()" :disabled="currentPage === 1" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-20 rounded-xl text-[10px] font-black text-white transition-all">PREVIOUS</button>
+                <button @click="nextPage()" :disabled="currentPage === totalPages" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-20 rounded-xl text-[10px] font-black text-white transition-all">NEXT PAGE</button>
             </div>
         </div>
     </div>
@@ -209,52 +196,52 @@
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+/**
+ * Dashboard Logic v3.5
+ * Matches updated analysis.py payload
+ */
 function dashboardHandler() {
     return {
         selectedCompany: { 
             id: '{{ selected_company.id if selected_company else "" }}', 
-            name: '{{ selected_company.name if selected_company else "Global Overview" }}' 
+            name: '{{ selected_company.name if selected_company else "Global Intelligence" }}' 
         },
         loading: true,
         syncing: false,
-        dateStart: '{{ dashboard_payload.date_range.start if dashboard_payload else "" }}',
-        dateEnd: '{{ dashboard_payload.date_range.end if dashboard_payload else "" }}',
+        dateStart: '{{ dashboard_payload.window.start.split("T")[0] if dashboard_payload else "" }}',
+        dateEnd: '{{ dashboard_payload.window.end.split("T")[0] if dashboard_payload else "" }}',
         currentPage: 1,
         pageSize: 10,
-        // The dashboardData is now safely injected from your analysis.py
         dashboardData: {{ dashboard_payload | tojson | safe if dashboard_payload else '{}' }},
 
         init() {
-            // WebSocket for sync completion
+            // Real-time Update Listener
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const socket = new WebSocket(`${protocol}//${window.location.host}/ws/dashboard`);
-            
             socket.onmessage = (event) => {
-                const msg = JSON.parse(event.data);
-                if (msg.type === 'SYNC_COMPLETE' && msg.company_id == this.selectedCompany.id) {
-                    window.location.reload();
-                }
+                if (JSON.parse(event.data).type === 'SYNC_COMPLETE') window.location.reload();
             };
 
+            // Entry Animation
             this.$nextTick(() => {
                 setTimeout(() => {
                     this.loading = false;
                     this.renderVisuals();
-                }, 800);
+                }, 1000);
             });
         },
 
         get paginatedReviews() {
-            // This is how we fix the "Empty Table" - we look into dashboardData.daily_series or dashboard_payload
-            // For the table, we usually send the raw list of reviews.
-            // Based on your analysis.py, reviews are in dashboardData.reviews.data
-            if (!this.dashboardData.reviews?.data) return [];
+            // Updated to use the 3.5 Payload Review Structure
+            if (!this.dashboardData.daily_series) return []; 
+            // Fetching raw reviews from payload
+            const reviews = this.dashboardData.reviews?.data || [];
             const start = (this.currentPage - 1) * this.pageSize;
-            return this.dashboardData.reviews.data.slice(start, start + this.pageSize);
+            return reviews.slice(start, start + this.pageSize);
         },
 
         get totalPages() {
-            const total = this.dashboardData.reviews?.total || 0;
+            const total = this.dashboardData.metrics?.total || 0;
             return Math.ceil(total / this.pageSize) || 1;
         },
 
@@ -271,30 +258,23 @@ function dashboardHandler() {
             this.syncing = true;
             try {
                 await fetch(`/api/companies/${this.selectedCompany.id}/sync`, { method: 'POST' });
-                // We don't reload here; we wait for the WebSocket SYNC_COMPLETE
             } catch (err) {
-                console.error("Sync failed:", err);
                 this.syncing = false;
             }
         },
 
         generateAIReply(review) {
-            const name = review.reviewer_name || 'Valued Customer';
-            const comment = review.text || '';
+            const name = review.reviewer_name || 'Customer';
+            const comment = review.text || 'this service';
             const rating = review.rating;
             
-            // AUTOMATED REPLY LOGIC
-            let draft = "";
+            let draft = `Hi ${name}, thank you for your ${rating}-star review. `;
             if (rating >= 4) {
-                draft = `Hi ${name}, thank you so much for the wonderful ${rating}-star review! We're thrilled to hear your feedback regarding "${comment.substring(0, 50)}...". We hope to see you again soon!`;
-            } else if (rating === 3) {
-                draft = `Hello ${name}, thank you for your feedback. We appreciate your ${rating}-star rating and have noted your comments to help us improve.`;
+                draft += `We are thrilled you had a positive experience! Your mention of "${comment.substring(0,30)}..." has been shared with our team.`;
             } else {
-                draft = `Dear ${name}, we sincerely apologize for the experience that led to your ${rating}-star review. We take your comments about "${comment.substring(0, 50)}..." very seriously and would like to investigate this further.`;
+                draft += `We sincerely apologize for the issues you faced. We've flagged your comment about "${comment.substring(0,30)}..." for our quality control manager.`;
             }
-            
-            // In a real app, you'd show this in a modal or text area.
-            alert("AI GENERATED DRAFT FOR: " + name + "\n\n" + draft);
+            alert("AI AUTONOMOUS DRAFT:\n\n" + draft);
         },
 
         renderVisuals() {
@@ -312,12 +292,11 @@ function dashboardHandler() {
                     data: {
                         labels: (data.heatmap?.labels || []).map(h => `${h}:00`),
                         datasets: [{ 
-                            label: 'Review Frequency',
                             data: data.heatmap?.data || [], 
-                            backgroundColor: 'rgba(99, 102, 241, 0.5)',
+                            backgroundColor: 'rgba(99, 102, 241, 0.4)',
                             borderColor: '#6366f1',
-                            borderWidth: 1,
-                            borderRadius: 6 
+                            borderWidth: 2,
+                            borderRadius: 8 
                         }]
                     },
                     options: { 
@@ -325,13 +304,13 @@ function dashboardHandler() {
                         plugins: { legend: { display: false } }, 
                         scales: { 
                             x: { grid: { display: false } }, 
-                            y: { grid: { color: 'rgba(255,255,255,0.05)' } } 
+                            y: { grid: { color: 'rgba(255,255,255,0.03)' } } 
                         } 
                     }
                 });
             }
 
-            // 2. Sentiment Distribution
+            // 2. Sentiment Ring
             const sentimentCtx = document.getElementById('sentimentChart');
             if (sentimentCtx) {
                 new Chart(sentimentCtx, {
@@ -346,14 +325,14 @@ function dashboardHandler() {
                             ],
                             backgroundColor: ['#10b981', '#64748b', '#ef4444'],
                             borderWidth: 0,
-                            hoverOffset: 15
+                            hoverOffset: 20
                         }]
                     },
                     options: { 
-                        cutout: '80%', 
+                        cutout: '85%', 
                         maintainAspectRatio: false,
                         plugins: { 
-                            legend: { position: 'bottom', labels: { boxWidth: 12, padding: 25, color: '#94a3b8' } } 
+                            legend: { position: 'bottom', labels: { boxWidth: 10, padding: 30, color: '#94a3b8', font: { weight: 'bold', size: 10 } } } 
                         } 
                     }
                 });
