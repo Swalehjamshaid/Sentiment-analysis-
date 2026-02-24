@@ -6,14 +6,13 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
-from starlette.requests import Request as StarletteRequest
 
 # Internal imports
 from .db import init_db
@@ -23,7 +22,7 @@ from .routes.activity import router as activity_router
 from .routes.insights import router as insights_router
 
 # ───────────────────────────────────────────────────────────────
-# PATH RESOLUTION (Railway-safe)
+# PATH RESOLUTION
 # ───────────────────────────────────────────────────────────────
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -95,19 +94,19 @@ else:
     logger.warning(f"Static directory not found: {STATIC_DIR}")
 
 # ───────────────────────────────────────────────────────────────
-# Simple session-based current_user (temporary until real auth)
+# Simple current_user function (session-based)
 # ───────────────────────────────────────────────────────────────
 
 def get_current_user(request: Request) -> Optional[Dict[str, Any]]:
     """
     Get user from session. Returns None if not logged in.
-    Replace with your real auth (JWT, OAuth, DB lookup) later.
+    Replace with your real auth later (JWT, OAuth, DB).
     """
     user = request.session.get("user")
     return user if user else None
 
 # ───────────────────────────────────────────────────────────────
-# Common template context for all pages
+# Common context for ALL templates (fixes navbar crash)
 # ───────────────────────────────────────────────────────────────
 
 def common_context(request: Request) -> Dict[str, Any]:
@@ -126,7 +125,7 @@ def common_context(request: Request) -> Dict[str, Any]:
 # ───────────────────────────────────────────────────────────────
 
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: StarletteRequest, call_next):
+    async def dispatch(self, request: Request, call_next):
         proto = request.headers.get("x-forwarded-proto", request.url.scheme)
         if getattr(settings, "FORCE_HTTPS", False) and proto != "https":
             url = request.url.replace(scheme="https")
@@ -146,7 +145,7 @@ app.add_middleware(
 )
 
 # ───────────────────────────────────────────────────────────────
-# Public UI Routes
+# Public UI Routes (use common_context)
 # ───────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -159,16 +158,16 @@ async def login_page(request: Request):
         return RedirectResponse(url="/dashboard")
     return templates.TemplateResponse("login.html", common_context(request))
 
-# /dashboard is handled by dashboard.router — do NOT add duplicate route here
+# /dashboard is handled by dashboard.router — no duplicate here
 
 # ───────────────────────────────────────────────────────────────
-# Include Routers
+# Routers
 # ───────────────────────────────────────────────────────────────
 
 app.include_router(auth.router, prefix="/auth")
 app.include_router(companies.router)
 app.include_router(reviews.router)
-app.include_router(dashboard.router)      # ← handles /dashboard
+app.include_router(dashboard.router)
 app.include_router(reports.router)
 app.include_router(admin.router)
 app.include_router(maps_router)
