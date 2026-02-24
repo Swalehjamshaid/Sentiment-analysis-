@@ -7,13 +7,14 @@
 
   <!-- Header & Company Switcher -->
   <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-    <h1 class="text-3xl font-bold bg-gradient-to-r from-violet-300 to-accent bg-clip-text text-transparent"
-        x-data x-text="'All Companies Dashboard'"></h1>
+    <h1 class="text-3xl font-bold bg-gradient-to-r from-violet-300 to-accent bg-clip-text text-transparent">
+      {{ selected_company.name if selected_company else 'All Companies Dashboard' }}
+    </h1>
 
     <div x-data="{ open: false }" class="relative w-full md:w-80">
       <button @click="open = !open"
               class="w-full flex justify-between items-center px-4 py-3 bg-slate-800/70 border border-slate-600 rounded-xl hover:border-accent transition">
-        <span>Select Company</span>
+        <span x-text="selectedCompany ? selectedCompany.name : 'Select Company'"></span>
         <svg class="w-5 h-5 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
         </svg>
@@ -22,7 +23,10 @@
            class="absolute w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-80 overflow-y-auto z-30">
         {% if companies %}
           {% for company in companies %}
-            <div class="px-4 py-2 hover:bg-slate-700/50 cursor-pointer">{{ company.name }}</div>
+            <div class="px-4 py-2 hover:bg-slate-700/50 cursor-pointer"
+                 @click="selectedCompany = {id: '{{ company.id }}', name: '{{ company.name }}'}; open = false">
+              {{ company.name }}
+            </div>
           {% endfor %}
         {% else %}
           <div class="p-2 text-slate-400 italic">No companies found</div>
@@ -43,13 +47,13 @@
     <div class="flex flex-col sm:flex-row gap-4 items-end">
       <div class="flex-1">
         <label class="block text-sm text-slate-400 mb-1.5">Start Date</label>
-        <input type="date" class="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg outline-none">
+        <input type="date" x-model="dateStart" class="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg outline-none">
       </div>
       <div class="flex-1">
         <label class="block text-sm text-slate-400 mb-1.5">End Date</label>
-        <input type="date" class="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg outline-none">
+        <input type="date" x-model="dateEnd" class="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg outline-none">
       </div>
-      <button class="px-6 py-2.5 bg-accent hover:bg-accentdark text-white font-medium rounded-lg transition">
+      <button @click="applyDateFilter()" class="px-6 py-2.5 bg-accent hover:bg-accentdark text-white font-medium rounded-lg transition">
         Apply Filter
       </button>
     </div>
@@ -61,25 +65,27 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
       <div class="text-center">
         <p class="text-sm text-slate-400 uppercase tracking-wide">Total Reviews</p>
-        <p class="stat-number mt-2 text-accent">{{ reviews_count }}</p>
+        <p class="stat-number mt-2 text-accent">{{ dashboard_payload.metrics.total | default(0) }}</p>
       </div>
       <div class="text-center">
         <p class="text-sm text-slate-400 uppercase tracking-wide">Avg Rating</p>
-        <p class="stat-number mt-2 text-emerald-400">
-          {% if reviews|length %}
-            {{ (reviews|map(attribute='rating')|sum / reviews|length)|round(1) }} ★
-          {% else %}
-            N/A
-          {% endif %}
+        <p class="stat-number mt-2" :class="dashboard_payload.metrics.avg_rating >= 4 ? 'text-emerald-400' : dashboard_payload.metrics.avg_rating >= 3 ? 'text-amber-400' : 'text-rose-400'">
+          {{ dashboard_payload.metrics.avg_rating | default(0) | round(1) }} ★
         </p>
       </div>
       <div class="text-center">
         <p class="text-sm text-slate-400 uppercase tracking-wide">Risk Score</p>
-        <p class="stat-number mt-2 text-amber-400">2.8</p>
+        <p class="stat-number mt-2" :class="dashboard_payload.metrics.risk_level === 'High' ? 'text-rose-400' : dashboard_payload.metrics.risk_level === 'Medium' ? 'text-amber-400' : 'text-emerald-400'">
+          {{ dashboard_payload.metrics.risk_score | default(0) | round(1) }}
+        </p>
       </div>
       <div class="text-center">
         <p class="text-sm text-slate-400 uppercase tracking-wide">Trend</p>
-        <p class="stat-number mt-2 text-emerald-400">Improving +0.35</p>
+        <p class="stat-number mt-2 flex justify-center items-center gap-2"
+           :class="dashboard_payload.trend.signal === 'improving' ? 'text-emerald-400' : dashboard_payload.trend.signal === 'declining' ? 'text-rose-400' : 'text-slate-300'">
+          <span x-text="dashboard_payload.trend.signal || 'No data'"></span>
+          <span x-text="dashboard_payload.trend.delta ? (dashboard_payload.trend.delta > 0 ? '+' + dashboard_payload.trend.delta.toFixed(2) : dashboard_payload.trend.delta.toFixed(2)) : ''"></span>
+        </p>
       </div>
     </div>
   </div>
@@ -107,7 +113,7 @@
   <div x-data="{ showReviews: true }" x-show="showReviews" class="card p-6 bg-card rounded-xl">
     <h3 class="text-xl font-semibold mb-6">Recent Reviews</h3>
     <div class="overflow-x-auto">
-      <table class="w-full text-sm text-left">
+      <table class="w-full text-sm text-left" x-show="(dashboard_payload.reviews?.data || []).length > 0">
         <thead class="text-xs uppercase bg-slate-800/50">
           <tr>
             <th class="px-6 py-4">Date</th>
@@ -118,48 +124,76 @@
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-700">
-          {% for review in reviews %}
-          <tr class="hover:bg-slate-800/40 transition">
-            <td class="px-6 py-4">{{ review.date }}</td>
-            <td class="px-6 py-4 font-medium">{{ review.rating }}</td>
-            <td class="px-6 py-4">{{ review.reviewer }}</td>
-            <td class="px-6 py-4 max-w-md truncate">{{ review.comment }}</td>
-            <td class="px-6 py-4">
-              <span class="px-2.5 py-1 rounded-full text-xs font-medium
-                  {% if review.sentiment == 'Positive' %} bg-emerald-900/40 text-emerald-300
-                  {% elif review.sentiment == 'Neutral' %} bg-slate-700 text-slate-300
-                  {% else %} bg-rose-900/40 text-rose-300
-                  {% endif %}">
-                {{ review.sentiment }}
-              </span>
-            </td>
-          </tr>
-          {% else %}
-          <tr>
-            <td colspan="5" class="px-6 py-4 text-center text-slate-400 italic">No reviews found</td>
-          </tr>
-          {% endfor %}
+          <template x-for="review in paginatedReviews" :key="review.id">
+            <tr class="hover:bg-slate-800/40 transition">
+              <td class="px-6 py-4" x-text="review.review_date ? new Date(review.review_date).toLocaleDateString() : '-'"></td>
+              <td class="px-6 py-4 font-medium" x-text="review.rating || 'N/A'"></td>
+              <td class="px-6 py-4" x-text="review.reviewer_name || 'Anonymous'"></td>
+              <td class="px-6 py-4 max-w-md truncate" x-text="review.text || 'No comment'"></td>
+              <td class="px-6 py-4">
+                <span class="px-2.5 py-1 rounded-full text-xs font-medium"
+                      :class="review.sentiment_category === 'Positive' ? 'bg-emerald-900/40 text-emerald-300' : review.sentiment_category === 'Negative' ? 'bg-rose-900/40 text-rose-300' : 'bg-slate-700 text-slate-300'"
+                      x-text="review.sentiment_category || 'Neutral'"></span>
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
+      <div x-show="(dashboard_payload.reviews?.data || []).length === 0" class="text-center py-10 text-slate-400 italic">
+        No reviews found in this period.
+      </div>
+    </div>
+
+    <!-- Pagination (only if reviews exist) -->
+    <div x-show="(dashboard_payload.reviews?.data || []).length > 0" class="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6">
+      <div class="text-sm text-slate-400">
+        Showing <span x-text="(currentPage - 1) * pageSize + 1"></span>–
+        <span x-text="Math.min(currentPage * pageSize, dashboard_payload.reviews?.total || 0)"></span>
+        of <span x-text="dashboard_payload.reviews?.total || 0"></span>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button @click="prevPage" :disabled="currentPage === 1"
+                class="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 rounded-lg transition">Previous</button>
+
+        <template x-for="p in Array.from({length: totalPages}, (_, i) => i + 1)" :key="p">
+          <button @click="goToPage(p)" :class="currentPage === p ? 'bg-accent text-white' : 'bg-slate-800 hover:bg-slate-700'"
+                  class="w-10 h-10 flex items-center justify-center rounded-lg transition">
+            <span x-text="p"></span>
+          </button>
+        </template>
+
+        <button @click="nextPage" :disabled="currentPage === totalPages"
+                class="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 rounded-lg transition">Next</button>
+      </div>
     </div>
   </div>
 
 </div>
-{% endblock content %}
+
+{% endblock %}
 
 {% block extra_js %}
 <script>
+const dashboard = {{ dashboard_payload | tojson | safe }} || {};
+
+// Pagination logic
+const paginatedReviews = dashboard.reviews?.data?.slice(
+  (currentPage - 1) * pageSize,
+  currentPage * pageSize
+) || [];
+
 document.addEventListener('DOMContentLoaded', () => {
-  // Trend Chart placeholder
+  // Trend Chart
   new Chart(document.getElementById('trendChart'), {
     type: 'line',
     data: {
-      labels: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+      labels: dashboard.trend?.labels || [],
       datasets: [{
         label: 'Avg Rating',
-        data: [4,4.2,4.1,4.3,4.2,4.4,4.2],
+        data: dashboard.trend?.data || [],
         borderColor: '#7c3aed',
-        backgroundColor: 'rgba(124,58,237,0.15)',
+        backgroundColor: 'rgba(124, 58, 237, 0.15)',
         tension: 0.4,
         fill: true
       }]
@@ -167,28 +201,37 @@ document.addEventListener('DOMContentLoaded', () => {
     options: { responsive: true, scales: { y: { min: 1, max: 5 } } }
   });
 
-  // Sentiment Chart placeholder
+  // Sentiment Donut
   new Chart(document.getElementById('sentimentChart'), {
     type: 'doughnut',
     data: {
-      labels: ['Positive','Neutral','Negative'],
+      labels: ['Positive', 'Neutral', 'Negative'],
       datasets: [{
-        data: [18,5,3],
-        backgroundColor: ['#10b981','#64748b','#ef4444'],
+        data: [
+          dashboard.sentiment?.Positive || 0,
+          dashboard.sentiment?.Neutral  || 0,
+          dashboard.sentiment?.Negative || 0
+        ],
+        backgroundColor: ['#10b981', '#64748b', '#ef4444'],
         borderWidth: 0
       }]
     },
     options: { responsive: true, cutout: '70%', plugins: { legend: { position: 'bottom' } } }
   });
 
-  // Heatmap placeholder
+  // Heatmap Bar
   new Chart(document.getElementById('heatmapChart'), {
     type: 'bar',
     data: {
-      labels: Array.from({length:24}, (_,i) => i+':00'),
-      datasets: [{ label: 'Reviews', data: Array.from({length:24}, ()=>Math.floor(Math.random()*10)), backgroundColor: '#7c3aed', borderRadius: 8 }]
+      labels: dashboard.heatmap?.labels?.map(h => `${h}:00`) || [],
+      datasets: [{
+        label: 'Reviews',
+        data: dashboard.heatmap?.data || [],
+        backgroundColor: '#7c3aed',
+        borderRadius: 8
+      }]
     },
-    options: { responsive: true, scales: { y: { beginAtZero:true } } }
+    options: { responsive: true, scales: { y: { beginAtZero: true } } }
   });
 });
 </script>
