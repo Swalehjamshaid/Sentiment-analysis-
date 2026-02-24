@@ -1,72 +1,83 @@
-<!-- Filename: app/templates/base.html -->
+<!-- app/templates/base.html -->
 
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en" data-bs-theme="light">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ title or 'FF Tech Company - Review Intelligence' }}</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>{% block title %}FF Tech Company - Review Intelligence{% endblock %}</title>
 
   <!-- Bootstrap 5.3 CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
 
-  <!-- Google Fonts -->
+  <!-- Google Fonts: Inter -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
   <!-- Font Awesome 6 -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
 
-  <!-- Chart.js -->
+  <!-- Chart.js (if needed globally) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
   <!-- Custom CSS -->
-  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 
   <style>
     :root {
       --primary: #4b4bff;
       --primary-dark: #3a3aff;
-      --light-bg: #f8f9fc;
       --accent: #ff6b6b;
+      --light-bg: #f8f9fc;
+      --dark-bg: #0f1115;
     }
 
     body {
-      font-family: 'Inter', sans-serif;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
       background: var(--light-bg);
-      min-height: 100vh;
       color: #2d3748;
-      transition: background 0.3s, color 0.3s;
+      min-height: 100vh;
+      transition: background 0.4s, color 0.4s;
     }
 
-    /* Sticky Navbar */
+    [data-bs-theme="dark"] {
+      --light-bg: var(--dark-bg);
+      color: #e2e8f0;
+      background: var(--dark-bg);
+    }
+
     .navbar {
-      background: rgba(255, 255, 255, 0.98);
+      background: rgba(255, 255, 255, 0.96);
       backdrop-filter: blur(12px);
-      box-shadow: 0 4px 30px rgba(0,0,0,0.07);
+      box-shadow: 0 4px 30px rgba(0,0,0,0.08);
       position: sticky;
       top: 0;
       z-index: 1000;
       transition: all 0.3s;
     }
 
+    [data-bs-theme="dark"] .navbar {
+      background: rgba(15, 17, 21, 0.96);
+      box-shadow: 0 4px 30px rgba(0,0,0,0.4);
+    }
+
     .navbar-brand {
       font-weight: 700;
-      font-size: 1.65rem;
+      font-size: 1.7rem;
       color: var(--primary) !important;
       display: flex;
       align-items: center;
-    }
-
-    .navbar-brand img {
-      height: 40px;
-      margin-right: 12px;
-      border-radius: 10px;
+      gap: 10px;
     }
 
     .nav-link {
       font-weight: 500;
       color: #4a5568;
-      transition: color 0.2s;
+      transition: color 0.25s;
+    }
+
+    [data-bs-theme="dark"] .nav-link {
+      color: #cbd5e0;
     }
 
     .nav-link:hover, .nav-link.active {
@@ -77,33 +88,31 @@
       background: linear-gradient(135deg, #667eea, #764ba2);
       border: none;
       border-radius: 50px;
-      padding: 0.65rem 1.7rem;
+      padding: 0.7rem 1.8rem;
       font-weight: 600;
       transition: all 0.3s;
     }
 
     .btn-primary:hover {
       transform: translateY(-2px);
-      box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
-    }
-
-    .dropdown-menu {
-      border-radius: 14px;
-      border: none;
-      box-shadow: 0 12px 35px rgba(0,0,0,0.12);
-      min-width: 220px;
+      box-shadow: 0 10px 25px rgba(102, 126, 234, 0.35);
     }
 
     main.container {
-      padding-top: 100px;
-      padding-bottom: 80px;
+      padding-top: 90px;
+      padding-bottom: 60px;
     }
 
     footer {
       background: #1a202c;
       color: #a0aec0;
-      padding: 50px 0 25px;
-      margin-top: 80px;
+      padding: 60px 0 30px;
+      margin-top: 100px;
+    }
+
+    [data-bs-theme="dark"] footer {
+      background: #0a0c10;
+      color: #94a3b8;
     }
 
     footer a {
@@ -114,83 +123,50 @@
     footer a:hover {
       color: var(--primary);
     }
-
-    /* Notifications & Alerts */
-    #alerts-container {
-      position: fixed;
-      top: 80px;
-      right: 20px;
-      z-index: 1050;
-    }
-
-    /* Dark mode overrides */
-    [data-bs-theme="dark"] {
-      --light-bg: #121212;
-      background: #121212;
-      color: #e2e8f0;
-    }
-
-    [data-bs-theme="dark"] .navbar {
-      background: rgba(25, 25, 25, 0.95);
-    }
-
-    [data-bs-theme="dark"] .dropdown-menu {
-      background: #1f1f1f;
-      color: #e2e8f0;
-    }
-
-    [data-bs-theme="dark"] footer {
-      background: #0f1115;
-      color: #94a3b8;
-    }
   </style>
+
+  {% block head_extra %}{% endblock %}
 </head>
 <body>
 
-  <!-- Alerts container -->
-  <div id="alerts-container"></div>
-
-  <!-- Top Navigation Bar -->
+  <!-- Navbar -->
   <nav class="navbar navbar-expand-lg">
-    <div class="container-fluid px-4">
+    <div class="container-fluid px-4 px-lg-5">
       <a class="navbar-brand" href="/">
-        <img src="/static/images/logo.png" alt="FF Tech Company Logo" 
-             onerror="this.src='https://via.placeholder.com/40x40/4b4bff/ffffff?text=FF';this.onerror=null;">
-        FF Tech Company
+        <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" 
+             width="40" height="40" class="rounded-3"
+             onerror="this.src='https://via.placeholder.com/40/4b4bff/ffffff?text=FF';">
+        FF Tech
       </a>
 
-      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent"
-              aria-controls="navbarContent" aria-expanded="false" aria-label="Toggle navigation">
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain"
+              aria-controls="navbarMain" aria-expanded="false" aria-label="Toggle navigation">
         <span class="navbar-toggler-icon"></span>
       </button>
 
-      <div class="collapse navbar-collapse" id="navbarContent">
+      <div class="collapse navbar-collapse" id="navbarMain">
         <ul class="navbar-nav me-auto mb-2 mb-lg-0">
           <li class="nav-item">
-            <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="/">Dashboard</a>
+            <a class="nav-link {% if request.path == '/' or request.path.startswith('/dashboard') %}active{% endif %}" href="/">Dashboard</a>
           </li>
-
-          <!-- Mega Dropdown for Features -->
           <li class="nav-item dropdown">
             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
               Features
             </a>
-            <ul class="dropdown-menu p-3">
-              <div class="row">
+            <ul class="dropdown-menu shadow-lg border-0 rounded-3 p-3">
+              <div class="row g-3">
                 <div class="col-12 col-md-6">
-                  <li><a class="dropdown-item" href="/features/review-monitoring"><i class="fas fa-eye me-2"></i>Review Monitoring</a></li>
-                  <li><a class="dropdown-item" href="/features/ai-replies"><i class="fas fa-robot me-2"></i>AI Reply Generator</a></li>
-                  <li><a class="dropdown-item" href="/features/analytics"><i class="fas fa-chart-line me-2"></i>Analytics & Insights</a></li>
+                  <a class="dropdown-item py-2" href="/features/review-monitoring"><i class="fas fa-eye me-2 text-primary"></i>Review Monitoring</a>
+                  <a class="dropdown-item py-2" href="/features/ai-replies"><i class="fas fa-robot me-2 text-primary"></i>AI Reply Generator</a>
+                  <a class="dropdown-item py-2" href="/features/analytics"><i class="fas fa-chart-line me-2 text-primary"></i>Analytics</a>
                 </div>
                 <div class="col-12 col-md-6">
-                  <li><a class="dropdown-item" href="/features/multi-location"><i class="fas fa-globe me-2"></i>Multi-location Management</a></li>
-                  <li><a class="dropdown-item" href="/features/global-dashboard"><i class="fas fa-network-wired me-2"></i>Global Dashboard</a></li>
-                  <li><a class="dropdown-item" href="/pricing"><i class="fas fa-dollar-sign me-2"></i>Pricing</a></li>
+                  <a class="dropdown-item py-2" href="/features/multi-location"><i class="fas fa-globe me-2 text-primary"></i>Multi-Location</a>
+                  <a class="dropdown-item py-2" href="/pricing"><i class="fas fa-dollar-sign me-2 text-primary"></i>Pricing</a>
                 </div>
               </div>
             </ul>
           </li>
-
           <li class="nav-item">
             <a class="nav-link" href="/pricing">Pricing</a>
           </li>
@@ -199,32 +175,31 @@
           </li>
         </ul>
 
-        <ul class="navbar-nav ms-auto align-items-center">
+        <ul class="navbar-nav ms-auto align-items-center gap-2">
           {% if current_user.is_authenticated %}
             <li class="nav-item dropdown">
-              <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                <i class="fas fa-user-circle me-2"></i>
-                {{ current_user.full_name or current_user.email }}
+              <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown">
+                <i class="fas fa-user-circle me-2 fs-4"></i>
+                {{ current_user.full_name or current_user.email.split('@')[0] }}
               </a>
-              <ul class="dropdown-menu dropdown-menu-end">
-                <li><a class="dropdown-item" href="/profile"><i class="fas fa-user me-2"></i>Profile</a></li>
-                <li><a class="dropdown-item" href="/settings"><i class="fas fa-cog me-2"></i>Settings</a></li>
-                <li><a class="dropdown-item" href="/locations"><i class="fas fa-map-marker-alt me-2"></i>Manage Locations</a></li>
+              <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 rounded-3">
+                <li><a class="dropdown-item" href="/profile"><i class="fas fa-user me-2"></i> Profile</a></li>
+                <li><a class="dropdown-item" href="/settings"><i class="fas fa-cog me-2"></i> Settings</a></li>
                 <li><hr class="dropdown-divider"></li>
-                <li><a class="dropdown-item text-danger" href="/logout"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+                <li><a class="dropdown-item text-danger" href="/logout"><i class="fas fa-sign-out-alt me-2"></i> Logout</a></li>
               </ul>
             </li>
             <li class="nav-item">
-              <button id="themeToggle" class="btn btn-link nav-link" title="Toggle dark mode">
-                <i class="fas fa-moon"></i>
+              <button id="themeToggle" class="btn btn-link nav-link px-2" title="Toggle dark/light mode">
+                <i class="fas fa-moon fs-5"></i>
               </button>
             </li>
           {% else %}
             <li class="nav-item">
-              <a class="btn btn-outline-primary me-2" href="/login">Login</a>
+              <a class="btn btn-outline-primary px-4 me-2" href="/login">Login</a>
             </li>
             <li class="nav-item">
-              <a class="btn btn-primary" href="/register">Get Started Free</a>
+              <a class="btn btn-primary px-4" href="/register">Get Started</a>
             </li>
           {% endif %}
         </ul>
@@ -233,70 +208,73 @@
   </nav>
 
   <!-- Main Content -->
-  <main class="container">
-    {% block content %}{% endblock %}
+  <main class="container py-5">
+    {% block content %}
+      <!-- Default content if child doesn't override -->
+      <h1>Welcome to FF Tech Review Intelligence</h1>
+    {% endblock %}
   </main>
 
   <!-- Footer -->
-  <footer class="text-center">
+  <footer class="text-center py-5">
     <div class="container">
-      <div class="row mb-4">
-        <div class="col-md-4 mb-3 mb-md-0">
-          <h5>FF Tech Company</h5>
-          <p>AI-powered review intelligence & reputation management for businesses worldwide</p>
-          <div class="d-flex justify-content-center gap-3">
-            <a href="#"><i class="fab fa-facebook fa-lg"></i></a>
+      <div class="row mb-5">
+        <div class="col-md-4 mb-4 mb-md-0">
+          <h5 class="fw-bold mb-3">FF Tech Company</h5>
+          <p class="text-muted">AI-powered review intelligence & reputation management</p>
+          <div class="d-flex justify-content-center gap-4 mt-3">
+            <a href="#"><i class="fab fa-facebook-f fa-lg"></i></a>
             <a href="#"><i class="fab fa-twitter fa-lg"></i></a>
-            <a href="#"><i class="fab fa-linkedin fa-lg"></i></a>
+            <a href="#"><i class="fab fa-linkedin-in fa-lg"></i></a>
             <a href="#"><i class="fab fa-instagram fa-lg"></i></a>
           </div>
         </div>
-        <div class="col-md-4 mb-3 mb-md-0">
-          <h5>Quick Links</h5>
+        <div class="col-md-4 mb-4 mb-md-0">
+          <h5 class="fw-bold mb-3">Quick Links</h5>
           <ul class="list-unstyled">
             <li><a href="/features">Features</a></li>
             <li><a href="/pricing">Pricing</a></li>
-            <li><a href="/contact">Contact Us</a></li>
-            <li><a href="/locations">Locations</a></li>
+            <li><a href="/contact">Contact</a></li>
           </ul>
         </div>
         <div class="col-md-4">
-          <h5>Legal</h5>
+          <h5 class="fw-bold mb-3">Legal</h5>
           <ul class="list-unstyled">
             <li><a href="/privacy">Privacy Policy</a></li>
             <li><a href="/terms">Terms of Service</a></li>
           </ul>
         </div>
       </div>
-      <hr class="my-4">
-      <p class="mb-0">© {{ current_year or 2026 }} FF Tech Company. All rights reserved. Operates globally 🌐</p>
+      <hr class="my-4 opacity-25">
+      <p class="mb-0 text-muted small">
+        © {{ current_year or '2026' }} FF Tech Company. All rights reserved.
+      </p>
     </div>
   </footer>
 
   <!-- Bootstrap JS -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 
-  <!-- Dark mode toggle -->
+  <!-- Theme Toggle Script -->
   <script>
     const themeToggle = document.getElementById('themeToggle');
     if (themeToggle) {
       themeToggle.addEventListener('click', () => {
         const html = document.documentElement;
-        const currentTheme = html.getAttribute('data-bs-theme');
-        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-        html.setAttribute('data-bs-theme', newTheme);
-        localStorage.setItem('theme', newTheme);
+        const current = html.getAttribute('data-bs-theme');
+        const next = current === 'dark' ? 'light' : 'dark';
+        html.setAttribute('data-bs-theme', next);
+        localStorage.setItem('theme', next);
       });
     }
 
+    // Load saved theme
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme) {
       document.documentElement.setAttribute('data-bs-theme', savedTheme);
     }
   </script>
 
-  <!-- Custom JS -->
-  <script src="/static/js/dashboard.js"></script>
   {% block extra_js %}{% endblock %}
 </body>
 </html>
