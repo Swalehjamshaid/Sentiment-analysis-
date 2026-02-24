@@ -1,11 +1,8 @@
-# File: review_saas/app/main.py
-
 import os
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 from contextlib import asynccontextmanager
-
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -13,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
-from starlette.middleware.sessions import SessionMiddleware  # <--- Added
+from starlette.middleware.sessions import SessionMiddleware
 
 # Internal imports
 from .db import init_db
@@ -25,13 +22,10 @@ from .routes.insights import router as insights_router
 # ───────────────────────────────────────────────────────────────
 # PATH RESOLUTION
 # ───────────────────────────────────────────────────────────────
-
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
-
 TEMPLATE_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
-
 if not TEMPLATE_DIR.exists():
     TEMPLATE_DIR = PROJECT_ROOT / "app" / "templates"
     STATIC_DIR = PROJECT_ROOT / "app" / "static"
@@ -39,10 +33,8 @@ if not TEMPLATE_DIR.exists():
 # ───────────────────────────────────────────────────────────────
 # Logging
 # ───────────────────────────────────────────────────────────────
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("review_saas")
-
 logger.info(f"Base directory: {BASE_DIR}")
 logger.info(f"Templates directory: {TEMPLATE_DIR}")
 logger.info(f"Static directory: {STATIC_DIR}")
@@ -50,7 +42,6 @@ logger.info(f"Static directory: {STATIC_DIR}")
 # ───────────────────────────────────────────────────────────────
 # Settings fallback
 # ───────────────────────────────────────────────────────────────
-
 try:
     from .core.config import settings
 except ImportError:
@@ -58,13 +49,11 @@ except ImportError:
         APP_NAME: str = "ReviewSaaS"
         FORCE_HTTPS: bool = bool(int(os.getenv("FORCE_HTTPS", "0")))
         CORS_ALLOW_ORIGINS: str = os.getenv("CORS_ALLOW_ORIGINS", "*")
-
     settings = _Settings()
 
 # ───────────────────────────────────────────────────────────────
 # Lifespan
 # ───────────────────────────────────────────────────────────────
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing database...")
@@ -79,7 +68,6 @@ async def lifespan(app: FastAPI):
 # ───────────────────────────────────────────────────────────────
 # FastAPI App
 # ───────────────────────────────────────────────────────────────
-
 app = FastAPI(
     title=getattr(settings, "APP_NAME", "ReviewSaaS"),
     lifespan=lifespan
@@ -88,8 +76,6 @@ app = FastAPI(
 # ───────────────────────────────────────────────────────────────
 # Middleware
 # ───────────────────────────────────────────────────────────────
-
-# Add session middleware BEFORE any route uses request.session
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "supersecretkey123"))
 
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
@@ -115,9 +101,7 @@ app.add_middleware(
 # ───────────────────────────────────────────────────────────────
 # Templates & Static
 # ───────────────────────────────────────────────────────────────
-
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
-
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     logger.info("Static files mounted.")
@@ -125,14 +109,15 @@ else:
     logger.warning(f"Static directory not found: {STATIC_DIR}")
 
 # ───────────────────────────────────────────────────────────────
-# Simple current_user function (session-based)
+# Authentication dependency (session-based)
 # ───────────────────────────────────────────────────────────────
-
+# This is the REAL get_current_user used by dashboard/companies/etc.
+# Import it in route files as: from app.main import get_current_user
 def get_current_user(request: Request) -> Optional[Dict[str, Any]]:
     """
     Get user from session. Returns None if not logged in.
     """
-    user = request.session.get("user")  # <-- works now because of SessionMiddleware
+    user = request.session.get("user")
     return user if user else None
 
 def common_context(request: Request) -> Dict[str, Any]:
@@ -149,7 +134,6 @@ def common_context(request: Request) -> Dict[str, Any]:
 # ───────────────────────────────────────────────────────────────
 # Public UI Routes
 # ───────────────────────────────────────────────────────────────
-
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     return templates.TemplateResponse("home.html", common_context(request))
@@ -163,7 +147,6 @@ async def login_page(request: Request):
 # ───────────────────────────────────────────────────────────────
 # Routers
 # ───────────────────────────────────────────────────────────────
-
 app.include_router(auth.router, prefix="/auth")
 app.include_router(companies.router)
 app.include_router(reviews.router)
@@ -177,7 +160,6 @@ app.include_router(insights_router, prefix="/api/insights", tags=["ai"])
 # ───────────────────────────────────────────────────────────────
 # Health Check
 # ───────────────────────────────────────────────────────────────
-
 @app.get("/health")
 async def health():
     return {
