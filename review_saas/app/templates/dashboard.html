@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Executive Dashboard | ReviewSaaS</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 font-sans">
+
+    <header class="bg-white shadow-sm border-b">
+        <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
+            <h1 class="text-2xl font-bold text-gray-900">Executive Dashboard</h1>
+            <div class="text-sm text-gray-500 font-medium">
+                System Date: <span id="current-date">2026-02-24</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 mb-8">
+            <div class="bg-white overflow-hidden shadow rounded-lg border border-gray-200">
+                <div class="px-4 py-5 sm:p-6">
+                    <dt class="text-sm font-medium text-gray-500 truncate">Total Companies</dt>
+                    <dd class="mt-1 text-3xl font-semibold text-indigo-600">{{ stats.total_companies }}</dd>
+                </div>
+            </div>
+
+            <div class="bg-white overflow-hidden shadow rounded-lg border border-gray-200">
+                <div class="px-4 py-5 sm:p-6">
+                    <dt class="text-sm font-medium text-gray-500 truncate">Total Reviews Audited</dt>
+                    <dd class="mt-1 text-3xl font-semibold text-green-600">{{ stats.total_reviews }}</dd>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white shadow rounded-lg p-6 border border-gray-100 min-h-[400px]">
+            <h2 class="text-lg font-medium text-gray-900 mb-4">Portfolio Analysis for Huda</h2>
+            <div class="flex flex-col items-center justify-center h-64 border-2 border-dashed border-gray-200 rounded-md">
+                <p class="text-gray-400">Database connected. Dashboard modules are live.</p>
+            </div>
+        </div>
+    </main>
+
+</body>
+</html>
