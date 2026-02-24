@@ -14,7 +14,8 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 # Internal imports
-from .db import init_db
+from .db import init_db, get_db
+from .models import Company
 from .routes import auth, companies, reviews, reply, reports, dashboard, admin
 from .routes.maps_routes import router as maps_router
 from .routes.activity import router as activity_router
@@ -88,11 +89,26 @@ if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 def common_context(request: Request) -> Dict[str, Any]:
+    """
+    World-class context provider. Fetches current user and 
+    existing companies to populate the UI globally.
+    """
     user = get_current_user(request)
+    
+    # Create a temporary DB session to fetch company list
+    db = next(get_db())
+    try:
+        companies_list = db.query(Company).order_by(Company.name).all()
+    except Exception:
+        companies_list = []
+    finally:
+        db.close()
+
     return {
         "request": request,
         "current_user": user,
         "is_authenticated": user is not None,
+        "companies": companies_list,  # Populates the switcher
         "googleMapsKey": os.getenv("GOOGLE_MAPS_API_KEY", ""),
         "apiBase": "",
         "currentDate": "2026-02-24",
