@@ -1,114 +1,113 @@
 # FILE: app/services/ai_insights.py
-"""
-AI Intelligence Engine v6.1 (Circular-Safe Enterprise Edition)
-Fully compliant with 31-Point Executive Requirements.
-Fixes: Circular imports, hour_heatmap missing, and Python 3.13 timezone issues.
-"""
-
 from __future__ import annotations
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any, Optional, Tuple, Iterable
+from typing import List, Dict, Any, Optional, Iterable
 from collections import Counter, defaultdict
 
 import numpy as np
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 # Requirement #24: Multi-Language Support
 try:
-    from langdetect import detect
+    from langdetect import detect, DetectorFactory
+    DetectorFactory.seed = 0
 except ImportError:
     def detect(text): return "en"
 
-# Requirement #3: Advanced Sentiment
-try:
-    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-    analyzer = SentimentIntensityAnalyzer()
-except ImportError:
-    analyzer = None
-
 logger = logging.getLogger(__name__)
+analyzer = SentimentIntensityAnalyzer()
 
 # ─────────────────────────────────────────────────────────────
-# 1. Advanced Intelligence Lexicons (#4, #5)
+# 1. Intelligence Lexicons (#4, #5, #6)
 # ─────────────────────────────────────────────────────────────
 
+# Requirement #4: Emotion Detection Layer
 EMOTION_LEXICON = {
-    "Satisfaction": ["happy", "great", "excellent", "perfect", "impressed", "pleased"],
-    "Frustration": ["wait", "slow", "annoyed", "useless", "ignore", "difficult", "tired"],
-    "Anger": ["rude", "terrible", "worst", "disgusting", "hate", "angry", "never"],
-    "Excitement": ["amazing", "awesome", "fantastic", "best", "wow", "recommend"],
-    "Disappointment": ["expected", "better", "failed", "unfortunate", "sadly"]
+    "Satisfaction": ["happy", "great", "excellent", "perfect", "pleased", "satisfied"],
+    "Frustration": ["wait", "slow", "annoyed", "useless", "ignore", "difficult", "frustrating"],
+    "Anger": ["rude", "terrible", "worst", "disgusting", "hate", "angry", "scam"],
+    "Excitement": ["amazing", "awesome", "fantastic", "best", "wow", "love"],
+    "Disappointment": ["expected", "better", "failed", "unfortunate", "sadly", "disappointed"]
 }
 
+# Requirement #5: Aspect-Based Sentiment Analysis
 ASPECT_LEXICON = {
-    "Service": ["staff", "service", "waiter", "manager", "attitude", "friendly"],
+    "Service": ["staff", "service", "waiter", "manager", "behavior", "professional", "friendly"],
     "Price": ["cost", "price", "expensive", "cheap", "value", "bill", "money"],
-    "Quality": ["taste", "fresh", "quality", "clean", "dirty", "stale", "cold", "food"],
-    "Speed": ["fast", "slow", "delay", "quick", "minutes", "hour", "wait", "delivery"]
+    "Quality": ["taste", "fresh", "quality", "clean", "dirty", "food", "product"],
+    "Speed": ["fast", "slow", "delay", "quick", "minutes", "hour", "delivery"]
 }
 
 # ─────────────────────────────────────────────────────────────
-# 2. Intelligence Functions
+# 2. Individual Review Intelligence (#3, #4, #5, #24)
 # ─────────────────────────────────────────────────────────────
 
-def _get_intelligence(text: str, rating: Optional[float]) -> Dict[str, Any]:
-    """Requirements #3, #4, #5, #24: Deep AI analysis logic."""
-    if not text:
+def get_intelligence(text: str, rating: Optional[float]) -> Dict[str, Any]:
+    """
+    Requirements #3, #4, #5, #24: The core NLP engine.
+    Analyzes raw text to extract sentiment, emotions, and business aspects.
+    """
+    if not text or len(text.strip()) < 3:
+        # Fallback to rating-based sentiment if text is missing
         cat = "Positive" if (rating or 0) >= 4 else "Negative" if (rating or 0) <= 2 else "Neutral"
         return {"sentiment": cat, "confidence": 0.5, "emotion": "Neutral", "aspects": {}, "lang": "en"}
 
-    # #24: Language Detection
+    # #24: Multi-Language Support
     try: lang = detect(text)
     except: lang = "en"
 
-    # #3: Sentiment Scoring
-    sentiment, confidence = "Neutral", 0.5
-    if analyzer:
-        vs = analyzer.polarity_scores(text)
-        confidence = abs(vs['compound'])
-        sentiment = "Positive" if vs['compound'] >= 0.05 else "Negative" if vs['compound'] <= -0.05 else "Neutral"
+    # #3: Advanced Sentiment Classification
+    vs = analyzer.polarity_scores(text)
+    compound = vs['compound']
+    sentiment = "Positive" if compound >= 0.05 else "Negative" if compound <= -0.05 else "Neutral"
     
     t_lower = text.lower()
-    # #4: Emotion Detection
-    emotion = next((e for e, kws in EMOTION_LEXICON.items() if any(k in t_lower for k in kws)), "Neutral")
-    # #5: Aspect Extraction
+
+    # #4: Emotion Detection Layer
+    emotion = "Neutral"
+    for emo, keywords in EMOTION_LEXICON.items():
+        if any(k in t_lower for k in keywords):
+            emotion = emo
+            break
+
+    # #5: Aspect-Based Analysis
     aspects = {asp: sentiment for asp, kws in ASPECT_LEXICON.items() if any(k in t_lower for k in kws)}
 
-    return {"sentiment": sentiment, "confidence": round(confidence, 2), "emotion": emotion, "aspects": aspects, "lang": lang}
+    return {
+        "sentiment": sentiment,
+        "confidence": round(abs(compound), 2),
+        "emotion": emotion,
+        "aspects": aspects,
+        "lang": lang
+    }
 
 # ─────────────────────────────────────────────────────────────
-# 3. Analytics & Export-Ready Logic
+# 3. Aggregate Dashboard Analytics (#7, #9, #10, #20, #21, #27)
 # ─────────────────────────────────────────────────────────────
-
-def hour_heatmap(reviews: Iterable[Any], start: Optional[datetime] = None, end: Optional[datetime] = None) -> Dict[str, List[int]]:
-    """Requirement #7: Sentiment Trend Visualization (Hourly)."""
-    now = datetime.now(timezone.utc)
-    start, end = start or (now - timedelta(days=30)), end or now
-    
-    hours = [0] * 24
-    for r in (SimpleReview.from_any(x) for x in reviews):
-        dt = r.review_date
-        if dt and dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
-        if dt and (start <= dt <= end):
-            hours[dt.hour] += 1
-    return {"labels": list(range(24)), "data": hours}
 
 def analyze_reviews(reviews: Iterable[Any], company: Any = None, start: Optional[datetime] = None, end: Optional[datetime] = None) -> Dict[str, Any]:
-    """Requirement #20: Executive Summary & #21: Predictive Insights."""
+    """
+    Requirement #20: Executive Summary View.
+    Requirement #21: Predictive Insights.
+    Requirement #27: Anomaly Detection.
+    """
+    # Use Adapter to avoid circular imports with app.models
     simplified = [SimpleReview.from_any(r) for r in reviews]
     
+    # #8: Custom Date Range Filtering
     if start and end:
         simplified = [r for r in simplified if r.review_date and start <= r.review_date <= end]
 
     if not simplified:
-        return {"status": "No Data Available", "metrics": {"total_volume": 0}}
+        return {"status": "Empty", "metrics": {"total_volume": 0}, "executive_summary": {"health_score": 0}}
 
     ratings, sentiments, emotions = [], Counter(), Counter()
     aspect_scores = defaultdict(list)
     
     for r in simplified:
-        intel = _get_intelligence(r.text, r.rating)
+        intel = get_intelligence(r.text, r.rating)
         sentiments[intel['sentiment']] += 1
         emotions[intel['emotion']] += 1
         if r.rating: ratings.append(r.rating)
@@ -118,54 +117,62 @@ def analyze_reviews(reviews: Iterable[Any], company: Any = None, start: Optional
     total = len(simplified)
     avg_rating = np.mean(ratings) if ratings else 0.0
 
-    # #21: Predictive Trend Signal
+    # #21: Predictive Insights (Linear Regression for Trend Forecasting)
     prediction = "Stable"
     if len(ratings) > 5:
         slope = np.polyfit(range(len(ratings)), ratings, 1)[0]
-        prediction = "Improving" if slope > 0.05 else "Declining" if slope < -0.05 else "Stable"
+        prediction = "Improving" if slope > 0.02 else "Declining" if slope < -0.02 else "Stable"
 
-    # #27: Anomaly Detection
+    # #27: Anomaly Detection (Sudden Rating Drops)
     anomaly = False
-    if len(ratings) > 10 and np.mean(ratings[-3:]) < (avg_rating - 1.2):
-        anomaly = True
+    if len(ratings) > 8:
+        recent_avg = np.mean(ratings[-3:])
+        if recent_avg < (avg_rating - 1.0):
+            anomaly = True
+
+    # #10: Correlation Analysis (Sentiment vs Stars)
+    # Checks if Positive Sentiment matches High Star Ratings
+    mismatches = sum(1 for r in simplified if r.rating <= 2 and get_intelligence(r.text, r.rating)['sentiment'] == "Positive")
 
     return {
         "avg_rating": round(avg_rating, 2),
-        "total_reviews": total,
-        "executive_summary": {
+        "total_volume": total,
+        "executive_summary": { # #20
             "health_score": round((sentiments["Positive"] / total) * 100, 1) if total > 0 else 0,
             "risk_level": "High" if anomaly or prediction == "Declining" else "Low",
             "predictive_signal": prediction,
             "anomaly_detected": anomaly,
-            "status": "At Risk" if anomaly else "Healthy"
+            "status": "Action Required" if anomaly else "Optimal"
         },
-        "emotion_spectrum": dict(emotions),
-        "aspect_performance": {k: round(np.mean(v) * 100, 1) for k, v in aspect_scores.items()},
+        "visuals": {
+            "emotion_map": dict(emotions), # #4
+            "aspect_performance": {k: round(np.mean(v) * 100, 1) for k, v in aspect_scores.items()}, # #5
+            "rating_distribution": dict(Counter([int(r.rating) for r in simplified if r.rating])) # #9
+        },
+        "intelligence_metrics": {
+            "mismatch_count": mismatches, # #10 Correlation
+            "top_keywords": Counter(" ".join([r.text for r in simplified if r.text]).lower().split()).most_common(10) # #6
+        }
     }
 
-def detect_anomalies(reviews: Iterable[Any]) -> bool:
-    """Requirement #27: High-level Anomaly Trigger."""
-    ratings = [float(r.rating) for r in reviews if hasattr(r, 'rating') and r.rating]
-    if len(ratings) < 10: return False
-    return np.mean(ratings[-3:]) < (np.mean(ratings) - 1.0)
-
-def get_engagement_metrics(reviews: Iterable[Any]) -> Dict[str, Any]:
-    """Requirement #26: Engagement & Response Time Metrics."""
-    rev_list = list(reviews)
-    total = len(rev_list)
-    responded = sum(1 for r in rev_list if getattr(r, 'is_responded', False))
-    return {
-        "response_rate": f"{(responded/total*100):.1f}%" if total > 0 else "0%",
-        "pending": total - responded
-    }
+def hour_heatmap(reviews: Iterable[Any]) -> Dict[str, Any]:
+    """Requirement #7: Sentiment Trend Visualization (Hourly)."""
+    hours = [0] * 24
+    for r in reviews:
+        # Standardize to offset-aware for Python 3.13 compatibility
+        dt = getattr(r, 'review_date', None)
+        if dt:
+            if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
+            hours[dt.hour] += 1
+    return {"labels": [f"{h}:00" for h in range(24)], "data": hours}
 
 # ─────────────────────────────────────────────────────────────
-# 4. Data Adapter
+# 4. Scalable Data Adapter (#30)
 # ─────────────────────────────────────────────────────────────
 
 @dataclass
 class SimpleReview:
-    """Requirement #30: Cloud-Ready Scalable Adapter."""
+    """Requirement #30: Adapter to handle high volumes and multi-source data."""
     rating: Optional[float]
     text: Optional[str]
     review_date: Optional[datetime]
@@ -173,7 +180,7 @@ class SimpleReview:
 
     @classmethod
     def from_any(cls, obj: Any) -> "SimpleReview":
-        # Safe extraction to prevent circular dependency on Model classes
+        # Extracts data from any object (Google API dict or SQL model)
         dt = getattr(obj, "review_date", None)
         if dt and isinstance(dt, datetime) and dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
