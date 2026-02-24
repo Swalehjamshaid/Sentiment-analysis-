@@ -97,6 +97,9 @@ class Company(Base):
     status = Column(String(20), default="active", nullable=False)
     logo_url = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    
+    # CRITICAL: Field to track last sync with Google API
+    last_synced_at = Column(DateTime, nullable=True)
 
     lat = Column(Float, nullable=True)
     lng = Column(Float, nullable=True)
@@ -132,6 +135,7 @@ class Review(Base):
     text = Column(Text, nullable=True)
     rating = Column(Integer, nullable=True)
 
+    # CRITICAL: Must be DateTime to support hour extraction in analytics
     review_date = Column(DateTime, nullable=True)
     reviewer_name = Column(String(255), nullable=True)
     reviewer_avatar = Column(String(255), nullable=True)
