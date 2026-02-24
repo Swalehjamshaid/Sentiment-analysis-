@@ -2,6 +2,7 @@
 from __future__ import annotations
 import os
 import logging
+import asyncio
 import googlemaps
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
@@ -15,7 +16,7 @@ from sqlalchemy import func, extract, cast, DateTime
 # Internal imports
 from app.db import get_db
 from app.models import Company, Review
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, manager # manager handles WebSockets
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["dashboard"])
@@ -31,17 +32,18 @@ templates = Jinja2Templates(directory=TEMPLATE_DIR)
 def fetch_google_reviews(company_id: int, place_id: str, db_session_factory):
     """
     Background task to fetch reviews from Google Places API.
-    Updates the 'last_synced_at' timestamp on the company.
+    Updates the 'last_synced_at' timestamp and broadcasts via WebSocket.
     """
     gmaps = googlemaps.Client(key=os.getenv("GOOGLE_MAPS_API_KEY"))
     db = db_session_factory()
+    new_reviews_count = 0
     try:
         logger.info(f"Syncing reviews for Place ID: {place_id}")
         place_details = gmaps.place(place_id=place_id, fields=['reviews'])
         reviews_data = place_details.get('result', {}).get('reviews', [])
         
         for rev in reviews_data:
-            # Check for existing reviews to prevent duplicates
+            # Prevent duplicates by checking reviewer name and text
             exists = db.query(Review).filter(
                 Review.company_id == company_id,
                 Review.reviewer_name == rev.get('author_name'),
@@ -58,14 +60,23 @@ def fetch_google_reviews(company_id: int, place_id: str, db_session_factory):
                     sentiment_category="Positive" if rev.get('rating') >= 4 else "Negative" if rev.get('rating') <= 2 else "Neutral"
                 )
                 db.add(new_review)
+                new_reviews_count += 1
         
-        # Update the Last Synced timestamp on the company model
         company = db.query(Company).filter(Company.id == company_id).first()
         if company:
             company.last_synced_at = datetime.now()
             
         db.commit()
-        logger.info(f"Sync complete for company {company_id}")
+        
+        # Notify the frontend via WebSocket that new data is available
+        if new_reviews_count > 0:
+            asyncio.run(manager.broadcast({
+                "type": "SYNC_COMPLETE",
+                "company_id": company_id,
+                "message": f"Added {new_reviews_count} new reviews!"
+            }))
+            
+        logger.info(f"Sync complete for company {company_id}. New reviews: {new_reviews_count}")
     except Exception as e:
         logger.error(f"Google API Sync Error: {e}")
     finally:
@@ -95,6 +106,7 @@ def get_dashboard_data(db: Session, company_id: Optional[int] = None) -> Dict[st
 
         heatmap_data = [0] * 24
         try:
+            # Cast to DateTime handles PostgreSQL compatibility for DATE columns
             hourly_query = db.query(
                 extract('hour', cast(Review.review_date, DateTime)).label('hour'),
                 func.count(Review.id).label('count')
@@ -154,7 +166,7 @@ async def render_dashboard(
         all_companies = db.query(Company).order_by(Company.name).all()
         selected_company = db.query(Company).filter(Company.id == company_id).first() if company_id else None
         
-        # Trigger background sync automatically on page load if company is selected
+        # Auto-sync on page load if a company is selected
         if selected_company and selected_company.place_id:
             background_tasks.add_task(fetch_google_reviews, selected_company.id, selected_company.place_id, get_db)
 
@@ -181,9 +193,7 @@ async def sync_company_manual(
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_current_user)
 ):
-    """
-    Endpoint triggered by the 'Sync Now' button.
-    """
+    """Manual sync trigger for the 'Sync Now' button."""
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company or not company.place_id:
         raise HTTPException(status_code=404, detail="Company Place ID missing")
