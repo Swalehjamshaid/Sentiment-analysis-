@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.middleware.sessions import SessionMiddleware  # <--- Added
 
 # Internal imports
 from .db import init_db
@@ -84,45 +85,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
-
-# Mount static files
-if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-    logger.info("Static files mounted.")
-else:
-    logger.warning(f"Static directory not found: {STATIC_DIR}")
-
-# ───────────────────────────────────────────────────────────────
-# Simple current_user function (session-based)
-# ───────────────────────────────────────────────────────────────
-
-def get_current_user(request: Request) -> Optional[Dict[str, Any]]:
-    """
-    Get user from session. Returns None if not logged in.
-    Replace with your real auth later (JWT, OAuth, DB).
-    """
-    user = request.session.get("user")
-    return user if user else None
-
-# ───────────────────────────────────────────────────────────────
-# Common context for ALL templates (fixes navbar crash)
-# ───────────────────────────────────────────────────────────────
-
-def common_context(request: Request) -> Dict[str, Any]:
-    user = get_current_user(request)
-    return {
-        "request": request,
-        "current_user": user,
-        "is_authenticated": user is not None,
-        "googleMapsKey": os.getenv("GOOGLE_MAPS_API_KEY", ""),
-        "apiBase": "",
-        "currentDate": "2026-02-24",
-    }
-
 # ───────────────────────────────────────────────────────────────
 # Middleware
 # ───────────────────────────────────────────────────────────────
+
+# Add session middleware BEFORE any route uses request.session
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "supersecretkey123"))
 
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -145,7 +113,41 @@ app.add_middleware(
 )
 
 # ───────────────────────────────────────────────────────────────
-# Public UI Routes (use common_context)
+# Templates & Static
+# ───────────────────────────────────────────────────────────────
+
+templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    logger.info("Static files mounted.")
+else:
+    logger.warning(f"Static directory not found: {STATIC_DIR}")
+
+# ───────────────────────────────────────────────────────────────
+# Simple current_user function (session-based)
+# ───────────────────────────────────────────────────────────────
+
+def get_current_user(request: Request) -> Optional[Dict[str, Any]]:
+    """
+    Get user from session. Returns None if not logged in.
+    """
+    user = request.session.get("user")  # <-- works now because of SessionMiddleware
+    return user if user else None
+
+def common_context(request: Request) -> Dict[str, Any]:
+    user = get_current_user(request)
+    return {
+        "request": request,
+        "current_user": user,
+        "is_authenticated": user is not None,
+        "googleMapsKey": os.getenv("GOOGLE_MAPS_API_KEY", ""),
+        "apiBase": "",
+        "currentDate": "2026-02-24",
+    }
+
+# ───────────────────────────────────────────────────────────────
+# Public UI Routes
 # ───────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -157,8 +159,6 @@ async def login_page(request: Request):
     if get_current_user(request):
         return RedirectResponse(url="/dashboard")
     return templates.TemplateResponse("login.html", common_context(request))
-
-# /dashboard is handled by dashboard.router — no duplicate here
 
 # ───────────────────────────────────────────────────────────────
 # Routers
