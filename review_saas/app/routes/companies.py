@@ -1,3 +1,4 @@
+# File: app/routes/companies.py
 from __future__ import annotations
 import os
 import logging
@@ -13,32 +14,18 @@ from sqlalchemy.orm import Session
 # ───────────────────────────────────────────────
 from app.db import get_db
 from app.models import Company, Review
-from app.main import get_current_user           # ← FIXED HERE
+# ✅ FIXED: Now importing from dependencies.py to avoid circular import
+from app.dependencies import get_current_user 
 
-# ───────────────────────────────────────────────
-# Logger Configuration
-# ───────────────────────────────────────────────
 logger = logging.getLogger(__name__)
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
-    logger.addHandler(handler)
-logger.setLevel(logging.INFO)
 
-# ───────────────────────────────────────────────
-# Router & Template Config
-# ───────────────────────────────────────────────
 router = APIRouter(tags=["dashboard"])
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # → review_saas/app
+# Setup templates relative to this file
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
 templates = Jinja2Templates(directory=TEMPLATE_DIR)
 
-logger.info(f"Dashboard module loaded → template directory: {TEMPLATE_DIR}")
-
-# ───────────────────────────────────────────────
-# Dashboard Routes
-# ───────────────────────────────────────────────
 @router.get("/", response_class=HTMLResponse)
 @router.get("/dashboard", response_class=HTMLResponse)
 async def render_dashboard(
@@ -49,9 +36,6 @@ async def render_dashboard(
     try:
         company_count = db.query(Company).count()
         review_count = db.query(Review).count()
-
-        user_email = getattr(current_user, "email", "anonymous") if current_user else "anonymous"
-        logger.info(f"Dashboard accessed by {user_email}. Stats: {company_count} companies, {review_count} reviews.")
 
         return templates.TemplateResponse(
             "dashboard.html",
@@ -71,18 +55,10 @@ async def render_dashboard(
             detail="Error loading the dashboard interface."
         )
 
-# ───────────────────────────────────────────────
-# Redirect legacy URLs
-# ───────────────────────────────────────────────
 @router.get("/dashbord", response_class=HTMLResponse)
-@router.get("/dashbord.html", response_class=HTMLResponse)
 async def redirect_legacy_dashboard():
-    logger.warning("Redirecting legacy /dashbord request → /dashboard")
     return RedirectResponse(url="/dashboard")
 
-# ───────────────────────────────────────────────
-# API Stats Endpoint
-# ───────────────────────────────────────────────
 @router.get("/api/dashboard/stats")
 async def get_global_stats(db: Session = Depends(get_db)):
     company_count = db.query(Company).count()
@@ -90,18 +66,5 @@ async def get_global_stats(db: Session = Depends(get_db)):
     return {
         "total_companies": company_count,
         "total_reviews": review_count,
-        "system_status": "operational",
-        "timestamp": os.getloadavg() if hasattr(os, 'getloadavg') else "N/A"
+        "system_status": "operational"
     }
-
-# ───────────────────────────────────────────────
-# Startup Diagnostic
-# ───────────────────────────────────────────────
-def log_dashboard_init():
-    template_path = os.path.join(TEMPLATE_DIR, "dashboard.html")
-    if os.path.exists(template_path):
-        logger.info(f"Dashboard template verified → {template_path}")
-    else:
-        logger.warning(f"Dashboard template NOT FOUND → {template_path}")
-
-log_dashboard_init()
