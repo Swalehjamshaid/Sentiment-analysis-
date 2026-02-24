@@ -1,3 +1,4 @@
+# File: review_saas/app/routes/dashboard.py
 from __future__ import annotations
 
 import os
@@ -26,8 +27,10 @@ logger.setLevel(logging.INFO)
 # Router & Template Config
 # ─────────────────────────────────────────────────────────────
 router = APIRouter(tags=["dashboard"])
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
+
+# Ensure TEMPLATE_DIR points to the correct location
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # review_saas/app
+TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")                        # review_saas/app/templates
 templates = Jinja2Templates(directory=TEMPLATE_DIR)
 
 logger.info(f"Dashboard Route Module Loaded. Templates path: {TEMPLATE_DIR}")
@@ -38,7 +41,12 @@ logger.info(f"Dashboard Route Module Loaded. Templates path: {TEMPLATE_DIR}")
 @router.get("/", response_class=HTMLResponse)
 @router.get("/dashboard", response_class=HTMLResponse)
 async def render_dashboard(request: Request, db: Session = Depends(get_db)):
-    """Renders the Unified Dashboard."""
+    """
+    Renders the Unified Dashboard.
+
+    Template: dashboard.html
+    Location: review_saas/app/templates/dashboard.html
+    """
     try:
         company_count = db.query(Company).count()
         review_count = db.query(Review).count()
@@ -62,9 +70,14 @@ async def render_dashboard(request: Request, db: Session = Depends(get_db)):
             detail=f"Error loading the dashboard interface. Check {TEMPLATE_DIR}"
         )
 
+
 @router.get("/api/dashboard/stats")
 async def get_global_stats(db: Session = Depends(get_db)):
-    """Lightweight API endpoint for dashboard metrics."""
+    """
+    Lightweight API endpoint for dashboard metrics.
+
+    Template-independent, returns JSON.
+    """
     company_count = db.query(Company).count()
     review_count = db.query(Review).count()
     return {
@@ -78,12 +91,15 @@ async def get_global_stats(db: Session = Depends(get_db)):
 # Startup Diagnostic
 # ─────────────────────────────────────────────────────────────
 def log_dashboard_init():
+    """
+    Verifies that the dashboard.html template exists.
+    """
     template_path = os.path.join(TEMPLATE_DIR, "dashboard.html")
     exists = os.path.exists(template_path)
     
     if not exists:
         logger.warning(f"Template NOT FOUND at: {template_path}")
     else:
-        logger.info("Dashboard template verified.")
+        logger.info(f"Dashboard template verified at: {template_path}")
 
 log_dashboard_init()
