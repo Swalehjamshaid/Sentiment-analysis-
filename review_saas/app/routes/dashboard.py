@@ -58,7 +58,7 @@ async def render_dashboard(
         logger.info(f"Dashboard loaded → {company_count} companies, {review_count} reviews")
 
         return templates.TemplateResponse(
-            "dashboard.html",   # ← correct filename (this line renders the template)
+            "dashboard.html",   # Correct filename (this renders the actual template)
             {
                 "request": request,
                 # "current_user": current_user,        # ← activate when ready
@@ -94,11 +94,12 @@ async def get_global_stats(db: Session = Depends(get_db)):
 
 
 # ─────────────────────────────────────────────────────────────
-# One-time startup check (runs when module is imported)
+# One-time startup check (runs when file is imported)
 # ─────────────────────────────────────────────────────────────
 def check_dashboard_template():
     """
     Startup diagnostic: confirm dashboard.html exists
+    This check uses only the correct filename.
     """
     file_path = TEMPLATE_DIR / "dashboard.html"
 
@@ -106,8 +107,8 @@ def check_dashboard_template():
         logger.info(f"Dashboard template OK → {file_path}")
     else:
         logger.warning(f"Missing dashboard template → {file_path}")
-        logger.warning("Expected: review_saas/app/templates/dashboard.html")
+        logger.warning("Expected: review_saas/app/templates/dashboard.html (lowercase)")
 
 
-# Run check once
+# Run the check once
 check_dashboard_template()
