@@ -1,192 +1,234 @@
 {% extends "base.html" %}
-
 {% block title %}BizChat • Review Dashboard{% endblock %}
 
 {% block extra_head %}
 <style>
-    /* Glassmorphism effects for the dark theme */
     .metric-card {
-        background: rgba(30, 41, 59, 0.4);
-        backdrop-filter: blur(8px);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        transition: transform 0.2s ease, border-color 0.2s ease;
+        background: rgba(30, 41, 59, 0.42);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        transition: all 0.22s ease;
     }
     .metric-card:hover {
-        border-color: rgba(99, 102, 241, 0.3);
-        transform: translateY(-2px);
+        border-color: rgba(99, 102, 241, 0.35);
+        transform: translateY(-3px);
+        box-shadow: 0 12px 32px rgba(99, 102, 241, 0.12);
     }
+
     input[type="date"]::-webkit-calendar-picker-indicator {
         filter: invert(1);
         cursor: pointer;
     }
+
     [x-cloak] { display: none !important; }
-    
-    /* Custom Scrollbar for the table */
-    .custom-scroll::-webkit-scrollbar { height: 6px; }
-    .custom-scroll::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.1); }
-    .custom-scroll::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.3); border-radius: 10px; }
+
+    .custom-scroll::-webkit-scrollbar {
+        height: 6px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+        background: rgba(15, 23, 42, 0.15);
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+        background: rgba(99, 102, 241, 0.35);
+        border-radius: 10px;
+    }
+
+    .loading-spinner {
+        border: 4px solid rgba(99, 102, 241, 0.2);
+        border-top-color: #6366f1;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="space-y-8" x-cloak x-data="dashboardHandler()">
+<div class="space-y-10" x-data="dashboardHandler()" x-cloak>
 
-    <div x-show="loading" 
-         class="fixed inset-0 z-[60] bg-slate-950/80 backdrop-blur-md flex items-center justify-center transition-opacity duration-500">
-        <div class="text-center">
-            <div class="w-16 h-16 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p class="text-brand-400 font-bold tracking-widest uppercase text-xs animate-pulse">Analyzing Review Sentiments...</p>
+    <!-- Loading overlay -->
+    <div x-show="loading"
+         class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center transition-opacity duration-400">
+        <div class="text-center space-y-5">
+            <div class="loading-spinner w-16 h-16 rounded-full animate-spin mx-auto"></div>
+            <p class="text-brand-400 font-semibold tracking-wider uppercase text-sm animate-pulse">
+                Loading review intelligence...
+            </p>
         </div>
     </div>
 
-    <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+    <!-- Header controls -->
+    <header class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
         <div>
-            <h1 class="text-4xl font-extrabold tracking-tight text-white">
-                <span class="bg-gradient-to-r from-brand-400 to-indigo-400 bg-clip-text text-transparent" x-text="selectedCompany.name"></span>
+            <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight">
+                <span class="bg-gradient-to-r from-brand-400 to-indigo-500 bg-clip-text text-transparent" x-text="selectedCompany.name"></span>
             </h1>
             {% if selected_company %}
-            <p class="text-slate-500 text-[10px] mt-1 uppercase tracking-[0.2em]">
+            <p class="mt-1.5 text-slate-500 text-xs uppercase tracking-widest">
                 Last Google Sync: {{ selected_company.last_synced_at.strftime('%Y-%m-%d %H:%M') if selected_company.last_synced_at else 'Never' }}
             </p>
             {% endif %}
         </div>
 
-        <div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
-            <button @click="triggerSync()" :disabled="syncing || !selectedCompany.id"
-                    class="flex items-center justify-center gap-2 px-6 py-3 bg-brand-600 text-white rounded-xl hover:bg-brand-700 transition-all text-sm font-bold disabled:opacity-50 group">
-                <i class="fas fa-sync-alt group-hover:rotate-180 transition-transform duration-500" :class="syncing ? 'fa-spin' : ''"></i>
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full lg:w-auto">
+            <!-- Sync button -->
+            <button @click="triggerSync()"
+                    :disabled="syncing || !selectedCompany.id"
+                    class="flex items-center justify-center gap-2.5 px-7 py-3.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all shadow-md group">
+                <i class="fas fa-sync-alt text-lg transition-transform group-hover:rotate-180 duration-500" :class="{ 'fa-spin': syncing }"></i>
                 <span x-text="syncing ? 'Syncing...' : 'Sync Now'"></span>
             </button>
 
-            <div class="relative" x-data="{ menuOpen: false }">
-                <button @click="menuOpen = !menuOpen" @click.away="menuOpen = false" 
-                        class="w-full sm:w-64 flex justify-between items-center px-4 py-3 bg-slate-900/50 border border-slate-700 rounded-xl hover:border-brand-500 transition-all text-sm font-medium text-white group">
-                    <span class="flex items-center gap-2">
-                        <i class="fas fa-building text-brand-500 group-hover:scale-110 transition-transform"></i>
-                        <span x-text="selectedCompany.name"></span>
+            <!-- Company selector -->
+            <div class="relative min-w-[240px]" x-data="{ menuOpen: false }">
+                <button @click="menuOpen = !menuOpen"
+                        class="w-full flex justify-between items-center px-5 py-3.5 bg-slate-900/60 border border-slate-700 rounded-xl hover:border-brand-500 transition-colors group">
+                    <span class="flex items-center gap-3">
+                        <i class="fas fa-building text-brand-500 text-lg group-hover:scale-110 transition-transform"></i>
+                        <span class="font-medium" x-text="selectedCompany.name"></span>
                     </span>
-                    <i class="fas fa-chevron-down text-[10px] transition-transform" :class="menuOpen ? 'rotate-180' : ''"></i>
+                    <i class="fas fa-chevron-down text-sm transition-transform" :class="{ 'rotate-180': menuOpen }"></i>
                 </button>
-                <div x-show="menuOpen" x-transition class="absolute right-0 w-full mt-2 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
-                    <div class="max-h-60 overflow-y-auto p-2">
-                        <a href="/dashboard" class="block px-4 py-2 hover:bg-brand-600/20 rounded-lg text-sm text-slate-300 transition-colors">Global Overview</a>
+
+                <div x-show="menuOpen"
+                     x-transition
+                     @click.away="menuOpen = false"
+                     class="absolute right-0 mt-2 w-full bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
+                    <div class="max-h-64 overflow-y-auto py-1.5">
+                        <a href="/dashboard"
+                           class="block px-5 py-3 hover:bg-brand-600/15 text-slate-200 transition-colors">
+                            Global Overview
+                        </a>
                         <div class="h-px bg-slate-800 my-1"></div>
                         {% for company in companies %}
-                        <div class="px-4 py-2 hover:bg-brand-600/20 cursor-pointer rounded-lg text-sm text-slate-300 transition-colors" 
-                             @click="selectedCompany = {id: '{{ company.id }}', name: '{{ company.name }}'}; menuOpen = false; applyFilter()">
+                        <div class="px-5 py-3 hover:bg-brand-600/15 cursor-pointer transition-colors"
+                             @click="selectedCompany = { id: '{{ company.id }}', name: '{{ company.name }}' }; menuOpen = false; applyFilter()">
                             {{ company.name }}
                         </div>
                         {% endfor %}
                     </div>
                 </div>
             </div>
-            
-            <div class="flex bg-slate-900/50 border border-slate-700 rounded-xl p-1.5 gap-1">
-                <input type="date" x-model="dateStart" class="bg-transparent border-none text-[11px] text-white px-2 focus:ring-0 outline-none w-28">
-                <span class="text-slate-700 self-center text-xs">→</span>
-                <input type="date" x-model="dateEnd" class="bg-transparent border-none text-[11px] text-white px-2 focus:ring-0 outline-none w-28">
-                <button @click="applyFilter()" class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 shadow-lg shadow-brand-600/20">Apply</button>
+
+            <!-- Date range filter -->
+            <div class="flex bg-slate-900/60 border border-slate-700 rounded-xl p-1.5 gap-1.5 items-center">
+                <input type="date" x-model="dateStart"
+                       class="bg-transparent text-white text-xs px-3 py-2 focus:outline-none w-32">
+                <span class="text-slate-600 text-xs">→</span>
+                <input type="date" x-model="dateEnd"
+                       class="bg-transparent text-white text-xs px-3 py-2 focus:outline-none w-32">
+                <button @click="applyFilter()"
+                        class="bg-brand-600 hover:bg-brand-700 text-white px-5 py-2 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-sm">
+                    Apply
+                </button>
             </div>
         </div>
-    </div>
+    </header>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <!-- KPI cards -->
+    <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
         <div class="metric-card p-6 rounded-2xl">
-            <p class="text-slate-500 text-[10px] font-bold uppercase tracking-[0.15em]">Total Reviews</p>
-            <p class="text-3xl font-bold mt-2 text-white" x-text="dashboardData.metrics?.total || 0"></p>
+            <p class="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">Total Reviews</p>
+            <p class="text-3xl font-bold text-white" x-text="dashboardData.metrics?.total ?? 0"></p>
         </div>
+
         <div class="metric-card p-6 rounded-2xl">
-            <p class="text-slate-500 text-[10px] font-bold uppercase tracking-[0.15em]">Avg Rating</p>
+            <p class="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">Average Rating</p>
             <div class="flex items-baseline gap-2">
-                <p class="text-3xl font-bold mt-2 text-amber-400" x-text="(dashboardData.metrics?.avg_rating || 0).toFixed(1)"></p>
-                <div class="flex gap-0.5 text-[10px] text-amber-500/50">
+                <p class="text-3xl font-bold text-amber-400" x-text="(dashboardData.metrics?.avg_rating ?? 0).toFixed(1)"></p>
+                <div class="flex text-amber-500/50 text-xs">
                     <i class="fas fa-star"></i><i class="fas fa-star"></i><i class="fas fa-star"></i><i class="fas fa-star"></i><i class="fas fa-star"></i>
                 </div>
             </div>
         </div>
-        <div class="metric-card p-6 rounded-2xl border-l-4" :class="dashboardData.metrics?.risk_level === 'High' ? 'border-l-rose-500' : 'border-l-emerald-500'">
-            <p class="text-slate-500 text-[10px] font-bold uppercase tracking-[0.15em]">Risk Analysis</p>
-            <p class="text-3xl font-bold mt-2" :class="dashboardData.metrics?.risk_level === 'High' ? 'text-rose-500' : 'text-emerald-500'" x-text="dashboardData.metrics?.risk_level || 'Safe'"></p>
-        </div>
-        <div class="metric-card p-6 rounded-2xl">
-            <p class="text-slate-500 text-[10px] font-bold uppercase tracking-[0.15em]">Market Trend</p>
-            <p class="text-2xl font-bold mt-2 capitalize text-white" x-text="dashboardData.trend?.signal || 'Neutral'"></p>
-        </div>
-    </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="metric-card p-6 rounded-2xl border-l-4 transition-colors"
+             :class="dashboardData.metrics?.risk_level === 'High' ? 'border-l-rose-500' : 'border-l-emerald-500'">
+            <p class="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">Risk Level</p>
+            <p class="text-3xl font-bold mt-1.5"
+               :class="dashboardData.metrics?.risk_level === 'High' ? 'text-rose-500' : 'text-emerald-500'"
+               x-text="dashboardData.metrics?.risk_level ?? 'Safe'"></p>
+        </div>
+
         <div class="metric-card p-6 rounded-2xl">
-            <h3 class="font-bold text-sm mb-6 text-slate-300 flex items-center gap-2">
-                <span class="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+            <p class="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">Trend</p>
+            <p class="text-2xl font-bold capitalize text-white mt-1.5" x-text="dashboardData.trend?.signal ?? 'Neutral'"></p>
+        </div>
+    </section>
+
+    <!-- Charts -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="metric-card p-6 rounded-2xl">
+            <h3 class="font-semibold text-slate-300 mb-5 flex items-center gap-2 text-sm">
+                <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
                 Activity Heatmap
             </h3>
-            <div class="h-[300px]"><canvas id="heatmapChart"></canvas></div>
+            <div class="h-[320px]"><canvas id="heatmapChart"></canvas></div>
         </div>
+
         <div class="metric-card p-6 rounded-2xl">
-            <h3 class="font-bold text-sm mb-6 text-slate-300 flex items-center gap-2">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+            <h3 class="font-semibold text-slate-300 mb-5 flex items-center gap-2 text-sm">
+                <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
                 Sentiment Distribution
             </h3>
-            <div class="h-[300px] flex items-center justify-center"><canvas id="sentimentChart"></canvas></div>
+            <div class="h-[320px] flex items-center justify-center"><canvas id="sentimentChart"></canvas></div>
         </div>
-    </div>
+    </section>
 
-    <div class="metric-card rounded-2xl overflow-hidden">
-        <div class="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/40">
+    <!-- Reviews table -->
+    <section class="metric-card rounded-2xl overflow-hidden">
+        <div class="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/30">
             <h3 class="font-bold text-lg text-white">Review Intelligence Log</h3>
-            <div class="flex items-center gap-3">
-                <span class="px-2 py-1 bg-brand-500/10 text-brand-400 text-[10px] font-bold rounded-md" x-text="(dashboardData.metrics?.total || 0) + ' TOTAL RECORDS'"></span>
-            </div>
+            <span class="px-3 py-1 bg-brand-500/10 text-brand-400 text-xs font-bold rounded-md uppercase tracking-wider"
+                  x-text="(dashboardData.reviews?.total ?? 0) + ' records'"></span>
         </div>
+
         <div class="overflow-x-auto custom-scroll">
-            <table class="w-full text-sm text-left">
-                <thead class="bg-slate-900/80 text-slate-500 uppercase text-[9px] font-bold tracking-widest">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-900/70 text-slate-500 uppercase text-[10px] font-bold tracking-wider">
                     <tr>
-                        <th class="px-6 py-4">Date</th>
-                        <th class="px-6 py-4">Rating</th>
-                        <th class="px-6 py-4">Reviewer</th>
-                        <th class="px-6 py-4">Snippet & Analysis</th>
-                        <th class="px-6 py-4 text-right">Actions</th>
+                        <th class="px-7 py-4 text-left">Date</th>
+                        <th class="px-7 py-4 text-left">Rating</th>
+                        <th class="px-7 py-4 text-left">Reviewer</th>
+                        <th class="px-7 py-4 text-left">Review & Sentiment</th>
+                        <th class="px-7 py-4 text-right">Action</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-800">
                     <template x-for="review in paginatedReviews" :key="review.id">
-                        <tr class="hover:bg-brand-500/5 transition-colors group">
-                            <td class="px-6 py-4 text-slate-400 text-xs" x-text="new Date(review.review_date).toLocaleDateString()"></td>
-                            <td class="px-6 py-4">
-                                <div class="flex items-center gap-1">
+                        <tr class="hover:bg-brand-900/10 transition-colors group">
+                            <td class="px-7 py-5 text-slate-400 text-xs" x-text="new Date(review.review_date).toLocaleDateString()"></td>
+                            <td class="px-7 py-5">
+                                <div class="flex items-center gap-1.5">
                                     <span class="font-bold text-amber-400" x-text="review.rating"></span>
-                                    <i class="fas fa-star text-amber-500/40 text-[10px]"></i>
+                                    <i class="fas fa-star text-amber-500/50 text-xs"></i>
                                 </div>
                             </td>
-                            <td class="px-6 py-4">
-                                <span class="font-semibold text-slate-200" x-text="review.reviewer_name || 'Anonymous User'"></span>
+                            <td class="px-7 py-5">
+                                <span class="font-medium text-slate-200" x-text="review.reviewer_name || 'Anonymous'"></span>
                             </td>
-                            <td class="px-6 py-4">
-                                <div class="max-w-xs">
-                                    <p class="text-slate-400 italic text-xs line-clamp-2" x-text="review.text || 'No comment text provided'"></p>
-                                    <span class="text-[9px] px-2 py-0.5 rounded-full border mt-1 inline-block" 
-                                          :class="{
-                                              'bg-emerald-500/10 border-emerald-500/20 text-emerald-400': review.sentiment_category === 'Positive',
-                                              'bg-rose-500/10 border-rose-500/20 text-rose-400': review.sentiment_category === 'Negative',
-                                              'bg-slate-500/10 border-slate-500/20 text-slate-400': review.sentiment_category === 'Neutral'
-                                          }" x-text="review.sentiment_category"></span>
-                                </div>
+                            <td class="px-7 py-5 max-w-md">
+                                <p class="text-slate-400 italic text-xs line-clamp-2 mb-1.5" x-text="review.text || '—'"></p>
+                                <span class="inline-block px-2.5 py-0.5 text-[10px] rounded-full border mt-1"
+                                      :class="{
+                                          'bg-emerald-900/20 border-emerald-700/30 text-emerald-300': review.sentiment_category === 'Positive',
+                                          'bg-rose-900/20 border-rose-700/30 text-rose-300': review.sentiment_category === 'Negative',
+                                          'bg-slate-700/20 border-slate-600/30 text-slate-300': review.sentiment_category === 'Neutral'
+                                      }"
+                                      x-text="review.sentiment_category || '—'"></span>
                             </td>
-                            <td class="px-6 py-4 text-right">
-                                <button @click="generateAIReply(review)" class="px-4 py-1.5 bg-brand-600/10 text-brand-400 border border-brand-500/20 rounded-lg text-[10px] font-bold hover:bg-brand-600 hover:text-white transition-all transform group-hover:scale-105">
-                                    <i class="fas fa-robot mr-1"></i> AUTO REPLY
+                            <td class="px-7 py-5 text-right">
+                                <button @click="generateAIReply(review)"
+                                        class="px-4 py-2 bg-brand-600/10 hover:bg-brand-600/25 text-brand-300 border border-brand-500/20 rounded-lg text-xs font-semibold transition-all group-hover:scale-105">
+                                    <i class="fas fa-robot mr-1.5"></i> AI Reply
                                 </button>
                             </td>
                         </tr>
                     </template>
 
-                    <template x-if="paginatedReviews.length === 0">
+                    <template x-if="!paginatedReviews.length">
                         <tr>
-                            <td colspan="5" class="px-6 py-24 text-center">
-                                <div class="flex flex-col items-center justify-center opacity-30">
-                                    <i class="fas fa-folder-open text-6xl mb-4 text-slate-500"></i>
-                                    <p class="text-sm font-medium">No live reviews matching your filters found.</p>
+                            <td colspan="5" class="py-28 text-center text-slate-500">
+                                <div class="flex flex-col items-center gap-4 opacity-70">
+                                    <i class="far fa-comment-slash text-6xl"></i>
+                                    <p class="text-base font-medium">No reviews found in selected period</p>
                                 </div>
                             </td>
                         </tr>
@@ -194,73 +236,91 @@
                 </tbody>
             </table>
         </div>
-        
-        <div class="px-6 py-4 bg-slate-900/30 flex items-center justify-between border-t border-slate-800">
-            <p class="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Page <span class="text-brand-400" x-text="currentPage"></span> / <span x-text="totalPages"></span></p>
-            <div class="flex gap-2">
-                <button @click="prevPage()" :disabled="currentPage === 1" class="px-4 py-2 bg-slate-800 hover:bg-brand-600 disabled:opacity-20 rounded-xl text-xs text-white transition-all font-bold">PREV</button>
-                <button @click="nextPage()" :disabled="currentPage === totalPages" class="px-4 py-2 bg-slate-800 hover:bg-brand-600 disabled:opacity-20 rounded-xl text-xs text-white transition-all font-bold">NEXT</button>
+
+        <!-- Pagination controls -->
+        <div class="px-7 py-4 bg-slate-900/40 flex items-center justify-between border-t border-slate-800">
+            <p class="text-xs text-slate-500 uppercase tracking-wider font-medium">
+                Page <span class="text-brand-400 font-bold" x-text="currentPage"></span> / <span x-text="totalPages"></span>
+            </p>
+            <div class="flex gap-3">
+                <button @click="prevPage()"
+                        :disabled="currentPage === 1"
+                        class="px-5 py-2 bg-slate-800 hover:bg-brand-700 disabled:opacity-40 rounded-lg text-xs font-medium transition-colors">
+                    PREV
+                </button>
+                <button @click="nextPage()"
+                        :disabled="currentPage === totalPages"
+                        class="px-5 py-2 bg-slate-800 hover:bg-brand-700 disabled:opacity-40 rounded-lg text-xs font-medium transition-colors">
+                    NEXT
+                </button>
             </div>
         </div>
-    </div>
+    </section>
+
 </div>
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script>
+// ────────────────────────────────────────────────
+// Dashboard controller
+// ────────────────────────────────────────────────
 function dashboardHandler() {
     return {
-        selectedCompany: { 
-            id: '{{ selected_company.id if selected_company else "" }}', 
-            name: '{{ selected_company.name if selected_company else "Global Overview" }}' 
+        // State
+        selectedCompany: {
+            id:   '{{ selected_company.id   if selected_company else "" }}',
+            name: '{{ selected_company.name if selected_company else "Global Overview" }}'
         },
         loading: true,
         syncing: false,
         dateStart: '{{ dashboard_payload.date_range.start if dashboard_payload else "" }}',
-        dateEnd: '{{ dashboard_payload.date_range.end if dashboard_payload else "" }}',
+        dateEnd:   '{{ dashboard_payload.date_range.end   if dashboard_payload else "" }}',
         currentPage: 1,
         pageSize: 10,
-        // The dashboardData is now safely injected from your analysis.py
         dashboardData: {{ dashboard_payload | tojson | safe if dashboard_payload else '{}' }},
 
+        // Lifecycle
         init() {
-            // WebSocket for sync completion
+            this.initWebSocket();
+            this.$nextTick(() => {
+                setTimeout(() => {
+                    this.loading = false;
+                    this.renderCharts();
+                }, 400);
+            });
+        },
+
+        initWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const socket = new WebSocket(`${protocol}//${window.location.host}/ws/dashboard`);
-            
+
             socket.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
                 if (msg.type === 'SYNC_COMPLETE' && msg.company_id == this.selectedCompany.id) {
                     window.location.reload();
                 }
             };
-
-            this.$nextTick(() => {
-                setTimeout(() => {
-                    this.loading = false;
-                    this.renderVisuals();
-                }, 800);
-            });
         },
 
+        // Computed
         get paginatedReviews() {
-            // This is how we fix the "Empty Table" - we look into dashboardData.daily_series or dashboard_payload
-            // For the table, we usually send the raw list of reviews.
-            // Based on your analysis.py, reviews are in dashboardData.reviews.data
-            if (!this.dashboardData.reviews?.data) return [];
+            if (!this.dashboardData?.reviews?.data) return [];
             const start = (this.currentPage - 1) * this.pageSize;
             return this.dashboardData.reviews.data.slice(start, start + this.pageSize);
         },
 
         get totalPages() {
-            const total = this.dashboardData.reviews?.total || 0;
+            const total = this.dashboardData?.reviews?.total || 0;
             return Math.ceil(total / this.pageSize) || 1;
         },
 
+        // Navigation
         nextPage() { if (this.currentPage < this.totalPages) this.currentPage++; },
         prevPage() { if (this.currentPage > 1) this.currentPage--; },
 
+        // Actions
         applyFilter() {
             this.loading = true;
             window.location.href = `/dashboard?company_id=${this.selectedCompany.id}&start=${this.dateStart}&end=${this.dateEnd}`;
@@ -271,90 +331,93 @@ function dashboardHandler() {
             this.syncing = true;
             try {
                 await fetch(`/api/companies/${this.selectedCompany.id}/sync`, { method: 'POST' });
-                // We don't reload here; we wait for the WebSocket SYNC_COMPLETE
+                // WebSocket will trigger reload on completion
             } catch (err) {
-                console.error("Sync failed:", err);
+                console.error('Sync failed:', err);
+            } finally {
                 this.syncing = false;
             }
         },
 
         generateAIReply(review) {
-            const name = review.reviewer_name || 'Valued Customer';
-            const comment = review.text || '';
-            const rating = review.rating;
-            
-            // AUTOMATED REPLY LOGIC
-            let draft = "";
+            const name   = review.reviewer_name || 'Valued Customer';
+            const text   = review.text || '';
+            const rating = review.rating || 0;
+
+            let draft = '';
             if (rating >= 4) {
-                draft = `Hi ${name}, thank you so much for the wonderful ${rating}-star review! We're thrilled to hear your feedback regarding "${comment.substring(0, 50)}...". We hope to see you again soon!`;
+                draft = `Hi ${name}, thank you so much for the wonderful ${rating}-star review! We're thrilled to hear your feedback regarding "${text.substring(0,50)}${text.length > 50 ? '...' : ''}". We hope to see you again soon!`;
             } else if (rating === 3) {
                 draft = `Hello ${name}, thank you for your feedback. We appreciate your ${rating}-star rating and have noted your comments to help us improve.`;
             } else {
-                draft = `Dear ${name}, we sincerely apologize for the experience that led to your ${rating}-star review. We take your comments about "${comment.substring(0, 50)}..." very seriously and would like to investigate this further.`;
+                draft = `Dear ${name}, we sincerely apologize for the experience that led to your ${rating}-star review. We take your comments about "${text.substring(0,50)}${text.length > 50 ? '...' : ''}" very seriously and would like to investigate this further.`;
             }
-            
-            // In a real app, you'd show this in a modal or text area.
-            alert("AI GENERATED DRAFT FOR: " + name + "\n\n" + draft);
+
+            alert(`AI Suggested Reply Draft:\n\n${draft}\n\n(You can copy & paste this)`);
         },
 
-        renderVisuals() {
+        // Chart rendering
+        renderCharts() {
             const data = this.dashboardData;
-            if (!data.metrics) return;
+            if (!data?.metrics) return;
 
             Chart.defaults.color = '#64748b';
-            Chart.defaults.font.family = 'Inter, sans-serif';
+            Chart.defaults.font.family = 'Inter, system-ui, sans-serif';
 
-            // 1. Heatmap (Activity)
-            const heatmapCtx = document.getElementById('heatmapChart');
-            if (heatmapCtx) {
-                new Chart(heatmapCtx, {
+            // Heatmap
+            const heatmapEl = document.getElementById('heatmapChart');
+            if (heatmapEl && data.heatmap?.labels?.length) {
+                new Chart(heatmapEl, {
                     type: 'bar',
                     data: {
-                        labels: (data.heatmap?.labels || []).map(h => `${h}:00`),
-                        datasets: [{ 
+                        labels: data.heatmap.labels.map(h => `${h}:00`),
+                        datasets: [{
                             label: 'Review Frequency',
-                            data: data.heatmap?.data || [], 
-                            backgroundColor: 'rgba(99, 102, 241, 0.5)',
+                            data: data.heatmap.data || [],
+                            backgroundColor: 'rgba(99, 102, 241, 0.55)',
                             borderColor: '#6366f1',
                             borderWidth: 1,
-                            borderRadius: 6 
+                            borderRadius: 6
                         }]
                     },
-                    options: { 
-                        maintainAspectRatio: false, 
-                        plugins: { legend: { display: false } }, 
-                        scales: { 
-                            x: { grid: { display: false } }, 
-                            y: { grid: { color: 'rgba(255,255,255,0.05)' } } 
-                        } 
+                    options: {
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { grid: { display: false } },
+                            y: { grid: { color: 'rgba(255,255,255,0.04)' } }
+                        }
                     }
                 });
             }
 
-            // 2. Sentiment Distribution
-            const sentimentCtx = document.getElementById('sentimentChart');
-            if (sentimentCtx) {
-                new Chart(sentimentCtx, {
+            // Sentiment
+            const sentimentEl = document.getElementById('sentimentChart');
+            if (sentimentEl) {
+                new Chart(sentimentEl, {
                     type: 'doughnut',
                     data: {
                         labels: ['Positive', 'Neutral', 'Negative'],
                         datasets: [{
                             data: [
-                                data.sentiment?.Positive || 0, 
-                                data.sentiment?.Neutral || 0, 
-                                data.sentiment?.Negative || 0
+                                data.sentiment?.Positive   || 0,
+                                data.sentiment?.Neutral    || 0,
+                                data.sentiment?.Negative   || 0
                             ],
                             backgroundColor: ['#10b981', '#64748b', '#ef4444'],
                             borderWidth: 0,
-                            hoverOffset: 15
+                            hoverOffset: 16
                         }]
                     },
-                    options: { 
-                        cutout: '80%', 
+                    options: {
+                        cutout: '78%',
                         maintainAspectRatio: false,
-                        plugins: { 
-                            legend: { position: 'bottom', labels: { boxWidth: 12, padding: 25, color: '#94a3b8' } } 
-                        } 
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: { padding: 20, font: { size: 13 } }
+                            }
+                        }
                     }
                 });
             }
