@@ -1,47 +1,75 @@
 {% extends "base.html" %}
-
 {% block title %}BizChat • Review Dashboard{% endblock %}
 
 {% block extra_head %}
 <style>
-    .metric-card {
-        background: rgba(30, 41, 59, 0.4);
-        backdrop-filter: blur(8px);
-        border: 1px solid rgba(255, 255, 255, 0.05);
+    :root {
+        --brand: #6366f1;           /* indigo-500 */
+        --brand-dark: #4f46e5;
+        --glass-bg: rgba(30, 41, 59, 0.45);
+        --glass-border: rgba(255, 255, 255, 0.08);
     }
+
+    .glass-card {
+        background: var(--glass-bg);
+        backdrop-filter: blur(16px) saturate(180%);
+        -webkit-backdrop-filter: blur(16px) saturate(180%);
+        border: 1px solid var(--glass-border);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .glass-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 20px 40px rgba(99, 102, 241, 0.18);
+    }
+
+    .metric-value {
+        background: linear-gradient(90deg, #6366f1, #a78bfa);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
     input[type="date"]::-webkit-calendar-picker-indicator {
         filter: invert(1);
         cursor: pointer;
     }
+
     [x-cloak] { display: none !important; }
+
+    .skeleton {
+        background: linear-gradient(90deg, #1e293b 0%, #334155 50%, #1e293b 100%);
+        background-size: 200% 100%;
+        animation: loading 1.5s infinite;
+    }
+
+    @keyframes loading {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="space-y-8" 
-     x-cloak
+<div class="min-h-screen pb-12 pt-8 px-4 sm:px-6 lg:px-8"
      x-data="{
-        selectedCompany: { 
-            id: '{{ selected_company.id if selected_company else '' }}', 
-            name: '{{ selected_company.name if selected_company else 'Global Overview' }}' 
-        },
+        selectedCompany: { id: '{{ selected_company.id if selected_company else '' }}', name: '{{ selected_company.name if selected_company else 'Global Overview' }}' },
         syncing: false,
         toast: { show: false, message: '' },
         dateStart: '{{ dashboard_payload.date_range.start if dashboard_payload else '' }}',
         dateEnd: '{{ dashboard_payload.date_range.end if dashboard_payload else '' }}',
         currentPage: 1,
         pageSize: 10,
-        dashboardData: {{ dashboard_payload | tojson | safe if dashboard_payload else '{metrics: {}, reviews: {data: [], total: 0}, trend: {}, heatmap: {labels: [], data: []}, sentiment: {Positive: 0, Neutral: 0, Negative: 0}}' }},
-        
+        dashboardData: {{ dashboard_payload | tojson | safe if dashboard_payload else '{ \"metrics\": {}, \"reviews\": { \"data\": [], \"total\": 0 }, \"trend\": {}, \"heatmap\": { \"labels\": [], \"data\": [] }, \"sentiment\": { \"Positive\": 0, \"Neutral\": 0, \"Negative\": 0 } }' }},
+
         init() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const socket = new WebSocket(`${protocol}//${window.location.host}/ws/dashboard`);
-            
             socket.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
                 if (msg.type === 'SYNC_COMPLETE' && msg.company_id == this.selectedCompany.id) {
-                    this.showToast(msg.message);
-                    setTimeout(() => window.location.reload(), 2000);
+                    this.showToast(msg.message || 'Sync completed successfully!');
+                    setTimeout(() => window.location.reload(), 1800);
                 }
             };
         },
@@ -49,93 +77,104 @@
         showToast(msg) {
             this.toast.message = msg;
             this.toast.show = true;
-            setTimeout(() => this.toast.show = false, 5000);
+            setTimeout(() => this.toast.show = false, 4800);
         },
 
         get paginatedReviews() {
-            if (!this.dashboardData.reviews || !this.dashboardData.reviews.data) return [];
-            let start = (this.currentPage - 1) * this.pageSize;
+            if (!this.dashboardData.reviews?.data?.length) return [];
+            const start = (this.currentPage - 1) * this.pageSize;
             return this.dashboardData.reviews.data.slice(start, start + this.pageSize);
         },
-        
+
         get totalPages() {
-            const total = this.dashboardData.reviews ? this.dashboardData.reviews.total : 0;
-            return Math.ceil((total || 0) / this.pageSize) || 1;
+            return Math.ceil((this.dashboardData.reviews?.total || 0) / this.pageSize) || 1;
         },
-        
+
         applyFilter() {
-            window.location.href = `/dashboard?company_id=${this.selectedCompany.id}&start=${this.dateStart}&end=${this.dateEnd}`;
+            const params = new URLSearchParams();
+            if (this.selectedCompany.id) params.set('company_id', this.selectedCompany.id);
+            if (this.dateStart) params.set('start', this.dateStart);
+            if (this.dateEnd) params.set('end', this.dateEnd);
+            window.location.href = `/dashboard?${params.toString()}`;
         },
 
         async triggerSync() {
             if (!this.selectedCompany.id) return;
             this.syncing = true;
             try {
-                const response = await fetch(`/api/companies/${this.selectedCompany.id}/sync`, { method: 'POST' });
-                if (response.ok) {
-                    this.showToast('Sync started! Checking Google for new reviews...');
-                }
+                const res = await fetch(`/api/companies/${this.selectedCompany.id}/sync`, { method: 'POST' });
+                if (res.ok) this.showToast('Sync started — fetching latest Google reviews...');
+                else this.showToast('Sync request failed');
             } catch (e) {
-                console.error('Sync failed', e);
+                console.error(e);
+                this.showToast('Connection error during sync');
+            } finally {
                 this.syncing = false;
             }
         },
 
         generateAIReply(review) {
-            let draft = '';
             const name = review.reviewer_name || 'Valued Customer';
+            let draft = '';
             if (review.sentiment_category === 'Positive') {
-                draft = `Hi ${name}, thank you so much for the ${review.rating}-star review! We're thrilled you enjoyed your experience.`;
+                draft = `Hi ${name},\nThank you so much for the ${review.rating}-star review! We're genuinely thrilled you loved your experience and truly appreciate your support.`;
             } else if (review.sentiment_category === 'Negative') {
-                draft = `Dear ${name}, we sincerely apologize for your experience. We take your feedback seriously and want to make it right.`;
+                draft = `Dear ${name},\nWe're truly sorry to hear about your experience. We take this feedback very seriously and would love the chance to make it right — please reach out directly so we can assist you personally.`;
             } else {
-                draft = `Hello ${name}, thank you for sharing your thoughts. We appreciate the feedback and are always working to improve.`;
+                draft = `Hello ${name},\nThank you for taking the time to share your thoughts. We value every piece of feedback as it helps us improve and serve you better.`;
             }
-            alert('AI Suggested Reply Draft:\n\n' + draft);
+            alert('AI Suggested Reply Draft:\\n\\n' + draft);
         }
-    }">
+    }" x-init="init()" x-cloak>
 
-    <div x-show="toast.show" x-transition
-         class="fixed bottom-10 right-10 z-[100] bg-brand-600 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 border border-brand-400/50">
-        <div class="bg-white/20 p-2 rounded-full">
-            <i class="fas fa-bell animate-bounce"></i>
+    <!-- Toast Notification -->
+    <div x-show="toast.show" x-transition.opacity.duration.300
+         class="fixed bottom-6 right-6 z-50 max-w-sm glass-card text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 border border-indigo-500/30">
+        <div class="bg-indigo-500/20 p-3 rounded-full">
+            <i class="fas fa-bell animate-pulse text-lg"></i>
         </div>
         <div>
-            <p class="font-bold text-sm">System Update</p>
-            <p class="text-xs opacity-90" x-text="toast.message"></p>
+            <p class="font-semibold">Update</p>
+            <p class="text-sm opacity-90" x-text="toast.message"></p>
         </div>
     </div>
 
-    <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+    <!-- Header -->
+    <header class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-10">
         <div>
-            <h1 class="text-4xl font-extrabold tracking-tight text-white">
-                <span class="bg-gradient-to-r from-brand-400 to-indigo-400 bg-clip-text text-transparent" x-text="selectedCompany.name"></span>
+            <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight">
+                <span class="metric-value" x-text="selectedCompany.name"></span>
             </h1>
             {% if selected_company %}
-            <p class="text-slate-500 text-xs mt-1 uppercase tracking-widest">
-                Last Synced: {{ selected_company.last_synced_at.strftime('%Y-%m-%d %H:%M') if selected_company.last_synced_at else 'Never' }}
+            <p class="text-slate-400 text-sm mt-2 flex items-center gap-2">
+                <i class="fas fa-history text-indigo-400"></i>
+                Last Sync: {{ selected_company.last_synced_at.strftime('%Y-%m-%d %H:%M') if selected_company.last_synced_at else 'Never' }}
             </p>
             {% endif %}
         </div>
 
-        <div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
-            <button @click="triggerSync()" 
-                    :disabled="syncing || !selectedCompany.id"
-                    class="flex items-center gap-2 px-6 py-3 bg-brand-600/10 border border-brand-500/20 rounded-xl hover:bg-brand-600 hover:text-white transition-all text-sm font-bold text-brand-400 disabled:opacity-50">
-                <i class="fas fa-sync-alt" :class="syncing ? 'fa-spin' : ''"></i>
-                <span x-text="syncing ? 'Syncing...' : 'Sync Now'"></span>
+        <div class="flex flex-wrap gap-4">
+            <!-- Sync Button -->
+            <button @click="triggerSync" :disabled="syncing || !selectedCompany.id"
+                    class="glass-card flex items-center gap-3 px-6 py-3 rounded-xl text-indigo-300 hover:text-white hover:bg-indigo-600/30 transition-all font-medium disabled:opacity-50">
+                <i class="fas fa-sync-alt" :class="{ 'fa-spin': syncing }"></i>
+                <span x-text="syncing ? 'Syncing...' : 'Sync Reviews'"></span>
             </button>
 
+            <!-- Company Selector -->
             <div class="relative" x-data="{ open: false }">
-                <button @click="open = !open" class="w-full sm:w-64 flex justify-between items-center px-4 py-3 bg-slate-900/50 border border-slate-700 rounded-xl hover:border-brand-500 transition-all text-sm font-medium text-white">
-                    <span class="flex items-center gap-2"><i class="fas fa-building text-brand-500"></i><span x-text="selectedCompany.name"></span></span>
+                <button @click="open = !open" class="glass-card w-64 flex justify-between items-center px-5 py-3 rounded-xl hover:border-indigo-500/50 transition-all text-white">
+                    <span class="flex items-center gap-3">
+                        <i class="fas fa-building text-indigo-400"></i>
+                        <span x-text="selectedCompany.name"></span>
+                    </span>
                     <i class="fas fa-chevron-down text-xs transition-transform" :class="open ? 'rotate-180' : ''"></i>
                 </button>
-                <div x-show="open" @click.away="open = false" x-cloak class="absolute right-0 w-full mt-2 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
-                    <div class="max-h-60 overflow-y-auto">
-                        <a href="/dashboard" class="block px-4 py-3 hover:bg-brand-600/10 text-sm border-b border-slate-800/50 text-slate-300">Global Overview</a>
+                <div x-show="open" @click.away="open = false" class="absolute right-0 mt-3 w-64 glass-card rounded-xl shadow-2xl overflow-hidden z-50">
+                    <div class="max-h-72 overflow-y-auto py-2">
+                        <a href="/dashboard" class="block px-5 py-3 hover:bg-indigo-600/20 text-slate-200 transition">Global Overview</a>
                         {% for company in companies %}
-                        <div class="px-4 py-3 hover:bg-brand-600/10 cursor-pointer text-sm border-b border-slate-800/50 text-slate-300" 
+                        <div class="px-5 py-3 hover:bg-indigo-600/20 cursor-pointer transition"
                              @click="selectedCompany = {id: '{{ company.id }}', name: '{{ company.name }}'}; open = false; applyFilter()">
                             {{ company.name }}
                         </div>
@@ -143,82 +182,114 @@
                     </div>
                 </div>
             </div>
-            
-            <div class="flex bg-slate-900/50 border border-slate-700 rounded-xl p-1">
-                <input type="date" x-model="dateStart" class="bg-transparent border-none text-xs text-white px-2 focus:ring-0 outline-none">
-                <span class="flex items-center text-slate-600">→</span>
-                <input type="date" x-model="dateEnd" class="bg-transparent border-none text-xs text-white px-2 focus:ring-0 outline-none">
-                <button @click="applyFilter()" class="bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition">Apply</button>
+
+            <!-- Date Range -->
+            <div class="glass-card flex items-center gap-2 px-4 py-2 rounded-xl">
+                <input type="date" x-model="dateStart" class="bg-transparent text-white text-sm focus:outline-none w-32">
+                <span class="text-slate-500">→</span>
+                <input type="date" x-model="dateEnd" class="bg-transparent text-white text-sm focus:outline-none w-32">
+                <button @click="applyFilter" class="ml-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition">
+                    Apply
+                </button>
             </div>
         </div>
+    </header>
+
+    <!-- Metrics Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+        <div class="glass-card p-6 rounded-2xl">
+            <p class="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Total Reviews</p>
+            <p class="text-4xl font-extrabold metric-value" x-text="dashboardData.metrics.total || 0"></p>
+        </div>
+        <div class="glass-card p-6 rounded-2xl">
+            <p class="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Average Rating</p>
+            <p class="text-4xl font-extrabold text-amber-400 flex items-baseline gap-2">
+                <span x-text="dashboardData.metrics.avg_rating?.toFixed(1) || '—'"></span>
+                <span class="text-2xl">★</span>
+            </p>
+        </div>
+        <div class="glass-card p-6 rounded-2xl">
+            <p class="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Risk Level</p>
+            <p class="text-3xl font-bold mt-1"
+               :class="{
+                   'text-emerald-400': dashboardData.metrics.risk_level === 'Low' || !dashboardData.metrics.risk_level,
+                   'text-amber-400': dashboardData.metrics.risk_level === 'Medium',
+                   'text-rose-500': dashboardData.metrics.risk_level === 'High'
+               }"
+               x-text="dashboardData.metrics.risk_level || 'Safe'"></p>
+        </div>
+        <div class="glass-card p-6 rounded-2xl">
+            <p class="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Trend</p>
+            <p class="text-2xl font-bold capitalize" x-text="dashboardData.trend?.signal || 'Neutral'"></p>
+        </div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="metric-card p-6 rounded-2xl">
-            <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Total Reviews</p>
-            <p class="text-3xl font-bold mt-2 text-white" x-text="dashboardData.metrics.total || 0"></p>
+    <!-- Charts -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
+        <div class="glass-card p-6 rounded-2xl">
+            <h3 class="font-bold text-xl mb-6 text-white flex items-center gap-3">
+                <i class="fas fa-clock text-indigo-400 text-2xl"></i> Activity Heatmap
+            </h3>
+            <div class="h-80"><canvas id="heatmapChart"></canvas></div>
         </div>
-        <div class="metric-card p-6 rounded-2xl">
-            <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Avg Rating</p>
-            <p class="text-3xl font-bold mt-2 text-amber-400"><span x-text="dashboardData.metrics.avg_rating || '0'"></span><span class="text-lg text-slate-600 ml-1">★</span></p>
-        </div>
-        <div class="metric-card p-6 rounded-2xl">
-            <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Risk Level</p>
-            <p class="text-3xl font-bold mt-2" :class="dashboardData.metrics.risk_level === 'High' ? 'text-rose-500' : 'text-emerald-500'" x-text="dashboardData.metrics.risk_level || 'Safe'"></p>
-        </div>
-        <div class="metric-card p-6 rounded-2xl">
-            <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Trend Signal</p>
-            <p class="text-2xl font-bold mt-2 capitalize text-white" x-text="dashboardData.trend.signal || 'Neutral'"></p>
+        <div class="glass-card p-6 rounded-2xl">
+            <h3 class="font-bold text-xl mb-6 text-white flex items-center gap-3">
+                <i class="fas fa-chart-pie text-indigo-400 text-2xl"></i> Sentiment Distribution
+            </h3>
+            <div class="h-80 flex items-center justify-center"><canvas id="sentimentChart"></canvas></div>
         </div>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="metric-card p-6 rounded-2xl">
-            <h3 class="font-bold text-lg mb-6 text-white italic"><i class="fas fa-clock text-indigo-400 mr-2"></i>Activity Heatmap</h3>
-            <div class="h-[300px]"><canvas id="heatmapChart"></canvas></div>
+    <!-- Reviews Table -->
+    <div class="glass-card rounded-2xl overflow-hidden">
+        <div class="p-6 border-b border-slate-700/50 flex justify-between items-center">
+            <h3 class="font-bold text-xl text-white">Recent Reviews</h3>
+            <span class="text-sm text-slate-400" x-text="(dashboardData.reviews?.total || 0) + ' records'"></span>
         </div>
-        <div class="metric-card p-6 rounded-2xl">
-            <h3 class="font-bold text-lg mb-6 text-white italic"><i class="fas fa-adjust text-brand-500 mr-2"></i>Sentiment Mix</h3>
-            <div class="h-[300px] flex items-center justify-center"><canvas id="sentimentChart"></canvas></div>
-        </div>
-    </div>
 
-    <div class="metric-card rounded-2xl overflow-hidden border border-slate-800">
-        <div class="p-6 border-b border-slate-800 flex justify-between items-center">
-            <h3 class="font-bold text-lg text-white">Detailed Review Log</h3>
-            <span class="text-xs text-slate-500 uppercase tracking-widest" x-text="(dashboardData.reviews.total || 0) + ' Records'"></span>
-        </div>
         <div class="overflow-x-auto">
-            <table class="w-full text-sm text-left">
-                <thead class="bg-slate-900/80 text-slate-400 uppercase text-[10px] font-bold">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-900/60 text-slate-300 uppercase text-xs font-semibold">
                     <tr>
-                        <th class="px-6 py-4">Date</th>
-                        <th class="px-6 py-4">Rating</th>
-                        <th class="px-6 py-4">Reviewer</th>
-                        <th class="px-6 py-4">Snippet</th>
-                        <th class="px-6 py-4 text-right">Action</th>
+                        <th class="px-6 py-4 text-left">Date</th>
+                        <th class="px-6 py-4 text-left">Rating</th>
+                        <th class="px-6 py-4 text-left">Reviewer</th>
+                        <th class="px-6 py-4 text-left">Review</th>
+                        <th class="px-6 py-4 text-right">Reply</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-800">
+                <tbody class="divide-y divide-slate-800/50">
                     <template x-for="review in paginatedReviews" :key="review.id">
-                        <tr class="hover:bg-brand-500/5 transition-colors">
-                            <td class="px-6 py-4 text-slate-500" x-text="new Date(review.review_date).toLocaleDateString()"></td>
+                        <tr class="hover:bg-indigo-950/30 transition-colors">
+                            <td class="px-6 py-4 text-slate-400" x-text="new Date(review.review_date).toLocaleDateString('en-GB')"></td>
                             <td class="px-6 py-4 font-bold text-amber-400" x-text="review.rating + ' ★'"></td>
-                            <td class="px-6 py-4 font-semibold text-slate-200" x-text="review.reviewer_name || 'Anonymous'"></td>
-                            <td class="px-6 py-4 text-slate-400 italic max-w-xs truncate" x-text="review.text"></td>
+                            <td class="px-6 py-4 font-medium text-slate-200" x-text="review.reviewer_name || 'Anonymous'"></td>
+                            <td class="px-6 py-4 text-slate-300 max-w-md truncate italic" x-text="review.text"></td>
                             <td class="px-6 py-4 text-right">
-                                <button @click="generateAIReply(review)" class="px-3 py-1 bg-brand-600/10 text-brand-400 border border-brand-500/20 rounded-lg text-[10px] font-bold hover:bg-brand-600 hover:text-white transition">AI REPLY</button>
+                                <button @click="generateAIReply(review)"
+                                        class="px-4 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 rounded-lg text-xs font-medium transition">
+                                    AI Reply
+                                </button>
                             </td>
                         </tr>
+                    </template>
+                    <template x-if="!paginatedReviews.length && !dashboardData.reviews?.data?.length">
+                        <tr><td colspan="5" class="py-12 text-center text-slate-500">No reviews found in selected period</td></tr>
                     </template>
                 </tbody>
             </table>
         </div>
-        <div class="px-6 py-4 bg-slate-900/30 flex items-center justify-between border-t border-slate-800">
-            <p class="text-[10px] text-slate-500 uppercase">Page <span x-text="currentPage"></span> of <span x-text="totalPages"></span></p>
-            <div class="flex gap-2">
-                <button @click="currentPage > 1 && currentPage--" :disabled="currentPage === 1" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-20 rounded-md text-xs transition text-white">Prev</button>
-                <button @click="currentPage < totalPages && currentPage++" :disabled="currentPage === totalPages" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-20 rounded-md text-xs transition text-white">Next</button>
+
+        <!-- Pagination -->
+        <div class="px-6 py-4 bg-slate-900/40 flex items-center justify-between border-t border-slate-800/50">
+            <p class="text-xs text-slate-500 uppercase">
+                Page <span x-text="currentPage"></span> of <span x-text="totalPages"></span>
+            </p>
+            <div class="flex gap-3">
+                <button @click="currentPage > 1 && currentPage--" :disabled="currentPage === 1"
+                        class="px-4 py-2 glass-card rounded-lg text-xs disabled:opacity-40 transition">Prev</button>
+                <button @click="currentPage < totalPages && currentPage++" :disabled="currentPage === totalPages"
+                        class="px-4 py-2 glass-card rounded-lg text-xs disabled:opacity-40 transition">Next</button>
             </div>
         </div>
     </div>
@@ -226,42 +297,71 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
+// Wait for Alpine to be ready (optional but safer)
+document.addEventListener('alpine:init', () => {
+    // You can add watchers here if needed
+});
+
 document.addEventListener('DOMContentLoaded', () => {
     const data = {{ dashboard_payload | tojson | safe if dashboard_payload else '{}' }};
-    if (!data.metrics) return;
 
-    Chart.defaults.color = '#94a3b8';
-    Chart.defaults.font.family = 'Inter';
+    if (!data?.metrics) return;
 
-    // 1. Activity Heatmap
-    const heatmapCtx = document.getElementById('heatmapChart');
-    if (heatmapCtx && data.heatmap) {
-        new Chart(heatmapCtx, {
+    Chart.defaults.color = '#cbd5e1';
+    Chart.defaults.font.family = 'Inter, system-ui, sans-serif';
+
+    // Heatmap Chart
+    const heatmapEl = document.getElementById('heatmapChart');
+    if (heatmapEl && data.heatmap?.labels?.length) {
+        new Chart(heatmapEl, {
             type: 'bar',
             data: {
-                labels: (data.heatmap.labels || []).map(h => `${h}:00`),
-                datasets: [{ data: data.heatmap.data || [], backgroundColor: '#6366f1', borderRadius: 4 }]
+                labels: data.heatmap.labels.map(h => `${h}:00`),
+                datasets: [{
+                    label: 'Reviews',
+                    data: data.heatmap.data,
+                    backgroundColor: '#6366f1',
+                    borderRadius: 6,
+                    borderSkipped: false,
+                }]
             },
-            options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { display: false } } }
+            options: {
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: '#94a3b8' } },
+                    y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }
+                }
+            }
         });
     }
 
-    // 2. Sentiment Mix
-    const sentimentCtx = document.getElementById('sentimentChart');
-    if (sentimentCtx && data.sentiment) {
-        new Chart(sentimentCtx, {
+    // Sentiment Doughnut
+    const sentimentEl = document.getElementById('sentimentChart');
+    if (sentimentEl && (data.sentiment?.Positive || data.sentiment?.Negative)) {
+        new Chart(sentimentEl, {
             type: 'doughnut',
             data: {
                 labels: ['Positive', 'Neutral', 'Negative'],
                 datasets: [{
-                    data: [data.sentiment.Positive || 0, data.sentiment.Neutral || 0, data.sentiment.Negative || 0],
+                    data: [
+                        data.sentiment.Positive || 0,
+                        data.sentiment.Neutral  || 0,
+                        data.sentiment.Negative || 0
+                    ],
                     backgroundColor: ['#10b981', '#64748b', '#ef4444'],
-                    borderWidth: 0
+                    borderWidth: 0,
+                    hoverOffset: 20
                 }]
             },
-            options: { cutout: '80%', plugins: { legend: { position: 'bottom' } } }
+            options: {
+                cutout: '70%',
+                plugins: {
+                    legend: { position: 'bottom', labels: { padding: 24, font: { size: 14 } } }
+                }
+            }
         });
     }
 });
