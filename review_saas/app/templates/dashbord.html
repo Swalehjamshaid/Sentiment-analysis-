@@ -1,299 +1,325 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="scroll-smooth" x-data="{
+  darkMode: localStorage.getItem('darkMode') === 'true' || (!localStorage.getItem('darkMode') && window.matchMedia('(prefers-color-scheme: dark)').matches),
+  toggleDark() { this.darkMode = !this.darkMode; localStorage.setItem('darkMode', this.darkMode); },
+  dateStart: '',
+  dateEnd: '',
+  selectedCompany: null,
+  currentPage: 1,
+  pageSize: 10,
+  showReviews: false,
+  init() {
+    if (this.darkMode) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
+    this.$watch('darkMode', val => {
+      if (val) document.documentElement.classList.add('dark');
+      else document.documentElement.classList.remove('dark');
+    });
+  },
+  get paginatedReviews() {
+    if (!dashboard.reviews?.data) return [];
+    const start = (this.currentPage - 1) * this.pageSize;
+    return dashboard.reviews.data.slice(start, start + this.pageSize);
+  },
+  get totalPages() {
+    return dashboard.reviews?.pages || 1;
+  },
+  prevPage() { if (this.currentPage > 1) this.currentPage--; },
+  nextPage() { if (this.currentPage < this.totalPages) this.currentPage++; },
+  goToPage(p) { this.currentPage = p; }
+}" :class="{ 'dark': darkMode }">
 <head>
-    <meta charset="UTF-8">
-    <title>Executive Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BizChat • Review Dashboard</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            accent: '#7c3aed',      // violet-600
+            accentdark: '#6d28d9',
+            card: 'rgba(30, 41, 59, 0.6)',
+          }
+        }
+      }
+    }
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+  <style>
+    .card { @apply backdrop-blur-md bg-card border border-slate-700/50 shadow-xl rounded-2xl overflow-hidden transition-all duration-300; }
+    .stat-number { @apply text-4xl font-extrabold tracking-tight; }
+    .section-collapse { @apply transition-all duration-500 ease-in-out overflow-hidden; }
+  </style>
 </head>
-<body class="bg-gray-100 font-sans">
+<body class="bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-slate-100 min-h-screen font-sans antialiased">
+
+  <div class="flex flex-col min-h-screen">
 
     <!-- Header -->
-    <header class="bg-blue-700 text-white p-6 shadow-lg">
-        <h1 class="text-3xl font-bold">Company Executive Dashboard</h1>
-        <p class="mt-1">Date: <span id="system-date">{{ initial_stats.system_date if initial_stats.system_date else '' }}</span></p>
+    <header class="bg-slate-900/80 backdrop-blur-md border-b border-slate-700/50 sticky top-0 z-40">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between items-center h-16">
+          <div class="flex items-center gap-4">
+            <span class="text-2xl font-bold bg-gradient-to-r from-violet-400 to-accent bg-clip-text text-transparent">BizChat</span>
+            <span class="text-sm text-slate-400">Review Intelligence Platform</span>
+          </div>
+
+          <div class="flex items-center gap-5">
+            <!-- Dark mode toggle -->
+            <button @click="toggleDark()" class="p-2 rounded-full hover:bg-slate-800 transition">
+              <template x-if="darkMode">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+              </template>
+              <template x-if="!darkMode">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
+              </template>
+            </button>
+
+            <!-- User menu -->
+            <div x-data="{ open: false }" class="relative">
+              <button @click="open = !open" class="flex items-center gap-3 hover:opacity-90 transition">
+                <div class="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-accent flex items-center justify-center font-semibold">RJ</div>
+                <span class="hidden md:inline font-medium">Rai Jamshaid</span>
+              </button>
+              <div x-show="open" @click.away="open = false" class="absolute right-0 mt-3 w-56 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl py-2 z-50">
+                <a href="#" class="block px-5 py-2.5 hover:bg-slate-700/70 transition">Profile</a>
+                <a href="#" class="block px-5 py-2.5 hover:bg-slate-700/70 transition">Settings</a>
+                <hr class="my-2 border-slate-700"/>
+                <a href="#" class="block px-5 py-2.5 text-rose-400 hover:bg-rose-950/30 transition">Sign out</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </header>
 
-    <main class="p-6 space-y-8">
+    <!-- Main -->
+    <main class="flex-grow py-10 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+      <!-- Controls Bar -->
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-10">
+        <h1 class="text-3xl font-bold bg-gradient-to-r from-violet-300 to-accent bg-clip-text text-transparent" x-text="selectedCompany ? selectedCompany.name : 'All Companies Dashboard'"></h1>
 
-        <!-- Company Selection & Date Range -->
-        <section class="bg-white shadow-lg rounded-lg p-6 flex flex-col md:flex-row items-center gap-4">
-            <select id="company-select" class="p-2 border rounded w-full md:w-1/3">
-                <!-- Options populated dynamically -->
-            </select>
-            <input type="date" id="from-date" class="p-2 border rounded" />
-            <input type="date" id="to-date" class="p-2 border rounded" />
-            <button id="fetch-data" class="px-6 py-2 bg-blue-700 text-white rounded hover:bg-blue-800">Fetch Data</button>
-        </section>
-
-        <!-- Summary Cards -->
-        <section class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div class="bg-white shadow-lg rounded-lg p-6 flex flex-col items-center">
-                <h2 class="text-gray-500 font-semibold">Total Companies</h2>
-                <p id="total-companies" class="text-3xl font-bold text-blue-700">{{ initial_stats.companies }}</p>
+        <!-- Company Switcher -->
+        <div x-data="{ open: false }" class="relative w-full md:w-80">
+          <button @click="open = !open" class="w-full flex justify-between items-center px-4 py-3 bg-slate-800/70 border border-slate-600 rounded-xl hover:border-accent transition">
+            <span x-text="selectedCompany ? selectedCompany.name : 'Select Company'"></span>
+            <svg class="w-5 h-5 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <div x-show="open" @click.away="open = false" class="absolute w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-80 overflow-y-auto z-30">
+            <div class="p-2">
+              <template x-for="company in dashboard.companies || []" :key="company.id">
+                <button @click="selectedCompany = company; open = false" class="w-full text-left px-4 py-2.5 hover:bg-slate-700/70 rounded-lg transition" x-text="company.name"></button>
+              </template>
             </div>
-            <div class="bg-white shadow-lg rounded-lg p-6 flex flex-col items-center">
-                <h2 class="text-gray-500 font-semibold">Total Reviews</h2>
-                <p id="total-reviews" class="text-3xl font-bold text-green-600">{{ initial_stats.reviews }}</p>
-            </div>
-            <div class="bg-white shadow-lg rounded-lg p-6 flex flex-col items-center">
-                <h2 class="text-gray-500 font-semibold">System Status</h2>
-                <p class="text-3xl font-bold text-gray-800" id="system-status">Operational</p>
-            </div>
-        </section>
+          </div>
+        </div>
+      </div>
 
-        <!-- Charts Section -->
-        <section class="bg-white shadow-lg rounded-lg p-6">
-            <h2 class="text-xl font-semibold mb-4">Review Ratings Distribution</h2>
-            <canvas id="reviews-chart" class="w-full"></canvas>
-        </section>
+      <!-- Date Range Picker -->
+      <div class="card p-6 mb-10">
+        <h3 class="text-lg font-semibold mb-4 flex items-center justify-between">
+          <span>Date Range Filter</span>
+          <button @click="showReviews = !showReviews" class="text-sm text-accent hover:underline">
+            <span x-show="!showReviews">Show Reviews Table</span>
+            <span x-show="showReviews">Hide Reviews Table</span>
+          </button>
+        </h3>
+        <div class="flex flex-col sm:flex-row gap-4 items-end">
+          <div class="flex-1">
+            <label class="block text-sm text-slate-400 mb-1.5">Start Date</label>
+            <input type="date" x-model="dateStart" class="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg focus:border-accent focus:ring-1 focus:ring-accent outline-none">
+          </div>
+          <div class="flex-1">
+            <label class="block text-sm text-slate-400 mb-1.5">End Date</label>
+            <input type="date" x-model="dateEnd" class="w-full px-4 py-2.5 bg-slate-800 border border-slate-600 rounded-lg focus:border-accent focus:ring-1 focus:ring-accent outline-none">
+          </div>
+          <button @click="$dispatch('apply-date-range', {start: dateStart, end: dateEnd})" class="px-6 py-2.5 bg-accent hover:bg-accentdark text-white font-medium rounded-lg transition">
+            Apply Filter
+          </button>
+        </div>
+      </div>
 
-        <!-- Review Search & Table -->
-        <section class="bg-white shadow-lg rounded-lg p-6">
-            <h2 class="text-xl font-semibold mb-4">Recent Reviews</h2>
-            <input type="text" id="review-search" placeholder="Search reviews..." class="w-full p-2 border rounded mb-4">
-            <div class="overflow-x-auto">
-                <table class="min-w-full border border-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-4 py-2 border-b">Reviewer</th>
-                            <th class="px-4 py-2 border-b">Rating</th>
-                            <th class="px-4 py-2 border-b">Review</th>
-                            <th class="px-4 py-2 border-b">Date</th>
-                        </tr>
-                    </thead>
-                    <tbody id="reviews-table-body" class="divide-y divide-gray-100"></tbody>
-                </table>
-            </div>
-        </section>
+      <!-- Key Metrics (collapsible) -->
+      <div class="card mb-10">
+        <button @click="metricsOpen = !metricsOpen" class="w-full flex justify-between items-center p-6 text-left">
+          <h2 class="text-xl font-semibold">Key Metrics</h2>
+          <svg class="w-6 h-6 transition-transform" :class="metricsOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div x-show="metricsOpen" class="section-collapse px-6 pb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div class="text-center">
+            <p class="text-sm text-slate-400 uppercase tracking-wide">Total Reviews</p>
+            <p class="stat-number mt-2 text-accent" x-text="dashboard.metrics.total.toLocaleString()"></p>
+          </div>
+          <div class="text-center">
+            <p class="text-sm text-slate-400 uppercase tracking-wide">Avg Rating</p>
+            <p class="stat-number mt-2" :class="dashboard.metrics.avg_rating >= 4 ? 'text-emerald-400' : dashboard.metrics.avg_rating >= 3 ? 'text-amber-400' : 'text-rose-400'"
+               x-text="dashboard.metrics.avg_rating.toFixed(1) + ' ★'"></p>
+          </div>
+          <div class="text-center">
+            <p class="text-sm text-slate-400 uppercase tracking-wide">Risk Score</p>
+            <p class="stat-number mt-2" :class="dashboard.metrics.risk_level === 'High' ? 'text-rose-400' : dashboard.metrics.risk_level === 'Medium' ? 'text-amber-400' : 'text-emerald-400'"
+               x-text="dashboard.metrics.risk_score.toFixed(1)"></p>
+          </div>
+          <div class="text-center">
+            <p class="text-sm text-slate-400 uppercase tracking-wide">Trend</p>
+            <p class="stat-number mt-2 flex justify-center items-center gap-2"
+               :class="dashboard.trend.signal === 'improving' ? 'text-emerald-400' : dashboard.trend.signal === 'declining' ? 'text-rose-400' : 'text-slate-300'">
+              <span x-text="dashboard.trend.signal"></span>
+              <span x-text="dashboard.trend.delta > 0 ? '+' + dashboard.trend.delta.toFixed(2) : dashboard.trend.delta.toFixed(2)"></span>
+            </p>
+          </div>
+        </div>
+      </div>
 
-        <!-- AI Summary & Recommendations with Trend Charts -->
-        <section class="bg-white shadow-lg rounded-lg p-6">
-            <h2 class="text-xl font-semibold mb-4">AI Summary & Recommendations</h2>
-            <div id="ai-summary" class="space-y-4 text-gray-700">
-                <p>Select a company and date range, then click 'Fetch Data' to view a comprehensive summary and recommendations.</p>
-            </div>
-        </section>
+      <!-- Charts Grid (collapsible) -->
+      <div class="card mb-10">
+        <button @click="chartsOpen = !chartsOpen" class="w-full flex justify-between items-center p-6 text-left">
+          <h2 class="text-xl font-semibold">Visual Analytics</h2>
+          <svg class="w-6 h-6 transition-transform" :class="chartsOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div x-show="chartsOpen" class="section-collapse px-6 pb-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <!-- Trend -->
+          <div>
+            <h3 class="text-lg font-semibold mb-4">Rating Trend</h3>
+            <canvas id="trendChart" height="260"></canvas>
+          </div>
+          <!-- Sentiment -->
+          <div>
+            <h3 class="text-lg font-semibold mb-4">Sentiment Distribution</h3>
+            <canvas id="sentimentChart" height="260"></canvas>
+          </div>
+          <!-- Heatmap -->
+          <div class="lg:col-span-2">
+            <h3 class="text-lg font-semibold mb-4">Reviews by Hour of Day</h3>
+            <canvas id="heatmapChart" height="300"></canvas>
+          </div>
+        </div>
+      </div>
 
-        <!-- Add New Company -->
-        <section id="add-company-modal" class="bg-white shadow-lg rounded-lg p-6">
-            <h2 class="text-xl font-semibold mb-4">Add New Company</h2>
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-gray-700 mb-1">Company Name</label>
-                    <input type="text" id="new-company-name" placeholder="Type company name..." class="w-full p-2 border rounded" />
-                    <ul id="company-suggestions" class="border rounded mt-1 max-h-40 overflow-y-auto bg-white"></ul>
-                </div>
+      <!-- Reviews Table (toggleable) -->
+      <div x-show="showReviews" class="card p-6">
+        <h3 class="text-xl font-semibold mb-6">Recent Reviews</h3>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-gray-700 mb-1">Address</label>
-                        <input type="text" id="new-company-address" class="w-full p-2 border rounded" />
-                    </div>
-                    <div>
-                        <label class="block text-gray-700 mb-1">City</label>
-                        <input type="text" id="new-company-city" class="w-full p-2 border rounded" />
-                    </div>
-                    <div>
-                        <label class="block text-gray-700 mb-1">State</label>
-                        <input type="text" id="new-company-state" class="w-full p-2 border rounded" />
-                    </div>
-                    <div>
-                        <label class="block text-gray-700 mb-1">Country</label>
-                        <input type="text" id="new-company-country" class="w-full p-2 border rounded" />
-                    </div>
-                    <div>
-                        <label class="block text-gray-700 mb-1">Postal Code</label>
-                        <input type="text" id="new-company-postal" class="w-full p-2 border rounded" />
-                    </div>
-                    <div>
-                        <label class="block text-gray-700 mb-1">Latitude</label>
-                        <input type="text" id="new-company-lat" class="w-full p-2 border rounded" readonly />
-                    </div>
-                    <div>
-                        <label class="block text-gray-700 mb-1">Longitude</label>
-                        <input type="text" id="new-company-lng" class="w-full p-2 border rounded" readonly />
-                    </div>
-                </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm text-left">
+            <thead class="text-xs uppercase bg-slate-800/50">
+              <tr>
+                <th class="px-6 py-4">Date</th>
+                <th class="px-6 py-4">Rating</th>
+                <th class="px-6 py-4">Reviewer</th>
+                <th class="px-6 py-4">Comment</th>
+                <th class="px-6 py-4">Sentiment</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-700">
+              <template x-for="review in paginatedReviews" :key="review.id">
+                <tr class="hover:bg-slate-800/40 transition">
+                  <td class="px-6 py-4" x-text="review.review_date ? new Date(review.review_date).toLocaleDateString() : '-'"></td>
+                  <td class="px-6 py-4 font-medium" x-text="review.rating"></td>
+                  <td class="px-6 py-4" x-text="review.reviewer_name || 'Anonymous'"></td>
+                  <td class="px-6 py-4 max-w-md truncate" x-text="review.text || ''"></td>
+                  <td class="px-6 py-4">
+                    <span class="px-2.5 py-1 rounded-full text-xs font-medium"
+                          :class="review.sentiment_category === 'Positive' ? 'bg-emerald-900/40 text-emerald-300' : review.sentiment_category === 'Negative' ? 'bg-rose-900/40 text-rose-300' : 'bg-slate-700 text-slate-300'"
+                          x-text="review.sentiment_category"></span>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
 
-                <button id="add-company-btn" class="mt-4 px-6 py-2 bg-blue-700 text-white rounded hover:bg-blue-800">Add Company</button>
-            </div>
-        </section>
+        <!-- Pagination -->
+        <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6">
+          <div class="text-sm text-slate-400">
+            Showing <span x-text="(currentPage - 1) * pageSize + 1"></span>–
+            <span x-text="Math.min(currentPage * pageSize, dashboard.reviews?.total || 0)"></span>
+            of <span x-text="dashboard.reviews?.total || 0"></span>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button @click="prevPage" :disabled="currentPage === 1"
+                    class="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 rounded-lg transition">Previous</button>
+
+            <template x-for="p in Array.from({length: totalPages}, (_, i) => i + 1)" :key="p">
+              <button @click="goToPage(p)" :class="currentPage === p ? 'bg-accent text-white' : 'bg-slate-800 hover:bg-slate-700'"
+                      class="w-10 h-10 flex items-center justify-center rounded-lg transition">
+                <span x-text="p"></span>
+              </button>
+            </template>
+
+            <button @click="nextPage" :disabled="currentPage === totalPages"
+                    class="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 rounded-lg transition">Next</button>
+          </div>
+        </div>
+      </div>
+
     </main>
+  </div>
 
-    <script>
-        // ------------------ Dashboard Stats ------------------
-        async function fetchDashboardStats() {
-            try {
-                const res = await axios.get("/api/dashboard/stats");
-                document.getElementById("total-companies").innerText = res.data.total_companies;
-                document.getElementById("total-reviews").innerText = res.data.total_reviews;
-                document.getElementById("system-status").innerText = res.data.system_status;
-                fetchCompanies();
-            } catch(err){ console.error(err); }
-        }
+  <!-- Chart Initialization -->
+  <script>
+    const dashboard = {{ dashboard_payload | tojson | safe }} || {};
 
-        // ------------------ Fetch Companies ------------------
-        async function fetchCompanies() {
-            try {
-                const res = await axios.get("/api/companies/list");
-                const select = document.getElementById("company-select");
-                select.innerHTML = "";
-                res.data.items.forEach(c => {
-                    const opt = document.createElement("option");
-                    opt.value = c.id;
-                    opt.textContent = c.name;
-                    select.appendChild(opt);
-                });
-            } catch(err){ console.error(err); }
-        }
+    document.addEventListener('DOMContentLoaded', () => {
+      // Trend Chart
+      new Chart(document.getElementById('trendChart'), {
+        type: 'line',
+        data: {
+          labels: dashboard.trend?.labels || [],
+          datasets: [{
+            label: 'Avg Rating',
+            data: dashboard.trend?.data || [],
+            borderColor: '#7c3aed',
+            backgroundColor: 'rgba(124, 58, 237, 0.15)',
+            tension: 0.4,
+            fill: true
+          }]
+        },
+        options: { responsive: true, scales: { y: { min: 1, max: 5 } } }
+      });
 
-        // ------------------ Reviews ------------------
-        async function fetchReviews(companyId, fromDate="", toDate="") {
-            try {
-                const res = await axios.get(`/api/reviews/list/${companyId}?from=${fromDate}&to=${toDate}&limit=20`);
-                const tbody = document.getElementById("reviews-table-body");
-                tbody.innerHTML = "";
-                res.data.items.forEach(r=>{
-                    const tr = document.createElement("tr");
-                    tr.classList.add("hover:bg-gray-50");
-                    tr.innerHTML = `
-                        <td class="px-4 py-2">${r.reviewer_name || "Anonymous"}</td>
-                        <td class="px-4 py-2">${r.rating}</td>
-                        <td class="px-4 py-2">${r.text}</td>
-                        <td class="px-4 py-2">${new Date(r.review_date).toLocaleString()}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-                updateReviewChart(res.data.items);
-            } catch(err){ console.error(err); }
-        }
+      // Sentiment Donut
+      new Chart(document.getElementById('sentimentChart'), {
+        type: 'doughnut',
+        data: {
+          labels: ['Positive', 'Neutral', 'Negative'],
+          datasets: [{
+            data: [
+              dashboard.sentiment?.Positive || 0,
+              dashboard.sentiment?.Neutral  || 0,
+              dashboard.sentiment?.Negative || 0
+            ],
+            backgroundColor: ['#10b981', '#64748b', '#ef4444'],
+            borderWidth: 0
+          }]
+        },
+        options: { responsive: true, cutout: '70%', plugins: { legend: { position: 'bottom' } } }
+      });
 
-        // ------------------ Review Chart ------------------
-        const ctx = document.getElementById('reviews-chart').getContext('2d');
-        const reviewsChart = new Chart(ctx, {
-            type: 'bar',
-            data: { labels:['1','2','3','4','5'], datasets:[{label:'Number of Reviews',data:[0,0,0,0,0], backgroundColor:['#ef4444','#f97316','#facc15','#22c55e','#3b82f6']}]},
-            options:{ responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
-        });
-        function updateReviewChart(items){
-            const counts=[0,0,0,0,0];
-            items.forEach(r=>{ if(r.rating>=1&&r.rating<=5) counts[r.rating-1]+=1; });
-            reviewsChart.data.datasets[0].data=counts;
-            reviewsChart.update();
-        }
+      // Heatmap Bar
+      new Chart(document.getElementById('heatmapChart'), {
+        type: 'bar',
+        data: {
+          labels: dashboard.heatmap?.labels?.map(h => `${h}:00`) || [],
+          datasets: [{
+            label: 'Reviews',
+            data: dashboard.heatmap?.data || [],
+            backgroundColor: '#7c3aed',
+            borderRadius: 8
+          }]
+        },
+        options: { responsive: true, scales: { y: { beginAtZero: true } } }
+      });
+    });
+  </script>
 
-        // ------------------ Review Search ------------------
-        document.getElementById("review-search").addEventListener("input", e=>fetchReviews(document.getElementById("company-select").value, document.getElementById("from-date").value, document.getElementById("to-date").value));
-
-        // ------------------ AI Summary ------------------
-        let sparklineCharts={};
-        async function fetchAIAnalysis(companyId, fromDate, toDate){
-            try{
-                const res = await axios.post("/api/analysis/summary",{company_id:companyId,from:fromDate,to:toDate});
-                const data=res.data;
-                const summaryDiv=document.getElementById("ai-summary");
-                summaryDiv.innerHTML="";
-
-                // KPI Cards with mini charts
-                const kpiHtml=`
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                        <div class="bg-green-100 text-green-800 rounded-lg p-4 text-center">
-                            <h3 class="font-semibold">Average Rating</h3>
-                            <p class="text-2xl font-bold">${data.avg_rating.toFixed(1)}</p>
-                            <canvas id="spark-avg-rating" class="mt-2"></canvas>
-                        </div>
-                        <div class="bg-blue-100 text-blue-800 rounded-lg p-4 text-center">
-                            <h3 class="font-semibold">Total Reviews</h3>
-                            <p class="text-2xl font-bold">${data.total_reviews}</p>
-                            <canvas id="spark-total-reviews" class="mt-2"></canvas>
-                        </div>
-                        <div class="bg-green-50 text-green-800 rounded-lg p-4 text-center">
-                            <h3 class="font-semibold">Positive Reviews %</h3>
-                            <p class="text-2xl font-bold">${data.positive_pct}%</p>
-                            <canvas id="spark-positive" class="mt-2"></canvas>
-                        </div>
-                        <div class="bg-red-50 text-red-800 rounded-lg p-4 text-center">
-                            <h3 class="font-semibold">Negative Reviews %</h3>
-                            <p class="text-2xl font-bold">${data.negative_pct}%</p>
-                            <canvas id="spark-negative" class="mt-2"></canvas>
-                        </div>
-                    </div>
-                `;
-                summaryDiv.insertAdjacentHTML("beforeend", kpiHtml);
-
-                const sparkOptions={type:'line',data:{labels:data.trend_avg_rating.map((_,i)=>`Week ${i+1}`),datasets:[{label:'',data:[],borderWidth:2,fill:false,tension:0.3,pointRadius:0}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{display:false},y:{display:false}}}};
-                Object.values(sparklineCharts).forEach(c=>c.destroy());
-                sparklineCharts['avg']=new Chart(document.getElementById('spark-avg-rating').getContext('2d'),{...sparkOptions,data:{...sparkOptions.data,datasets:[{...sparkOptions.data.datasets[0],data:data.trend_avg_rating,borderColor:'#16a34a'}]}});
-                sparklineCharts['total']=new Chart(document.getElementById('spark-total-reviews').getContext('2d'),{...sparkOptions,data:{...sparkOptions.data,datasets:[{...sparkOptions.data.datasets[0],data:data.trend_total_reviews,borderColor:'#1d4ed8'}]}});
-                sparklineCharts['positive']=new Chart(document.getElementById('spark-positive').getContext('2d'),{...sparkOptions,data:{...sparkOptions.data,datasets:[{...sparkOptions.data.datasets[0],data:data.trend_positive_pct,borderColor:'#15803d'}]}});
-                sparklineCharts['negative']=new Chart(document.getElementById('spark-negative').getContext('2d'),{...sparkOptions,data:{...sparkOptions.data,datasets:[{...sparkOptions.data.datasets[0],data:data.trend_negative_pct,borderColor:'#dc2626'}]}});
-
-                // Top Positive Reviews
-                if(data.top_positive.length>0){
-                    let posHtml=`<div class="mb-4"><h3 class="font-semibold text-green-700 mb-2">Top Positive Reviews</h3>`;
-                    data.top_positive.forEach(r=>{ posHtml+=`<div class="border-l-4 border-green-500 bg-green-50 p-3 mb-2 rounded"><p class="font-semibold">${r.reviewer_name||"Anonymous"} - Rating: ${r.rating}</p><p>${r.text}</p></div>`; });
-                    posHtml+=`</div>`; summaryDiv.insertAdjacentHTML("beforeend",posHtml);
-                }
-
-                // Top Negative Reviews
-                if(data.top_negative.length>0){
-                    let negHtml=`<div class="mb-4"><h3 class="font-semibold text-red-700 mb-2">Top Negative Reviews</h3>`;
-                    data.top_negative.forEach(r=>{ negHtml+=`<div class="border-l-4 border-red-500 bg-red-50 p-3 mb-2 rounded"><p class="font-semibold">${r.reviewer_name||"Anonymous"} - Rating: ${r.rating}</p><p>${r.text}</p></div>`; });
-                    negHtml+=`</div>`; summaryDiv.insertAdjacentHTML("beforeend",negHtml);
-                }
-
-                // Actionable Insights
-                if(data.insights.length>0){
-                    let insHtml=`<div><h3 class="font-semibold text-gray-800 mb-2">Actionable Insights & Recommendations</h3><ul class="list-disc pl-5 space-y-1">`;
-                    data.insights.forEach(i=>{ insHtml+=`<li>${i}</li>`; }); insHtml+=`</ul></div>`;
-                    summaryDiv.insertAdjacentHTML("beforeend",insHtml);
-                }
-
-            } catch(err){ console.error(err); document.getElementById("ai-summary").innerHTML=`<p class="text-red-600">Failed to load summary. Please try again.</p>`; }
-        }
-
-        // ------------------ Add Company ------------------
-        const companyNameInput=document.getElementById("new-company-name");
-        const suggestionList=document.getElementById("company-suggestions");
-        let selectedPlace=null;
-
-        companyNameInput.addEventListener("input", async e=>{
-            const query=e.target.value; if(query.length<2) return suggestionList.innerHTML="";
-            try{
-                const res=await axios.get("/api/companies/google/autocomplete",{params:{q:query}});
-                suggestionList.innerHTML="";
-                res.data.items.forEach(item=>{
-                    const li=document.createElement("li");
-                    li.textContent=item.description;
-                    li.classList.add("p-2","hover:bg-gray-100","cursor-pointer");
-                    li.addEventListener("click", async ()=>{
-                        companyNameInput.value=item.structured_formatting.main_text;
-                        suggestionList.innerHTML="";
-                        selectedPlace=item.place_id;
-                        const detailsRes=await axios.get("/api/companies/google/details",{params:{place_id:selectedPlace}});
-                        const details=detailsRes.data;
-                        document.getElementById("new-company-address").value=details.address||'';
-                        document.getElementById("new-company-city").value=details.city||'';
-                        document.getElementById("new-company-state").value=details.state||'';
-                        document.getElementById("new-company-country").value=details.country||'';
-                        document.getElementById("new-company-postal").value=details.postal_code||'';
-                        document.getElementById("new-company-lat").value=details.latitude||'';
-                        document.getElementById("new-company-lng").value=details.longitude||'';
-                    });
-                    suggestionList.appendChild(li);
-                });
-            } catch(err){ console.error(err); }
-        });
-
-        document.getElementById("add-company-btn").addEventListener("click", async ()=>{
-            const payload={
-                name:document.getElementById("new-company-name").value,
-                address:document.getElementById("new-company-address").value,
-                city:document.getElementById("new-company-city").value,
-                state:document.getElementById("new-company-state").value,
-                country:document.getElementById("new-company-country").value,
-                postal_code:document.getElementById("new-company-postal").value,
-                latitude:document.getElementById("new-company-lat").value,
-                longitude:document.getElementById("new
+</body>
+</html>
