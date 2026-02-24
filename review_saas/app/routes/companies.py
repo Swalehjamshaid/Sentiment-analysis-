@@ -13,12 +13,12 @@ from sqlalchemy.orm import Session
 # ───────────────────────────────────────────────
 from app.db import get_db
 from app.models import Company, Review
-from app.routes.auth import get_current_user      # ← FIXED: correct path
+from app.main import get_current_user           # ← FIXED HERE
 
 # ───────────────────────────────────────────────
 # Logger Configuration
 # ───────────────────────────────────────────────
-logger = logging.getLogger(__name__)  # better to use __name__ here
+logger = logging.getLogger(__name__)
 if not logger.handlers:
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
@@ -30,7 +30,6 @@ logger.setLevel(logging.INFO)
 # ───────────────────────────────────────────────
 router = APIRouter(tags=["dashboard"])
 
-# More reliable way to locate templates (relative to project structure)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # → review_saas/app
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
 templates = Jinja2Templates(directory=TEMPLATE_DIR)
@@ -51,7 +50,7 @@ async def render_dashboard(
         company_count = db.query(Company).count()
         review_count = db.query(Review).count()
 
-        user_email = getattr(current_user, "email", "anonymous")
+        user_email = getattr(current_user, "email", "anonymous") if current_user else "anonymous"
         logger.info(f"Dashboard accessed by {user_email}. Stats: {company_count} companies, {review_count} reviews.")
 
         return templates.TemplateResponse(
@@ -73,7 +72,7 @@ async def render_dashboard(
         )
 
 # ───────────────────────────────────────────────
-# Redirect legacy /dashbord URLs → /dashboard
+# Redirect legacy URLs
 # ───────────────────────────────────────────────
 @router.get("/dashbord", response_class=HTMLResponse)
 @router.get("/dashbord.html", response_class=HTMLResponse)
