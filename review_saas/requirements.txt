@@ -35,10 +35,10 @@ pyotp==2.9.0
 # ────────────────────────────────────────────────────────────────
 bleach==6.1.0
 httpx[http2]==0.27.2
-requests==2.32.3
-urllib3>=2.0,<3                     # ← FIXED: Resolved version warning
-charset_normalizer>=3.3.2           # ← FIXED: Updated for compatibility
-python-dateutil==2.9.0.post0        # ← NEW: Handles dashboard date logic
+requests==2.32.3                   # ← pinned to latest compatible
+urllib3==2.2.1                     # ← pinned to avoid warnings
+charset-normalizer==3.3.2           # ← pinned to avoid warnings
+python-dateutil==2.9.0.post0
 
 # ────────────────────────────────────────────────────────────────
 # Reporting & Documents
@@ -76,7 +76,7 @@ googlemaps>=4.10.0
 google-api-python-client>=2.149.0
 google-auth>=2.35.0
 google-auth-oauthlib>=1.2.1
-tenacity==9.0.0                     # ← NEW: For Google API request retries
+tenacity==9.0.0
 
 # ────────────────────────────────────────────────────────────────
 # Optional: Dev & Debugging
@@ -86,4 +86,4 @@ python-json-logger==4.0.0
 # ────────────────────────────────────────────────────────────────
 # Required for SessionMiddleware in FastAPI/Starlette
 # ────────────────────────────────────────────────────────────────
-itsdangerous>=2.1.2                 # ← NEW: Required for Auth/Sessions
+itsdangerous>=2.1.2
