@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 from fastapi import APIRouter, Request, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
@@ -29,7 +29,7 @@ logger.setLevel(logging.INFO)
 # ─────────────────────────────────────────────────────────────
 router = APIRouter(tags=["dashboard"])
 
-# More reliable path calculation using pathlib
+# Reliable path calculation
 BASE_DIR = Path(__file__).resolve().parent.parent  # → review_saas/app
 TEMPLATE_DIR = BASE_DIR / "templates"               # → review_saas/app/templates
 
@@ -48,15 +48,10 @@ async def render_dashboard(
     # current_user = Depends(get_current_user)  # ← uncomment when auth is ready
 ):
     """
-    Renders the Unified Dashboard.
-
-    Template used: dashboard.html
-    Expected location: review_saas/app/templates/dashboard.html
+    Renders the Unified Dashboard using dashboard.html
+    
+    Expected template location: review_saas/app/templates/dashboard.html
     """
-    # Optional: protect route (uncomment when you have auth)
-    # if not current_user:
-    #     return RedirectResponse(url="/login")
-
     try:
         company_count = db.query(Company).count()
         review_count = db.query(Review).count()
@@ -64,10 +59,10 @@ async def render_dashboard(
         logger.info(f"Dashboard accessed. Stats: {company_count} companies, {review_count} reviews.")
 
         return templates.TemplateResponse(
-            "dashboard.html",  # Correct filename - no typo
+            "dashboard.html",  # Correct filename
             {
                 "request": request,
-                # "current_user": current_user,          # ← uncomment when ready
+                # "current_user": current_user,          # ← uncomment when auth ready
                 "initial_stats": {
                     "companies": company_count,
                     "reviews": review_count
@@ -78,7 +73,7 @@ async def render_dashboard(
         logger.error(f"Critical error rendering dashboard: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error loading dashboard. Template path: {TEMPLATE_DIR}"
+            detail=f"Error loading dashboard. Template directory: {TEMPLATE_DIR}"
         )
 
 
@@ -98,23 +93,20 @@ async def get_global_stats(db: Session = Depends(get_db)):
 
 
 # ─────────────────────────────────────────────────────────────
-# Startup Diagnostic (only once at startup)
+# Startup Diagnostic (runs once when module is imported)
 # ─────────────────────────────────────────────────────────────
 def log_dashboard_init():
     """
-    Verifies that dashboard.html exists at startup.
-    Uses pathlib for more reliable path handling.
+    One-time check at startup: verify dashboard.html exists.
     """
     template_file = TEMPLATE_DIR / "dashboard.html"
     
-    if template_file.exists() and template_file.is_file():
-        logger.info(f"Dashboard template verified at: {template_file}")
+    if template_file.is_file():
+        logger.info(f"Dashboard template found and verified: {template_file}")
     else:
-        logger.warning(
-            f"Template NOT FOUND at: {template_file}. "
-            f"Make sure the file is named exactly 'dashboard.html' "
-            f"(lowercase, with 'a' after 'dashbo')."
-        )
+        logger.warning(f"Dashboard template MISSING: {template_file}")
+        logger.warning("Expected exact filename: dashboard.html (lowercase)")
 
-# Run diagnostic once when module is imported
+
+# Execute the check once
 log_dashboard_init()
