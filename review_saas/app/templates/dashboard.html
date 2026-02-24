@@ -9,36 +9,47 @@
         backdrop-filter: blur(8px);
         border: 1px solid rgba(255, 255, 255, 0.05);
     }
-    input[type="date"]::-webkit-calendar-picker-indicator {
-        filter: invert(1);
-        cursor: pointer;
-    }
+    input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="space-y-8" x-data="{
     selectedCompany: { id: '{{ selected_company.id if selected_company else '' }}', name: '{{ selected_company.name if selected_company else 'Global Overview' }}' },
-    dateStart: '{{ dashboard_payload.date_range.start if dashboard_payload.date_range else '' }}',
-    dateEnd: '{{ dashboard_payload.date_range.end if dashboard_payload.date_range else '' }}',
+    syncing: false,
+    dateStart: '{{ dashboard_payload.date_range.start if dashboard_payload else '' }}',
+    dateEnd: '{{ dashboard_payload.date_range.end if dashboard_payload else '' }}',
     currentPage: 1,
     pageSize: 10,
-    dashboardData: {{ dashboard_payload | tojson | safe }},
+    dashboardData: {{ dashboard_payload | tojson | safe if dashboard_payload else '{}' }},
     
     get paginatedReviews() {
         if (!this.dashboardData.reviews?.data) return [];
         let start = (this.currentPage - 1) * this.pageSize;
         return this.dashboardData.reviews.data.slice(start, start + this.pageSize);
     },
-    
     get totalPages() {
         return Math.ceil((this.dashboardData.reviews?.total || 0) / this.pageSize);
     },
-    
     applyFilter() {
         window.location.href = `/dashboard?company_id=${this.selectedCompany.id}&start=${this.dateStart}&end=${this.dateEnd}`;
     },
-
+    async triggerSync() {
+        if (!this.selectedCompany.id) return;
+        this.syncing = true;
+        try {
+            const response = await fetch(`/api/companies/${this.selectedCompany.id}/sync`, { method: 'POST' });
+            if (response.ok) {
+                setTimeout(() => { 
+                    this.syncing = false; 
+                    window.location.reload(); 
+                }, 2000);
+            }
+        } catch (e) {
+            console.error('Sync failed', e);
+            this.syncing = false;
+        }
+    },
     generateAIReply(review) {
         let draft = '';
         const name = review.reviewer_name || 'Valued Customer';
@@ -58,24 +69,31 @@
             <h1 class="text-4xl font-extrabold tracking-tight text-white">
                 <span class="bg-gradient-to-r from-brand-400 to-indigo-400 bg-clip-text text-transparent" x-text="selectedCompany.name"></span>
             </h1>
-            <p class="text-slate-400 mt-1">Intelligent Review Analytics & Time-Series Trends</p>
+            {% if selected_company %}
+            <p class="text-slate-500 text-xs mt-1 uppercase tracking-widest">
+                Last Synced: {{ selected_company.last_synced_at.strftime('%Y-%m-%d %H:%M') if selected_company.last_synced_at else 'Never' }}
+            </p>
+            {% endif %}
         </div>
 
         <div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+            <button @click="triggerSync()" 
+                    :disabled="syncing || !selectedCompany.id"
+                    class="flex items-center gap-2 px-4 py-3 bg-brand-600/10 border border-brand-500/20 rounded-xl hover:bg-brand-600 hover:text-white transition-all text-sm font-bold text-brand-400 disabled:opacity-50">
+                <i class="fas fa-sync-alt" :class="syncing ? 'fa-spin' : ''"></i>
+                <span x-text="syncing ? 'Fetching...' : 'Sync Now'"></span>
+            </button>
+
             <div class="relative" x-data="{ open: false }">
                 <button @click="open = !open" class="w-full sm:w-64 flex justify-between items-center px-4 py-3 bg-slate-900/50 border border-slate-700 rounded-xl hover:border-brand-500 transition-all text-sm font-medium">
-                    <span class="flex items-center gap-2">
-                        <i class="fas fa-building text-brand-500"></i>
-                        <span x-text="selectedCompany.name"></span>
-                    </span>
+                    <span class="flex items-center gap-2"><i class="fas fa-building text-brand-500"></i><span x-text="selectedCompany.name"></span></span>
                     <i class="fas fa-chevron-down text-xs transition-transform" :class="open ? 'rotate-180' : ''"></i>
                 </button>
-                <div x-show="open" @click.away="open = false" x-cloak 
-                     class="absolute right-0 w-full mt-2 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
+                <div x-show="open" @click.away="open = false" x-cloak class="absolute right-0 w-full mt-2 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
                     <div class="max-h-60 overflow-y-auto">
-                        <a href="/dashboard" class="block px-4 py-3 hover:bg-brand-600/10 transition-colors text-sm border-b border-slate-800/50">Global Overview</a>
+                        <a href="/dashboard" class="block px-4 py-3 hover:bg-brand-600/10 text-sm border-b border-slate-800/50 text-slate-300">Global Overview</a>
                         {% for company in companies %}
-                        <div class="px-4 py-3 hover:bg-brand-600/10 cursor-pointer text-sm border-b border-slate-800/50" 
+                        <div class="px-4 py-3 hover:bg-brand-600/10 cursor-pointer text-sm border-b border-slate-800/50 text-slate-300" 
                              @click="selectedCompany = {id: '{{ company.id }}', name: '{{ company.name }}'}; open = false; applyFilter()">
                             {{ company.name }}
                         </div>
@@ -99,7 +117,7 @@
         <div class="metric-card p-6 rounded-2xl">
             <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Total Reviews</p>
             <p class="text-3xl font-bold mt-2" x-text="dashboardData.metrics.total || 0"></p>
-            <p class="text-[10px] text-emerald-400 mt-2 flex items-center gap-1"><i class="fas fa-chart-line"></i> Data synced</p>
+            <p class="text-[10px] text-emerald-400 mt-2 flex items-center gap-1"><i class="fas fa-chart-line"></i> Active</p>
         </div>
         <div class="metric-card p-6 rounded-2xl">
             <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Avg Rating</p>
@@ -116,9 +134,9 @@
             <p class="text-[10px] text-slate-500 mt-2 uppercase font-bold" x-text="(dashboardData.metrics.risk_level || 'Stable') + ' Risk'"></p>
         </div>
         <div class="metric-card p-6 rounded-2xl">
-            <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Sentiment Trend</p>
+            <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Trend Signal</p>
             <p class="text-2xl font-bold mt-2 capitalize text-white" x-text="dashboardData.trend.signal || 'Neutral'"></p>
-            <p class="text-[10px] text-slate-500 mt-2">Active intelligence analysis</p>
+            <p class="text-[10px] text-slate-500 mt-2">Week-over-week</p>
         </div>
     </div>
 
@@ -194,7 +212,9 @@
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-    const data = {{ dashboard_payload | tojson | safe }};
+    const data = {{ dashboard_payload | tojson | safe if dashboard_payload else '{}' }};
+    if (!data.metrics) return;
+
     Chart.defaults.color = '#94a3b8';
     Chart.defaults.font.family = 'Inter';
 
