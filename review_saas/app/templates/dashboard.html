@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}BizChat • Executive Intelligence{% endblock %}
+{% block title %}BizChat • Executive Intelligence Dashboard{% endblock %}
 
 {% block extra_head %}
 <style>
@@ -16,15 +16,7 @@
         transform: translateY(-4px);
         background: rgba(30, 41, 59, 0.6);
     }
-    .insight-pill {
-        /* Tailwind-like pill; keep as utility class */
-        padding: 0.25rem 0.75rem;
-        border-radius: 9999px;
-        font-size: 10px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-    }
+    .insight-pill { @apply px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider; }
     [x-cloak] { display: none !important; }
 
     .custom-scroll::-webkit-scrollbar { height: 6px; }
@@ -36,14 +28,15 @@
         background-clip: text;
         color: transparent;
     }
+    .prediction-up { color: #10b981; }
+    .prediction-down { color: #ef4444; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="space-y-8" x-cloak x-data="dashboardHandler()">
 
-    <div x-show="loading" 
-         class="fixed inset-0 z-[70] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center">
+    <div x-show="loading" class="fixed inset-0 z-[70] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center">
         <div class="text-center">
             <div class="w-20 h-20 border-t-4 border-brand-500 rounded-full animate-spin mx-auto mb-6"></div>
             <p class="text-brand-400 font-black tracking-widest uppercase text-xs animate-pulse">Running Neural Sentiment Audit...</p>
@@ -56,13 +49,18 @@
                 <span class="text-gradient" x-text="selectedCompany.name || 'Select Company'"></span>
             </h1>
             <div class="flex items-center gap-3 mt-2">
-                <span class="insight-pill" style="background:rgba(79,70,229,.1);color:#818cf8;border:1px solid rgba(129,140,248,.2);">Google API Integrated</span>
+                <span class="insight-pill bg-brand-500/10 text-brand-400 border border-brand-500/20">Google API Integrated</span>
                 <span class="text-slate-600 text-[10px] font-bold uppercase tracking-widest" 
-                      x-text="'Last Sync: ' + (dashboardData.company?.last_synced || 'Never')"></span>
-            </div>
+                      x-text="'Last Sync: ' + (dashboardData.company?.last_sync || 'Never')"></span>
+                <span class="text-slate-600 text-[10px] font-bold uppercase tracking-widest"
+                      x-text="dashboardData.company?.city + ' Region' || ''"></span> </div>
         </div>
 
         <div class="flex flex-wrap gap-3">
+            <button @click="exportReport('pdf')" class="px-4 py-4 bg-slate-800 text-slate-300 rounded-2xl hover:bg-slate-700 transition-all font-black text-xs">
+                <i class="fas fa-file-pdf mr-2"></i>EXPORT
+            </button>
+            
             <button @click="triggerSync()" :disabled="syncing || !selectedCompany.id"
                     class="flex items-center gap-2 px-8 py-4 bg-brand-600 text-white rounded-2xl hover:bg-brand-500 transition-all font-black text-xs shadow-2xl shadow-brand-600/30 active:scale-95 disabled:opacity-50">
                 <i class="fas fa-bolt" :class="syncing ? 'animate-pulse' : ''"></i>
@@ -83,28 +81,28 @@
             <div class="absolute top-0 right-0 p-8 opacity-10">
                 <i class="fas fa-brain text-8xl text-indigo-400"></i>
             </div>
-            <h3 class="text-indigo-400 font-black text-xs uppercase tracking-[0.3em] mb-4">Executive 30-Day Snapshot</h3>
+            <h3 class="text-indigo-400 font-black text-xs uppercase tracking-[0.3em] mb-4">Neural Health & Predictive Insights</h3>
             <p class="text-2xl font-bold text-slate-100 leading-tight mb-6" 
-               x-text="dashboardData.executive_summary_30d?.executive_snapshot || 'Neural engine is synthesizing Google data streams...'"></p>
+               x-text="dashboardData.executive_summary?.sentiment_score + '% Sentiment Score • ' + dashboardData.executive_summary?.status"></p>
             
             <div class="grid grid-cols-2 md:grid-cols-4 gap-6 relative z-10">
                 <div class="space-y-1">
-                    <p class="text-slate-500 text-[9px] font-bold uppercase">Volume (30d)</p>
-                    <p class="text-lg font-black text-white" x-text="dashboardData.total_comments_30d || 0"></p>
+                    <p class="text-slate-500 text-[9px] font-bold uppercase">Volume (#13)</p>
+                    <p class="text-lg font-black text-white" x-text="dashboardData.metrics?.total_volume || 0"></p>
                 </div>
                 <div class="space-y-1">
-                    <p class="text-slate-500 text-[9px] font-bold uppercase">Trend Signal</p>
+                    <p class="text-slate-500 text-[9px] font-bold uppercase">Forecast (#21)</p>
                     <span class="insight-pill" 
-                          :class="dashboardData.trend?.signal === 'improving' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'" 
-                          x-text="dashboardData.trend?.signal || 'Stable'"></span>
+                          :class="dashboardData.executive_summary?.prediction === 'Improving' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'" 
+                          x-text="dashboardData.executive_summary?.prediction || 'Stable'"></span>
                 </div>
                 <div class="space-y-1">
-                    <p class="text-slate-500 text-[9px] font-bold uppercase">Risk Index</p>
-                    <p class="text-lg font-black text-white" x-text="((dashboardData.metrics?.risk_score ?? 0)).toFixed(1) + '%'"></p>
+                    <p class="text-slate-500 text-[9px] font-bold uppercase">Risk Index (#20)</p>
+                    <p class="text-lg font-black text-white" x-text="dashboardData.executive_summary?.risk_level || 'Low'"></p>
                 </div>
                 <div class="space-y-1">
-                    <p class="text-slate-500 text-[9px] font-bold uppercase">Rating Delta</p>
-                    <p class="text-lg font-black text-indigo-400" x-text="((dashboardData.trend?.delta ?? 0.0)).toFixed(2)"></p>
+                    <p class="text-slate-500 text-[9px] font-bold uppercase">Response Rate (#26)</p>
+                    <p class="text-lg font-black text-indigo-400" x-text="dashboardData.metrics?.response_rate || '0%'"></p>
                 </div>
             </div>
         </div>
@@ -112,27 +110,27 @@
         <div class="metric-card p-8 rounded-[2.5rem] flex flex-col justify-center text-center">
             <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-4">Avg Google Experience</p>
             <div class="relative inline-flex items-center justify-center">
-                <p class="text-7xl font-black text-amber-400" x-text="((dashboardData.metrics?.avg_rating ?? 0)).toFixed(1)"></p>
+                <p class="text-7xl font-black text-amber-400" x-text="(dashboardData.metrics?.avg_rating || 0).toFixed(1)"></p>
                 <span class="text-2xl text-slate-600 ml-2 font-bold italic">★</span>
             </div>
-            <p class="text-slate-400 text-[10px] mt-4 font-bold" x-text="(dashboardData.metrics?.total || 0) + ' Data Points'"></p>
+            <p class="text-slate-400 text-[10px] mt-4 font-bold" x-text="(dashboardData.metrics?.total_volume || 0) + ' Data Points'"></p>
         </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div class="metric-card p-8 rounded-[2rem]">
             <h3 class="text-white font-bold text-sm mb-8 flex items-center justify-between">
-                <span><i class="fas fa-chart-line text-brand-400 mr-2"></i>Review Velocity (Last 30 Days)</span>
-                <span class="text-[9px] text-slate-500 font-bold uppercase">Temporal Data</span>
+                <span><i class="fas fa-heart text-rose-400 mr-2"></i>Emotion Spectrum (#4)</span>
+                <span class="text-[9px] text-slate-500 font-bold uppercase">Neural Layer</span>
             </h3>
-            <div class="h-64"><canvas id="dailyCountsChart"></canvas></div>
+            <div class="h-64"><canvas id="emotionSpectrumChart"></canvas></div>
         </div>
         <div class="metric-card p-8 rounded-[2rem]">
             <h3 class="text-white font-bold text-sm mb-8 flex items-center justify-between">
-                <span><i class="fas fa-circle-notch text-emerald-400 mr-2"></i>Sentiment Ring (Current Mix)</span>
-                <span class="text-[9px] text-slate-500 font-bold uppercase">AI Classified</span>
+                <span><i class="fas fa-layer-group text-emerald-400 mr-2"></i>Aspect Breakdown (#5)</span>
+                <span class="text-[9px] text-slate-500 font-bold uppercase">Topic Classification</span>
             </h3>
-            <div class="h-64 flex items-center justify-center"><canvas id="sentimentRingChart"></canvas></div>
+            <div class="h-64 flex items-center justify-center"><canvas id="aspectSentimentChart"></canvas></div>
         </div>
     </div>
 
@@ -140,19 +138,22 @@
         <div class="p-8 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
             <div>
                 <h3 class="text-white font-black text-xl tracking-tight uppercase">Intelligence Log</h3>
-                <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest mt-1 italic">Real-time Google feedback</p>
+                <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest mt-1 italic">Drill-down into Google feedback</p>
             </div>
-            <span class="text-[9px] font-black text-brand-400 bg-brand-400/10 px-4 py-2 rounded-full border border-brand-500/20" 
-                  x-text="(dashboardData.metrics?.total || 0) + ' TOTAL RECORDS'"></span>
+            <template x-if="dashboardData.metrics?.anomaly_detected">
+                <div class="bg-rose-500/20 border border-rose-500/40 text-rose-400 px-4 py-2 rounded-xl text-[10px] font-black animate-bounce">
+                    <i class="fas fa-exclamation-triangle mr-2"></i>ANOMALY DETECTED
+                </div>
+            </template>
         </div>
         
         <div class="overflow-x-auto custom-scroll">
             <table class="w-full text-left">
                 <thead class="bg-black/20 text-slate-500 text-[9px] font-black uppercase tracking-[0.25em]">
                     <tr>
-                        <th class="px-8 py-5">Reviewer Profile</th>
-                        <th class="px-8 py-5">Content Analysis</th>
-                        <th class="px-8 py-5 text-right">Autonomous Action</th>
+                        <th class="px-8 py-5">Reviewer</th>
+                        <th class="px-8 py-5">AI Analysis (#3, #4, #5, #24)</th>
+                        <th class="px-8 py-5 text-right">Action (#14)</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-white/5">
@@ -160,51 +161,42 @@
                         <tr class="hover:bg-brand-500/[0.04] transition-colors group">
                             <td class="px-8 py-6">
                                 <div class="flex items-center gap-4">
-                                    <div class="w-10 h-10 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center text-brand-400 font-black">
+                                    <div class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-brand-400 font-black">
                                         <span x-text="review.reviewer_name?.[0] || '?'"></span>
                                     </div>
                                     <div>
                                         <p class="text-white font-black text-sm" x-text="review.reviewer_name || 'Verified Customer'"></p>
-                                        <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest" x-text="new Date(review.review_date).toLocaleDateString()"></p>
+                                        <span class="text-[8px] bg-slate-800 px-1 rounded text-slate-500" x-text="review.source || 'google'"></span>
                                     </div>
                                 </div>
                             </td>
                             <td class="px-8 py-6">
                                 <div class="flex items-center gap-3 mb-2">
-                                    <span class="text-amber-400 font-black text-xs" x-text="(review.rating || 0).toFixed ? review.rating.toFixed(1) + ' ★' : (review.rating + '.0 ★')"></span>
-                                    <span class="insight-pill" 
-                                          :class="{
-                                              'bg-emerald-500/10 text-emerald-500': review.sentiment_category === 'Positive',
-                                              'bg-rose-500/10 text-rose-500': review.sentiment_category === 'Negative',
-                                              'bg-slate-500/10 text-slate-500': review.sentiment_category === 'Neutral'
-                                          }" x-text="review.sentiment_category || 'Neutral'"></span>
+                                    <span class="text-amber-400 font-black text-xs" x-text="review.rating + '.0 ★'"></span>
+                                    <span class="insight-pill bg-indigo-500/10 text-indigo-400" x-text="review.emotion || 'Neutral'"></span>
+                                    <span class="insight-pill bg-slate-500/10 text-slate-500" x-text="review.lang || 'en'"></span>
                                 </div>
-                                <p class="text-slate-400 text-xs italic line-clamp-2 group-hover:line-clamp-none transition-all duration-500" x-text="review.text || 'No comment text detected.'"></p>
+                                <p class="text-slate-400 text-xs italic line-clamp-2 group-hover:line-clamp-none transition-all" x-text="review.text || 'No comment text detected.'"></p>
+                                <div class="flex gap-2 mt-2">
+                                    <template x-for="(val, asp) in review.aspects">
+                                        <span class="text-[8px] font-bold text-slate-500 border border-slate-700 px-2 py-0.5 rounded" x-text="asp"></span>
+                                    </template>
+                                </div>
                             </td>
                             <td class="px-8 py-6 text-right">
-                                <button @click="generateAIReply(review)" class="px-5 py-2.5 bg-brand-500/10 text-brand-400 border border-brand-500/20 rounded-xl text-[10px] font-black hover:bg-brand-600 hover:text-white transition-all shadow-lg active:scale-95">
-                                    <i class="fas fa-magic mr-2"></i>DRAFT REPLY
-                                </button>
+                                <button @click="generateAIReply(review)" class="px-5 py-2.5 bg-brand-500/10 text-brand-400 border border-brand-500/20 rounded-xl text-[10px] font-black hover:bg-brand-600 hover:text-white transition-all">DRAFT REPLY</button>
                             </td>
                         </tr>
                     </template>
                 </tbody>
             </table>
-            
-            <div x-show="paginatedReviews.length === 0" class="py-32 text-center">
-                <div class="w-24 h-24 bg-slate-900 rounded-full flex items-center justify-center mx-auto mb-6 border border-white/5">
-                    <i class="fas fa-cloud-download-alt text-slate-700 text-3xl"></i>
-                </div>
-                <p class="text-slate-500 font-black text-xs uppercase tracking-[0.3em]">No Data Cached</p>
-                <p class="text-slate-600 text-[10px] mt-2 font-bold">Synchronize with Google API to begin analysis.</p>
-            </div>
         </div>
         
         <div class="px-8 py-6 bg-black/10 flex items-center justify-between border-t border-white/5">
-            <p class="text-[9px] text-slate-600 font-black uppercase tracking-widest">Dataset Index <span class="text-brand-400" x-text="currentPage"></span> / <span x-text="totalPages"></span></p>
+            <p class="text-[9px] text-slate-600 font-black uppercase tracking-widest">Page <span class="text-brand-400" x-text="currentPage"></span> of <span x-text="totalPages"></span></p>
             <div class="flex gap-2">
-                <button @click="prevPage()" :disabled="currentPage === 1" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-20 rounded-xl text-[10px] font-black text-white transition-all border border-white/5">PREV</button>
-                <button @click="nextPage()" :disabled="currentPage === totalPages" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-20 rounded-xl text-[10px] font-black text-white transition-all border border-white/5">NEXT</button>
+                <button @click="prevPage()" :disabled="currentPage === 1" class="px-4 py-2 bg-slate-800 disabled:opacity-20 rounded-xl text-[10px] font-black text-white">PREV</button>
+                <button @click="nextPage()" :disabled="currentPage === totalPages" class="px-4 py-2 bg-slate-800 disabled:opacity-20 rounded-xl text-[10px] font-black text-white">NEXT</button>
             </div>
         </div>
     </div>
@@ -214,10 +206,6 @@
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-/**
- * Dashboard Intelligence Logic v3.5.4
- * Handles real-time filtering, WebSocket updates, and Chart.js rendering.
- */
 function dashboardHandler() {
     return {
         selectedCompany: { 
@@ -226,63 +214,41 @@ function dashboardHandler() {
         },
         loading: true,
         syncing: false,
-        dateStart: '{{ dashboard_payload.window.start.split("T")[0] if dashboard_payload and dashboard_payload.window and dashboard_payload.window.start else "" }}',
-        dateEnd: '{{ dashboard_payload.window.end.split("T")[0] if dashboard_payload and dashboard_payload.window and dashboard_payload.window.end else "" }}',
+        dateStart: '',
+        dateEnd: '',
         currentPage: 1,
         pageSize: 10,
         dashboardData: {{ dashboard_payload | tojson | safe if dashboard_payload else '{}' }},
 
         init() {
-            // WebSocket listener for real-time Sync notifications
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const socket = new WebSocket(`${protocol}//${window.location.host}/ws/dashboard`);
-            socket.onmessage = (event) => {
-                const msg = JSON.parse(event.data);
-                if (msg.type === 'SYNC_COMPLETE' && msg.company_id == this.selectedCompany.id) {
-                    window.location.reload();
-                }
-            };
-
             this.$nextTick(() => {
                 setTimeout(() => {
                     this.loading = false;
                     this.renderVisuals();
-                }, 600);
+                }, 800);
             });
         },
 
         get paginatedReviews() {
-            const reviews = this.dashboardData.reviews?.data || [];
+            const reviews = this.dashboardData.drill_down?.recent_reviews || [];
             const start = (this.currentPage - 1) * this.pageSize;
             return reviews.slice(start, start + this.pageSize);
         },
 
         get totalPages() {
-            const total = this.dashboardData.metrics?.total || 0;
+            const total = this.dashboardData.metrics?.total_volume || 0;
             return Math.ceil(total / this.pageSize) || 1;
         },
 
         nextPage() { if (this.currentPage < this.totalPages) this.currentPage++; },
         prevPage() { if (this.currentPage > 1) this.currentPage--; },
 
-        /**
-         * SAFETY GATE: prevents 422 by ensuring company and normalizing dates.
-         */
         applyFilter() {
-            if (!this.selectedCompany.id || this.selectedCompany.id === "") {
-                alert("Please select a company before filtering.");
-                return;
-            }
-
-            // Normalize date order if user selected them in reverse
-            let s = this.dateStart || "";
-            let e = this.dateEnd || "";
-            if (s && e && s > e) { const t = s; s = e; e = t; }
-
+            if (!this.selectedCompany.id) return alert("Select a company first.");
             this.loading = true;
             const params = new URLSearchParams({ company_id: this.selectedCompany.id });
-            if (s) params.set('start', s);
-            if (e) params.set('end', e);
+            if (this.dateStart) params.set('start', this.dateStart);
+            if (this.dateEnd) params.set('end', this.dateEnd);
             window.location.href = `/dashboard?${params.toString()}`;
         },
 
@@ -291,75 +257,56 @@ function dashboardHandler() {
             this.syncing = true;
             try {
                 const res = await fetch(`/api/companies/${this.selectedCompany.id}/sync`, { method: 'POST' });
-                if (res.ok) console.log("Google API Sync Triggered...");
+                if (res.ok) window.location.reload();
             } catch (err) {
-                console.error("Sync Failure:", err);
-            } finally {
                 this.syncing = false;
             }
         },
 
-        generateAIReply(review) {
-            const name = review.reviewer_name || 'Customer';
-            const rating = review.rating ?? 0;
-            const text = review.text || 'your feedback';
-            
-            let draft = `Hi ${name}, thank you for your ${rating}-star review. `;
-            if (rating >= 4) {
-                draft += `We're thrilled you enjoyed your experience! Your comments on "${text.substring(0,30)}..." were truly appreciated.`;
-            } else {
-                draft += `We apologize for the issues you encountered. We have flagged your feedback about "${text.substring(0,30)}..." for immediate review by our management team.`;
-            }
-            alert("NEURAL DRAFT REPLY:\n\n" + draft);
+        exportReport(type) {
+            alert("Requirement #19: Preparing Executive PDF Intelligence Report...");
+            // window.location.href = `/api/export?type=${type}&company_id=${this.selectedCompany.id}`;
         },
 
         renderVisuals() {
-            const data = this.dashboardData || {};
-            if (!data.metrics) return;
-
-            Chart.defaults.color = '#64748b';
-            Chart.defaults.font.family = 'Inter, sans-serif';
-
-            // 1) Daily Trend (Total, Positive, Negative)
-            const dailyCtx = document.getElementById('dailyCountsChart');
-            if (dailyCtx && data.daily_counts) {
-                new Chart(dailyCtx, {
-                    type: 'line',
+            const data = this.dashboardData.visuals || {};
+            
+            // #4 Emotion Spectrum
+            const emotionCtx = document.getElementById('emotionSpectrumChart');
+            if (emotionCtx && data.emotion_map) {
+                new Chart(emotionCtx, {
+                    type: 'bar',
                     data: {
-                        labels: data.daily_counts.labels || [],
-                        datasets: [
-                            { label: 'Positive', data: (data.daily_counts.datasets?.positive || []), borderColor: '#10b981', tension: 0.4, fill: false, pointRadius: 0 },
-                            { label: 'Negative', data: (data.daily_counts.datasets?.negative || []), borderColor: '#ef4444', tension: 0.4, fill: false, pointRadius: 0 },
-                            { label: 'Total', data: (data.daily_counts.datasets?.total || []), borderColor: '#6366f1', borderDash: [5, 5], tension: 0.4, fill: false, pointRadius: 0 }
-                        ]
+                        labels: Object.keys(data.emotion_map),
+                        datasets: [{
+                            label: 'Frequency',
+                            data: Object.values(data.emotion_map),
+                            backgroundColor: 'rgba(99, 102, 241, 0.5)',
+                            borderColor: '#818cf8',
+                            borderWidth: 2,
+                            borderRadius: 10
+                        }]
                     },
-                    options: { 
-                        maintainAspectRatio: false, 
-                        plugins: { legend: { position: 'top', labels: { boxWidth: 10, font: { size: 9, weight: 'bold' } } } }, 
-                        scales: { x: { grid: { display: false }, ticks: { display: false } }, y: { grid: { color: 'rgba(255,255,255,0.06)' } } } 
-                    }
+                    options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' } } } }
                 });
             }
 
-            // 2) Sentiment Ring
-            const ringCtx = document.getElementById('sentimentRingChart');
-            if (ringCtx && data.sentiment_ring) {
-                new Chart(ringCtx, {
-                    type: 'doughnut',
+            // #5 Aspect Performance
+            const aspectCtx = document.getElementById('aspectSentimentChart');
+            if (aspectCtx && data.aspect_performance) {
+                new Chart(aspectCtx, {
+                    type: 'radar',
                     data: {
-                        labels: data.sentiment_ring.labels || ['Positive','Negative','Neutral'],
+                        labels: Object.keys(data.aspect_performance),
                         datasets: [{
-                            data: data.sentiment_ring.data || [0,0,0],
-                            backgroundColor: ['#10b981', '#ef4444', '#64748b'],
-                            borderWidth: 0,
-                            hoverOffset: 15
+                            label: 'Customer Sentiment Score',
+                            data: Object.values(data.aspect_performance),
+                            backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                            borderColor: '#10b981',
+                            pointBackgroundColor: '#10b981'
                         }]
                     },
-                    options: { 
-                        cutout: '80%', 
-                        maintainAspectRatio: false,
-                        plugins: { legend: { position: 'bottom', labels: { boxWidth: 8, padding: 20, color: '#94a3b8', font: { weight: 'bold', size: 9 } } } } 
-                    }
+                    options: { maintainAspectRatio: false, scales: { r: { grid: { color: 'rgba(255,255,255,0.1)' }, angleLines: { color: 'rgba(255,255,255,0.1)' }, pointLabels: { color: '#94a3b8' } } } }
                 });
             }
         }
