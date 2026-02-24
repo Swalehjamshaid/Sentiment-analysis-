@@ -1,3 +1,5 @@
+# File: review_saas/app/main.py
+
 import os
 import logging
 from pathlib import Path
@@ -12,15 +14,18 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
-# Internal relative imports
+# Internal imports
 from .db import init_db
 from .routes import auth, companies, reviews, reply, reports, dashboard, admin
 from .routes.maps_routes import router as maps_router
 from .routes.activity import router as activity_router
 from .routes.insights import router as insights_router
 
+# Auth dependency (import your real one)
+from .dependencies import get_current_user  # ← create this file if missing
+
 # ───────────────────────────────────────────────────────────────
-# PATH RESOLUTION (Railway Safe)
+# PATH RESOLUTION (Railway-safe)
 # ───────────────────────────────────────────────────────────────
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -29,9 +34,9 @@ PROJECT_ROOT = BASE_DIR.parent
 TEMPLATE_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 
-# Fallback for Railway nested mount cases
 if not TEMPLATE_DIR.exists():
     TEMPLATE_DIR = PROJECT_ROOT / "app" / "templates"
+    STATIC_DIR = PROJECT_ROOT / "app" / "static"
 
 # ───────────────────────────────────────────────────────────────
 # Logging
@@ -45,12 +50,12 @@ logger.info(f"Templates directory: {TEMPLATE_DIR}")
 logger.info(f"Static directory: {STATIC_DIR}")
 
 # ───────────────────────────────────────────────────────────────
-# Settings fallback (safe)
+# Settings fallback
 # ───────────────────────────────────────────────────────────────
 
 try:
     from .core.config import settings
-except Exception:
+except ImportError:
     class _Settings:
         APP_NAME: str = "ReviewSaaS"
         FORCE_HTTPS: bool = bool(int(os.getenv("FORCE_HTTPS", "0")))
@@ -59,7 +64,7 @@ except Exception:
     settings = _Settings()
 
 # ───────────────────────────────────────────────────────────────
-# Lifespan (Modern FastAPI Startup)
+# Lifespan
 # ───────────────────────────────────────────────────────────────
 
 @asynccontextmanager
@@ -84,24 +89,19 @@ app = FastAPI(
 
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
-# Mount static files safely
+# Mount static files
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     logger.info("Static files mounted.")
-
-# Global template variables
-templates.env.globals.update({
-    "googleMapsKey": os.getenv("GOOGLE_MAPS_API_KEY", ""),
-    "apiBase": "",
-    "currentDate": "2026-02-24"
-})
+else:
+    logger.warning(f"Static directory not found: {STATIC_DIR}")
 
 # ───────────────────────────────────────────────────────────────
 # Middleware
 # ───────────────────────────────────────────────────────────────
 
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
+    async def dispatch(self, request: Request, call_next):
         proto = request.headers.get("x-forwarded-proto", request.url.scheme)
         if getattr(settings, "FORCE_HTTPS", False) and proto != "https":
             url = request.url.replace(scheme="https")
@@ -121,40 +121,44 @@ app.add_middleware(
 )
 
 # ───────────────────────────────────────────────────────────────
-# Template Context
+# Common template context (called for every template render)
 # ───────────────────────────────────────────────────────────────
 
-def template_context(request: Request) -> Dict[str, Any]:
+def common_context(request: Request):
+    user = get_current_user(request)  # ← real auth
     return {
         "request": request,
-        "current_user": {"name": "Huda", "id": 1},
-        "apiBase": "",
+        "current_user": user,
+        "is_authenticated": bool(user),
         "googleMapsKey": os.getenv("GOOGLE_MAPS_API_KEY", ""),
+        "apiBase": "",
+        "currentDate": "2026-02-24",
     }
 
 # ───────────────────────────────────────────────────────────────
-# UI Routes
+# Public UI Routes
 # ───────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
-async def home(context: dict = Depends(template_context)):
-    return templates.TemplateResponse("home.html", context)
+async def home(request: Request):
+    return templates.TemplateResponse("home.html", common_context(request))
 
 @app.get("/login", response_class=HTMLResponse)
-async def login_page(context: dict = Depends(template_context)):
-    return templates.TemplateResponse("login.html", context)
+async def login_page(request: Request):
+    if get_current_user(request):
+        return RedirectResponse(url="/dashboard")
+    return templates.TemplateResponse("login.html", common_context(request))
 
-# Removed duplicate /dashboard route since dashboard.router handles it
-# If you still want a direct route, you can keep it, but ensure template name matches "dashboard.html"
+# /dashboard is handled by dashboard.router — do NOT duplicate here
 
 # ───────────────────────────────────────────────────────────────
-# Routers
+# Include Routers
 # ───────────────────────────────────────────────────────────────
 
 app.include_router(auth.router, prefix="/auth")
 app.include_router(companies.router)
 app.include_router(reviews.router)
-app.include_router(dashboard.router)  # dashboard.html must exist inside templates
+app.include_router(dashboard.router)  # ← handles /dashboard and /
 app.include_router(reports.router)
 app.include_router(admin.router)
 app.include_router(maps_router)
@@ -169,6 +173,6 @@ app.include_router(insights_router, prefix="/api/insights", tags=["ai"])
 async def health():
     return {
         "status": "healthy",
-        "service": settings.APP_NAME,
+        "service": getattr(settings, "APP_NAME", "ReviewSaaS"),
         "date": "2026-02-24"
     }
