@@ -3,15 +3,17 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
-from fastapi import APIRouter, Request, Depends, HTTPException, status
+from fastapi import APIRouter, Request, Depends, HTTPException, status, Query
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from datetime import datetime
 
 from ..db import get_db
 from ..models import Company, Review
+from ..services.analysis import dashboard_payload  # ← your analysis service
 
 # ─────────────────────────────────────────────────────────────
 # Logger Configuration
@@ -46,26 +48,41 @@ logger.info(f"Dashboard module loaded → template directory: {TEMPLATE_DIR}")
 async def render_dashboard(
     request: Request,
     db: Session = Depends(get_db),
+    start: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     # current_user = Depends(get_current_user)   # ← activate when auth is ready
 ):
     """
     Renders the main dashboard page using dashboard.html
+    Supports optional date range filtering via query params ?start=...&end=...
     """
     try:
+        # Fetch dashboard data (pass date range if provided)
+        payload = dashboard_payload(
+            db=db,
+            company_id=None,  # or pass specific company_id if needed
+            start=start,
+            end=end,
+            # add other params from your service if needed
+        )
+
         company_count = db.query(Company).count()
         review_count = db.query(Review).count()
 
-        logger.info(f"Dashboard loaded → {company_count} companies, {review_count} reviews")
+        logger.info(f"Dashboard loaded → {company_count} companies, {review_count} reviews | Date range: {start} to {end}")
 
         return templates.TemplateResponse(
-            "dashboard.html",   # Correct filename (this renders the actual template)
+            "dashboard.html",   # ← correct filename, matches templates/dashboard.html
             {
                 "request": request,
-                # "current_user": current_user,        # ← activate when ready
+                # "current_user": current_user,        # ← activate when auth ready
+                "dashboard_payload": payload,          # ← main data for charts, metrics, reviews
                 "initial_stats": {
                     "companies": company_count,
                     "reviews": review_count
-                }
+                },
+                "date_start": start,
+                "date_end": end
             }
         )
 
@@ -73,7 +90,7 @@ async def render_dashboard(
         logger.error(f"Dashboard render failed: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Cannot render dashboard. Template folder: {TEMPLATE_DIR}"
+            detail=f"Cannot render dashboard: {str(e)}. Template folder: {TEMPLATE_DIR}"
         )
 
 
@@ -99,12 +116,11 @@ async def get_global_stats(db: Session = Depends(get_db)):
 def check_dashboard_template():
     """
     Startup diagnostic: confirm dashboard.html exists
-    This check uses only the correct filename.
     """
     file_path = TEMPLATE_DIR / "dashboard.html"
 
     if file_path.is_file():
-        logger.info(f"Dashboard template OK → {file_path}")
+        logger.info(f"Dashboard template verified → {file_path}")
     else:
         logger.warning(f"Missing dashboard template → {file_path}")
         logger.warning("Expected: review_saas/app/templates/dashboard.html (lowercase)")
