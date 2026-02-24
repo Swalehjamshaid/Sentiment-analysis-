@@ -9,7 +9,11 @@
         backdrop-filter: blur(8px);
         border: 1px solid rgba(255, 255, 255, 0.05);
     }
-    input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+    input[type="date"]::-webkit-calendar-picker-indicator {
+        filter: invert(1);
+        cursor: pointer;
+    }
+    [x-cloak] { display: none !important; }
 </style>
 {% endblock %}
 
@@ -17,52 +21,73 @@
 <div class="space-y-8" x-data="{
     selectedCompany: { id: '{{ selected_company.id if selected_company else '' }}', name: '{{ selected_company.name if selected_company else 'Global Overview' }}' },
     syncing: false,
+    toast: { show: false, message: '' },
     dateStart: '{{ dashboard_payload.date_range.start if dashboard_payload else '' }}',
     dateEnd: '{{ dashboard_payload.date_range.end if dashboard_payload else '' }}',
     currentPage: 1,
     pageSize: 10,
     dashboardData: {{ dashboard_payload | tojson | safe if dashboard_payload else '{}' }},
     
+    init() {
+        // WebSocket Listener for Real-Time Sync Updates
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const socket = new WebSocket(`${protocol}//${window.location.host}/ws/dashboard`);
+        
+        socket.onmessage = (event) => {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'SYNC_COMPLETE' && msg.company_id == this.selectedCompany.id) {
+                this.showToast(msg.message);
+                // Refresh data after a short delay
+                setTimeout(() => window.location.reload(), 2000);
+            }
+        };
+    },
+
+    showToast(msg) {
+        this.toast.message = msg;
+        this.toast.show = true;
+        setTimeout(() => this.toast.show = false, 5000);
+    },
+
     get paginatedReviews() {
         if (!this.dashboardData.reviews?.data) return [];
         let start = (this.currentPage - 1) * this.pageSize;
         return this.dashboardData.reviews.data.slice(start, start + this.pageSize);
     },
+    
     get totalPages() {
         return Math.ceil((this.dashboardData.reviews?.total || 0) / this.pageSize);
     },
+    
     applyFilter() {
         window.location.href = `/dashboard?company_id=${this.selectedCompany.id}&start=${this.dateStart}&end=${this.dateEnd}`;
     },
+
     async triggerSync() {
         if (!this.selectedCompany.id) return;
         this.syncing = true;
         try {
             const response = await fetch(`/api/companies/${this.selectedCompany.id}/sync`, { method: 'POST' });
             if (response.ok) {
-                setTimeout(() => { 
-                    this.syncing = false; 
-                    window.location.reload(); 
-                }, 2000);
+                this.showToast('Sync started! Checking Google for new reviews...');
             }
         } catch (e) {
             console.error('Sync failed', e);
             this.syncing = false;
         }
-    },
-    generateAIReply(review) {
-        let draft = '';
-        const name = review.reviewer_name || 'Valued Customer';
-        if (review.sentiment_category === 'Positive') {
-            draft = `Hi ${name}, thank you so much for the ${review.rating}-star review! We're thrilled you enjoyed your experience.`;
-        } else if (review.sentiment_category === 'Negative') {
-            draft = `Dear ${name}, we sincerely apologize for your experience. We take your feedback seriously and want to make it right.`;
-        } else {
-            draft = `Hello ${name}, thank you for sharing your thoughts. We appreciate the feedback and are always working to improve.`;
-        }
-        alert('AI Suggested Reply:\n\n' + draft);
     }
 }">
+
+    <div x-show="toast.show" x-cloak x-transition
+         class="fixed bottom-10 right-10 z-[100] bg-brand-600 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 border border-brand-400/50">
+        <div class="bg-white/20 p-2 rounded-full">
+            <i class="fas fa-bell animate-bounce"></i>
+        </div>
+        <div>
+            <p class="font-bold text-sm">System Update</p>
+            <p class="text-xs opacity-90" x-text="toast.message"></p>
+        </div>
+    </div>
 
     <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
         <div>
@@ -71,7 +96,7 @@
             </h1>
             {% if selected_company %}
             <p class="text-slate-500 text-xs mt-1 uppercase tracking-widest">
-                Last Synced: {{ selected_company.last_synced_at.strftime('%Y-%m-%d %H:%M') if selected_company.last_synced_at else 'Never' }}
+                Last Synced: {{ selected_company.last_synced_at.strftime('%H:%M') if selected_company.last_synced_at else 'Pending' }}
             </p>
             {% endif %}
         </div>
@@ -79,21 +104,25 @@
         <div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
             <button @click="triggerSync()" 
                     :disabled="syncing || !selectedCompany.id"
-                    class="flex items-center gap-2 px-4 py-3 bg-brand-600/10 border border-brand-500/20 rounded-xl hover:bg-brand-600 hover:text-white transition-all text-sm font-bold text-brand-400 disabled:opacity-50">
+                    class="flex items-center gap-2 px-6 py-3 bg-brand-600/10 border border-brand-500/20 rounded-xl hover:bg-brand-600 hover:text-white transition-all text-sm font-bold text-brand-400 disabled:opacity-50">
                 <i class="fas fa-sync-alt" :class="syncing ? 'fa-spin' : ''"></i>
-                <span x-text="syncing ? 'Fetching...' : 'Sync Now'"></span>
+                <span x-text="syncing ? 'Syncing...' : 'Sync Now'"></span>
             </button>
 
             <div class="relative" x-data="{ open: false }">
                 <button @click="open = !open" class="w-full sm:w-64 flex justify-between items-center px-4 py-3 bg-slate-900/50 border border-slate-700 rounded-xl hover:border-brand-500 transition-all text-sm font-medium">
-                    <span class="flex items-center gap-2"><i class="fas fa-building text-brand-500"></i><span x-text="selectedCompany.name"></span></span>
+                    <span class="flex items-center gap-2">
+                        <i class="fas fa-building text-brand-500"></i>
+                        <span x-text="selectedCompany.name"></span>
+                    </span>
                     <i class="fas fa-chevron-down text-xs transition-transform" :class="open ? 'rotate-180' : ''"></i>
                 </button>
-                <div x-show="open" @click.away="open = false" x-cloak class="absolute right-0 w-full mt-2 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
+                <div x-show="open" @click.away="open = false" x-cloak 
+                     class="absolute right-0 w-full mt-2 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
                     <div class="max-h-60 overflow-y-auto">
-                        <a href="/dashboard" class="block px-4 py-3 hover:bg-brand-600/10 text-sm border-b border-slate-800/50 text-slate-300">Global Overview</a>
+                        <a href="/dashboard" class="block px-4 py-3 hover:bg-brand-600/10 transition-colors text-sm border-b border-slate-800/50">Global Overview</a>
                         {% for company in companies %}
-                        <div class="px-4 py-3 hover:bg-brand-600/10 cursor-pointer text-sm border-b border-slate-800/50 text-slate-300" 
+                        <div class="px-4 py-3 hover:bg-brand-600/10 cursor-pointer text-sm border-b border-slate-800/50" 
                              @click="selectedCompany = {id: '{{ company.id }}', name: '{{ company.name }}'}; open = false; applyFilter()">
                             {{ company.name }}
                         </div>
@@ -117,55 +146,47 @@
         <div class="metric-card p-6 rounded-2xl">
             <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Total Reviews</p>
             <p class="text-3xl font-bold mt-2" x-text="dashboardData.metrics.total || 0"></p>
-            <p class="text-[10px] text-emerald-400 mt-2 flex items-center gap-1"><i class="fas fa-chart-line"></i> Active</p>
         </div>
         <div class="metric-card p-6 rounded-2xl">
             <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Avg Rating</p>
             <p class="text-3xl font-bold mt-2"><span x-text="dashboardData.metrics.avg_rating || '0'"></span> <span class="text-lg text-slate-600">/ 5</span></p>
-            <div class="flex gap-1 mt-1">
-                <template x-for="i in 5">
-                    <i class="fas fa-star text-[10px]" :class="i <= dashboardData.metrics.avg_rating ? 'text-amber-400' : 'text-slate-700'"></i>
-                </template>
-            </div>
         </div>
         <div class="metric-card p-6 rounded-2xl">
             <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Risk Score</p>
             <p class="text-3xl font-bold mt-2" :class="dashboardData.metrics.risk_score > 60 ? 'text-rose-500' : 'text-emerald-500'" x-text="dashboardData.metrics.risk_score || 0"></p>
-            <p class="text-[10px] text-slate-500 mt-2 uppercase font-bold" x-text="(dashboardData.metrics.risk_level || 'Stable') + ' Risk'"></p>
         </div>
         <div class="metric-card p-6 rounded-2xl">
-            <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Trend Signal</p>
+            <p class="text-slate-400 text-xs font-bold uppercase tracking-wider">Sentiment Trend</p>
             <p class="text-2xl font-bold mt-2 capitalize text-white" x-text="dashboardData.trend.signal || 'Neutral'"></p>
-            <p class="text-[10px] text-slate-500 mt-2">Week-over-week</p>
         </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div class="lg:col-span-2 metric-card p-6 rounded-2xl">
-            <h3 class="font-bold text-lg mb-6"><i class="fas fa-chart-area text-brand-500 mr-2"></i>Sentiment Evolution</h3>
+            <h3 class="font-bold text-lg mb-6 text-white italic"><i class="fas fa-chart-area text-brand-500 mr-2"></i>Sentiment Evolution</h3>
             <div class="h-[320px]"><canvas id="sentimentTrendChart"></canvas></div>
         </div>
         <div class="metric-card p-6 rounded-2xl flex flex-col">
-            <h3 class="font-bold text-lg mb-6"><i class="fas fa-adjust text-brand-500 mr-2"></i>Overall Mix</h3>
+            <h3 class="font-bold text-lg mb-6 text-white italic"><i class="fas fa-adjust text-brand-500 mr-2"></i>Overall Mix</h3>
             <div class="flex-grow flex items-center justify-center"><canvas id="sentimentChart"></canvas></div>
         </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div class="metric-card p-6 rounded-2xl">
-            <h3 class="font-bold text-lg mb-6"><i class="fas fa-clock text-indigo-400 mr-2"></i>Activity Heatmap</h3>
+            <h3 class="font-bold text-lg mb-6 text-white italic"><i class="fas fa-clock text-indigo-400 mr-2"></i>Activity Heatmap</h3>
             <div class="h-[250px]"><canvas id="heatmapChart"></canvas></div>
         </div>
         <div class="metric-card p-6 rounded-2xl">
-            <h3 class="font-bold text-lg mb-6"><i class="fas fa-star-half-alt text-amber-400 mr-2"></i>Rating Trajectory</h3>
+            <h3 class="font-bold text-lg mb-6 text-white italic"><i class="fas fa-star-half-alt text-amber-400 mr-2"></i>Rating Trajectory</h3>
             <div class="h-[250px]"><canvas id="ratingTrendChart"></canvas></div>
         </div>
     </div>
 
     <div class="metric-card rounded-2xl overflow-hidden">
         <div class="p-6 border-b border-slate-800 flex justify-between items-center">
-            <h3 class="font-bold text-lg">Detailed Review Log</h3>
-            <span class="text-xs text-slate-500 uppercase tracking-widest" x-text="dashboardData.reviews.total + ' Records'"></span>
+            <h3 class="font-bold text-lg text-white">Review Log</h3>
+            <span class="text-xs text-slate-500" x-text="dashboardData.reviews.total + ' Total'"></span>
         </div>
         <div class="overflow-x-auto">
             <table class="w-full text-sm text-left">
@@ -174,36 +195,20 @@
                         <th class="px-6 py-4">Date</th>
                         <th class="px-6 py-4">Rating</th>
                         <th class="px-6 py-4">Reviewer</th>
-                        <th class="px-6 py-4">Comment Snippet</th>
-                        <th class="px-6 py-4 text-right">Intelligence</th>
+                        <th class="px-6 py-4">Snippet</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-800">
                     <template x-for="review in paginatedReviews" :key="review.id">
                         <tr class="hover:bg-brand-500/5 transition-colors">
                             <td class="px-6 py-4 text-slate-500" x-text="new Date(review.review_date).toLocaleDateString()"></td>
-                            <td class="px-6 py-4 font-bold text-white">
-                                <span x-text="review.rating"></span> <i class="fas fa-star text-amber-400 text-[10px]"></i>
-                            </td>
-                            <td class="px-6 py-4 font-semibold" x-text="review.reviewer_name || 'Anonymous'"></td>
+                            <td class="px-6 py-4 font-bold text-amber-400" x-text="review.rating + ' ★'"></td>
+                            <td class="px-6 py-4 font-semibold text-slate-200" x-text="review.reviewer_name || 'Anonymous'"></td>
                             <td class="px-6 py-4 text-slate-400 italic max-w-xs truncate" x-text="review.text"></td>
-                            <td class="px-6 py-4 text-right">
-                                <button @click="generateAIReply(review)" class="px-3 py-1 bg-brand-600/10 text-brand-400 border border-brand-500/20 rounded-lg text-[10px] font-bold hover:bg-brand-600 hover:text-white transition">
-                                    AI REPLY
-                                </button>
-                            </td>
                         </tr>
                     </template>
                 </tbody>
             </table>
-        </div>
-        
-        <div class="px-6 py-4 bg-slate-900/30 flex items-center justify-between border-t border-slate-800">
-            <p class="text-[10px] text-slate-500 uppercase">Showing page <span x-text="currentPage"></span> of <span x-text="totalPages"></span></p>
-            <div class="flex gap-2">
-                <button @click="currentPage > 1 && currentPage--" :disabled="currentPage === 1" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-20 rounded-md text-xs transition">Prev</button>
-                <button @click="currentPage < totalPages && currentPage++" :disabled="currentPage === totalPages" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-20 rounded-md text-xs transition">Next</button>
-            </div>
         </div>
     </div>
 </div>
@@ -218,7 +223,7 @@ document.addEventListener('DOMContentLoaded', () => {
     Chart.defaults.color = '#94a3b8';
     Chart.defaults.font.family = 'Inter';
 
-    // 1. Sentiment Trend Chart
+    // 1. Sentiment Trend
     new Chart(document.getElementById('sentimentTrendChart'), {
         type: 'line',
         data: {
@@ -228,10 +233,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 { label: 'Negative', data: data.sentiment_trend.negative, borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', fill: true, tension: 0.4 }
             ]
         },
-        options: { maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { grid: { color: 'rgba(255,255,255,0.05)' } } } }
+        options: { maintainAspectRatio: false, plugins: { legend: { position: 'top' } } }
     });
 
-    // 2. Simple Sentiment Mix
+    // 2. Mix
     new Chart(document.getElementById('sentimentChart'), {
         type: 'doughnut',
         data: {
@@ -245,17 +250,17 @@ document.addEventListener('DOMContentLoaded', () => {
         options: { cutout: '80%', plugins: { legend: { position: 'bottom' } } }
     });
 
-    // 3. Hourly Activity Heatmap
+    // 3. Heatmap
     new Chart(document.getElementById('heatmapChart'), {
         type: 'bar',
         data: {
             labels: data.heatmap.labels.map(h => `${h}:00`),
             datasets: [{ data: data.heatmap.data, backgroundColor: '#6366f1', borderRadius: 4 }]
         },
-        options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { display: false } } }
+        options: { maintainAspectRatio: false, plugins: { legend: { display: false } } }
     });
 
-    // 4. Rating Trajectory
+    // 4. Trajectory
     new Chart(document.getElementById('ratingTrendChart'), {
         type: 'line',
         data: {
