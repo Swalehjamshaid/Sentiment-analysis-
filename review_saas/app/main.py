@@ -20,9 +20,9 @@ from .routes.activity import router as activity_router
 from .routes.insights import router as insights_router
 
 # ───────────────────────────────────────────────────────────────
-# Path Discovery (Fixes "Template NOT FOUND")
+# PATH RESOLUTION (The Railway Fix)
 # ───────────────────────────────────────────────────────────────
-# This finds the actual folder on the Railway disk
+# This finds the absolute path to your 'app' directory
 BASE_DIR = Path(__file__).resolve().parent 
 TEMPLATE_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
@@ -30,9 +30,9 @@ STATIC_DIR = BASE_DIR / "static"
 # Logger Setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
-logger.info(f"Templates Path Resolved to: {TEMPLATE_DIR}")
+logger.info(f"Main Startup: Templates directory resolved to {TEMPLATE_DIR}")
 
-# Configuration fallback logic
+# Configuration fallback
 try:
     from .core.config import settings
 except Exception:
@@ -42,7 +42,9 @@ except Exception:
         CORS_ALLOW_ORIGINS: str = os.getenv("CORS_ALLOW_ORIGINS", "*")
     settings = _Settings()
 
+# ───────────────────────────────────────────────────────────────
 # HTTPS Redirect Middleware
+# ───────────────────────────────────────────────────────────────
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         proto = request.headers.get("x-forwarded-proto", request.url.scheme)
@@ -56,15 +58,12 @@ class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
 # ───────────────────────────────────────────────────────────────
 app = FastAPI(title=getattr(settings, "APP_NAME", "ReviewSaaS"))
 
-# Mount Static Files (using absolute path)
+# Mount Static Files using absolute pathing
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    logger.info("Static files mounted successfully.")
 
-# Mount Uploads (usually in the root or a dedicated volume)
-if os.path.isdir("app_uploads"):
-    app.mount("/uploads", StaticFiles(directory="app_uploads"), name="uploads")
-
-# Initialize Templates with the Absolute Path
+# Initialize Templates using absolute pathing
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 # Global Template Variables
@@ -89,22 +88,17 @@ app.add_middleware(
 )
 
 # ───────────────────────────────────────────────────────────────
-# Database Initialization
+# Database & Startup Events
 # ───────────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup_event():
     logger.info("Initializing database...")
     try:
         init_db(drop_existing=os.getenv("DROP_ALL_TABLES") == "1")
-        if os.getenv("RECREATE_COMPANIES") == "1":
-            Base.metadata.drop_all(bind=engine, tables=[Company.__table__])
-            Base.metadata.create_all(bind=engine)
     except Exception as e:
         logger.error(f"Database startup failed: {e}")
 
-# ───────────────────────────────────────────────────────────────
-# UI & API Routes
-# ───────────────────────────────────────────────────────────────
+# Context Dependency
 def template_context(request: Request) -> Dict[str, Any]:
     return {
         "request": request,
@@ -113,6 +107,9 @@ def template_context(request: Request) -> Dict[str, Any]:
         "googleMapsKey": os.getenv("GOOGLE_MAPS_API_KEY", "AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg"),
     }
 
+# ───────────────────────────────────────────────────────────────
+# UI Routes (Corrected Spelling to dashboard.html)
+# ───────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def home(context: dict = Depends(template_context)):
     return templates.TemplateResponse("home.html", context)
@@ -123,9 +120,12 @@ async def login_page(context: dict = Depends(template_context)):
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(context: dict = Depends(template_context)):
-    # This now looks in the absolute path resolved at startup
-    return templates.TemplateResponse("dashbord.html", context)
+    # Corrected filename string to match your physical file
+    return templates.TemplateResponse("dashboard.html", context)
 
+# ───────────────────────────────────────────────────────────────
+# API Routes Registration
+# ───────────────────────────────────────────────────────────────
 app.include_router(auth.router, prefix="/auth")
 app.include_router(companies.router)
 app.include_router(reviews.router)
