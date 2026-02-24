@@ -44,7 +44,7 @@
     <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
         <div>
             <h1 class="text-5xl font-black tracking-tighter text-white">
-                <span class="text-gradient" x-text="selectedCompany.name"></span>
+                <span class="text-gradient" x-text="selectedCompany.name || 'Select Company'"></span>
             </h1>
             <div class="flex items-center gap-3 mt-2">
                 <span class="insight-pill bg-brand-500/10 text-brand-400 border border-brand-500/20">Google API Integrated</span>
@@ -54,17 +54,17 @@
         </div>
 
         <div class="flex flex-wrap gap-3">
-            <button @click="triggerSync()" :disabled="syncing"
+            <button @click="triggerSync()" :disabled="syncing || !selectedCompany.id"
                     class="flex items-center gap-2 px-8 py-4 bg-brand-600 text-white rounded-2xl hover:bg-brand-500 transition-all font-black text-xs shadow-2xl shadow-brand-600/30 active:scale-95 disabled:opacity-50">
                 <i class="fas fa-bolt" :class="syncing ? 'animate-pulse' : ''"></i>
                 <span x-text="syncing ? 'RE-INDEXING GOOGLE...' : 'FORCE GOOGLE SYNC'"></span>
             </button>
             
-            <div class="flex bg-slate-900/80 border border-slate-700 rounded-2xl p-2 gap-2">
+            <div class="flex bg-slate-900/80 border border-slate-700 rounded-2xl p-2 gap-2 shadow-inner">
                 <input type="date" x-model="dateStart" class="bg-transparent border-none text-[11px] text-white px-2 focus:ring-0 w-32">
                 <span class="text-slate-800 self-center">/</span>
                 <input type="date" x-model="dateEnd" class="bg-transparent border-none text-[11px] text-white px-2 focus:ring-0 w-32">
-                <button @click="applyFilter()" class="bg-indigo-600 text-white px-6 py-2 rounded-xl text-[11px] font-black hover:bg-indigo-500 transition-all">FILTER</button>
+                <button @click="applyFilter()" class="bg-indigo-600 text-white px-6 py-2 rounded-xl text-[11px] font-black hover:bg-indigo-500 transition-all shadow-lg active:scale-95">FILTER</button>
             </div>
         </div>
     </div>
@@ -74,54 +74,54 @@
             <div class="absolute top-0 right-0 p-8 opacity-10">
                 <i class="fas fa-brain text-8xl text-indigo-400"></i>
             </div>
-            <h3 class="text-indigo-400 font-black text-xs uppercase tracking-[0.3em] mb-4">Executive Analysis (30-Day Logic)</h3>
+            <h3 class="text-indigo-400 font-black text-xs uppercase tracking-[0.3em] mb-4">Executive 30-Day Snapshot</h3>
             <p class="text-2xl font-bold text-slate-100 leading-tight mb-6" 
-               x-text="dashboardData.executive_summary_30d?.executive_snapshot || 'Synthesizing Google data streams...'"></p>
+               x-text="dashboardData.executive_summary_30d?.executive_snapshot || 'Neural engine is synthesizing Google data streams...'"></p>
             
             <div class="grid grid-cols-2 md:grid-cols-4 gap-6 relative z-10">
                 <div class="space-y-1">
-                    <p class="text-slate-500 text-[9px] font-bold uppercase">Volume</p>
+                    <p class="text-slate-500 text-[9px] font-bold uppercase">Volume (30d)</p>
                     <p class="text-lg font-black text-white" x-text="dashboardData.total_comments_30d || 0"></p>
                 </div>
                 <div class="space-y-1">
-                    <p class="text-slate-500 text-[9px] font-bold uppercase">Signal</p>
+                    <p class="text-slate-500 text-[9px] font-bold uppercase">Trend Signal</p>
                     <span class="insight-pill" 
                           :class="dashboardData.trend?.signal === 'improving' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'" 
                           x-text="dashboardData.trend?.signal || 'Stable'"></span>
                 </div>
                 <div class="space-y-1">
-                    <p class="text-slate-500 text-[9px] font-bold uppercase">Risk Score</p>
+                    <p class="text-slate-500 text-[9px] font-bold uppercase">Risk Index</p>
                     <p class="text-lg font-black text-white" x-text="(dashboardData.metrics?.risk_score || 0).toFixed(1) + '%'"></p>
                 </div>
                 <div class="space-y-1">
-                    <p class="text-slate-500 text-[9px] font-bold uppercase">Delta</p>
+                    <p class="text-slate-500 text-[9px] font-bold uppercase">Rating Delta</p>
                     <p class="text-lg font-black text-indigo-400" x-text="(dashboardData.trend?.delta || 0.0).toFixed(2)"></p>
                 </div>
             </div>
         </div>
 
         <div class="metric-card p-8 rounded-[2.5rem] flex flex-col justify-center text-center">
-            <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-4">Avg Google Rating</p>
+            <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-4">Avg Google Experience</p>
             <div class="relative inline-flex items-center justify-center">
                 <p class="text-7xl font-black text-amber-400" x-text="(dashboardData.metrics?.avg_rating || 0).toFixed(1)"></p>
                 <span class="text-2xl text-slate-600 ml-2 font-bold italic">★</span>
             </div>
-            <p class="text-slate-400 text-[10px] mt-4 font-bold" x-text="(dashboardData.metrics?.total || 0) + ' Verified Points'"></p>
+            <p class="text-slate-400 text-[10px] mt-4 font-bold" x-text="(dashboardData.metrics?.total || 0) + ' Data Points'"></p>
         </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div class="metric-card p-8 rounded-[2rem]">
             <h3 class="text-white font-bold text-sm mb-8 flex items-center justify-between">
-                <span><i class="fas fa-chart-line text-brand-400 mr-2"></i>Review Velocity (30d)</span>
-                <span class="text-[9px] text-slate-500 font-bold uppercase">Temporal Distribution</span>
+                <span><i class="fas fa-chart-line text-brand-400 mr-2"></i>Review Velocity (Last 30 Days)</span>
+                <span class="text-[9px] text-slate-500 font-bold uppercase">Temporal Data</span>
             </h3>
             <div class="h-64"><canvas id="dailyCountsChart"></canvas></div>
         </div>
         <div class="metric-card p-8 rounded-[2rem]">
             <h3 class="text-white font-bold text-sm mb-8 flex items-center justify-between">
-                <span><i class="fas fa-pie-chart text-emerald-400 mr-2"></i>Neural Sentiment Ring</span>
-                <span class="text-[9px] text-slate-500 font-bold uppercase">Current Mix</span>
+                <span><i class="fas fa-circle-notch text-emerald-400 mr-2"></i>Sentiment Ring (Current Mix)</span>
+                <span class="text-[9px] text-slate-500 font-bold uppercase">AI Classified</span>
             </h3>
             <div class="h-64 flex items-center justify-center"><canvas id="sentimentRingChart"></canvas></div>
         </div>
@@ -130,9 +130,11 @@
     <div class="metric-card rounded-[2rem] overflow-hidden">
         <div class="p-8 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
             <div>
-                <h3 class="text-white font-black text-xl tracking-tight">Intelligence Log</h3>
-                <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest mt-1">Direct Google Data Feed</p>
+                <h3 class="text-white font-black text-xl tracking-tight uppercase">Intelligence Log</h3>
+                <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest mt-1 italic">Real-time Google feedback</p>
             </div>
+            <span class="text-[9px] font-black text-brand-400 bg-brand-400/10 px-4 py-2 rounded-full border border-brand-500/20" 
+                  x-text="(dashboardData.metrics?.total || 0) + ' TOTAL RECORDS'"></span>
         </div>
         
         <div class="overflow-x-auto custom-scroll">
@@ -171,7 +173,7 @@
                                 <p class="text-slate-400 text-xs italic line-clamp-2 group-hover:line-clamp-none transition-all duration-500" x-text="review.text || 'No comment text detected.'"></p>
                             </td>
                             <td class="px-8 py-6 text-right">
-                                <button @click="generateAIReply(review)" class="px-5 py-2.5 bg-brand-500/10 text-brand-400 border border-brand-500/20 rounded-xl text-[10px] font-black hover:bg-brand-500 hover:text-white transition-all shadow-lg active:scale-95">
+                                <button @click="generateAIReply(review)" class="px-5 py-2.5 bg-brand-500/10 text-brand-400 border border-brand-500/20 rounded-xl text-[10px] font-black hover:bg-brand-600 hover:text-white transition-all shadow-lg active:scale-95">
                                     <i class="fas fa-magic mr-2"></i>DRAFT REPLY
                                 </button>
                             </td>
@@ -192,8 +194,8 @@
         <div class="px-8 py-6 bg-black/10 flex items-center justify-between border-t border-white/5">
             <p class="text-[9px] text-slate-600 font-black uppercase tracking-widest">Dataset Index <span class="text-brand-400" x-text="currentPage"></span> / <span x-text="totalPages"></span></p>
             <div class="flex gap-2">
-                <button @click="prevPage()" :disabled="currentPage === 1" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-20 rounded-xl text-[10px] font-black text-white transition-all">PREV</button>
-                <button @click="nextPage()" :disabled="currentPage === totalPages" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-20 rounded-xl text-[10px] font-black text-white transition-all">NEXT</button>
+                <button @click="prevPage()" :disabled="currentPage === 1" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-20 rounded-xl text-[10px] font-black text-white transition-all border border-white/5">PREV</button>
+                <button @click="nextPage()" :disabled="currentPage === totalPages" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-20 rounded-xl text-[10px] font-black text-white transition-all border border-white/5">NEXT</button>
             </div>
         </div>
     </div>
@@ -203,6 +205,10 @@
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+/**
+ * Dashboard Intelligence Logic v3.5.4
+ * Handles real-time filtering, WebSocket updates, and Chart.js rendering.
+ */
 function dashboardHandler() {
     return {
         selectedCompany: { 
@@ -218,7 +224,7 @@ function dashboardHandler() {
         dashboardData: {{ dashboard_payload | tojson | safe if dashboard_payload else '{}' }},
 
         init() {
-            // Real-time Update Listener via WebSocket
+            // WebSocket listener for real-time Sync notifications
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const socket = new WebSocket(`${protocol}//${window.location.host}/ws/dashboard`);
             socket.onmessage = (event) => {
@@ -250,9 +256,23 @@ function dashboardHandler() {
         nextPage() { if (this.currentPage < this.totalPages) this.currentPage++; },
         prevPage() { if (this.currentPage > 1) this.currentPage--; },
 
+        /**
+         * SAFETY GATE: Fixes the 422 Unprocessable Content error.
+         * Ensures company_id is present before redirecting.
+         */
         applyFilter() {
+            if (!this.selectedCompany.id || this.selectedCompany.id === "") {
+                alert("Please select a company from the sidebar or dropdown before filtering.");
+                return;
+            }
+            
             this.loading = true;
-            window.location.href = `/dashboard?company_id=${this.selectedCompany.id}&start=${this.dateStart}&end=${this.dateEnd}`;
+            const params = new URLSearchParams({
+                company_id: this.selectedCompany.id,
+                start: this.dateStart,
+                end: this.dateEnd
+            });
+            window.location.href = `/dashboard?${params.toString()}`;
         },
 
         async triggerSync() {
@@ -260,9 +280,9 @@ function dashboardHandler() {
             this.syncing = true;
             try {
                 const res = await fetch(`/api/companies/${this.selectedCompany.id}/sync`, { method: 'POST' });
-                if (res.ok) console.log("Sync Task Dispatched");
+                if (res.ok) console.log("Google API Sync Triggered...");
             } catch (err) {
-                console.error("Sync Failure", err);
+                console.error("Sync Failure:", err);
                 this.syncing = false;
             }
         },
@@ -270,15 +290,15 @@ function dashboardHandler() {
         generateAIReply(review) {
             const name = review.reviewer_name || 'Customer';
             const rating = review.rating;
-            const text = review.text || 'your visit';
+            const text = review.text || 'your feedback';
             
             let draft = `Hi ${name}, thank you for your ${rating}-star review. `;
             if (rating >= 4) {
-                draft += `We're delighted to hear about your experience! Your comments on "${text.substring(0,30)}..." were truly appreciated.`;
+                draft += `We're thrilled you enjoyed your experience! Your comments on "${text.substring(0,30)}..." were truly appreciated.`;
             } else {
-                draft += `We apologize for the issues you encountered. We have flagged your feedback about "${text.substring(0,30)}..." for immediate review by our manager.`;
+                draft += `We apologize for the issues you encountered. We have flagged your feedback about "${text.substring(0,30)}..." for immediate review by our management team.`;
             }
-            alert("AI DRAFTED REPLY:\n\n" + draft);
+            alert("NEURAL DRAFT REPLY:\n\n" + draft);
         },
 
         renderVisuals() {
@@ -298,7 +318,7 @@ function dashboardHandler() {
                         datasets: [
                             { label: 'Positive', data: data.daily_counts.datasets.positive, borderColor: '#10b981', tension: 0.4, fill: false, pointRadius: 0 },
                             { label: 'Negative', data: data.daily_counts.datasets.negative, borderColor: '#ef4444', tension: 0.4, fill: false, pointRadius: 0 },
-                            { label: 'Volume', data: data.daily_counts.datasets.total, borderColor: '#6366f1', borderDash: [5, 5], tension: 0.4, fill: false, pointRadius: 0 }
+                            { label: 'Total', data: data.daily_counts.datasets.total, borderColor: '#6366f1', borderDash: [5, 5], tension: 0.4, fill: false, pointRadius: 0 }
                         ]
                     },
                     options: { 
