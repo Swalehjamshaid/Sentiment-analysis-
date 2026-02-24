@@ -17,26 +17,21 @@ logger = logging.getLogger("dashboard")
 router = APIRouter(tags=["dashboard"])
 
 # 2. Dynamic Template Path Discovery
-# This finds the absolute path to the templates folder to fix Railway "Not Found" errors
+# We use absolute paths to ensure Railway finds the folder
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
 
 templates = Jinja2Templates(directory=TEMPLATE_DIR)
-logger.info(f"Dashboard Route Module Loaded. Templates path: {TEMPLATE_DIR}")
 
 # 3. Dashboard View Route
 @router.get("/", response_class=HTMLResponse)
 @router.get("/dashboard", response_class=HTMLResponse)
 async def get_dashboard(request: Request, db: Session = Depends(get_db)):
-    """
-    Renders the Unified Executive Dashboard for Huda.
-    """
     try:
-        # Fetch actual DB counts for the dashboard header
+        # Fetch stats for the UI
         company_count = db.query(Company).count()
         review_count = db.query(Review).count()
 
-        # Build context for Jinja2
         context = {
             "request": request,
             "stats": {
@@ -46,23 +41,9 @@ async def get_dashboard(request: Request, db: Session = Depends(get_db)):
             }
         }
 
-        # THE FIX: Added the 'a' to match your physical file: dashboard.html
+        # THE CRITICAL FIX: Changed 'dashbord.html' to 'dashboard.html'
         return templates.TemplateResponse("dashboard.html", context)
 
     except Exception as e:
         logger.error(f"Failed to load dashboard: {str(e)}")
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Dashboard template error. Check if 'dashboard.html' exists in {TEMPLATE_DIR}"
-        )
-
-# 4. API Health Check for Dashboard
-@router.get("/api/dashboard/status")
-async def get_dashboard_status(db: Session = Depends(get_db)):
-    """Backend status check specifically for dashboard data availability."""
-    return {
-        "status": "online",
-        "database_connected": True,
-        "company_entries": db.query(Company).count(),
-        "server_time": "2026-02-24T09:45:00Z"
-    }
+        raise HTTPException(status_code=500, detail="Dashboard template error.")
