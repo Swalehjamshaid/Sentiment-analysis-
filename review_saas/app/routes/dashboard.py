@@ -18,19 +18,16 @@ async def get_dashboard_page(
     db: Session = Depends(get_db), 
     current_user: Any = Depends(get_current_user)
 ):
-    # Import templates and context from main to avoid circular dependencies
     from app.main import templates, common_context
     
     try:
-        # Generate the analytics payload
+        # Fetches analytics data
         dashboard_payload = get_dashboard_data(db, company_id)
         
-        # Identify selected company if ID is provided
         selected_company = None
         if company_id:
             selected_company = db.query(Company).filter(Company.id == company_id).first()
 
-        # Build context
         context = common_context(request)
         context.update({
             "dashboard_payload": dashboard_payload,
@@ -38,7 +35,5 @@ async def get_dashboard_page(
         })
         
         return templates.TemplateResponse("dashboard.html", context)
-    except Exception as e:
-        import logging
-        logging.getLogger("review_saas").error(f"Dashboard Error: {e}")
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error loading the dashboard interface.")
