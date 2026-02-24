@@ -35,9 +35,9 @@ pyotp==2.9.0
 # ────────────────────────────────────────────────────────────────
 bleach==6.1.0
 httpx[http2]==0.27.2
-requests==2.32.3                   # ← pinned to latest compatible
-urllib3==2.2.1                     # ← pinned to avoid warnings
-charset-normalizer==3.3.2           # ← pinned to avoid warnings
+requests==2.32.3                  # ← pinned to latest compatible
+urllib3==2.2.1                    # ← pinned to avoid warnings
+charset-normalizer==3.3.2          # ← pinned to avoid warnings
 python-dateutil==2.9.0.post0
 
 # ────────────────────────────────────────────────────────────────
