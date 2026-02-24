@@ -17,7 +17,7 @@ logger = logging.getLogger("dashboard")
 router = APIRouter(tags=["dashboard"])
 
 # 2. Dynamic Template Path Discovery
-# Rule: Use absolute paths so Railway doesn't get lost in nested folders
+# This finds the absolute path to the templates folder to fix Railway "Not Found" errors
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
 
@@ -46,7 +46,7 @@ async def get_dashboard(request: Request, db: Session = Depends(get_db)):
             }
         }
 
-        # RULE: Changed 'dashbord.html' to 'dashboard.html' to fix the Warning
+        # THE FIX: Added the 'a' to match your physical file: dashboard.html
         return templates.TemplateResponse("dashboard.html", context)
 
     except Exception as e:
@@ -59,6 +59,7 @@ async def get_dashboard(request: Request, db: Session = Depends(get_db)):
 # 4. API Health Check for Dashboard
 @router.get("/api/dashboard/status")
 async def get_dashboard_status(db: Session = Depends(get_db)):
+    """Backend status check specifically for dashboard data availability."""
     return {
         "status": "online",
         "database_connected": True,
