@@ -3,7 +3,7 @@
 import os
 import logging
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Depends
@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.requests import Request as StarletteRequest
 
 # Internal imports
 from .db import init_db
@@ -20,9 +21,6 @@ from .routes import auth, companies, reviews, reply, reports, dashboard, admin
 from .routes.maps_routes import router as maps_router
 from .routes.activity import router as activity_router
 from .routes.insights import router as insights_router
-
-# Auth dependency (import your real one)
-from .dependencies import get_current_user  # ← create this file if missing
 
 # ───────────────────────────────────────────────────────────────
 # PATH RESOLUTION (Railway-safe)
@@ -97,11 +95,38 @@ else:
     logger.warning(f"Static directory not found: {STATIC_DIR}")
 
 # ───────────────────────────────────────────────────────────────
+# Simple session-based current_user (temporary until real auth)
+# ───────────────────────────────────────────────────────────────
+
+def get_current_user(request: Request) -> Optional[Dict[str, Any]]:
+    """
+    Get user from session. Returns None if not logged in.
+    Replace with your real auth (JWT, OAuth, DB lookup) later.
+    """
+    user = request.session.get("user")
+    return user if user else None
+
+# ───────────────────────────────────────────────────────────────
+# Common template context for all pages
+# ───────────────────────────────────────────────────────────────
+
+def common_context(request: Request) -> Dict[str, Any]:
+    user = get_current_user(request)
+    return {
+        "request": request,
+        "current_user": user,
+        "is_authenticated": user is not None,
+        "googleMapsKey": os.getenv("GOOGLE_MAPS_API_KEY", ""),
+        "apiBase": "",
+        "currentDate": "2026-02-24",
+    }
+
+# ───────────────────────────────────────────────────────────────
 # Middleware
 # ───────────────────────────────────────────────────────────────
 
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: StarletteRequest, call_next):
         proto = request.headers.get("x-forwarded-proto", request.url.scheme)
         if getattr(settings, "FORCE_HTTPS", False) and proto != "https":
             url = request.url.replace(scheme="https")
@@ -121,21 +146,6 @@ app.add_middleware(
 )
 
 # ───────────────────────────────────────────────────────────────
-# Common template context (called for every template render)
-# ───────────────────────────────────────────────────────────────
-
-def common_context(request: Request):
-    user = get_current_user(request)  # ← real auth
-    return {
-        "request": request,
-        "current_user": user,
-        "is_authenticated": bool(user),
-        "googleMapsKey": os.getenv("GOOGLE_MAPS_API_KEY", ""),
-        "apiBase": "",
-        "currentDate": "2026-02-24",
-    }
-
-# ───────────────────────────────────────────────────────────────
 # Public UI Routes
 # ───────────────────────────────────────────────────────────────
 
@@ -149,7 +159,7 @@ async def login_page(request: Request):
         return RedirectResponse(url="/dashboard")
     return templates.TemplateResponse("login.html", common_context(request))
 
-# /dashboard is handled by dashboard.router — do NOT duplicate here
+# /dashboard is handled by dashboard.router — do NOT add duplicate route here
 
 # ───────────────────────────────────────────────────────────────
 # Include Routers
@@ -158,7 +168,7 @@ async def login_page(request: Request):
 app.include_router(auth.router, prefix="/auth")
 app.include_router(companies.router)
 app.include_router(reviews.router)
-app.include_router(dashboard.router)  # ← handles /dashboard and /
+app.include_router(dashboard.router)      # ← handles /dashboard
 app.include_router(reports.router)
 app.include_router(admin.router)
 app.include_router(maps_router)
