@@ -1,3 +1,5 @@
+<!-- review_saas/app/templates/base.html -->
+
 <!DOCTYPE html>
 <html lang="en" class="scroll-smooth" x-data="{
   darkMode: localStorage.getItem('darkMode') === 'true' || (!localStorage.getItem('darkMode') && window.matchMedia('(prefers-color-scheme: dark)').matches),
@@ -40,18 +42,25 @@
 
   {% block extra_head %}{% endblock %}
 </head>
-<body class="bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-slate-100 min-h-screen font-sans antialiased">
+<body class="bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-slate-100 min-h-screen font-sans antialiased flex flex-col">
 
-  <!-- Header -->
-  {% block header %}
-  <header class="bg-slate-900/80 backdrop-blur-md border-b border-slate-700/50 sticky top-0 z-40">
+  <!-- Header / Navbar -->
+  <header class="bg-slate-900/80 backdrop-blur-md border-b border-slate-700/50 sticky top-0 z-50">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex justify-between items-center h-16">
+
+        <!-- Brand -->
         <div class="flex items-center gap-4">
-          <span class="text-2xl font-bold bg-gradient-to-r from-violet-400 to-accent bg-clip-text text-transparent">BizChat</span>
-          <span class="text-sm text-slate-400">Review Intelligence Platform</span>
+          <a href="/" class="text-2xl font-bold bg-gradient-to-r from-violet-400 to-accent bg-clip-text text-transparent">
+            BizChat
+          </a>
+          <span class="hidden sm:inline text-sm text-slate-400">Review Intelligence Platform</span>
         </div>
+
+        <!-- Right side controls -->
         <div class="flex items-center gap-5">
+
+          <!-- Dark mode toggle -->
           <button @click="toggleDark()" class="p-2 rounded-full hover:bg-slate-800 transition">
             <template x-if="darkMode">
               <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -65,18 +74,48 @@
             </template>
           </button>
 
-          <div x-data="{ open: false }" class="relative">
-            <button @click="open = !open" class="flex items-center gap-3 hover:opacity-90 transition">
-              <div class="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-accent flex items-center justify-center font-semibold">RJ</div>
-              <span class="hidden md:inline font-medium">Rai Jamshaid</span>
-            </button>
-            <div x-show="open" @click.away="open = false" class="absolute right-0 mt-3 w-56 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl py-2 z-50">
-              <a href="#" class="block px-5 py-2.5 hover:bg-slate-700/70 transition">Profile</a>
-              <a href="#" class="block px-5 py-2.5 hover:bg-slate-700/70 transition">Settings</a>
-              <hr class="my-2 border-slate-700"/>
-              <a href="#" class="block px-5 py-2.5 text-rose-400 hover:bg-rose-950/30 transition">Sign out</a>
+          {% if current_user.is_authenticated %}
+            <!-- Authenticated: User dropdown -->
+            <div x-data="{ open: false }" class="relative">
+              <button @click="open = !open" class="flex items-center gap-3 hover:opacity-90 transition">
+                <div class="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-accent flex items-center justify-center font-semibold">
+                  {{ current_user.full_name[0].upper() if current_user.full_name else current_user.email[0].upper() }}
+                </div>
+                <span class="hidden md:inline font-medium">
+                  {{ current_user.full_name or current_user.email.split('@')[0] }}
+                </span>
+              </button>
+
+              <div x-show="open" @click.away="open = false" 
+                   class="absolute right-0 mt-3 w-64 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl py-2 z-50 overflow-hidden">
+                <a href="/profile" class="block px-5 py-3 hover:bg-slate-700/70 transition flex items-center gap-3">
+                  <i class="fas fa-user w-5"></i> Profile
+                </a>
+                <a href="/settings" class="block px-5 py-3 hover:bg-slate-700/70 transition flex items-center gap-3">
+                  <i class="fas fa-cog w-5"></i> Settings
+                </a>
+                <a href="/companies" class="block px-5 py-3 hover:bg-slate-700/70 transition flex items-center gap-3">
+                  <i class="fas fa-building w-5"></i> My Companies
+                </a>
+                <hr class="my-2 border-slate-700 mx-2" />
+                <a href="/logout" class="block px-5 py-3 text-rose-400 hover:bg-rose-950/30 transition flex items-center gap-3">
+                  <i class="fas fa-sign-out-alt w-5"></i> Sign out
+                </a>
+              </div>
             </div>
-          </div>
+
+          {% else %}
+            <!-- Not authenticated: Login + Register -->
+            <div class="flex items-center gap-4">
+              <a href="/login" class="text-slate-300 hover:text-white font-medium transition">
+                Login
+              </a>
+              <a href="/register" class="px-5 py-2 bg-accent hover:bg-accentdark text-white font-medium rounded-lg transition shadow-md">
+                Register
+              </a>
+            </div>
+          {% endif %}
+
         </div>
       </div>
     </div>
@@ -87,6 +126,15 @@
   <main class="flex-grow py-10 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
     {% block content %}{% endblock %}
   </main>
+
+  <!-- Optional Footer -->
+  {% block footer %}
+  <footer class="bg-slate-950/80 border-t border-slate-800 py-6 text-center text-slate-400 text-sm mt-auto">
+    <div class="max-w-7xl mx-auto px-4">
+      © 2026 BizChat • Review Intelligence Platform
+    </div>
+  </footer>
+  {% endblock %}
 
   {% block extra_js %}{% endblock %}
 </body>
