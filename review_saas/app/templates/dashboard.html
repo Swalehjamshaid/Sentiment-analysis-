@@ -19,12 +19,12 @@
           </button>
           <div x-show="open" @click.away="open = false" class="absolute w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-80 overflow-y-auto z-30">
             <div class="p-2">
-              <template x-for="company in dashboard.companies || []" :key="company.id">
+              <template x-for="company in dashboard?.companies || []" :key="company.id">
                 <button @click="selectedCompany = company; open = false" class="w-full text-left px-4 py-2.5 hover:bg-slate-700/70 rounded-lg transition" x-text="company.name"></button>
               </template>
-              <button x-show="!(dashboard.companies || []).length" class="w-full text-left px-4 py-2.5 text-slate-400 italic">
+              <div x-show="!(dashboard?.companies || []).length" class="px-4 py-2.5 text-slate-400 italic">
                 No companies found
-              </button>
+              </div>
             </div>
           </div>
         </div>
@@ -63,24 +63,24 @@
         <div x-show="metricsOpen" class="section-collapse px-6 pb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           <div class="text-center">
             <p class="text-sm text-slate-400 uppercase tracking-wide">Total Reviews</p>
-            <p class="stat-number mt-2 text-accent" x-text="(dashboard.metrics?.total || 0).toLocaleString()"></p>
+            <p class="stat-number mt-2 text-accent" x-text="(dashboard?.metrics?.total || 0).toLocaleString()"></p>
           </div>
           <div class="text-center">
             <p class="text-sm text-slate-400 uppercase tracking-wide">Avg Rating</p>
-            <p class="stat-number mt-2" :class="dashboard.metrics?.avg_rating >= 4 ? 'text-emerald-400' : dashboard.metrics?.avg_rating >= 3 ? 'text-amber-400' : 'text-rose-400'"
-               x-text="(dashboard.metrics?.avg_rating || 0).toFixed(1) + ' ★'"></p>
+            <p class="stat-number mt-2" :class="(dashboard?.metrics?.avg_rating || 0) >= 4 ? 'text-emerald-400' : (dashboard?.metrics?.avg_rating || 0) >= 3 ? 'text-amber-400' : 'text-rose-400'"
+               x-text="(dashboard?.metrics?.avg_rating || 0).toFixed(1) + ' ★'"></p>
           </div>
           <div class="text-center">
             <p class="text-sm text-slate-400 uppercase tracking-wide">Risk Score</p>
-            <p class="stat-number mt-2" :class="dashboard.metrics?.risk_level === 'High' ? 'text-rose-400' : dashboard.metrics?.risk_level === 'Medium' ? 'text-amber-400' : 'text-emerald-400'"
-               x-text="(dashboard.metrics?.risk_score || 0).toFixed(1)"></p>
+            <p class="stat-number mt-2" :class="dashboard?.metrics?.risk_level === 'High' ? 'text-rose-400' : dashboard?.metrics?.risk_level === 'Medium' ? 'text-amber-400' : 'text-emerald-400'"
+               x-text="(dashboard?.metrics?.risk_score || 0).toFixed(1)"></p>
           </div>
           <div class="text-center">
             <p class="text-sm text-slate-400 uppercase tracking-wide">Trend</p>
             <p class="stat-number mt-2 flex justify-center items-center gap-2"
-               :class="dashboard.trend?.signal === 'improving' ? 'text-emerald-400' : dashboard.trend?.signal === 'declining' ? 'text-rose-400' : 'text-slate-300'">
-              <span x-text="dashboard.trend?.signal || 'No data'"></span>
-              <span x-text="dashboard.trend?.delta ? (dashboard.trend.delta > 0 ? '+' + dashboard.trend.delta.toFixed(2) : dashboard.trend.delta.toFixed(2)) : ''"></span>
+               :class="dashboard?.trend?.signal === 'improving' ? 'text-emerald-400' : dashboard?.trend?.signal === 'declining' ? 'text-rose-400' : 'text-slate-300'">
+              <span x-text="dashboard?.trend?.signal || 'No data'"></span>
+              <span x-text="dashboard?.trend?.delta ? (dashboard.trend.delta > 0 ? '+' + dashboard.trend.delta.toFixed(2) : dashboard.trend.delta.toFixed(2)) : ''"></span>
             </p>
           </div>
         </div>
@@ -115,7 +115,7 @@
       <div x-show="showReviews" class="card p-6">
         <h3 class="text-xl font-semibold mb-6">Recent Reviews</h3>
 
-        <div class="overflow-x-auto" x-show="dashboard.reviews?.data?.length > 0">
+        <div class="overflow-x-auto" x-show="(dashboard?.reviews?.data || []).length > 0">
           <table class="w-full text-sm text-left">
             <thead class="text-xs uppercase bg-slate-800/50">
               <tr>
@@ -144,16 +144,16 @@
           </table>
         </div>
 
-        <div x-show="!dashboard.reviews?.data?.length" class="text-center py-10 text-slate-400 italic">
+        <div x-show="(dashboard?.reviews?.data || []).length === 0" class="text-center py-10 text-slate-400 italic">
           No reviews found in this period.
         </div>
 
         <!-- Pagination -->
-        <div x-show="dashboard.reviews?.data?.length > 0" class="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6">
+        <div x-show="(dashboard?.reviews?.data || []).length > 0" class="flex flex-col sm:flex-row justify-between items-center gap-4 mt-6">
           <div class="text-sm text-slate-400">
             Showing <span x-text="(currentPage - 1) * pageSize + 1"></span>–
-            <span x-text="Math.min(currentPage * pageSize, dashboard.reviews?.total || 0)"></span>
-            of <span x-text="dashboard.reviews?.total || 0"></span>
+            <span x-text="Math.min(currentPage * pageSize, dashboard?.reviews?.total || 0)"></span>
+            of <span x-text="dashboard?.reviews?.total || 0"></span>
           </div>
 
           <div class="flex items-center gap-2">
