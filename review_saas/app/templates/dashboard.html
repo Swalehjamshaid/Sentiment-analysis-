@@ -53,7 +53,7 @@
 
         <div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
             <button @click="triggerSync()" :disabled="syncing || !selectedCompany.id"
-                    class="flex items-center justify-center gap-2 px-6 py-3 bg-brand-600/10 border border-brand-500/20 rounded-xl hover:bg-brand-600 hover:text-white transition-all text-sm font-bold text-brand-400 disabled:opacity-50 group">
+                    class="flex items-center justify-center gap-2 px-6 py-3 bg-brand-600 text-white rounded-xl hover:bg-brand-700 transition-all text-sm font-bold disabled:opacity-50 group">
                 <i class="fas fa-sync-alt group-hover:rotate-180 transition-transform duration-500" :class="syncing ? 'fa-spin' : ''"></i>
                 <span x-text="syncing ? 'Syncing...' : 'Sync Now'"></span>
             </button>
@@ -98,7 +98,7 @@
         <div class="metric-card p-6 rounded-2xl">
             <p class="text-slate-500 text-[10px] font-bold uppercase tracking-[0.15em]">Avg Rating</p>
             <div class="flex items-baseline gap-2">
-                <p class="text-3xl font-bold mt-2 text-amber-400" x-text="dashboardData.metrics?.avg_rating || '0.0'"></p>
+                <p class="text-3xl font-bold mt-2 text-amber-400" x-text="(dashboardData.metrics?.avg_rating || 0).toFixed(1)"></p>
                 <div class="flex gap-0.5 text-[10px] text-amber-500/50">
                     <i class="fas fa-star"></i><i class="fas fa-star"></i><i class="fas fa-star"></i><i class="fas fa-star"></i><i class="fas fa-star"></i>
                 </div>
@@ -135,7 +135,7 @@
         <div class="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/40">
             <h3 class="font-bold text-lg text-white">Review Intelligence Log</h3>
             <div class="flex items-center gap-3">
-                <span class="px-2 py-1 bg-brand-500/10 text-brand-400 text-[10px] font-bold rounded-md" x-text="(dashboardData.reviews?.total || 0) + ' TOTAL RECORDS'"></span>
+                <span class="px-2 py-1 bg-brand-500/10 text-brand-400 text-[10px] font-bold rounded-md" x-text="(dashboardData.metrics?.total || 0) + ' TOTAL RECORDS'"></span>
             </div>
         </div>
         <div class="overflow-x-auto custom-scroll">
@@ -145,14 +145,14 @@
                         <th class="px-6 py-4">Date</th>
                         <th class="px-6 py-4">Rating</th>
                         <th class="px-6 py-4">Reviewer</th>
-                        <th class="px-6 py-4">Sentiment Analysis</th>
+                        <th class="px-6 py-4">Snippet & Analysis</th>
                         <th class="px-6 py-4 text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-800">
                     <template x-for="review in paginatedReviews" :key="review.id">
                         <tr class="hover:bg-brand-500/5 transition-colors group">
-                            <td class="px-6 py-4 text-slate-400 text-xs" x-text="new Date(review.review_date).toLocaleDateString(undefined, {year: 'numeric', month: 'short', day: 'numeric'})"></td>
+                            <td class="px-6 py-4 text-slate-400 text-xs" x-text="new Date(review.review_date).toLocaleDateString()"></td>
                             <td class="px-6 py-4">
                                 <div class="flex items-center gap-1">
                                     <span class="font-bold text-amber-400" x-text="review.rating"></span>
@@ -164,8 +164,8 @@
                             </td>
                             <td class="px-6 py-4">
                                 <div class="max-w-xs">
-                                    <p class="text-slate-400 italic text-xs truncate mb-1" x-text="review.text"></p>
-                                    <span class="text-[9px] px-2 py-0.5 rounded-full border" 
+                                    <p class="text-slate-400 italic text-xs line-clamp-2" x-text="review.text || 'No comment text provided'"></p>
+                                    <span class="text-[9px] px-2 py-0.5 rounded-full border mt-1 inline-block" 
                                           :class="{
                                               'bg-emerald-500/10 border-emerald-500/20 text-emerald-400': review.sentiment_category === 'Positive',
                                               'bg-rose-500/10 border-rose-500/20 text-rose-400': review.sentiment_category === 'Negative',
@@ -175,7 +175,7 @@
                             </td>
                             <td class="px-6 py-4 text-right">
                                 <button @click="generateAIReply(review)" class="px-4 py-1.5 bg-brand-600/10 text-brand-400 border border-brand-500/20 rounded-lg text-[10px] font-bold hover:bg-brand-600 hover:text-white transition-all transform group-hover:scale-105">
-                                    <i class="fas fa-magic mr-1"></i> AI REPLY
+                                    <i class="fas fa-robot mr-1"></i> AUTO REPLY
                                 </button>
                             </td>
                         </tr>
@@ -185,8 +185,8 @@
                         <tr>
                             <td colspan="5" class="px-6 py-24 text-center">
                                 <div class="flex flex-col items-center justify-center opacity-30">
-                                    <i class="fas fa-folder-open text-6xl mb-4"></i>
-                                    <p class="text-sm font-medium">No review data available for the selected filters.</p>
+                                    <i class="fas fa-folder-open text-6xl mb-4 text-slate-500"></i>
+                                    <p class="text-sm font-medium">No live reviews matching your filters found.</p>
                                 </div>
                             </td>
                         </tr>
@@ -209,10 +209,6 @@
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-/**
- * Dashboard Logic Handler
- * Moves all Alpine.js logic into a clean JavaScript function to avoid Jinja/HTML parsing errors.
- */
 function dashboardHandler() {
     return {
         selectedCompany: { 
@@ -225,10 +221,11 @@ function dashboardHandler() {
         dateEnd: '{{ dashboard_payload.date_range.end if dashboard_payload else "" }}',
         currentPage: 1,
         pageSize: 10,
+        // The dashboardData is now safely injected from your analysis.py
         dashboardData: {{ dashboard_payload | tojson | safe if dashboard_payload else '{}' }},
 
         init() {
-            // Setup Real-time WebSocket for sync updates
+            // WebSocket for sync completion
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const socket = new WebSocket(`${protocol}//${window.location.host}/ws/dashboard`);
             
@@ -239,7 +236,6 @@ function dashboardHandler() {
                 }
             };
 
-            // Remove loading state after brief delay for smooth entrance
             this.$nextTick(() => {
                 setTimeout(() => {
                     this.loading = false;
@@ -249,13 +245,17 @@ function dashboardHandler() {
         },
 
         get paginatedReviews() {
+            // This is how we fix the "Empty Table" - we look into dashboardData.daily_series or dashboard_payload
+            // For the table, we usually send the raw list of reviews.
+            // Based on your analysis.py, reviews are in dashboardData.reviews.data
             if (!this.dashboardData.reviews?.data) return [];
             const start = (this.currentPage - 1) * this.pageSize;
             return this.dashboardData.reviews.data.slice(start, start + this.pageSize);
         },
 
         get totalPages() {
-            return Math.ceil((this.dashboardData.reviews?.total || 0) / this.pageSize) || 1;
+            const total = this.dashboardData.reviews?.total || 0;
+            return Math.ceil(total / this.pageSize) || 1;
         },
 
         nextPage() { if (this.currentPage < this.totalPages) this.currentPage++; },
@@ -270,27 +270,31 @@ function dashboardHandler() {
             if (!this.selectedCompany.id) return;
             this.syncing = true;
             try {
-                const res = await fetch(`/api/companies/${this.selectedCompany.id}/sync`, { method: 'POST' });
-                if (res.ok) {
-                    console.log("Sync request acknowledged.");
-                }
+                await fetch(`/api/companies/${this.selectedCompany.id}/sync`, { method: 'POST' });
+                // We don't reload here; we wait for the WebSocket SYNC_COMPLETE
             } catch (err) {
-                console.error("Sync fetch error:", err);
+                console.error("Sync failed:", err);
                 this.syncing = false;
             }
         },
 
         generateAIReply(review) {
-            const name = review.reviewer_name || 'our valued customer';
-            let tone = review.sentiment_category === 'Positive' ? 'enthusiastic' : 'professional and empathetic';
+            const name = review.reviewer_name || 'Valued Customer';
+            const comment = review.text || '';
+            const rating = review.rating;
             
-            const draft = `Drafting ${tone} response for ${name}...\n\n` + 
-                          `"Hi ${name}, thank you for your ${review.rating}-star review. ` + 
-                          (review.sentiment_category === 'Positive' 
-                           ? "We are so glad you had a great experience!" 
-                           : "We are sorry to hear about your experience and would love to make it right.") + '"';
+            // AUTOMATED REPLY LOGIC
+            let draft = "";
+            if (rating >= 4) {
+                draft = `Hi ${name}, thank you so much for the wonderful ${rating}-star review! We're thrilled to hear your feedback regarding "${comment.substring(0, 50)}...". We hope to see you again soon!`;
+            } else if (rating === 3) {
+                draft = `Hello ${name}, thank you for your feedback. We appreciate your ${rating}-star rating and have noted your comments to help us improve.`;
+            } else {
+                draft = `Dear ${name}, we sincerely apologize for the experience that led to your ${rating}-star review. We take your comments about "${comment.substring(0, 50)}..." very seriously and would like to investigate this further.`;
+            }
             
-            alert(draft);
+            // In a real app, you'd show this in a modal or text area.
+            alert("AI GENERATED DRAFT FOR: " + name + "\n\n" + draft);
         },
 
         renderVisuals() {
@@ -308,12 +312,12 @@ function dashboardHandler() {
                     data: {
                         labels: (data.heatmap?.labels || []).map(h => `${h}:00`),
                         datasets: [{ 
-                            label: 'Review Volume',
+                            label: 'Review Frequency',
                             data: data.heatmap?.data || [], 
                             backgroundColor: 'rgba(99, 102, 241, 0.5)',
                             borderColor: '#6366f1',
                             borderWidth: 1,
-                            borderRadius: 4 
+                            borderRadius: 6 
                         }]
                     },
                     options: { 
@@ -327,7 +331,7 @@ function dashboardHandler() {
                 });
             }
 
-            // 2. Sentiment Mix
+            // 2. Sentiment Distribution
             const sentimentCtx = document.getElementById('sentimentChart');
             if (sentimentCtx) {
                 new Chart(sentimentCtx, {
@@ -335,17 +339,21 @@ function dashboardHandler() {
                     data: {
                         labels: ['Positive', 'Neutral', 'Negative'],
                         datasets: [{
-                            data: [data.sentiment?.Positive || 0, data.sentiment?.Neutral || 0, data.sentiment?.Negative || 0],
+                            data: [
+                                data.sentiment?.Positive || 0, 
+                                data.sentiment?.Neutral || 0, 
+                                data.sentiment?.Negative || 0
+                            ],
                             backgroundColor: ['#10b981', '#64748b', '#ef4444'],
                             borderWidth: 0,
-                            hoverOffset: 10
+                            hoverOffset: 15
                         }]
                     },
                     options: { 
                         cutout: '80%', 
                         maintainAspectRatio: false,
                         plugins: { 
-                            legend: { position: 'bottom', labels: { boxWidth: 12, padding: 20 } } 
+                            legend: { position: 'bottom', labels: { boxWidth: 12, padding: 25, color: '#94a3b8' } } 
                         } 
                     }
                 });
