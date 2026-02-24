@@ -1,17 +1,16 @@
-# FILE: main.py
-
 import os
 import logging
 from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, Request, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
+# Internal relative imports
 from .db import engine, init_db
 from .models import Base, Company
 from .routes import auth, companies, reviews, reply, reports, dashboard, admin
@@ -23,7 +22,7 @@ from .routes.insights import router as insights_router
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
 
-# Optional app config (fallback-safe)
+# Configuration fallback logic
 try:
     from .core.config import settings
 except Exception:
@@ -34,7 +33,7 @@ except Exception:
     settings = _Settings()
 
 # ───────────────────────────────────────────────────────────────
-# HTTPS Redirect Middleware
+# HTTPS Redirect Middleware (Railway & Production Security)
 # ───────────────────────────────────────────────────────────────
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
@@ -49,7 +48,7 @@ class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
 # ───────────────────────────────────────────────────────────────
 app = FastAPI(title=getattr(settings, "APP_NAME", "ReviewSaaS"))
 
-# Mount Static Files
+# Mount Static Files & Uploads
 if os.path.isdir("app/static"):
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
 if os.path.isdir("app_uploads"):
@@ -57,12 +56,14 @@ if os.path.isdir("app_uploads"):
 
 templates = Jinja2Templates(directory="app/templates")
 
-# Global Template Variables
+# Global Template Variables for dashbord.html access
 templates.env.globals["googleMapsKey"] = os.getenv(
     "GOOGLE_MAPS_API_KEY", 
     "AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg"
 )
 templates.env.globals["apiBase"] = ""
+# Ensure current simulation date is accessible if needed
+templates.env.globals["currentDate"] = "2026-02-24"
 
 # Middlewares
 app.add_middleware(HTTPSRedirectMiddleware)
@@ -78,13 +79,12 @@ app.add_middleware(
 )
 
 # ───────────────────────────────────────────────────────────────
-# Database initialization
+# Database Initialization & Startup
 # ───────────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup_event():
     logger.info("Initializing database...")
     try:
-        # Use the smart init_db from your db.py to handle missing columns
         init_db(drop_existing=os.getenv("DROP_ALL_TABLES") == "1")
         
         if os.getenv("RECREATE_COMPANIES") == "1":
@@ -95,18 +95,18 @@ async def startup_event():
         logger.error(f"Database startup failed: {e}")
 
 # ───────────────────────────────────────────────────────────────
-# Dependency & Context
+# Dependency Context (Shared across UI routes)
 # ─────────────────────────────────────────────────────────────
 def template_context(request: Request) -> Dict[str, Any]:
     return {
         "request": request,
-        "current_user": None,
+        "current_user": {"name": "Huda", "id": 1}, # Placeholder for your auth logic
         "apiBase": "",
         "googleMapsKey": os.getenv("GOOGLE_MAPS_API_KEY", "AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg"),
     }
 
 # ───────────────────────────────────────────────────────────────
-# UI Routes
+# UI Routes (Redirecting to your Unified Dashboard)
 # ───────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def home(context: dict = Depends(template_context)):
@@ -116,28 +116,31 @@ async def home(context: dict = Depends(template_context)):
 async def login_page(context: dict = Depends(template_context)):
     return templates.TemplateResponse("login.html", context)
 
+# Unified UI Entry Point
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(context: dict = Depends(template_context)):
-    return templates.TemplateResponse("dashboard.html", context)
+    # Points to your State-of-the-Art dashbord.html (1.1)
+    return templates.TemplateResponse("dashbord.html", context)
 
 # ───────────────────────────────────────────────────────────────
-# API Routes
+# API Routes Registration
 # ───────────────────────────────────────────────────────────────
 app.include_router(auth.router, prefix="/auth")
 app.include_router(companies.router)      # /api/companies
 app.include_router(reviews.router)        # /api/reviews
 app.include_router(dashboard.router)      # /api/dashboard
 app.include_router(reports.router)        # /api/reports
+app.include_router(admin.router)          # /admin
 app.include_router(maps_router)           # /api/maps
 app.include_router(activity_router, prefix="/api/activity", tags=["telemetry"])
 app.include_router(insights_router, prefix="/api/insights", tags=["ai"])
 
 # ───────────────────────────────────────────────────────────────
-# Diagnostics
+# Diagnostics & Health
 # ───────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "service": settings.APP_NAME}
+    return {"status": "healthy", "service": settings.APP_NAME, "date": "2026-02-24"}
 
 @app.get("/diag")
 async def diagnostics():
@@ -147,5 +150,6 @@ async def diagnostics():
         "keys_loaded": {
             "maps": bool(os.getenv("GOOGLE_MAPS_API_KEY")),
             "places": bool(os.getenv("GOOGLE_PLACES_API_KEY"))
-        }
+        },
+        "routes": [r.path for r in app.routes]
     }
