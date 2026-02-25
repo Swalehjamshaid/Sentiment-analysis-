@@ -1,14 +1,17 @@
+# FILE: app/routes/dashboard.py
 """
 Dashboard Router
-Railway-safe Google API integration.
-Prevents 500 errors when credentials are missing.
+- Railway-safe Google API integration
+- Prevents 500 errors when credentials are missing
+- Fully typed and clean
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict
+from typing import Optional, List
 from types import SimpleNamespace
 from pathlib import Path
 import os
+import logging
 
 from fastapi import APIRouter, Depends, Request, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -17,60 +20,63 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app import models
-
-# Services
 from app.services.rbac import get_current_user
 from app.services import ai_insights as ai_svc
 from app.services import metrics as metrics_svc
 from app.services.google_api import get_google_api_service
 from app.context import common_context
 
+logger = logging.getLogger("review_saas.dashboard")
 
-# ==========================================================
+# ─────────────────────────────────────────────────────────────
 # TEMPLATE CONFIG (Railway-safe)
-# ==========================================================
+# ─────────────────────────────────────────────────────────────
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 router = APIRouter()
 
 
-# ===========================
+# ─────────────────────────────────────────────────────────────
 # HELPERS
-# ===========================
+# ─────────────────────────────────────────────────────────────
 
-def _parse_date(d: Optional[str]) -> Optional[datetime]:
-    if not d:
+def _parse_date(date_str: Optional[str]) -> Optional[datetime]:
+    if not date_str:
         return None
     try:
-        dt = datetime.fromisoformat(d.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
         return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to parse date '%s': %s", date_str, e)
         return None
 
 
-def _quick_range(range_key: Optional[str]):
+def _quick_range(range_key: Optional[str]) -> (Optional[datetime], Optional[datetime]):
     if not range_key:
         return None, None
     now = datetime.now(timezone.utc)
-    r = range_key.lower()
-    if r == "7d":
+    key = range_key.lower()
+
+    if key == "7d":
         return now - timedelta(days=7), now
-    if r == "30d":
+    elif key == "30d":
         return now - timedelta(days=30), now
-    if r == "90d":
+    elif key == "90d":
         return now - timedelta(days=90), now
-    if r == "qtr":
-        q = (now.month - 1) // 3 + 1
-        start_month = (q - 1) * 3 + 1
+    elif key == "qtr":
+        quarter = (now.month - 1) // 3 + 1
+        start_month = (quarter - 1) * 3 + 1
         start = now.replace(month=start_month, day=1, hour=0, minute=0, second=0)
         return start, now
+
     return None, None
 
 
-# ===========================
+# ─────────────────────────────────────────────────────────────
 # DASHBOARD ROUTE
-# ===========================
+# ─────────────────────────────────────────────────────────────
 
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(
@@ -85,23 +91,29 @@ async def dashboard_page(
     """
     Railway-safe dashboard:
     - Google API is optional
-    - Never crashes if credentials missing
+    - Never crashes if credentials are missing
     """
 
     if not current_user:
         return RedirectResponse("/login", status_code=303)
 
-    # =====================================
+    # ─────────────────────────────────────────────────────────
     # LOAD COMPANIES
-    # =====================================
+    # ─────────────────────────────────────────────────────────
+
     if getattr(current_user, "role", None) == "admin":
-        companies = db.query(models.Company).order_by(
-            models.Company.created_at.desc()
-        ).all()
+        companies: List[models.Company] = (
+            db.query(models.Company)
+            .order_by(models.Company.created_at.desc())
+            .all()
+        )
     else:
-        companies = db.query(models.Company).filter(
-            models.Company.owner_id == current_user.id
-        ).order_by(models.Company.created_at.desc()).all()
+        companies: List[models.Company] = (
+            db.query(models.Company)
+            .filter(models.Company.owner_id == current_user.id)
+            .order_by(models.Company.created_at.desc())
+            .all()
+        )
 
     if not companies:
         ctx = common_context(request)
@@ -118,8 +130,13 @@ async def dashboard_page(
         })
         return templates.TemplateResponse("dashboard.html", ctx)
 
+    # Determine active company
     active = next((c for c in companies if c.id == company_id), companies[0])
     company_id = active.id
+
+    # ─────────────────────────────────────────────────────────
+    # DATE RANGE
+    # ─────────────────────────────────────────────────────────
 
     sdt, edt = _quick_range(range)
     if from_:
@@ -127,35 +144,34 @@ async def dashboard_page(
     if to:
         edt = _parse_date(to)
 
-    # =====================================
-    # SAFE GOOGLE API CHECK
-    # =====================================
+    # ─────────────────────────────────────────────────────────
+    # GOOGLE API (RAILWAY-SAFE)
+    # ─────────────────────────────────────────────────────────
+
     google_service = None
     google_status = "not_configured"
-
     try:
-        if os.getenv("GOOGLE_CREDENTIALS_JSON"):
+        creds_path = os.getenv("GOOGLE_CREDENTIALS_JSON")
+        if creds_path:
             google_service = get_google_api_service()
             google_status = "connected"
         else:
             google_status = "missing_credentials"
     except Exception as e:
-        print("Google init error:", e)
+        logger.warning("Google API initialization failed: %s", e)
         google_status = "error"
 
-    # =====================================
+    # ─────────────────────────────────────────────────────────
     # REVIEWS
-    # =====================================
-    q = db.query(models.Review).filter(
-        models.Review.company_id == company_id
-    )
+    # ─────────────────────────────────────────────────────────
 
+    review_query = db.query(models.Review).filter(models.Review.company_id == company_id)
     if sdt:
-        q = q.filter(models.Review.review_date >= sdt)
+        review_query = review_query.filter(models.Review.review_date >= sdt)
     if edt:
-        q = q.filter(models.Review.review_date <= edt)
+        review_query = review_query.filter(models.Review.review_date <= edt)
 
-    reviews = q.order_by(models.Review.review_date.desc()).all()
+    reviews = review_query.order_by(models.Review.review_date.desc()).all()
 
     review_vm = [
         SimpleNamespace(
@@ -170,24 +186,26 @@ async def dashboard_page(
         for r in reviews
     ]
 
-    # =====================================
-    # METRICS + AI
-    # =====================================
+    # ─────────────────────────────────────────────────────────
+    # METRICS + AI INSIGHTS
+    # ─────────────────────────────────────────────────────────
+
     kpi = metrics_svc.build_kpi_for_dashboard(db, company_id, sdt, edt)
     charts = metrics_svc.build_dashboard_charts(db, company_id, sdt, edt)
 
     try:
         ai_summary = ai_svc.analyze_reviews(reviews, active, sdt, edt)
-        summary_text = ai_summary.get("summary_text")
+        summary_text = ai_summary.get("summary_text", "AI summary unavailable.")
     except Exception as e:
-        print("AI error:", e)
+        logger.warning("AI analysis failed: %s", e)
         summary_text = "AI summary unavailable."
 
-    # =====================================
+    # ─────────────────────────────────────────────────────────
     # FINAL CONTEXT
-    # =====================================
-    final_ctx = common_context(request)
-    final_ctx.update({
+    # ─────────────────────────────────────────────────────────
+
+    context = common_context(request)
+    context.update({
         "companies": companies,
         "active_company": active,
         "kpi": kpi,
@@ -199,4 +217,4 @@ async def dashboard_page(
         "roles": [],
     })
 
-    return templates.TemplateResponse("dashboard.html", final_ctx)
+    return templates.TemplateResponse("dashboard.html", context)
