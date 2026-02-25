@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+
 {% block head %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
@@ -25,6 +26,7 @@
   <!-- SIDEBAR: Companies -->
   <aside class="col-lg-3">
     <div class="sidebar">
+      <!-- Companies list -->
       <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
           <strong>Your Companies</strong>
@@ -45,6 +47,7 @@
         </div>
       </div>
 
+      <!-- Add company -->
       <div class="card mt-3">
         <div class="card-header"><strong>Add Company</strong></div>
         <form class="card-body d-grid gap-2" method="POST" action="/companies/create">
@@ -58,7 +61,6 @@
             <input class="form-control" name="place_id" maxlength="128" />
           </div>
           <button class="btn btn-brand">Add</button>
-          <!-- TODO (backend): On submit, create company → schedule/trigger sync job for Google API -->
         </form>
       </div>
 
@@ -98,19 +100,16 @@
         </div>
         <div class="col-md-3">
           <label class="form-label">From</label>
-          <input type="date" class="form-control" name="from"
-                 value="{{ params.from or '' }}" min="2026-02-25" required />
+          <input type="date" class="form-control" name="from" value="{{ params.from or '' }}" min="2026-02-25" required />
         </div>
         <div class="col-md-3">
           <label class="form-label">To</label>
-          <input type="date" class="form-control" name="to"
-                 value="{{ params.to or '' }}" min="2026-02-25" required />
+          <input type="date" class="form-control" name="to" value="{{ params.to or '' }}" min="2026-02-25" required />
         </div>
         <div class="col-md-2 d-grid">
           <button class="btn btn-brand">Apply</button>
         </div>
         <div class="col-12">
-          <!-- Quick ranges -->
           <div class="d-flex gap-2">
             <a class="btn btn-sm btn-outline-secondary" href="?company_id={{ active_company.id }}&range=7d">Last 7 days</a>
             <a class="btn btn-sm btn-outline-secondary" href="?company_id={{ active_company.id }}&range=30d">Last 30 days</a>
@@ -123,42 +122,22 @@
 
     <!-- KPI Cards -->
     <div class="row g-3 mb-3">
+      {% for title, value, extra in [
+        ('Average Rating', kpi.avg_rating, 'vs prev period: ' ~ (kpi.avg_rating_delta or '—')),
+        ('Avg Sentiment', kpi.avg_sentiment, 'pos/neu/neg: ' ~ kpi.pos ~ '/' ~ kpi.neu ~ '/' ~ kpi.neg),
+        ('Review Count', kpi.review_count, 'growth: ' ~ (kpi.review_growth or '—')),
+        ('Response Time', kpi.avg_response_time, 'response rate: ' ~ (kpi.response_rate or '—'))
+      ] %}
       <div class="col-md-3">
         <div class="card card-kpi">
           <div class="card-body">
-            <h6>Average Rating</h6>
-            <div class="display-6 fw-bold">{{ kpi.avg_rating or '—' }}</div>
-            <div class="small text-muted">vs prev period: {{ kpi.avg_rating_delta or '—' }}</div>
+            <h6>{{ title }}</h6>
+            <div class="display-6 fw-bold">{{ value or '—' }}</div>
+            <div class="small text-muted">{{ extra }}</div>
           </div>
         </div>
       </div>
-      <div class="col-md-3">
-        <div class="card card-kpi">
-          <div class="card-body">
-            <h6>Avg Sentiment</h6>
-            <div class="display-6 fw-bold">{{ kpi.avg_sentiment or '—' }}</div>
-            <div class="small text-muted">pos/neu/neg: {{ kpi.pos }}/{{ kpi.neu }}/{{ kpi.neg }}</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-md-3">
-        <div class="card card-kpi">
-          <div class="card-body">
-            <h6>Review Count</h6>
-            <div class="display-6 fw-bold">{{ kpi.review_count or 0 }}</div>
-            <div class="small text-muted">growth: {{ kpi.review_growth or '—' }}</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-md-3">
-        <div class="card card-kpi">
-          <div class="card-body">
-            <h6>Response Time</h6>
-            <div class="display-6 fw-bold">{{ kpi.avg_response_time or '—' }}</div>
-            <div class="small text-muted">response rate: {{ kpi.response_rate or '—' }}</div>
-          </div>
-        </div>
-      </div>
+      {% endfor %}
     </div>
 
     <!-- Charts -->
@@ -189,17 +168,16 @@
       </div>
     </div>
 
-    <!-- Executive Summary (AI) -->
+    <!-- Executive Summary -->
     <div class="card mb-3">
       <div class="card-header"><strong>Executive Summary</strong></div>
       <div class="card-body">
         <p class="mb-1 text-muted small">AI-generated summary of the selected period.</p>
         <div id="summaryText">{{ summary or 'No summary available yet.' }}</div>
-        <!-- TODO (backend): Generate summary using your NLP pipeline and inject into `summary` -->
       </div>
     </div>
 
-    <!-- Reviews table -->
+    <!-- Reviews Table -->
     <div class="card">
       <div class="card-header d-flex justify-content-between align-items-center">
         <strong>Reviews</strong>
@@ -209,16 +187,8 @@
         <table class="table table-hover align-middle">
           <thead class="table-light">
             <tr>
-              <th class="nowrap">Date</th>
-              <th>Reviewer</th>
-              <th>Rating</th>
-              <th>Sentiment</th>
-              <th>Emotion</th>
-              <th>Aspects</th>
-              <th>Keywords</th>
-              <th>Text</th>
-              <th>Reply (AI Suggested)</th>
-              <th></th>
+              <th class="nowrap">Date</th><th>Reviewer</th><th>Rating</th><th>Sentiment</th><th>Emotion</th>
+              <th>Aspects</th><th>Keywords</th><th>Text</th><th>Reply (AI Suggested)</th><th></th>
             </tr>
           </thead>
           <tbody id="reviewsBody">
@@ -228,53 +198,25 @@
               <td>{{ r.reviewer_name or 'Anonymous' }}</td>
               <td>{{ r.rating or '—' }}</td>
               <td>
-                <span class="pill
-                  {% if r.sentiment_category=='Positive' %}pill-success
-                  {% elif r.sentiment_category=='Neutral' %}pill-warn
-                  {% elif r.sentiment_category=='Negative' %}pill-danger
-                  {% endif %}">
-                  {{ r.sentiment_category or '—' }}
-                </span>
+                {% set cls = 'pill-success' if r.sentiment_category=='Positive' else 'pill-warn' if r.sentiment_category=='Neutral' else 'pill-danger' %}
+                <span class="pill {{ cls }}">{{ r.sentiment_category or '—' }}</span>
                 <div class="small text-muted">{{ '%.2f'|format(r.sentiment_score or 0.0) }} (conf {{ '%.2f'|format(r.sentiment_confidence or 0.0) }})</div>
               </td>
-              <td>
-                {{ r.emotion_label or '—' }}
-                {% if r.is_spam_suspected %}<div class="small text-danger">Anomaly suspected</div>{% endif %}
-              </td>
-              <td>
-                {% if r.aspect_summary %}
-                  <div class="small text-muted">
-                    {% for k,v in r.aspect_summary.items() %}
-                      <div>{{ k }}: {{ '%.2f'|format(v.get('score', 0)) }}</div>
-                    {% endfor %}
-                  </div>
-                {% else %}—{% endif %}
-              </td>
-              <td>
-                {% if r.topics %}
-                  <div class="small text-muted">
-                    {% for k,v in r.topics.items() %}
-                      <span class="badge text-bg-light border">{{ k }}</span>
-                    {% endfor %}
-                  </div>
-                {% elif r.keywords %}{{ r.keywords }}{% else %}—{% endif %}
-              </td>
-              <td style="max-width: 360px;">{{ r.text }}</td>
-              <td style="min-width: 260px;">
+              <td>{{ r.emotion_label or '—' }}{% if r.is_spam_suspected %}<div class="small text-danger">Anomaly suspected</div>{% endif %}</td>
+              <td>{% if r.aspect_summary %}<div class="small text-muted">{% for k,v in r.aspect_summary.items() %}<div>{{ k }}: {{ '%.2f'|format(v.get('score',0)) }}</div>{% endfor %}</div>{% else %}—{% endif %}</td>
+              <td>{% if r.topics %}<div class="small text-muted">{% for k,v in r.topics.items() %}<span class="badge text-bg-light border">{{ k }}</span>{% endfor %}</div>{% elif r.keywords %}{{ r.keywords }}{% else %}—{% endif %}</td>
+              <td style="max-width:360px;">{{ r.text }}</td>
+              <td style="min-width:260px;">
                 <form method="POST" action="/reviews/{{ r.id }}/reply">
                   {{ csrf_token() if csrf_token }}
-                  <textarea class="form-control mb-2" name="reply_text" rows="3"
-                            placeholder="{{ r.ai_suggested_reply or 'AI suggested reply here…' }}">{{ r.user_reply or '' }}</textarea>
+                  <textarea class="form-control mb-2" name="reply_text" rows="3" placeholder="{{ r.ai_suggested_reply or 'AI suggested reply here…' }}">{{ r.user_reply or '' }}</textarea>
                   <div class="d-flex gap-2">
                     <button class="btn btn-sm btn-outline-secondary" formaction="/reviews/{{ r.id }}/reply/suggest">Suggest</button>
                     <button class="btn btn-sm btn-brand">Send</button>
                   </div>
-                  <!-- TODO (backend): Suggest → call LLM; Send → post via provider API if supported -->
                 </form>
               </td>
-              <td class="text-end">
-                {% if r.language %}<span class="badge text-bg-secondary">{{ r.language }}</span>{% endif %}
-              </td>
+              <td class="text-end">{% if r.language %}<span class="badge text-bg-secondary">{{ r.language }}</span>{% endif %}</td>
             </tr>
             {% else %}
             <tr><td colspan="10" class="text-center text-muted py-4">No reviews in this period.</td></tr>
@@ -284,7 +226,7 @@
       </div>
     </div>
 
-    <!-- Optional sections shown only to owners/managers -->
+    <!-- Owner/Manager Sections -->
     {% if 'owner' in (roles or []) or 'manager' in (roles or []) %}
     <div class="card mt-3">
       <div class="card-header"><strong>Benchmark & Alerts</strong></div>
@@ -298,17 +240,13 @@
             <h6>Alerts</h6>
             <ul class="list-group">
               {% for a in alerts or [] %}
-                <li class="list-group-item d-flex justify-content-between align-items-center">
-                  <div>
-                    <strong>{{ a.title }}</strong>
-                    <div class="small text-muted">{{ a.description }}</div>
-                  </div>
-                  <span class="pill {% if a.severity=='critical' %}pill-danger{% elif a.severity=='warning' %}pill-warn{% else %}pill-success{% endif %}">
-                    {{ a.severity }}
-                  </span>
-                </li>
+              <li class="list-group-item d-flex justify-content-between align-items-center">
+                <div><strong>{{ a.title }}</strong><div class="small text-muted">{{ a.description }}</div></div>
+                {% set cls = 'pill-danger' if a.severity=='critical' else 'pill-warn' if a.severity=='warning' else 'pill-success' %}
+                <span class="pill {{ cls }}">{{ a.severity }}</span>
+              </li>
               {% else %}
-                <li class="list-group-item text-muted">No alerts.</li>
+              <li class="list-group-item text-muted">No alerts.</li>
               {% endfor %}
             </ul>
           </div>
@@ -322,8 +260,7 @@
 
 {% block scripts %}
 <script>
-  // Data injected by backend (use safe defaults)
-  window.__DASH__ = {
+  const __DASH__ = {
     labels: {{ charts.labels|tojson if charts and charts.labels else '[]' }},
     sentiment: {{ charts.sentiment|tojson if charts and charts.sentiment else '[]' }},
     rating: {{ charts.rating|tojson if charts and charts.rating else '[]' }},
@@ -332,87 +269,45 @@
     benchmark: {{ charts.benchmark|tojson if charts and charts.benchmark else '{"labels":[],"series":[]}' }},
   };
 
-  // Charts
-  const colors = {
-    primary: '#4f46e5',
-    purple: '#7c3aed',
-    green: '#10b981',
-    yellow: '#f59e0b',
-    red: '#ef4444',
-    gray: '#9ca3af'
-  };
+  const colors = { primary:'#4f46e5', purple:'#7c3aed', green:'#10b981', yellow:'#f59e0b', red:'#ef4444', gray:'#9ca3af' };
 
   // Trend chart
   const trendCtx = document.getElementById('trendChart');
-  if (trendCtx) {
-    const data = window.__DASH__;
-    const trendChart = new Chart(trendCtx, {
-      type: 'line',
-      data: {
-        labels: data.labels,
-        datasets: [
-          { label: 'Avg Sentiment', data: data.sentiment, borderColor: colors.primary, backgroundColor: colors.primary, tension:.3 },
-          { label: 'Avg Rating', data: data.rating, borderColor: colors.purple, backgroundColor: colors.purple, tension:.3, yAxisID: 'y1' },
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: { y: { beginAtZero: true }, y1: { beginAtZero: true, position:'right', suggestedMax:5 } },
-        onClick: (evt, els) => {
-          // Drill-down: filter table by clicked date label
-          if (!els.length) return;
-          const idx = els[0].index;
-          const label = trendChart.data.labels[idx];
-          filterTableByDate(label);
-        }
-      }
-    });
-  }
+  if(trendCtx){ new Chart(trendCtx,{
+    type:'line',
+    data:{ labels:__DASH__.labels, datasets:[
+      { label:'Avg Sentiment', data:__DASH__.sentiment, borderColor:colors.primary, backgroundColor:colors.primary, tension:.3 },
+      { label:'Avg Rating', data:__DASH__.rating, borderColor:colors.purple, backgroundColor:colors.purple, tension:.3, yAxisID:'y1' }
+    ] },
+    options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true }, y1:{ beginAtZero:true, position:'right', suggestedMax:5 } }, onClick:(evt, els)=>{ if(!els.length)return; filterTableByDate(__DASH__.labels[els[0].index]); } }
+  }); }
 
   // Distribution chart
   const distCtx = document.getElementById('distChart');
-  if (distCtx) {
-    const d = window.__DASH__.dist;
-    new Chart(distCtx, {
-      type: 'bar',
-      data: {
-        labels: Object.keys(d),
-        datasets: [{ label:'Count', data: Object.values(d), backgroundColor: [colors.red, colors.yellow, colors.gray, colors.green, colors.primary] }]
-      },
-      options: { responsive:true, maintainAspectRatio:false }
-    });
-  }
+  if(distCtx){ const d=__DASH__.dist; new Chart(distCtx,{
+    type:'bar',
+    data:{ labels:Object.keys(d), datasets:[{ label:'Count', data:Object.values(d), backgroundColor:[colors.red,colors.yellow,colors.gray,colors.green,colors.primary] }] },
+    options:{ responsive:true, maintainAspectRatio:false }
+  }); }
 
-  // Correlation chart (scatter)
+  // Correlation chart
   const corrCtx = document.getElementById('corrChart');
-  if (corrCtx) {
-    const corr = (window.__DASH__.correlation || []).map(p => ({ x: p.sentiment, y: p.rating }));
-    new Chart(corrCtx, {
-      type:'scatter',
-      data:{ datasets:[{ label:'Sentiment vs Rating', data:corr, backgroundColor:colors.gray }] },
-      options: { scales: { x: { title: { display:true, text:'Sentiment' } }, y: { title: { display:true, text:'Rating' }, min:0, max:5 } } }
-    });
-  }
+  if(corrCtx){ const corr=(__DASH__.correlation||[]).map(p=>({x:p.sentiment, y:p.rating})); new Chart(corrCtx,{
+    type:'scatter',
+    data:{ datasets:[{ label:'Sentiment vs Rating', data:corr, backgroundColor:colors.gray }] },
+    options:{ scales:{ x:{ title:{ display:true, text:'Sentiment' } }, y:{ title:{ display:true, text:'Rating' }, min:0, max:5 } } }
+  }); }
 
-  // Benchmarking chart
+  // Benchmark chart
   const benchCtx = document.getElementById('benchmarkChart');
-  if (benchCtx) {
-    const b = window.__DASH__.benchmark;
-    new Chart(benchCtx, {
-      type:'line',
-      data:{ labels: b.labels || [], datasets:(b.series||[]).map((s,i)=>({ label:s.name, data:s.values, borderColor:[colors.primary,colors.purple,colors.green,colors.red][i%4], tension:.3 })) },
-      options:{ responsive:true, maintainAspectRatio:false }
-    });
-  }
+  if(benchCtx){ const b=__DASH__.benchmark; new Chart(benchCtx,{
+    type:'line',
+    data:{ labels:b.labels||[], datasets:(b.series||[]).map((s,i)=>({ label:s.name, data:s.values, borderColor:[colors.primary,colors.purple,colors.green,colors.red][i%4], tension:.3 })) },
+    options:{ responsive:true, maintainAspectRatio:false }
+  }); }
 
-  // Drill-down function
-  function filterTableByDate(dateStr) {
-    const rows = document.querySelectorAll('#reviewsBody tr');
-    rows.forEach(r => {
-      const d = r.getAttribute('data-date');
-      r.style.display = (!dateStr || d === dateStr) ? '' : 'none';
-    });
+  function filterTableByDate(dateStr){
+    document.querySelectorAll('#reviewsBody tr').forEach(r=>r.style.display=(r.getAttribute('data-date')===dateStr || !dateStr)?'':'none');
   }
 </script>
 {% endblock %}
