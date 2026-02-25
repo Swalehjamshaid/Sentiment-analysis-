@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from sqlalchemy.orm import Session
+from sqlalchemy import cast, Integer # Added cast for final database-level insurance
 
 from app.db import get_db
 from app import models
@@ -90,9 +91,10 @@ async def dashboard_page(
     # 'text = integer' operator mismatch error.
     # ─────────────────────────────────────────────────────────────
     try:
+        # We use a secondary variable to ensure the raw attribute is not lost
         u_id = int(current_user.id)
     except (ValueError, TypeError, AttributeError):
-        u_id = None
+        u_id = 0 # Fallback to a non-existent ID rather than None to prevent broad queries
 
     # Fetch companies depending on user role
     if getattr(current_user, "role", None) == "admin":
@@ -100,7 +102,8 @@ async def dashboard_page(
     else:
         companies = (
             db.query(models.Company)
-            .filter(models.Company.owner_id == u_id)
+            # Use 'cast' here to handle cases where the DB column might be mistakenly TEXT
+            .filter(cast(models.Company.owner_id, Integer) == u_id)
             .order_by(models.Company.created_at.desc())
             .all()
         )
@@ -159,7 +162,7 @@ async def dashboard_page(
         if rp.review_id not in reply_map:
             reply_map[rp.review_id] = rp
         else:
-            # Syncing with models.py 'replied_at' attribute
+            # Preserve 'replied_at' logic
             if (rp.replied_at) > (reply_map[rp.review_id].replied_at):
                 reply_map[rp.review_id] = rp
 
@@ -181,7 +184,7 @@ async def dashboard_page(
             keywords=r.keywords,
             language=r.language,
             text=r.text,
-            # Attributes adjusted to match provided models.py (Reply.text)
+            # Attributes adjusted to match Reply.text
             ai_suggested_reply=(latest.text if latest else None),
             user_reply=(latest.text if latest else None)
         ))
@@ -194,7 +197,7 @@ async def dashboard_page(
     ai_summary = ai_svc.analyze_reviews(reviews, active, sdt, edt)
     summary_text = ai_summary.get("summary_text") or "No summary available."
 
-    # API health (Syncing with models.py 'last_checked_at')
+    # API health (Preserving last_checked_at)
     health_data = (
         db.query(models.ApiHealthCheck)
         .filter(models.ApiHealthCheck.company_id == company_id)
@@ -203,7 +206,7 @@ async def dashboard_page(
     )
     api_health = [{"provider": h.provider, "status": h.status} for h in health_data] if health_data else []
 
-    # Alerts (Syncing with models.py 'triggered_at')
+    # Alerts (Preserving triggered_at)
     alert_rows = (
         db.query(models.Alert)
         .filter(models.Alert.company_id == company_id)
@@ -212,7 +215,7 @@ async def dashboard_page(
         .all()
     )
 
-    # Roles (fallback if service missing)
+    # Roles
     try:
         from app.services.rbac import get_user_roles_for_company
         roles = get_user_roles_for_company(db, current_user, company_id)
