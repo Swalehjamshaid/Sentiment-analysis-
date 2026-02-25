@@ -144,21 +144,39 @@ templates.env.globals["now"] = _now
 templates.env.globals["csrf_token"] = _csrf_token
 
 # ─────────────────────────────────────────────────────────────
-# Local Routes (Renamed to avoid collision)
+# Helper: Safe Context Generator
+# ─────────────────────────────────────────────────────────────
+def get_safe_context(request: Request, current_user=None) -> dict:
+    """Provides a consistent set of keys for dashboard.html rendering."""
+    ctx = common_context(request)
+    ctx.update({
+        "current_user": current_user,
+        "companies": [],
+        "selected_company": None,
+        "params": {"from": "", "to": "", "range": ""},
+        "kpi": {"avg_rating": 0, "review_count": 0, "sentiment_score": 0, "growth": "0%"},
+        "charts": {"labels": [], "sentiment": [], "rating": []},
+        "reviews": [],
+        "summary": "Please login or add a company to see insights.",
+        "api_health": [],
+        "alerts": [],
+        "roles": []
+    })
+    return ctx
+
+# ─────────────────────────────────────────────────────────────
+# Local Routes
 # ─────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     user = get_current_user(request)
-    context = common_context(request)
-    context["current_user"] = user
-    return templates.TemplateResponse("dashboard.html", context)
+    return templates.TemplateResponse("dashboard.html", get_safe_context(request, user))
 
 @app.get("/login", response_class=HTMLResponse)
-async def login_view(request: Request): # Renamed to avoid collision with 'auth' logic
+async def login_view(request: Request): 
     if get_current_user(request):
         return RedirectResponse("/dashboard")
-    context = common_context(request)
-    return templates.TemplateResponse("dashboard.html", context)
+    return templates.TemplateResponse("dashboard.html", get_safe_context(request))
 
 @app.post("/login")
 async def login_post(request: Request, email: str = Form(...), password: str = Form(...)):
@@ -167,27 +185,30 @@ async def login_post(request: Request, email: str = Form(...), password: str = F
 
     if user:
         request.session["user_id"] = user.id
-        return RedirectResponse(f"/dashboard/{user.roles[0].company.id}", status_code=302)
+        # Safety check for roles
+        if user.roles:
+            return RedirectResponse(f"/dashboard/{user.roles[0].company.id}", status_code=302)
+        return RedirectResponse("/dashboard", status_code=302)
     else:
-        context = common_context(request)
+        context = get_safe_context(request)
         context["flash_error"] = "Invalid email or password."
         return templates.TemplateResponse("dashboard.html", context)
 
 @app.get("/dashboard/{company_id}", response_class=HTMLResponse)
-async def dashboard_view(request: Request, company_id: int): # RENAMED from 'dashboard'
+async def dashboard_view(request: Request, company_id: int): 
     user = get_current_user(request)
     if not user:
         return RedirectResponse("/login")
 
     selected_company = next((r.company for r in user.roles if r.company.id == company_id), None)
     if not selected_company:
-        context = common_context(request)
-        context["current_user"] = user
+        context = get_safe_context(request, user)
         context["flash_error"] = f"No access to company ID {company_id}"
         return templates.TemplateResponse("dashboard.html", context)
 
-    context = common_context(request)
-    context["current_user"] = user
+    # Note: Full data dashboard should ideally be handled by dashboard.router
+    # But for this local view, we provide a safe fallback:
+    context = get_safe_context(request, user)
     context["selected_company"] = selected_company
     return templates.TemplateResponse("dashboard.html", context)
 
@@ -197,14 +218,14 @@ async def logout(request: Request):
     return RedirectResponse("/")
 
 # ─────────────────────────────────────────────────────────────
-# Include all routers (Collision Resolved)
+# Include all routers
 # ─────────────────────────────────────────────────────────────
 app.include_router(auth.router)
 app.include_router(companies.router)
 app.include_router(reviews.router)
 app.include_router(reply.router)
 app.include_router(reports.router)
-app.include_router(dashboard.router) # Now correctly points to the 'dashboard' module
+app.include_router(dashboard.router) 
 app.include_router(maps_router)
 app.include_router(activity_router, prefix="/api/activity", tags=["telemetry"])
 app.include_router(insights_router, prefix="/api/insights", tags=["ai"])
