@@ -20,9 +20,9 @@ from starlette.middleware.sessions import SessionMiddleware
 from markupsafe import Markup
 
 from .db import init_db, get_db
-from .models import Company
+from .models import Company, User
 from .services.rbac import get_current_user
-from .context import common_context  # decoupled context to prevent circular imports
+from .context import common_context
 from .routes import auth, companies, reviews, reply, reports, dashboard
 from .routes.maps_routes import router as maps_router
 from .routes.activity import router as activity_router
@@ -32,13 +32,11 @@ from .dependencies import manager
 # ─────────────────────────────────────────────────────────────
 # Paths & Directories
 # ─────────────────────────────────────────────────────────────
-
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 TEMPLATE_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 
-# Fallback for containerized environments
 if not TEMPLATE_DIR.exists():
     TEMPLATE_DIR = PROJECT_ROOT / "app" / "templates"
     STATIC_DIR = PROJECT_ROOT / "app" / "static"
@@ -46,14 +44,12 @@ if not TEMPLATE_DIR.exists():
 # ─────────────────────────────────────────────────────────────
 # Logging
 # ─────────────────────────────────────────────────────────────
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("review_saas")
 
 # ─────────────────────────────────────────────────────────────
 # Settings
 # ─────────────────────────────────────────────────────────────
-
 class Settings:
     APP_NAME: str = "ReviewSaaS"
     FORCE_HTTPS: bool = bool(int(os.getenv("FORCE_HTTPS", "0")))
@@ -65,7 +61,6 @@ settings = Settings()
 # ─────────────────────────────────────────────────────────────
 # Lifespan / Startup
 # ─────────────────────────────────────────────────────────────
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -79,18 +74,16 @@ async def lifespan(app: FastAPI):
 # ─────────────────────────────────────────────────────────────
 # FastAPI App
 # ─────────────────────────────────────────────────────────────
-
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
 # ─────────────────────────────────────────────────────────────
 # Middleware
 # ─────────────────────────────────────────────────────────────
-
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.SESSION_SECRET,
     session_cookie="session",
-    max_age=3600 * 24 * 7  # 1 week
+    max_age=3600 * 24 * 7
 )
 
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
@@ -112,32 +105,23 @@ app.add_middleware(
 )
 
 # ─────────────────────────────────────────────────────────────
-# Templates
+# Templates & Static Files
 # ─────────────────────────────────────────────────────────────
-
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# Custom Jinja2 filters and globals
+# Custom Jinja2 filters & globals
 def format_date(value, fmt="%b %d, %Y"):
-    if value is None:
-        return ""
-    mapping = {
-        'Y-m-d': '%Y-%m-%d',
-        'd-m-Y': '%d-%m-%Y',
-        'H:i': '%H:%M',
-        'M d, Y': '%b %d, %Y'
-    }
+    if value is None: return ""
+    mapping = {'Y-m-d': '%Y-%m-%d', 'd-m-Y': '%d-%m-%Y', 'H:i': '%H:%M', 'M d, Y': '%b %d, %Y'}
     fmt = mapping.get(fmt, fmt)
-
     if isinstance(value, str):
-        try:
-            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except (ValueError, TypeError):
-            return value
+        try: value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except: return value
     return value.strftime(fmt)
 
-def _now():
-    return datetime.now(timezone.utc)
+def _now(): return datetime.now(timezone.utc)
 
 def _get_or_set_csrf(request: Request) -> str:
     token = request.session.get("_csrf")
@@ -154,42 +138,73 @@ templates.env.filters["date"] = format_date
 templates.env.globals["now"] = _now
 templates.env.globals["csrf_token"] = _csrf_token
 
-# Static files
-if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-
-# ─────────────────────────────────────────────────────────────
-# WebSocket: Dashboard
-# ─────────────────────────────────────────────────────────────
-
-@app.websocket("/ws/dashboard")
-async def dashboard_ws(websocket: WebSocket):
-    await manager.connect(websocket)
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
-
 # ─────────────────────────────────────────────────────────────
 # Routes
 # ─────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse("home.html", common_context(request))
+    """
+    Render home page
+    """
+    user = get_current_user(request)
+    context = common_context(request)
+    context["current_user"] = user
+    return templates.TemplateResponse("dashboard.html", context)
 
 @app.get("/login", response_class=HTMLResponse)
 async def login(request: Request):
+    """
+    Show login page if not authenticated
+    """
     if get_current_user(request):
         return RedirectResponse("/dashboard")
-    return templates.TemplateResponse("login.html", common_context(request))
+    return templates.TemplateResponse("dashboard.html", common_context(request))
 
 @app.post("/login")
 async def login_post(request: Request, email: str = Form(...), password: str = Form(...)):
-    return await auth.login_post(request, email, password, next(get_db()))
+    """
+    Authenticate user and redirect to dashboard.html
+    """
+    db = next(get_db())
+    user = await auth.login_post(request, email, password, db)  # login_post returns user object or None
 
-# Include routers
+    if user:
+        request.session["user_id"] = user.id  # Save session
+        return RedirectResponse(f"/dashboard/{user.roles[0].company.id}", status_code=302)
+    else:
+        context = common_context(request)
+        context["flash_error"] = "Invalid email or password."
+        return templates.TemplateResponse("dashboard.html", context)
+
+@app.get("/dashboard/{company_id}", response_class=HTMLResponse)
+async def dashboard(request: Request, company_id: int):
+    """
+    Render dashboard.html for a specific company
+    """
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login")
+    selected_company = next((r.company for r in user.roles if r.company.id == company_id), None)
+    if not selected_company:
+        context = common_context(request)
+        context["current_user"] = user
+        context["flash_error"] = f"No access to company ID {company_id}"
+        return templates.TemplateResponse("dashboard.html", context)
+    context = common_context(request)
+    context["current_user"] = user
+    context["selected_company"] = selected_company
+    return templates.TemplateResponse("dashboard.html", context)
+
+@app.get("/logout")
+async def logout(request: Request):
+    """
+    Logout and clear session
+    """
+    request.session.clear()
+    return RedirectResponse("/")
+
+# Include all routers
 app.include_router(auth.router)
 app.include_router(companies.router)
 app.include_router(reviews.router)
