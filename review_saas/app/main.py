@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import secrets
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -59,12 +59,14 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "supersecretkey123"))
+
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
         if settings.FORCE_HTTPS and scheme != "https":
             return RedirectResponse(request.url.replace(scheme="https"), status_code=307)
         return await call_next(request)
+
 app.add_middleware(HTTPSRedirectMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(
@@ -94,10 +96,6 @@ def _get_or_set_csrf(request: Request) -> str:
     return token
 
 def _csrf_token(request: Request):
-    """
-    Returns a <input type="hidden"> tag compatible with the template usage:
-    {{ csrf_token() }}
-    """
     token = _get_or_set_csrf(request)
     return Markup(f'<input type="hidden" name="csrf_token" value="{token}">')
 
@@ -117,6 +115,7 @@ def common_context(request: Request) -> Dict[str, Any]:
 
     db = next(get_db())
     try:
+        # Fetches list of companies for the sidebar/dropdowns
         companies_list = db.query(Company).order_by(Company.name.asc()).all()
     except Exception as e:
         logger.error("Company fetch error: %s", e)
@@ -124,7 +123,6 @@ def common_context(request: Request) -> Dict[str, Any]:
     finally:
         db.close()
 
-    # Pull toast message (if any)
     flash_error = request.session.pop("flash_error", None)
 
     return {
@@ -157,8 +155,17 @@ async def login(request: Request):
         return RedirectResponse("/dashboard")
     return templates.TemplateResponse("login.html", common_context(request))
 
-# Routers
-app.include_router(auth.router, prefix="/auth")
+# FIX: Added POST handler for /login to prevent 405 Method Not Allowed
+@app.post("/login")
+async def login_post(request: Request, email: str = Form(...), password: str = Form(...)):
+    """
+    Directly routes the modal login POST request to the auth logic.
+    """
+    # This calls the existing logic inside your auth router
+    return await auth.login_post(request, email, password, next(get_db()))
+
+# FIX: Removed prefix="/auth" to match your frontend form actions (/login, /register)
+app.include_router(auth.router)
 app.include_router(companies.router)
 app.include_router(reviews.router)
 app.include_router(reply.router)
