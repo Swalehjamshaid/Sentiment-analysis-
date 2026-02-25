@@ -6,7 +6,7 @@ from typing import Dict, Any, List
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Form, Depends
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Form, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -30,9 +30,10 @@ from .routes.activity import router as activity_router
 from .routes.insights import router as insights_router
 from .dependencies import manager
 
-# Import Real Data Services
+# Import Real Data & Sync Services
 from .services import metrics as metrics_svc
 from .services import ai_insights as ai_svc
+from .services import google_maps as maps_svc # Assuming your sync logic is here
 
 # ─────────────────────────────────────────────────────────────
 # Paths & Directories
@@ -121,12 +122,8 @@ def format_date(value, fmt="%b %d, %Y"):
             return value
     return value.strftime(fmt)
 
-def _now():
-    return datetime.now(timezone.utc)
-
 @pass_context
 def _csrf_token(context: dict):
-    """Generates CSRF token by pulling request from context to avoid TypeError."""
     request = context.get("request")
     if not request: return ""
     token = request.session.get("_csrf")
@@ -136,46 +133,27 @@ def _csrf_token(context: dict):
     return Markup(f'<input type="hidden" name="csrf_token" value="{token}">')
 
 templates.env.filters["date"] = format_date
-templates.env.globals["now"] = _now
+templates.env.globals["now"] = lambda: datetime.now(timezone.utc)
 templates.env.globals["csrf_token"] = _csrf_token
 
 # ─────────────────────────────────────────────────────────────
-# Helper: Safe Context Generator (Prevents 500 Rendering Errors)
+# Helper: Safe Context (For Rendering Safety)
 # ─────────────────────────────────────────────────────────────
 def get_safe_context(request: Request, current_user=None) -> dict:
     ctx = common_context(request)
-    
-    mock_company = {
-        "id": 0, 
-        "name": "No Company Selected", 
-        "industry": "N/A", 
-        "created_at": datetime.now(timezone.utc)
-    }
-    
+    mock_company = {"id": 0, "name": "No Company Selected", "industry": "N/A"}
     ctx.update({
-        "current_user": current_user,
-        "companies": [],
-        "selected_company": mock_company,
-        "active_company": mock_company,
-        "params": {"from": "", "to": "", "range": ""},
-        "kpi": {
-            "avg_rating": 0, "review_count": 0, "sentiment_score": 0, 
-            "growth": "0%", "pos": 0, "neu": 0, "neg": 0
-        },
-        "charts": {
-            "labels": [], "sentiment": [], "rating": [],
-            "dist": {"positive": 0, "neutral": 0, "negative": 0}
-        },
-        "reviews": [],
-        "summary": "Please login to view real-time insights.",
-        "api_health": [],
-        "alerts": [],
-        "roles": []
+        "current_user": current_user, "companies": [], "selected_company": mock_company,
+        "active_company": mock_company, "params": {"from": "", "to": "", "range": ""},
+        "kpi": {"avg_rating": 0, "review_count": 0, "sentiment_score": 0, "growth": "0%"},
+        "charts": {"labels": [], "sentiment": [], "rating": []},
+        "reviews": [], "summary": "Sync or log in to see data.",
+        "api_health": [], "alerts": [], "roles": []
     })
     return ctx
 
 # ─────────────────────────────────────────────────────────────
-# Local Routes
+# Routes
 # ─────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -189,33 +167,22 @@ async def home(request: Request, db: Session = Depends(get_db)):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_view(request: Request): 
-    if get_current_user(request):
-        return RedirectResponse("/")
+    if get_current_user(request): return RedirectResponse("/")
     return templates.TemplateResponse("dashboard.html", get_safe_context(request))
 
 @app.post("/login")
 async def login_post(request: Request, email: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
-    """
-    Fixed Login: Checks if auth returns a User object or a RedirectResponse.
-    """
     result = await auth.login_post(request, email, password, db)
-
-    # If auth returned a Redirect (login failure/error), return it immediately
-    if isinstance(result, RedirectResponse):
-        return result
-
-    # If it's a User object, set session and redirect to dashboard
+    if isinstance(result, RedirectResponse): return result
+    
     user = result
     if user and hasattr(user, 'id'):
         request.session["user_id"] = user.id
         first_comp = db.query(Company).filter(Company.owner_id == user.id).first()
-        if first_comp:
-            return RedirectResponse(f"/dashboard/{first_comp.id}", status_code=302)
-        return RedirectResponse("/", status_code=302)
+        return RedirectResponse(f"/dashboard/{first_comp.id}" if first_comp else "/", status_code=302)
     
-    # Fallback for unexpected results
     context = get_safe_context(request)
-    context["flash_error"] = "Authentication failed. Please check your credentials."
+    context["flash_error"] = "Invalid credentials."
     return templates.TemplateResponse("dashboard.html", context)
 
 @app.get("/dashboard/{company_id}", response_class=HTMLResponse)
@@ -226,28 +193,54 @@ async def dashboard_view(request: Request, company_id: int, db: Session = Depend
     company = db.query(Company).filter(Company.id == company_id).first()
     if not company: return RedirectResponse("/")
 
-    # Fetch Real-World Data
+    # Date Range Setup
     end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=30)
     
+    # Real Data Fetching
     kpi = metrics_svc.build_kpi_for_dashboard(db, company_id, start_date, end_date)
     charts = metrics_svc.build_dashboard_charts(db, company_id, start_date, end_date)
     reviews_list = db.query(Review).filter(Review.company_id == company_id).order_by(Review.review_date.desc()).limit(10).all()
-    ai_analysis = ai_svc.analyze_reviews(reviews_list, company, start_date, end_date)
+    ai_summary = ai_svc.analyze_reviews(reviews_list, company, start_date, end_date)
 
     context = common_context(request)
     context.update({
-        "current_user": user,
-        "selected_company": company,
-        "active_company": company,
+        "current_user": user, "selected_company": company, "active_company": company,
         "companies": db.query(Company).filter(Company.owner_id == user.id).all(),
-        "kpi": kpi,
-        "charts": charts,
-        "reviews": reviews_list,
-        "summary": ai_analysis.get("summary_text", "No summary available."),
+        "kpi": kpi, "charts": charts, "reviews": reviews_list,
+        "summary": ai_summary.get("summary_text", "No summary available."),
         "params": {"from": start_date.date().isoformat(), "to": end_date.date().isoformat(), "range": "30d"}
     })
     return templates.TemplateResponse("dashboard.html", context)
+
+# ─────────────────────────────────────────────────────────────
+# THE SYNC ROUTE: Pulls Google Reviews into Database
+# ─────────────────────────────────────────────────────────────
+@app.get("/sync/run")
+async def sync_reviews(request: Request, company_id: int, db: Session = Depends(get_db)):
+    """
+    Triggers a live fetch from Google Maps and saves new reviews to Postgres.
+    """
+    user = get_current_user(request)
+    if not user: return RedirectResponse("/login")
+
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company or not company.place_id:
+        # Cannot sync without a Google Place ID
+        return RedirectResponse(f"/dashboard/{company_id}?error=no_place_id")
+
+    try:
+        logger.info(f"Starting Google Sync for company: {company.name}")
+        # Call your Maps Service to fetch and save
+        # This function should internally loop through Google results and db.add() them
+        new_count = await maps_svc.sync_company_reviews(db, company)
+        
+        logger.info(f"Sync complete. Added {new_count} new reviews.")
+        return RedirectResponse(f"/dashboard/{company_id}?success=synced&count={new_count}")
+    
+    except Exception as e:
+        logger.error(f"Sync failed: {str(e)}")
+        return RedirectResponse(f"/dashboard/{company_id}?error=sync_failed")
 
 @app.get("/logout")
 async def logout(request: Request):
@@ -255,7 +248,7 @@ async def logout(request: Request):
     return RedirectResponse("/")
 
 # ─────────────────────────────────────────────────────────────
-# Include all routers
+# Include Routers
 # ─────────────────────────────────────────────────────────────
 app.include_router(auth.router)
 app.include_router(companies.router)
