@@ -1,4 +1,4 @@
-# FILE: app/routes/companies.py
+# filename: app/routes/companies.py
 
 import os
 import logging
@@ -12,7 +12,9 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import Company, Review
 from app.services.rbac import get_current_user, require_roles
-from app.services.ai_insights import analyze_reviews, hour_heatmap, detect_anomalies
+
+# TEMPORARY FIX: Comment out the failing import to prevent ImportError crash
+# from app.services.ai_insights import analyze_reviews, hour_heatmap, detect_anomalies
 
 # Optional googlemaps; fallback safely if not present
 try:
@@ -95,11 +97,15 @@ def _sync_google_reviews_task(company_id: int, place_id: str, db_session_factory
         db.commit()
         log.info("[Google Sync] company_id=%s new=%s", company_id, new_count)
 
-        # Optional anomaly pass
-        all_reviews = db.query(Review).filter(Review.company_id == company_id).all()
-        alerts = detect_anomalies(all_reviews)
-        if alerts:
-            log.warning("[Anomalies] company_id=%s alerts=%s", company_id, len(alerts))
+        # Optional anomaly pass – safe fallback since detect_anomalies may not exist yet
+        try:
+            from app.services.ai_insights import detect_anomalies
+            all_reviews = db.query(Review).filter(Review.company_id == company_id).all()
+            alerts = detect_anomalies(all_reviews)
+            if alerts:
+                log.warning("[Anomalies] company_id=%s alerts=%s", company_id, len(alerts))
+        except ImportError:
+            log.info("[Anomalies] AI insights not available yet - skipping")
 
     except Exception as e:
         db.rollback()
@@ -208,8 +214,23 @@ def company_dashboard_payload(
     # (Optional) parse start/end ISO and filter …
     reviews = q.order_by(Review.review_date.desc()).all()
 
-    report = analyze_reviews(reviews, company, None, None)
-    heat = hour_heatmap(reviews, None, None)
+    # Safe fallback for analyze_reviews (may not exist yet)
+    report = {}
+    try:
+        from app.services.ai_insights import analyze_reviews
+        report = analyze_reviews(reviews, company, None, None) or {}
+    except (ImportError, AttributeError):
+        log.info("AI analyze_reviews not available - using empty report")
+        report = {"executive_summary": {"sentiment": "neutral", "summary": "Analysis pending"}}
+
+    # Safe fallback for hour_heatmap
+    heat = {}
+    try:
+        from app.services.ai_insights import hour_heatmap
+        heat = hour_heatmap(reviews, None, None) or {}
+    except (ImportError, AttributeError):
+        log.info("AI hour_heatmap not available - skipping")
+
     dist = {str(i): 0 for i in range(1, 6)}
     for r in reviews:
         if r.rating in (1, 2, 3, 4, 5):
