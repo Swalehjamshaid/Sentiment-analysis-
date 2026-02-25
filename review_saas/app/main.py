@@ -22,6 +22,8 @@ from markupsafe import Markup
 from .db import init_db, get_db
 from .models import Company
 from .services.rbac import get_current_user
+# FIX: Import from the decoupled context file
+from .context import common_context 
 from .routes import auth, companies, reviews, reply, reports, dashboard
 from .routes.maps_routes import router as maps_router
 from .routes.activity import router as activity_router
@@ -102,38 +104,6 @@ def _csrf_token(request: Request):
 templates.env.globals["now"] = _now
 templates.env.globals["csrf_token"] = _csrf_token
 
-# ─────────────────────────────────────────────────────────────
-# Common context for all pages
-# ─────────────────────────────────────────────────────────────
-
-def common_context(request: Request) -> Dict[str, Any]:
-    user = None
-    try:
-        user = get_current_user(request)
-    except Exception:
-        user = None
-
-    db = next(get_db())
-    try:
-        # Fetches list of companies for the sidebar/dropdowns
-        companies_list = db.query(Company).order_by(Company.name.asc()).all()
-    except Exception as e:
-        logger.error("Company fetch error: %s", e)
-        companies_list = []
-    finally:
-        db.close()
-
-    flash_error = request.session.pop("flash_error", None)
-
-    return {
-        "request": request,
-        "current_user": user,
-        "is_authenticated": user is not None,
-        "companies": companies_list,
-        "apiBase": "",
-        "flash_error": flash_error,
-    }
-
 # WebSocket updates
 @app.websocket("/ws/dashboard")
 async def dashboard_ws(websocket):
@@ -161,10 +131,8 @@ async def login_post(request: Request, email: str = Form(...), password: str = F
     """
     Directly routes the modal login POST request to the auth logic.
     """
-    # This calls the existing logic inside your auth router
     return await auth.login_post(request, email, password, next(get_db()))
 
-# FIX: Removed prefix="/auth" to match your frontend form actions (/login, /register)
 app.include_router(auth.router)
 app.include_router(companies.router)
 app.include_router(reviews.router)
