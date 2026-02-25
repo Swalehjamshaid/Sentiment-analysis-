@@ -38,7 +38,6 @@ PROJECT_ROOT = BASE_DIR.parent
 TEMPLATE_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 
-# fallback if paths don’t exist
 if not TEMPLATE_DIR.exists():
     TEMPLATE_DIR = PROJECT_ROOT / "app" / "templates"
 if not STATIC_DIR.exists():
@@ -114,7 +113,6 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# Custom Jinja2 filters & globals
 def format_date(value, fmt="%b %d, %Y"):
     if value is None:
         return ""
@@ -146,23 +144,17 @@ templates.env.globals["now"] = _now
 templates.env.globals["csrf_token"] = _csrf_token
 
 # ─────────────────────────────────────────────────────────────
-# Routes
+# Local Routes (Renamed to avoid collision)
 # ─────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    """
-    Render home page
-    """
     user = get_current_user(request)
     context = common_context(request)
     context["current_user"] = user
     return templates.TemplateResponse("dashboard.html", context)
 
 @app.get("/login", response_class=HTMLResponse)
-async def login(request: Request):
-    """
-    Show login page if not authenticated
-    """
+async def login_view(request: Request): # Renamed to avoid collision with 'auth' logic
     if get_current_user(request):
         return RedirectResponse("/dashboard")
     context = common_context(request)
@@ -170,9 +162,6 @@ async def login(request: Request):
 
 @app.post("/login")
 async def login_post(request: Request, email: str = Form(...), password: str = Form(...)):
-    """
-    Authenticate user and redirect to dashboard.html
-    """
     db = next(get_db())
     user = await auth.login_post(request, email, password, db)
 
@@ -185,10 +174,7 @@ async def login_post(request: Request, email: str = Form(...), password: str = F
         return templates.TemplateResponse("dashboard.html", context)
 
 @app.get("/dashboard/{company_id}", response_class=HTMLResponse)
-async def dashboard(request: Request, company_id: int):
-    """
-    Render dashboard.html for a specific company
-    """
+async def dashboard_view(request: Request, company_id: int): # RENAMED from 'dashboard'
     user = get_current_user(request)
     if not user:
         return RedirectResponse("/login")
@@ -207,24 +193,22 @@ async def dashboard(request: Request, company_id: int):
 
 @app.get("/logout")
 async def logout(request: Request):
-    """
-    Logout and clear session
-    """
     request.session.clear()
     return RedirectResponse("/")
 
-# Include all routers
+# ─────────────────────────────────────────────────────────────
+# Include all routers (Collision Resolved)
+# ─────────────────────────────────────────────────────────────
 app.include_router(auth.router)
 app.include_router(companies.router)
 app.include_router(reviews.router)
 app.include_router(reply.router)
 app.include_router(reports.router)
-app.include_router(dashboard.router)
+app.include_router(dashboard.router) # Now correctly points to the 'dashboard' module
 app.include_router(maps_router)
 app.include_router(activity_router, prefix="/api/activity", tags=["telemetry"])
 app.include_router(insights_router, prefix="/api/insights", tags=["ai"])
 
-# Health check
 @app.get("/health")
 async def health():
     return {"status": "healthy", "service": settings.APP_NAME}
