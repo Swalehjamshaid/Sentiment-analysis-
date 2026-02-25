@@ -1,10 +1,6 @@
 # FILE: app/models.py
-# Purpose: SQLAlchemy models updated to fulfill the 31-point requirements for the
-# review analytics platform. Preserves the original schema and extends it
-# with additional tables, fields, constraints, and indexes to support multi-source
-# integrations, sync & API health, advanced NLP analytics (sentiment, emotion,
-# aspect-based scores, keyword extraction), RBAC, alerts, forecasting, reporting,
-# benchmarking, and compliance-friendly auditing.
+# Purpose: Complete SQLAlchemy models for review analytics SaaS
+# Fully ready for FastAPI + PostgreSQL + Alembic migrations
 
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy import (
@@ -13,17 +9,20 @@ from sqlalchemy import (
     String,
     DateTime,
     Boolean,
-    ForeignKey,
-    Text,
     Float,
+    Text,
+    ForeignKey,
+    JSON,
     UniqueConstraint,
     Index,
-    Enum,
-    JSON,
 )
 from datetime import datetime, timezone
 
 Base = declarative_base()
+
+def now_utc():
+    return datetime.now(timezone.utc)
+
 
 # =========================================================
 # USER MODEL
@@ -38,9 +37,9 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     status = Column(String(20), default="pending", nullable=False)
     profile_pic_url = Column(String(255), nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
 
-    # === Relationships ===
+    # Relationships
     companies = relationship("Company", back_populates="owner", cascade="all, delete-orphan")
     verification_tokens = relationship("VerificationToken", back_populates="user", cascade="all, delete-orphan")
     reset_tokens = relationship("ResetToken", back_populates="user", cascade="all, delete-orphan")
@@ -53,7 +52,7 @@ class User(Base):
 
 
 # =========================================================
-# TOKEN & LOG MODELS
+# TOKEN MODELS
 # =========================================================
 
 class VerificationToken(Base):
@@ -63,7 +62,7 @@ class VerificationToken(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token = Column(String(255), nullable=False, unique=True)
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
 
     user = relationship("User", back_populates="verification_tokens")
 
@@ -75,7 +74,7 @@ class ResetToken(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token = Column(String(255), nullable=False, unique=True)
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
 
     user = relationship("User", back_populates="reset_tokens")
 
@@ -87,13 +86,13 @@ class LoginAttempt(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     success = Column(Boolean, nullable=False)
     ip_address = Column(String(50), nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
 
     user = relationship("User", back_populates="login_attempts")
 
 
 # =========================================================
-# COMPANY MODEL (supports multi-branch + benchmarking)
+# COMPANY MODEL
 # =========================================================
 
 class Company(Base):
@@ -101,31 +100,25 @@ class Company(Base):
 
     id = Column(Integer, primary_key=True)
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-
     name = Column(String(255), nullable=False)
-    place_id = Column(String(128), nullable=True)  # Google place identifier
+    place_id = Column(String(128), nullable=True)
     maps_link = Column(String(512), nullable=True)
-
     city = Column(String(128), nullable=True)
     status = Column(String(20), default="active", nullable=False)
     logo_url = Column(String(255), nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-
+    created_at = Column(DateTime, default=now_utc, nullable=False)
     last_synced_at = Column(DateTime, nullable=True)
-    last_sync_status = Column(String(32), nullable=True)  # success, partial, failed
+    last_sync_status = Column(String(32), nullable=True)
     last_sync_message = Column(String(512), nullable=True)
-
     lat = Column(Float, nullable=True)
     lng = Column(Float, nullable=True)
-
     email = Column(String(255), nullable=True)
     phone = Column(String(50), nullable=True)
     address = Column(String(512), nullable=True)
     description = Column(Text, nullable=True)
-
     parent_id = Column(Integer, ForeignKey("companies.id", ondelete="SET NULL"), nullable=True)
 
-    # === Relationships ===
+    # Relationships
     owner = relationship("User", back_populates="companies")
     parent = relationship("Company", remote_side=[id], backref="branches")
     reviews = relationship("Review", back_populates="company", cascade="all, delete-orphan")
@@ -133,15 +126,7 @@ class Company(Base):
     reports = relationship("Report", back_populates="company", cascade="all, delete-orphan")
     roles = relationship("UserCompanyRole", back_populates="company", cascade="all, delete-orphan")
     sync_jobs = relationship("SyncJob", back_populates="company", cascade="all, delete-orphan")
-
-    # FIXED competitors relationship
-    competitors = relationship(
-        "CompetitorLink",
-        back_populates="company",
-        cascade="all, delete-orphan",
-        foreign_keys="CompetitorLink.company_id"
-    )
-
+    competitors = relationship("CompetitorLink", back_populates="company", cascade="all, delete-orphan")
     metrics_daily = relationship("CompanyDailyMetrics", back_populates="company", cascade="all, delete-orphan")
     forecasts = relationship("CompanyForecast", back_populates="company", cascade="all, delete-orphan")
     alerts = relationship("Alert", back_populates="company", cascade="all, delete-orphan")
@@ -156,7 +141,7 @@ class Company(Base):
 
 
 # =========================================================
-# REVIEW SOURCE (multi-source)
+# REVIEW SOURCE MODEL
 # =========================================================
 
 class ReviewSource(Base):
@@ -167,7 +152,7 @@ class ReviewSource(Base):
     provider = Column(String(64), nullable=False)
     description = Column(String(255), nullable=True)
     base_url = Column(String(255), nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
 
     __table_args__ = (UniqueConstraint("name", name="uq_source_name"),)
 
@@ -189,29 +174,28 @@ class Review(Base):
     reviewer_name = Column(String(255), nullable=True)
     reviewer_avatar = Column(String(255), nullable=True)
 
+    # NLP fields
     sentiment_category = Column(String(20), nullable=True)
     sentiment_score = Column(Float, nullable=True)
     sentiment_confidence = Column(Float, nullable=True)
-
     emotion_label = Column(String(32), nullable=True)
     emotion_scores = Column(JSON, nullable=True)
     aspect_summary = Column(JSON, nullable=True)
     keywords = Column(String(512), nullable=True)
     topics = Column(JSON, nullable=True)
-
     language = Column(String(10), nullable=True)
     language_confidence = Column(Float, nullable=True)
     translated_text = Column(Text, nullable=True)
     journey_stage = Column(String(32), nullable=True)
 
-    fetch_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    fetch_at = Column(DateTime, default=now_utc, nullable=False)
     fetch_status = Column(String(20), default="Success", nullable=False)
     is_spam_suspected = Column(Boolean, default=False, nullable=False)
     anomaly_score = Column(Float, nullable=True)
 
     company = relationship("Company", back_populates="reviews")
-    replies = relationship("Reply", back_populates="review", cascade="all, delete-orphan")
     source = relationship("ReviewSource")
+    replies = relationship("Reply", back_populates="review", cascade="all, delete-orphan")
     aspects = relationship("ReviewAspect", back_populates="review", cascade="all, delete-orphan")
     keyword_links = relationship("ReviewKeyword", back_populates="review", cascade="all, delete-orphan")
 
@@ -227,7 +211,24 @@ class Review(Base):
 
 
 # =========================================================
-# SUPPORTING MODELS (aspects, keywords, replies, reports)
+# REPLY MODEL
+# =========================================================
+
+class Reply(Base):
+    __tablename__ = "replies"
+
+    id = Column(Integer, primary_key=True)
+    review_id = Column(Integer, ForeignKey("reviews.id", ondelete="CASCADE"), nullable=False)
+    text = Column(Text, nullable=False)
+    replied_at = Column(DateTime, default=now_utc, nullable=False)
+    responder_name = Column(String(255), nullable=True)
+    responder_role = Column(String(64), nullable=True)
+
+    review = relationship("Review", back_populates="replies")
+
+
+# =========================================================
+# REVIEW ASPECT & KEYWORD MODELS
 # =========================================================
 
 class ReviewAspect(Base):
@@ -235,26 +236,11 @@ class ReviewAspect(Base):
 
     id = Column(Integer, primary_key=True)
     review_id = Column(Integer, ForeignKey("reviews.id", ondelete="CASCADE"), nullable=False)
-    aspect = Column(String(64), nullable=False)
-    sentiment_score = Column(Float, nullable=True)
-    sentiment_category = Column(String(20), nullable=True)
+    aspect = Column(String(128), nullable=False)
+    sentiment = Column(String(20), nullable=True)
+    score = Column(Float, nullable=True)
 
     review = relationship("Review", back_populates="aspects")
-
-    __table_args__ = (
-        Index("idx_aspect_review", "review_id"),
-        Index("idx_aspect_name", "aspect"),
-    )
-
-
-class Keyword(Base):
-    __tablename__ = "keywords"
-
-    id = Column(Integer, primary_key=True)
-    term = Column(String(128), nullable=False)
-    language = Column(String(10), nullable=True)
-
-    __table_args__ = (UniqueConstraint("term", "language", name="uq_keyword_term_lang"),)
 
 
 class ReviewKeyword(Base):
@@ -262,63 +248,31 @@ class ReviewKeyword(Base):
 
     id = Column(Integer, primary_key=True)
     review_id = Column(Integer, ForeignKey("reviews.id", ondelete="CASCADE"), nullable=False)
-    keyword_id = Column(Integer, ForeignKey("keywords.id", ondelete="CASCADE"), nullable=False)
-    weight = Column(Float, nullable=True)
+    keyword = Column(String(128), nullable=False)
+    relevance = Column(Float, nullable=True)
 
     review = relationship("Review", back_populates="keyword_links")
-    keyword = relationship("Keyword")
-
-    __table_args__ = (
-        UniqueConstraint("review_id", "keyword_id", name="uq_review_keyword"),
-        Index("idx_review_keyword_review", "review_id"),
-        Index("idx_review_keyword_keyword", "keyword_id"),
-    )
 
 
-class Reply(Base):
-    __tablename__ = "replies"
-
-    id = Column(Integer, primary_key=True)
-    review_id = Column(Integer, ForeignKey("reviews.id", ondelete="CASCADE"), nullable=False)
-
-    suggested_text = Column(Text, nullable=True)
-    edited_text = Column(Text, nullable=True)
-    status = Column(String(20), default="Draft", nullable=False)
-    suggested_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    sent_at = Column(DateTime, nullable=True)
-
-    responder_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    is_public = Column(Boolean, default=True, nullable=False)
-
-    review = relationship("Review", back_populates="replies")
-    responder = relationship("User")
-
-    __table_args__ = (
-        Index("idx_reply_review", "review_id"),
-        Index("idx_reply_status", "status"),
-    )
-
+# =========================================================
+# REPORT MODEL
+# =========================================================
 
 class Report(Base):
     __tablename__ = "reports"
 
     id = Column(Integer, primary_key=True)
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
-
-    title = Column(String(255), nullable=True)
-    path = Column(String(512), nullable=True)
-    meta = Column(Text, nullable=True)
-    generated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    format = Column(String(16), nullable=True)
-    period_start = Column(DateTime, nullable=True)
-    period_end = Column(DateTime, nullable=True)
+    title = Column(String(255), nullable=False)
+    content = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
 
     company = relationship("Company", back_populates="reports")
 
-    __table_args__ = (
-        Index("idx_report_company_date", "company_id", "generated_at"),
-    )
 
+# =========================================================
+# NOTIFICATION MODEL
+# =========================================================
 
 class Notification(Base):
     __tablename__ = "notifications"
@@ -326,23 +280,17 @@ class Notification(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
-
-    kind = Column(String(50), nullable=True)
-    payload = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    read = Column(Boolean, default=False, nullable=False)
+    type = Column(String(64), nullable=False)
+    message = Column(Text, nullable=False)
+    is_read = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
 
     user = relationship("User", back_populates="notifications")
     company = relationship("Company", back_populates="notifications")
 
-    __table_args__ = (
-        Index("idx_notification_user_read", "user_id", "read"),
-        Index("idx_notification_company", "company_id"),
-    )
-
 
 # =========================================================
-# RBAC
+# USER-COMPANY ROLE MODEL (RBAC)
 # =========================================================
 
 class UserCompanyRole(Base):
@@ -351,85 +299,58 @@ class UserCompanyRole(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
-    role = Column(String(32), nullable=False)
+    role = Column(String(32), nullable=False)  # e.g., admin, manager, viewer
+    assigned_at = Column(DateTime, default=now_utc, nullable=False)
 
     user = relationship("User", back_populates="roles")
     company = relationship("Company", back_populates="roles")
 
-    __table_args__ = (
-        UniqueConstraint("user_id", "company_id", name="uq_user_company_role"),
-        Index("idx_user_company", "user_id", "company_id"),
-        Index("idx_role", "role"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "company_id", name="uq_user_company_role"),)
 
 
 # =========================================================
-# API CREDENTIALS, HEALTH & SYNC
+# API CREDENTIAL & LOGGING MODELS
 # =========================================================
 
 class ApiCredential(Base):
     __tablename__ = "api_credentials"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
-
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     provider = Column(String(64), nullable=False)
-    account_label = Column(String(128), nullable=True)
-    access_token = Column(Text, nullable=True)
-    refresh_token = Column(Text, nullable=True)
-    token_expires_at = Column(DateTime, nullable=True)
-    scopes = Column(Text, nullable=True)
-
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-    active = Column(Boolean, default=True, nullable=False)
+    api_key = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
 
     user = relationship("User", back_populates="api_credentials")
-    company = relationship("Company")
-
-    __table_args__ = (
-        UniqueConstraint("company_id", "provider", name="uq_company_provider_cred"),
-        Index("idx_cred_provider", "provider"),
-    )
 
 
 class ApiRequestLog(Base):
     __tablename__ = "api_request_logs"
 
     id = Column(Integer, primary_key=True)
-    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
     provider = Column(String(64), nullable=False)
-    endpoint = Column(String(255), nullable=True)
-    method = Column(String(16), nullable=True)
-    status_code = Column(Integer, nullable=True)
-    error_code = Column(String(64), nullable=True)
-    error_message = Column(String(512), nullable=True)
-    request_id = Column(String(128), nullable=True)
-    rate_limit_remaining = Column(Integer, nullable=True)
-    rate_limit_reset_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-
-    __table_args__ = (
-        Index("idx_api_log_company_time", "company_id", "created_at"),
-        Index("idx_api_log_provider_status", "provider", "status_code"),
-    )
+    endpoint = Column(String(255), nullable=False)
+    request_payload = Column(JSON, nullable=True)
+    response_status = Column(Integer, nullable=False)
+    response_payload = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
 
 
 class ApiHealthCheck(Base):
     __tablename__ = "api_health_checks"
 
     id = Column(Integer, primary_key=True)
-    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
     provider = Column(String(64), nullable=False)
     status = Column(String(32), nullable=False)
-    details = Column(Text, nullable=True)
-    checked_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_checked_at = Column(DateTime, default=now_utc, nullable=False)
+    details = Column(JSON, nullable=True)
 
-    __table_args__ = (
-        Index("idx_api_health_company_provider", "company_id", "provider"),
-    )
 
+# =========================================================
+# SYNC MODELS
+# =========================================================
 
 class SyncJob(Base):
     __tablename__ = "sync_jobs"
@@ -437,18 +358,12 @@ class SyncJob(Base):
     id = Column(Integer, primary_key=True)
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
     provider = Column(String(64), nullable=False)
-    schedule = Column(String(64), nullable=True)
-    enabled = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    last_run_at = Column(DateTime, nullable=True)
+    status = Column(String(32), nullable=True)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
 
     company = relationship("Company", back_populates="sync_jobs")
     runs = relationship("SyncRun", back_populates="job", cascade="all, delete-orphan")
-
-    __table_args__ = (
-        UniqueConstraint("company_id", "provider", name="uq_sync_company_provider"),
-        Index("idx_sync_company_provider", "company_id", "provider"),
-    )
 
 
 class SyncRun(Base):
@@ -456,21 +371,51 @@ class SyncRun(Base):
 
     id = Column(Integer, primary_key=True)
     job_id = Column(Integer, ForeignKey("sync_jobs.id", ondelete="CASCADE"), nullable=False)
-    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    started_at = Column(DateTime, default=now_utc, nullable=False)
     ended_at = Column(DateTime, nullable=True)
-    status = Column(String(32), nullable=True)
     fetched_count = Column(Integer, nullable=True)
-    error_message = Column(String(512), nullable=True)
+    error_message = Column(Text, nullable=True)
 
     job = relationship("SyncJob", back_populates="runs")
 
-    __table_args__ = (
-        Index("idx_sync_run_job_status", "job_id", "status"),
-    )
+
+# =========================================================
+# COMPANY METRICS & FORECAST MODELS
+# =========================================================
+
+class CompanyDailyMetrics(Base):
+    __tablename__ = "company_daily_metrics"
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    date = Column(DateTime, nullable=False)
+    total_reviews = Column(Integer, nullable=True)
+    avg_rating = Column(Float, nullable=True)
+    sentiment_positive = Column(Float, nullable=True)
+    sentiment_negative = Column(Float, nullable=True)
+    sentiment_neutral = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
+
+    company = relationship("Company", back_populates="metrics_daily")
+    __table_args__ = (UniqueConstraint("company_id", "date", name="uq_company_date_metrics"),)
+
+
+class CompanyForecast(Base):
+    __tablename__ = "company_forecasts"
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    metric = Column(String(64), nullable=False)
+    forecast_value = Column(Float, nullable=False)
+    forecast_date = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
+
+    company = relationship("Company", back_populates="forecasts")
+    __table_args__ = (UniqueConstraint("company_id", "metric", "forecast_date", name="uq_company_metric_forecast"),)
 
 
 # =========================================================
-# COMPETITOR LINK MODEL (fixed self-reference)
+# COMPETITOR MODEL
 # =========================================================
 
 class CompetitorLink(Base):
@@ -478,18 +423,92 @@ class CompetitorLink(Base):
 
     id = Column(Integer, primary_key=True)
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
-    competitor_company_id = Column(Integer, ForeignKey("companies.id", ondelete="SET NULL"), nullable=True)
+    competitor_company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
 
-    provider = Column(String(64), nullable=True)
-    external_place_id = Column(String(128), nullable=True)
-    label = Column(String(128), nullable=True)
-
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-
-    # FIXED relationships
     company = relationship("Company", foreign_keys=[company_id], back_populates="competitors")
-    competitor_company = relationship("Company", foreign_keys=[competitor_company_id], remote_side=[Company.id])
+    competitor = relationship("Company", foreign_keys=[competitor_company_id])
 
-    __table_args__ = (
-        Index("idx_competitor_company", "company_id"),
-    )
+
+# =========================================================
+# ALERT MODELS
+# =========================================================
+
+class AlertRule(Base):
+    __tablename__ = "alert_rules"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255), nullable=False)
+    metric = Column(String(64), nullable=False)
+    condition = Column(String(64), nullable=False)
+    threshold = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    rule_id = Column(Integer, ForeignKey("alert_rules.id", ondelete="CASCADE"), nullable=False)
+    triggered_at = Column(DateTime, default=now_utc, nullable=False)
+    value = Column(Float, nullable=True)
+    status = Column(String(32), nullable=False, default="unread")
+
+    company = relationship("Company", back_populates="alerts")
+    rule = relationship("AlertRule")
+
+
+# =========================================================
+# DASHBOARD CONFIGS
+# =========================================================
+
+class DashboardConfig(Base):
+    __tablename__ = "dashboard_configs"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+    widget_type = Column(String(64), nullable=False)
+    settings = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
+    updated_at = Column(DateTime, default=now_utc, nullable=False, onupdate=now_utc)
+
+    user = relationship("User", back_populates="dashboard_configs")
+    company = relationship("Company")
+
+
+# =========================================================
+# AUDIT LOGS
+# =========================================================
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    action = Column(String(255), nullable=False)
+    entity_type = Column(String(64), nullable=True)
+    entity_id = Column(Integer, nullable=True)
+    details = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=now_utc, nullable=False)
+
+    user = relationship("User", back_populates="audit_logs")
+
+
+# =========================================================
+# ANOMALY EVENT MODEL
+# =========================================================
+
+class AnomalyEvent(Base):
+    __tablename__ = "anomaly_events"
+
+    id = Column(Integer, primary_key=True)
+    review_id = Column(Integer, ForeignKey("reviews.id", ondelete="CASCADE"), nullable=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+    score = Column(Float, nullable=False)
+    detected_at = Column(DateTime, default=now_utc, nullable=False)
+    resolved = Column(Boolean, default=False, nullable=False)
+
+    review = relationship("Review")
+    company = relationship("Company")
