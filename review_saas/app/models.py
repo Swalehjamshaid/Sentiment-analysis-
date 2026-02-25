@@ -76,6 +76,7 @@ class Company(Base):
     __tablename__ = "companies"
 
     id = Column(Integer, primary_key=True)
+    # Ensure owner_id is explicitly Integer to match User.id
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     name = Column(String(255), nullable=False)
     place_id = Column(String(128), nullable=True)
@@ -104,10 +105,10 @@ class Company(Base):
     roles = relationship("UserCompanyRole", back_populates="company", cascade="all, delete-orphan")
     sync_jobs = relationship("SyncJob", back_populates="company", cascade="all, delete-orphan")
     
-    # FIXED: Explicitly define join for competitors to resolve multiple FK ambiguity
+    # Resolves multiple FK ambiguity for competitors
     competitors = relationship(
         "CompetitorLink", 
-        foreign_keys="CompetitorLink.company_id", 
+        foreign_keys="[CompetitorLink.company_id]", 
         back_populates="company", 
         cascade="all, delete-orphan"
     )
@@ -367,7 +368,6 @@ class CompetitorLink(Base):
     competitor_company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime, default=now_utc, nullable=False)
 
-    # FIXED: back_populates matches the new definition in Company
     company = relationship("Company", foreign_keys=[company_id], back_populates="competitors")
     competitor = relationship("Company", foreign_keys=[competitor_company_id])
 
