@@ -93,7 +93,7 @@ def format_date(value, fmt="%b %d, %Y"):
     if value is None:
         return ""
     
-    # Map common template arguments to Python strftime codes
+    # Map common template arguments (PHP style) to Python strftime codes
     if fmt == 'Y-m-d': fmt = '%Y-%m-%d'
     if fmt == 'H:i': fmt = '%H:%M'
 
