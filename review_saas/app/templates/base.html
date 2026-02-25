@@ -1,40 +1,177 @@
+<!-- filename: app/templates/base.html -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>ReviewIQ | Intelligence</title>
+  <title>{{ title or "Review Intelligence" }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.gstatic.com https://fonts.googleapis.com;
+                 img-src 'self' data: https:;
+                 style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com;
+                 script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com;
+                 connect-src 'self';
+                 upgrade-insecure-requests;">
+
+  <!-- Fonts & CSS -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet" />
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" />
+
   <style>
-    :root { --brand: #4f46e5; }
-    body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; }
-    .navbar { backdrop-filter: blur(10px); background: rgba(255,255,255,0.8); border-bottom: 1px solid #e2e8f0; }
-    .navbar-brand { font-weight: 800; color: var(--brand)!important; }
-    .btn-brand { background: var(--brand); color: #fff; border: none; font-weight: 600; }
-    .hero { background: radial-gradient(circle at top left, rgba(79,70,229,0.05), transparent); padding: 80px 0; }
+    :root { --brand:#4f46e5; --brand-2:#7c3aed; }
+    body { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans"; }
+    .navbar-brand { font-weight:700; color:var(--brand)!important; letter-spacing:0.3px; }
+    .btn-brand { background:linear-gradient(90deg,var(--brand),var(--brand-2)); color:#fff; border:none; }
+    .btn-outline-brand { border-color: var(--brand); color: var(--brand); }
+    .btn-outline-brand:hover { background: var(--brand); color:#fff; }
+    .hero {
+      background: radial-gradient(1000px 400px at 10% 0%, rgba(79,70,229,.08), transparent),
+                  radial-gradient(800px 300px at 90% 10%, rgba(124,58,237,.08), transparent);
+    }
+    footer { color:#6b7280; }
+    .form-hint { font-size: .85rem; color:#6b7280; }
+    .strength { height: 6px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+    .strength > div { height: 100%; transition: width .2s ease; }
   </style>
+
   {% block head %}{% endblock %}
 </head>
-<body>
-  <nav class="navbar navbar-expand-lg sticky-top">
+<body class="bg-light">
+
+  <!-- NAVBAR -->
+  <nav class="navbar navbar-expand-lg bg-white border-bottom sticky-top">
     <div class="container">
       <a class="navbar-brand" href="/">Review<span class="text-primary">IQ</span></a>
-      <div class="collapse navbar-collapse" id="nav">
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div id="nav" class="collapse navbar-collapse">
         <ul class="navbar-nav me-auto">
           <li class="nav-item"><a class="nav-link" href="/">Home</a></li>
+
+          {% if current_user and current_user.is_authenticated and current_user.roles %}
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">Dashboard</a>
+            <ul class="dropdown-menu">
+              {% for role in current_user.roles %}
+                {% if role.company %}
+                  <li><a class="dropdown-item" href="/dashboard/{{ role.company.id }}">{{ role.company.name }}</a></li>
+                {% endif %}
+              {% endfor %}
+            </ul>
+          </li>
+          {% endif %}
         </ul>
+
         <div class="d-flex gap-2">
-          {% if current_user %}<a class="btn btn-outline-primary" href="/logout">Logout</a>
-          {% else %}<button class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#loginModal">Login</button>{% endif %}
+          {% if current_user and current_user.is_authenticated %}
+            <a class="btn btn-outline-brand" href="/logout" rel="nofollow">Logout</a>
+          {% else %}
+            <button class="btn btn-outline-brand" data-bs-toggle="modal" data-bs-target="#loginModal">Login</button>
+            <button class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#registerModal">Register</button>
+          {% endif %}
         </div>
       </div>
     </div>
   </nav>
-  {% if request and request.url.path == '/' %}<div class="hero container text-center"><h1>Master Your Reputation.</h1></div>{% endif %}
-  <main class="py-5"><div class="container">{% block content %}{% endblock %}</div></main>
+
+  <!-- HERO (only on home path) -->
+  {% if request and request.url and request.url.path == '/' %}
+  <header class="hero py-5">
+    <div class="container">
+      <div class="row align-items-center g-4">
+        <div class="col-lg-6">
+          <h1 class="display-5 fw-bold mb-3">Understand your reputation in real-time.</h1>
+          <p class="lead text-muted">Multi-source reviews, AI sentiment, trends, and actionable insights—all in one dashboard.</p>
+          <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#registerModal">Get Started</button>
+            {% if current_user and current_user.roles and current_user.roles[0].company %}
+              <a class="btn btn-outline-brand" href="/dashboard/{{ current_user.roles[0].company.id }}">View Dashboard</a>
+            {% else %}
+              <a class="btn btn-outline-brand" href="/dashboard/1">View Dashboard</a>
+            {% endif %}
+          </div>
+        </div>
+        <div class="col-lg-6">
+          <img class="img-fluid rounded shadow" alt="Dashboard preview" src="https://cdn.jsdelivr.net/gh/placeholderart/free-illustrations/graphs.svg">
+        </div>
+      </div>
+    </div>
+  </header>
+  {% endif %}
+
+  <main class="py-4">
+    <div class="container">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+  <footer class="py-4 border-top bg-white">
+    <div class="container small d-flex flex-wrap justify-content-between">
+      <div>© {{ now().year if now else '2026' }} ReviewIQ</div>
+      <div class="d-flex gap-3">
+        <a href="/privacy" class="link-secondary">Privacy</a>
+        <a href="/security" class="link-secondary">Security</a>
+        <a href="/docs" class="link-secondary">Docs</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- LOGIN & REGISTER MODALS -->
+  {% include 'modals/auth_modals.html' %}
+
+  <!-- TOAST -->
+  <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1080">
+    <div id="toast" class="toast align-items-center text-bg-danger border-0" role="alert">
+      <div class="d-flex">
+        <div class="toast-body" id="toastBody">Invalid credentials.</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // Client-side validation
+    (() => {
+      const forms = document.querySelectorAll('.needs-validation');
+      Array.from(forms).forEach(f => {
+        f.addEventListener('submit', e => {
+          if (!f.checkValidity()) { e.preventDefault(); e.stopPropagation(); }
+          f.classList.add('was-validated');
+        });
+      });
+    })();
+
+    // Password strength
+    const pw = document.getElementById('regPassword');
+    if (pw) {
+      const bar = document.getElementById('pwBar');
+      const score = v => {
+        let s = 0;
+        if (v.length >= 8) s++;
+        if (/[A-Z]/.test(v)) s++;
+        if (/[a-z]/.test(v)) s++;
+        if (/[0-9]/.test(v)) s++;
+        if (/[^A-Za-z0-9]/.test(v)) s++;
+        return s;
+      };
+      pw.addEventListener('input', () => {
+        const s = score(pw.value);
+        const pct = (s/5)*100;
+        bar.style.width = pct + '%';
+        bar.style.background = s < 3 ? '#ef4444' : s < 4 ? '#f59e0b' : '#22c55e';
+      });
+    }
+
+    {% if flash_error %}
+      document.getElementById('toastBody').textContent = {{ flash_error|tojson }};
+      const toast = new bootstrap.Toast(document.getElementById('toast'));
+      toast.show();
+    {% endif %}
+  </script>
+
   {% block scripts %}{% endblock %}
 </body>
 </html>
