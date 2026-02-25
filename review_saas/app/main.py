@@ -82,27 +82,33 @@ app.add_middleware(
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 # ─────────────────────────────────────────────────────────────
-# Jinja Filters and Globals (FIXED FOR TEMPLATE COMPATIBILITY)
+# Jinja Filters and Globals
 # ─────────────────────────────────────────────────────────────
 
 def format_date(value, fmt="%b %d, %Y"):
     """
-    Refined filter to handle both Python formats and 
-    the 'Y-m-d' argument used in the dashboard template.
+    Fixed Jinja2 filter to handle datetime objects or ISO strings.
+    Translates common template format strings (like 'Y-m-d') to Python strftime.
     """
     if value is None:
         return ""
     
-    # Map common template arguments (PHP style) to Python strftime codes
-    if fmt == 'Y-m-d': fmt = '%Y-%m-%d'
-    if fmt == 'H:i': fmt = '%H:%M'
+    # Map PHP/JS style format strings to Python strftime codes
+    mapping = {
+        'Y-m-d': '%Y-%m-%d',
+        'd-m-Y': '%d-%m-%Y',
+        'H:i': '%H:%M',
+        'M d, Y': '%b %d, %Y'
+    }
+    fmt = mapping.get(fmt, fmt)
 
     if isinstance(value, str):
         try:
-            from datetime import datetime
+            # Handle ISO format and Z suffix
             value = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except:
+        except (ValueError, TypeError):
             return value
+            
     return value.strftime(fmt)
 
 def _now():
@@ -119,7 +125,7 @@ def _csrf_token(request: Request):
     token = _get_or_set_csrf(request)
     return Markup(f'<input type="hidden" name="csrf_token" value="{token}">')
 
-# Explicitly register the filter to the Jinja environment
+# Register Filter and Globals
 templates.env.filters["date"] = format_date
 templates.env.globals["now"] = _now
 templates.env.globals["csrf_token"] = _csrf_token
@@ -161,6 +167,7 @@ async def login_post(request: Request, email: str = Form(...), password: str = F
     """
     return await auth.login_post(request, email, password, next(get_db()))
 
+# Include routers
 app.include_router(auth.router)
 app.include_router(companies.router)
 app.include_router(reviews.router)
