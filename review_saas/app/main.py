@@ -25,6 +25,7 @@ from .db import init_db, get_db
 from .models import Company, User, Review
 from .services.rbac import get_current_user
 from .context import common_context
+
 # Routers
 from .routes import auth, companies, reviews, reply, reports, dashboard as dashboard_module
 from .routes.maps_routes import router as maps_router
@@ -34,7 +35,8 @@ from .routes.insights import router as insights_router
 # Services
 from .services import metrics as metrics_svc
 from .services import ai_insights as ai_svc
-# IMPORTANT: import google maps service by module path to avoid package export issues
+
+# Google Maps sync (imported directly to avoid circular issues)
 from .services.google_maps import sync_company_reviews
 
 # ─────────────────────────────────────────────────────────────
@@ -45,7 +47,7 @@ PROJECT_ROOT = BASE_DIR.parent                       # /app
 TEMPLATE_DIR = BASE_DIR / "templates"                # /app/app/templates
 STATIC_DIR = BASE_DIR / "static"                     # /app/app/static
 
-# Fallbacks (supports slightly different layouts)
+# Fallbacks for alternative project structures
 if not TEMPLATE_DIR.exists():
     TEMPLATE_DIR = PROJECT_ROOT / "app" / "templates"
 if not STATIC_DIR.exists():
@@ -145,10 +147,6 @@ templates.env.globals["csrf_token"] = _csrf_token
 # Helper: Safe Context (prevents Jinja crashes)
 # ─────────────────────────────────────────────────────────────
 def get_safe_context(request: Request, current_user=None) -> Dict[str, Any]:
-    """
-    Returns a context containing only safe primitives and the keys
-    your templates expect, so rendering cannot 500 due to missing keys.
-    """
     ctx = common_context(request)
     mock_company = {"id": 0, "name": "No Company Selected", "industry": "N/A"}
     ctx.update({
@@ -172,9 +170,6 @@ def get_safe_context(request: Request, current_user=None) -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, db: Session = Depends(get_db)):
-    """
-    Show landing or redirect to the first company dashboard for the user.
-    """
     user = get_current_user(request)
     if user:
         user_db = db.query(User).filter(User.id == user.id).first()
@@ -234,7 +229,14 @@ async def dashboard_view(request: Request, company_id: int, db: Session = Depend
           .limit(50)
           .all()
     )
-    ai_summary = ai_svc.analyze_reviews(reviews_list, company, start_date, end_date) or {}
+
+    # Safe call to AI analysis (with fallback)
+    ai_summary = {}
+    try:
+        ai_summary = ai_svc.analyze_reviews(reviews_list, company, start_date, end_date) or {}
+    except Exception as e:
+        logger.exception("AI summary failed: %s", e)
+        ai_summary = {"summary_text": "AI analysis unavailable at this time."}
 
     context = common_context(request)
     context.update({
@@ -264,7 +266,6 @@ async def sync_reviews(request: Request, company_id: int, db: Session = Depends(
         return RedirectResponse(f"/dashboard/{company_id}?error=no_place_id")
 
     try:
-        # import via function (we imported earlier): keeps import simple and robust
         new_count = await sync_company_reviews(db, company)
         return RedirectResponse(f"/dashboard/{company_id}?success=synced&count={new_count}")
     except Exception as e:
@@ -289,7 +290,7 @@ app.include_router(maps_router)
 app.include_router(activity_router, prefix="/api/activity", tags=["telemetry"])
 app.include_router(insights_router, prefix="/api/insights", tags=["ai"])
 
-# Health
+# Health Check
 @app.get("/health")
 async def health():
     return {"status": "healthy", "service": settings.APP_NAME}
