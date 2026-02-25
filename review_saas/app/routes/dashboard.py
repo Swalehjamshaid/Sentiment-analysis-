@@ -1,7 +1,7 @@
 # FILE: app/routes/dashboard.py
 """
 Dashboard Router
-Refined to utilize decoupled context to prevent circular imports.
+Refined to utilize decoupled context and robust empty state defaults.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -25,7 +25,7 @@ from app.services import metrics as metrics_svc
 # Google API centralization
 from app.services.google_api import GoogleAPIService, get_google_api_service
 
-# FIX: Import from the decoupled context file
+# Import from the decoupled context file
 from app.context import common_context 
 
 templates = Jinja2Templates(directory="app/templates")
@@ -90,13 +90,28 @@ async def dashboard_page(
             .all()
         )
 
-    # Context for empty states
+    # ─────────────────────────────────────────────────────────────
+    # ENHANCED EMPTY STATE: Prevents Jinja2 'Undefined' errors
+    # ─────────────────────────────────────────────────────────────
     if not companies:
         ctx = common_context(request)
         ctx.update({
-            "companies": [], "active_company": None, "params": {"from": "", "to": "", "range": ""},
-            "kpi": {}, "charts": {}, "reviews": [], "summary": "No companies associated yet.",
-            "api_health": [], "alerts": [], "roles": []
+            "companies": [], 
+            "active_company": None, 
+            "params": {"from": "", "to": "", "range": ""},
+            "kpi": {
+                "avg_rating": 0, "review_count": 0, 
+                "sentiment_score": 0, "growth": 0
+            }, 
+            "charts": {
+                "labels": [], "sentiment": [], 
+                "rating": [], "dist": {}
+            }, 
+            "reviews": [], 
+            "summary": "Welcome! Please add a company to start seeing insights.",
+            "api_health": [], 
+            "alerts": [], 
+            "roles": []
         })
         return templates.TemplateResponse("dashboard.html", ctx)
 
