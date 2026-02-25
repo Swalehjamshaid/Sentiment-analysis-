@@ -82,20 +82,29 @@ app.add_middleware(
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 # ─────────────────────────────────────────────────────────────
-# Jinja Filters and Globals (FIXED PLACEMENT)
+# Jinja Filters and Globals
 # ─────────────────────────────────────────────────────────────
 
-def format_date(value, format="%b %d, %Y"):
-    """Custom Jinja2 filter to format datetime objects or ISO strings."""
+def format_date(value, fmt="%b %d, %Y"):
+    """
+    Flexible Jinja2 filter to format datetime objects or ISO strings.
+    Added mapping for PHP-style 'Y-m-d' to Python strftime.
+    """
     if value is None:
         return ""
+    
+    # Map common template convention to Python strftime
+    if fmt == 'Y-m-d': fmt = '%Y-%m-%d'
+    if fmt == 'H:i': fmt = '%H:%M'
+
     if isinstance(value, str):
         try:
             from datetime import datetime
             value = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except:
             return value
-    return value.strftime(format)
+            
+    return value.strftime(fmt)
 
 def _now():
     return datetime.now(timezone.utc)
@@ -111,7 +120,7 @@ def _csrf_token(request: Request):
     token = _get_or_set_csrf(request)
     return Markup(f'<input type="hidden" name="csrf_token" value="{token}">')
 
-# Explicitly register the filter to the Jinja environment
+# Register Filter and Globals
 templates.env.filters["date"] = format_date
 templates.env.globals["now"] = _now
 templates.env.globals["csrf_token"] = _csrf_token
