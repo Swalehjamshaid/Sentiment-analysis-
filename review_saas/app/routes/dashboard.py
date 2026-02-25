@@ -3,11 +3,11 @@
 Dashboard Router
 - Railway-safe Google API integration
 - Prevents 500 errors when credentials are missing
-- Fully typed and clean
+- Fully typed, clean, and bug-fixed
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from types import SimpleNamespace
 from pathlib import Path
 import os
@@ -29,11 +29,14 @@ from app.context import common_context
 logger = logging.getLogger("review_saas.dashboard")
 
 # ─────────────────────────────────────────────────────────────
-# TEMPLATE CONFIG (Railway-safe)
+# TEMPLATE CONFIG (RAILWAY-SAFE)
 # ─────────────────────────────────────────────────────────────
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+templates_dir = BASE_DIR / "templates"
+if not templates_dir.exists():
+    templates_dir = BASE_DIR / "app" / "templates"
+templates = Jinja2Templates(directory=str(templates_dir))
 
 router = APIRouter()
 
@@ -43,6 +46,7 @@ router = APIRouter()
 # ─────────────────────────────────────────────────────────────
 
 def _parse_date(date_str: Optional[str]) -> Optional[datetime]:
+    """Parse ISO date string safely, return UTC datetime."""
     if not date_str:
         return None
     try:
@@ -53,7 +57,8 @@ def _parse_date(date_str: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def _quick_range(range_key: Optional[str]) -> (Optional[datetime], Optional[datetime]):
+def _quick_range(range_key: Optional[str]) -> Tuple[Optional[datetime], Optional[datetime]]:
+    """Quick date ranges for 7d, 30d, 90d, or current quarter."""
     if not range_key:
         return None, None
     now = datetime.now(timezone.utc)
@@ -82,18 +87,13 @@ def _quick_range(range_key: Optional[str]) -> (Optional[datetime], Optional[date
 async def dashboard_page(
     request: Request,
     company_id: Optional[int] = Query(None),
-    range: Optional[str] = Query(None, pattern="^(7d|30d|90d|qtr)$"),
+    range_key: Optional[str] = Query(None, alias="range", pattern="^(7d|30d|90d|qtr)$"),
     from_: Optional[str] = Query(None, alias="from"),
-    to: Optional[str] = None,
+    to: Optional[str] = Query(None, alias="to"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """
-    Railway-safe dashboard:
-    - Google API is optional
-    - Never crashes if credentials are missing
-    """
-
+    """Railway-safe dashboard page."""
     if not current_user:
         return RedirectResponse("/login", status_code=303)
 
@@ -103,9 +103,7 @@ async def dashboard_page(
 
     if getattr(current_user, "role", None) == "admin":
         companies: List[models.Company] = (
-            db.query(models.Company)
-            .order_by(models.Company.created_at.desc())
-            .all()
+            db.query(models.Company).order_by(models.Company.created_at.desc()).all()
         )
     else:
         companies: List[models.Company] = (
@@ -116,8 +114,8 @@ async def dashboard_page(
         )
 
     if not companies:
-        ctx = common_context(request)
-        ctx.update({
+        context = common_context(request)
+        context.update({
             "companies": [],
             "active_company": None,
             "kpi": {},
@@ -128,9 +126,9 @@ async def dashboard_page(
             "alerts": [],
             "roles": [],
         })
-        return templates.TemplateResponse("dashboard.html", ctx)
+        return templates.TemplateResponse("dashboard.html", context)
 
-    # Determine active company
+    # Active company
     active = next((c for c in companies if c.id == company_id), companies[0])
     company_id = active.id
 
@@ -138,7 +136,7 @@ async def dashboard_page(
     # DATE RANGE
     # ─────────────────────────────────────────────────────────
 
-    sdt, edt = _quick_range(range)
+    sdt, edt = _quick_range(range_key)
     if from_:
         sdt = _parse_date(from_)
     if to:
@@ -165,13 +163,12 @@ async def dashboard_page(
     # REVIEWS
     # ─────────────────────────────────────────────────────────
 
-    review_query = db.query(models.Review).filter(models.Review.company_id == company_id)
+    query = db.query(models.Review).filter(models.Review.company_id == company_id)
     if sdt:
-        review_query = review_query.filter(models.Review.review_date >= sdt)
+        query = query.filter(models.Review.review_date >= sdt)
     if edt:
-        review_query = review_query.filter(models.Review.review_date <= edt)
-
-    reviews = review_query.order_by(models.Review.review_date.desc()).all()
+        query = query.filter(models.Review.review_date <= edt)
+    reviews = query.order_by(models.Review.review_date.desc()).all()
 
     review_vm = [
         SimpleNamespace(
