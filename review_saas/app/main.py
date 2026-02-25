@@ -23,7 +23,8 @@ from .db import init_db, get_db
 from .models import Company, User
 from .services.rbac import get_current_user
 from .context import common_context
-from .routes import auth, companies, reviews, reply, reports, dashboard
+from .routes import auth, companies, reviews, reply, reports
+from .routes import dashboard  # ✅ Import module, not function
 from .routes.maps_routes import router as maps_router
 from .routes.activity import router as activity_router
 from .routes.insights import router as insights_router
@@ -141,76 +142,26 @@ templates.env.globals["csrf_token"] = _csrf_token
 # ─────────────────────────────────────────────────────────────
 # Routes
 # ─────────────────────────────────────────────────────────────
-
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    """
-    Render home page
-    """
+    """Render home page or redirect to dashboard if logged in"""
     user = get_current_user(request)
-    context = common_context(request)
-    context["current_user"] = user
-    return templates.TemplateResponse("dashboard.html", context)
-
-@app.get("/login", response_class=HTMLResponse)
-async def login(request: Request):
-    """
-    Show login page if not authenticated
-    """
-    if get_current_user(request):
-        return RedirectResponse("/dashboard")
-    return templates.TemplateResponse("dashboard.html", common_context(request))
-
-@app.post("/login")
-async def login_post(request: Request, email: str = Form(...), password: str = Form(...)):
-    """
-    Authenticate user and redirect to dashboard.html
-    """
-    db = next(get_db())
-    user = await auth.login_post(request, email, password, db)  # login_post returns user object or None
-
     if user:
-        request.session["user_id"] = user.id  # Save session
-        return RedirectResponse(f"/dashboard/{user.roles[0].company.id}", status_code=302)
-    else:
-        context = common_context(request)
-        context["flash_error"] = "Invalid email or password."
-        return templates.TemplateResponse("dashboard.html", context)
-
-@app.get("/dashboard/{company_id}", response_class=HTMLResponse)
-async def dashboard(request: Request, company_id: int):
-    """
-    Render dashboard.html for a specific company
-    """
-    user = get_current_user(request)
-    if not user:
-        return RedirectResponse("/login")
-    selected_company = next((r.company for r in user.roles if r.company.id == company_id), None)
-    if not selected_company:
-        context = common_context(request)
-        context["current_user"] = user
-        context["flash_error"] = f"No access to company ID {company_id}"
-        return templates.TemplateResponse("dashboard.html", context)
+        # Redirect to first company dashboard
+        company_id = user.roles[0].company.id if user.roles else None
+        if company_id:
+            return RedirectResponse(f"/dashboard/{company_id}")
     context = common_context(request)
     context["current_user"] = user
-    context["selected_company"] = selected_company
     return templates.TemplateResponse("dashboard.html", context)
 
-@app.get("/logout")
-async def logout(request: Request):
-    """
-    Logout and clear session
-    """
-    request.session.clear()
-    return RedirectResponse("/")
-
-# Include all routers
+# Include routers
 app.include_router(auth.router)
 app.include_router(companies.router)
 app.include_router(reviews.router)
 app.include_router(reply.router)
 app.include_router(reports.router)
-app.include_router(dashboard.router)
+app.include_router(dashboard.router)  # ✅ Fixed import
 app.include_router(maps_router)
 app.include_router(activity_router, prefix="/api/activity", tags=["telemetry"])
 app.include_router(insights_router, prefix="/api/insights", tags=["ai"])
