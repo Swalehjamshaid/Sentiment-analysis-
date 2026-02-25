@@ -8,7 +8,7 @@ Fully aligned with:
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, Request, Query
@@ -16,7 +16,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from sqlalchemy.orm import Session
-from sqlalchemy import cast, Integer # Added cast for final database-level insurance
 
 from app.db import get_db
 from app import models
@@ -28,6 +27,9 @@ from app.services import metrics as metrics_svc
 
 # Google API centralization (RULE APPLIED)
 from app.services.google_api import GoogleAPIService, get_google_api_service
+
+# Import common_context from main to ensure base template variables exist
+from app.main import common_context
 
 templates = Jinja2Templates(directory="app/templates")
 router = APIRouter()
@@ -91,10 +93,9 @@ async def dashboard_page(
     # 'text = integer' operator mismatch error.
     # ─────────────────────────────────────────────────────────────
     try:
-        # We use a secondary variable to ensure the raw attribute is not lost
         u_id = int(current_user.id)
     except (ValueError, TypeError, AttributeError):
-        u_id = 0 # Fallback to a non-existent ID rather than None to prevent broad queries
+        u_id = None
 
     # Fetch companies depending on user role
     if getattr(current_user, "role", None) == "admin":
@@ -102,28 +103,31 @@ async def dashboard_page(
     else:
         companies = (
             db.query(models.Company)
-            # Use 'cast' here to handle cases where the DB column might be mistakenly TEXT
-            .filter(cast(models.Company.owner_id, Integer) == u_id)
+            .filter(models.Company.owner_id == u_id)
             .order_by(models.Company.created_at.desc())
             .all()
         )
 
+    # ─────────────────────────────────────────────────────────────
+    # FIX: Provide complete context for empty states to prevent Template Errors
+    # ─────────────────────────────────────────────────────────────
     if not companies:
-        return templates.TemplateResponse("dashboard.html", {
-            "request": request,
+        ctx = common_context(request)
+        ctx.update({
             "companies": [],
             "active_company": None,
-            "params": {},
+            "params": {"from": "", "to": "", "range": ""},
             "kpi": {},
             "charts": {},
             "reviews": [],
-            "summary": "No companies yet.",
+            "summary": "No companies associated with your account yet.",
             "api_health": [],
             "alerts": [],
             "roles": []
         })
+        return templates.TemplateResponse("dashboard.html", ctx)
 
-    # Active company
+    # Active company selection logic
     active = None
     if company_id:
         active = next((c for c in companies if c.id == company_id), None)
@@ -131,7 +135,7 @@ async def dashboard_page(
         active = companies[0]
         company_id = active.id
 
-    # Date range
+    # Date range processing
     sdt, edt = _quick_range(range)
     if from_: sdt = _parse_date(from_)
     if to:    edt = _parse_date(to)
@@ -162,7 +166,6 @@ async def dashboard_page(
         if rp.review_id not in reply_map:
             reply_map[rp.review_id] = rp
         else:
-            # Preserve 'replied_at' logic
             if (rp.replied_at) > (reply_map[rp.review_id].replied_at):
                 reply_map[rp.review_id] = rp
 
@@ -184,7 +187,6 @@ async def dashboard_page(
             keywords=r.keywords,
             language=r.language,
             text=r.text,
-            # Attributes adjusted to match Reply.text
             ai_suggested_reply=(latest.text if latest else None),
             user_reply=(latest.text if latest else None)
         ))
@@ -197,7 +199,7 @@ async def dashboard_page(
     ai_summary = ai_svc.analyze_reviews(reviews, active, sdt, edt)
     summary_text = ai_summary.get("summary_text") or "No summary available."
 
-    # API health (Preserving last_checked_at)
+    # API health
     health_data = (
         db.query(models.ApiHealthCheck)
         .filter(models.ApiHealthCheck.company_id == company_id)
@@ -206,7 +208,7 @@ async def dashboard_page(
     )
     api_health = [{"provider": h.provider, "status": h.status} for h in health_data] if health_data else []
 
-    # Alerts (Preserving triggered_at)
+    # Alerts
     alert_rows = (
         db.query(models.Alert)
         .filter(models.Alert.company_id == company_id)
@@ -218,12 +220,13 @@ async def dashboard_page(
     # Roles
     try:
         from app.services.rbac import get_user_roles_for_company
-        roles = get_user_roles_for_company(db, current_user, company_id)
+        roles_list = get_user_roles_for_company(db, current_user, company_id)
     except Exception:
-        roles = []
+        roles_list = []
 
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
+    # Merge successful dashboard data with common context
+    final_ctx = common_context(request)
+    final_ctx.update({
         "companies": companies,
         "active_company": active,
         "params": params,
@@ -232,6 +235,8 @@ async def dashboard_page(
         "reviews": review_vm,
         "summary": summary_text,
         "api_health": api_health,
-        "roles": roles,
+        "roles": roles_list,
         "alerts": alert_rows,
     })
+
+    return templates.TemplateResponse("dashboard.html", final_ctx)
