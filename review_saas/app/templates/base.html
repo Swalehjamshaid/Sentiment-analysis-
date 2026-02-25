@@ -1,207 +1,240 @@
-<!-- File: review_saas/app/templates/base.html -->
-<!DOCTYPE html>
-<html lang="en"
-      class="scroll-smooth"
-      x-data="baseLayout()"
-      :class="{ 'dark': darkMode }">
-
+<!doctype html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="BizChat - AI Powered Review Intelligence Platform">
-    <title>{% block title %}BizChat | Review Intelligence{% endblock %}</title>
-
-    <!-- Fonts -->
-    https://fonts.googleapis.com
-    https://fonts.gstatic.com
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
-    <!-- Tailwind -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    fontFamily: { sans: ['Inter', 'sans-serif'] },
-                    colors: {
-                        brand: {
-                            50: '#f5f3ff', 100: '#ede9fe', 200: '#ddd6fe',
-                            300: '#c4b5fd', 400: '#a78bfa', 500: '#8b5cf6',
-                            600: '#7c3aed', 700: '#6b21a8', 800: '#5b21b6', 900: '#4c1d95'
-                        }
-                    }
-                }
-            }
-        }
-    </script>
-
-    <!-- Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
-
-    <!-- Alpine -->
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-
-    <style>
-        [x-cloak] { display: none !important; }
-        body { font-family: 'Inter', sans-serif; }
-        .glass-effect { backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
-    </style>
-
-    {% block extra_head %}{% endblock %}
-</head>
-
-<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen flex flex-col transition-colors duration-300">
-
-<!-- Background Glow -->
-<div class="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
-    <div class="absolute -top-[10%] -left-[10%] w-[35%] h-[35%] bg-brand-500/10 rounded-full blur-[120px]"></div>
-    <div class="absolute bottom-[10%] right-[10%] w-[30%] h-[30%] bg-indigo-500/10 rounded-full blur-[120px]"></div>
-</div>
-
-{% block header %}
-<nav class="sticky top-0 z-50 glass-effect border-b border-slate-200/50 dark:border-slate-800/50 bg-white/70 dark:bg-slate-900/70">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between h-16">
-
-            <!-- Logo -->
-            <a href="/" class="flex items-center gap-2 group">
-                <div class="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center shadow-lg group-hover:rotate-12 transition-transform">
-                    <i class="fas fa-comment-dots text-white text-sm"></i>
-                </div>
-                <span class="text-xl font-bold tracking-tight bg-gradient-to-r from-brand-600 to-indigo-500 bg-clip-text text-transparent">
-                    BizChat
-                </span>
-            </a>
-
-            <!-- Desktop Menu -->
-            <div class="hidden md:flex items-center gap-6">
-
-                <!-- Dark Mode Toggle -->
-                <button @click="toggleDark()" class="text-slate-500 hover:text-brand-500 transition-colors">
-                    <i x-show="!darkMode" class="fas fa-moon"></i>
-                    <i x-show="darkMode" class="fas fa-sun"></i>
-                </button>
-
-                {% if current_user %}
-                    <!-- User Dropdown -->
-                    <div x-data="{ open: false }" class="relative">
-                        <button @click="open = !open"
-                                class="flex items-center gap-3 p-1 rounded-full hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition">
-                            <div class="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-white text-xs font-bold ring-2 ring-brand-500/20">
-                                {{ current_user.full_name[:1] if current_user.full_name else 'U' }}
-                            </div>
-                            <i class="fas fa-chevron-down text-[10px] text-slate-400"></i>
-                        </button>
-
-                        <div x-show="open" x-cloak @click.away="open = false"
-                             x-transition
-                             class="absolute right-0 mt-2 w-56 origin-top-right rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl">
-                            <div class="p-2 space-y-1">
-                                <a href="/dashboard" class="flex items-center gap-3 px-4 py-2 text-sm rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
-                                    <i class="fas fa-chart-line w-4 opacity-50"></i> Dashboard
-                                </a>
-                                <a href="/settings" class="flex items-center gap-3 px-4 py-2 text-sm rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
-                                    <i class="fas fa-cog w-4 opacity-50"></i> Settings
-                                </a>
-                                <div class="border-t border-slate-200 dark:border-slate-800 my-1"></div>
-                                <a href="/auth/logout" class="flex items-center gap-3 px-4 py-2 text-sm text-rose-500 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/20 transition">
-                                    <i class="fas fa-sign-out-alt w-4"></i> Sign Out
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                {% else %}
-                    <!-- Guest -->
-                    <a href="/login" class="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-brand-600 transition">Login</a>
-                    <a href="/register" class="px-4 py-2 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg shadow-md shadow-brand-500/20 transition">
-                        Get Started
-                    </a>
-                {% endif %}
-            </div>
-
-            <!-- Mobile Menu Button -->
-            <button @click="mobileMenuOpen = !mobileMenuOpen" class="md:hidden p-2 text-slate-500">
-                <i x-show="!mobileMenuOpen" class="fas fa-bars"></i>
-                <i x-show="mobileMenuOpen" class="fas fa-times"></i>
-            </button>
-        </div>
-    </div>
-
-    <!-- Mobile Menu -->
-    <div x-show="mobileMenuOpen" x-cloak @click.away="mobileMenuOpen=false"
-         class="md:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-4 space-y-3">
-
-        {% if current_user %}
-            <a href="/dashboard" class="block py-2 text-slate-600 dark:text-slate-400">Dashboard</a>
-            <a href="/settings" class="block py-2 text-slate-600 dark:text-slate-400">Settings</a>
-            <a href="/auth/logout" class="block py-2 text-rose-500">Logout</a>
-        {% else %}
-            <a href="/login" class="block py-2 text-slate-600 dark:text-slate-400">Login</a>
-            <a href="/register" class="block py-2 text-brand-600 font-bold">Register</a>
-        {% endif %}
-
-        <button @click="toggleDark()" class="w-full text-left py-2 text-slate-600 dark:text-slate-400">
-            <i class="fas fa-circle-half-stroke mr-2"></i> Toggle Theme
-        </button>
-    </div>
-</nav>
-{% endblock %}
-
-<main class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-8">
-    {% block content %}{% endblock %}
-</main>
-
-{% block footer %}
-<footer class="border-t border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-950/50 py-12">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex flex-col md:flex-row justify-between items-center gap-6">
-            <div class="flex items-center gap-2 opacity-60">
-                <div class="w-6 h-6 bg-slate-400 rounded flex items-center justify-center">
-                    <i class="fas fa-comment-dots text-white text-[10px]"></i>
-                </div>
-                <span class="text-sm font-semibold tracking-wider uppercase">BizChat</span>
-            </div>
-
-            <div class="flex gap-8 text-slate-500 dark:text-slate-400 text-sm">
-                <a href="#" class="hover:text-brand-500 transition">Terms</a>
-                <a href="#" class="hover:text-brand-500 transition">Privacy</a>
-                <a href="#" class="hover:text-brand-500 transition">Support</a>
-            </div>
-
-            <p class="text-slate-400 dark:text-slate-600 text-xs">
-                © 2026 Review Intelligence Platform. Built for excellence.
-            </p>
-        </div>
-    </div>
-</footer>
-{% endblock %}
-
-{% block extra_js %}{% endblock %}
-
-<!-- Global Base Layout Controller -->
-<script>
-function baseLayout() {
-    return {
-        darkMode: localStorage.getItem('darkMode') === 'true'
-            || (!localStorage.getItem('darkMode') && window.matchMedia('(prefers-color-scheme: dark)').matches),
-
-        mobileMenuOpen: false,
-
-        init() {
-            document.documentElement.classList.toggle('dark', this.darkMode);
-            this.$watch('darkMode', val => {
-                document.documentElement.classList.toggle('dark', val);
-                localStorage.setItem('darkMode', val);
-            });
-        },
-
-        toggleDark() {
-            this.darkMode = !this.darkMode;
-        }
+  <meta charset="utf-8" />
+  <title>{{ title or "Review Intelligence" }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Enforce HTTPS & basic CSP (adjust in production) -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.gstatic.com https://fonts.googleapis.com;
+                 img-src 'self' data: https:;
+                 style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com;
+                 script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com;
+                 connect-src 'self';
+                 upgrade-insecure-requests;">
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    :root { --brand:#4f46e5; --brand-2:#7c3aed; }
+    body { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; }
+    .navbar-brand { font-weight:700; color:var(--brand)!important; letter-spacing:0.3px; }
+    .btn-brand { background:linear-gradient(90deg,var(--brand),var(--brand-2)); color:#fff; border:none; }
+    .btn-outline-brand { border-color: var(--brand); color: var(--brand); }
+    .btn-outline-brand:hover { background: var(--brand); color:#fff; }
+    .hero {
+      background: radial-gradient(1000px 400px at 10% 0%, rgba(79,70,229,.08), transparent),
+                  radial-gradient(800px 300px at 90% 10%, rgba(124,58,237,.08), transparent);
     }
-}
-</script>
+    footer { color:#6b7280; }
+    .form-hint { font-size: .85rem; color:#6b7280; }
+    .strength { height: 6px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+    .strength > div { height: 100%; transition: width .2s ease; }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body class="bg-light">
+  <!-- NAVBAR -->
+  <nav class="navbar navbar-expand-lg bg-white border-bottom sticky-top">
+    <div class="container">
+      <a class="navbar-brand" href="/">Review<span class="text-primary">IQ</span></a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div id="nav" class="collapse navbar-collapse">
+        <ul class="navbar-nav me-auto">
+          <li class="nav-item"><a class="nav-link" href="/">Home</a></li>
+          {% if current_user and current_user.is_authenticated %}
+          <li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li>
+          {% endif %}
+        </ul>
 
+        <div class="d-flex gap-2">
+          {% if current_user and current_user.is_authenticated %}
+            <a class="btn btn-outline-brand" href="/logout" rel="nofollow">Logout</a>
+          {% else %}
+            <button class="btn btn-outline-brand" data-bs-toggle="modal" data-bs-target="#loginModal">Login</button>
+            <button class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#registerModal">Register</button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- HERO (visible on Home only) -->
+  {% if request and request.path == '/' %}
+  <header class="hero py-5">
+    <div class="container">
+      <div class="row align-items-center g-4">
+        <div class="col-lg-6">
+          <h1 class="display-5 fw-bold mb-3">Understand your reputation in real-time.</h1>
+          <p class="lead text-muted">Multi-source reviews, AI sentiment, trends, and actionable insights—all in one dashboard.</p>
+          <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-brand" data-bs-toggle="modal" data-bs-target="#registerModal">Get Started</button>
+            <a class="btn btn-outline-brand" href="/dashboard">View Dashboard</a>
+          </div>
+        </div>
+        <div class="col-lg-6">
+          <img class="img-fluid rounded shadow" alt="Dashboard preview" src="https://cdn.jsdelivr.net/gh/placeholderart/free-illustrations/graphs.svg">
+        </div>
+      </div>
+    </div>
+  </header>
+  {% endif %}
+
+  <!-- MAIN CONTENT -->
+  <main class="py-4">
+    <div class="container">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+  <footer class="py-4 border-top bg-white">
+    <div class="container small d-flex flex-wrap justify-content-between">
+      <div>© {{ now().year if now else '2026' }} ReviewIQ</div>
+      <div class="d-flex gap-3">
+        <a href="/privacy" class="link-secondary">Privacy</a>
+        <a href="/security" class="link-secondary">Security</a>
+        <a href="/docs" class="link-secondary">Docs</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- LOGIN MODAL -->
+  <div class="modal fade" id="loginModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content needs-validation" method="POST" action="/auth/login" novalidate>
+        {{ csrf_token() if csrf_token }}
+        <div class="modal-header">
+          <h5 class="modal-title">Login</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input name="email" type="email" class="form-control" placeholder="you@example.com" required autocomplete="email" />
+            <div class="invalid-feedback">Please enter a valid email address.</div>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Password</label>
+            <input name="password" type="password" class="form-control" minlength="8" required autocomplete="current-password" />
+            <div class="invalid-feedback">Password is required (min 8 chars).</div>
+          </div>
+          <div class="form-text">Use your registered email and password.</div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-brand w-100">Login</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- REGISTER MODAL -->
+  <div class="modal fade" id="registerModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content needs-validation" method="POST" action="/auth/register" novalidate>
+        {{ csrf_token() if csrf_token }}
+        <div class="modal-header">
+          <h5 class="modal-title">Create your account</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input name="email" type="email" class="form-control" placeholder="you@example.com"
+                   required autocomplete="email" />
+            <div class="invalid-feedback">Enter a valid email address.</div>
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label">Password</label>
+            <input id="regPassword" name="password" type="password" class="form-control"
+                   minlength="8" required autocomplete="new-password"
+                   pattern="^(?=.*[A-Za-z])(?=.*\\d).{8,}$"
+                   placeholder="Min 8 chars, include letters & numbers" />
+            <div class="invalid-feedback">
+              Password must be at least 8 characters and include letters & numbers.
+            </div>
+          </div>
+
+          <div class="strength mb-2" aria-hidden="true"><div id="pwBar" style="width:0;background:#ef4444;"></div></div>
+          <div class="form-hint">Use a strong password. It will be <strong>securely hashed</strong> before saving. <!-- TODO (backend): hash with bcrypt/argon2 --></div>
+
+          <!-- Optional name -->
+          <div class="mt-3">
+            <label class="form-label">Full name (optional)</label>
+            <input name="full_name" type="text" class="form-control" maxlength="100" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-brand w-100" type="submit">Create Account</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- TOAST (feedback) -->
+  <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1080">
+    <div id="toast" class="toast align-items-center text-bg-danger border-0" role="alert">
+      <div class="d-flex">
+        <div class="toast-body" id="toastBody">Invalid credentials.</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // Client-side validation
+    (() => {
+      const forms = document.querySelectorAll('.needs-validation');
+      Array.from(forms).forEach(f => {
+        f.addEventListener('submit', e => {
+          if (!f.checkValidity()) {
+            e.preventDefault(); e.stopPropagation();
+          }
+          f.classList.add('was-validated');
+        }, false);
+      });
+    })();
+
+    // Password strength estimator (simple heuristic)
+    const pw = document.getElementById('regPassword');
+    if (pw) {
+      const bar = document.getElementById('pwBar');
+      const score = (v) => {
+        let s = 0;
+        if (v.length >= 8) s++;
+        if (/[A-Z]/.test(v)) s++;
+        if (/[a-z]/.test(v)) s++;
+        if (/[0-9]/.test(v)) s++;
+        if (/[^A-Za-z0-9]/.test(v)) s++;
+        return s; // 0..5
+      };
+      pw.addEventListener('input', () => {
+        const s = score(pw.value);
+        const pct = (s/5)*100;
+        bar.style.width = pct + '%';
+        bar.style.background = s < 3 ? '#ef4444' : s < 4 ? '#f59e0b' : '#22c55e';
+      });
+    }
+
+    // Display backend error message (optional)
+    {% if flash_error %}
+      document.getElementById('toastBody').textContent = {{ flash_error|tojson }};
+      const toast = new bootstrap.Toast(document.getElementById('toast'));
+      toast.show();
+    {% endif %}
+  </script>
+
+  <!-- SECURITY NOTES:
+    - TODO (backend): Enforce HTTPS in production (proxy headers + HSTS).
+    - TODO (backend): Hash passwords securely (argon2id or bcrypt) before insert.
+    - TODO (backend): Prevent duplicate emails with DB unique index (already in models) & error handling.
+    - TODO (backend): Use server-side session or JWT w/ HttpOnly, Secure, SameSite=strict cookies.
+    - TODO (backend): CSRF protection on POSTs (placeholder {{ csrf_token() }}).
+    - TODO (backend): Input validation & ORM parameterization (SQL injection safe).
+  -->
+  {% block scripts %}{% endblock %}
 </body>
 </html>
