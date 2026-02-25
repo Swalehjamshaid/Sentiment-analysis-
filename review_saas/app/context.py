@@ -1,11 +1,14 @@
 # FILE: app/context.py
 from typing import Dict, Any
-from sqlalchemy.orm import Session
 from .db import get_db
 from .models import Company
 from .services.rbac import get_current_user
 
 def common_context(request) -> Dict[str, Any]:
+    """
+    Centralized context for all templates to ensure base variables 
+    (user, companies, CSRF) are always available.
+    """
     user = None
     try:
         user = get_current_user(request)
