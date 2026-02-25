@@ -23,7 +23,8 @@ from .db import init_db, get_db
 from .models import Company, User, Review
 from .services.rbac import get_current_user
 from .context import common_context
-from .routes import auth, companies, reviews, reply, reports, dashboard
+# Renaming dashboard import to avoid collision with local route function
+from .routes import auth, companies, reviews, reply, reports, dashboard as dashboard_module
 from .routes.maps_routes import router as maps_router
 from .routes.activity import router as activity_router
 from .routes.insights import router as insights_router
@@ -67,7 +68,6 @@ settings = Settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        # Tables are ensured to exist on every startup
         init_db(drop_existing=os.getenv("DROP_ALL_TABLES") == "1")
         logger.info("Database initialized successfully.")
     except Exception as e:
@@ -140,7 +140,7 @@ templates.env.globals["now"] = _now
 templates.env.globals["csrf_token"] = _csrf_token
 
 # ─────────────────────────────────────────────────────────────
-# Helper: Real Data Context
+# Helper: Safe Context Generator
 # ─────────────────────────────────────────────────────────────
 def get_safe_context(request: Request, current_user=None) -> dict:
     ctx = common_context(request)
@@ -167,7 +167,6 @@ def get_safe_context(request: Request, current_user=None) -> dict:
 async def home(request: Request, db: Session = Depends(get_db)):
     user = get_current_user(request)
     if user:
-        # Redirect to real dashboard if logged in
         user_db = db.query(User).filter(User.id == user.id).first()
         if user_db and user_db.companies:
             return RedirectResponse(f"/dashboard/{user_db.companies[0].id}")
@@ -208,7 +207,7 @@ async def dashboard_view(request: Request, company_id: int, db: Session = Depend
     kpi = metrics_svc.build_kpi_for_dashboard(db, company_id, start_date, end_date)
     charts = metrics_svc.build_dashboard_charts(db, company_id, start_date, end_date)
     reviews_list = db.query(Review).filter(Review.company_id == company_id).limit(10).all()
-    ai_summary = ai_svc.analyze_reviews(reviews_list, company, start_date, end_date)
+    ai_analysis = ai_svc.analyze_reviews(reviews_list, company, start_date, end_date)
 
     context = common_context(request)
     context.update({
@@ -219,7 +218,7 @@ async def dashboard_view(request: Request, company_id: int, db: Session = Depend
         "kpi": kpi,
         "charts": charts,
         "reviews": reviews_list,
-        "summary": ai_summary.get("summary_text", "No summary available."),
+        "summary": ai_analysis.get("summary_text", "No summary available."),
         "params": {"from": start_date.date().isoformat(), "to": end_date.date().isoformat(), "range": "30d"}
     })
     return templates.TemplateResponse("dashboard.html", context)
@@ -237,7 +236,7 @@ app.include_router(companies.router)
 app.include_router(reviews.router)
 app.include_router(reply.router)
 app.include_router(reports.router)
-app.include_router(dashboard.router) 
+app.include_router(dashboard_module.router) # Collision fixed
 app.include_router(maps_router)
 app.include_router(activity_router, prefix="/api/activity", tags=["telemetry"])
 app.include_router(insights_router, prefix="/api/insights", tags=["ai"])
