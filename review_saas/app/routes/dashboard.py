@@ -85,13 +85,22 @@ async def dashboard_page(
     if not current_user:
         return RedirectResponse("/login", status_code=303)
 
+    # ─────────────────────────────────────────────────────────────
+    # FIX: Explicitly cast current_user.id to int to prevent PostgreSQL 
+    # 'text = integer' operator mismatch error.
+    # ─────────────────────────────────────────────────────────────
+    try:
+        u_id = int(current_user.id)
+    except (ValueError, TypeError, AttributeError):
+        u_id = None
+
     # Fetch companies depending on user role
     if getattr(current_user, "role", None) == "admin":
         companies = db.query(models.Company).order_by(models.Company.created_at.desc()).all()
     else:
         companies = (
             db.query(models.Company)
-            .filter(models.Company.owner_id == current_user.id)
+            .filter(models.Company.owner_id == u_id)
             .order_by(models.Company.created_at.desc())
             .all()
         )
@@ -150,7 +159,8 @@ async def dashboard_page(
         if rp.review_id not in reply_map:
             reply_map[rp.review_id] = rp
         else:
-            if (rp.sent_at or rp.suggested_at) > (reply_map[rp.review_id].sent_at or reply_map[rp.review_id].suggested_at):
+            # Syncing with models.py 'replied_at' attribute
+            if (rp.replied_at) > (reply_map[rp.review_id].replied_at):
                 reply_map[rp.review_id] = rp
 
     review_vm = []
@@ -171,8 +181,9 @@ async def dashboard_page(
             keywords=r.keywords,
             language=r.language,
             text=r.text,
-            ai_suggested_reply=(latest.suggested_text if latest else None),
-            user_reply=(latest.edited_text if latest and latest.status in ("Sent", "Posted") else None)
+            # Attributes adjusted to match provided models.py (Reply.text)
+            ai_suggested_reply=(latest.text if latest else None),
+            user_reply=(latest.text if latest else None)
         ))
 
     # KPI and charts
@@ -183,20 +194,20 @@ async def dashboard_page(
     ai_summary = ai_svc.analyze_reviews(reviews, active, sdt, edt)
     summary_text = ai_summary.get("summary_text") or "No summary available."
 
-    # API health
-    health = (
+    # API health (Syncing with models.py 'last_checked_at')
+    health_data = (
         db.query(models.ApiHealthCheck)
         .filter(models.ApiHealthCheck.company_id == company_id)
-        .order_by(models.ApiHealthCheck.checked_at.desc())
+        .order_by(models.ApiHealthCheck.last_checked_at.desc())
         .all()
     )
-    api_health = [{"provider": h.provider, "status": h.status} for h in health] if health else []
+    api_health = [{"provider": h.provider, "status": h.status} for h in health_data] if health_data else []
 
-    # Alerts
-    alerts = (
+    # Alerts (Syncing with models.py 'triggered_at')
+    alert_rows = (
         db.query(models.Alert)
         .filter(models.Alert.company_id == company_id)
-        .order_by(models.Alert.occurred_at.desc())
+        .order_by(models.Alert.triggered_at.desc())
         .limit(10)
         .all()
     )
@@ -219,5 +230,5 @@ async def dashboard_page(
         "summary": summary_text,
         "api_health": api_health,
         "roles": roles,
-        "alerts": alerts,
+        "alerts": alert_rows,
     })
