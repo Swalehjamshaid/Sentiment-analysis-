@@ -100,12 +100,17 @@ async def dashboard_page(
             "active_company": None, 
             "params": {"from": "", "to": "", "range": ""},
             "kpi": {
-                "avg_rating": 0, "review_count": 0, 
-                "sentiment_score": 0, "growth": 0
+                "avg_rating": 0, 
+                "review_count": 0, 
+                "sentiment_score": 0, 
+                "growth": "0%",
+                "pos": 0, "neu": 0, "neg": 0
             }, 
             "charts": {
-                "labels": [], "sentiment": [], 
-                "rating": [], "dist": {}
+                "labels": [], 
+                "sentiment": [], 
+                "rating": [], 
+                "dist": {"positive": 0, "neutral": 0, "negative": 0}
             }, 
             "reviews": [], 
             "summary": "Welcome! Please add a company to start seeing insights.",
