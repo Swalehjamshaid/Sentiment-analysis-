@@ -140,19 +140,41 @@ templates.env.globals["now"] = _now
 templates.env.globals["csrf_token"] = _csrf_token
 
 # ─────────────────────────────────────────────────────────────
-# Helper: Safe Context Generator
+# Helper: Safe Context Generator (FIXES 500 ERRORS)
 # ─────────────────────────────────────────────────────────────
 def get_safe_context(request: Request, current_user=None) -> dict:
+    """Provides a consistent set of keys and mock objects for rendering."""
     ctx = common_context(request)
+    
+    # MOCK OBJECT: Prevents 'NoneType' attribute errors like selected_company.name
+    mock_company = {
+        "id": 0, 
+        "name": "No Company Selected", 
+        "industry": "N/A", 
+        "created_at": datetime.now(timezone.utc)
+    }
+    
     ctx.update({
         "current_user": current_user,
         "companies": [],
-        "selected_company": None,
+        "selected_company": mock_company,
+        "active_company": mock_company,
         "params": {"from": "", "to": "", "range": ""},
-        "kpi": {"avg_rating": 0, "review_count": 0, "sentiment_score": 0, "growth": "0%"},
-        "charts": {"labels": [], "sentiment": [], "rating": []},
+        "kpi": {
+            "avg_rating": 0, 
+            "review_count": 0, 
+            "sentiment_score": 0, 
+            "growth": "0%",
+            "pos": 0, "neu": 0, "neg": 0
+        },
+        "charts": {
+            "labels": [], 
+            "sentiment": [], 
+            "rating": [],
+            "dist": {"positive": 0, "neutral": 0, "negative": 0}
+        },
         "reviews": [],
-        "summary": "Please login to view real-time insights.",
+        "summary": "Please login or add a company to see real-time insights.",
         "api_health": [],
         "alerts": [],
         "roles": []
@@ -167,6 +189,7 @@ def get_safe_context(request: Request, current_user=None) -> dict:
 async def home(request: Request, db: Session = Depends(get_db)):
     user = get_current_user(request)
     if user:
+        # Redirect to real dashboard if logged in
         user_db = db.query(User).filter(User.id == user.id).first()
         if user_db and user_db.companies:
             return RedirectResponse(f"/dashboard/{user_db.companies[0].id}")
@@ -175,7 +198,7 @@ async def home(request: Request, db: Session = Depends(get_db)):
 @app.get("/login", response_class=HTMLResponse)
 async def login_view(request: Request): 
     if get_current_user(request):
-        return RedirectResponse("/dashboard/0")
+        return RedirectResponse("/dashboard")
     return templates.TemplateResponse("dashboard.html", get_safe_context(request))
 
 @app.post("/login")
@@ -186,7 +209,7 @@ async def login_post(request: Request, email: str = Form(...), password: str = F
         first_comp = db.query(Company).filter(Company.owner_id == user.id).first()
         if first_comp:
             return RedirectResponse(f"/dashboard/{first_comp.id}", status_code=302)
-        return RedirectResponse("/dashboard/0", status_code=302)
+        return RedirectResponse("/", status_code=302)
     
     context = get_safe_context(request)
     context["flash_error"] = "Invalid credentials"
