@@ -84,8 +84,21 @@ if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # ─────────────────────────────────────────────────────────────
-# Jinja globals: now() and csrf_token()
+# Jinja Filters and Globals
 # ─────────────────────────────────────────────────────────────
+
+def format_date(value, format="%b %d, %Y"):
+    """Custom Jinja2 filter to format datetime objects."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        try:
+            # Attempt to parse ISO strings if they arrive as text
+            from datetime import datetime
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except:
+            return value
+    return value.strftime(format)
 
 def _now():
     return datetime.now(timezone.utc)
@@ -101,10 +114,17 @@ def _csrf_token(request: Request):
     token = _get_or_set_csrf(request)
     return Markup(f'<input type="hidden" name="csrf_token" value="{token}">')
 
+# Register Filter
+templates.env.filters["date"] = format_date
+
+# Register Globals
 templates.env.globals["now"] = _now
 templates.env.globals["csrf_token"] = _csrf_token
 
+# ─────────────────────────────────────────────────────────────
 # WebSocket updates
+# ─────────────────────────────────────────────────────────────
+
 @app.websocket("/ws/dashboard")
 async def dashboard_ws(websocket):
     await manager.connect(websocket)
@@ -125,7 +145,6 @@ async def login(request: Request):
         return RedirectResponse("/dashboard")
     return templates.TemplateResponse("login.html", common_context(request))
 
-# FIX: Added POST handler for /login to prevent 405 Method Not Allowed
 @app.post("/login")
 async def login_post(request: Request, email: str = Form(...), password: str = Form(...)):
     """
