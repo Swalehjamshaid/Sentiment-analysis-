@@ -22,7 +22,7 @@ from markupsafe import Markup
 from .db import init_db, get_db
 from .models import Company
 from .services.rbac import get_current_user
-# FIX: Import from the decoupled context file
+# FIX: Import from the decoupled context file to prevent circular imports
 from .context import common_context 
 from .routes import auth, companies, reviews, reply, reports, dashboard
 from .routes.maps_routes import router as maps_router
@@ -80,20 +80,17 @@ app.add_middleware(
 )
 
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
-if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # ─────────────────────────────────────────────────────────────
-# Jinja Filters and Globals
+# Jinja Filters and Globals (FIXED PLACEMENT)
 # ─────────────────────────────────────────────────────────────
 
 def format_date(value, format="%b %d, %Y"):
-    """Custom Jinja2 filter to format datetime objects."""
+    """Custom Jinja2 filter to format datetime objects or ISO strings."""
     if value is None:
         return ""
     if isinstance(value, str):
         try:
-            # Attempt to parse ISO strings if they arrive as text
             from datetime import datetime
             value = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except:
@@ -114,12 +111,13 @@ def _csrf_token(request: Request):
     token = _get_or_set_csrf(request)
     return Markup(f'<input type="hidden" name="csrf_token" value="{token}">')
 
-# Register Filter
+# Explicitly register the filter to the Jinja environment
 templates.env.filters["date"] = format_date
-
-# Register Globals
 templates.env.globals["now"] = _now
 templates.env.globals["csrf_token"] = _csrf_token
+
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # ─────────────────────────────────────────────────────────────
 # WebSocket updates
@@ -134,7 +132,10 @@ async def dashboard_ws(websocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-# Pages
+# ─────────────────────────────────────────────────────────────
+# Routes
+# ─────────────────────────────────────────────────────────────
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     return templates.TemplateResponse("home.html", common_context(request))
