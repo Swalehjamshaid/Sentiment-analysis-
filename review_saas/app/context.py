@@ -6,8 +6,8 @@ from .services.rbac import get_current_user
 
 def common_context(request) -> Dict[str, Any]:
     """
-    Centralized context for all templates to ensure base variables 
-    (user, companies, CSRF) are always available.
+    Decoupled context provider to ensure base template variables 
+    are always available without causing circular imports.
     """
     user = None
     try:
@@ -17,6 +17,7 @@ def common_context(request) -> Dict[str, Any]:
 
     db = next(get_db())
     try:
+        # Fetches list of companies for the sidebar/dropdowns
         companies_list = db.query(Company).order_by(Company.name.asc()).all()
     except Exception:
         companies_list = []
