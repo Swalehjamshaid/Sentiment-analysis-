@@ -23,8 +23,7 @@ from .db import init_db, get_db
 from .models import Company, User
 from .services.rbac import get_current_user
 from .context import common_context
-from .routes import auth, companies, reviews, reply, reports
-from .routes import dashboard  # ✅ Import module, not function
+from .routes import auth, companies, reviews, reply, reports, dashboard
 from .routes.maps_routes import router as maps_router
 from .routes.activity import router as activity_router
 from .routes.insights import router as insights_router
@@ -35,11 +34,14 @@ from .dependencies import manager
 # ─────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
+
 TEMPLATE_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 
+# fallback if paths don’t exist
 if not TEMPLATE_DIR.exists():
     TEMPLATE_DIR = PROJECT_ROOT / "app" / "templates"
+if not STATIC_DIR.exists():
     STATIC_DIR = PROJECT_ROOT / "app" / "static"
 
 # ─────────────────────────────────────────────────────────────
@@ -114,15 +116,19 @@ if STATIC_DIR.exists():
 
 # Custom Jinja2 filters & globals
 def format_date(value, fmt="%b %d, %Y"):
-    if value is None: return ""
+    if value is None:
+        return ""
     mapping = {'Y-m-d': '%Y-%m-%d', 'd-m-Y': '%d-%m-%Y', 'H:i': '%H:%M', 'M d, Y': '%b %d, %Y'}
     fmt = mapping.get(fmt, fmt)
     if isinstance(value, str):
-        try: value = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except: return value
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except:
+            return value
     return value.strftime(fmt)
 
-def _now(): return datetime.now(timezone.utc)
+def _now():
+    return datetime.now(timezone.utc)
 
 def _get_or_set_csrf(request: Request) -> str:
     token = request.session.get("_csrf")
@@ -144,24 +150,76 @@ templates.env.globals["csrf_token"] = _csrf_token
 # ─────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    """Render home page or redirect to dashboard if logged in"""
+    """
+    Render home page
+    """
     user = get_current_user(request)
-    if user:
-        # Redirect to first company dashboard
-        company_id = user.roles[0].company.id if user.roles else None
-        if company_id:
-            return RedirectResponse(f"/dashboard/{company_id}")
     context = common_context(request)
     context["current_user"] = user
     return templates.TemplateResponse("dashboard.html", context)
 
-# Include routers
+@app.get("/login", response_class=HTMLResponse)
+async def login(request: Request):
+    """
+    Show login page if not authenticated
+    """
+    if get_current_user(request):
+        return RedirectResponse("/dashboard")
+    context = common_context(request)
+    return templates.TemplateResponse("dashboard.html", context)
+
+@app.post("/login")
+async def login_post(request: Request, email: str = Form(...), password: str = Form(...)):
+    """
+    Authenticate user and redirect to dashboard.html
+    """
+    db = next(get_db())
+    user = await auth.login_post(request, email, password, db)
+
+    if user:
+        request.session["user_id"] = user.id
+        return RedirectResponse(f"/dashboard/{user.roles[0].company.id}", status_code=302)
+    else:
+        context = common_context(request)
+        context["flash_error"] = "Invalid email or password."
+        return templates.TemplateResponse("dashboard.html", context)
+
+@app.get("/dashboard/{company_id}", response_class=HTMLResponse)
+async def dashboard(request: Request, company_id: int):
+    """
+    Render dashboard.html for a specific company
+    """
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login")
+
+    selected_company = next((r.company for r in user.roles if r.company.id == company_id), None)
+    if not selected_company:
+        context = common_context(request)
+        context["current_user"] = user
+        context["flash_error"] = f"No access to company ID {company_id}"
+        return templates.TemplateResponse("dashboard.html", context)
+
+    context = common_context(request)
+    context["current_user"] = user
+    context["selected_company"] = selected_company
+    return templates.TemplateResponse("dashboard.html", context)
+
+@app.get("/logout")
+async def logout(request: Request):
+    """
+    Logout and clear session
+    """
+    request.session.clear()
+    return RedirectResponse("/")
+
+# Include all routers
 app.include_router(auth.router)
 app.include_router(companies.router)
 app.include_router(reviews.router)
 app.include_router(reply.router)
 app.include_router(reports.router)
-app.include_router(dashboard.router)  # ✅ Fixed import
+app.include_router(dashboard.router)
 app.include_router(maps_router)
 app.include_router(activity_router, prefix="/api/activity", tags=["telemetry"])
 app.include_router(insights_router, prefix="/api/insights", tags=["ai"])
