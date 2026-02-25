@@ -3,6 +3,7 @@
 
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_API_KEY&libraries=places"></script>
 <style>
   .card-kpi h6 { color:#6b7280; text-transform: uppercase; letter-spacing: .08em; }
   .pill { padding:.25rem .5rem; border-radius:999px; font-size:.75rem; }
@@ -50,18 +51,18 @@
         </div>
       </div>
 
-      <!-- Add Company -->
+      <!-- Add Company with Google Places Autocomplete -->
       <div class="card mt-3">
         <div class="card-header"><strong>Add Company</strong></div>
         <form class="card-body d-grid gap-2" method="POST" action="/companies/create">
           {{ csrf_token() if csrf_token }}
           <div>
             <label class="form-label">Company Name</label>
-            <input class="form-control needs-validation" name="name" required maxlength="255" />
+            <input id="companyName" class="form-control needs-validation" name="name" required maxlength="255" />
           </div>
           <div>
             <label class="form-label">Google Place ID (optional)</label>
-            <input class="form-control" name="place_id" maxlength="128" />
+            <input id="companyPlaceId" class="form-control" name="place_id" maxlength="128" />
           </div>
           <button class="btn btn-brand">Add</button>
         </form>
@@ -303,8 +304,9 @@ const __DASH__ = {
 
 const colors = { primary:'#4f46e5', purple:'#7c3aed', green:'#10b981', yellow:'#f59e0b', red:'#ef4444', gray:'#9ca3af' };
 
-// Charts initialization (trend, dist, corr, benchmark)
+// Charts initialization
 function initCharts() {
+  // trendChart
   const trendCtx = document.getElementById('trendChart');
   if(trendCtx){ new Chart(trendCtx, { type:'line', data:{ labels: __DASH__.labels, datasets:[
     { label:'Avg Sentiment', data: __DASH__.sentiment, borderColor: colors.primary, backgroundColor: colors.primary, tension:.3 },
@@ -313,11 +315,19 @@ function initCharts() {
     onClick:(evt, els)=>{ if(els.length){ const idx=els[0].index; filterTableByDate(__DASH__.labels[idx]); } }
   } } ); }
 
+  // distChart
   const distCtx = document.getElementById('distChart');
   if(distCtx){ const d=__DASH__.dist; new Chart(distCtx, { type:'bar', data:{ labels:Object.keys(d), datasets:[{ label:'Count', data:Object.values(d), backgroundColor:[colors.red,colors.yellow,colors.gray,colors.green,colors.primary] }]}, options:{ responsive:true, maintainAspectRatio:false } }); }
 
+  // corrChart
   const corrCtx = document.getElementById('corrChart');
   if(corrCtx){ const corr=(__DASH__.correlation||[]).map(p=>({x:p.sentiment, y:p.rating})); new Chart(corrCtx,{ type:'scatter', data:{ datasets:[{ label:'Sentiment vs Rating', data:corr, backgroundColor:colors.gray }]}, options:{ scales:{ x:{ title:{ display:true, text:'Sentiment' } }, y:{ title:{ display:true, text:'Rating' }, min:0, max:5 }}}}); }
 
+  // benchmarkChart
   const benchCtx = document.getElementById('benchmarkChart');
-  if(benchCtx){ const b=__DASH__.benchmark; new Chart(benchCtx,{ type:'line', data:{ labels:(b.labels||[]), datasets:(b.series||[]).map((s,i)=>({ label:s.name, data:s.values, borderColor:[colors.primary,colors.purple,colors
+  if(benchCtx){ const b=__DASH__.benchmark; new Chart(benchCtx,{ type:'line', data:{ labels:(b.labels||[]), datasets:(b.series||[]).map((s,i)=>({ label:s.name, data:s.values, borderColor:[colors.primary,colors.purple,colors.green,colors.yellow,colors.red][i%5] })) }, options:{ responsive:true, maintainAspectRatio:false } }); }
+}
+initCharts();
+
+// Filter reviews table by date
+function filterTableBy
