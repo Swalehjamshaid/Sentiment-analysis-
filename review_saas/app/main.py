@@ -140,13 +140,11 @@ templates.env.globals["now"] = _now
 templates.env.globals["csrf_token"] = _csrf_token
 
 # ─────────────────────────────────────────────────────────────
-# Helper: Safe Context Generator (FIXES 500 ERRORS)
+# Helper: Safe Context Generator (Prevents 500 Rendering Errors)
 # ─────────────────────────────────────────────────────────────
 def get_safe_context(request: Request, current_user=None) -> dict:
-    """Provides a consistent set of keys and mock objects for rendering."""
     ctx = common_context(request)
     
-    # MOCK OBJECT: Prevents 'NoneType' attribute errors like selected_company.name
     mock_company = {
         "id": 0, 
         "name": "No Company Selected", 
@@ -161,20 +159,15 @@ def get_safe_context(request: Request, current_user=None) -> dict:
         "active_company": mock_company,
         "params": {"from": "", "to": "", "range": ""},
         "kpi": {
-            "avg_rating": 0, 
-            "review_count": 0, 
-            "sentiment_score": 0, 
-            "growth": "0%",
-            "pos": 0, "neu": 0, "neg": 0
+            "avg_rating": 0, "review_count": 0, "sentiment_score": 0, 
+            "growth": "0%", "pos": 0, "neu": 0, "neg": 0
         },
         "charts": {
-            "labels": [], 
-            "sentiment": [], 
-            "rating": [],
+            "labels": [], "sentiment": [], "rating": [],
             "dist": {"positive": 0, "neutral": 0, "negative": 0}
         },
         "reviews": [],
-        "summary": "Please login or add a company to see real-time insights.",
+        "summary": "Please login to view real-time insights.",
         "api_health": [],
         "alerts": [],
         "roles": []
@@ -182,14 +175,13 @@ def get_safe_context(request: Request, current_user=None) -> dict:
     return ctx
 
 # ─────────────────────────────────────────────────────────────
-# Local Routes (Real Data Implementation)
+# Local Routes
 # ─────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, db: Session = Depends(get_db)):
     user = get_current_user(request)
     if user:
-        # Redirect to real dashboard if logged in
         user_db = db.query(User).filter(User.id == user.id).first()
         if user_db and user_db.companies:
             return RedirectResponse(f"/dashboard/{user_db.companies[0].id}")
@@ -198,21 +190,32 @@ async def home(request: Request, db: Session = Depends(get_db)):
 @app.get("/login", response_class=HTMLResponse)
 async def login_view(request: Request): 
     if get_current_user(request):
-        return RedirectResponse("/dashboard")
+        return RedirectResponse("/")
     return templates.TemplateResponse("dashboard.html", get_safe_context(request))
 
 @app.post("/login")
 async def login_post(request: Request, email: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
-    user = await auth.login_post(request, email, password, db)
-    if user:
+    """
+    Fixed Login: Checks if auth returns a User object or a RedirectResponse.
+    """
+    result = await auth.login_post(request, email, password, db)
+
+    # If auth returned a Redirect (login failure/error), return it immediately
+    if isinstance(result, RedirectResponse):
+        return result
+
+    # If it's a User object, set session and redirect to dashboard
+    user = result
+    if user and hasattr(user, 'id'):
         request.session["user_id"] = user.id
         first_comp = db.query(Company).filter(Company.owner_id == user.id).first()
         if first_comp:
             return RedirectResponse(f"/dashboard/{first_comp.id}", status_code=302)
         return RedirectResponse("/", status_code=302)
     
+    # Fallback for unexpected results
     context = get_safe_context(request)
-    context["flash_error"] = "Invalid credentials"
+    context["flash_error"] = "Authentication failed. Please check your credentials."
     return templates.TemplateResponse("dashboard.html", context)
 
 @app.get("/dashboard/{company_id}", response_class=HTMLResponse)
@@ -229,7 +232,7 @@ async def dashboard_view(request: Request, company_id: int, db: Session = Depend
     
     kpi = metrics_svc.build_kpi_for_dashboard(db, company_id, start_date, end_date)
     charts = metrics_svc.build_dashboard_charts(db, company_id, start_date, end_date)
-    reviews_list = db.query(Review).filter(Review.company_id == company_id).limit(10).all()
+    reviews_list = db.query(Review).filter(Review.company_id == company_id).order_by(Review.review_date.desc()).limit(10).all()
     ai_analysis = ai_svc.analyze_reviews(reviews_list, company, start_date, end_date)
 
     context = common_context(request)
@@ -259,7 +262,7 @@ app.include_router(companies.router)
 app.include_router(reviews.router)
 app.include_router(reply.router)
 app.include_router(reports.router)
-app.include_router(dashboard_module.router) # Collision fixed
+app.include_router(dashboard_module.router)
 app.include_router(maps_router)
 app.include_router(activity_router, prefix="/api/activity", tags=["telemetry"])
 app.include_router(insights_router, prefix="/api/insights", tags=["ai"])
