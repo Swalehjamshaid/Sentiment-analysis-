@@ -20,29 +20,32 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-# Local modules
+# Local imports
 from .db import init_db, get_db
 from .models import Company, User, Review
 from .services.rbac import get_current_user
 from .context import common_context
-
 # Routers
 from .routes import auth, companies, reviews, reply, reports, dashboard as dashboard_module
 from .routes.maps_routes import router as maps_router
 from .routes.activity import router as activity_router
 from .routes.insights import router as insights_router
 
-# Services: import concrete function directly to avoid __init__ re-export issues
-from .services.google_maps import sync_company_reviews  # <- IMPORTANT change
+# Services
+from .services import metrics as metrics_svc
+from .services import ai_insights as ai_svc
+# IMPORTANT: import google maps service by module path to avoid package export issues
+from .services.google_maps import sync_company_reviews
 
 # ─────────────────────────────────────────────────────────────
 # Paths & Directories (ABSOLUTE)
 # ─────────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parent     # /app/app
-PROJECT_ROOT = BASE_DIR.parent                 # /app
-TEMPLATE_DIR = BASE_DIR / "templates"
-STATIC_DIR = BASE_DIR / "static"
+BASE_DIR = Path(__file__).resolve().parent           # /app/app
+PROJECT_ROOT = BASE_DIR.parent                       # /app
+TEMPLATE_DIR = BASE_DIR / "templates"                # /app/app/templates
+STATIC_DIR = BASE_DIR / "static"                     # /app/app/static
 
+# Fallbacks (supports slightly different layouts)
 if not TEMPLATE_DIR.exists():
     TEMPLATE_DIR = PROJECT_ROOT / "app" / "templates"
 if not STATIC_DIR.exists():
@@ -133,17 +136,18 @@ def _csrf_token(context: dict):
         request.session["_csrf"] = token
     return Markup(f'<input type="hidden" name="csrf_token" value="{token}">')
 
-# Register helpers
+# Jinja helpers
 templates.env.filters["date"] = format_date
 templates.env.globals["now"] = lambda: datetime.now(timezone.utc)
 templates.env.globals["csrf_token"] = _csrf_token
 
 # ─────────────────────────────────────────────────────────────
-# Helper: Safe Context
+# Helper: Safe Context (prevents Jinja crashes)
 # ─────────────────────────────────────────────────────────────
 def get_safe_context(request: Request, current_user=None) -> Dict[str, Any]:
     """
-    Defensive context so templates always have the keys they expect.
+    Returns a context containing only safe primitives and the keys
+    your templates expect, so rendering cannot 500 due to missing keys.
     """
     ctx = common_context(request)
     mock_company = {"id": 0, "name": "No Company Selected", "industry": "N/A"}
@@ -169,7 +173,7 @@ def get_safe_context(request: Request, current_user=None) -> Dict[str, Any]:
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, db: Session = Depends(get_db)):
     """
-    If user has companies, redirect to first dashboard. Otherwise render dashboard shell.
+    Show landing or redirect to the first company dashboard for the user.
     """
     user = get_current_user(request)
     if user:
@@ -215,20 +219,13 @@ async def dashboard_view(request: Request, company_id: int, db: Session = Depend
     if not company:
         return RedirectResponse("/")
 
+    # Default range: last 30 days
     end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=30)
 
-    # Services should return only primitives (dicts/lists/numbers/strings)
-    try:
-        kpi = metrics_svc.build_kpi_for_dashboard(db, company_id, start_date, end_date)
-    except Exception as e:
-        logger.exception("KPI build failed: %s", e)
-        kpi = {"avg_rating": 0, "avg_sentiment": 0, "review_count": 0, "review_growth": "0%"}
-    try:
-        charts = metrics_svc.build_dashboard_charts(db, company_id, start_date, end_date)
-    except Exception as e:
-        logger.exception("Charts build failed: %s", e)
-        charts = {"labels": [], "sentiment": [], "rating": [], "dist": {"1":0,"2":0,"3":0,"4":0,"5":0}, "correlation": [], "benchmark": {"labels": [], "series": []}}
+    # Build data
+    kpi = metrics_svc.build_kpi_for_dashboard(db, company_id, start_date, end_date)
+    charts = metrics_svc.build_dashboard_charts(db, company_id, start_date, end_date)
 
     reviews_list = (
         db.query(Review)
@@ -237,12 +234,7 @@ async def dashboard_view(request: Request, company_id: int, db: Session = Depend
           .limit(50)
           .all()
     )
-
-    try:
-        ai_summary = ai_svc.analyze_reviews(reviews_list, company, start_date, end_date) or {}
-    except Exception as e:
-        logger.exception("AI summary failed: %s", e)
-        ai_summary = {}
+    ai_summary = ai_svc.analyze_reviews(reviews_list, company, start_date, end_date) or {}
 
     context = common_context(request)
     context.update({
@@ -272,9 +264,8 @@ async def sync_reviews(request: Request, company_id: int, db: Session = Depends(
         return RedirectResponse(f"/dashboard/{company_id}?error=no_place_id")
 
     try:
-        logger.info("Starting Google Sync for company: %s", company.name)
-        new_count = await sync_company_reviews(db, company)  # direct fn call
-        logger.info("Sync complete. Added %s new reviews.", new_count)
+        # import via function (we imported earlier): keeps import simple and robust
+        new_count = await sync_company_reviews(db, company)
         return RedirectResponse(f"/dashboard/{company_id}?success=synced&count={new_count}")
     except Exception as e:
         logger.exception("Sync failed: %s", e)
@@ -298,6 +289,7 @@ app.include_router(maps_router)
 app.include_router(activity_router, prefix="/api/activity", tags=["telemetry"])
 app.include_router(insights_router, prefix="/api/insights", tags=["ai"])
 
+# Health
 @app.get("/health")
 async def health():
     return {"status": "healthy", "service": settings.APP_NAME}
