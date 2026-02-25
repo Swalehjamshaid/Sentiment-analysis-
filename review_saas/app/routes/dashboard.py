@@ -93,7 +93,7 @@ async def dashboard_page(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Railway-safe dashboard page."""
+    """Railway-safe dashboard page with full context and attributes."""
     if not current_user:
         return RedirectResponse("/login", status_code=303)
 
@@ -102,9 +102,7 @@ async def dashboard_page(
     # ─────────────────────────────────────────────────────────
 
     if getattr(current_user, "role", None) == "admin":
-        companies: List[models.Company] = (
-            db.query(models.Company).order_by(models.Company.created_at.desc()).all()
-        )
+        companies: List[models.Company] = db.query(models.Company).order_by(models.Company.created_at.desc()).all()
     else:
         companies: List[models.Company] = (
             db.query(models.Company)
