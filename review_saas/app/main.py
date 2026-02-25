@@ -22,78 +22,105 @@ from markupsafe import Markup
 from .db import init_db, get_db
 from .models import Company
 from .services.rbac import get_current_user
-# FIX: Import from the decoupled context file to prevent circular imports
-from .context import common_context 
+from .context import common_context  # decoupled context to prevent circular imports
 from .routes import auth, companies, reviews, reply, reports, dashboard
 from .routes.maps_routes import router as maps_router
 from .routes.activity import router as activity_router
 from .routes.insights import router as insights_router
 from .dependencies import manager
 
+# ─────────────────────────────────────────────────────────────
+# Paths & Directories
+# ─────────────────────────────────────────────────────────────
+
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 TEMPLATE_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 
+# Fallback for containerized environments
 if not TEMPLATE_DIR.exists():
     TEMPLATE_DIR = PROJECT_ROOT / "app" / "templates"
     STATIC_DIR = PROJECT_ROOT / "app" / "static"
 
+# ─────────────────────────────────────────────────────────────
+# Logging
+# ─────────────────────────────────────────────────────────────
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("review_saas")
 
+# ─────────────────────────────────────────────────────────────
+# Settings
+# ─────────────────────────────────────────────────────────────
+
 class Settings:
-    APP_NAME = "ReviewSaaS"
-    FORCE_HTTPS = bool(int(os.getenv("FORCE_HTTPS", "0")))
-    CORS_ALLOW_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "*")
+    APP_NAME: str = "ReviewSaaS"
+    FORCE_HTTPS: bool = bool(int(os.getenv("FORCE_HTTPS", "0")))
+    CORS_ALLOW_ORIGINS: str = os.getenv("CORS_ALLOW_ORIGINS", "*")
+    SESSION_SECRET: str = os.getenv("SESSION_SECRET", secrets.token_urlsafe(32))
 
 settings = Settings()
+
+# ─────────────────────────────────────────────────────────────
+# Lifespan / Startup
+# ─────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
         init_db(drop_existing=os.getenv("DROP_ALL_TABLES") == "1")
-        logger.info("DB ready")
+        logger.info("Database initialized successfully.")
     except Exception as e:
-        logger.error("DB init error: %s", e)
+        logger.exception("Database initialization failed: %s", e)
     yield
+    logger.info("Application shutting down.")
+
+# ─────────────────────────────────────────────────────────────
+# FastAPI App
+# ─────────────────────────────────────────────────────────────
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "supersecretkey123"))
+# ─────────────────────────────────────────────────────────────
+# Middleware
+# ─────────────────────────────────────────────────────────────
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.SESSION_SECRET,
+    session_cookie="session",
+    max_age=3600 * 24 * 7  # 1 week
+)
 
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
         if settings.FORCE_HTTPS and scheme != "https":
-            return RedirectResponse(request.url.replace(scheme="https"), status_code=307)
+            url = request.url.replace(scheme="https")
+            return RedirectResponse(url, status_code=307)
         return await call_next(request)
 
 app.add_middleware(HTTPSRedirectMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.CORS_ALLOW_ORIGINS],
+    allow_origins=[settings.CORS_ALLOW_ORIGINS] if settings.CORS_ALLOW_ORIGINS != "*" else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
 )
 
+# ─────────────────────────────────────────────────────────────
+# Templates
+# ─────────────────────────────────────────────────────────────
+
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
-# ─────────────────────────────────────────────────────────────
-# Jinja Filters and Globals
-# ─────────────────────────────────────────────────────────────
-
+# Custom Jinja2 filters and globals
 def format_date(value, fmt="%b %d, %Y"):
-    """
-    Fixed Jinja2 filter to handle datetime objects or ISO strings.
-    Translates common template format strings (like 'Y-m-d') to Python strftime.
-    """
     if value is None:
         return ""
-    
-    # Map PHP/JS style format strings to Python strftime codes
     mapping = {
         'Y-m-d': '%Y-%m-%d',
         'd-m-Y': '%d-%m-%Y',
@@ -104,11 +131,9 @@ def format_date(value, fmt="%b %d, %Y"):
 
     if isinstance(value, str):
         try:
-            # Handle ISO format and Z suffix
             value = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except (ValueError, TypeError):
             return value
-            
     return value.strftime(fmt)
 
 def _now():
@@ -125,20 +150,20 @@ def _csrf_token(request: Request):
     token = _get_or_set_csrf(request)
     return Markup(f'<input type="hidden" name="csrf_token" value="{token}">')
 
-# Register Filter and Globals
 templates.env.filters["date"] = format_date
 templates.env.globals["now"] = _now
 templates.env.globals["csrf_token"] = _csrf_token
 
+# Static files
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # ─────────────────────────────────────────────────────────────
-# WebSocket updates
+# WebSocket: Dashboard
 # ─────────────────────────────────────────────────────────────
 
 @app.websocket("/ws/dashboard")
-async def dashboard_ws(websocket):
+async def dashboard_ws(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
@@ -162,9 +187,6 @@ async def login(request: Request):
 
 @app.post("/login")
 async def login_post(request: Request, email: str = Form(...), password: str = Form(...)):
-    """
-    Directly routes the modal login POST request to the auth logic.
-    """
     return await auth.login_post(request, email, password, next(get_db()))
 
 # Include routers
@@ -178,6 +200,7 @@ app.include_router(maps_router)
 app.include_router(activity_router, prefix="/api/activity", tags=["telemetry"])
 app.include_router(insights_router, prefix="/api/insights", tags=["ai"])
 
+# Health check
 @app.get("/health")
 async def health():
     return {"status": "healthy", "service": settings.APP_NAME}
