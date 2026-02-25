@@ -85,17 +85,28 @@ def _compile_type_safe(col_type, dialect) -> Optional[str]:
 def init_db(drop_existing: bool = False) -> None:
     """
     Initializes the DB, creates tables, and adds missing columns.
+    Uses CASCADE for Postgres to handle foreign key dependencies.
     """
     if drop_existing:
-        logger.info("Dropping all tables...")
-        Base.metadata.drop_all(bind=engine)
+        logger.info("Dropping all objects with CASCADE...")
+        # ─────────────────────────────────────────────────────────────
+        # FIX: Force a clean wipe by dropping the public schema. 
+        # This resolves (psycopg.errors.DependentObjectsStillExist).
+        # ─────────────────────────────────────────────────────────────
+        if "postgresql" in url:
+            with engine.connect() as conn:
+                conn.execute(text("DROP SCHEMA public CASCADE;"))
+                conn.execute(text("CREATE SCHEMA public;"))
+                conn.commit()
+                logger.info("Public schema recreated successfully.")
+        else:
+            Base.metadata.drop_all(bind=engine)
 
     logger.info("Ensuring tables exist...")
     Base.metadata.create_all(bind=engine)
 
     inspector = inspect(engine)
     
-    # We use a non-transactional connection for ALTER TABLE in some dialects
     with engine.connect() as conn:
         for table_name, table_obj in Base.metadata.tables.items():
             if not inspector.has_table(table_name):
@@ -111,22 +122,19 @@ def init_db(drop_existing: bool = False) -> None:
                 if not sql_type:
                     continue
 
-                # Add column as Nullable first (Safest approach)
                 default_val = ""
                 if column.server_default is not None:
-                    # Accessing .arg is the standard way to get the literal default
                     arg = getattr(column.server_default, "arg", None)
                     if arg is not None:
                         default_val = f"DEFAULT {arg}"
 
                 logger.info(f"Syncing: Adding {table_name}.{column.name}")
                 
-                # Double quotes handle reserved keywords in Postgres
                 stmt = text(f'ALTER TABLE "{table_name}" ADD COLUMN "{column.name}" {sql_type} {default_val}')
                 
                 try:
                     conn.execute(stmt)
-                    conn.commit() # Commit each column individually
+                    conn.commit()
                 except Exception as e:
                     logger.error(f"Failed to add {column.name} to {table_name}: {e}")
 
