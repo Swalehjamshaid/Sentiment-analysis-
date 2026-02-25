@@ -1,419 +1,418 @@
 {% extends "base.html" %}
-
-{% block title %}BizChat • Neural Executive Intelligence{% endblock %}
-
-{% block extra_head %}
-<style>
-    /* Premium Glassmorphism & UI Accents */
-    .metric-card {
-        background: rgba(30, 41, 59, 0.4);
-        backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    .metric-card:hover {
-        border-color: rgba(99, 102, 241, 0.4);
-        transform: translateY(-4px);
-        background: rgba(30, 41, 59, 0.6);
-    }
-    /* Replace Tailwind @apply with standard CSS so it works without build step */
-    .insight-pill { 
-        padding: 0.25rem 0.75rem; 
-        border-radius: 9999px; 
-        font-size: 10px; 
-        font-weight: 800; 
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        display: inline-flex;
-        align-items: center;
-        border: 1px solid transparent;
-    }
-    [x-cloak] { display: none !important; }
-
-    .custom-scroll::-webkit-scrollbar { height: 6px; }
-    .custom-scroll::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.3); border-radius: 10px; }
-
-    .text-gradient {
-        background: linear-gradient(to right, #60a5fa, #818cf8, #a78bfa);
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-    }
-    .prediction-up { color: #10b981; }
-    .prediction-down { color: #ef4444; }
-</style>
+{% block head %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    .card-kpi h6 { color:#6b7280; text-transform: uppercase; letter-spacing: .08em; }
+    .pill { padding:.25rem .5rem; border-radius:999px; font-size:.75rem; }
+    .pill-success { background:#dcfce7; color:#166534; }
+    .pill-warn { background:#fef9c3; color:#854d0e; }
+    .pill-danger { background:#fee2e2; color:#991b1b; }
+    .review-card .meta { color:#6b7280; font-size:.85rem; }
+    .nowrap { white-space: nowrap; }
+    .sidebar { position: sticky; top: 5rem; }
+  </style>
 {% endblock %}
 
 {% block content %}
-<div class="space-y-8" x-cloak x-data="dashboardHandler()">
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="mb-0">Dashboard</h2>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-brand" href="/logout">Logout</a>
+  </div>
+</div>
 
-    <!-- Global Loading Overlay -->
-    <div x-show="loading" class="fixed inset-0 z-[70] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center">
-        <div class="text-center">
-            <div class="w-20 h-20 border-t-4 border-indigo-500 rounded-full animate-spin mx-auto mb-6"></div>
-            <p class="text-indigo-400 font-black tracking-widest uppercase text-xs animate-pulse">Synthesizing Google Neural Stream...</p>
+<div class="row g-4">
+  <!-- SIDEBAR: Companies -->
+  <aside class="col-lg-3">
+    <div class="sidebar">
+      <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <strong>Your Companies</strong>
+          <span class="badge text-bg-secondary">{{ companies|length if companies else 0 }}</span>
         </div>
+        <div class="list-group list-group-flush">
+          {% for c in companies %}
+            <div class="list-group-item d-flex justify-content-between align-items-center">
+              <a class="text-decoration-none" href="/dashboard?company_id={{ c.id }}">{{ c.name }}</a>
+              <form method="POST" action="/companies/{{ c.id }}/delete" onsubmit="return confirm('Delete {{ c.name }}?');">
+                {{ csrf_token() if csrf_token }}
+                <button class="btn btn-sm btn-outline-danger">Delete</button>
+              </form>
+            </div>
+          {% else %}
+            <div class="list-group-item text-muted">No companies yet.</div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="card mt-3">
+        <div class="card-header"><strong>Add Company</strong></div>
+        <form class="card-body d-grid gap-2" method="POST" action="/companies/create">
+          {{ csrf_token() if csrf_token }}
+          <div>
+            <label class="form-label">Company Name</label>
+            <input class="form-control" name="name" required maxlength="255" />
+          </div>
+          <div>
+            <label class="form-label">Google Place ID (optional)</label>
+            <input class="form-control" name="place_id" maxlength="128" />
+          </div>
+          <button class="btn btn-brand">Add</button>
+          <!-- TODO (backend): On submit, create company → schedule/trigger sync job for Google API -->
+        </form>
+      </div>
+
+      <!-- API Health -->
+      <div class="card mt-3">
+        <div class="card-header"><strong>API Health</strong></div>
+        <div class="card-body small">
+          {% for h in api_health or [] %}
+            <div class="d-flex justify-content-between">
+              <span class="text-uppercase">{{ h.provider }}</span>
+              {% set cls = 'pill-success' if h.status=='healthy' else 'pill-warn' if h.status=='degraded' else 'pill-danger' %}
+              <span class="pill {{ cls }}">{{ h.status }}</span>
+            </div>
+          {% else %}
+            <div class="text-muted">No telemetry yet.</div>
+          {% endfor %}
+          <div class="mt-2">
+            <a href="/sync/run?company_id={{ active_company.id if active_company else '' }}" class="btn btn-sm btn-outline-brand w-100">Run Sync Now</a>
+          </div>
+        </div>
+      </div>
     </div>
+  </aside>
 
-    <!-- Header & Controls -->
-    <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-        <div>
-            <h1 class="text-5xl font-black tracking-tighter text-white">
-                <span class="text-gradient" x-text="selectedCompany.name || 'Select Company'"></span>
-            </h1>
-            <div class="flex items-center gap-3 mt-2">
-                <span class="insight-pill bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">Google API Integrated</span>
-                <span class="text-slate-600 text-[10px] font-bold uppercase tracking-widest" 
-                      x-text="'Sync: ' + (dashboardData.company?.last_sync || 'Never')"></span>
-                <span class="text-slate-600 text-[10px] font-bold uppercase tracking-widest"
-                      x-text="(dashboardData.company?.city ? (dashboardData.company.city + ' Region') : '')"></span>
-            </div>
+  <!-- MAIN CONTENT -->
+  <section class="col-lg-9">
+    <!-- Filters -->
+    <form class="card mb-3" method="GET" action="/dashboard">
+      <div class="card-body row g-3 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label">Company</label>
+          <select class="form-select" name="company_id" required>
+            {% for c in companies %}
+              <option value="{{ c.id }}" {% if active_company and c.id == active_company.id %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
         </div>
+        <div class="col-md-3">
+          <label class="form-label">From</label>
+          <input type="date" class="form-control" name="from"
+                 value="{{ params.from or '' }}" min="2026-02-25" required />
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">To</label>
+          <input type="date" class="form-control" name="to"
+                 value="{{ params.to or '' }}" min="2026-02-25" required />
+        </div>
+        <div class="col-md-2 d-grid">
+          <button class="btn btn-brand">Apply</button>
+        </div>
+        <div class="col-12">
+          <!-- Quick ranges -->
+          <div class="d-flex gap-2">
+            <a class="btn btn-sm btn-outline-secondary" href="?company_id={{ active_company.id }}&range=7d">Last 7 days</a>
+            <a class="btn btn-sm btn-outline-secondary" href="?company_id={{ active_company.id }}&range=30d">Last 30 days</a>
+            <a class="btn btn-sm btn-outline-secondary" href="?company_id={{ active_company.id }}&range=90d">Last 90 days</a>
+            <a class="btn btn-sm btn-outline-secondary" href="?company_id={{ active_company.id }}&range=qtr">This quarter</a>
+          </div>
+        </div>
+      </div>
+    </form>
 
-        <div class="flex flex-wrap gap-3">
-            <button @click="exportReport('pdf')" class="px-4 py-4 bg-slate-800 text-slate-300 rounded-2xl hover:bg-slate-700 transition-all font-black text-xs">
-                <i class="fas fa-file-pdf mr-2"></i>PDF REPORT
-            </button>
-            
-            <button @click="triggerSync()" :disabled="syncing || !selectedCompany.id"
-                    class="flex items-center gap-2 px-8 py-4 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-500 transition-all font-black text-xs shadow-2xl shadow-indigo-600/30 active:scale-95 disabled:opacity-50">
-                <i class="fas fa-bolt" :class="syncing ? 'animate-pulse' : ''"></i>
-                <span x-text="syncing ? 'RE-INDEXING...' : 'FORCE GOOGLE SYNC'"></span>
-            </button>
-            
-            <div class="flex bg-slate-900/80 border border-slate-700 rounded-2xl p-2 gap-2 shadow-inner">
-                <input type="date" x-model="dateStart" class="bg-transparent border-none text-[11px] text-white px-2 focus:ring-0 w-32">
-                <span class="text-slate-800 self-center">/</span>
-                <input type="date" x-model="dateEnd" class="bg-transparent border-none text-[11px] text-white px-2 focus:ring-0 w-32">
-                <button @click="applyFilter()" class="bg-indigo-600 text-white px-6 py-2 rounded-xl text-[11px] font-black hover:bg-indigo-500 transition-all">FILTER</button>
-            </div>
+    <!-- KPI Cards -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-3">
+        <div class="card card-kpi">
+          <div class="card-body">
+            <h6>Average Rating</h6>
+            <div class="display-6 fw-bold">{{ kpi.avg_rating or '—' }}</div>
+            <div class="small text-muted">vs prev period: {{ kpi.avg_rating_delta or '—' }}</div>
+          </div>
         </div>
-    </div>
-
-    <!-- Executive Summary -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div class="lg:col-span-2 metric-card p-8 rounded-[2.5rem] relative overflow-hidden">
-            <div class="absolute top-0 right-0 p-8 opacity-10">
-                <i class="fas fa-brain text-8xl text-indigo-400"></i>
-            </div>
-            <h3 class="text-indigo-400 font-black text-xs uppercase tracking-[0.3em] mb-4">Executive Dashboard Status</h3>
-            <p class="text-2xl font-bold text-slate-100 leading-tight mb-6">
-                <span x-text="(dashboardData.executive_summary?.sentiment_score ?? 0) + '% Overall Sentiment • ' + (dashboardData.executive_summary?.predictive_signal ?? 'Stable')"></span>
-            </p>
-            
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-6 relative z-10">
-                <div class="space-y-1">
-                    <p class="text-slate-500 text-[9px] font-bold uppercase">Volume (#13)</p>
-                    <p class="text-lg font-black text-white" x-text="(dashboardData.metrics?.total ?? dashboardData.total_reviews ?? 0)"></p>
-                </div>
-                <div class="space-y-1">
-                    <p class="text-slate-500 text-[9px] font-bold uppercase">Forecast (#21)</p>
-                    <span class="insight-pill" 
-                          :class="(dashboardData.executive_summary?.predictive_signal === 'Improving') ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : (dashboardData.executive_summary?.predictive_signal === 'Declining') ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-slate-500/10 text-slate-400 border-slate-500/20'" 
-                          x-text="dashboardData.executive_summary?.predictive_signal || 'Stable'"></span>
-                </div>
-                <div class="space-y-1">
-                    <p class="text-slate-500 text-[9px] font-bold uppercase">Risk Index (#20)</p>
-                    <p class="text-lg font-black text-white" x-text="dashboardData.executive_summary?.risk_level || 'Low'"></p>
-                </div>
-                <div class="space-y-1">
-                    <p class="text-slate-500 text-[9px] font-bold uppercase">Response Rate (#26)</p>
-                    <p class="text-lg font-black text-indigo-400" x-text="dashboardData.metrics?.response_rate || '0%'"></p>
-                </div>
-            </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card card-kpi">
+          <div class="card-body">
+            <h6>Avg Sentiment</h6>
+            <div class="display-6 fw-bold">{{ kpi.avg_sentiment or '—' }}</div>
+            <div class="small text-muted">pos/neu/neg: {{ kpi.pos }}/{{ kpi.neu }}/{{ kpi.neg }}</div>
+          </div>
         </div>
-
-        <div class="metric-card p-8 rounded-[2.5rem] flex flex-col justify-center text-center">
-            <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-4">Average Star Rating</p>
-            <div class="relative inline-flex items-center justify-center">
-                <p class="text-7xl font-black text-amber-400" 
-                   x-text="Number((dashboardData.executive_summary?.avg_rating ?? dashboardData.metrics?.avg_rating ?? dashboardData.avg_rating ?? 0)).toFixed(1)"></p>
-                <span class="text-2xl text-slate-600 ml-2 font-bold italic">★</span>
-            </div>
-            <p class="text-slate-400 text-[10px] mt-4 font-bold" 
-               x-text="(dashboardData.metrics?.total ?? dashboardData.total_reviews ?? 0) + ' Verified Reviews'"></p>
+      </div>
+      <div class="col-md-3">
+        <div class="card card-kpi">
+          <div class="card-body">
+            <h6>Review Count</h6>
+            <div class="display-6 fw-bold">{{ kpi.review_count or 0 }}</div>
+            <div class="small text-muted">growth: {{ kpi.review_growth or '—' }}</div>
+          </div>
         </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card card-kpi">
+          <div class="card-body">
+            <h6>Response Time</h6>
+            <div class="display-6 fw-bold">{{ kpi.avg_response_time or '—' }}</div>
+            <div class="small text-muted">response rate: {{ kpi.response_rate or '—' }}</div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Charts -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div class="metric-card p-8 rounded-[2rem]">
-            <h3 class="text-white font-bold text-sm mb-8 flex items-center justify-between">
-                <span><i class="fas fa-smile text-rose-400 mr-2"></i>Emotion Spectrum (#4)</span>
-                <span class="text-[9px] text-slate-500 font-bold uppercase">Deep Learning Layer</span>
-            </h3>
-            <div class="h-64"><canvas id="emotionSpectrumChart"></canvas></div>
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Trends</strong>
+        <div>
+          <a class="btn btn-sm btn-outline-secondary" href="/reports?company_id={{ active_company.id }}&format=csv">CSV</a>
+          <a class="btn btn-sm btn-outline-secondary" href="/reports?company_id={{ active_company.id }}&format=xlsx">Excel</a>
+          <a class="btn btn-sm btn-outline-secondary" href="/reports?company_id={{ active_company.id }}&format=pdf">PDF</a>
         </div>
-        <div class="metric-card p-8 rounded-[2rem]">
-            <h3 class="text-white font-bold text-sm mb-8 flex items-center justify-between">
-                <span><i class="fas fa-bullseye text-emerald-400 mr-2"></i>Aspect Sentiment (#5)</span>
-                <span class="text-[9px] text-slate-500 font-bold uppercase">Business Components</span>
-            </h3>
-            <div class="h-64 flex items-center justify-center"><canvas id="aspectSentimentChart"></canvas></div>
+      </div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <canvas id="trendChart" height="180"></canvas>
+            <div class="form-text">Sentiment & rating trend (click points to drill-down)</div>
+          </div>
+          <div class="col-md-6">
+            <canvas id="distChart" height="180"></canvas>
+            <div class="form-text">1–5 star distribution</div>
+          </div>
+          <div class="col-md-12">
+            <canvas id="corrChart" height="130"></canvas>
+            <div class="form-text">Correlation between sentiment score and star rating</div>
+          </div>
         </div>
+      </div>
     </div>
 
-    <!-- Drilldown Table -->
-    <div class="metric-card rounded-[2rem] overflow-hidden">
-        <div class="p-8 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
-            <div>
-                <h3 class="text-white font-black text-xl tracking-tight uppercase">Intelligence Log</h3>
-                <p class="text-slate-500 text-[10px] font-bold uppercase tracking-widest mt-1 italic">Individual Review Audit (#16)</p>
-            </div>
-            <template x-if="dashboardData.metrics?.anomaly_detected || dashboardData.executive_summary?.anomaly_detected || dashboardData.anomaly_alert">
-                <div class="bg-rose-500/20 border border-rose-500/40 text-rose-400 px-4 py-2 rounded-xl text-[10px] font-black animate-bounce">
-                    <i class="fas fa-exclamation-triangle mr-2"></i>ANOMALY DETECTED
-                </div>
-            </template>
-        </div>
-        
-        <div class="overflow-x-auto custom-scroll">
-            <table class="w-full text-left">
-                <thead class="bg-black/20 text-slate-500 text-[9px] font-black uppercase tracking-[0.25em]">
-                    <tr>
-                        <th class="px-8 py-5">Source & Reviewer</th>
-                        <th class="px-8 py-5">AI Inference (#3, #4, #5, #24)</th>
-                        <th class="px-8 py-5 text-right">Autonomous Response (#14)</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-white/5">
-                    <template x-for="review in paginatedReviews" :key="review.id">
-                        <tr class="hover:bg-indigo-500/[0.04] transition-colors group">
-                            <td class="px-8 py-6">
-                                <div class="flex items-center gap-4">
-                                    <div class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-indigo-400 font-black">
-                                        <span x-text="(review.reviewer_name && review.reviewer_name[0]) ? review.reviewer_name[0] : '?'"></span>
-                                    </div>
-                                    <div>
-                                        <p class="text-white font-black text-sm" x-text="review.reviewer_name || 'Anonymous'"></p>
-                                        <span class="text-[8px] bg-slate-800 px-1 rounded text-slate-500 uppercase font-bold" 
-                                              x-text="review.source"></span>
-                                    </div>
-                                </div>
-                            </td>
-                            <td class="px-8 py-6">
-                                <div class="flex items-center gap-3 mb-2">
-                                    <span class="text-amber-400 font-black text-xs" x-text="(review.rating ?? 0).toFixed(1) + ' ★'"></span>
-                                    <span class="insight-pill bg-indigo-500/10 text-indigo-400 border border-indigo-500/20" x-text="review.emotion"></span>
-                                    <span class="insight-pill bg-slate-500/10 text-slate-400 border border-slate-500/20" x-text="review.lang"></span>
-                                </div>
-                                <p class="text-slate-400 text-xs italic line-clamp-2 group-hover:line-clamp-none transition-all" x-text="review.text || 'N/A'"></p>
-                                <div class="flex gap-2 mt-2">
-                                    <template x-for="(val, asp) in review.aspects" :key="asp">
-                                        <span class="text-[8px] font-bold text-slate-400 border border-slate-700 px-2 py-0.5 rounded" x-text="asp"></span>
-                                    </template>
-                                </div>
-                            </td>
-                            <td class="px-8 py-6 text-right">
-                                <button @click="generateAIReply(review)" class="px-5 py-2.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-xl text-[10px] font-black hover:bg-indigo-600 hover:text-white transition-all">AI DRAFT</button>
-                            </td>
-                        </tr>
-                    </template>
-                </tbody>
-            </table>
-        </div>
-        
-        <div class="px-8 py-6 bg-black/10 flex items-center justify-between border-t border-white/5">
-            <p class="text-[9px] text-slate-600 font-black uppercase tracking-widest">Page <span class="text-indigo-400" x-text="currentPage"></span> / <span x-text="totalPages"></span></p>
-            <div class="flex gap-2">
-                <button @click="prevPage()" :disabled="currentPage === 1" class="px-4 py-2 bg-slate-800 disabled:opacity-20 rounded-xl text-[10px] font-black text-white">PREV</button>
-                <button @click="nextPage()" :disabled="currentPage === totalPages" class="px-4 py-2 bg-slate-800 disabled:opacity-20 rounded-xl text-[10px] font-black text-white">NEXT</button>
-            </div>
-        </div>
+    <!-- Executive Summary (AI) -->
+    <div class="card mb-3">
+      <div class="card-header"><strong>Executive Summary</strong></div>
+      <div class="card-body">
+        <p class="mb-1 text-muted small">AI-generated summary of the selected period.</p>
+        <div id="summaryText">{{ summary or 'No summary available yet.' }}</div>
+        <!-- TODO (backend): Generate summary using your NLP pipeline and inject into `summary` -->
+      </div>
     </div>
+
+    <!-- Reviews table -->
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Reviews</strong>
+        <span class="badge text-bg-secondary">{{ reviews|length if reviews else 0 }}</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <thead class="table-light">
+            <tr>
+              <th class="nowrap">Date</th>
+              <th>Reviewer</th>
+              <th>Rating</th>
+              <th>Sentiment</th>
+              <th>Emotion</th>
+              <th>Aspects</th>
+              <th>Keywords</th>
+              <th>Text</th>
+              <th>Reply (AI Suggested)</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="reviewsBody">
+            {% for r in reviews %}
+            <tr data-date="{{ r.review_date|date('Y-m-d') }}">
+              <td class="nowrap">{{ r.review_date|date('Y-m-d') }}</td>
+              <td>{{ r.reviewer_name or 'Anonymous' }}</td>
+              <td>{{ r.rating or '—' }}</td>
+              <td>
+                <span class="pill
+                  {% if r.sentiment_category=='Positive' %}pill-success
+                  {% elif r.sentiment_category=='Neutral' %}pill-warn
+                  {% elif r.sentiment_category=='Negative' %}pill-danger
+                  {% endif %}">
+                  {{ r.sentiment_category or '—' }}
+                </span>
+                <div class="small text-muted">{{ '%.2f'|format(r.sentiment_score or 0.0) }} (conf {{ '%.2f'|format(r.sentiment_confidence or 0.0) }})</div>
+              </td>
+              <td>
+                {{ r.emotion_label or '—' }}
+                {% if r.is_spam_suspected %}<div class="small text-danger">Anomaly suspected</div>{% endif %}
+              </td>
+              <td>
+                {% if r.aspect_summary %}
+                  <div class="small text-muted">
+                    {% for k,v in r.aspect_summary.items() %}
+                      <div>{{ k }}: {{ '%.2f'|format(v.get('score', 0)) }}</div>
+                    {% endfor %}
+                  </div>
+                {% else %}—{% endif %}
+              </td>
+              <td>
+                {% if r.topics %}
+                  <div class="small text-muted">
+                    {% for k,v in r.topics.items() %}
+                      <span class="badge text-bg-light border">{{ k }}</span>
+                    {% endfor %}
+                  </div>
+                {% elif r.keywords %}{{ r.keywords }}{% else %}—{% endif %}
+              </td>
+              <td style="max-width: 360px;">{{ r.text }}</td>
+              <td style="min-width: 260px;">
+                <form method="POST" action="/reviews/{{ r.id }}/reply">
+                  {{ csrf_token() if csrf_token }}
+                  <textarea class="form-control mb-2" name="reply_text" rows="3"
+                            placeholder="{{ r.ai_suggested_reply or 'AI suggested reply here…' }}">{{ r.user_reply or '' }}</textarea>
+                  <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" formaction="/reviews/{{ r.id }}/reply/suggest">Suggest</button>
+                    <button class="btn btn-sm btn-brand">Send</button>
+                  </div>
+                  <!-- TODO (backend): Suggest → call LLM; Send → post via provider API if supported -->
+                </form>
+              </td>
+              <td class="text-end">
+                {% if r.language %}<span class="badge text-bg-secondary">{{ r.language }}</span>{% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="10" class="text-center text-muted py-4">No reviews in this period.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Optional sections shown only to owners/managers -->
+    {% if 'owner' in (roles or []) or 'manager' in (roles or []) %}
+    <div class="card mt-3">
+      <div class="card-header"><strong>Benchmark & Alerts</strong></div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <h6>Competitor / Branch Comparison</h6>
+            <canvas id="benchmarkChart" height="130"></canvas>
+          </div>
+          <div class="col-md-6">
+            <h6>Alerts</h6>
+            <ul class="list-group">
+              {% for a in alerts or [] %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                  <div>
+                    <strong>{{ a.title }}</strong>
+                    <div class="small text-muted">{{ a.description }}</div>
+                  </div>
+                  <span class="pill {% if a.severity=='critical' %}pill-danger{% elif a.severity=='warning' %}pill-warn{% else %}pill-success{% endif %}">
+                    {{ a.severity }}
+                  </span>
+                </li>
+              {% else %}
+                <li class="list-group-item text-muted">No alerts.</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </section>
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% block scripts %}
 <script>
-function dashboardHandler() {
-    return {
-        selectedCompany: { 
-            id: '{{ selected_company.id if selected_company else "" }}', 
-            name: '{{ selected_company.name if selected_company else "Select Company" }}' 
-        },
-        loading: true,
-        syncing: false,
-        dateStart: '',
-        dateEnd: '',
-        currentPage: 1,
-        pageSize: 10,
+  // Data injected by backend (use safe defaults)
+  window.__DASH__ = {
+    labels: {{ charts.labels|tojson if charts and charts.labels else '[]' }},
+    sentiment: {{ charts.sentiment|tojson if charts and charts.sentiment else '[]' }},
+    rating: {{ charts.rating|tojson if charts and charts.rating else '[]' }},
+    dist: {{ charts.dist|tojson if charts and charts.dist else '{"1":0,"2":0,"3":0,"4":0,"5":0}' }},
+    correlation: {{ charts.correlation|tojson if charts and charts.correlation else '[]' }},
+    benchmark: {{ charts.benchmark|tojson if charts and charts.benchmark else '{"labels":[],"series":[]}' }},
+  };
 
-        // The backend should inject a JSON payload named dashboard_payload
-        dashboardData: {{ dashboard_payload | tojson | safe if dashboard_payload else '{}' }},
+  // Charts
+  const colors = {
+    primary: '#4f46e5',
+    purple: '#7c3aed',
+    green: '#10b981',
+    yellow: '#f59e0b',
+    red: '#ef4444',
+    gray: '#9ca3af'
+  };
 
-        init() {
-            this.$nextTick(() => {
-                setTimeout(() => {
-                    this.loading = false;
-                    this.renderVisuals();
-                }, 300);
-            });
-        },
-
-        // Normalize the recent review objects to a consistent shape for UI
-        get _normalizedReviews() {
-            const reviews = this.dashboardData?.drill_down?.recent_reviews || [];
-            return reviews.map(r => ({
-                id: r.id,
-                reviewer_name: r.reviewer_name || r.name || 'Anonymous',
-                rating: typeof r.rating === 'number' ? r.rating : Number(r.rating || 0),
-                text: r.text || '',
-                // normalize emotion/lang/source/aspects keys from various payloads
-                emotion: r.emotion || r.detected_emotion || 'Neutral',
-                lang: r.language || r.lang || 'en',
-                source: r.source || r.source_type || 'google',
-                aspects: r.aspects || {},
-            }));
-        },
-
-        get paginatedReviews() {
-            const start = (this.currentPage - 1) * this.pageSize;
-            return this._normalizedReviews.slice(start, start + this.pageSize);
-        },
-
-        get totalPages() {
-            const total = this._normalizedReviews.length;
-            return Math.ceil(total / this.pageSize) || 1;
-        },
-
-        nextPage() { if (this.currentPage < this.totalPages) this.currentPage++; },
-        prevPage() { if (this.currentPage > 1) this.currentPage--; },
-
-        applyFilter() {
-            if (!this.selectedCompany.id) { alert("Select a company first."); return; }
-            const params = new URLSearchParams({ company_id: this.selectedCompany.id });
-            if (this.dateStart) params.set('start', this.dateStart);
-            if (this.dateEnd) params.set('end', this.dateEnd);
-            // navigate so server renders a filtered dashboard_payload
-            window.location.href = `/dashboard?${params.toString()}`;
-        },
-
-        async triggerSync() {
-            if (!this.selectedCompany.id) return;
-            this.syncing = true;
-            try {
-                // Updated to match backend route: /api/reviews/sync/{company_id}?source=google
-                const res = await fetch(`/api/reviews/sync/${this.selectedCompany.id}?source=google`, { method: 'POST' });
-                if (res.ok) {
-                    // give background job a moment before reload
-                    setTimeout(() => window.location.reload(), 600);
-                } else {
-                    this.syncing = false;
-                    const msg = await res.text();
-                    alert('Sync failed: ' + msg);
-                }
-            } catch (err) {
-                this.syncing = false;
-                console.error(err);
-                alert("Sync error. Check server logs.");
-            }
-        },
-
-        async exportReport(type) {
-            if (!this.selectedCompany.id) { alert('Select a company first.'); return; }
-            // Backend export endpoint: /api/reviews/export?company_id=...&format=pdf|csv|xlsx
-            const params = new URLSearchParams({
-                company_id: this.selectedCompany.id,
-                format: type || 'pdf'
-            });
-            if (this.dateStart) params.set('start_date', this.dateStart);
-            if (this.dateEnd) params.set('end_date', this.dateEnd);
-
-            const url = `/api/reviews/export?${params.toString()}`;
-            try {
-                const res = await fetch(url);
-                if (!res.ok) { 
-                    const t = await res.text(); 
-                    throw new Error(t || 'Export failed'); 
-                }
-                const blob = await res.blob();
-                const filename = res.headers.get('Content-Disposition')?.split('filename=')?.[1]?.replace(/"/g,'') || `report.${type}`;
-                const link = document.createElement('a');
-                link.href = window.URL.createObjectURL(blob);
-                link.download = filename;
-                link.click();
-                window.URL.revokeObjectURL(link.href);
-            } catch (e) {
-                console.error(e);
-                alert('Export failed: ' + e.message);
-            }
-        },
-
-        generateAIReply(review) {
-            // Placeholder hook — integrate your /api/reply or similar endpoint
-            alert(`AI will draft a response for ${review.reviewer_name} — (demo)`);
-        },
-
-        renderVisuals() {
-            // The intelligence data can come under different keys depending on backend:
-            // companies.py (v1): dashboardData.intelligence.emotion_spectrum / aspect_performance
-            // services.ai_insights (v7): emotion_breakdown / aspect_performance
-            const intel = this.dashboardData.intelligence || this.dashboardData.sentiment_intelligence || {};
-            const emotionData = intel.emotion_spectrum || this.dashboardData.emotion_breakdown || {};
-            const aspectData = intel.aspect_performance || this.dashboardData.aspect_performance || {};
-
-            // Emotion Spectrum
-            const emotionCtx = document.getElementById('emotionSpectrumChart');
-            if (emotionCtx && Object.keys(emotionData).length) {
-                new Chart(emotionCtx, {
-                    type: 'bar',
-                    data: {
-                        labels: Object.keys(emotionData),
-                        datasets: [{
-                            label: 'Instances',
-                            data: Object.values(emotionData),
-                            backgroundColor: 'rgba(99, 102, 241, 0.5)',
-                            borderColor: '#818cf8',
-                            borderWidth: 2,
-                            borderRadius: 10
-                        }]
-                    },
-                    options: { 
-                        maintainAspectRatio: false, 
-                        plugins: { legend: { display: false } },
-                        scales: { 
-                            y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
-                            x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#94a3b8' } },
-                        } 
-                    }
-                });
-            }
-
-            // Aspect Sentiment Radar
-            const aspectCtx = document.getElementById('aspectSentimentChart');
-            if (aspectCtx && Object.keys(aspectData).length) {
-                new Chart(aspectCtx, {
-                    type: 'radar',
-                    data: {
-                        labels: Object.keys(aspectData),
-                        datasets: [{
-                            label: 'Customer Satisfaction Score',
-                            data: Object.values(aspectData),
-                            backgroundColor: 'rgba(16, 185, 129, 0.2)',
-                            borderColor: '#10b981',
-                            pointBackgroundColor: '#10b981'
-                        }]
-                    },
-                    options: { 
-                        maintainAspectRatio: false, 
-                        plugins: { legend: { labels: { color: '#94a3b8' } } },
-                        scales: { 
-                            r: { 
-                                grid: { color: 'rgba(255,255,255,0.1)' }, 
-                                angleLines: { color: 'rgba(255,255,255,0.1)' }, 
-                                pointLabels: { color: '#94a3b8' },
-                                suggestedMin: 0,
-                                suggestedMax: 100,
-                                ticks: { color: '#94a3b8', backdropColor: 'transparent' }
-                            } 
-                        } 
-                    }
-                });
-            }
+  // Trend chart
+  const trendCtx = document.getElementById('trendChart');
+  if (trendCtx) {
+    const data = window.__DASH__;
+    const trendChart = new Chart(trendCtx, {
+      type: 'line',
+      data: {
+        labels: data.labels,
+        datasets: [
+          { label: 'Avg Sentiment', data: data.sentiment, borderColor: colors.primary, backgroundColor: colors.primary, tension:.3 },
+          { label: 'Avg Rating', data: data.rating, borderColor: colors.purple, backgroundColor: colors.purple, tension:.3, yAxisID: 'y1' },
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true }, y1: { beginAtZero: true, position:'right', suggestedMax:5 } },
+        onClick: (evt, els) => {
+          // Drill-down: filter table by clicked date label
+          if (!els.length) return;
+          const idx = els[0].index;
+          const label = trendChart.data.labels[idx];
+          filterTableByDate(label);
         }
-    }
-}
+      }
+    });
+  }
+
+  // Distribution chart
+  const distCtx = document.getElementById('distChart');
+  if (distCtx) {
+    const d = window.__DASH__.dist;
+    new Chart(distCtx, {
+      type: 'bar',
+      data: {
+        labels: Object.keys(d),
+        datasets: [{ label:'Count', data: Object.values(d), backgroundColor: [colors.red, colors.yellow, colors.gray, colors.green, colors.primary] }]
+      },
+      options: { responsive:true, maintainAspectRatio:false }
+    });
+  }
+
+  // Correlation chart (scatter)
+  const corrCtx = document.getElementById('corrChart');
+  if (corrCtx) {
+    const corr = (window.__DASH__.correlation || []).map(p => ({ x: p.sentiment, y: p.rating }));
+    new Chart(corrCtx, {
+      type:'scatter',
+      data:{ datasets:[{ label:'Sentiment vs Rating', data:corr, backgroundColor:colors.gray }] },
+      options: { scales: { x: { title: { display:true, text:'Sentiment' } }, y: { title: { display:true, text:'Rating' }, min:0, max:5 } } }
+    });
+  }
+
+  // Benchmarking chart
+  const benchCtx = document.getElementById('benchmarkChart');
+  if (benchCtx) {
+    const b = window.__DASH__.benchmark;
+    new Chart(benchCtx, {
+      type:'line',
+      data:{ labels: b.labels || [], datasets:(b.series||[]).map((s,i)=>({ label:s.name, data:s.values, borderColor:[colors.primary,colors.purple,colors.green,colors.red][i%4], tension:.3 })) },
+      options:{ responsive:true, maintainAspectRatio:false }
+    });
+  }
+
+  // Drill-down function
+  function filterTableByDate(dateStr) {
+    const rows = document.querySelectorAll('#reviewsBody tr');
+    rows.forEach(r => {
+      const d = r.getAttribute('data-date');
+      r.style.display = (!dateStr || d === dateStr) ? '' : 'none';
+    });
+  }
 </script>
 {% endblock %}
