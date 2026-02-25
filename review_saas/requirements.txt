@@ -1,3 +1,10 @@
+# Updated requirements.txt - February 25, 2026
+# Changes:
+# - Removed deprecated google-generativeai (caused warnings)
+# - Added modern google-genai (official Gemini SDK replacement)
+# - Loosened requests/urllib3/charset-normalizer pins to fix RequestsDependencyWarning
+# - All other packages unchanged
+
 # Core Web Framework & Server
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
@@ -25,9 +32,9 @@ pyotp==2.9.0
 # Utilities & HTTP (FIXED FOR PYTHON 3.13 STABILITY)
 bleach==6.1.0
 httpx[http2]==0.27.2
-requests==2.32.3
-urllib3==2.2.1
-charset-normalizer==3.3.2
+requests>=2.32.3
+urllib3>=2.2.1
+charset-normalizer>=3.3.2
 python-dateutil==2.9.0.post0
 
 # Reporting & Documents
@@ -56,8 +63,8 @@ google-auth>=2.35.0
 google-auth-oauthlib>=1.2.1
 tenacity==9.0.0
 
-# Google Generative AI (legacy – fixes ModuleNotFoundError; migrate later)
-google-generativeai>=0.8.0
+# Modern Google Generative AI SDK (replaces deprecated google-generativeai)
+google-genai>=1.0.0
 
 # Optional: Dev & Debugging
 python-json-logger==4.0.0
@@ -65,5 +72,5 @@ python-json-logger==4.0.0
 # Required for SessionMiddleware in FastAPI/Starlette
 itsdangerous>=2.1.2
 
-# Monitoring & Metrics (NEWLY ADDED)
+# Monitoring & Metrics
 prometheus_client==0.20.0
