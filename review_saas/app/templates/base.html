@@ -18,14 +18,16 @@
       --glass-border: rgba(255, 255, 255, 0.3);
       --card-radius: 16px;
       --shadow-1: 0 10px 30px rgba(0,0,0,0.06);
-      --gradient: radial-gradient(1100px 400px at 0% -10%, rgba(99,102,241,.15) 0, rgba(99,102,241,0) 50%),
-                  radial-gradient(1100px 400px at 100% 110%, rgba(20,184,166,.15) 0, rgba(20,184,166,0) 50%);
+      --gradient:
+        radial-gradient(1100px 400px at 0% -10%, rgba(99,102,241,.15) 0, rgba(99,102,241,0) 50%),
+        radial-gradient(1100px 400px at 100% 110%, rgba(20,184,166,.15) 0, rgba(20,184,166,0) 50%);
     }
     [data-bs-theme="dark"] {
       --glass-bg: rgba(22, 22, 26, 0.7);
       --glass-border: rgba(255, 255, 255, 0.08);
-      --gradient: radial-gradient(1100px 400px at 0% -10%, rgba(99,102,241,.25) 0, rgba(99,102,241,0) 50%),
-                  radial-gradient(1100px 400px at 100% 110%, rgba(20,184,166,.25) 0, rgba(20,184,166,0) 50%);
+      --gradient:
+        radial-gradient(1100px 400px at 0% -10%, rgba(99,102,241,.25) 0, rgba(99,102,241,0) 50%),
+        radial-gradient(1100px 400px at 100% 110%, rgba(20,184,166,.25) 0, rgba(20,184,166,0) 50%);
     }
     body {
       min-height: 100vh;
@@ -76,12 +78,14 @@
   <!-- 🔝 Top Navigation -->
   <nav class="topbar navbar navbar-expand-lg px-3">
     <div class="container-fluid">
+
       <!-- Logo -->
       <a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="/">
         <i class="bi bi-speedometer2"></i>
         <span class="brand-badge">ReviewSaaS</span>
       </a>
 
+      <!-- Right Side -->
       <div class="d-flex align-items-center gap-2 ms-auto">
 
         <!-- Theme toggle -->
@@ -100,6 +104,7 @@
           <button class="btn btn-outline-secondary rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#loginModal">
             <i class="bi bi-person me-2"></i>Login
           </button>
+
           <button class="btn btn-primary rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#registerModal">
             <i class="bi bi-person-plus me-2"></i>Register
           </button>
@@ -115,7 +120,7 @@
   <!-- 📦 Main Content -->
   <main class="container my-4">
 
-    <!-- Flash messages passed from session -->
+    <!-- Flash messages from session -->
     {% if flash_error %}
       <div class="alert alert-danger alert-dismissible fade show" role="alert">
         {{ flash_error }}
@@ -130,16 +135,16 @@
     {% endif %}
 
     {% block content %}
-    <!-- Landing hero -->
+    <!-- Default landing hero (visible on "/") -->
     <section class="p-4 p-md-5 card-glass">
       <div class="row align-items-center gy-4">
         <div class="col-lg-7">
           <h1 class="display-6 fw-bold mb-3">Understand Your Reviews with <span class="brand-badge">Sentiment Analysis</span></h1>
           <p class="lead text-secondary mb-4">
-            ReviewSaaS helps you collect, analyze, and visualize customer feedback.
+            ReviewSaaS helps you collect, analyze, and visualize customer feedback. 
             Register to get started, then log in — you’ll be taken straight to your dashboard.
           </p>
-          <div class="d-flex gap-2">
+          <div class="d-flex flex-wrap gap-2">
             <button class="btn btn-primary btn-lg rounded-pill px-4" data-bs-toggle="modal" data-bs-target="#registerModal">
               <i class="bi bi-person-plus me-2"></i>Create Account
             </button>
@@ -156,7 +161,7 @@
             <h5 class="mb-3">What is Sentiment Analysis?</h5>
             <p class="mb-0 text-secondary">
               It’s an NLP technique that automatically classifies text as
-              <strong>positive</strong>, <strong>negative</strong>, or <strong>neutral</strong>.
+              <strong>positive</strong>, <strong>negative</strong> or <strong>neutral</strong>.  
               ReviewSaaS uses it to reveal patterns in customer satisfaction, pain points, and trends.
             </p>
           </div>
@@ -170,11 +175,11 @@
   <!-- 🔻 Footer -->
   <footer class="py-3 text-center small text-muted">
     <div class="container">
-      © {{ now().year }} ReviewSaaS — All rights reserved.
+      © {{ now().year if now else "2026" }} ReviewSaaS — All rights reserved.
     </div>
   </footer>
 
-  <!-- ===================== MODALS ===================== -->
+  <!-- ====================== MODALS ====================== -->
 
   <!-- LOGIN MODAL -->
   <div class="modal fade" id="loginModal" tabindex="-1" aria-hidden="true">
@@ -243,15 +248,16 @@
         <div class="modal-body pt-0">
           <p class="mb-3">
             <strong>ReviewSaaS</strong> uses <strong>Sentiment Analysis</strong> to automatically classify
-            customer feedback and highlight trends, recurring issues, and drivers of satisfaction.
+            customer feedback as positive, negative, or neutral, helping teams understand emotions, trends,
+            drivers of satisfaction, and recurring issues.
           </p>
           <ul class="mb-3">
-            <li>Aggregate multi-platform reviews in one place</li>
+            <li>Aggregate multi‑platform reviews in one place</li>
             <li>Track sentiment over time</li>
-            <li>Spot top themes and pain points</li>
-            <li>Share clean dashboards with stakeholders</li>
+            <li>Highlight top themes and pain points</li>
+            <li>Share exportable dashboards with stakeholders</li>
           </ul>
-          <p class="mb-0 text-secondary">Next: Register → Login → You’ll be redirected to your <strong>Dashboard</strong>.</p>
+          <p class="mb-0 text-secondary">Next steps: Register → Login → You’ll be redirected to your <strong>Dashboard</strong>.</p>
         </div>
       </div>
     </div>
@@ -260,14 +266,13 @@
   <!-- Bootstrap JS Bundle -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-  <!-- Theme toggle script -->
+  <!-- Theme toggle -->
   <script>
     (function () {
       const root = document.documentElement;
       const btn = document.getElementById('themeToggleBtn');
       const saved = localStorage.getItem('theme') || 'light';
       root.setAttribute('data-bs-theme', saved);
-
       btn?.addEventListener('click', () => {
         const cur = root.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
         root.setAttribute('data-bs-theme', cur);
@@ -276,7 +281,7 @@
     })();
   </script>
 
-  <!-- Auto-open modal based on ?show=login|register|about -->
+  <!-- Auto-open modal from ?show=... -->
   <script>
     (function () {
       const params = new URLSearchParams(window.location.search);
@@ -294,6 +299,5 @@
   </script>
 
   {% block scripts_extra %}{% endblock %}
-
 </body>
 </html>
