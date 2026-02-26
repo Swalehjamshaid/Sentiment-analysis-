@@ -1,9 +1,8 @@
-<!-- filename: app/templates/dashboard.html -->
 {% extends "base.html" %}
 
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_API_KEY&libraries=places"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_API_KEY&libraries=places&callback=initAutocomplete" async defer></script>
 
 <style>
 :root{
@@ -24,97 +23,101 @@
 body{
   background:var(--bg);
   color:var(--text);
+  transition: background 0.3s ease;
 }
 .card{
   background:var(--card);
   border:1px solid var(--border);
   border-radius:12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 .card-header{
   background:transparent;
   border-bottom:1px solid var(--border);
+  font-weight: 600;
 }
 .kpi-value{
   font-size:1.8rem;
-  font-weight:600;
+  font-weight:700;
+  color: var(--primary);
 }
 .theme-toggle{
   cursor:pointer;
+  font-size: 1.2rem;
 }
-canvas{ min-height:140px; }
-.sidebar{ position:sticky; top:5rem; }
+canvas{ min-height:160px; }
+.sidebar{ position:sticky; top:2rem; }
+.table thead th {
+  background: var(--bg);
+  border-top: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-  <h2 class="fw-semibold">Enterprise Reputation Dashboard</h2>
+  <h2 class="fw-bold">Reputation Dashboard</h2>
   <div class="d-flex gap-2 align-items-center">
-    <button class="btn btn-sm btn-outline-secondary theme-toggle" onclick="toggleTheme()">🌙</button>
+    <button class="btn btn-sm btn-outline-secondary theme-toggle" onclick="toggleTheme()" id="themeBtn">🌙</button>
     {% if current_user and current_user.is_authenticated %}
-    <a href="/logout" class="btn btn-sm btn-outline-secondary">Logout</a>
+    <a href="/logout" class="btn btn-sm btn-outline-danger">Logout</a>
     {% endif %}
   </div>
 </div>
 
 <div class="row g-4">
 
-  <!-- SIDEBAR -->
   <aside class="col-lg-3">
     <div class="sidebar">
 
-      <!-- Companies / Branches -->
       <div class="card mb-3">
-        <div class="card-header d-flex justify-content-between">
-          <strong>Branches</strong>
-          <span class="badge bg-secondary">{{ companies|length if companies else 0 }}</span>
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span>Branches</span>
+          <span class="badge bg-primary rounded-pill">{{ companies|length if companies else 0 }}</span>
         </div>
-        <div class="list-group list-group-flush">
+        <div class="list-group list-group-flush" style="max-height: 300px; overflow-y: auto;">
           {% for c in companies %}
-          <div class="list-group-item d-flex justify-content-between align-items-center">
-            <a href="/dashboard/{{ c.id }}" class="text-decoration-none">
+          <div class="list-group-item d-flex justify-content-between align-items-center bg-transparent border-0">
+            <a href="/dashboard/{{ c.id }}" class="text-decoration-none text-reset fw-medium">
               {{ c.name }}
             </a>
-            <form method="POST" action="/companies/{{ c.id }}/delete"
-                  onsubmit="return confirm('Delete {{ c.name }}?');">
+            <form method="POST" action="/companies/{{ c.id }}/delete" onsubmit="return confirm('Delete {{ c.name }}?');">
               {{ csrf_token() if csrf_token }}
-              <button class="btn btn-sm btn-outline-danger">✕</button>
+              <button class="btn btn-link text-danger p-0">✕</button>
             </form>
           </div>
           {% else %}
-          <div class="list-group-item text-muted">No companies yet.</div>
+          <div class="list-group-item text-muted small">No branches connected.</div>
           {% endfor %}
         </div>
       </div>
 
-      <!-- Add Branch -->
       <div class="card mb-3">
-        <div class="card-header"><strong>Add Branch</strong></div>
-        <form class="card-body d-grid gap-2"
-              method="POST"
-              action="/companies/create">
+        <div class="card-header">Add New Branch</div>
+        <form class="card-body d-grid gap-2" method="POST" action="/companies/create">
           {{ csrf_token() if csrf_token }}
+          <label class="small text-muted">Search Google Maps</label>
           <input id="companyName" name="name"
-                 class="form-control"
-                 placeholder="Start typing branch name..."
-                 required>
-          <input id="companyPlaceId"
-                 name="place_id"
-                 type="hidden">
-          <button class="btn btn-primary">Add Branch</button>
+                 class="form-control form-control-sm"
+                 placeholder="e.g. Starbucks London..."
+                 required autocomplete="off">
+          <input id="companyPlaceId" name="place_id" type="hidden" required>
+          <button type="submit" class="btn btn-primary btn-sm">Connect Branch</button>
         </form>
       </div>
 
-      <!-- Automation / Sync -->
       <div class="card">
-        <div class="card-header"><strong>Automation</strong></div>
         <div class="card-body">
           <a href="/sync/run?company_id={{ active_company.id if active_company else '' }}"
              class="btn btn-sm btn-outline-primary w-100 mb-2">
-             Run Sync Now
+             🔄 Force Sync
           </a>
-          <div class="small text-muted">
-            Real-time sync enabled via WebSocket.
+          <div class="d-flex align-items-center gap-2 small text-muted">
+            <span class="spinner-grow spinner-grow-sm text-success"></span>
+            Real-time updates active
           </div>
         </div>
       </div>
@@ -122,73 +125,88 @@ canvas{ min-height:140px; }
     </div>
   </aside>
 
-  <!-- MAIN DASHBOARD -->
   <section class="col-lg-9">
 
-    <!-- KPI Row -->
     <div class="row g-3 mb-4">
-      {% for title,value in [
-        ('Avg Rating',kpi.avg_rating),
-        ('Sentiment',kpi.avg_sentiment),
-        ('Reviews',kpi.review_count),
-        ('Response Rate',kpi.response_rate)
+      {% set kpi_data = [
+        ('Avg Rating', kpi.avg_rating, '⭐'),
+        ('Sentiment', kpi.avg_sentiment, '🎭'),
+        ('Total Reviews', kpi.review_count, '💬'),
+        ('Response Rate', kpi.response_rate, '✉️')
       ] %}
+      {% for title, value, icon in kpi_data %}
       <div class="col-md-3">
-        <div class="card p-3">
-          <div class="text-muted small">{{ title }}</div>
-          <div class="kpi-value">{{ value if value is not none else '—' }}</div>
+        <div class="card p-3 border-start border-4 border-primary">
+          <div class="text-muted small mb-1">{{ icon }} {{ title }}</div>
+          <div class="kpi-value">{{ value if value is not none else '0.0' }}</div>
         </div>
       </div>
       {% endfor %}
     </div>
 
-    <!-- Charts -->
     <div class="card mb-4">
-      <div class="card-header"><strong>Performance Trends</strong></div>
-      <div class="card-body row g-4">
-        <div class="col-md-6"><canvas id="trendChart"></canvas></div>
-        <div class="col-md-6"><canvas id="distChart"></canvas></div>
-        <div class="col-md-12"><canvas id="benchmarkChart"></canvas></div>
+      <div class="card-header">Performance Analytics</div>
+      <div class="card-body">
+        <div class="row g-4">
+          <div class="col-md-7">
+            <p class="small text-muted text-center">Sentiment vs Rating Over Time</p>
+            <canvas id="trendChart"></canvas>
+          </div>
+          <div class="col-md-5">
+            <p class="small text-muted text-center">Rating Distribution</p>
+            <canvas id="distChart"></canvas>
+          </div>
+          <div class="col-md-12 border-top pt-4">
+            <p class="small text-muted text-center">Competitive Benchmarking</p>
+            <canvas id="benchmarkChart" style="max-height: 250px;"></canvas>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- Reviews Feed -->
     <div class="card">
       <div class="card-header d-flex justify-content-between">
-        <strong>Live Reviews Feed</strong>
-        <span class="badge bg-secondary">
-          {{ reviews|length if reviews else 0 }}
-        </span>
+        <span>Recent Activity</span>
+        <span class="badge bg-secondary">{{ reviews|length if reviews else 0 }}</span>
       </div>
       <div class="table-responsive">
-        <table class="table align-middle">
+        <table class="table align-middle mb-0">
           <thead>
             <tr>
               <th>Date</th>
               <th>Reviewer</th>
               <th>Rating</th>
               <th>Sentiment</th>
-              <th>Text</th>
-              <th>Reply</th>
+              <th>Review Text</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody id="reviewsBody">
             {% for r in reviews %}
             <tr>
-              <td>{{ r.review_date.strftime('%Y-%m-%d') if r.review_date else '' }}</td>
-              <td>{{ r.reviewer_name or 'Anonymous' }}</td>
-              <td>{{ r.rating }}</td>
-              <td>{{ r.sentiment_category }}</td>
-              <td style="max-width:300px;">{{ r.text }}</td>
+              <td class="small">{{ r.review_date.strftime('%b %d, %Y') if r.review_date else 'N/A' }}</td>
+              <td class="fw-medium small">{{ r.reviewer_name or 'Anonymous' }}</td>
+              <td><span class="badge bg-warning text-dark">{{ r.rating }} ★</span></td>
               <td>
-                <form method="POST" action="/reviews/{{ r.id }}/reply">
-                  {{ csrf_token() if csrf_token }}
-                  <textarea name="reply_text"
-                            class="form-control mb-1"
-                            rows="2">{{ r.user_reply or '' }}</textarea>
-                  <button class="btn btn-sm btn-primary">Send</button>
-                </form>
+                <span class="badge {% if r.sentiment_category == 'positive' %}bg-success{% elif r.sentiment_category == 'negative' %}bg-danger{% else %}bg-info{% endif %}">
+                  {{ r.sentiment_category|capitalize }}
+                </span>
               </td>
+              <td class="small" style="max-width:250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ r.text }}">
+                {{ r.text }}
+              </td>
+              <td>
+                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#reply-{{ r.id }}">Reply</button>
+              </td>
+            </tr>
+            <tr class="collapse" id="reply-{{ r.id }}">
+                <td colspan="6" class="bg-light p-3">
+                    <form method="POST" action="/reviews/{{ r.id }}/reply">
+                        {{ csrf_token() if csrf_token }}
+                        <textarea name="reply_text" class="form-control mb-2" rows="2" placeholder="Write your response...">{{ r.user_reply or '' }}</textarea>
+                        <button class="btn btn-primary btn-sm">Post Reply to Google</button>
+                    </form>
+                </td>
             </tr>
             {% endfor %}
           </tbody>
@@ -202,92 +220,113 @@ canvas{ min-height:140px; }
 
 {% block scripts %}
 <script>
+// Data Initialization from Backend
 const DASH = {
-  labels: {{ charts.labels|tojson if charts and charts.labels else '[]' }},
-  sentiment: {{ charts.sentiment|tojson if charts and charts.sentiment else '[]' }},
-  rating: {{ charts.rating|tojson if charts and charts.rating else '[]' }},
-  dist: {{ charts.dist|tojson if charts and charts.dist else '{"1":0,"2":0,"3":0,"4":0,"5":0}' }},
-  benchmark: {{ charts.benchmark|tojson if charts and charts.benchmark else '{"labels":[],"series":[]}' }}
+  labels: {{ charts.labels|tojson|safe if charts and charts.labels else '[]' }},
+  sentiment: {{ charts.sentiment|tojson|safe if charts and charts.sentiment else '[]' }},
+  rating: {{ charts.rating|tojson|safe if charts and charts.rating else '[]' }},
+  dist: {{ charts.dist|tojson|safe if charts and charts.dist else '{"1":0,"2":0,"3":0,"4":0,"5":0}' }},
+  benchmark: {{ charts.benchmark|tojson|safe if charts and charts.benchmark else '{"labels":[],"series":[]}' }}
 };
 
-function initCharts(){
-  if(typeof Chart==="undefined") return;
+// Google Autocomplete Setup
+function initAutocomplete() {
+  const input = document.getElementById("companyName");
+  const placeIdField = document.getElementById("companyPlaceId");
+  
+  if (!input) return;
 
-  new Chart(document.getElementById("trendChart"),{
-    type:'line',
-    data:{
-      labels:DASH.labels,
-      datasets:[
-        {label:"Sentiment",data:DASH.sentiment,borderColor:"#4f46e5"},
-        {label:"Rating",data:DASH.rating,borderColor:"#10b981"}
-      ]
-    }
-  });
+  const options = {
+    fields: ["name", "place_id", "formatted_address"],
+    types: ["establishment"]
+  };
 
-  new Chart(document.getElementById("distChart"),{
-    type:'bar',
-    data:{
-      labels:Object.keys(DASH.dist),
-      datasets:[{label:"Distribution",data:Object.values(DASH.dist)}]
-    }
-  });
+  const autocomplete = new google.maps.places.Autocomplete(input, options);
 
-  new Chart(document.getElementById("benchmarkChart"),{
-    type:'line',
-    data:{
-      labels:DASH.benchmark.labels||[],
-      datasets:(DASH.benchmark.series||[]).map(s=>({
-        label:s.name,
-        data:s.values
-      }))
+  autocomplete.addListener("place_changed", () => {
+    const place = autocomplete.getPlace();
+    if (place.place_id) {
+      placeIdField.value = place.place_id;
+      // Optionally update input to show full name
+      input.value = place.name;
     }
   });
 }
 
-document.addEventListener("DOMContentLoaded", function(){
-
-  initCharts();
-
-  // Dark mode toggle
-  if(localStorage.getItem("theme")==="dark"){
-    document.documentElement.setAttribute("data-theme","dark");
+function initCharts(){
+  const ctxTrend = document.getElementById("trendChart");
+  if(ctxTrend) {
+    new Chart(ctxTrend, {
+      type: 'line',
+      data: {
+        labels: DASH.labels,
+        datasets: [
+          { label: "Sentiment", data: DASH.sentiment, borderColor: "#4f46e5", tension: 0.3 },
+          { label: "Rating", data: DASH.rating, borderColor: "#10b981", tension: 0.3 }
+        ]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+    });
   }
 
-  // Google Places Autocomplete
-  const input = document.getElementById("companyName");
-  const placeIdField = document.getElementById("companyPlaceId");
-  if(input && typeof google !== "undefined"){
-    const autocomplete = new google.maps.places.Autocomplete(input);
-    autocomplete.addListener("place_changed", () => {
-      const place = autocomplete.getPlace();
-      if(place && place.place_id){
-        placeIdField.value = place.place_id;
-      } else {
-        placeIdField.value = "";
+  const ctxDist = document.getElementById("distChart");
+  if(ctxDist) {
+    new Chart(ctxDist, {
+      type: 'bar',
+      data: {
+        labels: Object.keys(DASH.dist),
+        datasets: [{ label: "Review Count", data: Object.values(DASH.dist), backgroundColor: "#6366f1" }]
+      },
+      options: { plugins: { legend: { display: false } } }
+    });
+  }
+
+  const ctxBench = document.getElementById("benchmarkChart");
+  if(ctxBench) {
+    new Chart(ctxBench, {
+      type: 'line',
+      data: {
+        labels: DASH.benchmark.labels || [],
+        datasets: (DASH.benchmark.series || []).map(s => ({
+          label: s.name,
+          data: s.values,
+          borderDash: s.name === "Average" ? [5, 5] : []
+        }))
       }
     });
-    input.addEventListener("input", () => { placeIdField.value = ""; });
+  }
+}
+
+document.addEventListener("DOMContentLoaded", function(){
+  initCharts();
+
+  // Dark mode persistence
+  if(localStorage.getItem("theme") === "dark"){
+    document.documentElement.setAttribute("data-theme", "dark");
+    document.getElementById("themeBtn").innerText = "☀️";
   }
 
-  // WebSocket for real-time updates
+  // WebSocket for Live Updates
   try {
     const ws = new WebSocket(`ws://${location.host}/ws/dashboard`);
-    ws.onmessage = function(event){
-      console.log("Live update:", event.data);
-      location.reload();
+    ws.onmessage = function(e){
+      console.log("Update received");
+      location.reload(); 
     };
-  } catch(e) { console.log("WebSocket not connected"); }
-
+  } catch(e) { console.warn("WS disconnected"); }
 });
 
 function toggleTheme(){
   const html = document.documentElement;
-  if(html.getAttribute("data-theme")==="dark"){
+  const btn = document.getElementById("themeBtn");
+  if(html.getAttribute("data-theme") === "dark"){
     html.removeAttribute("data-theme");
-    localStorage.setItem("theme","light");
-  }else{
-    html.setAttribute("data-theme","dark");
-    localStorage.setItem("theme","dark");
+    localStorage.setItem("theme", "light");
+    btn.innerText = "🌙";
+  } else {
+    html.setAttribute("data-theme", "dark");
+    localStorage.setItem("theme", "dark");
+    btn.innerText = "☀️";
   }
 }
 </script>
