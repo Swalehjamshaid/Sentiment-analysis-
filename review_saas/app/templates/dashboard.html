@@ -63,7 +63,7 @@ canvas{ min-height:140px; }
   <aside class="col-lg-3">
     <div class="sidebar">
 
-      <!-- Companies -->
+      <!-- Companies / Branches -->
       <div class="card mb-3">
         <div class="card-header d-flex justify-content-between">
           <strong>Branches</strong>
@@ -87,7 +87,7 @@ canvas{ min-height:140px; }
         </div>
       </div>
 
-      <!-- Add Company -->
+      <!-- Add Branch -->
       <div class="card mb-3">
         <div class="card-header"><strong>Add Branch</strong></div>
         <form class="card-body d-grid gap-2"
@@ -100,13 +100,12 @@ canvas{ min-height:140px; }
                  required>
           <input id="companyPlaceId"
                  name="place_id"
-                 class="form-control"
-                 placeholder="Google Place ID auto-filled">
+                 type="hidden">
           <button class="btn btn-primary">Add Branch</button>
         </form>
       </div>
 
-      <!-- Sync -->
+      <!-- Automation / Sync -->
       <div class="card">
         <div class="card-header"><strong>Automation</strong></div>
         <div class="card-body">
@@ -123,7 +122,7 @@ canvas{ min-height:140px; }
     </div>
   </aside>
 
-  <!-- MAIN -->
+  <!-- MAIN DASHBOARD -->
   <section class="col-lg-9">
 
     <!-- KPI Row -->
@@ -153,7 +152,7 @@ canvas{ min-height:140px; }
       </div>
     </div>
 
-    <!-- Reviews -->
+    <!-- Reviews Feed -->
     <div class="card">
       <div class="card-header d-flex justify-content-between">
         <strong>Live Reviews Feed</strong>
@@ -182,8 +181,7 @@ canvas{ min-height:140px; }
               <td>{{ r.sentiment_category }}</td>
               <td style="max-width:300px;">{{ r.text }}</td>
               <td>
-                <form method="POST"
-                      action="/reviews/{{ r.id }}/reply">
+                <form method="POST" action="/reviews/{{ r.id }}/reply">
                   {{ csrf_token() if csrf_token }}
                   <textarea name="reply_text"
                             class="form-control mb-1"
@@ -246,41 +244,44 @@ function initCharts(){
   });
 }
 
-document.addEventListener("DOMContentLoaded",function(){
+document.addEventListener("DOMContentLoaded", function(){
+
   initCharts();
 
-  // Dark mode
+  // Dark mode toggle
   if(localStorage.getItem("theme")==="dark"){
     document.documentElement.setAttribute("data-theme","dark");
   }
 
-  // Google Places
-  if(typeof google!=="undefined"){
-    const input=document.getElementById("companyName");
-    if(input){
-      const ac=new google.maps.places.Autocomplete(input);
-      ac.addListener("place_changed",()=>{
-        const place=ac.getPlace();
-        if(place && place.place_id){
-          document.getElementById("companyPlaceId").value=place.place_id;
-        }
-      });
-    }
+  // Google Places Autocomplete
+  const input = document.getElementById("companyName");
+  const placeIdField = document.getElementById("companyPlaceId");
+  if(input && typeof google !== "undefined"){
+    const autocomplete = new google.maps.places.Autocomplete(input);
+    autocomplete.addListener("place_changed", () => {
+      const place = autocomplete.getPlace();
+      if(place && place.place_id){
+        placeIdField.value = place.place_id;
+      } else {
+        placeIdField.value = "";
+      }
+    });
+    input.addEventListener("input", () => { placeIdField.value = ""; });
   }
 
-  // WebSocket Real-Time
-  try{
-    const ws=new WebSocket(`ws://${location.host}/ws/dashboard`);
-    ws.onmessage=function(event){
-      console.log("Live update:",event.data);
+  // WebSocket for real-time updates
+  try {
+    const ws = new WebSocket(`ws://${location.host}/ws/dashboard`);
+    ws.onmessage = function(event){
+      console.log("Live update:", event.data);
       location.reload();
     };
-  }catch(e){ console.log("WS not connected"); }
+  } catch(e) { console.log("WebSocket not connected"); }
 
 });
 
 function toggleTheme(){
-  const html=document.documentElement;
+  const html = document.documentElement;
   if(html.getAttribute("data-theme")==="dark"){
     html.removeAttribute("data-theme");
     localStorage.setItem("theme","light");
