@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import secrets
-from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Request, Depends, Form
@@ -12,8 +11,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import Response
 from starlette.status import HTTP_302_FOUND
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from sqlalchemy.orm import Session as SASession
 
@@ -31,22 +28,10 @@ logger = logging.getLogger("review_saas.main")
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.APP_NAME)
 
-    # Static & Templates (optional)
-    base_dir = Path(__file__).parent
-    static_dir = base_dir / "static"
-    templates_dir = base_dir / "templates"
-
-    if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-
-    templates: Optional[Jinja2Templates] = None
-    if templates_dir.exists():
-        templates = Jinja2Templates(directory=str(templates_dir))
-
     # CORS
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],          # tighten in prod
+        allow_origins=["*"],          # tighten in production
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -62,78 +47,84 @@ def create_app() -> FastAPI:
         max_age=60 * 60 * 24 * 7,    # 7 days
     )
 
-    # Optional: Force HTTPS (behind a proxy set FORCE_HTTPS=1 and pass proxy headers)
-    if int(getattr(settings, "FORCE_HTTPS", 0)) == 1:
-        @app.middleware("http")
-        async def force_https_redirect(request: Request, call_next):
-            forwarded_proto = request.headers.get("x-forwarded-proto")
-            scheme = forwarded_proto or request.url.scheme
-            if scheme != "https":
-                url = request.url.replace(scheme="https")
-                return RedirectResponse(url=str(url), status_code=HTTP_302_FOUND)
-            return await call_next(request)
+    # NOTE:
+    # We previously tried to render templates if present, but your logs show
+    # templates aren't ready ('NoneType' callable warnings). To keep logs clean
+    # and UX simple, we will *not* attempt template rendering until you add them.
 
-    # ✅ SAFE ensure_csrf: do not assume session exists
-    @app.middleware("http")
-    async def ensure_csrf(request: Request, call_next):
-        if "session" in request.scope:
-            session = request.session
-            if session.get("_csrf") is None:
-                session["_csrf"] = secrets.token_urlsafe(32)
-        response: Response = await call_next(request)
-        return response
-
-    # Routers (Register endpoints live here)
+    # Include routers (Register endpoints live here)
     app.include_router(auth_routes.router)
 
-    # Home
+    # Home (fallback HTML)
     @app.get("/", response_class=HTMLResponse)
     async def home(request: Request):
+        """
+        Minimal HTML UI that supports:
+          - /?show=login
+          - /?show=register
+        It also ensures a CSRF token exists in session, so /register POST works.
+        """
         show = request.query_params.get("show")
-        ctx = {
-            "request": request,
-            "show": show,
-            "user_id": request.session.get("user_id") if "session" in request.scope else None,
-            "user_name": request.session.get("user_name") if "session" in request.scope else None,
-            "csrf_token": request.session.get("_csrf") if "session" in request.scope else None,
-            "flash_error": request.session.pop("flash_error", None) if "session" in request.scope else None,
-            "flash_success": request.session.pop("flash_success", None) if "session" in request.scope else None,
-        }
 
-        if templates:
-            try:
-                return templates.TemplateResponse("base.html", ctx)
-            except Exception as e:
-                logger.warning("Template render failed: %s", e)
+        # ✅ Ensure CSRF exists now that we're inside a route (SessionMiddleware attached)
+        csrf_token: Optional[str] = None
+        if "session" in request.scope:
+            if request.session.get("_csrf") is None:
+                request.session["_csrf"] = secrets.token_urlsafe(32)
+            csrf_token = request.session.get("_csrf")
 
-        # Fallback minimal HTML if you don't have templates/base.html
-        csrf_preview = (ctx["csrf_token"][:6] + "…") if ctx["csrf_token"] else "-"
-        flash_err = ctx["flash_error"] or "-"
-        flash_ok = ctx["flash_success"] or "-"
-        user_name = ctx["user_name"] or "anonymous"
+        # Flash messages
+        flash_error = request.session.pop("flash_error", None) if "session" in request.scope else None
+        flash_success = request.session.pop("flash_success", None) if "session" in request.scope else None
 
-        return HTMLResponse(
-            f"""
-            <html>
-            <head><title>{settings.APP_NAME}</title></head>
-            <body style="font-family: system-ui, sans-serif;">
-                <h2>{settings.APP_NAME}</h2>
-                <p>Session user: {user_name}</p>
-                <p>Flash (error): {flash_err}</p>
-                <p>Flash (success): {flash_ok}</p>
-                <p>CSRF: {csrf_preview}</p>
-                <hr />
-                <form method="post" action="/login">
-                    <input type="email" name="email" placeholder="email" required />
-                    <input type="password" name="password" placeholder="password" required />
-                    <button type="submit">Login</button>
-                </form>
-                <p>Open register modal: <a href="/?show=register">/?show=register</a></p>
-            </body>
-            </html>
-            """,
-            status_code=200,
-        )
+        user_name = request.session.get("user_name") if "session" in request.scope else None
+
+        # Fallback UI
+        csrf_preview = (csrf_token[:6] + "…") if csrf_token else "-"
+
+        # ---- Login form (default) ----
+        login_section = f"""
+            <form action="/login" method="post">
+                <input type="email" name="email" placeholder="email" required />
+                <input type="password" name="password" placeholder="password" required />
+                <button type="submit">Login</button>
+            </form>
+            <p>Open register form: <a href="/?show=register">/?show=register</a></p>
+        """
+
+        # ---- Register form (when show=register) ----
+        register_section = ""
+        if show == "register":
+            # Render a basic register form that matches your /register POST
+            csrf_hidden = csrf_token or ""
+            register_section = f"""
+            <h3>Register</h3>
+            <form action="/register" method="post">
+                <input type="text" name="name" placeholder="full name" />
+                <input type="email" name="email" placeholder="email" required />
+                <input type="password" name="password" placeholder="password" required />
+                <input type="hidden" name="csrf_token" value="{csrf_hidden}" />
+                <button type="submit">Create Account</button>
+            </form>
+            <p>Back to login: <a href="/?show=login">/?show=login</a></p>
+            """
+
+        html = f"""
+        <html>
+        <head><title>{settings.APP_NAME}</title></head>
+        <body style="font-family: system-ui, sans-serif; max-width: 700px; margin: 24px auto;">
+            <h2>{settings.APP_NAME}</h2>
+
+            <p><strong>Session user:</strong> {user_name or "anonymous"}</p>
+            <p><strong>Flash (error):</strong> {flash_error or "-"}</p>
+            <p><strong>Flash (success):</strong> {flash_success or "-"}</p>
+            <p><strong>CSRF:</strong> {csrf_preview}</p>
+            <hr />
+            {"<h3>Login</h3>" + login_section if show != "register" else register_section}
+        </body>
+        </html>
+        """
+        return HTMLResponse(html, status_code=200)
 
     # Login/Logout
     @app.get("/login")
@@ -168,6 +159,7 @@ def create_app() -> FastAPI:
     async def logout(request: Request):
         if "session" in request.scope:
             request.session.clear()
+            # regenerate CSRF for next session
             request.session["_csrf"] = secrets.token_urlsafe(32)
             request.session["flash_success"] = "Signed out."
         return RedirectResponse("/?show=login", status_code=HTTP_302_FOUND)
