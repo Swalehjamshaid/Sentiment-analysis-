@@ -1,79 +1,65 @@
-# FILE: app/routes/auth.py
-
-from fastapi import APIRouter, Request, Form, Depends
+# filename: review_saas/app/routes/auth.py
+from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
-from ..db import get_db
-from ..models import User  # Ensure you import your User model
+import hashlib
 
-router = APIRouter(tags=["Auth"])
+from app.db import get_db
+from app.models import User
+from app.context import common_context
 
-# ─────────────────────────────────────────────────────────────
-# NEW: Registration Route (Fixes the 404 error)
-# ─────────────────────────────────────────────────────────────
+router = APIRouter()
+
+def _hash(pw: str) -> str:
+    # NOTE: for production use passlib/bcrypt. This is a simple placeholder.
+    return hashlib.sha256(pw.encode("utf-8")).hexdigest()
+
+@router.get("/register")
+async def register_view(request: Request):
+    ctx = common_context(request)
+    return request.app.state.templates.TemplateResponse("register.html", ctx)  # templates injected in main.py
+
 @router.post("/register")
 async def register_post(
     request: Request,
-    full_name: str = Form(...),
+    name: str = Form(""),
     email: str = Form(...),
     password: str = Form(...),
-    db: Session = Depends(get_db)
+    csrf_token: str = Form(...),
+    db: Session = Depends(get_db),
 ):
-    # Check if user already exists
-    existing_user = db.query(User).filter(User.email == email).first()
-    if existing_user:
-        request.session["flash_error"] = "Email already registered."
-        return RedirectResponse(url="/login", status_code=303)
+    # CSRF
+    if request.session.get("_csrf") != csrf_token:
+        return RedirectResponse("/register?error=csrf", status_code=302)
 
-    # Create new user
-    # NOTE: In production, use passlib to hash this password!
-    new_user = User(
-        full_name=full_name, 
-        email=email, 
-        password_hash=password, 
-        status="active"
-    )
-    db.add(new_user)
+    email = email.strip().lower()
+    if not email or not password:
+        request.session["flash_error"] = "Email and password are required."
+        return RedirectResponse("/register", status_code=302)
+
+    exists = db.query(User).filter(User.email == email).first()
+    if exists:
+        request.session["flash_error"] = "Email is already registered."
+        return RedirectResponse("/register", status_code=302)
+
+    u = User(name=name.strip() or None, email=email, password_hash=_hash(password))
+    db.add(u)
     db.commit()
-    db.refresh(new_user)
 
-    # Set session with the REAL database ID
-    request.session["user"] = {
-        "id": new_user.id,
-        "email": new_user.email,
-        "full_name": new_user.full_name,
-        "role": "owner"
-    }
-    return RedirectResponse(url="/dashboard", status_code=303)
+    request.session["flash_success"] = "Registration successful. Please sign in."
+    return RedirectResponse("/login", status_code=302)
 
-# ─────────────────────────────────────────────────────────────
-# UPDATED: Login Route (Fixes the 500 error)
-# ─────────────────────────────────────────────────────────────
-@router.post("/login")
-async def login_post(
-    request: Request, 
-    email: str = Form(...), 
-    password: str = Form(...),
-    db: Session = Depends(get_db)
-):
-    # Search for user in database
+# This function is used by main.py /login POST
+async def login_post(request: Request, email: str, password: str, db: Session):
+    email = (email or "").strip().lower()
     user = db.query(User).filter(User.email == email).first()
-    
-    # Verify password (Simple string check for now)
-    if not user or user.password_hash != password:
-        request.session["flash_error"] = "Invalid email or password."
-        return RedirectResponse(url="/login", status_code=303)
-    
-    # Use real user data from the DB
-    request.session["user"] = {
-        "id": user.id, 
-        "email": user.email, 
-        "full_name": user.full_name, 
-        "role": "owner"
-    }
-    return RedirectResponse(url="/dashboard", status_code=303)
-
-@router.get("/logout")
-async def logout(request: Request):
-    request.session.clear()
-    return RedirectResponse(url="/", status_code=303)
+    if not user:
+        return None
+    # Accept either hashed or plain (for compatibility with existing data)
+    hashed = getattr(user, "password_hash", None)
+    if hashed and hashed == _hash(password):
+        return user
+    # If existing DB used plain passwords (legacy), allow plain match too:
+    if getattr(user, "password", None) and user.password == password:
+        return user
+    return None
