@@ -4,330 +4,290 @@
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_API_KEY&libraries=places"></script>
+
 <style>
-  .card-kpi h6 { color:#6b7280; text-transform: uppercase; letter-spacing: .08em; }
-  .pill { padding:.25rem .5rem; border-radius:999px; font-size:.75rem; }
-  .pill-success { background:#dcfce7; color:#166534; }
-  .pill-warn { background:#fef9c3; color:#854d0e; }
-  .pill-danger { background:#fee2e2; color:#991b1b; }
-  .review-card .meta { color:#6b7280; font-size:.85rem; }
-  .nowrap { white-space: nowrap; }
-  .sidebar { position: sticky; top: 5rem; }
+:root{
+  --bg:#f8fafc;
+  --card:#ffffff;
+  --text:#0f172a;
+  --muted:#64748b;
+  --border:#e2e8f0;
+  --primary:#4f46e5;
+}
+[data-theme="dark"]{
+  --bg:#0f172a;
+  --card:#1e293b;
+  --text:#f1f5f9;
+  --muted:#94a3b8;
+  --border:#334155;
+}
+body{
+  background:var(--bg);
+  color:var(--text);
+}
+.card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:12px;
+}
+.card-header{
+  background:transparent;
+  border-bottom:1px solid var(--border);
+}
+.kpi-value{
+  font-size:1.8rem;
+  font-weight:600;
+}
+.theme-toggle{
+  cursor:pointer;
+}
+canvas{ min-height:140px; }
+.sidebar{ position:sticky; top:5rem; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h2 class="mb-0">Dashboard</h2>
-  <div class="d-flex gap-2">
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="fw-semibold">Enterprise Reputation Dashboard</h2>
+  <div class="d-flex gap-2 align-items-center">
+    <button class="btn btn-sm btn-outline-secondary theme-toggle" onclick="toggleTheme()">🌙</button>
     {% if current_user and current_user.is_authenticated %}
-      <a class="btn btn-outline-brand" href="/logout">Logout</a>
+    <a href="/logout" class="btn btn-sm btn-outline-secondary">Logout</a>
     {% endif %}
   </div>
 </div>
 
 <div class="row g-4">
+
   <!-- SIDEBAR -->
   <aside class="col-lg-3">
     <div class="sidebar">
-      <!-- Your Companies -->
-      <div class="card">
-        <div class="card-header d-flex justify-content-between align-items-center">
-          <strong>Your Companies</strong>
-          <span class="badge text-bg-secondary">{{ companies|length if companies else 0 }}</span>
+
+      <!-- Companies -->
+      <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between">
+          <strong>Branches</strong>
+          <span class="badge bg-secondary">{{ companies|length if companies else 0 }}</span>
         </div>
         <div class="list-group list-group-flush">
           {% for c in companies %}
           <div class="list-group-item d-flex justify-content-between align-items-center">
-            <a class="text-decoration-none" href="/dashboard/{{ c.id }}">{{ c.name }}</a>
-            <form method="POST" action="/companies/{{ c.id }}/delete" onsubmit="return confirm('Delete {{ c.name }}?');">
+            <a href="/dashboard/{{ c.id }}" class="text-decoration-none">
+              {{ c.name }}
+            </a>
+            <form method="POST" action="/companies/{{ c.id }}/delete"
+                  onsubmit="return confirm('Delete {{ c.name }}?');">
               {{ csrf_token() if csrf_token }}
-              <button class="btn btn-sm btn-outline-danger">Delete</button>
+              <button class="btn btn-sm btn-outline-danger">✕</button>
             </form>
           </div>
           {% else %}
-            <div class="list-group-item text-muted">No companies yet.</div>
+          <div class="list-group-item text-muted">No companies yet.</div>
           {% endfor %}
         </div>
       </div>
 
-      <!-- Add Company with Google Places Autocomplete -->
-      <div class="card mt-3">
-        <div class="card-header"><strong>Add Company</strong></div>
-        <form class="card-body d-grid gap-2" method="POST" action="/companies/create">
+      <!-- Add Company -->
+      <div class="card mb-3">
+        <div class="card-header"><strong>Add Branch</strong></div>
+        <form class="card-body d-grid gap-2"
+              method="POST"
+              action="/companies/create">
           {{ csrf_token() if csrf_token }}
-          <div>
-            <label class="form-label">Company Name</label>
-            <input id="companyName" class="form-control needs-validation" name="name" required maxlength="255" />
-          </div>
-          <div>
-            <label class="form-label">Google Place ID (optional)</label>
-            <input id="companyPlaceId" class="form-control" name="place_id" maxlength="128" />
-          </div>
-          <button class="btn btn-brand">Add</button>
+          <input id="companyName" name="name"
+                 class="form-control"
+                 placeholder="Start typing branch name..."
+                 required>
+          <input id="companyPlaceId"
+                 name="place_id"
+                 class="form-control"
+                 placeholder="Google Place ID auto-filled">
+          <button class="btn btn-primary">Add Branch</button>
         </form>
       </div>
 
-      <!-- API Health -->
-      <div class="card mt-3">
-        <div class="card-header"><strong>API Health</strong></div>
-        <div class="card-body small">
-          {% for h in api_health or [] %}
-            <div class="d-flex justify-content-between">
-              <span class="text-uppercase">{{ h.provider }}</span>
-              {% set cls = 'pill-success' if h.status=='healthy' else 'pill-warn' if h.status=='degraded' else 'pill-danger' %}
-              <span class="pill {{ cls }}">{{ h.status }}</span>
-            </div>
-          {% else %}
-            <div class="text-muted">No telemetry yet.</div>
-          {% endfor %}
-          <div class="mt-2">
-            <a href="/sync/run?company_id={{ active_company.id if active_company else '' }}" class="btn btn-sm btn-outline-brand w-100">Run Sync Now</a>
+      <!-- Sync -->
+      <div class="card">
+        <div class="card-header"><strong>Automation</strong></div>
+        <div class="card-body">
+          <a href="/sync/run?company_id={{ active_company.id if active_company else '' }}"
+             class="btn btn-sm btn-outline-primary w-100 mb-2">
+             Run Sync Now
+          </a>
+          <div class="small text-muted">
+            Real-time sync enabled via WebSocket.
           </div>
         </div>
       </div>
+
     </div>
   </aside>
 
-  <!-- MAIN CONTENT -->
+  <!-- MAIN -->
   <section class="col-lg-9">
 
-    <!-- Filters -->
-    <form class="card mb-3" method="GET" action="/dashboard/{{ active_company.id if active_company else '' }}">
-      <div class="card-body row g-3 align-items-end">
-        <div class="col-md-4">
-          <label class="form-label">Company</label>
-          <select class="form-select" name="company_id" required>
-            {% for c in companies %}
-              <option value="{{ c.id }}" {% if active_company and c.id == active_company.id %}selected{% endif %}>{{ c.name }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="col-md-3">
-          <label class="form-label">From</label>
-          <input type="date" class="form-control" name="from" value="{{ params.from or '' }}" required />
-        </div>
-        <div class="col-md-3">
-          <label class="form-label">To</label>
-          <input type="date" class="form-control" name="to" value="{{ params.to or '' }}" required />
-        </div>
-        <div class="col-md-2 d-grid">
-          <button class="btn btn-brand">Apply</button>
-        </div>
-        <div class="col-12 d-flex gap-2">
-          <a class="btn btn-sm btn-outline-secondary" href="?company_id={{ active_company.id if active_company else '' }}&range=7d">Last 7 days</a>
-          <a class="btn btn-sm btn-outline-secondary" href="?company_id={{ active_company.id if active_company else '' }}&range=30d">Last 30 days</a>
-          <a class="btn btn-sm btn-outline-secondary" href="?company_id={{ active_company.id if active_company else '' }}&range=90d">Last 90 days</a>
-          <a class="btn btn-sm btn-outline-secondary" href="?company_id={{ active_company.id if active_company else '' }}&range=qtr">This quarter</a>
-        </div>
-      </div>
-    </form>
-
-    <!-- KPI Cards -->
-    <div class="row g-3 mb-3">
-      {% for title, value, extra in [
-        ('Average Rating', kpi.avg_rating, 'vs prev period: ' ~ (kpi.avg_rating_delta or '—')),
-        ('Avg Sentiment', kpi.avg_sentiment, 'pos/neu/neg: ' ~ (kpi.pos or '—') ~ '/' ~ (kpi.neu or '—') ~ '/' ~ (kpi.neg or '—')),
-        ('Review Count', kpi.review_count, 'growth: ' ~ (kpi.review_growth or '—')),
-        ('Response Time', kpi.avg_response_time, 'response rate: ' ~ (kpi.response_rate or '—'))
+    <!-- KPI Row -->
+    <div class="row g-3 mb-4">
+      {% for title,value in [
+        ('Avg Rating',kpi.avg_rating),
+        ('Sentiment',kpi.avg_sentiment),
+        ('Reviews',kpi.review_count),
+        ('Response Rate',kpi.response_rate)
       ] %}
       <div class="col-md-3">
-        <div class="card card-kpi">
-          <div class="card-body">
-            <h6>{{ title }}</h6>
-            <div class="display-6 fw-bold">{{ value or '—' }}</div>
-            <div class="small text-muted">{{ extra }}</div>
-          </div>
+        <div class="card p-3">
+          <div class="text-muted small">{{ title }}</div>
+          <div class="kpi-value">{{ value if value is not none else '—' }}</div>
         </div>
       </div>
       {% endfor %}
     </div>
 
     <!-- Charts -->
-    <div class="card mb-3">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <strong>Trends</strong>
-        <div>
-          <a class="btn btn-sm btn-outline-secondary" href="/reports?company_id={{ active_company.id if active_company else '' }}&format=csv">CSV</a>
-          <a class="btn btn-sm btn-outline-secondary" href="/reports?company_id={{ active_company.id if active_company else '' }}&format=xlsx">Excel</a>
-          <a class="btn btn-sm btn-outline-secondary" href="/reports?company_id={{ active_company.id if active_company else '' }}&format=pdf">PDF</a>
-        </div>
-      </div>
-      <div class="card-body">
-        <div class="row g-3">
-          <div class="col-md-6">
-            <canvas id="trendChart" height="180"></canvas>
-            <div class="form-text">Sentiment & rating trend (click points to drill-down)</div>
-          </div>
-          <div class="col-md-6">
-            <canvas id="distChart" height="180"></canvas>
-            <div class="form-text">1–5 star distribution</div>
-          </div>
-          <div class="col-md-12">
-            <canvas id="corrChart" height="130"></canvas>
-            <div class="form-text">Correlation between sentiment score and star rating</div>
-          </div>
-        </div>
+    <div class="card mb-4">
+      <div class="card-header"><strong>Performance Trends</strong></div>
+      <div class="card-body row g-4">
+        <div class="col-md-6"><canvas id="trendChart"></canvas></div>
+        <div class="col-md-6"><canvas id="distChart"></canvas></div>
+        <div class="col-md-12"><canvas id="benchmarkChart"></canvas></div>
       </div>
     </div>
 
-    <!-- Executive Summary -->
-    <div class="card mb-3">
-      <div class="card-header"><strong>Executive Summary</strong></div>
-      <div class="card-body">
-        <p class="mb-1 text-muted small">AI-generated summary of the selected period.</p>
-        <div id="summaryText">{{ summary or 'No summary available yet.' }}</div>
-      </div>
-    </div>
-
-    <!-- Reviews Table -->
+    <!-- Reviews -->
     <div class="card">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <strong>Reviews</strong>
-        <span class="badge text-bg-secondary">{{ reviews|length if reviews else 0 }}</span>
+      <div class="card-header d-flex justify-content-between">
+        <strong>Live Reviews Feed</strong>
+        <span class="badge bg-secondary">
+          {{ reviews|length if reviews else 0 }}
+        </span>
       </div>
       <div class="table-responsive">
-        <table class="table table-hover align-middle">
-          <thead class="table-light">
+        <table class="table align-middle">
+          <thead>
             <tr>
-              <th class="nowrap">Date</th>
+              <th>Date</th>
               <th>Reviewer</th>
               <th>Rating</th>
               <th>Sentiment</th>
-              <th>Emotion</th>
-              <th>Aspects</th>
-              <th>Keywords</th>
               <th>Text</th>
-              <th>Reply (AI Suggested)</th>
-              <th></th>
+              <th>Reply</th>
             </tr>
           </thead>
           <tbody id="reviewsBody">
             {% for r in reviews %}
-            <tr data-date="{{ r.review_date.strftime('%Y-%m-%d') if r.review_date else '' }}">
-              <td class="nowrap">{{ r.review_date.strftime('%Y-%m-%d') if r.review_date else '' }}</td>
+            <tr>
+              <td>{{ r.review_date.strftime('%Y-%m-%d') if r.review_date else '' }}</td>
               <td>{{ r.reviewer_name or 'Anonymous' }}</td>
-              <td>{{ r.rating or '—' }}</td>
+              <td>{{ r.rating }}</td>
+              <td>{{ r.sentiment_category }}</td>
+              <td style="max-width:300px;">{{ r.text }}</td>
               <td>
-                {% set cls = 'pill-success' if r.sentiment_category=='Positive' else 'pill-warn' if r.sentiment_category=='Neutral' else 'pill-danger' %}
-                <span class="pill {{ cls }}">{{ r.sentiment_category or '—' }}</span>
-                <div class="small text-muted">{{ '%.2f'|format(r.sentiment_score or 0.0) }} (conf {{ '%.2f'|format(r.sentiment_confidence or 0.0) }})</div>
-              </td>
-              <td>
-                {{ r.emotion_label or '—' }}
-                {% if r.is_spam_suspected %}<div class="small text-danger">Anomaly suspected</div>{% endif %}
-              </td>
-              <td>
-                {% if r.aspect_summary %}
-                  <div class="small text-muted">
-                    {% for k,v in r.aspect_summary.items() %}
-                      <div>{{ k }}: {{ '%.2f'|format(v.get('score',0)) }}</div>
-                    {% endfor %}
-                  </div>
-                {% else %}—{% endif %}
-              </td>
-              <td>
-                {% if r.topics %}
-                  <div class="small text-muted">
-                    {% for k,v in r.topics.items() %}
-                      <span class="badge text-bg-light border">{{ k }}</span>
-                    {% endfor %}
-                  </div>
-                {% elif r.keywords %}{{ r.keywords }}{% else %}—{% endif %}
-              </td>
-              <td style="max-width:360px;">{{ r.text }}</td>
-              <td style="min-width:260px;">
-                <form method="POST" action="/reviews/{{ r.id }}/reply">
+                <form method="POST"
+                      action="/reviews/{{ r.id }}/reply">
                   {{ csrf_token() if csrf_token }}
-                  <textarea class="form-control mb-2" name="reply_text" rows="3"
-                            placeholder="{{ r.ai_suggested_reply or 'AI suggested reply here…' }}">{{ r.user_reply or '' }}</textarea>
-                  <div class="d-flex gap-2">
-                    <button class="btn btn-sm btn-outline-secondary" formaction="/reviews/{{ r.id }}/reply/suggest">Suggest</button>
-                    <button class="btn btn-sm btn-brand">Send</button>
-                  </div>
+                  <textarea name="reply_text"
+                            class="form-control mb-1"
+                            rows="2">{{ r.user_reply or '' }}</textarea>
+                  <button class="btn btn-sm btn-primary">Send</button>
                 </form>
               </td>
-              <td class="text-end">{% if r.language %}<span class="badge text-bg-secondary">{{ r.language }}</span>{% endif %}</td>
             </tr>
-            {% else %}
-            <tr><td colspan="10" class="text-center text-muted py-4">No reviews in this period.</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     </div>
 
-    {% if 'owner' in (roles or []) or 'manager' in (roles or []) %}
-    <div class="card mt-3">
-      <div class="card-header"><strong>Benchmark & Alerts</strong></div>
-      <div class="card-body">
-        <div class="row g-3">
-          <div class="col-md-6">
-            <h6>Competitor / Branch Comparison</h6>
-            <canvas id="benchmarkChart" height="130"></canvas>
-          </div>
-          <div class="col-md-6">
-            <h6>Alerts</h6>
-            <ul class="list-group">
-              {% for a in alerts or [] %}
-                {% set cls = 'pill-danger' if a.severity=='critical' else 'pill-warn' if a.severity=='warning' else 'pill-success' %}
-                <li class="list-group-item d-flex justify-content-between align-items-center">
-                  <div>
-                    <strong>{{ a.title }}</strong>
-                    <div class="small text-muted">{{ a.description }}</div>
-                  </div>
-                  <span class="pill {{ cls }}">{{ a.severity }}</span>
-                </li>
-              {% else %}
-                <li class="list-group-item text-muted">No alerts.</li>
-              {% endfor %}
-            </ul>
-          </div>
-        </div>
-      </div>
-    </div>
-    {% endif %}
   </section>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-const __DASH__ = {
+const DASH = {
   labels: {{ charts.labels|tojson if charts and charts.labels else '[]' }},
   sentiment: {{ charts.sentiment|tojson if charts and charts.sentiment else '[]' }},
   rating: {{ charts.rating|tojson if charts and charts.rating else '[]' }},
   dist: {{ charts.dist|tojson if charts and charts.dist else '{"1":0,"2":0,"3":0,"4":0,"5":0}' }},
-  correlation: {{ charts.correlation|tojson if charts and charts.correlation else '[]' }},
-  benchmark: {{ charts.benchmark|tojson if charts and charts.benchmark else '{"labels":[],"series":[]}' }},
+  benchmark: {{ charts.benchmark|tojson if charts and charts.benchmark else '{"labels":[],"series":[]}' }}
 };
 
-const colors = { primary:'#4f46e5', purple:'#7c3aed', green:'#10b981', yellow:'#f59e0b', red:'#ef4444', gray:'#9ca3af' };
+function initCharts(){
+  if(typeof Chart==="undefined") return;
 
-// Charts initialization
-function initCharts() {
-  // trendChart
-  const trendCtx = document.getElementById('trendChart');
-  if(trendCtx){ new Chart(trendCtx, { type:'line', data:{ labels: __DASH__.labels, datasets:[
-    { label:'Avg Sentiment', data: __DASH__.sentiment, borderColor: colors.primary, backgroundColor: colors.primary, tension:.3 },
-    { label:'Avg Rating', data: __DASH__.rating, borderColor: colors.purple, backgroundColor: colors.purple, tension:.3, yAxisID:'y1' }
-  ]}, options:{ responsive:true, maintainAspectRatio:false, scales:{ y:{beginAtZero:true}, y1:{beginAtZero:true, position:'right', suggestedMax:5} },
-    onClick:(evt, els)=>{ if(els.length){ const idx=els[0].index; filterTableByDate(__DASH__.labels[idx]); } }
-  } } ); }
+  new Chart(document.getElementById("trendChart"),{
+    type:'line',
+    data:{
+      labels:DASH.labels,
+      datasets:[
+        {label:"Sentiment",data:DASH.sentiment,borderColor:"#4f46e5"},
+        {label:"Rating",data:DASH.rating,borderColor:"#10b981"}
+      ]
+    }
+  });
 
-  // distChart
-  const distCtx = document.getElementById('distChart');
-  if(distCtx){ const d=__DASH__.dist; new Chart(distCtx, { type:'bar', data:{ labels:Object.keys(d), datasets:[{ label:'Count', data:Object.values(d), backgroundColor:[colors.red,colors.yellow,colors.gray,colors.green,colors.primary] }]}, options:{ responsive:true, maintainAspectRatio:false } }); }
+  new Chart(document.getElementById("distChart"),{
+    type:'bar',
+    data:{
+      labels:Object.keys(DASH.dist),
+      datasets:[{label:"Distribution",data:Object.values(DASH.dist)}]
+    }
+  });
 
-  // corrChart
-  const corrCtx = document.getElementById('corrChart');
-  if(corrCtx){ const corr=(__DASH__.correlation||[]).map(p=>({x:p.sentiment, y:p.rating})); new Chart(corrCtx,{ type:'scatter', data:{ datasets:[{ label:'Sentiment vs Rating', data:corr, backgroundColor:colors.gray }]}, options:{ scales:{ x:{ title:{ display:true, text:'Sentiment' } }, y:{ title:{ display:true, text:'Rating' }, min:0, max:5 }}}}); }
-
-  // benchmarkChart
-  const benchCtx = document.getElementById('benchmarkChart');
-  if(benchCtx){ const b=__DASH__.benchmark; new Chart(benchCtx,{ type:'line', data:{ labels:(b.labels||[]), datasets:(b.series||[]).map((s,i)=>({ label:s.name, data:s.values, borderColor:[colors.primary,colors.purple,colors.green,colors.yellow,colors.red][i%5] })) }, options:{ responsive:true, maintainAspectRatio:false } }); }
+  new Chart(document.getElementById("benchmarkChart"),{
+    type:'line',
+    data:{
+      labels:DASH.benchmark.labels||[],
+      datasets:(DASH.benchmark.series||[]).map(s=>({
+        label:s.name,
+        data:s.values
+      }))
+    }
+  });
 }
-initCharts();
 
-// Filter reviews table by date
-function filterTableBy
+document.addEventListener("DOMContentLoaded",function(){
+  initCharts();
+
+  // Dark mode
+  if(localStorage.getItem("theme")==="dark"){
+    document.documentElement.setAttribute("data-theme","dark");
+  }
+
+  // Google Places
+  if(typeof google!=="undefined"){
+    const input=document.getElementById("companyName");
+    if(input){
+      const ac=new google.maps.places.Autocomplete(input);
+      ac.addListener("place_changed",()=>{
+        const place=ac.getPlace();
+        if(place && place.place_id){
+          document.getElementById("companyPlaceId").value=place.place_id;
+        }
+      });
+    }
+  }
+
+  // WebSocket Real-Time
+  try{
+    const ws=new WebSocket(`ws://${location.host}/ws/dashboard`);
+    ws.onmessage=function(event){
+      console.log("Live update:",event.data);
+      location.reload();
+    };
+  }catch(e){ console.log("WS not connected"); }
+
+});
+
+function toggleTheme(){
+  const html=document.documentElement;
+  if(html.getAttribute("data-theme")==="dark"){
+    html.removeAttribute("data-theme");
+    localStorage.setItem("theme","light");
+  }else{
+    html.setAttribute("data-theme","dark");
+    localStorage.setItem("theme","dark");
+  }
+}
+</script>
+{% endblock %}
