@@ -1,9 +1,9 @@
-# filename: app/main.py
+# filename: review_saas/app/main.py
 import os
 import logging
 import secrets
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 
@@ -59,12 +59,14 @@ if not STATIC_DIR.exists():
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("review_saas")
 
+
 class Settings:
     APP_NAME: str = "ReviewSaaS"
     FORCE_HTTPS: bool = bool(int(os.getenv("FORCE_HTTPS", "0")))
     CORS_ALLOW_ORIGINS: str = os.getenv("CORS_ALLOW_ORIGINS", "*")
     SESSION_SECRET: str = os.getenv("SESSION_SECRET", "supersecretkey123")
     GOOGLE_MAPS_API_KEY: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
+
 
 settings = Settings()
 
@@ -80,6 +82,7 @@ async def lifespan(app: FastAPI):
         logger.exception("Database initialization failed: %s", e)
     yield
 
+
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
 # ─────────────────────────────────────────────────────────────
@@ -89,8 +92,9 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=settings.SESSION_SECRET,
     session_cookie="session",
-    max_age=3600 * 24 * 7,
+    max_age=3600 * 24 * 7,  # 7 days
 )
+
 
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -98,6 +102,7 @@ class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
         if settings.FORCE_HTTPS and scheme != "https":
             return RedirectResponse(request.url.replace(scheme="https"), status_code=307)
         return await call_next(request)
+
 
 app.add_middleware(HTTPSRedirectMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
@@ -116,8 +121,9 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-def format_date(value, fmt="%b %d, %Y"):
-    """Jinja filter for flexible date formatting."""
+
+def format_date(value, fmt: str = "%b %d, %Y"):
+    """Jinja date filter that accepts a few simple aliases and ISO strings."""
     if value is None:
         return ""
     mapping = {"Y-m-d": "%Y-%m-%d", "d-m-Y": "%d-%m-%Y", "H:i": "%H:%M", "M d, Y": "%b %d, %Y"}
@@ -127,69 +133,79 @@ def format_date(value, fmt="%b %d, %Y"):
             value = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except Exception:
             return value
-    return value.strftime(fmt)
+    try:
+        return value.strftime(fmt)
+    except Exception:
+        return str(value)
+
 
 @pass_context
-def csrf_token(ctx, **kwargs):
+def _csrf_token(context: dict, **kwargs):
     """
-    Safe CSRF helper that works with:
-      - {{ csrf_token() }}
-      - {{ csrf_token(request=request) }}
-    Pulls `request` from the Jinja context; emits a real <input> element.
-    """
-    request: Request | None = None
-    try:
-        # Jinja2 Context is mapping-like
-        request = ctx["request"]
-    except Exception:
-        request = kwargs.get("request")
+    CSRF helper for templates.
 
+    Supports BOTH:
+      - {{ csrf_token() }}                        ← preferred
+      - {{ csrf_token(request=request) }}        ← backwards-compatible
+
+    It stores the token in server-side session and injects a hidden input.
+    """
+    request: Optional[Request] = kwargs.get("request") or context.get("request")
     if not request:
-        # If we somehow render without request, don't crash the template
         return Markup("")
-
     token = request.session.get("_csrf")
     if not token:
         token = secrets.token_urlsafe(32)
         request.session["_csrf"] = token
-
-    # IMPORTANT: output real HTML, not &lt;escaped&gt; entities
     return Markup(f'<input type="hidden" name="csrf_token" value="{token}">')
 
-# Jinja helpers
+# Register Jinja helpers
 templates.env.filters["date"] = format_date
 templates.env.globals["now"] = lambda: datetime.now(timezone.utc)
-templates.env.globals["csrf_token"] = csrf_token
+templates.env.globals["csrf_token"] = _csrf_token
 
 # ─────────────────────────────────────────────────────────────
 # Helper: Safe Context (prevents Jinja crashes)
 # ─────────────────────────────────────────────────────────────
 def get_safe_context(request: Request, current_user=None) -> Dict[str, Any]:
+    """
+    Provide a safe baseline context so templates always render.
+    """
     ctx = common_context(request)
     mock_company = {"id": 0, "name": "No Company Selected", "industry": "N/A"}
-    ctx.update({
-        "current_user": current_user,
-        "companies": [],
-        "selected_company": mock_company,
-        "active_company": mock_company,
-        "params": {"from": "", "to": "", "range": ""},
-        "kpi": {"avg_rating": 0, "avg_sentiment": 0, "review_count": 0, "review_growth": "0%"},
-        "charts": {
-            "labels": [],
-            "sentiment": [],
-            "rating": [],
-            "dist": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0},
-            "correlation": [],
-            "benchmark": {"labels": [], "series": []},
-        },
-        "reviews": [],
-        "summary": "Sync or log in to see data.",
-        "api_health": [],
-        "alerts": [],
-        "roles": [],
-        # Google key needed by dashboard.html to load Places JS
-        "google_maps_api_key": settings.GOOGLE_MAPS_API_KEY,
-    })
+    ctx.update(
+        {
+            "current_user": current_user,
+            "companies": [],
+            "selected_company": mock_company,
+            "active_company": mock_company,
+            "params": {"from": "", "to": "", "range": ""},
+            "kpi": {
+                "avg_rating": 0,
+                "avg_sentiment": 0,
+                "review_count": 0,
+                "review_growth": "0%",
+            },
+            "charts": {
+                "labels": [],
+                "sentiment": [],
+                "rating": [],
+                "dist": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0},
+                "correlation": [],
+                "benchmark": {"labels": [], "series": []},
+            },
+            "reviews": [],
+            "summary": "Sync or log in to see data.",
+            "api_health": [],
+            "alerts": [],
+            "roles": [],
+            # Google Maps API key for Places Autocomplete
+            "google_maps_api_key": settings.GOOGLE_MAPS_API_KEY,
+            "app_name": settings.APP_NAME,
+        }
+    )
+    # Ensure Starlette has 'request' in context
+    ctx.setdefault("request", request)
     return ctx
 
 # ─────────────────────────────────────────────────────────────
@@ -197,19 +213,35 @@ def get_safe_context(request: Request, current_user=None) -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, db: Session = Depends(get_db)):
+    """
+    Landing page:
+      - If user is logged in and has a company, redirect to first company dashboard.
+      - Otherwise render dashboard with safe context.
+    """
     user = get_current_user(request)
     if user:
-        user_db = db.query(User).filter(User.id == user.id).first()
+        user_db: Optional[User] = db.query(User).filter(User.id == user.id).first()
         if user_db and getattr(user_db, "companies", None):
             return RedirectResponse(f"/dashboard/{user_db.companies[0].id}")
-    # Provide safe defaults plus the Google API key
-    return templates.TemplateResponse("dashboard.html", get_safe_context(request, user))
+    context = get_safe_context(request, user)
+    # Make sure key is present even if get_safe_context is changed elsewhere
+    context["google_maps_api_key"] = settings.GOOGLE_MAPS_API_KEY
+    context.setdefault("request", request)
+    return templates.TemplateResponse("dashboard.html", context)
+
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_view(request: Request):
+    """
+    Display login on dashboard shell to keep UX consistent.
+    """
     if get_current_user(request):
         return RedirectResponse("/")
-    return templates.TemplateResponse("dashboard.html", get_safe_context(request))
+    context = get_safe_context(request)
+    context["google_maps_api_key"] = settings.GOOGLE_MAPS_API_KEY
+    context.setdefault("request", request)
+    return templates.TemplateResponse("dashboard.html", context)
+
 
 @app.post("/login")
 async def login_post(
@@ -218,6 +250,9 @@ async def login_post(
     password: str = Form(...),
     db: Session = Depends(get_db),
 ):
+    """
+    Process login using auth router's handler; on success redirect to a company.
+    """
     result = await auth.login_post(request, email, password, db)
     if isinstance(result, RedirectResponse):
         return result
@@ -225,20 +260,27 @@ async def login_post(
     user = result
     if user and hasattr(user, "id"):
         request.session["user_id"] = user.id
-        first_comp = db.query(Company).filter(Company.owner_id == user.id).first()
+        first_comp: Optional[Company] = db.query(Company).filter(Company.owner_id == user.id).first()
         return RedirectResponse(f"/dashboard/{first_comp.id}" if first_comp else "/", status_code=302)
 
+    # Invalid credentials; render dashboard shell with flash
     context = get_safe_context(request)
     context["flash_error"] = "Invalid credentials."
+    context["google_maps_api_key"] = settings.GOOGLE_MAPS_API_KEY
+    context.setdefault("request", request)
     return templates.TemplateResponse("dashboard.html", context)
+
 
 @app.get("/dashboard/{company_id}", response_class=HTMLResponse)
 async def dashboard_view(request: Request, company_id: int, db: Session = Depends(get_db)):
+    """
+    Full dashboard for a specific company (last 30 days by default).
+    """
     user = get_current_user(request)
     if not user:
         return RedirectResponse("/login")
 
-    company = db.query(Company).filter(Company.id == company_id).first()
+    company: Optional[Company] = db.query(Company).filter(Company.id == company_id).first()
     if not company:
         return RedirectResponse("/")
 
@@ -246,20 +288,21 @@ async def dashboard_view(request: Request, company_id: int, db: Session = Depend
     end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=30)
 
-    # Build data
+    # Build KPI and charts
     kpi = metrics_svc.build_kpi_for_dashboard(db, company_id, start_date, end_date)
     charts = metrics_svc.build_dashboard_charts(db, company_id, start_date, end_date)
 
+    # Recent reviews
     reviews_list = (
         db.query(Review)
-          .filter(Review.company_id == company_id)
-          .order_by(Review.review_date.desc())
-          .limit(50)
-          .all()
+        .filter(Review.company_id == company_id)
+        .order_by(Review.review_date.desc())
+        .limit(50)
+        .all()
     )
 
-    # Safe call to AI analysis (with fallback)
-    ai_summary = {}
+    # AI summary (best-effort)
+    ai_summary: Dict[str, Any] = {}
     try:
         ai_summary = ai_svc.analyze_reviews(reviews_list, company, start_date, end_date) or {}
     except Exception as e:
@@ -267,50 +310,58 @@ async def dashboard_view(request: Request, company_id: int, db: Session = Depend
         ai_summary = {"summary_text": "AI analysis unavailable at this time."}
 
     context = common_context(request)
-    context.update({
-        "current_user": user,
-        "selected_company": company,
-        "active_company": company,
-        "companies": db.query(Company).filter(Company.owner_id == user.id).all(),
-        "kpi": kpi,
-        "charts": charts,
-        "reviews": reviews_list,
-        "summary": ai_summary.get("summary_text", "No summary available."),
-        "params": {
-            "from": start_date.date().isoformat(),
-            "to": end_date.date().isoformat(),
-            "range": "30d",
-        },
-        # Provide Google key for Places Autocomplete loader
-        "google_maps_api_key": settings.GOOGLE_MAPS_API_KEY,
-    })
+    context.update(
+        {
+            "current_user": user,
+            "selected_company": company,
+            "active_company": company,
+            "companies": db.query(Company).filter(Company.owner_id == user.id).all(),
+            "kpi": kpi,
+            "charts": charts,
+            "reviews": reviews_list,
+            "summary": ai_summary.get("summary_text", "No summary available."),
+            "params": {
+                "from": start_date.date().isoformat(),
+                "to": end_date.date().isoformat(),
+                "range": "30d",
+            },
+            "google_maps_api_key": settings.GOOGLE_MAPS_API_KEY,
+            "app_name": settings.APP_NAME,
+        }
+    )
+    context.setdefault("request", request)
     return templates.TemplateResponse("dashboard.html", context)
+
 
 # ─────────────────────────────────────────────────────────────
 # Google Sync Route
 # ─────────────────────────────────────────────────────────────
 @app.get("/sync/run")
 async def sync_reviews(request: Request, company_id: int, db: Session = Depends(get_db)):
+    """
+    Trigger a background sync of Google reviews for the given company.
+    """
     user = get_current_user(request)
     if not user:
         return RedirectResponse("/login")
 
-    company = db.query(Company).filter(Company.id == company_id).first()
+    company: Optional[Company] = db.query(Company).filter(Company.id == company_id).first()
     if not company or not getattr(company, "place_id", None):
         return RedirectResponse(f"/dashboard/{company_id}?error=no_place_id")
 
     try:
         new_count = await sync_company_reviews(db, company)
-        # Use '&' (not '&amp;'); FastAPI/Starlette will handle encoding
         return RedirectResponse(f"/dashboard/{company_id}?success=synced&count={new_count}")
     except Exception as e:
         logger.exception("Sync failed: %s", e)
         return RedirectResponse(f"/dashboard/{company_id}?error=sync_failed")
 
+
 @app.get("/logout")
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/")
+
 
 # ─────────────────────────────────────────────────────────────
 # Include Routers
@@ -325,7 +376,9 @@ app.include_router(maps_router)
 app.include_router(activity_router, prefix="/api/activity", tags=["telemetry"])
 app.include_router(insights_router, prefix="/api/insights", tags=["ai"])
 
+# ─────────────────────────────────────────────────────────────
 # Health Check
+# ─────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
     return {"status": "healthy", "service": settings.APP_NAME}
