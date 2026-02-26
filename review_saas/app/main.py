@@ -64,6 +64,7 @@ class Settings:
     FORCE_HTTPS: bool = bool(int(os.getenv("FORCE_HTTPS", "0")))
     CORS_ALLOW_ORIGINS: str = os.getenv("CORS_ALLOW_ORIGINS", "*")
     SESSION_SECRET: str = os.getenv("SESSION_SECRET", "supersecretkey123")
+    GOOGLE_MAPS_API_KEY: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
 
 settings = Settings()
 
@@ -116,6 +117,7 @@ if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 def format_date(value, fmt="%b %d, %Y"):
+    """Jinja filter for flexible date formatting."""
     if value is None:
         return ""
     mapping = {"Y-m-d": "%Y-%m-%d", "d-m-Y": "%d-%m-%Y", "H:i": "%H:%M", "M d, Y": "%b %d, %Y"}
@@ -128,20 +130,36 @@ def format_date(value, fmt="%b %d, %Y"):
     return value.strftime(fmt)
 
 @pass_context
-def _csrf_token(context: dict):
-    request = context.get("request")
+def csrf_token(ctx, **kwargs):
+    """
+    Safe CSRF helper that works with:
+      - {{ csrf_token() }}
+      - {{ csrf_token(request=request) }}
+    Pulls `request` from the Jinja context; emits a real <input> element.
+    """
+    request: Request | None = None
+    try:
+        # Jinja2 Context is mapping-like
+        request = ctx["request"]
+    except Exception:
+        request = kwargs.get("request")
+
     if not request:
-        return ""
+        # If we somehow render without request, don't crash the template
+        return Markup("")
+
     token = request.session.get("_csrf")
     if not token:
         token = secrets.token_urlsafe(32)
         request.session["_csrf"] = token
+
+    # IMPORTANT: output real HTML, not &lt;escaped&gt; entities
     return Markup(f'<input type="hidden" name="csrf_token" value="{token}">')
 
 # Jinja helpers
 templates.env.filters["date"] = format_date
 templates.env.globals["now"] = lambda: datetime.now(timezone.utc)
-templates.env.globals["csrf_token"] = _csrf_token
+templates.env.globals["csrf_token"] = csrf_token
 
 # ─────────────────────────────────────────────────────────────
 # Helper: Safe Context (prevents Jinja crashes)
@@ -156,12 +174,21 @@ def get_safe_context(request: Request, current_user=None) -> Dict[str, Any]:
         "active_company": mock_company,
         "params": {"from": "", "to": "", "range": ""},
         "kpi": {"avg_rating": 0, "avg_sentiment": 0, "review_count": 0, "review_growth": "0%"},
-        "charts": {"labels": [], "sentiment": [], "rating": [], "dist": {"1":0,"2":0,"3":0,"4":0,"5":0}, "correlation": [], "benchmark": {"labels": [], "series": []}},
+        "charts": {
+            "labels": [],
+            "sentiment": [],
+            "rating": [],
+            "dist": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0},
+            "correlation": [],
+            "benchmark": {"labels": [], "series": []},
+        },
         "reviews": [],
         "summary": "Sync or log in to see data.",
         "api_health": [],
         "alerts": [],
         "roles": [],
+        # Google key needed by dashboard.html to load Places JS
+        "google_maps_api_key": settings.GOOGLE_MAPS_API_KEY,
     })
     return ctx
 
@@ -175,6 +202,7 @@ async def home(request: Request, db: Session = Depends(get_db)):
         user_db = db.query(User).filter(User.id == user.id).first()
         if user_db and getattr(user_db, "companies", None):
             return RedirectResponse(f"/dashboard/{user_db.companies[0].id}")
+    # Provide safe defaults plus the Google API key
     return templates.TemplateResponse("dashboard.html", get_safe_context(request, user))
 
 @app.get("/login", response_class=HTMLResponse)
@@ -248,7 +276,13 @@ async def dashboard_view(request: Request, company_id: int, db: Session = Depend
         "charts": charts,
         "reviews": reviews_list,
         "summary": ai_summary.get("summary_text", "No summary available."),
-        "params": {"from": start_date.date().isoformat(), "to": end_date.date().isoformat(), "range": "30d"},
+        "params": {
+            "from": start_date.date().isoformat(),
+            "to": end_date.date().isoformat(),
+            "range": "30d",
+        },
+        # Provide Google key for Places Autocomplete loader
+        "google_maps_api_key": settings.GOOGLE_MAPS_API_KEY,
     })
     return templates.TemplateResponse("dashboard.html", context)
 
@@ -267,6 +301,7 @@ async def sync_reviews(request: Request, company_id: int, db: Session = Depends(
 
     try:
         new_count = await sync_company_reviews(db, company)
+        # Use '&' (not '&amp;'); FastAPI/Starlette will handle encoding
         return RedirectResponse(f"/dashboard/{company_id}?success=synced&count={new_count}")
     except Exception as e:
         logger.exception("Sync failed: %s", e)
