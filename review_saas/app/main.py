@@ -112,7 +112,7 @@ app.add_middleware(
 # Templates & Jinja Environment
 # ─────────────────────────────────────────────────────────────
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
-# Make templates accessible from routers (auth.py uses request.app.state.templates)
+# make templates available to routers (auth.py uses request.app.state.templates)
 app.state.templates = templates
 
 if STATIC_DIR.exists():
@@ -183,7 +183,6 @@ def get_safe_context(request: Request, current_user=None) -> Dict[str, Any]:
     return ctx
 
 def _pop_flash(request: Request, key: str) -> Optional[str]:
-    """Move session-based flash into one-time context keys."""
     val = request.session.get(key)
     if val:
         try:
@@ -198,30 +197,21 @@ def _pop_flash(request: Request, key: str) -> Optional[str]:
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request, db: Session = Depends(get_db)):
     """
-    Landing page: Always render base.html (with Register/Login/About modals).
-    If user already logged in and has a company, you may optionally redirect them
-    to the first company's dashboard — comment/uncomment below as desired.
+    FIRST PAGE: render base.html with modals for Register/Login/About.
     """
     user = get_current_user(request)
 
-    # OPTIONAL auto-redirect for logged-in users with companies:
-    # if user:
-    #     user_db: Optional[User] = db.query(User).filter(User.id == user.id).first()
-    #     if user_db and getattr(user_db, "companies", None):
-    #         return RedirectResponse(f"/dashboard/{user_db.companies[0].id}")
-
     context = get_safe_context(request, user)
-    # deliver flash messages (set by auth/login/register flows)
+    # deliver session flashes to template (one-time)
     context["flash_error"] = _pop_flash(request, "flash_error")
     context["flash_success"] = _pop_flash(request, "flash_success")
     context.setdefault("request", request)
-    # Render the FIRST PAGE as base.html
     return templates.TemplateResponse("base.html", context)
 
 @app.get("/login")
 async def login_view_redirect_to_home(request: Request):
     """
-    We use modals on the base page for login; just open it.
+    We use the base page's login modal; just open it.
     """
     return RedirectResponse("/?show=login", status_code=302)
 
@@ -233,25 +223,24 @@ async def login_post(
     db: Session = Depends(get_db),
 ):
     """
-    Process login using auth router's handler; on success redirect to dashboard.
+    Verify login via auth.login_post(); on success set session and redirect to dashboard.
     """
+    # Delegate credential check to routes/auth.py
     result = await auth.login_post(request, email, password, db)
     if not result:
-        # invalid
         request.session["flash_error"] = "Invalid email or password."
         return RedirectResponse("/?show=login", status_code=302)
 
     user = result
     request.session["user_id"] = user.id
 
-    # Pick first company if exists; otherwise fallback to generic dashboard.
+    # Redirect to first company dashboard (if exists) else generic dashboard
     first_comp: Optional[Company] = (
         db.query(Company).filter(Company.owner_id == user.id).first()
     )
     if first_comp:
         return RedirectResponse(f"/dashboard/{first_comp.id}", status_code=302)
-    else:
-        return RedirectResponse("/dashboard", status_code=302)
+    return RedirectResponse("/dashboard", status_code=302)
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_fallback(request: Request, db: Session = Depends(get_db)):
@@ -278,6 +267,7 @@ async def dashboard_view(request: Request, company_id: int, db: Session = Depend
 
     end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=30)
+
     kpi = metrics_svc.build_kpi_for_dashboard(db, company_id, start_date, end_date)
     charts = metrics_svc.build_dashboard_charts(db, company_id, start_date, end_date)
 
@@ -341,7 +331,7 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/")
 
-# Routers
+# Include routers
 app.include_router(auth.router)
 app.include_router(companies.router)
 app.include_router(reviews.router)
