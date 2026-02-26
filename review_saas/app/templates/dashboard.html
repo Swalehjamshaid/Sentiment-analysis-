@@ -1,15 +1,20 @@
-<!doctype html>
+
+ <!doctype html>
 <html lang="en" data-bs-theme="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ReviewSaaS • Dashboard</title>
 
+  <!-- Optional: meta fallback for Google API key (in case the Jinja var is empty) -->
   <meta name="google-maps-api-key" content="{{ google_maps_api_key | default('', true) }}">
 
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- Bootstrap 5.3.3 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-LRr4p3Ovy1p8+2bT6yq2s8wPuYH0oQpQfV6suQbq2nO3bN9dZq1sZ8k6S9vV9QEc" crossorigin="anonymous">
+  <!-- Bootstrap Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <!-- Chart.js v4 -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-GR0d8b7fkbwC5N3kZy0h5YI1f2nQ7QnQhJm2T9Qp6u1Q7JqE2s1lL3cK5W2q6f2M" crossorigin="anonymous"></script>
 
   <style>
     :root {
@@ -26,11 +31,15 @@
       --gradient: radial-gradient(1100px 400px at 0% -10%, rgba(99,102,241,.25) 0, rgba(99,102,241,0) 50%),
                   radial-gradient(1100px 400px at 100% 110%, rgba(20,184,166,.25) 0, rgba(20,184,166,0) 50%);
     }
+
     body {
       min-height: 100vh;
-      background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(16,185,129,0.06) 100%), var(--gradient);
+      background:
+        linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(16,185,129,0.06) 100%),
+        var(--gradient);
       backdrop-filter: saturate(1.2);
     }
+
     .topbar {
       position: sticky; top: 0; z-index: 1030;
       backdrop-filter: blur(8px);
@@ -38,51 +47,54 @@
       border-bottom: 1px solid var(--glass-border);
       height: 64px;
     }
+
     .app-shell { display: grid; grid-template-columns: 260px 1fr; min-height: calc(100vh - 64px); }
     @media (max-width: 992px) { .app-shell { grid-template-columns: 1fr; } }
+
     .sidebar {
       position: sticky; top: 64px; height: calc(100vh - 64px);
       padding: 1rem; border-right: 1px solid var(--glass-border);
       background-color: var(--glass-bg); backdrop-filter: blur(10px);
     }
+    @media (max-width: 992px) { .sidebar { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--glass-border); } }
+
     .brand-badge {
       background: linear-gradient(135deg, #6366f1, #14b8a6);
       -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       font-weight: 800; letter-spacing: .3px;
     }
+
     .card-glass { background-color: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: var(--card-radius); box-shadow: var(--shadow-1); }
+
     .hero {
       border-radius: 18px; padding: 1.25rem;
-      background: var(--glass-bg);
+      background:
+        radial-gradient(600px 200px at 10% 0%, rgba(99,102,241,.14), rgba(99,102,241,0) 70%),
+        radial-gradient(600px 200px at 90% 100%, rgba(20,184,166,.14), rgba(20,184,166,0) 70%),
+        var(--glass-bg);
       border: 1px solid var(--glass-border);
       box-shadow: var(--shadow-1); backdrop-filter: blur(8px);
     }
+
     .kpi { display: grid; grid-template-columns: auto 1fr auto; gap: .75rem; align-items: center; }
     .kpi .icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px;
       background: linear-gradient(135deg, rgba(99,102,241,.18), rgba(20,184,166,.18)); }
+
     .table-stylish thead th { border-bottom: 1px solid var(--glass-border) !important; font-weight: 700; }
     .table-stylish tbody tr:hover { background-color: rgba(99,102,241,0.06); }
+    [data-bs-theme="dark"] .table-stylish tbody tr:hover { background-color: rgba(99,102,241,0.12); }
+
     .theme-toggle { border: 1px solid var(--glass-border); background-color: var(--glass-bg); backdrop-filter: blur(6px); }
+
     .small-muted { color: var(--bs-secondary-color); font-size: .85rem; }
     .form-floating > label .req { color: #e11d48; }
-
-    /* Delete Button Polish */
-    .company-nav-item { position: relative; }
-    .btn-delete-sidebar {
-      opacity: 0;
-      transition: opacity 0.2s;
-      position: absolute;
-      right: 10px;
-      top: 50%;
-      transform: translateY(-50%);
-    }
-    .company-nav-item:hover .btn-delete-sidebar { opacity: 1; }
   </style>
 </head>
 <body>
+  <!-- Topbar -->
   <nav class="topbar navbar navbar-expand-lg px-3">
     <div class="container-fluid">
-      <button class="btn d-lg-none me-2" data-bs-toggle="collapse" data-bs-target="#sidebarMenu" aria-label="Toggle navigation">
+      <button class="btn d-lg-none me-2" data-bs-toggle="collapse" data-bs-target="#sidebarMenu" aria-controls="sidebarMenu" aria-expanded="false" aria-label="Toggle navigation">
         <i class="bi bi-list fs-4"></i>
       </button>
 
@@ -99,33 +111,28 @@
           <i class="bi bi-moon-stars me-2"></i><span>Dark</span>
         </button>
         {% if current_user %}
-          <a class="btn btn-outline-secondary rounded-pill px-3" href="/logout">Logout</a>
+          <a class="btn btn-outline-secondary rounded-pill px-3" href="/logout">
+            <i class="bi bi-box-arrow-right me-2"></i>Logout
+          </a>
         {% else %}
-          <a class="btn btn-outline-secondary rounded-pill px-3" href="/login">Login</a>
+          <a class="btn btn-outline-secondary rounded-pill px-3" href="/login">
+            <i class="bi bi-person me-2"></i>Login
+          </a>
         {% endif %}
       </div>
     </div>
   </nav>
 
   <div class="app-shell">
+    <!-- Sidebar -->
     <aside class="sidebar collapse d-lg-block" id="sidebarMenu">
       <div class="d-grid gap-2">
         <a class="btn btn-light text-start" href="/"><i class="bi bi-house-door me-2"></i> Home</a>
         {% if current_user and companies %}
           {% for comp in companies %}
-            <div class="company-nav-item mb-1">
-              <a class="btn {% if active_company and active_company.id == comp.id %}btn-primary{% else %}btn-outline-secondary{% endif %} text-start w-100 pe-5" 
-                 href="/dashboard/{{ comp.id }}">
-                <i class="bi bi-building me-2"></i>{{ comp.name }}
-              </a>
-              <button class="btn btn-sm btn-link text-danger btn-delete-sidebar" 
-                      data-bs-toggle="modal" 
-                      data-bs-target="#deleteCompanyModal" 
-                      data-company-id="{{ comp.id }}" 
-                      data-company-name="{{ comp.name }}">
-                <i class="bi bi-trash"></i>
-              </button>
-            </div>
+            <a class="btn btn-outline-secondary text-start" href="/dashboard/{{ comp.id }}">
+              <i class="bi bi-building me-2"></i>{{ comp.name }}
+            </a>
           {% endfor %}
         {% endif %}
       </div>
@@ -145,6 +152,7 @@
       </div>
     </aside>
 
+    <!-- Main -->
     <main class="p-3 p-lg-4">
       <section class="hero mb-4">
         <div class="d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-3">
@@ -154,16 +162,17 @@
             </h1>
             <p class="mb-0 small-muted">{{ summary or "Sync or log in to see data." }}</p>
           </div>
-          {% if active_company and active_company.id %}
           <div class="d-flex gap-2">
-            <a class="btn btn-outline-primary" href="/reports/export?company_id={{ active_company.id }}">
-              <i class="bi bi-download me-2"></i>Export
-            </a>
+            {% if active_company and active_company.id %}
+              <a class="btn btn-outline-primary" href="/reports/export?company_id={{ active_company.id }}">
+                <i class="bi bi-download me-2"></i>Export
+              </a>
+            {% endif %}
           </div>
-          {% endif %}
         </div>
       </section>
 
+      <!-- KPIs -->
       <section class="mb-4">
         <div class="row g-3">
           <div class="col-12 col-sm-6 col-xl-3">
@@ -174,6 +183,7 @@
                   <div class="text-secondary small">Avg Rating</div>
                   <div class="fs-4 fw-bold">{{ (kpi.avg_rating or 0) | round(2) }}</div>
                 </div>
+                <div class="text-success fw-semibold small">&nbsp;</div>
               </div>
             </div>
           </div>
@@ -185,6 +195,7 @@
                   <div class="text-secondary small">Avg Sentiment</div>
                   <div class="fs-4 fw-bold">{{ (kpi.avg_sentiment or 0) | round(2) }}</div>
                 </div>
+                <div class="text-success fw-semibold small">&nbsp;</div>
               </div>
             </div>
           </div>
@@ -196,6 +207,7 @@
                   <div class="text-secondary small">Reviews</div>
                   <div class="fs-4 fw-bold">{{ kpi.review_count or 0 }}</div>
                 </div>
+                <div class="text-success fw-semibold small">{{ kpi.review_growth or "0%" }}</div>
               </div>
             </div>
           </div>
@@ -207,12 +219,14 @@
                   <div class="text-secondary small">Range</div>
                   <div class="fs-6 fw-semibold">{{ params.from | default("", true) }} → {{ params.to | default("", true) }}</div>
                 </div>
+                <div class="text-success fw-semibold small">&nbsp;</div>
               </div>
             </div>
           </div>
         </div>
       </section>
 
+      <!-- Charts -->
       <section class="mb-4">
         <div class="row g-3">
           <div class="col-12 col-xl-8">
@@ -226,25 +240,36 @@
           </div>
           <div class="col-12 col-xl-4">
             <div class="card-glass p-3 h-100">
-              <h2 class="h6 mb-3">Rating Distribution</h2>
+              <div class="d-flex align-items-center justify-content-between mb-2">
+                <h2 class="h6 mb-0">Rating Distribution</h2>
+                <span class="small text-secondary">1★–5★</span>
+              </div>
               <div style="height: 300px;"><canvas id="doughnutChart"></canvas></div>
             </div>
           </div>
         </div>
       </section>
 
+      <!-- Reviews Table -->
       <section class="mb-4">
         <div class="card-glass p-3">
           <div class="d-flex align-items-center justify-content-between mb-2">
             <h2 class="h6 mb-0">Recent Reviews</h2>
             {% if active_company and active_company.id %}
-              <a class="btn btn-sm btn-outline-secondary" href="/reviews?company_id={{ active_company.id }}">View all</a>
+              <a class="btn btn-sm btn-outline-secondary" href="/reviews?company_id={{ active_company.id }}">
+                <i class="bi bi-list-ul me-1"></i>View all
+              </a>
             {% endif %}
           </div>
           <div class="table-responsive">
             <table class="table table-stylish align-middle mb-0">
               <thead>
-                <tr><th>Date</th><th>Author</th><th>Rating</th><th>Text</th></tr>
+                <tr>
+                  <th>Date</th>
+                  <th>Author</th>
+                  <th>Rating</th>
+                  <th>Text</th>
+                </tr>
               </thead>
               <tbody>
                 {% if reviews %}
@@ -271,169 +296,316 @@
     </main>
   </div>
 
-  <div class="modal fade" id="addCompanyModal" tabindex="-1">
+  <!-- ===========================
+       Modal: Add Company (Google Places Autocomplete)
+       =========================== -->
+  <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
       <div class="modal-content card-glass">
-        <div class="modal-header border-0">
-          <h5 class="modal-title"><i class="bi bi-building-add me-2"></i>Add New Company</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <div class="modal-header">
+          <h5 class="modal-title" id="addCompanyLabel"><i class="bi bi-building-add me-2"></i>Add New Company</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
+
         <form id="addCompanyForm" method="post" action="/companies/create" novalidate>
           <div class="modal-body">
-            {{ csrf_token() }}
-            <div class="form-floating mb-3">
-              <input type="text" class="form-control" id="companySearch" placeholder="Search..." required>
-              <label>Company Search <span class="req">*</span></label>
-            </div>
-            <input type="hidden" name="place_id" id="place_id">
+            {{ csrf_token(request=request) }}
+
             <div class="row g-3">
-              <div class="col-md-6"><div class="form-floating"><input type="text" class="form-control" id="name" name="name" required><label>Official Name</label></div></div>
-              <div class="col-md-6"><div class="form-floating"><input type="text" class="form-control" id="formatted_address" name="address" required><label>Address</label></div></div>
-              <div class="col-md-4"><div class="form-floating"><input type="text" class="form-control" id="city" name="city"><label>City</label></div></div>
-              <div class="col-md-4"><div class="form-floating"><input type="text" class="form-control" id="state" name="state"><label>State</label></div></div>
-              <div class="col-md-4"><div class="form-floating"><input type="text" class="form-control" id="postal_code" name="postal_code"><label>Zip</label></div></div>
-              <div class="col-md-6"><div class="form-floating"><input type="text" class="form-control" id="country" name="country"><label>Country</label></div></div>
-              <div class="col-md-3"><div class="form-floating"><input type="number" step="any" class="form-control" id="lat" name="latitude"><label>Lat</label></div></div>
-              <div class="col-md-3"><div class="form-floating"><input type="number" step="any" class="form-control" id="lng" name="longitude"><label>Lng</label></div></div>
-              <div class="col-md-6"><div class="form-floating"><input type="text" class="form-control" id="phone" name="phone"><label>Phone</label></div></div>
-              <div class="col-md-6"><div class="form-floating"><input type="url" class="form-control" id="website" name="website"><label>Website</label></div></div>
-              <div class="col-md-12"><div class="form-floating"><input type="text" class="form-control" id="types" name="types"><label>Categories (CSV)</label></div></div>
+              <div class="col-12">
+                <div class="form-floating">
+                  <input type="text" class="form-control" id="companySearch" placeholder="Start typing the business name…" autocomplete="off" required>
+                  <label for="companySearch">Company Name <span class="req">*</span></label>
+                </div>
+                <div class="form-text">Powered by Google Places Autocomplete. Select the correct business from the suggestions.</div>
+              </div>
+
+              <!-- Hidden Place ID -->
+              <input type="hidden" name="place_id" id="place_id">
+
+              <!-- Official name (can differ from search text) -->
+              <div class="col-md-6">
+                <div class="form-floating">
+                  <input type="text" class="form-control" id="name" name="name" placeholder="Name" required>
+                  <label for="name">Official Name <span class="req">*</span></label>
+                </div>
+              </div>
+
+              <div class="col-md-6">
+                <div class="form-floating">
+                  <input type="text" class="form-control" id="formatted_address" name="address" placeholder="Formatted address" required>
+                  <label for="formatted_address">Address <span class="req">*</span></label>
+                </div>
+              </div>
+
+              <div class="col-md-4">
+                <div class="form-floating">
+                  <input type="text" class="form-control" id="city" name="city" placeholder="City">
+                  <label for="city">City</label>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <div class="form-floating">
+                  <input type="text" class="form-control" id="state" name="state" placeholder="State/Province">
+                  <label for="state">State/Province</label>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <div class="form-floating">
+                  <input type="text" class="form-control" id="postal_code" name="postal_code" placeholder="Postal Code">
+                  <label for="postal_code">Postal Code</label>
+                </div>
+              </div>
+
+              <div class="col-md-6">
+                <div class="form-floating">
+                  <input type="text" class="form-control" id="country" name="country" placeholder="Country">
+                  <label for="country">Country</label>
+                </div>
+              </div>
+
+              <div class="col-md-3">
+                <div class="form-floating">
+                  <input type="number" step="any" class="form-control" id="lat" name="latitude" placeholder="Latitude">
+                  <label for="lat">Latitude</label>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="form-floating">
+                  <input type="number" step="any" class="form-control" id="lng" name="longitude" placeholder="Longitude">
+                  <label for="lng">Longitude</label>
+                </div>
+              </div>
+
+              <div class="col-md-6">
+                <div class="form-floating">
+                  <input type="text" class="form-control" id="phone" name="phone" placeholder="Phone">
+                  <label for="phone">Phone</label>
+                </div>
+              </div>
+              <div class="col-md-6">
+                <div class="form-floating">
+                  <input type="url" class="form-control" id="website" name="website" placeholder="Website">
+                  <label for="website">Website</label>
+                </div>
+              </div>
+
+              <div class="col-md-6">
+                <div class="form-floating">
+                  <input type="url" class="form-control" id="google_url" name="google_url" placeholder="Google Maps URL">
+                  <label for="google_url">Google Maps URL</label>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="form-floating">
+                  <input type="number" step="0.1" class="form-control" id="rating" name="rating" placeholder="Rating">
+                  <label for="rating">Rating</label>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="form-floating">
+                  <input type="number" class="form-control" id="user_ratings_total" name="user_ratings_total" placeholder="Total Reviews">
+                  <label for="user_ratings_total">Total Reviews</label>
+                </div>
+              </div>
+
+              <div class="col-12">
+                <div class="form-floating">
+                  <input type="text" class="form-control" id="types" name="types" placeholder="Categories / Types">
+                  <label for="types">Categories / Types (CSV)</label>
+                </div>
+                <div class="form-text">Auto‑filled from Google (you can edit before saving).</div>
+              </div>
+            </div>
+
+            <div class="alert alert-info mt-3 mb-0 small">
+              <i class="bi bi-info-circle me-2"></i>
+              After saving, you can run a Google Reviews sync from the sidebar (requires a valid <code>place_id</code>).
             </div>
           </div>
-          <div class="modal-footer border-0">
-            <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-            <button type="submit" class="btn btn-primary">Save Company</button>
+
+          <div class="modal-footer">
+            <button class="btn btn-light" type="button" data-bs-dismiss="modal">Cancel</button>
+            <button class="btn btn-primary" type="submit"><i class="bi bi-check2-circle me-1"></i>Save Company</button>
           </div>
         </form>
       </div>
     </div>
   </div>
 
-  <div class="modal fade" id="deleteCompanyModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
-      <div class="modal-content card-glass">
-        <div class="modal-header border-0">
-          <h5 class="modal-title text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Delete Company?</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          Are you sure you want to delete <strong id="deleteCompanyName"></strong>? This will permanently remove all reviews.
-        </div>
-        <div class="modal-footer border-0">
-          <form id="deleteForm" method="POST" action="">
-            {{ csrf_token() }}
-            <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-            <button type="submit" class="btn btn-danger">Confirm Delete</button>
-          </form>
-        </div>
-      </div>
-    </div>
-  </div>
+  <!-- Bootstrap JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-u1O1CkQ6+6e5tS0g8nJ3p2Owv2hYJp6m2TgF3lq7p2b+JzYJQx1gS3E3v5c9V+5p" crossorigin="anonymous"></script>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-
+  <!-- Theme + Charts + Google Places -->
   <script>
-    // Delete Logic
-    const deleteModal = document.getElementById('deleteCompanyModal');
-    deleteModal.addEventListener('show.bs.modal', function (event) {
-      const button = event.relatedTarget;
-      const id = button.getAttribute('data-company-id');
-      const name = button.getAttribute('data-company-name');
-      document.getElementById('deleteCompanyName').textContent = name;
-      document.getElementById('deleteForm').setAttribute('action', `/companies/delete/${id}`);
-    });
-
-    // Theme logic
+    // -----------------------------
+    // Theme handling (persisted)
+    // -----------------------------
     (function() {
       const STORAGE_KEY = "ops-dashboard-theme";
       const root = document.documentElement;
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+
       function applyTheme(mode) {
         root.setAttribute('data-bs-theme', mode);
         const btn = document.getElementById('themeToggle');
         if (btn) {
+          const icon = btn.querySelector('i');
           const label = btn.querySelector('span');
-          label.textContent = mode === 'dark' ? 'Light' : 'Dark';
+          if (mode === 'dark') { icon.className = 'bi bi-brightness-high me-2'; label.textContent = 'Light'; }
+          else { icon.className = 'bi bi-moon-stars me-2'; label.textContent = 'Dark'; }
         }
       }
-      applyTheme(localStorage.getItem(STORAGE_KEY) || 'light');
+      const saved = localStorage.getItem(STORAGE_KEY);
+      const initial = saved || (prefersDark.matches ? 'dark' : 'light');
+      applyTheme(initial);
+      prefersDark?.addEventListener('change', (e) => {
+        if (!localStorage.getItem(STORAGE_KEY)) { applyTheme(e.matches ? 'dark' : 'light'); repaintCharts(); }
+      });
       document.getElementById('themeToggle')?.addEventListener('click', () => {
         const current = root.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
-        localStorage.setItem(STORAGE_KEY, current);
-        applyTheme(current);
-        repaintCharts();
+        localStorage.setItem(STORAGE_KEY, current); applyTheme(current); repaintCharts();
       });
     })();
 
-    // Charting
+    // -----------------------------
+    // Chart.js using provided context
+    // -----------------------------
     const charts = {};
+    function getThemeColors() {
+      const isDark = (document.documentElement.getAttribute('data-bs-theme') === 'dark');
+      const styles = getComputedStyle(document.body);
+      const text = styles.getPropertyValue('--bs-body-color').trim() || (isDark ? '#e9ecef' : '#212529');
+      const grid = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+      const subtle = isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)';
+      return { text, grid, subtle, primary:'#6366f1', teal:'#14b8a6', amber:'#f59e0b', rose:'#f43f5e' };
+    }
+    function baseOptions() {
+      const c = getThemeColors();
+      return {
+        responsive:true, maintainAspectRatio:false,
+        plugins: { legend:{ labels:{ color:c.text, usePointStyle:true } },
+                   tooltip:{ backgroundColor:'rgba(0,0,0,0.85)', titleColor:'#fff', bodyColor:'#fff' } },
+        scales: { x:{ grid:{ color:c.grid }, ticks:{ color:c.subtle } },
+                  y:{ grid:{ color:c.grid }, ticks:{ color:c.subtle } } }
+      };
+    }
+    function repaintCharts(){ for(const k of Object.keys(charts)){ charts[k]?.destroy(); } initCharts(); }
     function initCharts(){
+      const c = getThemeColors();
       const labels = {{ charts.labels | default([], true) | tojson }};
       const seriesRating = {{ charts.rating | default([], true) | tojson }};
       const seriesSent = {{ charts.sentiment | default([], true) | tojson }};
       const dist = {{ charts.dist | default({"1":0,"2":0,"3":0,"4":0,"5":0}, true) | tojson }};
-      
+
       const lineEl = document.getElementById('lineChart');
       if (lineEl) {
-        charts.line = new Chart(lineEl, {
-          type: 'line',
-          data: { 
-            labels, 
-            datasets: [
-              { label: 'Rating', data: seriesRating, borderColor: '#6366f1', tension: 0.4, fill: true },
-              { label: 'Sentiment', data: seriesSent, borderColor: '#14b8a6', tension: 0.4 }
-            ] 
-          },
-          options: { responsive: true, maintainAspectRatio: false }
+        charts.line = new Chart(lineEl.getContext('2d'), {
+          type:'line',
+          data:{ labels,
+                 datasets:[
+                   { label:'Average Rating', data: seriesRating, borderColor:c.primary, backgroundColor:c.primary+'33', tension:.35, fill:true, pointRadius:2 },
+                   { label:'Average Sentiment', data: seriesSent, borderColor:c.teal, backgroundColor:c.teal+'33', tension:.35, pointRadius:2 }
+                 ]},
+          options: baseOptions()
         });
       }
       const doughnutEl = document.getElementById('doughnutChart');
       if (doughnutEl) {
-        charts.doughnut = new Chart(doughnutEl, {
-          type: 'doughnut',
-          data: { 
-            labels: ['1★','2★','3★','4★','5★'], 
-            datasets: [{ data: Object.values(dist), backgroundColor: ['#f43f5e','#ef4444','#f59e0b','#10b981','#14b8a6'] }] 
-          },
-          options: { responsive: true, maintainAspectRatio: false, cutout: '70%' }
+        charts.doughnut = new Chart(doughnutEl.getContext('2d'), {
+          type:'doughnut',
+          data:{ labels:['1★','2★','3★','4★','5★'],
+                 datasets:[{ data:[dist["1"], dist["2"], dist["3"], dist["4"], dist["5"]],
+                             backgroundColor:[c.rose, '#ef4444', c.amber, '#10b981', c.teal], borderWidth:0 }] },
+          options:{ plugins:{ legend:{ position:'bottom', labels:{ color:c.text } } }, cutout:'62%' }
         });
       }
     }
-    function repaintCharts() { for(let k in charts) charts[k].destroy(); initCharts(); }
     document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('year').textContent = new Date().getFullYear();
       initCharts();
     });
 
+    // -----------------------------
     // Google Places Autocomplete
+    // -----------------------------
+    function setVal(id, v) { const el = document.getElementById(id); if (el) el.value = v ?? ''; }
+
+    function fillFromPlace(place) {
+      const byType = (type) => {
+        const comp = (place.address_components || []).find(c => (c.types || []).includes(type));
+        return comp ? comp.long_name : '';
+      };
+      const city = byType('locality') || byType('postal_town') || byType('sublocality') || byType('administrative_area_level_2');
+      const state = byType('administrative_area_level_1');
+      const country = byType('country');
+      const postal = byType('postal_code');
+
+      const loc = place.geometry && place.geometry.location ? place.geometry.location : null;
+      const lat = loc ? (typeof loc.lat === 'function' ? loc.lat() : loc.lat) : '';
+      const lng = loc ? (typeof loc.lng === 'function' ? loc.lng() : loc.lng) : '';
+
+      setVal('place_id', place.place_id || '');
+      setVal('name', place.name || '');
+      setVal('formatted_address', place.formatted_address || '');
+      setVal('city', city || '');
+      setVal('state', state || '');
+      setVal('country', country || '');
+      setVal('postal_code', postal || '');
+      setVal('lat', lat || '');
+      setVal('lng', lng || '');
+      setVal('phone', place.formatted_phone_number || place.international_phone_number || '');
+      setVal('website', place.website || '');
+      setVal('google_url', place.url || '');
+      setVal('rating', place.rating != null ? place.rating : '');
+      setVal('user_ratings_total', place.user_ratings_total != null ? place.user_ratings_total : '');
+      setVal('types', Array.isArray(place.types) ? place.types.join(',') : '');
+    }
+
     function initGooglePlaces() {
       const input = document.getElementById('companySearch');
-      if (!input || !google.maps.places) return;
-      const autocomplete = new google.maps.places.Autocomplete(input, { types: ['establishment'] });
+      if (!input || !window.google || !google.maps || !google.maps.places) return;
+
+      const autocomplete = new google.maps.places.Autocomplete(input, {
+        types: ['establishment'],
+        fields: [
+          'place_id','name','formatted_address','geometry',
+          'url','website','formatted_phone_number','international_phone_number',
+          'rating','user_ratings_total','types','address_components'
+        ]
+      });
+
       autocomplete.addListener('place_changed', () => {
         const place = autocomplete.getPlace();
-        document.getElementById('place_id').value = place.place_id;
-        document.getElementById('name').value = place.name;
-        document.getElementById('formatted_address').value = place.formatted_address;
-        
-        // Auto-fill coordinates and details
-        if(place.geometry) {
-            document.getElementById('lat').value = place.geometry.location.lat();
-            document.getElementById('lng').value = place.geometry.location.lng();
-        }
-        document.getElementById('phone').value = place.formatted_phone_number || '';
-        document.getElementById('website').value = place.website || '';
+        if (place && place.place_id) fillFromPlace(place);
       });
     }
+    // Expose callback for Google script
     window.initGooglePlaces = initGooglePlaces;
+
+    // Basic client-side validation styling (Bootstrap)
+    (function(){
+      const form = document.getElementById('addCompanyForm');
+      form?.addEventListener('submit', (e) => {
+        if (!form.checkValidity()) { e.preventDefault(); e.stopPropagation(); }
+        form.classList.add('was-validated');
+      });
+    })();
   </script>
 
+  <!-- Load Google Maps JS API with Places library and callback -->
   <script>
     (function loadGoogleScript() {
-      const key = document.querySelector('meta[name="google-maps-api-key"]')?.content;
-      if (!key) return;
-      const s = document.createElement('script');
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places&callback=initGooglePlaces`;
-      s.async = true; s.defer = true;
+      const direct = "{{ google_maps_api_key | default('', true) }}";
+      const metaKey = document.querySelector('meta[name="google-maps-api-key"]')?.content || '';
+      const key = direct || metaKey;
+      if (!key) {
+        console.warn('Google Maps API key missing. Provide "google_maps_api_key" to the template context or meta tag.');
+        return;
+      }
+      const src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=places&callback=initGooglePlaces`;
+      const s = document.createElement('script'); s.src = src; s.async = true; s.defer = true;
+      s.onerror = () => console.error('Failed to load Google Maps JS API.');
       document.head.appendChild(s);
     })();
   </script>
