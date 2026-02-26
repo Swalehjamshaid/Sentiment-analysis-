@@ -12,6 +12,7 @@
   --muted:#64748b;
   --border:#e2e8f0;
   --primary:#4f46e5;
+  --success:#10b981;
 }
 [data-theme="dark"]{
   --bg:#0f172a;
@@ -23,47 +24,50 @@
 body{
   background:var(--bg);
   color:var(--text);
-  transition: background 0.3s ease;
+  font-family: 'Inter', system-ui, sans-serif;
+  transition: all 0.3s ease;
 }
 .card{
   background:var(--card);
   border:1px solid var(--border);
   border-radius:12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
 }
 .card-header{
   background:transparent;
   border-bottom:1px solid var(--border);
   font-weight: 600;
+  padding: 1rem;
 }
 .kpi-value{
-  font-size:1.8rem;
-  font-weight:700;
+  font-size:2rem;
+  font-weight:800;
   color: var(--primary);
 }
-.theme-toggle{
-  cursor:pointer;
-  font-size: 1.2rem;
-}
-canvas{ min-height:160px; }
 .sidebar{ position:sticky; top:2rem; }
+.preview-box {
+  background: rgba(79, 70, 229, 0.05);
+  border: 1px dashed var(--primary);
+  border-radius: 8px;
+  display: none; /* Hidden until a place is selected */
+}
 .table thead th {
   background: var(--bg);
-  border-top: none;
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-  <h2 class="fw-bold">Reputation Dashboard</h2>
-  <div class="d-flex gap-2 align-items-center">
-    <button class="btn btn-sm btn-outline-secondary theme-toggle" onclick="toggleTheme()" id="themeBtn">🌙</button>
+  <h2 class="fw-bold m-0">Reputation Intelligence</h2>
+  <div class="d-flex gap-3 align-items-center">
+    <button class="btn btn-link text-decoration-none p-0" onclick="toggleTheme()" id="themeBtn" title="Toggle Theme">🌙</button>
     {% if current_user and current_user.is_authenticated %}
-    <a href="/logout" class="btn btn-sm btn-outline-danger">Logout</a>
+    <a href="/logout" class="btn btn-sm btn-outline-danger px-3">Logout</a>
     {% endif %}
   </div>
 </div>
@@ -73,39 +77,54 @@ canvas{ min-height:160px; }
   <aside class="col-lg-3">
     <div class="sidebar">
 
-      <div class="card mb-3">
+      <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
-          <span>Branches</span>
+          <span>Connected Companies</span>
           <span class="badge bg-primary rounded-pill">{{ companies|length if companies else 0 }}</span>
         </div>
-        <div class="list-group list-group-flush" style="max-height: 300px; overflow-y: auto;">
+        <div class="list-group list-group-flush" style="max-height: 250px; overflow-y: auto;">
           {% for c in companies %}
-          <div class="list-group-item d-flex justify-content-between align-items-center bg-transparent border-0">
-            <a href="/dashboard/{{ c.id }}" class="text-decoration-none text-reset fw-medium">
+          <div class="list-group-item d-flex justify-content-between align-items-center bg-transparent border-0 py-2">
+            <a href="/dashboard/{{ c.id }}" class="text-decoration-none text-reset small fw-medium">
               {{ c.name }}
             </a>
-            <form method="POST" action="/companies/{{ c.id }}/delete" onsubmit="return confirm('Delete {{ c.name }}?');">
+            <form method="POST" action="/companies/{{ c.id }}/delete" onsubmit="return confirm('Disconnect {{ c.name }}?');">
               {{ csrf_token() if csrf_token }}
-              <button class="btn btn-link text-danger p-0">✕</button>
+              <button class="btn btn-sm text-muted p-0 border-0">✕</button>
             </form>
           </div>
           {% else %}
-          <div class="list-group-item text-muted small">No branches connected.</div>
+          <div class="list-group-item text-muted small py-3">No companies linked yet.</div>
           {% endfor %}
         </div>
       </div>
 
-      <div class="card mb-3">
-        <div class="card-header">Add New Branch</div>
-        <form class="card-body d-grid gap-2" method="POST" action="/companies/create">
+      <div class="card mb-4">
+        <div class="card-header">Add New Company</div>
+        <form class="card-body d-grid gap-2" method="POST" action="/companies/create" id="companyForm">
           {{ csrf_token() if csrf_token }}
-          <label class="small text-muted">Search Google Maps</label>
-          <input id="companyName" name="name"
-                 class="form-control form-control-sm"
-                 placeholder="e.g. Starbucks London..."
-                 required autocomplete="off">
-          <input id="companyPlaceId" name="place_id" type="hidden" required>
-          <button type="submit" class="btn btn-primary btn-sm">Connect Branch</button>
+          
+          <div class="mb-2">
+            <label class="small fw-bold text-muted mb-1">Search Google Maps</label>
+            <input id="googleSearchBox" class="form-control form-control-sm" 
+                   placeholder="Enter company name..." required autocomplete="off">
+          </div>
+
+          <input type="hidden" name="name" id="hidden_name">
+          <input type="hidden" name="place_id" id="hidden_place_id">
+          <input type="hidden" name="address" id="hidden_address">
+          <input type="hidden" name="phone" id="hidden_phone">
+          <input type="hidden" name="website" id="hidden_website">
+
+          <div id="selectionPreview" class="preview-box p-3 mb-2">
+            <div class="small fw-bold text-primary" id="prev_name"></div>
+            <div class="x-small text-muted mt-1" id="prev_address" style="font-size: 0.7rem;"></div>
+            <div class="badge bg-success mt-2" style="font-size: 0.6rem;">Data Ready</div>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-sm" id="saveBtn" disabled>
+            Save to Dashboard
+          </button>
         </form>
       </div>
 
@@ -113,11 +132,11 @@ canvas{ min-height:160px; }
         <div class="card-body">
           <a href="/sync/run?company_id={{ active_company.id if active_company else '' }}"
              class="btn btn-sm btn-outline-primary w-100 mb-2">
-             🔄 Force Sync
+             Run Global Sync
           </a>
-          <div class="d-flex align-items-center gap-2 small text-muted">
-            <span class="spinner-grow spinner-grow-sm text-success"></span>
-            Real-time updates active
+          <div class="small text-muted d-flex align-items-center gap-2">
+            <span class="spinner-grow spinner-grow-sm text-success" role="status"></span>
+            Real-time monitoring active
           </div>
         </div>
       </div>
@@ -127,38 +146,32 @@ canvas{ min-height:160px; }
 
   <section class="col-lg-9">
 
-    <div class="row g-3 mb-4">
-      {% set kpi_data = [
-        ('Avg Rating', kpi.avg_rating, '⭐'),
-        ('Sentiment', kpi.avg_sentiment, '🎭'),
+    <div class="row g-3 mb-4 text-center">
+      {% set kpi_metrics = [
+        ('Overall Rating', kpi.avg_rating, '⭐'),
+        ('Sentiment Score', kpi.avg_sentiment, '📊'),
         ('Total Reviews', kpi.review_count, '💬'),
-        ('Response Rate', kpi.response_rate, '✉️')
+        ('Response Pct', kpi.response_rate, '✉️')
       ] %}
-      {% for title, value, icon in kpi_data %}
+      {% for label, val, icon in kpi_metrics %}
       <div class="col-md-3">
-        <div class="card p-3 border-start border-4 border-primary">
-          <div class="text-muted small mb-1">{{ icon }} {{ title }}</div>
-          <div class="kpi-value">{{ value if value is not none else '0.0' }}</div>
+        <div class="card p-3 h-100">
+          <div class="text-muted small mb-2 uppercase">{{ icon }} {{ label }}</div>
+          <div class="kpi-value">{{ val if val is not none else '0.0' }}</div>
         </div>
       </div>
       {% endfor %}
     </div>
 
     <div class="card mb-4">
-      <div class="card-header">Performance Analytics</div>
+      <div class="card-header">Performance Trend</div>
       <div class="card-body">
-        <div class="row g-4">
-          <div class="col-md-7">
-            <p class="small text-muted text-center">Sentiment vs Rating Over Time</p>
-            <canvas id="trendChart"></canvas>
+        <div class="row">
+          <div class="col-md-8">
+            <canvas id="mainTrendChart"></canvas>
           </div>
-          <div class="col-md-5">
-            <p class="small text-muted text-center">Rating Distribution</p>
-            <canvas id="distChart"></canvas>
-          </div>
-          <div class="col-md-12 border-top pt-4">
-            <p class="small text-muted text-center">Competitive Benchmarking</p>
-            <canvas id="benchmarkChart" style="max-height: 250px;"></canvas>
+          <div class="col-md-4">
+            <canvas id="ratingDistChart"></canvas>
           </div>
         </div>
       </div>
@@ -166,8 +179,8 @@ canvas{ min-height:160px; }
 
     <div class="card">
       <div class="card-header d-flex justify-content-between">
-        <span>Recent Activity</span>
-        <span class="badge bg-secondary">{{ reviews|length if reviews else 0 }}</span>
+        <span>Recent Reviews</span>
+        <span class="badge bg-light text-dark">Live Feed</span>
       </div>
       <div class="table-responsive">
         <table class="table align-middle mb-0">
@@ -177,36 +190,25 @@ canvas{ min-height:160px; }
               <th>Reviewer</th>
               <th>Rating</th>
               <th>Sentiment</th>
-              <th>Review Text</th>
-              <th>Actions</th>
+              <th>Content</th>
             </tr>
           </thead>
-          <tbody id="reviewsBody">
+          <tbody>
             {% for r in reviews %}
             <tr>
-              <td class="small">{{ r.review_date.strftime('%b %d, %Y') if r.review_date else 'N/A' }}</td>
-              <td class="fw-medium small">{{ r.reviewer_name or 'Anonymous' }}</td>
-              <td><span class="badge bg-warning text-dark">{{ r.rating }} ★</span></td>
+              <td class="small">{{ r.review_date.strftime('%d %b') if r.review_date else '' }}</td>
+              <td class="small fw-bold">{{ r.reviewer_name }}</td>
+              <td><span class="badge bg-warning text-dark">{{ r.rating }}★</span></td>
               <td>
-                <span class="badge {% if r.sentiment_category == 'positive' %}bg-success{% elif r.sentiment_category == 'negative' %}bg-danger{% else %}bg-info{% endif %}">
-                  {{ r.sentiment_category|capitalize }}
-                </span>
+                {% if r.sentiment_category == 'positive' %}
+                  <span class="text-success small fw-bold">Positive</span>
+                {% elif r.sentiment_category == 'negative' %}
+                  <span class="text-danger small fw-bold">Negative</span>
+                {% else %}
+                  <span class="text-info small fw-bold">Neutral</span>
+                {% endif %}
               </td>
-              <td class="small" style="max-width:250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ r.text }}">
-                {{ r.text }}
-              </td>
-              <td>
-                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#reply-{{ r.id }}">Reply</button>
-              </td>
-            </tr>
-            <tr class="collapse" id="reply-{{ r.id }}">
-                <td colspan="6" class="bg-light p-3">
-                    <form method="POST" action="/reviews/{{ r.id }}/reply">
-                        {{ csrf_token() if csrf_token }}
-                        <textarea name="reply_text" class="form-control mb-2" rows="2" placeholder="Write your response...">{{ r.user_reply or '' }}</textarea>
-                        <button class="btn btn-primary btn-sm">Post Reply to Google</button>
-                    </form>
-                </td>
+              <td class="small text-truncate" style="max-width: 200px;">{{ r.text }}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -220,24 +222,22 @@ canvas{ min-height:160px; }
 
 {% block scripts %}
 <script>
-// Data Initialization from Backend
-const DASH = {
-  labels: {{ charts.labels|tojson|safe if charts and charts.labels else '[]' }},
-  sentiment: {{ charts.sentiment|tojson|safe if charts and charts.sentiment else '[]' }},
-  rating: {{ charts.rating|tojson|safe if charts and charts.rating else '[]' }},
-  dist: {{ charts.dist|tojson|safe if charts and charts.dist else '{"1":0,"2":0,"3":0,"4":0,"5":0}' }},
-  benchmark: {{ charts.benchmark|tojson|safe if charts and charts.benchmark else '{"labels":[],"series":[]}' }}
+// Dashboard Analytics Data
+const CHART_CONFIG = {
+  labels: {{ charts.labels|tojson|safe if charts else '[]' }},
+  sentiment: {{ charts.sentiment|tojson|safe if charts else '[]' }},
+  rating: {{ charts.rating|tojson|safe if charts else '[]' }},
+  dist: {{ charts.dist|tojson|safe if charts else '{"1":0,"2":0,"3":0,"4":0,"5":0}' }}
 };
 
-// Google Autocomplete Setup
+// Google Places Autocomplete Logic
 function initAutocomplete() {
-  const input = document.getElementById("companyName");
-  const placeIdField = document.getElementById("companyPlaceId");
-  
+  const input = document.getElementById("googleSearchBox");
   if (!input) return;
 
+  // Specify the fields to return (reduces API latency and cost)
   const options = {
-    fields: ["name", "place_id", "formatted_address"],
+    fields: ["name", "place_id", "formatted_address", "international_phone_number", "website"],
     types: ["establishment"]
   };
 
@@ -245,81 +245,78 @@ function initAutocomplete() {
 
   autocomplete.addListener("place_changed", () => {
     const place = autocomplete.getPlace();
-    if (place.place_id) {
-      placeIdField.value = place.place_id;
-      // Optionally update input to show full name
-      input.value = place.name;
+
+    if (!place.place_id) {
+      window.alert("Please select a business from the Google dropdown list.");
+      return;
     }
+
+    // 1. Autofill the hidden database fields
+    document.getElementById("hidden_name").value = place.name || "";
+    document.getElementById("hidden_place_id").value = place.place_id || "";
+    document.getElementById("hidden_address").value = place.formatted_address || "";
+    document.getElementById("hidden_phone").value = place.international_phone_number || "";
+    document.getElementById("hidden_website").value = place.website || "";
+
+    // 2. Update UI Preview
+    document.getElementById("selectionPreview").style.display = "block";
+    document.getElementById("prev_name").innerText = place.name;
+    document.getElementById("prev_address").innerText = place.formatted_address;
+
+    // 3. Enable the Save button
+    document.getElementById("saveBtn").disabled = false;
   });
 }
 
-function initCharts(){
-  const ctxTrend = document.getElementById("trendChart");
-  if(ctxTrend) {
-    new Chart(ctxTrend, {
+function initCharts() {
+  const trendCtx = document.getElementById("mainTrendChart");
+  if(trendCtx) {
+    new Chart(trendCtx, {
       type: 'line',
       data: {
-        labels: DASH.labels,
+        labels: CHART_CONFIG.labels,
         datasets: [
-          { label: "Sentiment", data: DASH.sentiment, borderColor: "#4f46e5", tension: 0.3 },
-          { label: "Rating", data: DASH.rating, borderColor: "#10b981", tension: 0.3 }
+          { label: 'Sentiment', data: CHART_CONFIG.sentiment, borderColor: '#4f46e5', tension: 0.4 },
+          { label: 'Avg Rating', data: CHART_CONFIG.rating, borderColor: '#10b981', tension: 0.4 }
         ]
       },
-      options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+      options: { responsive: true, plugins: { legend: { position: 'top' } } }
     });
   }
 
-  const ctxDist = document.getElementById("distChart");
-  if(ctxDist) {
-    new Chart(ctxDist, {
-      type: 'bar',
+  const distCtx = document.getElementById("ratingDistChart");
+  if(distCtx) {
+    new Chart(distCtx, {
+      type: 'doughnut',
       data: {
-        labels: Object.keys(DASH.dist),
-        datasets: [{ label: "Review Count", data: Object.values(DASH.dist), backgroundColor: "#6366f1" }]
+        labels: Object.keys(CHART_CONFIG.dist),
+        datasets: [{ data: Object.values(CHART_CONFIG.dist), backgroundColor: ['#ef4444','#f97316','#facc15','#84cc16','#22c55e'] }]
       },
       options: { plugins: { legend: { display: false } } }
     });
   }
-
-  const ctxBench = document.getElementById("benchmarkChart");
-  if(ctxBench) {
-    new Chart(ctxBench, {
-      type: 'line',
-      data: {
-        labels: DASH.benchmark.labels || [],
-        datasets: (DASH.benchmark.series || []).map(s => ({
-          label: s.name,
-          data: s.values,
-          borderDash: s.name === "Average" ? [5, 5] : []
-        }))
-      }
-    });
-  }
 }
 
-document.addEventListener("DOMContentLoaded", function(){
+document.addEventListener("DOMContentLoaded", () => {
   initCharts();
-
-  // Dark mode persistence
-  if(localStorage.getItem("theme") === "dark"){
+  
+  // Theme Persistence
+  if(localStorage.getItem("theme") === "dark") {
     document.documentElement.setAttribute("data-theme", "dark");
     document.getElementById("themeBtn").innerText = "☀️";
   }
 
-  // WebSocket for Live Updates
+  // Live Update Simulation/WebSocket
   try {
     const ws = new WebSocket(`ws://${location.host}/ws/dashboard`);
-    ws.onmessage = function(e){
-      console.log("Update received");
-      location.reload(); 
-    };
-  } catch(e) { console.warn("WS disconnected"); }
+    ws.onmessage = () => location.reload();
+  } catch(e) {}
 });
 
-function toggleTheme(){
+function toggleTheme() {
   const html = document.documentElement;
   const btn = document.getElementById("themeBtn");
-  if(html.getAttribute("data-theme") === "dark"){
+  if(html.getAttribute("data-theme") === "dark") {
     html.removeAttribute("data-theme");
     localStorage.setItem("theme", "light");
     btn.innerText = "🌙";
