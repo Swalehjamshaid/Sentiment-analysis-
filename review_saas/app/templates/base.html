@@ -1,3 +1,4 @@
+<!-- filename: review_saas/app/templates/base.html -->
 <!doctype html>
 <html lang="en" data-bs-theme="light">
 <head>
@@ -108,6 +109,7 @@
           <button class="btn btn-outline-secondary rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#loginModal">
             <i class="bi bi-person me-2"></i>Login
           </button>
+
           <button class="btn btn-primary rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#registerModal">
             <i class="bi bi-person-plus me-2"></i>Register
           </button>
@@ -124,7 +126,7 @@
   <!-- 📦 Main Content -->
   <main class="container my-4">
 
-    <!-- Flash messages (driven by session keys moved in main.py) -->
+    <!-- Flash messages from backend (FastAPI session → context in main.py) -->
     {% if flash_error %}
       <div class="alert alert-danger alert-dismissible fade show" role="alert">
         {{ flash_error }}
@@ -139,16 +141,14 @@
     {% endif %}
 
     {% block content %}
-    <!-- Default landing hero (home) -->
+    <!-- Default landing hero -->
     <section class="p-4 p-md-5 card-glass">
       <div class="row align-items-center gy-4">
         <div class="col-lg-7">
-          <h1 class="display-6 fw-bold mb-3">
-            Understand Your Reviews with <span class="brand-badge">Sentiment Analysis</span>
-          </h1>
+          <h1 class="display-6 fw-bold mb-3">Understand Your Reviews with <span class="brand-badge">Sentiment Analysis</span></h1>
           <p class="lead text-secondary mb-4">
-            ReviewSaaS helps you collect, analyze, and visualize customer feedback.
-            Register to get started, then log in—after that, you’ll be taken straight to your dashboard.
+            ReviewSaaS helps you collect, analyze, and visualize customer feedback. 
+            Register to get started, then log in — you’ll be taken straight to your dashboard.
           </p>
           <div class="d-flex gap-2">
             <button class="btn btn-primary btn-lg rounded-pill px-4" data-bs-toggle="modal" data-bs-target="#registerModal">
@@ -167,8 +167,8 @@
             <h5 class="mb-3">What is Sentiment Analysis?</h5>
             <p class="mb-0 text-secondary">
               It’s an NLP technique that automatically classifies text as
-              <strong>positive</strong>, <strong>negative</strong> or <strong>neutral</strong>.
-              ReviewSaaS uses it to reveal patterns in customer satisfaction, pain points, and trends.
+              <strong>positive</strong>, <strong>negative</strong> or <strong>neutral</strong>.  
+              ReviewSaaS uses it to reveal customer satisfaction, pain points, and trends.
             </p>
           </div>
         </div>
@@ -185,7 +185,7 @@
     </div>
   </footer>
 
-  <!-- ======================= MODALS ======================= -->
+  <!-- ====================== MODALS ====================== -->
 
   <!-- LOGIN MODAL -->
   <div class="modal fade" id="loginModal" tabindex="-1" aria-hidden="true">
@@ -196,7 +196,6 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <!-- CSRF is optional for login; backend does not check it. Safe to include. -->
           {{ csrf_token() }}
           <div class="mb-3">
             <label class="form-label">Email</label>
@@ -223,7 +222,6 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <!-- IMPORTANT: Your /register requires CSRF -->
           {{ csrf_token() }}
           <div class="mb-3">
             <label class="form-label">Full Name</label>
@@ -260,14 +258,12 @@
             drivers of satisfaction, and recurring issues.
           </p>
           <ul class="mb-3">
-            <li>Aggregates multi-platform reviews in one place</li>
-            <li>Tracks sentiment over time</li>
-            <li>Highlights top themes and pain points</li>
+            <li>Aggregate multi-platform reviews in one place</li>
+            <li>Track sentiment over time with charts</li>
+            <li>Highlight top themes and pain points</li>
             <li>Export-ready dashboards for stakeholders</li>
           </ul>
-          <p class="mb-0 text-secondary">
-            Next steps: Register → Login → You’ll be redirected to your <strong>Dashboard</strong>.
-          </p>
+          <p class="mb-0 text-secondary">Next steps: Register → Login → You’ll be redirected to your <strong>Dashboard</strong>.</p>
         </div>
       </div>
     </div>
@@ -276,10 +272,26 @@
   <!-- Bootstrap JS Bundle -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-  <!-- Theme toggle + modal auto-open -->
+  <!-- Modal auto-open + theme toggle -->
   <script>
     (function () {
-      // Theme toggle
+      // Auto-open modal by URL param (?show=login|register|about)
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const show = params.get('show');
+        if (window.bootstrap && show) {
+          if (show === 'login') {
+            new bootstrap.Modal(document.getElementById('loginModal')).show();
+          } else if (show === 'register') {
+            new bootstrap.Modal(document.getElementById('registerModal')).show();
+          } else if (show === 'about') {
+            const m = document.getElementById('aboutModal');
+            if (m) new bootstrap.Modal(m).show();
+          }
+        }
+      } catch (e) {}
+
+      // Theme toggle persistence
       const root = document.documentElement;
       const btn = document.getElementById('themeToggleBtn');
       const saved = localStorage.getItem('theme') || 'light';
@@ -289,22 +301,6 @@
         root.setAttribute('data-bs-theme', cur);
         localStorage.setItem('theme', cur);
       });
-
-      // Auto-open modals based on ?show=...
-      const params = new URLSearchParams(window.location.search);
-      const show = params.get('show');
-      if (window.bootstrap && show) {
-        const map = {
-          login: 'loginModal',
-          register: 'registerModal',
-          about: 'aboutModal'
-        };
-        const id = map[show];
-        if (id) {
-          const el = document.getElementById(id);
-          if (el) new bootstrap.Modal(el).show();
-        }
-      }
     })();
   </script>
 
