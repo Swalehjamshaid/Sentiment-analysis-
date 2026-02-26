@@ -1,59 +1,52 @@
-from fastapi import APIRouter, Request, Depends, Form, HTTPException
+# filename: review_saas/app/routes/companies.py
+from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
-from starlette import status
 
 from app.db import get_db
 from app.models import Company
-from app.dependencies import get_current_user  # your existing auth dependency
+from app.services.rbac import get_current_user
 
 router = APIRouter()
 
-
-# =========================================================
-# ✅ CREATE COMPANY (Works with your existing modal form)
-# Route matches: action="/companies/create"
-# =========================================================
 @router.post("/companies/create")
-def create_company(
+async def create_company(
     request: Request,
-    place_id: str = Form(None),
-    name: str = Form(None),
-    address: str = Form(None),
-    city: str = Form(None),
-    state: str = Form(None),
-    postal_code: str = Form(None),
-    country: str = Form(None),
-    latitude: float = Form(None),
-    longitude: float = Form(None),
-    phone: str = Form(None),
-    website: str = Form(None),
-    google_url: str = Form(None),
-    rating: float = Form(None),
-    user_ratings_total: int = Form(None),
-    types: str = Form(None),
+    csrf_token: str = Form(...),
+
+    name: str = Form(...),
+    place_id: str = Form(""),
+
+    address: str = Form(""),
+    city: str = Form(""),
+    state: str = Form(""),
+    postal_code: str = Form(""),
+    country: str = Form(""),
+
+    latitude: float | None = Form(None),
+    longitude: float | None = Form(None),
+
+    phone: str = Form(""),
+    website: str = Form(""),
+    google_url: str = Form(""),
+
+    rating: float | None = Form(None),
+    user_ratings_total: int | None = Form(None),
+    types: str = Form(""),
+
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
 ):
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
 
-    # Prevent duplicate same place_id for same user
-    existing = db.query(Company).filter(
-        Company.place_id == place_id,
-        Company.user_id == current_user.id
-    ).first()
+    # CSRF check
+    if request.session.get("_csrf") != csrf_token:
+        return RedirectResponse("/?error=csrf", status_code=302)
 
-    if existing:
-        return RedirectResponse(
-            url=f"/dashboard/{existing.id}",
-            status_code=status.HTTP_302_FOUND
-        )
-
-    company = Company(
-        user_id=current_user.id,
-        place_id=place_id,
-        name=name,
+    comp = Company(
+        name=name.strip(),
+        place_id=place_id.strip() or None,
         address=address,
         city=city,
         state=state,
@@ -66,44 +59,35 @@ def create_company(
         google_url=google_url,
         rating=rating,
         user_ratings_total=user_ratings_total,
-        types=types
+        types=types,
+        owner_id=user.id,
     )
-
-    db.add(company)
+    db.add(comp)
     db.commit()
-    db.refresh(company)
+    db.refresh(comp)
 
-    return RedirectResponse(
-        url=f"/dashboard/{company.id}",
-        status_code=status.HTTP_302_FOUND
-    )
+    return RedirectResponse(f"/dashboard/{comp.id}", status_code=302)
 
-
-# =========================================================
-# ✅ DELETE COMPANY
-# You can call: POST /companies/delete/{company_id}
-# =========================================================
-@router.post("/companies/delete/{company_id}")
-def delete_company(
+@router.post("/companies/{company_id}/delete")
+async def delete_company(
+    request: Request,
     company_id: int,
+    csrf_token: str = Form(...),
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
 ):
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
 
-    company = db.query(Company).filter(
-        Company.id == company_id,
-        Company.user_id == current_user.id
-    ).first()
+    if request.session.get("_csrf") != csrf_token:
+        return RedirectResponse(f"/dashboard/{company_id}?error=csrf", status_code=302)
 
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+    comp = db.query(Company).filter(Company.id == company_id, Company.owner_id == user.id).first()
+    if comp:
+        db.delete(comp)
+        db.commit()
+        request.session["flash_success"] = "Company deleted."
+        return RedirectResponse("/", status_code=302)
 
-    db.delete(company)
-    db.commit()
-
-    return RedirectResponse(
-        url="/dashboard",
-        status_code=status.HTTP_302_FOUND
-    )
+    request.session["flash_error"] = "Company not found or not owned by you."
+    return RedirectResponse("/", status_code=302)
