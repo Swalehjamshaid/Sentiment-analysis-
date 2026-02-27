@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
@@ -14,6 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.status import HTTP_302_FOUND
 
 from sqlalchemy.orm import Session as SASession
@@ -35,14 +38,14 @@ except Exception:
 
 # Optional services
 try:
-    from app.services.google_api import get_google_api_service
+    from app.services.google_api import get_google_api_service  # noqa: F401  # reserved for future
 except Exception:
-    get_google_api_service = None
+    get_google_api_service = None  # type: ignore
 
 try:
-    import googlemaps
+    import googlemaps  # type: ignore
 except Exception:
-    googlemaps = None
+    googlemaps = None  # type: ignore
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,8 +53,66 @@ logging.basicConfig(
 )
 logger = logging.getLogger("review_saas.main")
 
+
+# --------------------------
+# Security Headers Middleware (non-breaking defaults)
+# --------------------------
+async def _add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    # Safe, common headers that should not break existing behavior
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "no-referrer-when-downgrade")
+    # Light cache policy for dynamic HTML; keeps assets behavior unchanged
+    if response.media_type in ("text/html", "application/xhtml+xml"):
+        response.headers.setdefault("Cache-Control", "private, no-store, max-age=0")
+    return response
+
+
+def _get_allowed_hosts():
+    # Use configured hosts if provided; otherwise allow all to avoid breaking deployments
+    hosts = getattr(settings, "ALLOWED_HOSTS", None)
+    if hosts and isinstance(hosts, (list, tuple)) and len(hosts) > 0:
+        return list(hosts)
+    return ["*"]
+
+
+def _get_google_keys():
+    maps_key = getattr(settings, "GOOGLE_MAPS_API_KEY", None) or os.getenv("GOOGLE_MAPS_API_KEY")
+    places_key = getattr(settings, "GOOGLE_PLACES_API_KEY", None) or os.getenv("GOOGLE_PLACES_API_KEY")
+    return maps_key, places_key
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """App lifespan for startup/shutdown tasks (modern alternative to on_event).
+
+    - Initializes the database (non-destructive)
+    - Lazily initializes Google Places client, if keys and library exist
+    """
+    # Startup
+    init_db(drop_existing=False)
+
+    _maps_key, places_key = _get_google_keys()
+    if places_key and googlemaps:
+        try:
+            app.state.gmaps = googlemaps.Client(key=places_key)
+            logger.info("Google Places client initialized.")
+        except Exception as e:
+            logger.warning("Failed to initialize Google Places client: %s", e)
+    else:
+        logger.info("Google Places client not initialized (missing key or library).")
+
+    yield
+
+    # Shutdown (cleanup if needed in future)
+    if hasattr(app.state, "gmaps"):
+        # googlemaps Client has no close method; rely on GC
+        pass
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title=settings.APP_NAME)
+    app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
     # --------------------------
     # Templates & Static
@@ -60,32 +121,48 @@ def create_app() -> FastAPI:
     templates_dir = base_dir / "templates"
     templates = Jinja2Templates(directory=str(templates_dir))
 
+    # Global helpers
     templates.env.globals["now"] = lambda: datetime.now()
     templates.env.globals["app_name"] = settings.APP_NAME
 
     static_dir = base_dir / "static"
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    else:
+        logger.info("Static directory not found at %s; skipping static mount.", static_dir)
 
     # --------------------------
     # Middleware
     # --------------------------
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=["*"],  # keep permissive to avoid breaking existing clients
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
     app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=_get_allowed_hosts(),
+    )
+
+    app.add_middleware(
+        GZipMiddleware,
+        minimum_size=1024,  # compress only responses >= 1KB
+    )
+
+    app.add_middleware(
         SessionMiddleware,
         secret_key=settings.SECRET_KEY,
         same_site="lax",
-        https_only=bool(settings.FORCE_HTTPS),
+        https_only=bool(getattr(settings, "FORCE_HTTPS", False)),
         session_cookie="sessionid",
         max_age=60 * 60 * 24 * 7,
     )
+
+    # Inline function-style middleware for security headers
+    app.middleware("http")(_add_security_headers)
 
     # --------------------------
     # Routers
@@ -96,7 +173,7 @@ def create_app() -> FastAPI:
         app.include_router(companies_routes.router)
 
     if dashbord_api:
-        # We include this without an extra prefix because dashbord_api.router 
+        # We include this without an extra prefix because dashbord_api.router
         # already defines prefix="/api"
         app.include_router(dashbord_api.router)
 
@@ -129,7 +206,7 @@ def create_app() -> FastAPI:
     async def home(request: Request):
         if _is_authenticated(request):
             return RedirectResponse("/dashboard", status_code=HTTP_302_FOUND)
-        
+
         csrf_token = _ensure_csrf(request)
         show = request.query_params.get("show") or "login"
         ctx = {
@@ -179,7 +256,7 @@ def create_app() -> FastAPI:
     @app.get("/dashboard", response_class=HTMLResponse)
     async def dashboard_page(request: Request):
         """
-        Unified Dashboard route. Renders dashbord.html which 
+        Unified Dashboard route. Renders dashbord.html which
         uses the /api/* endpoints for data.
         """
         user = _current_user(request)
@@ -191,37 +268,26 @@ def create_app() -> FastAPI:
         _ensure_csrf(request)
 
         # Ensure we pull the key from environment for the template
-        google_maps_api_key = (
-            getattr(settings, "GOOGLE_MAPS_API_KEY", None)
-            or os.getenv("GOOGLE_MAPS_API_KEY", "")
-        )
+        google_maps_api_key, _ = _get_google_keys()
 
         ctx = {
             "request": request,
             "app_name": settings.APP_NAME,
             "current_user": user,
-            "google_maps_api_key": google_maps_api_key,
+            "google_maps_api_key": google_maps_api_key or "",
             "flash_error": request.session.pop("flash_error", None) if "session" in request.scope else None,
             "flash_success": request.session.pop("flash_success", None) if "session" in request.scope else None,
         }
         return templates.TemplateResponse("dashbord.html", ctx)
 
     # --------------------------
-    # Lifecycle & Health
+    # Health
     # --------------------------
-    @app.on_event("startup")
-    async def on_startup():
-        init_db(drop_existing=False)
-        
-        places_key = getattr(settings, "GOOGLE_PLACES_API_KEY", None) or os.getenv("GOOGLE_PLACES_API_KEY")
-        if places_key and googlemaps:
-            app.state.gmaps = googlemaps.Client(key=places_key)
-            logger.info("Google Places client initialized.")
-
     @app.get("/healthz")
     async def healthz():
         return {"status": "ok"}
 
     return app
+
 
 app = create_app()
