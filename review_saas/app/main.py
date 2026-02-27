@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import secrets
 from pathlib import Path
 from typing import Optional
@@ -10,10 +11,10 @@ from datetime import datetime
 from fastapi import FastAPI, Request, Depends, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.sessions import SessionMiddleware
-from starlette.status import HTTP_302_FOUND
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.status import HTTP_302_FOUND
 
 from sqlalchemy.orm import Session as SASession
 
@@ -31,6 +32,18 @@ try:
     from app.routes import dashbord as dashbord_api  # /api/* endpoints for dashbord.html
 except Exception:
     dashbord_api = None  # soft fallback
+
+# Optional: Google Business API (service account)
+try:
+    from app.services.google_api import get_google_api_service
+except Exception:
+    get_google_api_service = None  # soft fallback
+
+# Optional: googlemaps (Places REST client)
+try:
+    import googlemaps  # type: ignore
+except Exception:
+    googlemaps = None  # soft fallback
 
 logging.basicConfig(
     level=logging.INFO,
@@ -78,7 +91,7 @@ def create_app() -> FastAPI:
         same_site="lax",
         https_only=bool(settings.FORCE_HTTPS),
         session_cookie="sessionid",
-        max_age=60 * 60 * 24 * 7,      # 7 days
+        max_age=60 * 60 * 24 * 7,  # 7 days
     )
 
     # --------------------------
@@ -90,7 +103,7 @@ def create_app() -> FastAPI:
         app.include_router(companies_routes.router)  # /companies/create
 
     if dashbord_api:
-        app.include_router(dashbord_api.router)      # /api/* endpoints for dasbord.html
+        app.include_router(dashbord_api.router)  # /api/* endpoints used by dasbord.html
 
     # --------------------------
     # Helpers (session, auth)
@@ -230,7 +243,10 @@ def create_app() -> FastAPI:
         _ensure_csrf(request)
 
         # Pass Google Maps Places API key for client-side autocomplete
-        google_maps_api_key = getattr(settings, "GOOGLE_MAPS_API_KEY", "") or ""
+        google_maps_api_key = (
+            getattr(settings, "GOOGLE_MAPS_API_KEY", None)
+            or os.getenv("GOOGLE_MAPS_API_KEY", "")
+        )
 
         ctx = {
             "request": request,
@@ -243,17 +259,81 @@ def create_app() -> FastAPI:
         return templates.TemplateResponse("dashbord.html", ctx)
 
     # --------------------------
+    # Google Health (keys & initialization status)
+    # --------------------------
+    @app.get("/google/health")
+    async def google_health():
+        maps_js_key = getattr(settings, "GOOGLE_MAPS_API_KEY", None) or os.getenv("GOOGLE_MAPS_API_KEY")
+        places_key = getattr(settings, "GOOGLE_PLACES_API_KEY", None) or os.getenv("GOOGLE_PLACES_API_KEY")
+        creds_path = (
+            getattr(settings, "GOOGLE_APPLICATION_CREDENTIALS", None)
+            or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            or os.getenv("GOOGLE_CREDENTIALS_JSON")
+        )
+        return {
+            "maps_js_client": bool(maps_js_key),
+            "places_rest_server": bool(places_key),
+            "business_creds_path": creds_path if creds_path else None,
+            "server_places_client_initialized": bool(getattr(app.state, "gmaps", None)),
+            "business_service_initialized": bool(getattr(app.state, "google_business", None)),
+        }
+
+    # --------------------------
     # Startup & Health
     # --------------------------
     @app.on_event("startup")
     async def on_startup():
         logger.info("Waiting for application startup.")
         try:
+            # Initialize DB
             init_db(drop_existing=False)
             logger.info("Database initialized successfully.")
-            logger.info("User middleware: %s", [m.cls.__name__ for m in app.user_middleware])
         except Exception as e:
             logger.exception("Database init failed: %s", e)
+
+        # --- Google Places (server-side) ---
+        try:
+            places_key = (
+                getattr(settings, "GOOGLE_PLACES_API_KEY", None)
+                or os.getenv("GOOGLE_PLACES_API_KEY")
+            )
+            if places_key and googlemaps is not None:
+                app.state.gmaps = googlemaps.Client(key=places_key)
+                logger.info("Google Places (REST) client initialized.")
+            else:
+                app.state.gmaps = None
+                if not places_key:
+                    logger.warning("GOOGLE_PLACES_API_KEY not set. Server-side Places client disabled.")
+                if googlemaps is None:
+                    logger.warning("python-googlemaps not installed. Server-side Places client disabled.")
+        except Exception as e:
+            app.state.gmaps = None
+            logger.warning("Google Places client initialization failed: %s", e)
+
+        # --- Google Business API (service account) ---
+        try:
+            # get_google_api_service reads GOOGLE_APPLICATION_CREDENTIALS or provided path
+            if get_google_api_service is not None:
+                creds_path = (
+                    getattr(settings, "GOOGLE_APPLICATION_CREDENTIALS", None)
+                    or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+                    or os.getenv("GOOGLE_CREDENTIALS_JSON")
+                )
+                if creds_path:
+                    app.state.google_business = get_google_api_service(credentials_json_path=creds_path)
+                    # The service object is internal; presence indicates init success
+                    logger.info("Google Business API service attempted with credentials at %s", creds_path)
+                else:
+                    app.state.google_business = None
+                    logger.warning("Google Business credentials path not set. Business API disabled.")
+            else:
+                app.state.google_business = None
+                logger.warning("get_google_api_service not available. Business API disabled.")
+        except Exception as e:
+            app.state.google_business = None
+            logger.warning("Google Business API init failed: %s", e)
+
+        logger.info("User middleware: %s", [m.cls.__name__ for m in app.user_middleware])
 
     @app.get("/healthz")
     async def healthz():
