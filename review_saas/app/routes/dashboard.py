@@ -1,215 +1,429 @@
-# FILE: app/routes/dashboard.py
+# FILE: review_saas/app/routes/dashbord.py
 """
-Dashboard Router
-- Railway-safe Google API integration
-- Prevents 500 errors when credentials are missing
-- Fully typed, clean, and bug-fixed
+REST API for the dashboard (front-end: dasbord.html)
+- Auth via get_current_user
+- Safe defaults (no crashes when data is missing)
+- Outputs are stable and front-end-friendly
+- Uses your existing services where applicable (metrics, models)
 """
 
+from __future__ import annotations
+
+import io
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Tuple
-from types import SimpleNamespace
-from pathlib import Path
-import os
-import logging
+from typing import Optional, Dict, Any, List, Tuple
 
-from fastapi import APIRouter, Depends, Request, Query
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from fastapi import APIRouter, Depends, Request, Query, HTTPException
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.db import get_db
-from app import models
+from app.models import Company, Review, User
 from app.services.rbac import get_current_user
-from app.services import ai_insights as ai_svc
 from app.services import metrics as metrics_svc
-from app.services.google_api import get_google_api_service
-from app.context import common_context
 
-logger = logging.getLogger("review_saas.dashboard")
+router = APIRouter(prefix="/api", tags=["dashboard-api"])
 
 # ─────────────────────────────────────────────────────────────
-# TEMPLATE CONFIG (RAILWAY-SAFE)
+# Helpers
 # ─────────────────────────────────────────────────────────────
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-templates_dir = BASE_DIR / "templates"
-if not templates_dir.exists():
-    templates_dir = BASE_DIR / "app" / "templates"
-templates = Jinja2Templates(directory=str(templates_dir))
-
-router = APIRouter()
-
-
-# ─────────────────────────────────────────────────────────────
-# HELPERS
-# ─────────────────────────────────────────────────────────────
-
-def _parse_date(date_str: Optional[str]) -> Optional[datetime]:
-    """Parse ISO date string safely, return UTC datetime."""
-    if not date_str:
+def _parse_iso(value: Optional[str]) -> Optional[datetime]:
+    """Parse ISO 8601 or YYYY-MM-DD; returns tz-aware UTC or None."""
+    if not value:
         return None
     try:
-        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
         return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-    except Exception as e:
-        logger.warning("Failed to parse date '%s': %s", date_str, e)
-        return None
-
+    except Exception:
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except Exception:
+            return None
 
 def _quick_range(range_key: Optional[str]) -> Tuple[Optional[datetime], Optional[datetime]]:
-    """Quick date ranges for 7d, 30d, 90d, or current quarter."""
+    """Quick ranges: 7d, 30d, 90d, qtr"""
     if not range_key:
         return None, None
     now = datetime.now(timezone.utc)
     key = range_key.lower()
-
     if key == "7d":
         return now - timedelta(days=7), now
-    elif key == "30d":
+    if key == "30d":
         return now - timedelta(days=30), now
-    elif key == "90d":
+    if key == "90d":
         return now - timedelta(days=90), now
-    elif key == "qtr":
+    if key == "qtr":
         quarter = (now.month - 1) // 3 + 1
         start_month = (quarter - 1) * 3 + 1
-        start = now.replace(month=start_month, day=1, hour=0, minute=0, second=0)
+        start = now.replace(month=start_month, day=1, hour=0, minute=0, second=0, microsecond=0)
         return start, now
-
     return None, None
 
+def _resolve_company(db: Session, user: User, company_id: Optional[int]) -> Optional[Company]:
+    """Pick active company; mirrors your dashboard selection logic."""
+    q = db.query(Company)
+    if getattr(user, "role", None) != "admin":
+        q = q.filter(Company.owner_id == user.id)
+    companies = q.order_by(Company.created_at.desc()).all()
+    if not companies:
+        return None
+    if company_id:
+        for c in companies:
+            if c.id == company_id:
+                return c
+    return companies[0]
+
+def _review_window_query(
+    db: Session, company_id: int, start: Optional[datetime], end: Optional[datetime]
+):
+    q = db.query(Review).filter(Review.company_id == company_id)
+    if start:
+        q = q.filter(Review.review_date >= start)
+    if end:
+        q = q.filter(Review.review_date <= end)
+    return q
 
 # ─────────────────────────────────────────────────────────────
-# DASHBOARD ROUTE
+# KPIs
 # ─────────────────────────────────────────────────────────────
 
-@router.get("/dashboard", response_class=HTMLResponse)
-async def dashboard_page(
+@router.get("/kpis")
+def get_kpis(
     request: Request,
     company_id: Optional[int] = Query(None),
-    range_key: Optional[str] = Query(None, alias="range", pattern="^(7d|30d|90d|qtr)$"),
-    from_: Optional[str] = Query(None, alias="from"),
-    to: Optional[str] = Query(None, alias="to"),
+    range_key: Optional[str] = Query(None, alias="range", regex="^(7d|30d|90d|qtr)$"),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    """Railway-safe dashboard page with full context and attributes."""
+    """
+    Returns dashboard KPIs in a front-end-compatible shape.
+
+    NOTE (mapping to reviews domain):
+    - ordersToday  → reviewsToday (count of reviews today)
+    - slaPct       → response rate % (responded / total in window)
+    - backlog      → unresponded reviews
+    - returnsPct   → negative review rate %
+    """
     if not current_user:
-        return RedirectResponse("/login", status_code=303)
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
-    # ─────────────────────────────────────────────────────────
-    # LOAD COMPANIES
-    # ─────────────────────────────────────────────────────────
+    company = _resolve_company(db, current_user, company_id)
+    if not company:
+        return JSONResponse({
+            "ordersToday": 0, "slaPct": 0.0, "backlog": 0, "returnsPct": 0.0
+        })
 
-    if getattr(current_user, "role", None) == "admin":
-        companies: List[models.Company] = db.query(models.Company).order_by(models.Company.created_at.desc()).all()
+    sdt, edt = _quick_range(range_key)
+    if start:
+        sdt = _parse_iso(start)
+    if end:
+        edt = _parse_iso(end)
+
+    # Defaults: last 30d if nothing provided
+    if not sdt or not edt:
+        edt = datetime.now(timezone.utc)
+        sdt = edt - timedelta(days=30)
+
+    # Reviews today
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_count = db.query(func.count(Review.id)).filter(
+        Review.company_id == company.id,
+        Review.review_date >= today_start
+    ).scalar() or 0
+
+    # Window stats
+    window_q = _review_window_query(db, company.id, sdt, edt)
+    total_in_window = window_q.count()
+
+    responded_count = window_q.filter(Review.response_date.isnot(None)).count()
+    unresponded_count = total_in_window - responded_count
+
+    negative_count = window_q.filter(Review.sentiment_category == 'Negative').count()
+
+    response_rate = round((responded_count / total_in_window) * 100.0, 1) if total_in_window else 0.0
+    negative_rate = round((negative_count / total_in_window) * 100.0, 1) if total_in_window else 0.0
+
+    return {
+        "ordersToday": int(today_count),
+        "slaPct": response_rate,
+        "backlog": int(unresponded_count),
+        "returnsPct": negative_rate
+    }
+
+# ─────────────────────────────────────────────────────────────
+# Orders Series (mapped to reviews/day)
+# ─────────────────────────────────────────────────────────────
+
+@router.get("/orders/series")
+def orders_series(
+    request: Request,
+    company_id: Optional[int] = Query(None),
+    days: int = Query(14, ge=1, le=90),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns labels + series for the line chart.
+    Domain mapping: each data point is the count of reviews per day.
+    """
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    company = _resolve_company(db, current_user, company_id)
+    if not company:
+        return {"labels": [], "series": []}
+
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(days=days - 1)
+
+    # Group by day (SQL-level)
+    rows = (
+        db.query(
+            func.date(Review.review_date).label("d"),
+            func.count(Review.id).label("c")
+        )
+        .filter(Review.company_id == company.id)
+        .filter(Review.review_date >= start)
+        .group_by(func.date(Review.review_date))
+        .order_by(func.date(Review.review_date))
+        .all()
+    )
+
+    # Map by date for continuity
+    by_day: Dict[str, int] = {str(r.d): int(r.c) for r in rows}
+
+    labels: List[str] = []
+    series: List[int] = []
+    for i in range(days):
+        dt = (start + timedelta(days=i)).date()
+        key = str(dt)
+        labels.append(dt.strftime("%b %d"))
+        series.append(by_day.get(key, 0))
+
+    return {"labels": labels, "series": series}
+
+# ─────────────────────────────────────────────────────────────
+# Category Mix (mapped to sentiment mix %)
+# ─────────────────────────────────────────────────────────────
+
+@router.get("/category-mix")
+def category_mix(
+    request: Request,
+    company_id: Optional[int] = Query(None),
+    range_key: Optional[str] = Query("30d", alias="range", regex="^(7d|30d|90d|qtr)$"),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns a doughnut chart mix.
+    Mapping: sentiment distribution as % (Positive/Neutral/Negative).
+    """
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    company = _resolve_company(db, current_user, company_id)
+    if not company:
+        return {"labels": [], "data": []}
+
+    sdt, edt = _quick_range(range_key)
+    if start:
+        sdt = _parse_iso(start)
+    if end:
+        edt = _parse_iso(end)
+    if not sdt or not edt:
+        edt = datetime.now(timezone.utc)
+        sdt = edt - timedelta(days=30)
+
+    q = _review_window_query(db, company.id, sdt, edt)
+
+    total = q.count()
+    if total == 0:
+        return {"labels": ["Positive", "Neutral", "Negative"], "data": [0, 0, 0]}
+
+    positive = q.filter(Review.sentiment_category == "Positive").count()
+    neutral = q.filter(Review.sentiment_category == "Neutral").count()
+    negative = q.filter(Review.sentiment_category == "Negative").count()
+
+    pct = lambda x: round((x / total) * 100.0, 1)
+    return {
+        "labels": ["Positive", "Neutral", "Negative"],
+        "data": [pct(positive), pct(neutral), pct(negative)]
+    }
+
+# ─────────────────────────────────────────────────────────────
+# Activity (recent rows)
+# ─────────────────────────────────────────────────────────────
+
+@router.get("/activity")
+def activity(
+    request: Request,
+    company_id: Optional[int] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns recent activity rows derived from reviews.
+    Fields match the front-end table:
+      - time   → HH:MM (UTC)
+      - event  → 'New review' or 'Responded'
+      - ref    → 'REV-{id}'
+      - owner  → Review.source or 'System'
+      - status → Success / Pending / Investigating / Delayed (mapped by sentiment/response)
+    """
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    company = _resolve_company(db, current_user, company_id)
+    if not company:
+        return []
+
+    rows: List[Review] = (
+        db.query(Review)
+        .filter(Review.company_id == company.id)
+        .order_by(Review.review_date.desc())
+        .limit(limit)
+        .all()
+    )
+
+    def status_for(r: Review) -> str:
+        # Map to soft statuses for UI
+        if getattr(r, "response_date", None):
+            return "Success"
+        if getattr(r, "sentiment_category", "") == "Negative":
+            return "Investigating"
+        return "Pending"
+
+    out = []
+    for r in rows:
+        dt = r.review_date or datetime.now(timezone.utc)
+        out.append({
+            "time": dt.astimezone(timezone.utc).strftime("%H:%M"),
+            "event": "New review" if not getattr(r, "response_date", None) else "Responded",
+            "ref": f"REV-{r.id}",
+            "owner": getattr(r, "source", "System"),
+            "status": status_for(r),
+        })
+    return out
+
+# ─────────────────────────────────────────────────────────────
+# Exports
+# ─────────────────────────────────────────────────────────────
+
+@router.get("/export/activity.csv")
+def export_activity_csv(
+    request: Request,
+    company_id: Optional[int] = Query(None),
+    limit: int = Query(1000, ge=1, le=10000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Stream a CSV of recent activity derived from reviews."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    company = _resolve_company(db, current_user, company_id)
+    if not company:
+        # return empty CSV
+        content = "time,event,ref,owner,status\n"
+        return StreamingResponse(io.BytesIO(content.encode("utf-8")), media_type="text/csv")
+
+    rows: List[Review] = (
+        db.query(Review)
+        .filter(Review.company_id == company.id)
+        .order_by(Review.review_date.desc())
+        .limit(limit)
+        .all()
+    )
+
+    def status_for(r: Review) -> str:
+        if getattr(r, "response_date", None):
+            return "Success"
+        if getattr(r, "sentiment_category", "") == "Negative":
+            return "Investigating"
+        return "Pending"
+
+    buf = io.StringIO()
+    buf.write("time,event,ref,owner,status\n")
+    for r in rows:
+        dt = (r.review_date or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        line = f'{dt.strftime("%Y-%m-%d %H:%M")},' \
+               f'{"Responded" if getattr(r, "response_date", None) else "New review"},' \
+               f'REV-{r.id},' \
+               f'{getattr(r, "source", "System")},' \
+               f'{status_for(r)}\n'
+        buf.write(line)
+    data = buf.getvalue().encode("utf-8")
+    buf.close()
+
+    return StreamingResponse(io.BytesIO(data), media_type="text/csv", headers={
+        "Content-Disposition": 'attachment; filename="activity.csv"'
+    })
+
+@router.get("/export/activity.xlsx")
+def export_activity_xlsx(
+    request: Request,
+    company_id: Optional[int] = Query(None),
+    limit: int = Query(1000, ge=1, le=10000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Stream an XLSX export.
+    Tries to use pandas/openpyxl; if unavailable, falls back to CSV stream.
+    If you have a dedicated record.py, wire it here.
+    """
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        import pandas as pd
+    except Exception:
+        # Fallback to CSV export
+        return export_activity_csv(request, company_id, limit, db, current_user)
+
+    company = _resolve_company(db, current_user, company_id)
+    if not company:
+        df = pd.DataFrame(columns=["time", "event", "ref", "owner", "status"])
     else:
-        companies: List[models.Company] = (
-            db.query(models.Company)
-            .filter(models.Company.owner_id == current_user.id)
-            .order_by(models.Company.created_at.desc())
+        rows: List[Review] = (
+            db.query(Review)
+            .filter(Review.company_id == company.id)
+            .order_by(Review.review_date.desc())
+            .limit(limit)
             .all()
         )
 
-    if not companies:
-        context = common_context(request)
-        context.update({
-            "companies": [],
-            "active_company": None,
-            "kpi": {},
-            "charts": {},
-            "reviews": [],
-            "summary": "Add a company to begin.",
-            "api_health": [{"provider": "google", "status": "not_configured"}],
-            "alerts": [],
-            "roles": [],
-        })
-        return templates.TemplateResponse("dashboard.html", context)
+        def status_for(r: Review) -> str:
+            if getattr(r, "response_date", None):
+                return "Success"
+            if getattr(r, "sentiment_category", "") == "Negative":
+                return "Investigating"
+            return "Pending"
 
-    # Active company
-    active = next((c for c in companies if c.id == company_id), companies[0])
-    company_id = active.id
+        data = []
+        for r in rows:
+            dt = (r.review_date or datetime.now(timezone.utc)).astimezone(timezone.utc)
+            data.append({
+                "time": dt.strftime("%Y-%m-%d %H:%M"),
+                "event": "Responded" if getattr(r, "response_date", None) else "New review",
+                "ref": f"REV-{r.id}",
+                "owner": getattr(r, "source", "System"),
+                "status": status_for(r),
+            })
+        df = pd.DataFrame(data)
 
-    # ─────────────────────────────────────────────────────────
-    # DATE RANGE
-    # ─────────────────────────────────────────────────────────
+    # Write to memory
+    out = io.BytesIO()
+    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name="Activity", index=False)
+    out.seek(0)
 
-    sdt, edt = _quick_range(range_key)
-    if from_:
-        sdt = _parse_date(from_)
-    if to:
-        edt = _parse_date(to)
-
-    # ─────────────────────────────────────────────────────────
-    # GOOGLE API (RAILWAY-SAFE)
-    # ─────────────────────────────────────────────────────────
-
-    google_service = None
-    google_status = "not_configured"
-    try:
-        creds_path = os.getenv("GOOGLE_CREDENTIALS_JSON")
-        if creds_path:
-            google_service = get_google_api_service()
-            google_status = "connected"
-        else:
-            google_status = "missing_credentials"
-    except Exception as e:
-        logger.warning("Google API initialization failed: %s", e)
-        google_status = "error"
-
-    # ─────────────────────────────────────────────────────────
-    # REVIEWS
-    # ─────────────────────────────────────────────────────────
-
-    query = db.query(models.Review).filter(models.Review.company_id == company_id)
-    if sdt:
-        query = query.filter(models.Review.review_date >= sdt)
-    if edt:
-        query = query.filter(models.Review.review_date <= edt)
-    reviews = query.order_by(models.Review.review_date.desc()).all()
-
-    review_vm = [
-        SimpleNamespace(
-            id=r.id,
-            review_date=r.review_date,
-            reviewer_name=r.reviewer_name,
-            rating=r.rating,
-            sentiment_category=r.sentiment_category,
-            sentiment_score=r.sentiment_score,
-            text=r.text,
-        )
-        for r in reviews
-    ]
-
-    # ─────────────────────────────────────────────────────────
-    # METRICS + AI INSIGHTS
-    # ─────────────────────────────────────────────────────────
-
-    kpi = metrics_svc.build_kpi_for_dashboard(db, company_id, sdt, edt)
-    charts = metrics_svc.build_dashboard_charts(db, company_id, sdt, edt)
-
-    try:
-        ai_summary = ai_svc.analyze_reviews(reviews, active, sdt, edt)
-        summary_text = ai_summary.get("summary_text", "AI summary unavailable.")
-    except Exception as e:
-        logger.warning("AI analysis failed: %s", e)
-        summary_text = "AI summary unavailable."
-
-    # ─────────────────────────────────────────────────────────
-    # FINAL CONTEXT
-    # ─────────────────────────────────────────────────────────
-
-    context = common_context(request)
-    context.update({
-        "companies": companies,
-        "active_company": active,
-        "kpi": kpi,
-        "charts": charts,
-        "reviews": review_vm,
-        "summary": summary_text,
-        "api_health": [{"provider": "google", "status": google_status}],
-        "alerts": [],
-        "roles": [],
-    })
-
-    return templates.TemplateResponse("dashboard.html", context)
+    return StreamingResponse(out, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": 'attachment; filename="activity.xlsx"'})
