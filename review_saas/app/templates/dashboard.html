@@ -18,14 +18,6 @@
   <!-- Bootstrap Icons -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
 
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-
-  {% if google_maps_api_key %}
-  <!-- Google Maps Places API (client-side for Autocomplete) -->
-  <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&v=weekly"></script>
-  {% endif %}
-
   <style>
     :root {
       --card-radius: 14px;
@@ -34,36 +26,18 @@
       --kpi-gradient-3: linear-gradient(135deg, #00c6ff 0%, #0072ff 100%);
       --kpi-gradient-4: linear-gradient(135deg, #a8ff78 0%, #78ffd6 100%);
     }
-    html, body {
-      font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-    }
-    .app-navbar {
-      backdrop-filter: saturate(150%) blur(6px);
-    }
-    .kpi-card {
-      border: 0;
-      border-radius: var(--card-radius);
-      overflow: hidden;
-      color: #0b1b2b;
-      position: relative;
-      isolation: isolate;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.05);
-    }
-    .kpi-card .bg-wrap { position: absolute; inset: 0; opacity: 0.9; z-index: -1; }
+    html, body { font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+    .app-navbar { backdrop-filter: saturate(150%) blur(6px); }
+    .kpi-card { border:0; border-radius: var(--card-radius); overflow:hidden; color:#0b1b2b; position:relative; isolation:isolate; box-shadow: 0 10px 30px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.05); }
+    .kpi-card .bg-wrap{ position:absolute; inset:0; opacity:0.9; z-index:-1; }
     .kpi-card .kpi-value { font-weight: 800; letter-spacing: -0.5px; line-height: 1; font-size: clamp(1.6rem, 2.7vw, 2.2rem); }
-    .kpi-card .kpi-label { font-weight: 600; opacity: 0.9; }
-    .panel {
-      border: 1px solid rgba(0,0,0,0.08);
-      border-radius: var(--card-radius);
-      padding: 1rem;
-      background: var(--bs-body-bg);
-      box-shadow: 0 6px 18px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
-    }
-    .panel-title { display: flex; align-items: center; gap: .5rem; font-weight: 700; font-size: 1.05rem; margin-bottom: .25rem; }
-    .panel-subtitle { font-size: .9rem; opacity: .75; margin-bottom: .75rem; }
+    .kpi-card .kpi-label { font-weight: 600; opacity: .9; }
+    .panel { border:1px solid rgba(0,0,0,0.08); border-radius: var(--card-radius); padding:1rem; background: var(--bs-body-bg); box-shadow: 0 6px 18px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);}
+    .panel-title { display:flex; align-items:center; gap:.5rem; font-weight: 700; font-size: 1.05rem; margin-bottom: .25rem; }
+    .panel-subtitle { font-size:.9rem; opacity:.75; margin-bottom:.75rem; }
     .hover-rise { transition: transform .25s ease, box-shadow .25s ease; }
     .hover-rise:hover { transform: translateY(-4px); box-shadow: 0 16px 40px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.06); }
-    .theme-toggle { border-radius: 999px; border: 1px solid rgba(0,0,0,0.08); }
+    .theme-toggle { border-radius: 999px; border:1px solid rgba(0,0,0,0.08); }
   </style>
 </head>
 <body>
@@ -73,14 +47,14 @@
       <div class="d-flex align-items-center gap-2">
         <span class="badge rounded-pill text-bg-primary">Ops</span>
         <span class="fw-bold">Operations Dashboard</span>
-        <span class="badge text-bg-secondary d-none d-md-inline">v1.4</span>
+        <span class="badge text-bg-secondary d-none d-md-inline">v1.5</span>
       </div>
 
       <div class="d-flex align-items-center gap-2">
         <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
           <i class="bi bi-buildings me-1"></i> Add Company
         </button>
-        <a class="btn btn-outline-secondary btn-sm" href="/dashboard" title="Server-rendered dashboard">
+        <a class="btn btn-outline-secondary btn-sm" href="/dashboard">
           <i class="bi bi-speedometer2 me-1"></i> SSR Dashboard
         </a>
         <button id="themeToggle" class="btn theme-toggle px-3">
@@ -108,7 +82,7 @@
                 <div class="small kpi-trend text-success"><i class="bi bi-graph-up"></i> vs. avg</div>
               </div>
             </div>
-            <div class="progress mt-3" role="progressbar" aria-label="Orders progress" style="height:8px">
+            <div class="progress mt-3" role="progressbar" aria-label="Reviews today" style="height:8px">
               <div class="progress-bar bg-dark" style="width:0%" id="kpiOrdersBar"></div>
             </div>
           </div>
@@ -128,7 +102,7 @@
                 <div class="small kpi-trend text-success"><i class="bi bi-lightning-charge"></i> live</div>
               </div>
             </div>
-            <div class="progress mt-3" role="progressbar" aria-label="SLA progress" style="height:8px">
+            <div class="progress mt-3" role="progressbar" aria-label="Response rate" style="height:8px">
               <div class="progress-bar bg-dark" style="width:0%" id="kpiSlaBar"></div>
             </div>
           </div>
@@ -148,7 +122,7 @@
                 <div class="small kpi-trend text-success"><i class="bi bi-check2-circle"></i> backlog</div>
               </div>
             </div>
-            <div class="progress mt-3" role="progressbar" aria-label="Backlog progress" style="height:8px">
+            <div class="progress mt-3" role="progressbar" aria-label="Unresponded" style="height:8px">
               <div class="progress-bar bg-dark" style="width:0%" id="kpiBacklogBar"></div>
             </div>
           </div>
@@ -168,7 +142,7 @@
                 <div class="small kpi-trend text-warning"><i class="bi bi-exclamation-triangle"></i> watch</div>
               </div>
             </div>
-            <div class="progress mt-3" role="progressbar" aria-label="Returns progress" style="height:8px">
+            <div class="progress mt-3" role="progressbar" aria-label="Negative rate" style="height:8px">
               <div class="progress-bar bg-dark" style="width:0%" id="kpiReturnsBar"></div>
             </div>
           </div>
@@ -265,7 +239,7 @@
   <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
       <div class="modal-content">
-        <form action="/companies/create" method="post">
+        <form action="/companies/create" method="post" id="addCompanyForm">
           <div class="modal-header">
             <h5 class="modal-title" id="addCompanyLabel"><i class="bi bi-buildings me-1"></i> Add Company</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -367,7 +341,56 @@
     </div>
   </div>
 
-  <!-- Scripts -->
+  <!-- Libraries: Chart.js & Bootstrap Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Google Maps Places API (client-side) with callback -->
+  {% if google_maps_api_key %}
+  <script>
+    // Expose callback for async Maps loader
+    function initPlacesAutocomplete() {
+      if (!window.google || !google.maps || !google.maps.places) return;
+      const input = document.getElementById('placeSearch');
+      if (!input) return;
+
+      const autocomplete = new google.maps.places.Autocomplete(input, {
+        fields: [
+          'place_id','name','formatted_address','address_components','geometry',
+          'url','website','formatted_phone_number','international_phone_number','rating','user_ratings_total','types'
+        ]
+      });
+
+      autocomplete.addListener('place_changed', () => {
+        const place = autocomplete.getPlace();
+        if (!place || !place.place_id) return;
+
+        const comp = (t) => (place.address_components || []).find(x => (x.types || []).includes(t))?.long_name || '';
+        const lat = place.geometry?.location?.lat?.() ?? '';
+        const lng = place.geometry?.location?.lng?.() ?? '';
+
+        document.getElementById('name').value = place.name || '';
+        document.getElementById('place_id').value = place.place_id || '';
+        document.getElementById('address').value = place.formatted_address || '';
+        document.getElementById('city').value = comp('locality') || comp('sublocality') || '';
+        document.getElementById('state').value = comp('administrative_area_level_1') || '';
+        document.getElementById('postal_code').value = comp('postal_code') || '';
+        document.getElementById('country').value = comp('country') || '';
+        document.getElementById('latitude').value = lat;
+        document.getElementById('longitude').value = lng;
+        document.getElementById('phone').value = (place.international_phone_number || place.formatted_phone_number || '');
+        document.getElementById('website').value = place.website || '';
+        document.getElementById('google_url').value = place.url || '';
+        document.getElementById('rating').value = place.rating || '';
+        document.getElementById('user_ratings_total').value = place.user_ratings_total || '';
+        document.getElementById('types').value = (place.types || []).join(',');
+      });
+    }
+  </script>
+  <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&v=weekly&callback=initPlacesAutocomplete" async defer></script>
+  {% endif %}
+
+  <!-- App Scripts -->
   <script>
     // ---- Theme toggle with persistence
     (function initTheme(){
@@ -400,7 +423,7 @@
       const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
       if (res.status === 401) {
         window.location.href = '/?show=login';
-        throw new Error('Unauthorized');
+        return Promise.reject(new Error('Unauthorized'));
       }
       if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
       return res.json();
@@ -524,61 +547,10 @@
       });
     }
 
-    // ---- Google Places Autocomplete to prefill Add Company form
-    function initPlacesAutocomplete() {
-      if (!window.google || !google.maps || !google.maps.places) return;
-      const input = document.getElementById('placeSearch');
-      if (!input) return;
-
-      const autocomplete = new google.maps.places.Autocomplete(input, {
-        fields: [
-          'place_id','name','formatted_address','address_components','geometry',
-          'url','website','formatted_phone_number','international_phone_number','rating','user_ratings_total','types'
-        ]
-      });
-
-      autocomplete.addListener('place_changed', () => {
-        const place = autocomplete.getPlace();
-        if (!place || !place.place_id) return;
-
-        const byType = (t) => (place.address_components || []).find(x => x.types && x.types.includes(t))?.long_name || '';
-        const lat = place.geometry?.location ? place.geometry.location.lat() : '';
-        const lng = place.geometry?.location ? place.geometry.location.lng() : '';
-
-        document.getElementById('name').value = place.name || '';
-        document.getElementById('place_id').value = place.place_id || '';
-        document.getElementById('address').value = place.formatted_address || '';
-        document.getElementById('city').value = byType('locality') || byType('sublocality') || '';
-        document.getElementById('state').value = byType('administrative_area_level_1') || '';
-        document.getElementById('postal_code').value = byType('postal_code') || '';
-        document.getElementById('country').value = byType('country') || '';
-        document.getElementById('latitude').value = lat || '';
-        document.getElementById('longitude').value = lng || '';
-        document.getElementById('phone').value = (place.international_phone_number || place.formatted_phone_number || '');
-        document.getElementById('website').value = place.website || '';
-        document.getElementById('google_url').value = place.url || '';
-        document.getElementById('rating').value = place.rating || '';
-        document.getElementById('user_ratings_total').value = place.user_ratings_total || '';
-        document.getElementById('types').value = (place.types || []).join(',');
-      });
-    }
-
     document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('year').textContent = new Date().getFullYear();
       loadData().catch(err => console.error(err));
-
-      // Initialize Places autocomplete once Maps script is available
-      {% if google_maps_api_key %}
-      if (document.readyState === 'complete') {
-        initPlacesAutocomplete();
-      } else {
-        window.addEventListener('load', initPlacesAutocomplete);
-      }
-      {% endif %}
     });
   </script>
-
-  <!-- Bootstrap JS -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
