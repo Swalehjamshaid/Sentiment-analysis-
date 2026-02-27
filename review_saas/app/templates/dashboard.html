@@ -8,15 +8,23 @@
   <meta name="description" content="Operational KPIs, Trends, and Activity Overview" />
 
   <!-- Inter Font -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- Bootstrap 5.3 -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
   <!-- Bootstrap Icons -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  {% if google_maps_api_key %}
+  <!-- Google Maps Places API (client-side for Autocomplete) -->
+  <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&v=weekly" defer></script>
+  {% endif %}
 
   <style>
     :root {
@@ -38,26 +46,68 @@
     .hover-rise { transition: transform .25s ease, box-shadow .25s ease; }
     .hover-rise:hover { transform: translateY(-4px); box-shadow: 0 16px 40px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.06); }
     .theme-toggle { border-radius: 999px; border:1px solid rgba(0,0,0,0.08); }
+    .sticky-tools { gap: .5rem; flex-wrap: wrap; }
+    .table thead th { position: sticky; top: 0; background: var(--bs-body-bg); z-index: 1; }
   </style>
 </head>
 <body>
   <!-- Top Nav -->
   <nav class="navbar app-navbar sticky-top bg-body-tertiary border-bottom">
     <div class="container-fluid px-3 px-md-4">
-      <div class="d-flex align-items-center gap-2">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
         <span class="badge rounded-pill text-bg-primary">Ops</span>
         <span class="fw-bold">Operations Dashboard</span>
         <span class="badge text-bg-secondary d-none d-md-inline">v1.5</span>
       </div>
 
-      <div class="d-flex align-items-center gap-2">
-        <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
-          <i class="bi bi-buildings me-1"></i> Add Company
-        </button>
-        <a class="btn btn-outline-secondary btn-sm" href="/dashboard">
-          <i class="bi bi-speedometer2 me-1"></i> SSR Dashboard
+      <div class="d-flex align-items-center sticky-tools">
+        <!-- Company selector (auto-populated if /api/companies exists; falls back) -->
+        <div class="input-group input-group-sm" style="max-width: 260px;">
+          <span class="input-group-text"><i class="bi bi-buildings"></i></span>
+          <select id="companySelect" class="form-select">
+            <option value="">All companies (default)</option>
+          </select>
+          <input id="companyInputFallback" class="form-control d-none" placeholder="Company ID" />
+        </div>
+
+        <!-- Range quick filters -->
+        <div class="btn-group btn-group-sm" role="group" aria-label="Range">
+          <button class="btn btn-outline-secondary active" data-range="7d">7d</button>
+          <button class="btn btn-outline-secondary" data-range="30d">30d</button>
+          <button class="btn btn-outline-secondary" data-range="90d">90d</button>
+          <button class="btn btn-outline-secondary" data-range="qtr">Qtr</button>
+        </div>
+
+        <!-- Explicit dates -->
+        <div class="input-group input-group-sm" style="max-width: 300px;">
+          <span class="input-group-text"><i class="bi bi-calendar"></i></span>
+          <input type="date" id="fromDate" class="form-control" />
+          <input type="date" id="toDate" class="form-control" />
+        </div>
+
+        <!-- Export -->
+        <a id="exportBtn" href="/api/export/activity.xlsx" class="btn btn-primary btn-sm">
+          <i class="bi bi-download me-1"></i>Export
         </a>
-        <button id="themeToggle" class="btn theme-toggle px-3">
+
+        <!-- Auto-refresh -->
+        <div class="form-check form-switch ms-2">
+          <input class="form-check-input" type="checkbox" role="switch" id="autoRefreshSwitch">
+          <label class="form-check-label small" for="autoRefreshSwitch">Auto</label>
+        </div>
+
+        <!-- Add Company -->
+        <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+          <i class="bi bi-plus-circle me-1"></i>Company
+        </button>
+
+        <!-- Link to SSR Dashboard -->
+        <a href="/dashboard" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-speedometer2 me-1"></i>SSR
+        </a>
+
+        <!-- Theme -->
+        <button id="themeToggle" class="btn theme-toggle btn-sm px-3">
           <i class="bi bi-moon-stars me-1"></i><span>Dark</span>
         </button>
       </div>
@@ -82,7 +132,7 @@
                 <div class="small kpi-trend text-success"><i class="bi bi-graph-up"></i> vs. avg</div>
               </div>
             </div>
-            <div class="progress mt-3" role="progressbar" aria-label="Reviews today" style="height:8px">
+            <div class="progress mt-3" role="progressbar" style="height:8px">
               <div class="progress-bar bg-dark" style="width:0%" id="kpiOrdersBar"></div>
             </div>
           </div>
@@ -102,7 +152,7 @@
                 <div class="small kpi-trend text-success"><i class="bi bi-lightning-charge"></i> live</div>
               </div>
             </div>
-            <div class="progress mt-3" role="progressbar" aria-label="Response rate" style="height:8px">
+            <div class="progress mt-3" role="progressbar" style="height:8px">
               <div class="progress-bar bg-dark" style="width:0%" id="kpiSlaBar"></div>
             </div>
           </div>
@@ -122,7 +172,7 @@
                 <div class="small kpi-trend text-success"><i class="bi bi-check2-circle"></i> backlog</div>
               </div>
             </div>
-            <div class="progress mt-3" role="progressbar" aria-label="Unresponded" style="height:8px">
+            <div class="progress mt-3" role="progressbar" style="height:8px">
               <div class="progress-bar bg-dark" style="width:0%" id="kpiBacklogBar"></div>
             </div>
           </div>
@@ -142,7 +192,7 @@
                 <div class="small kpi-trend text-warning"><i class="bi bi-exclamation-triangle"></i> watch</div>
               </div>
             </div>
-            <div class="progress mt-3" role="progressbar" aria-label="Negative rate" style="height:8px">
+            <div class="progress mt-3" role="progressbar" style="height:8px">
               <div class="progress-bar bg-dark" style="width:0%" id="kpiReturnsBar"></div>
             </div>
           </div>
@@ -197,7 +247,7 @@
                 <button class="btn btn-outline-secondary btn-sm">Responded</button>
                 <button class="btn btn-outline-secondary btn-sm">Alerts</button>
               </div>
-              <a class="btn btn-primary btn-sm" href="/api/export/activity.xlsx">
+              <a id="exportBtnTable" href="/api/export/activity.xlsx" class="btn btn-primary btn-sm">
                 <i class="bi bi-download me-1"></i>Export
               </a>
             </div>
@@ -239,7 +289,7 @@
   <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
       <div class="modal-content">
-        <form action="/companies/create" method="post" id="addCompanyForm">
+        <form method="POST" action="/companies/create">
           <div class="modal-header">
             <h5 class="modal-title" id="addCompanyLabel"><i class="bi bi-buildings me-1"></i> Add Company</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -341,58 +391,11 @@
     </div>
   </div>
 
-  <!-- Libraries: Chart.js & Bootstrap Bundle -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-
-  <!-- Google Maps Places API (client-side) with callback -->
-  {% if google_maps_api_key %}
+  <!-- Scripts -->
   <script>
-    // Expose callback for async Maps loader
-    function initPlacesAutocomplete() {
-      if (!window.google || !google.maps || !google.maps.places) return;
-      const input = document.getElementById('placeSearch');
-      if (!input) return;
-
-      const autocomplete = new google.maps.places.Autocomplete(input, {
-        fields: [
-          'place_id','name','formatted_address','address_components','geometry',
-          'url','website','formatted_phone_number','international_phone_number','rating','user_ratings_total','types'
-        ]
-      });
-
-      autocomplete.addListener('place_changed', () => {
-        const place = autocomplete.getPlace();
-        if (!place || !place.place_id) return;
-
-        const comp = (t) => (place.address_components || []).find(x => (x.types || []).includes(t))?.long_name || '';
-        const lat = place.geometry?.location?.lat?.() ?? '';
-        const lng = place.geometry?.location?.lng?.() ?? '';
-
-        document.getElementById('name').value = place.name || '';
-        document.getElementById('place_id').value = place.place_id || '';
-        document.getElementById('address').value = place.formatted_address || '';
-        document.getElementById('city').value = comp('locality') || comp('sublocality') || '';
-        document.getElementById('state').value = comp('administrative_area_level_1') || '';
-        document.getElementById('postal_code').value = comp('postal_code') || '';
-        document.getElementById('country').value = comp('country') || '';
-        document.getElementById('latitude').value = lat;
-        document.getElementById('longitude').value = lng;
-        document.getElementById('phone').value = (place.international_phone_number || place.formatted_phone_number || '');
-        document.getElementById('website').value = place.website || '';
-        document.getElementById('google_url').value = place.url || '';
-        document.getElementById('rating').value = place.rating || '';
-        document.getElementById('user_ratings_total').value = place.user_ratings_total || '';
-        document.getElementById('types').value = (place.types || []).join(',');
-      });
-    }
-  </script>
-  <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&v=weekly&callback=initPlacesAutocomplete" async defer></script>
-  {% endif %}
-
-  <!-- App Scripts -->
-  <script>
-    // ---- Theme toggle with persistence
+    // ─────────────────────────────────────────────────────────
+    // Theme toggle with persistence
+    // ─────────────────────────────────────────────────────────
     (function initTheme(){
       const root = document.documentElement;
       const toggle = document.getElementById('themeToggle');
@@ -411,57 +414,116 @@
       });
     })();
 
+    // ─────────────────────────────────────────────────────────
+    // App State
+    // ─────────────────────────────────────────────────────────
     const nf = new Intl.NumberFormat(undefined);
 
-    // ---- Data state
-    let kpis = { ordersToday: 0, slaPct: 0, backlog: 0, returnsPct: 0 };
-    let ordersSeries = { labels: [], series: [] };
-    let categoryMix = { labels: [], data: [] };
-    let activity = [];
+    let state = {
+      companyId: null,
+      range: '7d',
+      from: null,
+      to: null,
+      autoTimer: null,
+      kpis: { ordersToday: 0, slaPct: 0, backlog: 0, returnsPct: 0 },
+      ordersSeries: { labels: [], series: [] },
+      categoryMix: { labels: [], data: [] },
+      activity: []
+    };
+
+    // Persist company and range
+    function loadPrefs() {
+      const s = localStorage.getItem('dash_prefs');
+      if (s) {
+        try {
+          const obj = JSON.parse(s);
+          state.companyId = obj.companyId ?? null;
+          state.range = obj.range ?? '7d';
+          state.from = obj.from ?? null;
+          state.to = obj.to ?? null;
+        } catch {}
+      }
+    }
+    function savePrefs() {
+      localStorage.setItem('dash_prefs', JSON.stringify({
+        companyId: state.companyId, range: state.range, from: state.from, to: state.to
+      }));
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Utilities
+    // ─────────────────────────────────────────────────────────
+    function qs(params) {
+      const sp = new URLSearchParams();
+      if (state.companyId) sp.set('company_id', state.companyId);
+      if (state.range) sp.set('range', state.range);
+      if (state.from) sp.set('start', state.from);
+      if (state.to) sp.set('end', state.to);
+      return sp.toString();
+    }
 
     async function getJSON(url) {
       const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
       if (res.status === 401) {
         window.location.href = '/?show=login';
-        return Promise.reject(new Error('Unauthorized'));
+        throw new Error('Unauthorized');
       }
       if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
       return res.json();
     }
 
+    function updateExportLinks() {
+      const u = '/api/export/activity.xlsx' + (qs() ? ('?' + qs()) : '');
+      const btn1 = document.getElementById('exportBtn');
+      const btn2 = document.getElementById('exportBtnTable');
+      if (btn1) btn1.href = u;
+      if (btn2) btn2.href = u;
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Data Load
+    // ─────────────────────────────────────────────────────────
     async function loadData() {
       try {
+        const suffix = qs();
         const [k, o, m, a] = await Promise.all([
-          getJSON('/api/kpis'),
-          getJSON('/api/orders/series?days=14'),
-          getJSON('/api/category-mix'),
-          getJSON('/api/activity?limit=100')
+          getJSON('/api/kpis' + (suffix ? ('?' + suffix) : '')),
+          getJSON('/api/orders/series?days=14' + (state.companyId ? ('&company_id=' + state.companyId) : '')),
+          getJSON('/api/category-mix' + (suffix ? ('?' + suffix) : '')),
+          getJSON('/api/activity?limit=100' + (state.companyId ? ('&company_id=' + state.companyId) : ''))
         ]);
-        kpis = k; ordersSeries = o; categoryMix = m; activity = a;
+        state.kpis = k;
+        state.ordersSeries = o;
+        state.categoryMix = m;
+        state.activity = a;
 
-        document.getElementById('kpiOrders').textContent = nf.format(kpis.ordersToday);
-        document.getElementById('kpiSla').textContent = `${kpis.slaPct}%`;
-        document.getElementById('kpiBacklog').textContent = nf.format(kpis.backlog);
-        document.getElementById('kpiReturns').textContent = `${kpis.returnsPct}%`;
-
+        // KPIs
+        document.getElementById('kpiOrders').textContent = nf.format(k.ordersToday);
+        document.getElementById('kpiSla').textContent = `${k.slaPct}%`;
+        document.getElementById('kpiBacklog').textContent = nf.format(k.backlog);
+        document.getElementById('kpiReturns').textContent = `${k.returnsPct}%`;
         document.getElementById('kpiOrdersBar').style.width = '100%';
-        document.getElementById('kpiSlaBar').style.width = `${kpis.slaPct}%`;
+        document.getElementById('kpiSlaBar').style.width = `${k.slaPct}%`;
         document.getElementById('kpiBacklogBar').style.width = '100%';
-        document.getElementById('kpiReturnsBar').style.width = `${kpis.returnsPct}%`;
+        document.getElementById('kpiReturnsBar').style.width = `${k.returnsPct}%`;
 
         renderActivity();
         paintCharts(document.documentElement.getAttribute('data-bs-theme'));
+        updateExportLinks();
       } catch (err) {
         console.error('Dashboard load failed:', err);
       }
     }
 
+    // ─────────────────────────────────────────────────────────
+    // Activity Table
+    // ─────────────────────────────────────────────────────────
     function renderActivity() {
       const tbody = document.getElementById('activityTableBody');
       tbody.innerHTML = '';
       const frag = document.createDocumentFragment();
       const badgeFor = (status) => ({ 'Success':'success','Pending':'secondary','Investigating':'warning','Delayed':'danger' }[status] || 'secondary');
-      activity.forEach(row => {
+      state.activity.forEach(row => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td class="text-nowrap">${row.time}</td>
@@ -475,6 +537,9 @@
       tbody.appendChild(frag);
     }
 
+    // ─────────────────────────────────────────────────────────
+    // Charts
+    // ─────────────────────────────────────────────────────────
     let ordersChart, mixChart;
 
     function chartGridColor(theme) {
@@ -497,10 +562,10 @@
       ordersChart = new Chart(ctx1, {
         type: 'line',
         data: {
-          labels: ordersSeries.labels,
+          labels: state.ordersSeries.labels,
           datasets: [{
             label: 'Reviews',
-            data: ordersSeries.series,
+            data: state.ordersSeries.series,
             borderColor: '#3b82f6',
             backgroundColor: 'rgba(59, 130, 246, 0.15)',
             tension: 0.36,
@@ -527,10 +592,10 @@
       mixChart = new Chart(ctx2, {
         type: 'doughnut',
         data: {
-          labels: categoryMix.labels,
+          labels: state.categoryMix.labels,
           datasets: [{
             label: 'Share %',
-            data: categoryMix.data,
+            data: state.categoryMix.data,
             backgroundColor: ['#60a5fa','#34d399','#fbbf24'],
             borderWidth: 0
           }]
@@ -547,10 +612,169 @@
       });
     }
 
+    // ─────────────────────────────────────────────────────────
+    // Company selector (tries /api/companies; falls back to manual ID)
+    // Expected shape: [{id:<int>, name:<str>}, ...]
+    // ─────────────────────────────────────────────────────────
+    async function initCompanySelector() {
+      const sel = document.getElementById('companySelect');
+      const fallback = document.getElementById('companyInputFallback');
+
+      try {
+        const res = await fetch('/api/companies', { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) throw new Error(String(res.status));
+        const items = await res.json();
+        if (!Array.isArray(items) || items.length === 0) throw new Error('empty');
+
+        sel.innerHTML = '<option value="">All companies (default)</option>';
+        for (const c of items) {
+          const opt = document.createElement('option');
+          opt.value = c.id;
+          opt.textContent = `${c.name} (ID: ${c.id})`;
+          sel.appendChild(opt);
+        }
+        if (state.companyId) sel.value = state.companyId;
+        sel.addEventListener('change', () => {
+          state.companyId = sel.value || null;
+          savePrefs();
+          loadData();
+        });
+        sel.classList.remove('d-none');
+        fallback.classList.add('d-none');
+      } catch {
+        // Fallback to manual company ID input
+        sel.classList.add('d-none');
+        fallback.classList.remove('d-none');
+        if (state.companyId) fallback.value = state.companyId;
+        fallback.addEventListener('change', () => {
+          const val = fallback.value.trim();
+          state.companyId = val ? val : null;
+          savePrefs();
+          loadData();
+        });
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Date range controls
+    // ─────────────────────────────────────────────────────────
+    function initRangeControls() {
+      const group = document.querySelectorAll('[data-range]');
+      group.forEach(btn => {
+        btn.addEventListener('click', () => {
+          group.forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          state.range = btn.getAttribute('data-range');
+          state.from = null; state.to = null;
+          document.getElementById('fromDate').value = '';
+          document.getElementById('toDate').value = '';
+          savePrefs();
+          loadData();
+        });
+      });
+
+      const fromEl = document.getElementById('fromDate');
+      const toEl = document.getElementById('toDate');
+
+      function applyDates() {
+        const f = fromEl.value ? new Date(fromEl.value) : null;
+        const t = toEl.value ? new Date(toEl.value) : null;
+        state.from = f ? f.toISOString().slice(0,10) : null;
+        state.to = t ? t.toISOString().slice(0,10) : null;
+        // When explicit dates selected, clear quick range
+        document.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+        state.range = null;
+        savePrefs();
+        loadData();
+      }
+
+      fromEl.addEventListener('change', applyDates);
+      toEl.addEventListener('change', applyDates);
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Auto-refresh
+    // ─────────────────────────────────────────────────────────
+    function initAutoRefresh() {
+      const sw = document.getElementById('autoRefreshSwitch');
+      function setTimer(on) {
+        if (state.autoTimer) { clearInterval(state.autoTimer); state.autoTimer = null; }
+        if (on) {
+          state.autoTimer = setInterval(loadData, 30_000); // 30s
+        }
+      }
+      sw.addEventListener('change', () => setTimer(sw.checked));
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Google Places Autocomplete (prefill Add Company form)
+    // ─────────────────────────────────────────────────────────
+    function initPlacesAutocomplete() {
+      if (!window.google || !google.maps || !google.maps.places) return;
+      const input = document.getElementById('placeSearch');
+      if (!input) return;
+
+      const autocomplete = new google.maps.places.Autocomplete(input, {
+        fields: [
+          'place_id','name','formatted_address','address_components','geometry',
+          'url','website','formatted_phone_number','international_phone_number','rating','user_ratings_total','types'
+        ]
+      });
+
+      autocomplete.addListener('place_changed', () => {
+        const place = autocomplete.getPlace();
+        if (!place || !place.place_id) return;
+
+        const byType = (t) => (place.address_components || []).find(x => x.types && x.types.includes(t))?.long_name || '';
+        const lat = place.geometry && place.geometry.location ? place.geometry.location.lat() : '';
+        const lng = place.geometry && place.geometry.location ? place.geometry.location.lng() : '';
+
+        document.getElementById('name').value = place.name || '';
+        document.getElementById('place_id').value = place.place_id || '';
+        document.getElementById('address').value = place.formatted_address || '';
+        document.getElementById('city').value = byType('locality') || byType('sublocality') || '';
+        document.getElementById('state').value = byType('administrative_area_level_1') || '';
+        document.getElementById('postal_code').value = byType('postal_code') || '';
+        document.getElementById('country').value = byType('country') || '';
+        document.getElementById('latitude').value = lat || '';
+        document.getElementById('longitude').value = lng || '';
+        document.getElementById('phone').value = (place.international_phone_number || place.formatted_phone_number || '');
+        document.getElementById('website').value = place.website || '';
+        document.getElementById('google_url').value = place.url || '';
+        document.getElementById('rating').value = place.rating || '';
+        document.getElementById('user_ratings_total').value = place.user_ratings_total || '';
+        document.getElementById('types').value = (place.types || []).join(',');
+      });
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Init
+    // ─────────────────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('year').textContent = new Date().getFullYear();
+
+      loadPrefs();
+      // Set initial active range button
+      if (state.range) {
+        const btn = document.querySelector(`[data-range="${state.range}"]`);
+        if (btn) btn.classList.add('active');
+      }
+
+      initRangeControls();
+      initAutoRefresh();
+      initCompanySelector();
       loadData().catch(err => console.error(err));
+
+      // Initialize Google Places autocomplete after script load
+      if (document.readyState === 'complete') {
+        initPlacesAutocomplete();
+      } else {
+        window.addEventListener('load', initPlacesAutocomplete);
+      }
     });
   </script>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
