@@ -4,12 +4,17 @@ REST API for the dashboard (front-end: dasbord.html)
 - Auth via get_current_user
 - Safe defaults (no crashes when data is missing)
 - Outputs are stable and front-end-friendly
-- Uses your existing services where applicable (metrics, models)
+- Google API ENABLED:
+    * Health check: GET /api/google/health
+    * Sync trigger: POST /api/google/sync  (uses services.ingestion.sync_google_reviews)
+    * Optional auto-sync via ?sync=true on data endpoints
 """
 
 from __future__ import annotations
 
 import io
+import os
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List, Tuple
 
@@ -21,8 +26,14 @@ from sqlalchemy import func
 from app.db import get_db
 from app.models import Company, Review, User
 from app.services.rbac import get_current_user
-from app.services import metrics as metrics_svc
 
+# Prefer your ingestion service (Google Places API integration)
+try:
+    from app.services.ingestion import sync_google_reviews
+except Exception:
+    sync_google_reviews = None  # soft fallback if module not present
+
+logger = logging.getLogger("review_saas.dashbord")
 router = APIRouter(prefix="/api", tags=["dashboard-api"])
 
 # ─────────────────────────────────────────────────────────────
@@ -62,7 +73,7 @@ def _quick_range(range_key: Optional[str]) -> Tuple[Optional[datetime], Optional
     return None, None
 
 def _resolve_company(db: Session, user: User, company_id: Optional[int]) -> Optional[Company]:
-    """Pick active company; mirrors your dashboard selection logic."""
+    """Pick active company; mirrors your SSR dashboard selection logic."""
     q = db.query(Company)
     if getattr(user, "role", None) != "admin":
         q = q.filter(Company.owner_id == user.id)
@@ -85,6 +96,102 @@ def _review_window_query(
         q = q.filter(Review.review_date <= end)
     return q
 
+def _maybe_auto_sync(db: Session, company: Company) -> Dict[str, Any]:
+    """
+    Optionally called when ?sync=true is passed to KPI/series/mix/activity endpoints.
+    Uses services.ingestion.sync_google_reviews to fetch latest reviews from Google Places.
+    """
+    if sync_google_reviews is None:
+        return {"status": "unavailable", "reason": "ingestion module not found"}
+
+    google_key = os.getenv("GOOGLE_PLACES_API_KEY")
+    if not google_key:
+        return {"status": "unavailable", "reason": "GOOGLE_PLACES_API_KEY missing"}
+
+    if not getattr(company, "place_id", None):
+        return {"status": "skipped", "reason": "company has no place_id"}
+
+    try:
+        summary = sync_google_reviews(db=db, company_id=company.id)
+        return {"status": "ok", "summary": summary}
+    except Exception as e:
+        logger.exception("Auto sync failed for company_id=%s", company.id)
+        return {"status": "error", "error": str(e)}
+
+# ─────────────────────────────────────────────────────────────
+# GOOGLE API: Health & Manual Sync
+# ─────────────────────────────────────────────────────────────
+
+@router.get("/google/health")
+def google_health(
+    request: Request,
+    company_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Reports Google integration readiness for the active company:
+      - GOOGLE_PLACES_API_KEY presence
+      - company.place_id presence
+    """
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    company = _resolve_company(db, current_user, company_id)
+    if not company:
+        return {"healthy": False, "status": "no_company", "details": "No accessible companies"}
+
+    key_present = bool(os.getenv("GOOGLE_PLACES_API_KEY"))
+    has_place_id = bool(getattr(company, "place_id", None))
+
+    healthy = key_present and has_place_id and (sync_google_reviews is not None)
+
+    return {
+        "healthy": healthy,
+        "status": "ok" if healthy else "not_ready",
+        "details": {
+            "GOOGLE_PLACES_API_KEY": "present" if key_present else "missing",
+            "place_id": "present" if has_place_id else "missing",
+            "ingestion_service": "available" if sync_google_reviews is not None else "missing",
+            "company_id": company.id,
+            "company_name": company.name,
+        }
+    }
+
+@router.post("/google/sync")
+def google_sync(
+    request: Request,
+    company_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Triggers a Google Places reviews ingestion for the active company.
+    Uses services.ingestion.sync_google_reviews (server-side key).
+    """
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    company = _resolve_company(db, current_user, company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail="No accessible company found")
+
+    if sync_google_reviews is None:
+        raise HTTPException(status_code=503, detail="Ingestion service not available")
+
+    if not os.getenv("GOOGLE_PLACES_API_KEY"):
+        raise HTTPException(status_code=503, detail="GOOGLE_PLACES_API_KEY missing")
+
+    if not getattr(company, "place_id", None):
+        raise HTTPException(status_code=400, detail="Company has no place_id")
+
+    try:
+        summary = sync_google_reviews(db=db, company_id=company.id)
+        return {"status": "ok", "summary": summary, "company_id": company.id}
+    except Exception as e:
+        logger.exception("Manual Google sync failed for company_id=%s", company.id)
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ─────────────────────────────────────────────────────────────
 # KPIs
 # ─────────────────────────────────────────────────────────────
@@ -96,26 +203,29 @@ def get_kpis(
     range_key: Optional[str] = Query(None, alias="range", regex="^(7d|30d|90d|qtr)$"),
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
+    sync: bool = Query(False, description="Set true to attempt a quick Google auto-sync"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
     Returns dashboard KPIs in a front-end-compatible shape.
 
-    NOTE (mapping to reviews domain):
-    - ordersToday  → reviewsToday (count of reviews today)
-    - slaPct       → response rate % (responded / total in window)
-    - backlog      → unresponded reviews
-    - returnsPct   → negative review rate %
+    Mapping to reviews domain:
+      - ordersToday  → reviewsToday
+      - slaPct       → response rate % (responded / total in window)
+      - backlog      → unresponded reviews
+      - returnsPct   → negative review rate %
     """
     if not current_user:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     company = _resolve_company(db, current_user, company_id)
     if not company:
-        return JSONResponse({
-            "ordersToday": 0, "slaPct": 0.0, "backlog": 0, "returnsPct": 0.0
-        })
+        return JSONResponse({"ordersToday": 0, "slaPct": 0.0, "backlog": 0, "returnsPct": 0.0})
+
+    # Optional auto sync
+    if sync:
+        _maybe_auto_sync(db, company)
 
     sdt, edt = _quick_range(range_key)
     if start:
@@ -163,6 +273,7 @@ def orders_series(
     request: Request,
     company_id: Optional[int] = Query(None),
     days: int = Query(14, ge=1, le=90),
+    sync: bool = Query(False, description="Set true to attempt a quick Google auto-sync"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -176,6 +287,10 @@ def orders_series(
     company = _resolve_company(db, current_user, company_id)
     if not company:
         return {"labels": [], "series": []}
+
+    # Optional auto sync
+    if sync:
+        _maybe_auto_sync(db, company)
 
     now = datetime.now(timezone.utc)
     start = now - timedelta(days=days - 1)
@@ -217,6 +332,7 @@ def category_mix(
     range_key: Optional[str] = Query("30d", alias="range", regex="^(7d|30d|90d|qtr)$"),
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
+    sync: bool = Query(False, description="Set true to attempt a quick Google auto-sync"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -230,6 +346,10 @@ def category_mix(
     company = _resolve_company(db, current_user, company_id)
     if not company:
         return {"labels": [], "data": []}
+
+    # Optional auto sync
+    if sync:
+        _maybe_auto_sync(db, company)
 
     sdt, edt = _quick_range(range_key)
     if start:
@@ -265,6 +385,7 @@ def activity(
     request: Request,
     company_id: Optional[int] = Query(None),
     limit: int = Query(100, ge=1, le=500),
+    sync: bool = Query(False, description="Set true to attempt a quick Google auto-sync"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -283,6 +404,10 @@ def activity(
     company = _resolve_company(db, current_user, company_id)
     if not company:
         return []
+
+    # Optional auto sync
+    if sync:
+        _maybe_auto_sync(db, company)
 
     rows: List[Review] = (
         db.query(Review)
