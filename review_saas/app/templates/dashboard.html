@@ -8,22 +8,22 @@
   <meta name="description" content="Operational KPIs, Trends, and Activity Overview" />
 
   <!-- Inter Font -->
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
 
   <!-- Bootstrap 5.3 -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
 
   <!-- Bootstrap Icons -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
   {% if google_maps_api_key %}
   <!-- Google Maps Places API (client-side for Autocomplete) -->
-  <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&v=weekly" defer></script>
+  <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&v=weekly"></script>
   {% endif %}
 
   <style>
@@ -80,7 +80,7 @@
         <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
           <i class="bi bi-buildings me-1"></i> Add Company
         </button>
-        <a class="btn btn-outline-secondary btn-sm" href="/dashboard">
+        <a class="btn btn-outline-secondary btn-sm" href="/dashboard" title="Server-rendered dashboard">
           <i class="bi bi-speedometer2 me-1"></i> SSR Dashboard
         </a>
         <button id="themeToggle" class="btn theme-toggle px-3">
@@ -223,7 +223,7 @@
                 <button class="btn btn-outline-secondary btn-sm">Responded</button>
                 <button class="btn btn-outline-secondary btn-sm">Alerts</button>
               </div>
-              <a class="btn btn-primary btn-sm" href="/api/export/activity.xlsx" download>
+              <a class="btn btn-primary btn-sm" href="/api/export/activity.xlsx">
                 <i class="bi bi-download me-1"></i>Export
               </a>
             </div>
@@ -265,7 +265,7 @@
   <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
       <div class="modal-content">
-        <form method="post" action="/companies/create">
+        <form action="/companies/create" method="post">
           <div class="modal-header">
             <h5 class="modal-title" id="addCompanyLabel"><i class="bi bi-buildings me-1"></i> Add Company</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -400,7 +400,7 @@
       const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
       if (res.status === 401) {
         window.location.href = '/?show=login';
-        return Promise.reject(new Error('Unauthorized'));
+        throw new Error('Unauthorized');
       }
       if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
       return res.json();
@@ -542,8 +542,8 @@
         if (!place || !place.place_id) return;
 
         const byType = (t) => (place.address_components || []).find(x => x.types && x.types.includes(t))?.long_name || '';
-        const lat = place.geometry && place.geometry.location ? place.geometry.location.lat() : '';
-        const lng = place.geometry && place.geometry.location ? place.geometry.location.lng() : '';
+        const lat = place.geometry?.location ? place.geometry.location.lat() : '';
+        const lng = place.geometry?.location ? place.geometry.location.lng() : '';
 
         document.getElementById('name').value = place.name || '';
         document.getElementById('place_id').value = place.place_id || '';
@@ -568,11 +568,13 @@
       loadData().catch(err => console.error(err));
 
       // Initialize Places autocomplete once Maps script is available
+      {% if google_maps_api_key %}
       if (document.readyState === 'complete') {
         initPlacesAutocomplete();
       } else {
         window.addEventListener('load', initPlacesAutocomplete);
       }
+      {% endif %}
     });
   </script>
 
