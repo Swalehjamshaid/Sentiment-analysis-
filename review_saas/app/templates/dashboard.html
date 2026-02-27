@@ -13,15 +13,18 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
 
   <!-- Bootstrap 5.3 -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"
-        integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+        integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
+        crossorigin="anonymous" />
 
   <!-- Bootstrap Icons -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
-          integrity="sha384-UqfE7g6Zr0e5xgV1Jq9Dg2vK5sMLgMZ80v2gKpVfOe7V2S/4xY2gD8z6e4OqS4cD" crossorigin="anonymous"></script>
+          integrity="sha384-UqfE7g6Zr0e5xgV1Jq9Dg2vK5sMLgMZ80v2gKpVfOe7V2S/4xY2gD8z6e4OqS4cD"
+          crossorigin="anonymous"></script>
 
   {% if google_maps_api_key %}
   <!-- Google Maps Places API (client-side for Autocomplete) -->
@@ -124,12 +127,13 @@
                 <div class="small kpi-trend text-success"><i class="bi bi-graph-up"></i> vs. avg</div>
               </div>
             </div>
-            <div class="progress mt-3" role="progressbar" aria-label="Orders progress" style="height:8px">
+            <div class="progress mt-3" role="progressbar" aria-label="Reviews today progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="height:8px">
               <div class="progress-bar bg-dark" style="width:0%" id="kpiOrdersBar"></div>
             </div>
           </div>
         </div>
       </div>
+
       <div class="col-12 col-sm-6 col-xl-3">
         <div class="card kpi-card hover-rise">
           <div class="bg-wrap" style="background: var(--kpi-gradient-2);"></div>
@@ -144,12 +148,13 @@
                 <div class="small kpi-trend text-success"><i class="bi bi-lightning-charge"></i> live</div>
               </div>
             </div>
-            <div class="progress mt-3" role="progressbar" aria-label="SLA progress" style="height:8px">
+            <div class="progress mt-3" role="progressbar" aria-label="Response rate progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="height:8px">
               <div class="progress-bar bg-dark" style="width:0%" id="kpiSlaBar"></div>
             </div>
           </div>
         </div>
       </div>
+
       <div class="col-12 col-sm-6 col-xl-3">
         <div class="card kpi-card hover-rise">
           <div class="bg-wrap" style="background: var(--kpi-gradient-3);"></div>
@@ -164,12 +169,13 @@
                 <div class="small kpi-trend text-success"><i class="bi bi-check2-circle"></i> backlog</div>
               </div>
             </div>
-            <div class="progress mt-3" role="progressbar" aria-label="Backlog progress" style="height:8px">
+            <div class="progress mt-3" role="progressbar" aria-label="Unresponded progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="height:8px">
               <div class="progress-bar bg-dark" style="width:0%" id="kpiBacklogBar"></div>
             </div>
           </div>
         </div>
       </div>
+
       <div class="col-12 col-sm-6 col-xl-3">
         <div class="card kpi-card hover-rise">
           <div class="bg-wrap" style="background: var(--kpi-gradient-4);"></div>
@@ -184,7 +190,7 @@
                 <div class="small kpi-trend text-warning"><i class="bi bi-exclamation-triangle"></i> watch</div>
               </div>
             </div>
-            <div class="progress mt-3" role="progressbar" aria-label="Returns progress" style="height:8px">
+            <div class="progress mt-3" role="progressbar" aria-label="Negative rate progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="height:8px">
               <div class="progress-bar bg-dark" style="width:0%" id="kpiReturnsBar"></div>
             </div>
           </div>
@@ -270,7 +276,7 @@
     <div class="row mt-3">
       <div class="col-12">
         <div class="d-flex justify-content-between align-items-center py-2 text-muted small">
-          <div>© <span id="year"></span> Ops Control · Bootstrap & Chart.js</div>
+          <div>© <span id="year"></span> Ops Control · Bootstrap &amp; Chart.js</div>
           <div>Theme: <span id="themeLabel">Light</span></div>
         </div>
       </div>
@@ -589,7 +595,8 @@
       loadData().catch(err => console.error(err));
 
       // If Google script loaded without callback, try initializing on load
-      if (!window.initPlaces && window.google) {
+      if (window.google && !window._placesInitDone) {
+        window._placesInitDone = true;
         initPlaces();
       }
     });
