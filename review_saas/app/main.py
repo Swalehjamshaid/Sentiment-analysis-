@@ -21,21 +21,16 @@ from app.core.config import settings
 from app.db import get_db, init_db
 from app.routes import auth as auth_routes  # /register + login_post()
 
-# New: include your feature routers
+# Optional routers (soft-import to avoid crashes during early wiring)
 try:
-    from app.routes import companies as companies_routes
+    from app.routes import companies as companies_routes  # /companies/create
 except Exception:
-    companies_routes = None  # soft-fallback
+    companies_routes = None  # soft fallback
 
 try:
-    from app.routes import dashboard as dashboard_routes
+    from app.routes import dashbord as dashbord_api  # /api/* endpoints for dashbord.html
 except Exception:
-    dashboard_routes = None  # soft-fallback
-
-try:
-    from app.routes import dashbord as dashbord_api  # REST API for dasbord.html
-except Exception:
-    dashbord_api = None  # soft-fallback
+    dashbord_api = None  # soft fallback
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,7 +49,7 @@ def create_app() -> FastAPI:
     templates_dir = base_dir / "templates"
     templates = Jinja2Templates(directory=str(templates_dir))
 
-    # Provide globals used in your templates
+    # Provide globals used in templates
     templates.env.globals["now"] = lambda: datetime.now()
     templates.env.globals["app_name"] = settings.APP_NAME
 
@@ -87,21 +82,18 @@ def create_app() -> FastAPI:
     )
 
     # --------------------------
-    # Include routers
+    # Routers
     # --------------------------
-    app.include_router(auth_routes.router)  # /register + POST /login helpers
+    app.include_router(auth_routes.router)  # /register, POST /login helpers
 
     if companies_routes:
         app.include_router(companies_routes.router)  # /companies/create
 
-    if dashboard_routes:
-        app.include_router(dashboard_routes.router)  # SSR /dashboard route (your existing one)
-
     if dashbord_api:
-        app.include_router(dashbord_api.router)      # /api/* endpoints used by dasbord.html
+        app.include_router(dashbord_api.router)      # /api/* endpoints for dasbord.html
 
     # --------------------------
-    # Helpers
+    # Helpers (session, auth)
     # --------------------------
     def _ensure_csrf(request: Request) -> Optional[str]:
         if "session" not in request.scope:
@@ -123,16 +115,15 @@ def create_app() -> FastAPI:
         return _current_user(request) is not None
 
     # --------------------------
-    # Views
+    # Views (public/auth)
     # --------------------------
     @app.get("/", response_class=HTMLResponse)
     async def home(request: Request):
         """
         Landing page renders base.html (Bootstrap modals for login/register).
-        If already authenticated → redirect to dashboard.
+        If already authenticated → redirect to /dashboard.
         """
         if _is_authenticated(request):
-            # Prefer your SSR dashboard route
             return RedirectResponse("/dashboard", status_code=HTTP_302_FOUND)
 
         csrf_token = _ensure_csrf(request)
@@ -180,8 +171,7 @@ def create_app() -> FastAPI:
 
     @app.get("/logout")
     async def logout_get(request: Request):
-        # Note: GET logout is convenient for your topbar anchor link.
-        # For production security, consider POST with CSRF later.
+        # For convenience in topbar links. Consider POST+CSRF for production hardening.
         if "session" in request.scope:
             request.session.clear()
             request.session["_csrf"] = secrets.token_urlsafe(32)
@@ -196,13 +186,39 @@ def create_app() -> FastAPI:
             request.session["flash_success"] = "Signed out."
         return RedirectResponse("/?show=login", status_code=HTTP_302_FOUND)
 
-    # Your existing SSR dashboard page remains intact via dashboard_routes.router.
-    # Below: a *new* route to render the modern 'dashbord.html' (front-end that calls /api/*).
+    # --------------------------
+    # SSR Dashboard (kept in main.py to avoid route conflicts)
+    # --------------------------
+    @app.get("/dashboard", response_class=HTMLResponse)
+    async def dashboard(request: Request):
+        """
+        Protected page. If not authenticated → redirect to login.
+        Renders templates/dashboard.html (your SSR page).
+        """
+        user = _current_user(request)
+        if not user:
+            if "session" in request.scope:
+                request.session["flash_error"] = "Please log in to continue."
+            return RedirectResponse("/?show=login", status_code=HTTP_302_FOUND)
+
+        ctx = {
+            "request": request,
+            "app_name": settings.APP_NAME,
+            "current_user": user,
+            "flash_error": request.session.pop("flash_error", None),
+            "flash_success": request.session.pop("flash_success", None),
+        }
+        return templates.TemplateResponse("dashboard.html", ctx)
+
+    # --------------------------
+    # Modern Front-end Dashboard (calls /api/*)
+    # --------------------------
     @app.get("/dashbord", response_class=HTMLResponse)
     async def dashbord_page(request: Request):
         """
-        Protected front-end page (Bootstrap+Chart.js) that consumes /api/* endpoints from routes/dashbord.py.
+        Protected front-end page (Bootstrap+Chart.js) that consumes /api/* endpoints.
         Includes an 'Add Company' modal using Google Places Autocomplete.
+        Renders templates/dashbord.html
         """
         user = _current_user(request)
         if not user:
@@ -213,7 +229,7 @@ def create_app() -> FastAPI:
         # Ensure CSRF for the Add Company form inside the template
         _ensure_csrf(request)
 
-        # Pass Google Maps Places key for client-side autocomplete
+        # Pass Google Maps Places API key for client-side autocomplete
         google_maps_api_key = getattr(settings, "GOOGLE_MAPS_API_KEY", "") or ""
 
         ctx = {
