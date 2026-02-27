@@ -1,3 +1,4 @@
+# filename: review_saas/app/main.py
 from __future__ import annotations
 
 import logging
@@ -57,22 +58,19 @@ logger = logging.getLogger("review_saas.main")
 # Security Headers Middleware (non-breaking defaults)
 # --------------------------
 async def _add_security_headers(request: Request, call_next):
-    try:
-        response = await call_next(request)
-        # Safe, common headers that should not break existing behavior
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
-        response.headers.setdefault("Referrer-Policy", "no-referrer-when-downgrade")
-        # Light cache policy for dynamic HTML; keeps assets behavior unchanged
-        if response.media_type in ("text/html", "application/xhtml+xml"):
-            response.headers.setdefault("Cache-Control", "private, no-store, max-age=0")
-        return response
-    except Exception as e:
-        logger.exception("Error in security headers middleware: %s", e)
-        raise e
+    response = await call_next(request)
+    # Safe, common headers that should not break existing behavior
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "no-referrer-when-downgrade")
+    # Light cache policy for dynamic HTML; keeps assets behavior unchanged
+    if response.media_type in ("text/html", "application/xhtml+xml"):
+        response.headers.setdefault("Cache-Control", "private, no-store, max-age=0")
+    return response
 
 
 def _get_allowed_hosts():
+    # Use configured hosts if provided; otherwise allow all to avoid breaking deployments
     hosts = getattr(settings, "ALLOWED_HOSTS", None)
     if hosts and isinstance(hosts, (list, tuple)) and len(hosts) > 0:
         return list(hosts)
@@ -87,6 +85,12 @@ def _get_google_keys():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """App lifespan for startup/shutdown tasks (modern alternative to on_event).
+
+    - Initializes the database (non-destructive)
+    - Lazily initializes Google Places client, if keys and library exist
+    """
+    # Startup
     init_db(drop_existing=False)
 
     _maps_key, places_key = _get_google_keys()
@@ -101,8 +105,9 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    # Shutdown (cleanup if needed in future)
     if hasattr(app.state, "gmaps"):
-        # No explicit cleanup needed; GC will handle it
+        # googlemaps Client has no close method; rely on GC
         pass
 
 
@@ -131,7 +136,7 @@ def create_app() -> FastAPI:
     # --------------------------
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=["*"],  # keep permissive to avoid breaking existing clients
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -144,7 +149,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         GZipMiddleware,
-        minimum_size=1024,
+        minimum_size=1024,  # compress only responses >= 1KB
     )
 
     app.add_middleware(
@@ -156,6 +161,7 @@ def create_app() -> FastAPI:
         max_age=60 * 60 * 24 * 7,
     )
 
+    # Inline function-style middleware for security headers
     app.middleware("http")(_add_security_headers)
 
     # --------------------------
@@ -167,6 +173,8 @@ def create_app() -> FastAPI:
         app.include_router(companies_routes.router)
 
     if dashbord_api:
+        # We include this without an extra prefix because dashbord_api.router
+        # already defines prefix="/api"
         app.include_router(dashbord_api.router)
 
     # --------------------------
@@ -236,4 +244,54 @@ def create_app() -> FastAPI:
             request.session["flash_success"] = "Welcome back!"
         return RedirectResponse("/dashboard", status_code=HTTP_302_FOUND)
 
-   
+    @app.get("/logout")
+    async def logout_get(request: Request):
+        if "session" in request.scope:
+            request.session.clear()
+        return RedirectResponse("/?show=login", status_code=HTTP_302_FOUND)
+
+    # --------------------------
+    # Unified Dashboard
+    # --------------------------
+    @app.get("/dashboard", response_class=HTMLResponse)
+    async def dashboard_page(request: Request):
+        """
+        Unified Dashboard route. Renders dashbord.html which
+        uses the /api/* endpoints for data.
+        """
+        user = _current_user(request)
+        if not user:
+            if "session" in request.scope:
+                request.session["flash_error"] = "Please log in to continue."
+            return RedirectResponse("/?show=login", status_code=HTTP_302_FOUND)
+
+        _ensure_csrf(request)
+
+        # Ensure we pull the key from environment for the template
+        google_maps_api_key, _ = _get_google_keys()
+
+        try:
+            ctx = {
+                "request": request,
+                "app_name": settings.APP_NAME,
+                "current_user": user,
+                "google_maps_api_key": google_maps_api_key or "",
+                "flash_error": request.session.pop("flash_error", None) if "session" in request.scope else None,
+                "flash_success": request.session.pop("flash_success", None) if "session" in request.scope else None,
+            }
+            return templates.TemplateResponse("dashboard.html", ctx)  # Corrected template name
+        except Exception as e:
+            logger.exception("Failed to load dashboard template: %s", e)
+            return HTMLResponse(content="Error loading dashboard", status_code=500)
+
+    # --------------------------
+    # Health
+    # --------------------------
+    @app.get("/healthz")
+    async def healthz():
+        return {"status": "ok"}
+
+    return app
+
+
+app = create_app()
