@@ -13,12 +13,29 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.status import HTTP_302_FOUND
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 
 from sqlalchemy.orm import Session as SASession
 
 from app.core.config import settings
 from app.db import get_db, init_db
 from app.routes import auth as auth_routes  # /register + login_post()
+
+# New: include your feature routers
+try:
+    from app.routes import companies as companies_routes
+except Exception:
+    companies_routes = None  # soft-fallback
+
+try:
+    from app.routes import dashboard as dashboard_routes
+except Exception:
+    dashboard_routes = None  # soft-fallback
+
+try:
+    from app.routes import dashbord as dashbord_api  # REST API for dasbord.html
+except Exception:
+    dashbord_api = None  # soft-fallback
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,14 +47,25 @@ logger = logging.getLogger("review_saas.main")
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.APP_NAME)
 
-    # Templates
-    templates_dir = Path(__file__).parent / "templates"
+    # --------------------------
+    # Templates & Static
+    # --------------------------
+    base_dir = Path(__file__).parent
+    templates_dir = base_dir / "templates"
     templates = Jinja2Templates(directory=str(templates_dir))
+
     # Provide globals used in your templates
     templates.env.globals["now"] = lambda: datetime.now()
     templates.env.globals["app_name"] = settings.APP_NAME
 
+    # Optional: mount /static if present
+    static_dir = base_dir / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+    # --------------------------
     # CORS
+    # --------------------------
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],            # tighten in production
@@ -46,7 +74,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Sessions
+    # --------------------------
+    # Sessions (CSRF-capable)
+    # --------------------------
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.SECRET_KEY,
@@ -56,8 +86,19 @@ def create_app() -> FastAPI:
         max_age=60 * 60 * 24 * 7,      # 7 days
     )
 
-    # Include /register (and helpers) from auth router
-    app.include_router(auth_routes.router)
+    # --------------------------
+    # Include routers
+    # --------------------------
+    app.include_router(auth_routes.router)  # /register + POST /login helpers
+
+    if companies_routes:
+        app.include_router(companies_routes.router)  # /companies/create
+
+    if dashboard_routes:
+        app.include_router(dashboard_routes.router)  # SSR /dashboard route (your existing one)
+
+    if dashbord_api:
+        app.include_router(dashbord_api.router)      # /api/* endpoints used by dasbord.html
 
     # --------------------------
     # Helpers
@@ -91,6 +132,7 @@ def create_app() -> FastAPI:
         If already authenticated → redirect to dashboard.
         """
         if _is_authenticated(request):
+            # Prefer your SSR dashboard route
             return RedirectResponse("/dashboard", status_code=HTTP_302_FOUND)
 
         csrf_token = _ensure_csrf(request)
@@ -154,10 +196,13 @@ def create_app() -> FastAPI:
             request.session["flash_success"] = "Signed out."
         return RedirectResponse("/?show=login", status_code=HTTP_302_FOUND)
 
-    @app.get("/dashboard", response_class=HTMLResponse)
-    async def dashboard(request: Request):
+    # Your existing SSR dashboard page remains intact via dashboard_routes.router.
+    # Below: a *new* route to render the modern 'dashbord.html' (front-end that calls /api/*).
+    @app.get("/dashbord", response_class=HTMLResponse)
+    async def dashbord_page(request: Request):
         """
-        Protected page. If not authenticated → redirect to login.
+        Protected front-end page (Bootstrap+Chart.js) that consumes /api/* endpoints from routes/dashbord.py.
+        Includes an 'Add Company' modal using Google Places Autocomplete.
         """
         user = _current_user(request)
         if not user:
@@ -165,17 +210,25 @@ def create_app() -> FastAPI:
                 request.session["flash_error"] = "Please log in to continue."
             return RedirectResponse("/?show=login", status_code=HTTP_302_FOUND)
 
+        # Ensure CSRF for the Add Company form inside the template
+        _ensure_csrf(request)
+
+        # Pass Google Maps Places key for client-side autocomplete
+        google_maps_api_key = getattr(settings, "GOOGLE_MAPS_API_KEY", "") or ""
+
         ctx = {
             "request": request,
             "app_name": settings.APP_NAME,
             "current_user": user,
-            "flash_error": request.session.pop("flash_error", None),
-            "flash_success": request.session.pop("flash_success", None),
+            "google_maps_api_key": google_maps_api_key,
+            "flash_error": request.session.pop("flash_error", None) if "session" in request.scope else None,
+            "flash_success": request.session.pop("flash_success", None) if "session" in request.scope else None,
         }
-        # Renders templates/dashboard.html
-        return templates.TemplateResponse("dashboard.html", ctx)
+        return templates.TemplateResponse("dashbord.html", ctx)
 
+    # --------------------------
     # Startup & Health
+    # --------------------------
     @app.on_event("startup")
     async def on_startup():
         logger.info("Waiting for application startup.")
