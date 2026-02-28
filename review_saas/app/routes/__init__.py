@@ -12,6 +12,7 @@ from .admin import router as admin_router
 from .alerts import router as alerts_router
 
 api_router = APIRouter()
+
 api_router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 api_router.include_router(company_router, prefix="/company", tags=["Company"])
 api_router.include_router(review_router, prefix="/review", tags=["Reviews"])
