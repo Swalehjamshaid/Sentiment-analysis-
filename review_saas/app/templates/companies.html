@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Companies</h2>
+<form method="post" action="/companies/create" class="row g-3" style="max-width:720px">
+  <div class="col-md-6">
+    <input name="name" class="form-control" placeholder="Company name" required />
+  </div>
+  <div class="col-md-6">
+    <input name="place_id" class="form-control" placeholder="Google Place ID" />
+  </div>
+  <div class="col-md-12">
+    <input name="city" class="form-control" placeholder="City" />
+  </div>
+  <div class="col-md-12">
+    <button class="btn btn-primary">Add Company</button>
+  </div>
+</form>
+{% endblock %}
