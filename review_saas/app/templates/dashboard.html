@@ -1,0 +1,424 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · {{ title or 'ReviewSaaS' }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+  <!-- Header & Actions -->
+  <div class="d-flex flex-wrap align-items-center justify-content-between mb-4">
+    <div>
+      <h1 class="h3 mb-1">Dashboard</h1>
+      <p class="text-muted mb-0">Your reviews, sentiment, and activity at a glance.</p>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary" href="/exports/activity.csv" download>Export CSV</a>
+      <a class="btn btn-outline-secondary" href="/exports/activity.xlsx" download>Export Excel</a>
+    </div>
+  </div>
+
+  <!-- Filter Bar -->
+  <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    <div class="input-group input-group-sm" style="max-width: 320px;">
+      <span class="input-group-text">Range</span>
+      <select id="seriesRange" class="form-select">
+        <option value="7">Last 7 days</option>
+        <option value="14" selected>Last 14 days</option>
+        <option value="30">Last 30 days</option>
+        <option value="90">Last 90 days</option>
+      </select>
+    </div>
+    <span class="small text-muted" id="rangeNote">Showing: Last 14 days</span>
+  </div>
+
+  <!-- KPI Cards -->
+  <div class="row g-3" id="kpi-cards">
+    <div class="col-6 col-md-4 col-xl-2">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-uppercase text-muted small">Total Reviews</div>
+          <div class="fs-4 fw-semibold" id="kpi-total-reviews">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-4 col-xl-2">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-uppercase text-muted small">Positive %</div>
+          <div class="fs-4 fw-semibold text-success" id="kpi-positive">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-4 col-xl-2">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-uppercase text-muted small">Neutral %</div>
+          <div class="fs-4 fw-semibold text-warning" id="kpi-neutral">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-4 col-xl-2">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-uppercase text-muted small">Negative %</div>
+          <div class="fs-4 fw-semibold text-danger" id="kpi-negative">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-4 col-xl-2">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-uppercase text-muted small">Avg Rating</div>
+          <div class="fs-4 fw-semibold" id="kpi-avg-rating">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-4 col-xl-2">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-uppercase text-muted small">Last Sync</div>
+          <div class="fs-6" id="kpi-last-sync">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts Row -->
+  <div class="row g-3 mt-1">
+    <div class="col-12 col-xl-8">
+      <div class="card shadow-sm h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-semibold">Reviews & Sentiment (<span id="trend-range-label">Last 14 days</span>)</span>
+        </div>
+        <div class="card-body">
+          <canvas id="trendChart" height="110" aria-label="Reviews & Sentiment Chart"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-xl-4">
+      <div class="card shadow-sm h-100">
+        <div class="card-header fw-semibold">Category Mix</div>
+        <div class="card-body">
+          <canvas id="categoryChart" height="110" aria-label="Category Mix Chart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Activity & Add Company Row -->
+  <div class="row g-3 mt-1">
+    <div class="col-12 col-xxl-8">
+      <div class="card shadow-sm h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-semibold">Recent Activity</span>
+          <a class="small" href="/exports/activity.xlsx">Download .xlsx</a>
+        </div>
+        <div class="table-responsive" style="max-height: 480px;">
+          <table class="table align-middle mb-0" id="activityTable">
+            <thead class="table-light sticky-top">
+              <tr>
+                <th style="width: 18rem;">Snippet</th>
+                <th>Author</th>
+                <th>Rating</th>
+                <th>Sentiment</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody id="activityBody">
+              <tr><td colspan="5" class="text-center text-muted py-4">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-xxl-4">
+      <div class="card shadow-sm h-100">
+        <div class="card-header fw-semibold d-flex align-items-center justify-content-between">
+          <span>Add Company</span>
+          <span class="badge rounded-pill bg-secondary" id="gmaps-badge">Maps</span>
+        </div>
+        <div class="card-body">
+          <p class="text-muted small mb-2">Use Google Places Autocomplete to add a new business. We will autofill details.</p>
+          <input id="company_autocomplete" class="form-control mb-2" type="text" placeholder="Start typing a business name…" autocomplete="off">
+          <button class="btn btn-primary w-100" id="btnAddCompany" disabled>Add Company</button>
+          <div class="small mt-2" id="companyStatus"></div>
+          <div class="border rounded p-2 mt-3 d-none" id="selectedPlaceBox">
+            <div class="small text-muted">Selected Place</div>
+            <div class="fw-semibold" id="placeName">—</div>
+            <div class="text-muted" id="placeAddress">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Google Maps API key injection (from server/router) -->
+<script>
+  window.GOOGLE_MAPS_API_KEY = "{{ google_maps_api_key | default('', true) }}";
+</script>
+
+<!-- Chart.js (only load if base.html hasn't already) -->
+<script>
+(function ensureChartJs(){
+  if (!window.Chart) {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js';
+    s.crossOrigin = 'anonymous';
+    document.head.appendChild(s);
+  }
+})();
+</script>
+
+<!-- Utility CSS -->
+<style>
+  #activityTable td:first-child { max-width: 28rem; }
+  .text-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+</style>
+
+<script>
+// ---------------- Fetch helpers with fallback paths ----------------
+const API_PATHS = {
+  kpis: ['/api/kpis', '/dashboard/api/kpis'],
+  seriesBase: ['/api/orders/series?days=', '/dashboard/api/orders/series?days='],
+  category: ['/api/category-mix', '/dashboard/api/category-mix'],
+  activity: ['/api/activity?limit=100', '/dashboard/api/activity?limit=100']
+};
+
+async function fetchFirst(paths, options = {}) {
+  for (const p of paths) {
+    try {
+      const res = await fetch(p, { credentials: 'same-origin', ...options });
+      if (res.ok) return res.json();
+    } catch (e) { /* try next */ }
+  }
+  throw new Error('All API paths failed: ' + paths.join(', '));
+}
+
+function fmtPercent(x) { if (x === null || x === undefined) return '—'; return (x*100).toFixed(1) + '%'; }
+function fmtNumber(x) { if (x === null || x === undefined) return '—'; return new Intl.NumberFormat().format(x); }
+function fmtDate(s) { try { const d = new Date(s); return d.toLocaleString(); } catch { return s || '—'; } }
+
+// ---------------- State ----------------
+let trendChart, categoryChart;
+let seriesDays = 14;
+let selectedPlacePayload = null;
+
+// ---------------- KPI Load ----------------
+async function loadKpis() {
+  try {
+    const kpis = await fetchFirst(API_PATHS.kpis);
+    document.getElementById('kpi-total-reviews').textContent = fmtNumber(kpis.total_reviews);
+    document.getElementById('kpi-positive').textContent = fmtPercent(kpis.positive_ratio);
+    document.getElementById('kpi-neutral').textContent = fmtPercent(kpis.neutral_ratio);
+    document.getElementById('kpi-negative').textContent = fmtPercent(kpis.negative_ratio);
+    document.getElementById('kpi-avg-rating').textContent = (kpis.avg_rating ?? '—');
+    document.getElementById('kpi-last-sync').textContent = fmtDate(kpis.last_sync_at);
+  } catch (e) {
+    console.error('Failed to load KPIs', e);
+  }
+}
+
+// ---------------- Trend (Series) ----------------
+async function loadSeries() {
+  try {
+    const data = await fetchFirst(API_PATHS.seriesBase.map(x => x + seriesDays));
+    const labels = data.map(p => p.date);
+    const reviews = data.map(p => p.count);
+    const pos = data.map(p => p.positive || 0);
+    const neg = data.map(p => p.negative || 0);
+
+    const ctx = document.getElementById('trendChart').getContext('2d');
+    if (trendChart) trendChart.destroy();
+    trendChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Reviews', data: reviews, borderColor: '#0d6efd', backgroundColor: 'rgba(13,110,253,.08)', tension: .3, fill: true },
+          { label: 'Positive', data: pos, borderColor: '#198754', backgroundColor: 'rgba(25,135,84,.08)', tension: .3, fill: true },
+          { label: 'Negative', data: neg, borderColor: '#dc3545', backgroundColor: 'rgba(220,53,69,.08)', tension: .3, fill: true },
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { position: 'bottom' } },
+        scales: { x: { grid: { display: false } }, y: { beginAtZero: true } }
+      }
+    });
+  } catch (e) {
+    console.error('Failed to load series', e);
+  }
+}
+
+// ---------------- Category Mix ----------------
+async function loadCategory() {
+  try {
+    const { labels, values } = await fetchFirst(API_PATHS.category);
+    const ctx = document.getElementById('categoryChart').getContext('2d');
+    if (categoryChart) categoryChart.destroy();
+    categoryChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{ data: values, backgroundColor: [
+          '#0d6efd','#6f42c1','#198754','#ffc107','#dc3545','#20c997','#fd7e14','#6610f2'
+        ] }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom' } }
+      }
+    });
+  } catch (e) {
+    console.error('Failed to load category mix', e);
+  }
+}
+
+// ---------------- Activity Table ----------------
+async function loadActivity() {
+  const tbody = document.getElementById('activityBody');
+  tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">Loading…</td></tr>';
+  try {
+    const rows = await fetchFirst(API_PATHS.activity);
+    if (!Array.isArray(rows) || rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">No activity yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = '';
+    for (const r of rows) {
+      const tr = document.createElement('tr');
+      const snippet = (r.snippet || r.comment || r.text || '').toString();
+      const safe = snippet.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      tr.innerHTML = `
+        <td><div class="text-clamp-2" title="${safe}">${safe}</div></td>
+        <td>${(r.author || r.user || '—')}</td>
+        <td>${(r.rating ?? '—')}</td>
+        <td><span class="badge ${badgeForSentiment(r.sentiment)}">${(r.sentiment || '—')}</span></td>
+        <td>${fmtDate(r.created_at || r.date)}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    console.error('Failed to load activity', e);
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-4">Failed to load activity.</td></tr>';
+  }
+}
+
+function badgeForSentiment(s) {
+  const v = (s||'').toLowerCase();
+  if (v.startsWith('pos')) return 'text-bg-success';
+  if (v.startsWith('neu')) return 'text-bg-warning';
+  if (v.startsWith('neg')) return 'text-bg-danger';
+  return 'text-bg-secondary';
+}
+
+// ---------------- Google Places Autocomplete ----------------
+function loadGoogleMapsScript(apiKey) {
+  return new Promise((resolve, reject) => {
+    if (!apiKey) return reject(new Error('No API key'));
+    if (window.google && window.google.maps && window.google.maps.places) return resolve();
+    const s = document.createElement('script');
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&v=weekly`;
+    s.async = true;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Failed to load Google Maps JS'));
+    document.head.appendChild(s);
+  });
+}
+
+async function initPlaces() {
+  const badge = document.getElementById('gmaps-badge');
+  if (!window.GOOGLE_MAPS_API_KEY) {
+    badge.textContent = 'Maps (disabled)';
+    badge.classList.replace('bg-secondary','bg-dark');
+    document.getElementById('company_autocomplete').placeholder = 'Maps key missing';
+    return;
+  }
+  try {
+    await loadGoogleMapsScript(window.GOOGLE_MAPS_API_KEY);
+    badge.textContent = 'Maps OK';
+    badge.classList.replace('bg-secondary','bg-success');
+
+    const input = document.getElementById('company_autocomplete');
+    const ac = new google.maps.places.Autocomplete(input, { types: ['establishment'] });
+    ac.addListener('place_changed', () => {
+      const place = ac.getPlace();
+      if (!place || !place.place_id) return;
+      selectedPlacePayload = {
+        place_id: place.place_id,
+        name: place.name || '',
+        formatted_address: place.formatted_address || '',
+        phone_number: place.formatted_phone_number || '',
+        website: (place.website || (place.url || '')),
+        geometry: place.geometry && place.geometry.location ? {
+          lat: place.geometry.location.lat(),
+          lng: place.geometry.location.lng()
+        } : null
+      };
+      document.getElementById('placeName').textContent = selectedPlacePayload.name || '—';
+      document.getElementById('placeAddress').textContent = selectedPlacePayload.formatted_address || '—';
+      document.getElementById('selectedPlaceBox').classList.remove('d-none');
+      document.getElementById('btnAddCompany').disabled = false;
+      setStatus('Place selected. Click "Add Company" to save.', 'text-success');
+    });
+  } catch (e) {
+    badge.textContent = 'Maps (error)';
+    badge.classList.replace('bg-secondary','bg-danger');
+    setStatus('Failed to initialize Google Maps: ' + e.message, 'text-danger');
+  }
+}
+
+async function addCompany() {
+  const btn = document.getElementById('btnAddCompany');
+  btn.disabled = true;
+  try {
+    if (!selectedPlacePayload) throw new Error('No place selected');
+    const res = await fetch('/companies/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(selectedPlacePayload)
+    });
+    if (!res.ok) throw new Error('Server returned ' + res.status);
+    setStatus('Company added successfully.', 'text-success');
+  } catch (e) {
+    console.error(e);
+    setStatus('Failed to add company: ' + e.message, 'text-danger');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function setStatus(msg, cls) {
+  const el = document.getElementById('companyStatus');
+  el.className = 'small ' + (cls || 'text-muted');
+  el.textContent = msg;
+}
+
+// ---------------- Init ----------------
+window.addEventListener('DOMContentLoaded', async () => {
+  // Initialize range selector
+  const rangeSel = document.getElementById('seriesRange');
+  const label = document.getElementById('trend-range-label');
+  const note = document.getElementById('rangeNote');
+
+  function updateRange(newDays) {
+    seriesDays = parseInt(newDays, 10);
+    label.textContent = `Last ${seriesDays} days`;
+    note.textContent = `Showing: Last ${seriesDays} days`;
+    loadSeries();
+  }
+
+  rangeSel.addEventListener('change', (e) => updateRange(e.target.value));
+
+  await Promise.all([loadKpis(), loadCategory(), loadActivity()]);
+  updateRange(rangeSel.value);
+
+  await initPlaces();
+  document.getElementById('btnAddCompany').addEventListener('click', addCompany);
+});
+</script>
+{% endblock %}
