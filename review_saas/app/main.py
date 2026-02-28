@@ -26,7 +26,7 @@ app = FastAPI(title=settings.APP_NAME)
 STATIC_DIR = "app/static"
 UPLOAD_DIR = os.path.join(STATIC_DIR, "uploads")
 
-# Ensure directories exist before mounting to prevent RuntimeError
+# Ensure directories exist before mounting to prevent startup crashes
 for path in [STATIC_DIR, UPLOAD_DIR]:
     if not os.path.exists(path):
         logger.info(f"Creating missing directory: {path}")
@@ -57,8 +57,10 @@ async def index(request: Request):
         'title': settings.APP_NAME 
     })
 
-# Registering All Routers (Requirement #148-155)
-app.include_router(auth.router)
+# --- Registering All Routers (Requirement #148-155) ---
+# We include auth WITHOUT a prefix here so its internal routes 
+# like /login and /register are available at the top level.
+app.include_router(auth.router) 
 app.include_router(companies.router)
 app.include_router(reviews.router)
 app.include_router(dashboard.router)
