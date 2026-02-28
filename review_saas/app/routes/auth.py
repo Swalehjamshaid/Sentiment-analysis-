@@ -1,4 +1,3 @@
-# filename: app/routes/auth.py
 from __future__ import annotations
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -10,7 +9,7 @@ from authlib.integrations.starlette_client import OAuth, OAuthError
 
 from ..core.db import get_db
 from ..core.settings import settings
-from ..core.security import verify_password_strength, hash_password, verify_password, create_access_token
+from ..core.security import verify_password_strength, hash_password, verify_password
 from ..models.models import User, VerificationToken, LoginAttempt
 from ..services.emailer import send_email
 
@@ -61,7 +60,6 @@ async def login_post(
         return templates.TemplateResponse('login.html', {'request': request, 'error': 'Invalid credentials'})
 
     # Success: Set Cookie
-    token = create_access_token(str(user.id))
     user.last_login_at = datetime.now(timezone.utc)
     user.failed_login_attempts = 0
     db.add(LoginAttempt(user_id=user.id, success=True, ip_address=ip))
@@ -69,7 +67,7 @@ async def login_post(
 
     response = RedirectResponse(url='/dashboard', status_code=status.HTTP_302_FOUND)
     response.set_cookie(
-        key='access_token', value=token, httponly=True, 
+        key='access_token', value=secrets.token_hex(32), httponly=True, 
         secure=settings.COOKIE_SECURE, samesite='lax'
     )
     return response
@@ -90,73 +88,4 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     
     user_info = token.get('userinfo')
     if not user_info:
-        raise HTTPException(status_code=400, detail="Failed to fetch user info")
-
-    user = db.query(User).filter(User.email == user_info['email']).first()
-    if not user:
-        user = User(
-            full_name=user_info.get('name', 'Google User'),
-            email=user_info['email'],
-            password_hash="OAUTH_USER",
-            status='active'
-        )
-        db.add(user); db.commit(); db.refresh(user)
-
-    access_token = create_access_token(str(user.id))
-    response = RedirectResponse(url='/dashboard')
-    response.set_cookie(key='access_token', value=access_token, httponly=True, samesite='lax')
-    return response
-
-# --- REGISTRATION FLOW ---
-
-@router.get('/register', response_class=HTMLResponse)
-async def register_get(request: Request):
-    return templates.TemplateResponse('register.html', {'request': request})
-
-@router.post('/auth/register')
-async def register_post(
-    request: Request, 
-    full_name: str = Form(...), 
-    email: str = Form(...), 
-    password: str = Form(...), 
-    db: Session = Depends(get_db)
-):
-    if db.query(User).filter(User.email == email).first():
-        return templates.TemplateResponse('register.html', {'request': request, 'error': 'Email already exists'})
-    
-    if not verify_password_strength(password):
-        return templates.TemplateResponse('register.html', {'request': request, 'error': 'Password too weak'})
-
-    user = User(full_name=full_name, email=email, password_hash=hash_password(password), status='pending')
-    db.add(user); db.commit(); db.refresh(user)
-
-    # Verification Email
-    token = secrets.token_urlsafe(32)
-    vt = VerificationToken(user_id=user.id, token=token, expires_at=datetime.now(timezone.utc)+timedelta(hours=24))
-    db.add(vt); db.commit()
-
-    verify_link = f"{settings.APP_BASE_URL}/auth/verify?token={token}"
-    send_email(email, 'Verify Your Account', f"Click here to verify: {verify_link}")
-
-    return templates.TemplateResponse('message.html', {
-        'request': request, 
-        'title': 'Registration Successful', 
-        'message': 'Please check your email to verify your account.'
-    })
-
-@router.get('/auth/verify')
-async def verify_email(token: str, db: Session = Depends(get_db)):
-    vt = db.query(VerificationToken).filter(VerificationToken.token == token).first()
-    if not vt or vt.expires_at < datetime.now(timezone.utc):
-        raise HTTPException(status_code=400, detail="Invalid or expired token")
-    
-    user = db.query(User).get(vt.user_id)
-    user.status = 'active'
-    db.delete(vt); db.commit()
-    return RedirectResponse(url='/login?verified=true')
-
-@router.get('/logout')
-async def logout():
-    response = RedirectResponse(url='/login')
-    response.delete_cookie('access_token')
-    return response
+        raise HTTP
