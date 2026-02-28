@@ -1,42 +1,34 @@
-# filename: app/core/db.py
+# File: app/core/db.py
 from __future__ import annotations
 import logging
+import os
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from .settings import settings
+from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.exc import OperationalError
+from app.core.settings import settings
 
-logger = logging.getLogger('app.db')
+logger = logging.getLogger("app.db")
 
-def get_db_url():
-    url = settings.DATABASE_URL
-    if not url or ":port" in url:
+def _resolve_db_url() -> str:
+    url = settings.DATABASE_URL or os.getenv("DATABASE_URL") or ""
+    # Detect placeholders or empties; fall back to SQLite
+    if (not url) or ("postgresql+psycopg://user:pass@" in url) or ("PLACEHOLDER" in url):
         logger.warning("DATABASE_URL contains placeholders or is empty. Falling back to SQLite.")
-        return 'sqlite:///./app.db'
-    
-    if url.startswith('postgres://'):
-        url = url.replace('postgres://', 'postgresql://', 1)
-    
-    if url.startswith('postgresql://') and '+psycopg' not in url:
-        url = url.replace('postgresql://', 'postgresql+psycopg://', 1)
-        
-    if 'postgresql+psycopg' in url and 'sslmode' not in url:
-        connector = '&' if '?' in url else '?'
-        url = f"{url}{connector}sslmode=require"
-        
+        os.makedirs("app", exist_ok=True)
+        return "sqlite:///app/data.db"
     return url
 
-db_url = get_db_url()
-engine = create_engine(
-    db_url, 
-    connect_args={'check_same_thread': False} if 'sqlite' in db_url else {}, 
-    pool_pre_ping=True, 
-    future=True
-)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+DATABASE_URL = _resolve_db_url()
 
-def init_db(Base):
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database synchronized.")
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+    pool_pre_ping=True,
+)
+
+SessionLocal = scoped_session(
+    sessionmaker(autocommit=False, autoflush=False, bind=engine)
+)
 
 def get_db():
     db = SessionLocal()
@@ -44,3 +36,11 @@ def get_db():
         yield db
     finally:
         db.close()
+
+def init_db(Base):
+    """Create all tables for the provided SQLAlchemy Base."""
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database synchronized.")
+    except OperationalError as e:
+        logger.error(f"Database initialization failed: {e}")
