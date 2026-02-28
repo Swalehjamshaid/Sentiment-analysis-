@@ -1,41 +1,45 @@
-# filename: app/routes/reviews.py
-from flask import Blueprint, jsonify, request
-from datetime import datetime, timezone
-from ..db import db
-from ..models import Company, Review
-from ..services.sentiment import star_to_category, text_sentiment
-from ..services.replies import generate_reply
+# File 2: review.py
 
-bp = Blueprint('reviews', __name__)
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from ..db import get_db
+from ..models import Review, Company
+from ..schemas import ReviewFetch
+import requests, os
+from datetime import datetime
 
-@bp.route('/reviews/fetch', methods=['POST'])
-def fetch_reviews():
-    data = request.get_json() or {}
-    company_id = data.get('company_id')
-    limit = min(int(data.get('limit', 100)), 500)
-    # NOTE: For MVP, we simulate fetch; integrate googlemaps Place Reviews if available.
-    comp = Company.query.get_or_404(company_id)
-    # Simulated review
-    sample = Review(company_id=comp.id, external_id=f'sim-{datetime.now().timestamp()}',
-                    text='Great service and fast delivery!', rating=5, review_date=datetime.now(timezone.utc),
-                    reviewer_name='John Doe', reviewer_avatar='')
-    sample.sentiment_category = star_to_category(sample.rating)
-    sample.sentiment_score = text_sentiment(sample.text).get('compound', 0.0)
-    db.session.add(sample)
-    db.session.commit()
-    return jsonify({'status':'ok', 'inserted':1})
+router = APIRouter(prefix="/review", tags=["Review"])
+GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")
 
-@bp.route('/reviews/<int:company_id>')
-def list_reviews(company_id):
-    items = Review.query.filter_by(company_id=company_id).order_by(Review.review_date.desc()).limit(100).all()
-    return jsonify([
-        {
-            'id':r.id,
-            'rating': r.rating,
-            'text': r.text[:5000] if r.text else None,
-            'date': r.review_date.isoformat() if r.review_date else None,
-            'sentiment': r.sentiment_category,
-            'score': r.sentiment_score,
-            'suggested_reply': generate_reply(r.rating, r.text)
-        } for r in items
-    ])
+def fetch_reviews_from_google(place_id: str):
+    url = f"https://maps.googleapis.com/maps/api/place/details/json?place_id={place_id}&fields=reviews&key={GOOGLE_PLACES_API_KEY}"
+    resp = requests.get(url)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=503, detail="Google API error")
+    return resp.json().get("result", {}).get("reviews", [])
+
+@router.post("/fetch")
+def fetch_reviews(review_fetch: ReviewFetch, db: Session = Depends(get_db)):
+    company = db.query(Company).filter_by(id=review_fetch.company_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    reviews = fetch_reviews_from_google(company.place_id)
+    added_reviews = []
+    for r in reviews[:500]:
+        if db.query(Review).filter_by(company_id=company.id, reviewer_name=r.get("author_name")).first():
+            continue
+        db_review = Review(
+            company_id=company.id,
+            text=r.get("text", "")[:5000],
+            rating=r.get("rating"),
+            review_date=datetime.utcfromtimestamp(r.get("time")) if r.get("time") else datetime.utcnow(),
+            reviewer_name=r.get("author_name"),
+            reviewer_profile_pic=r.get("profile_photo_url"),
+            fetch_status="Success",
+            fetch_date=datetime.utcnow()
+        )
+        db.add(db_review)
+        added_reviews.append(db_review)
+    db.commit()
+    return {"added_reviews": len(added_reviews)}
