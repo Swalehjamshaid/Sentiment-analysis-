@@ -1,4 +1,5 @@
 # File: review_saas/app/main.py
+from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -7,7 +8,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
-# Absolute imports are safer for Uvicorn
+# Absolute imports to ensure Uvicorn finds the modules correctly
 from app.core.settings import settings
 from app.core.db import init_db
 from app.models.base import Base
@@ -23,14 +24,9 @@ logger = logging.getLogger('review_saas')
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize Database
+    # Startup: Initialize Database and Scheduler
     logger.info('Initializing database...')
-    try:
-        init_db(Base)
-    except Exception as e:
-        logger.error(f"Database sync failed: {e}")
-        
-    # Startup: Background Tasks
+    init_db(Base)
     try:
         start_scheduler()
         logger.info('Background scheduler active.')
@@ -40,12 +36,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
-# --- Directory Safety ---
+# --- Static Files & Directory Safety ---
 STATIC_DIR = "app/static"
 UPLOAD_DIR = os.path.join(STATIC_DIR, "uploads")
 
 for path in [STATIC_DIR, UPLOAD_DIR]:
     if not os.path.exists(path):
+        logger.info(f"Creating missing directory: {path}")
         os.makedirs(path, exist_ok=True)
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
