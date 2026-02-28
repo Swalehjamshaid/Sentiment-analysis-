@@ -15,7 +15,6 @@ class GoogleReviewsService:
     def validate_business(self, place_id: str) -> dict | None:
         """Requirement #35: Validate Place ID before saving."""
         try:
-            # Fetch essential business details
             place = self.client.place(
                 place_id=place_id, 
                 fields=['name', 'formatted_address', 'geometry', 'place_id']
@@ -29,7 +28,6 @@ class GoogleReviewsService:
     def fetch_latest_reviews(self, place_id: str):
         """Requirement #52 & #55: Fetch reviews for storage."""
         try:
-            # Basic API returns 5 reviews; scraping/Premium needed for 100+ (Point 55)
             result = self.client.place(
                 place_id=place_id, 
                 fields=['review']
@@ -40,4 +38,10 @@ class GoogleReviewsService:
             logger.error(f"Requirement #57: API error handling: {e}")
         return []
 
+# Initialize instance
 google_api = GoogleReviewsService()
+
+# Standalone function for scheduler compatibility
+def fetch_reviews(place_id: str):
+    """Bridge function to resolve ImportErrors in scheduler.py"""
+    return google_api.fetch_latest_reviews(place_id)
