@@ -1,7 +1,7 @@
-# filename: app/main.py
 from __future__ import annotations
 import logging
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -20,35 +20,35 @@ logging.basicConfig(
 )
 logger = logging.getLogger('review_saas')
 
-app = FastAPI(title=settings.APP_NAME)
+# --- Lifespan Management (Requirement #124 & #54) ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup Logic
+    logger.info('Initializing database...')
+    init_db(Base)
+    
+    try:
+        start_scheduler()
+        logger.info('Background scheduler active.')
+    except Exception as e:
+        logger.error(f'Scheduler failed to start: {e}')
+    
+    yield
+    # Shutdown logic (if needed) can go here
+
+app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
 # --- Requirement #4 & #123: Static Files & Directory Safety ---
 STATIC_DIR = "app/static"
 UPLOAD_DIR = os.path.join(STATIC_DIR, "uploads")
 
-# Ensure directories exist before mounting to prevent startup crashes
 for path in [STATIC_DIR, UPLOAD_DIR]:
     if not os.path.exists(path):
         logger.info(f"Creating missing directory: {path}")
         os.makedirs(path, exist_ok=True)
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-# Initialize Jinja2 Templates (Requirement #123)
 templates = Jinja2Templates(directory='app/templates')
-
-@app.on_event('startup')
-def on_start():
-    logger.info('Initializing database...')
-    # Requirement #124: Auto-sync database schema
-    init_db(Base)
-    
-    # Requirement #54: Scheduled Tasks
-    try:
-        start_scheduler()
-        logger.info('Background scheduler active.')
-    except Exception as e:
-        logger.error(f'Scheduler failed to start: {e}')
 
 @app.get('/', response_class=HTMLResponse)
 async def index(request: Request):
@@ -58,12 +58,13 @@ async def index(request: Request):
     })
 
 # --- Registering All Routers (Requirement #148-155) ---
-# We include auth WITHOUT a prefix here so its internal routes 
-# like /login and /register are available at the top level.
-app.include_router(auth.router) 
-app.include_router(companies.router)
-app.include_router(reviews.router)
-app.include_router(dashboard.router)
-app.include_router(exports.router)
-app.include_router(reports.router)
-app.include_router(admin.router)
+# Ensure auth is included first. 
+# Check app/routes/auth.py to ensure the route is @router.get("/register") 
+# and NOT @router.get("/") with a prefix.
+app.include_router(auth.router, tags=["Authentication"]) 
+app.include_router(companies.router, prefix="/companies", tags=["Companies"])
+app.include_router(reviews.router, prefix="/reviews", tags=["Reviews"])
+app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
+app.include_router(exports.router, prefix="/exports", tags=["Exports"])
+app.include_router(reports.router, prefix="/reports", tags=["Reports"])
+app.include_router(admin.router, prefix="/admin", tags=["Admin"])
