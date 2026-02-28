@@ -15,10 +15,9 @@ def render_template(name: str, **ctx) -> str:
     return tpl.render(**ctx)
 
 def send_email(to_email: str, subject: str, html_body: str):
-    # Requirement #5: Log dev email if SMTP not configured
     if not settings.SMTP_HOST or not settings.SMTP_FROM_EMAIL:
-        preview = html_body[:100].replace('\n', ' ')
-        logger.info(f"[DEV EMAIL] To: {to_email} | Subject: {subject} | Body: {preview}...")
+        # Development Log
+        logger.info(f"SMTP not configured. Email to: {to_email} | Subject: {subject}")
         return
 
     msg = MIMEText(html_body, 'html')
@@ -27,12 +26,11 @@ def send_email(to_email: str, subject: str, html_body: str):
     msg['Subject'] = subject
 
     try:
-        # Requirement #130: Graceful network handling
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
             server.starttls()
             if settings.SMTP_USERNAME and settings.SMTP_PASSWORD:
                 server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
             server.sendmail(settings.SMTP_FROM_EMAIL, [to_email], msg.as_string())
-            logger.info(f"Successfully sent email to {to_email}")
+            logger.info(f"Email sent to {to_email}")
     except Exception as e:
         logger.error(f"SMTP error: {e}")
