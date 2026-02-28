@@ -12,7 +12,7 @@ from ..core.db import get_db
 from ..core.settings import settings
 from ..core.security import verify_password_strength, hash_password, verify_password, create_access_token
 from ..models.models import User, VerificationToken, ResetToken, LoginAttempt
-from ..services.emailer import send_email, render_template
+from ..services.emailer import send_email
 
 # Defining router without a prefix to allow root-level /login
 router = APIRouter(tags=['Authentication'])
@@ -32,7 +32,8 @@ oauth.register(
 async def login_get(request: Request):
     return templates.TemplateResponse('login.html', {'request': request})
 
-@router.post('/login')
+# UPDATED: Path changed to '/auth/token' to match login.html form action
+@router.post('/auth/token')
 async def login_post(
     request: Request, 
     email: str = Form(...), 
@@ -79,7 +80,8 @@ async def login_post(
 async def register_get(request: Request):
     return templates.TemplateResponse('register.html', {'request': request})
 
-@router.post('/register')
+# UPDATED: Path changed to '/auth/register' to match register.html form action
+@router.post('/auth/register')
 async def register_post(
     request: Request, 
     full_name: str = Form(...), 
