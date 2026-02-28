@@ -1,0 +1,13 @@
+<!-- filename: app/templates/companies.html -->
+{% extends 'base.html' %}
+{% block content %}
+<h2>Companies</h2>
+<table class="table table-sm">
+ <thead><tr><th>ID</th><th>Name</th><th>City</th><th>Status</th></tr></thead>
+ <tbody>
+ {% for c in companies %}
+  <tr><td>{{c.id}}</td><td>{{c.name}}</td><td>{{c.city}}</td><td>{{c.status}}</td></tr>
+ {% endfor %}
+ </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,10 @@
+<!-- filename: app/templates/index.html -->
+{% extends 'base.html' %}
+{% block content %}
+<div class="p-5 rounded-3 bg-white shadow-sm">
+  <h1 class="display-6">Welcome to ReviewSaaS</h1>
+  <p class="lead">Register or Login to get started.</p>
+  <a class="btn btn-primary" href="/auth/register">Register</a>
+  <a class="btn btn-outline-secondary" href="/auth/login">Login</a>
+</div>
+{% endblock %}

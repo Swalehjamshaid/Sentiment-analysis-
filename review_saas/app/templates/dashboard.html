@@ -1,0 +1,27 @@
+<!-- filename: app/templates/dashboard.html -->
+{% extends 'base.html' %}
+{% block content %}
+<h2>Dashboard</h2>
+<div class="row g-3">
+  <div class="col-md-3">
+    <div class="card p-3"><div id="kpi-total" class="display-6">-</div><div>Total Reviews</div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card p-3"><div id="kpi-avg" class="display-6">-</div><div>Avg Rating</div></div>
+  </div>
+  <div class="col-md-6">
+    <canvas id="mixChart" height="120"></canvas>
+  </div>
+</div>
+<script>
+async function loadKPIs(){
+  const r = await fetch('/api/kpis');
+  const d = await r.json();
+  document.getElementById('kpi-total').textContent = d.total_reviews;
+  document.getElementById('kpi-avg').textContent = d.avg_rating;
+  const ctx = document.getElementById('mixChart');
+  new Chart(ctx, {type:'doughnut', data:{labels:['Positive','Neutral','Negative'], datasets:[{data:[d.pos_rate*100,d.neu_rate*100,d.neg_rate*100], backgroundColor:['#198754','#6c757d','#dc3545']} ]}});
+}
+loadKPIs();
+</script>
+{% endblock %}
