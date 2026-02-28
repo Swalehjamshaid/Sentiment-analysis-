@@ -1,166 +1,203 @@
-# File: app/main.py
-import os
-import logging
-from pathlib import Path
-from typing import Dict, Any, Optional
-from contextlib import asynccontextmanager
+# FILE: app/models.py
+# NOTE: Flask‑SQLAlchemy models (db.Model), not declarative_base()
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.middleware.cors import CORSMiddleware
-from starlette.middleware.gzip import GZipMiddleware
-from starlette.middleware.sessions import SessionMiddleware
+from datetime import datetime, timezone
+from sqlalchemy import (
+    Integer, String, DateTime, Boolean, ForeignKey, Text, Float,
+    UniqueConstraint, Index
+)
+from sqlalchemy.orm import relationship
+from .db import db
 
-# Internal imports
-from .db import init_db, get_db
-from .models import Company
-from .routes import auth, companies, reviews, reply, reports, dashboard, admin
-from .routes.maps_routes import router as maps_router
-from .routes.activity import router as activity_router
-from .routes.insights import router as insights_router
+# =========================================================
+# USER MODEL
+# =========================================================
 
-# Import shared dependencies
-from .dependencies import get_current_user, manager
+class User(db.Model):
+    __tablename__ = "users"
 
-# ───────────────────────────────────────────────────────────────
-# PATH RESOLUTION
-# ───────────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = BASE_DIR.parent
-TEMPLATE_DIR = BASE_DIR / "templates"
-STATIC_DIR = BASE_DIR / "static"
+    id = db.Column(Integer, primary_key=True)
+    full_name = db.Column(String(100), nullable=False)
+    email = db.Column(String(255), unique=True, index=True, nullable=False)
+    password_hash = db.Column(String(255), nullable=False)
+    status = db.Column(String(20), default="pending", nullable=False)
+    profile_pic_url = db.Column(String(255), nullable=True)
+    created_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
-if not TEMPLATE_DIR.exists():
-    TEMPLATE_DIR = PROJECT_ROOT / "app" / "templates"
-    STATIC_DIR = PROJECT_ROOT / "app" / "static"
+    companies = relationship("Company", back_populates="owner", cascade="all, delete-orphan")
+    verification_tokens = relationship("VerificationToken", back_populates="user", cascade="all, delete-orphan")
+    reset_tokens = relationship("ResetToken", back_populates="user", cascade="all, delete-orphan")
+    login_attempts = relationship("LoginAttempt", back_populates="user", cascade="all, delete-orphan")
+    notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
 
-# ───────────────────────────────────────────────────────────────
-# Logging & Settings
-# ───────────────────────────────────────────────────────────────
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("review_saas")
 
-class _Settings:
-    APP_NAME: str = "ReviewSaaS"
-    FORCE_HTTPS: bool = bool(int(os.getenv("FORCE_HTTPS", "0")))
-    CORS_ALLOW_ORIGINS: str = os.getenv("CORS_ALLOW_ORIGINS", "*")
-    # Using your provided production keys
-    GOOGLE_MAPS_KEY: str = "AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg"
+# =========================================================
+# TOKEN & LOG MODELS
+# =========================================================
 
-settings = _Settings()
+class VerificationToken(db.Model):
+    __tablename__ = "verification_tokens"
 
-# ───────────────────────────────────────────────────────────────
-# Lifespan
-# ───────────────────────────────────────────────────────────────
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("Initializing database...")
-    try:
-        init_db(drop_existing=os.getenv("DROP_ALL_TABLES") == "1")
-    except Exception as e:
-        logger.error(f"Database startup failed: {e}")
-    yield
+    id = db.Column(Integer, primary_key=True)
+    user_id = db.Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token = db.Column(String(255), nullable=False, unique=True)
+    expires_at = db.Column(DateTime, nullable=False)
+    created_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
-# ───────────────────────────────────────────────────────────────
-# FastAPI App & Middleware
-# ───────────────────────────────────────────────────────────────
-app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
+    user = relationship("User", back_populates="verification_tokens")
 
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "supersecretkey123"))
 
-class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        proto = request.headers.get("x-forwarded-proto", request.url.scheme)
-        if settings.FORCE_HTTPS and proto != "https":
-            url = request.url.replace(scheme="https")
-            return RedirectResponse(url, status_code=307)
-        return await call_next(request)
+class ResetToken(db.Model):
+    __tablename__ = "reset_tokens"
 
-app.add_middleware(HTTPSRedirectMiddleware)
-app.add_middleware(GZipMiddleware, minimum_size=1024)
-app.add_middleware(CORSMiddleware, 
-                   allow_origins=[settings.CORS_ALLOW_ORIGINS], 
-                   allow_credentials=True, 
-                   allow_methods=["*"], 
-                   allow_headers=["*"])
+    id = db.Column(Integer, primary_key=True)
+    user_id = db.Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token = db.Column(String(255), nullable=False, unique=True)
+    expires_at = db.Column(DateTime, nullable=False)
+    created_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
-# ───────────────────────────────────────────────────────────────
-# Templates & Static
-# ───────────────────────────────────────────────────────────────
-templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
-if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    user = relationship("User", back_populates="reset_tokens")
 
-def common_context(request: Request) -> Dict[str, Any]:
-    """
-    World-class context provider. Fetches current user and 
-    existing companies to populate the UI globally.
-    """
-    user = get_current_user(request)
-    
-    # Create a temporary DB session to fetch company list for the switcher
-    db = next(get_db())
-    try:
-        companies_list = db.query(Company).order_by(Company.name).all()
-    except Exception as e:
-        logger.error(f"Context company fetch failed: {e}")
-        companies_list = []
-    finally:
-        db.close()
 
-    return {
-        "request": request,
-        "current_user": user,
-        "is_authenticated": user is not None,
-        "companies": companies_list,
-        "googleMapsKey": settings.GOOGLE_MAPS_KEY,
-        "apiBase": "",
-        "currentDate": "2026-02-24",
-    }
+class LoginAttempt(db.Model):
+    __tablename__ = "login_attempts"
 
-# ───────────────────────────────────────────────────────────────
-# WebSocket Endpoint
-# ───────────────────────────────────────────────────────────────
-@app.websocket("/ws/dashboard")
-async def websocket_endpoint(websocket: WebSocket):
-    """
-    Handles real-time updates for the dashboard sync process.
-    """
-    await manager.connect(websocket)
-    try:
-        while True:
-            # Keep connection alive
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
+    id = db.Column(Integer, primary_key=True)
+    user_id = db.Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    success = db.Column(Boolean, nullable=False)
+    ip_address = db.Column(String(50), nullable=True)
+    created_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
-# ───────────────────────────────────────────────────────────────
-# Routes
-# ───────────────────────────────────────────────────────────────
-@app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
-    return templates.TemplateResponse("home.html", common_context(request))
+    user = relationship("User", back_populates="login_attempts")
 
-@app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
-    if get_current_user(request):
-        return RedirectResponse(url="/dashboard")
-    return templates.TemplateResponse("login.html", common_context(request))
 
-# Include Routers
-app.include_router(auth.router, prefix="/auth")
-app.include_router(companies.router)
-app.include_router(reviews.router)
-app.include_router(dashboard.router)
-app.include_router(reports.router)
-app.include_router(admin.router)
-app.include_router(maps_router)
-app.include_router(activity_router, prefix="/api/activity", tags=["telemetry"])
-app.include_router(insights_router, prefix="/api/insights", tags=["ai"])
+# =========================================================
+# COMPANY MODEL
+# =========================================================
 
-@app.get("/health")
-async def health():
-    return {"status": "healthy", "service": "ReviewSaaS", "date": "2026-02-24"}
+class Company(db.Model):
+    __tablename__ = "companies"
+
+    id = db.Column(Integer, primary_key=True)
+    owner_id = db.Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    name = db.Column(String(255), nullable=False)
+    place_id = db.Column(String(128), nullable=True)
+    maps_link = db.Column(String(512), nullable=True)
+
+    city = db.Column(String(128), nullable=True)
+    status = db.Column(String(20), default="active", nullable=False)
+    logo_url = db.Column(String(255), nullable=True)
+    created_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    # Track last sync with Google API
+    last_synced_at = db.Column(DateTime, nullable=True)
+
+    lat = db.Column(Float, nullable=True)
+    lng = db.Column(Float, nullable=True)
+
+    email = db.Column(String(255), nullable=True)
+    phone = db.Column(String(50), nullable=True)
+    address = db.Column(String(512), nullable=True)
+    description = db.Column(Text, nullable=True)
+
+    owner = relationship("User", back_populates="companies")
+    reviews = relationship("Review", back_populates="company", cascade="all, delete-orphan")
+    notifications = relationship("Notification", back_populates="company", cascade="all, delete-orphan")
+    reports = relationship("Report", back_populates="company", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("idx_company_owner_status", "owner_id", "status"),
+        Index("idx_company_place_id", "place_id"),
+        Index("idx_company_created", "created_at"),
+    )
+
+
+# =========================================================
+# REVIEW MODEL
+# =========================================================
+
+class Review(db.Model):
+    __tablename__ = "reviews"
+
+    id = db.Column(Integer, primary_key=True)
+    company_id = db.Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+
+    external_id = db.Column(String(128), nullable=True)
+    text = db.Column(Text, nullable=True)
+    rating = db.Column(Integer, nullable=True)
+
+    # Must be DateTime (analytics)
+    review_date = db.Column(DateTime, nullable=True)
+    reviewer_name = db.Column(String(255), nullable=True)
+    reviewer_avatar = db.Column(String(255), nullable=True)
+
+    sentiment_category = db.Column(String(20), nullable=True)
+    sentiment_score = db.Column(Float, nullable=True)
+
+    keywords = db.Column(String(512), nullable=True)
+    language = db.Column(String(10), nullable=True)
+
+    fetch_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    fetch_status = db.Column(String(20), default="Success", nullable=False)
+
+    company = relationship("Company", back_populates="reviews")
+    replies = relationship("Reply", back_populates="review", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "external_id", name="uq_review_company_ext"),
+        Index("idx_review_company_date", "company_id", "review_date"),
+        Index("idx_review_rating", "rating"),
+        Index("idx_review_sentiment", "sentiment_category"),
+    )
+
+
+# =========================================================
+# SUPPORTING MODELS
+# =========================================================
+
+class Reply(db.Model):
+    __tablename__ = "replies"
+
+    id = db.Column(Integer, primary_key=True)
+    review_id = db.Column(Integer, ForeignKey("reviews.id", ondelete="CASCADE"), nullable=False)
+
+    suggested_text = db.Column(Text, nullable=True)
+    edited_text = db.Column(Text, nullable=True)
+
+    status = db.Column(String(20), default="Draft", nullable=False)
+    suggested_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    sent_at = db.Column(DateTime, nullable=True)
+
+    review = relationship("Review", back_populates="replies")
+
+
+class Report(db.Model):
+    __tablename__ = "reports"
+
+    id = db.Column(Integer, primary_key=True)
+    company_id = db.Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+
+    title = db.Column(String(255), nullable=True)
+    path = db.Column(String(512), nullable=True)
+    meta = db.Column(Text, nullable=True)
+    generated_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    company = relationship("Company", back_populates="reports")
+
+
+class Notification(db.Model):
+    __tablename__ = "notifications"
+
+    id = db.Column(Integer, primary_key=True)
+    user_id = db.Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    company_id = db.Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
+
+    kind = db.Column(String(50), nullable=True)
+    payload = db.Column(Text, nullable=True)
+
+    created_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    read = db.Column(Boolean, default=False, nullable=False)
+
+    user = relationship("User", back_populates="notifications")
+    company = relationship("Company", back_populates="notifications")
