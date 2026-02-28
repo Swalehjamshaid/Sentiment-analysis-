@@ -7,39 +7,42 @@ from .settings import settings
 
 logger = logging.getLogger('app.db')
 
-# 1. Fetch URL and handle empty string fallback
 url = settings.DATABASE_URL
-if not url or url.strip() == "":
-    url = 'sqlite:///./app.db'
-    logger.warning("DATABASE_URL is empty. Falling back to SQLite.")
 
-# 2. Fix legacy 'postgres://' prefix
+# Safety Check: Detect if placeholders like 'port' or 'host' are still in the string
+if ":port" in url or "@host" in url:
+    logger.error("CRITICAL: DATABASE_URL still contains placeholders like ':port'. Falling back to SQLite.")
+    url = "sqlite:///./app.db"
+
+# Fix legacy 'postgres://'
 if url.startswith('postgres://'):
     url = url.replace('postgres://', 'postgresql://', 1)
 
-# 3. Add driver prefix if missing for SQLAlchemy 2.x
+# Add driver for SQLAlchemy 2.x
 if url.startswith('postgresql://') and '+psycopg' not in url:
     url = url.replace('postgresql://', 'postgresql+psycopg://', 1)
 
-# 4. Enforce SSL for production (Requirement 18)
+# Enforce SSL
 if 'postgresql+psycopg' in url and 'sslmode' not in url:
     connector = '&' if '?' in url else '?'
     url = f"{url}{connector}sslmode=require"
 
-logger.info(f"Connecting to database type: {url.split(':')[0]}")
-
-engine = create_engine(
-    url, 
-    connect_args={'check_same_thread': False} if 'sqlite' in url else {}, 
-    pool_pre_ping=True, 
-    future=True
-)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+try:
+    engine = create_engine(
+        url, 
+        connect_args={'check_same_thread': False} if 'sqlite' in url else {}, 
+        pool_pre_ping=True, 
+        future=True
+    )
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+except Exception as e:
+    logger.error(f"Failed to create engine with URL: {url}. Error: {e}")
+    # Final fallback to prevent container crash
+    engine = create_engine("sqlite:///./fallback.db", connect_args={'check_same_thread': False})
+    SessionLocal = sessionmaker(bind=engine)
 
 def init_db(Base):
-    logger.info('Ensuring tables exist...')
     Base.metadata.create_all(bind=engine)
-    logger.info('Database sync complete.')
 
 def get_db():
     db = SessionLocal()
