@@ -20,15 +20,3 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     if not plain_password or not hashed_password:
-        return False
-    return pwd_context.verify(str(plain_password)[:72], hashed_password)
-
-def verify_password_strength(password: str) -> bool:
-    if len(password) < 8:
-        return False
-    if not re.search(r"[A-Z]", password):
-        return False
-    if not re.search(r"[a-z]", password):
-        return False
-    if not re.search(r"\d", password):
-        return
