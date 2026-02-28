@@ -1,0 +1,178 @@
+<!-- File: review_saas/app/templates/base.html -->
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth" x-data="{
+    darkMode: localStorage.getItem('darkMode') === 'true' || (!localStorage.getItem('darkMode') && window.matchMedia('(prefers-color-scheme: dark)').matches),
+    mobileMenuOpen: false,
+    toggleDark() { 
+        this.darkMode = !this.darkMode; 
+        localStorage.setItem('darkMode', this.darkMode); 
+    },
+    init() { 
+        if(this.darkMode) document.documentElement.classList.add('dark'); 
+        else document.documentElement.classList.remove('dark'); 
+        this.$watch('darkMode', val => { 
+            if(val) document.documentElement.classList.add('dark'); 
+            else document.documentElement.classList.remove('dark'); 
+        }); 
+    }
+}" :class="{ 'dark': darkMode }">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="BizChat - AI Powered Review Intelligence Platform">
+    <title>{% block title %}BizChat | Review Intelligence{% endblock %}</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { 
+                extend: { 
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: { 
+                        brand: {
+                            50: '#f5f3ff', 100: '#ede9fe', 200: '#ddd6fe', 
+                            300: '#c4b5fd', 400: '#a78bfa', 500: '#8b5cf6', 
+                            600: '#7c3aed', 700: '#6d28d9', 800: '#5b21b6', 900: '#4c1d95'
+                        },
+                        glass: 'rgba(15, 23, 42, 0.65)'
+                    } 
+                } 
+            }
+        }
+    </script>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <style>
+        [x-cloak] { display: none !important; }
+        body { font-family: 'Inter', sans-serif; }
+        .glass-effect { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen flex flex-col transition-colors duration-300">
+    
+    <div class="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
+        <div class="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-brand-500/10 rounded-full blur-[120px]"></div>
+        <div class="absolute bottom-[10%] right-[10%] w-[30%] h-[30%] bg-indigo-500/10 rounded-full blur-[120px]"></div>
+    </div>
+
+    {% block header %}
+    <nav class="sticky top-0 z-50 glass-effect border-b border-slate-200/50 dark:border-slate-800/50 bg-white/70 dark:bg-slate-900/70">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <a href="/" class="flex items-center gap-2 group">
+                        <div class="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center shadow-lg group-hover:rotate-12 transition-transform">
+                            <i class="fas fa-comment-dots text-white text-sm"></i>
+                        </div>
+                        <span class="text-xl font-bold tracking-tight bg-gradient-to-r from-brand-600 to-indigo-500 bg-clip-text text-transparent">
+                            BizChat
+                        </span>
+                    </a>
+                </div>
+
+                <div class="hidden md:flex items-center gap-6">
+                    <button @click="toggleDark()" class="text-slate-500 hover:text-brand-500 transition-colors">
+                        <i x-show="!darkMode" class="fas fa-moon"></i>
+                        <i x-show="darkMode" class="fas fa-sun"></i>
+                    </button>
+
+                    {% if current_user and is_authenticated %}
+                        <div x-data="{ open: false }" class="relative">
+                            <button @click="open = !open" class="flex items-center gap-3 p-1 rounded-full hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition">
+                                <div class="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-white text-xs font-bold ring-2 ring-brand-500/20">
+                                    {{ current_user.full_name[0] if current_user.full_name else 'U' }}
+                                </div>
+                                <i class="fas fa-chevron-down text-[10px] text-slate-400"></i>
+                            </button>
+                            <div x-show="open" x-cloak @click.away="open = false" 
+                                 x-transition:enter="transition ease-out duration-100"
+                                 x-transition:enter-start="transform opacity-0 scale-95"
+                                 class="absolute right-0 mt-2 w-56 origin-top-right rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl ring-1 ring-black ring-opacity-5">
+                                <div class="p-2 space-y-1">
+                                    <a href="/dashboard" class="flex items-center gap-3 px-4 py-2 text-sm rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                                        <i class="fas fa-chart-line w-4 opacity-50"></i> Dashboard
+                                    </a>
+                                    <a href="/settings" class="flex items-center gap-3 px-4 py-2 text-sm rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                                        <i class="fas fa-cog w-4 opacity-50"></i> Settings
+                                    </a>
+                                    <div class="border-t border-slate-200 dark:border-slate-800 my-1"></div>
+                                    <a href="/auth/logout" class="flex items-center gap-3 px-4 py-2 text-sm text-rose-500 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/20 transition">
+                                        <i class="fas fa-sign-out-alt w-4"></i> Sign Out
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="flex items-center gap-4">
+                            <a href="/login" class="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-brand-600 transition">Login</a>
+                            <a href="/register" class="px-4 py-2 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg shadow-md shadow-brand-500/20 transition">Get Started</a>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="md:hidden flex items-center">
+                    <button @click="mobileMenuOpen = !mobileMenuOpen" class="p-2 text-slate-500">
+                        <i x-show="!mobileMenuOpen" class="fas fa-bars"></i>
+                        <i x-show="mobileMenuOpen" class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div x-show="mobileMenuOpen" x-cloak class="md:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+            <div class="px-4 py-4 space-y-3">
+                {% if is_authenticated %}
+                    <a href="/dashboard" class="block py-2 text-slate-600 dark:text-slate-400">Dashboard</a>
+                    <a href="/settings" class="block py-2 text-slate-600 dark:text-slate-400">Settings</a>
+                    <a href="/auth/logout" class="block py-2 text-rose-500">Logout</a>
+                {% else %}
+                    <a href="/login" class="block py-2 text-slate-600 dark:text-slate-400">Login</a>
+                    <a href="/register" class="block py-2 text-brand-600 font-bold">Register</a>
+                {% endif %}
+                <button @click="toggleDark()" class="w-full text-left py-2 text-slate-600 dark:text-slate-400">
+                    <i class="fas fa-circle-half-stroke mr-2"></i> Toggle Theme
+                </button>
+            </div>
+        </div>
+    </nav>
+    {% endblock %}
+
+    <main class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fade-in">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% block footer %}
+    <footer class="border-t border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-950/50 py-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-6">
+                <div class="flex items-center gap-2 opacity-60">
+                    <div class="w-6 h-6 bg-slate-400 rounded flex items-center justify-center">
+                        <i class="fas fa-comment-dots text-white text-[10px]"></i>
+                    </div>
+                    <span class="text-sm font-semibold tracking-wider uppercase">BizChat</span>
+                </div>
+                <div class="flex gap-8 text-slate-500 dark:text-slate-400 text-sm">
+                    <a href="#" class="hover:text-brand-500 transition">Terms</a>
+                    <a href="#" class="hover:text-brand-500 transition">Privacy</a>
+                    <a href="#" class="hover:text-brand-500 transition">Support</a>
+                </div>
+                <p class="text-slate-400 dark:text-slate-600 text-xs">
+                    &copy; 2026 Review Intelligence Platform. Built for excellence.
+                </p>
+            </div>
+        </div>
+    </footer>
+    {% endblock %}
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
