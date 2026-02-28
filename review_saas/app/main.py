@@ -10,7 +10,9 @@ from starlette.middleware.sessions import SessionMiddleware
 from .core.config import settings
 from .db import init_db_sync
 from .models import Base
-from .routes import auth as auth_router
+from .routers import auth as auth_router
+from .routers import companies as companies_router
+from .routers import dashboard as dashboard_router
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -21,7 +23,7 @@ app = FastAPI(title="ReviewSaaS")
 app.add_middleware(SessionMiddleware, secret_key=settings.JWT_SECRET)
 
 # Static files
-STATIC_DIR = "static"
+STATIC_DIR = "app/static"
 if os.path.isdir(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     logger.info("Static directory mounted.")
@@ -46,3 +48,5 @@ def index(request: Request):
 
 # Include routers
 app.include_router(auth_router.router)
+app.include_router(companies_router.router)
+app.include_router(dashboard_router.router)
