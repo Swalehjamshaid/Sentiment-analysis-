@@ -1,17 +1,21 @@
+# File: app/core/security.py
+
 from passlib.context import CryptContext
 import logging
 import re
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from ..models.models import User
+from sqlalchemy.orm import Session
 
 # Set up logging to track any hashing issues
 logger = logging.getLogger("review_saas")
 
-# We explicitly set the schemes and force the 'bcrypt' backend 
-# to avoid the 'PasswordSizeError' bug in Python 3.13
+# Cryptographic context for password hashing
 pwd_context = CryptContext(
     schemes=["bcrypt"], 
     deprecated="auto",
-    # This is the key setting to bypass the Python 3.13 compatibility bug
-    bcrypt__truncate_error=False  
+    bcrypt__truncate_error=False  # Avoid Python 3.13 bug
 )
 
 def hash_password(password: str) -> str:
@@ -23,8 +27,6 @@ def hash_password(password: str) -> str:
     try:
         if not password:
             raise ValueError("Password cannot be empty")
-            
-        # Explicitly truncate to 72 characters 
         safe_password = str(password)[:72]
         return pwd_context.hash(safe_password)
     except Exception as e:
@@ -38,8 +40,6 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
         if not plain_password or not hashed_password:
             return False
-            
-        # Use the same truncation logic for verification
         return pwd_context.verify(str(plain_password)[:72], hashed_password)
     except Exception as e:
         logger.error(f"Error verifying password: {str(e)}")
@@ -59,3 +59,7 @@ def verify_password_strength(password: str) -> bool:
     if not re.search(r"\d", password):
         return False
     return True
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+
+def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
