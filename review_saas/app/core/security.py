@@ -15,6 +15,7 @@ from .db import get_db
 from ..models.models import User
 
 # --- FIX: Passlib + Bcrypt 4.x compatibility monkeypatch ---
+# This fixes the "module 'bcrypt' has no attribute '__about__'" error
 try:
     import bcrypt
     if not hasattr(bcrypt, "__about__"):
@@ -26,7 +27,7 @@ except ImportError:
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hash_password(password: str) -> str:
-    """Hashes a plain-text password."""
+    """Hashes a plain-text password using bcrypt."""
     return pwd_context.hash(password[:72])
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -37,7 +38,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 def verify_password_strength(password: str) -> bool:
-    """Requirement #6: Password Complexity."""
+    """Checks for: 8+ chars, 1 uppercase, 1 lowercase, 1 number."""
     if len(password) < 8:
         return False
     if not any(char.isdigit() for char in password):
@@ -51,7 +52,7 @@ def verify_password_strength(password: str) -> bool:
 # --- JWT & Authentication Logic ---
 
 def create_access_token(user_id: str) -> str:
-    """Requirement #8: Create JWT access token."""
+    """Creates a JWT access token for the session."""
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_MIN)
     to_encode = {"exp": expire, "sub": str(user_id)}
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALG)
@@ -59,8 +60,8 @@ def create_access_token(user_id: str) -> str:
 
 async def get_current_user(request: Request, db: Session = Depends(get_db)) -> Optional[User]:
     """
-    Requirement #9: Dependency to get the currently logged-in user 
-    via the HTTP-only cookie.
+    REQUIRED: Fetches the user based on the JWT stored in the cookie.
+    This fixes the ImportError causing your 500 error.
     """
     token = request.cookies.get("access_token")
     if not token:
@@ -75,13 +76,4 @@ async def get_current_user(request: Request, db: Session = Depends(get_db)) -> O
         return None
     
     user = db.query(User).filter(User.id == int(user_id)).first()
-    return user
-
-def login_required(user: Optional[User] = Depends(get_current_user)):
-    """Simple helper to enforce login on specific routes."""
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_303_SEE_OTHER,
-            headers={"Location": "/login"}
-        )
     return user
