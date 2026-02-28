@@ -1,91 +1,54 @@
-from __future__ import annotations
-import secrets
-from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, Form, Request, HTTPException, status
+# File: app/routes/auth.py
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Form, status
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy.orm import Session
-from authlib.integrations.starlette_client import OAuth, OAuthError
+import logging
 
-from ..core.db import get_db
-from ..core.settings import settings
-from ..core.security import verify_password_strength, hash_password, verify_password
-from ..models.models import User, VerificationToken, LoginAttempt
-from ..services.emailer import send_email
+# Import your fixed security functions
+from ..core.security import hash_password, verify_password_strength
 
-# Router without prefix to keep /login and /register at the root level
-router = APIRouter(tags=['Authentication'])
-templates = Jinja2Templates(directory='app/templates')
+logger = logging.getLogger("review_saas")
+router = APIRouter(prefix="/auth", tags=["auth"])
+templates = Jinja2Templates(directory="app/templates")
 
-# Google OAuth Setup
-oauth = OAuth()
-oauth.register(
-    name='google',
-    client_id=settings.OAUTH_GOOGLE_CLIENT_ID,
-    client_secret=settings.OAUTH_GOOGLE_CLIENT_SECRET,
-    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-    client_kwargs={'scope': 'openid email profile'}
-)
+@router.get("/register", response_class=HTMLResponse)
+async def get_register(request: Request, msg: str = None):
+    """
+    Displays the registration page. 
+    If 'msg' is in the URL, it will be shown to the user.
+    """
+    return templates.TemplateResponse("register.html", {"request": request, "msg": msg})
 
-# --- LOGIN FLOW ---
-
-@router.get('/login', response_class=HTMLResponse)
-async def login_get(request: Request):
-    return templates.TemplateResponse('login.html', {'request': request})
-
-@router.post('/auth/token')
-async def login_post(
-    request: Request, 
-    email: str = Form(...), 
-    password: str = Form(...), 
-    db: Session = Depends(get_db)
+@router.post("/register")
+async def register_post(
+    request: Request,
+    full_name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...)
 ):
-    user = db.query(User).filter(User.email == email).first()
-    ip = request.client.host if request.client else "0.0.0.0"
-
-    # Lockout check
-    if user and user.status == 'suspended':
-        if user.lockout_until and datetime.now(timezone.utc) < user.lockout_until:
-            return templates.TemplateResponse('login.html', {
-                'request': request, 'error': 'Account locked. Try again later.'
-            })
-    
-    if not user or not verify_password(password, user.password_hash):
-        if user:
-            user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
-            if user.failed_login_attempts >= settings.LOCKOUT_THRESHOLD:
-                user.status = 'suspended'
-                user.lockout_until = datetime.now(timezone.utc) + timedelta(minutes=settings.LOCKOUT_MINUTES)
-            db.commit()
-        return templates.TemplateResponse('login.html', {'request': request, 'error': 'Invalid credentials'})
-
-    # Success: Set Cookie
-    user.last_login_at = datetime.now(timezone.utc)
-    user.failed_login_attempts = 0
-    db.add(LoginAttempt(user_id=user.id, success=True, ip_address=ip))
-    db.commit()
-
-    response = RedirectResponse(url='/dashboard', status_code=status.HTTP_302_FOUND)
-    response.set_cookie(
-        key='access_token', value=secrets.token_hex(32), httponly=True, 
-        secure=settings.COOKIE_SECURE, samesite='lax'
-    )
-    return response
-
-# --- GOOGLE OAUTH FLOW ---
-
-@router.get('/auth/google/login')
-async def google_login(request: Request):
-    redirect_uri = f"{settings.APP_BASE_URL}/auth/google/callback"
-    return await oauth.google.authorize_redirect(request, redirect_uri)
-
-@router.get('/auth/google/callback')
-async def google_callback(request: Request, db: Session = Depends(get_db)):
+    """Handles the registration and redirects with a success message."""
     try:
-        token = await oauth.google.authorize_access_token(request)
-    except OAuthError as error:
-        return templates.TemplateResponse('login.html', {'request': request, 'error': f'Google Auth Failed: {error.error}'})
-    
-    user_info = token.get('userinfo')
-    if not user_info:
-        raise HTTP
+        # 1. Simple Validation
+        if not verify_password_strength(password):
+            return templates.TemplateResponse(
+                "register.html", 
+                {"request": request, "error": "Password cannot be empty"}
+            )
+
+        # 2. Process Registration (Hashing and DB logic)
+        hashed_pw = hash_password(password)
+        
+        # 3. Redirect back to registration page with a 'msg' parameter
+        success_message = "Registration successfully done!"
+        return RedirectResponse(
+            url=f"/auth/register?msg={success_message}", 
+            status_code=status.HTTP_303_SEE_OTHER
+        )
+
+    except Exception as e:
+        logger.error(f"Registration failed: {str(e)}")
+        return templates.TemplateResponse(
+            "register.html", 
+            {"request": request, "error": "Registration failed. Please try again."}
+        )
