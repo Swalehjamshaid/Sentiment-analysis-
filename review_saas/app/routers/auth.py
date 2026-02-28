@@ -6,20 +6,18 @@ from fastapi.templating import Jinja2Templates
 from email_validator import validate_email, EmailNotValidError
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
-import secrets
+import os, secrets
 
 from ..core.config import settings
 from ..security.utils import verify_password_strength, hash_password, verify_password, create_access_token
-from ..models import User, VerificationToken, LoginAttempt
+from ..models import User, VerificationToken
 from ..db import SessionLocal
 from ..emailer import send_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 templates = Jinja2Templates(directory="app/templates")
 
-# ------------------------
-# DB Dependency
-# ------------------------
+# DB dependency
 def get_db():
     db = SessionLocal()
     try:
@@ -27,16 +25,12 @@ def get_db():
     finally:
         db.close()
 
-# ------------------------
-# GET REGISTER PAGE
-# ------------------------
+# GET register page
 @router.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request):
     return templates.TemplateResponse("register.html", {"request": request})
 
-# ------------------------
-# POST REGISTER
-# ------------------------
+# POST register
 @router.post("/register", response_class=HTMLResponse)
 async def register(
     request: Request,
@@ -46,7 +40,7 @@ async def register(
     profile_pic: UploadFile | None = None,
     db: Session = Depends(get_db)
 ):
-    # validate email & password
+    # Validate email and password
     try:
         email = validate_email(email).email
     except EmailNotValidError as e:
@@ -56,21 +50,21 @@ async def register(
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=400, detail="Email already exists")
 
-    # save profile pic
+    # Save profile pic
     pic_url = None
     if profile_pic and profile_pic.filename:
+        os.makedirs("static", exist_ok=True)
         data = await profile_pic.read()
-        path = f"app/static/{secrets.token_hex(8)}_{profile_pic.filename}"
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        path = f"static/{secrets.token_hex(8)}_{profile_pic.filename}"
         with open(path, "wb") as f:
             f.write(data)
         pic_url = "/" + path
 
-    # create user
+    # Create user
     user = User(full_name=full_name[:100], email=email, password_hash=hash_password(password), profile_pic_url=pic_url, status="inactive")
     db.add(user); db.commit(); db.refresh(user)
 
-    # create verification token
+    # Verification token
     token = secrets.token_urlsafe(32)
     vt = VerificationToken(user_id=user.id, token=token, expires_at=datetime.now(timezone.utc) + timedelta(hours=settings.VERIFY_TOKEN_HOURS))
     db.add(vt); db.commit()
@@ -80,16 +74,12 @@ async def register(
 
     return templates.TemplateResponse("message.html", {"request": request, "message": "Registration successful. Please verify your email."})
 
-# ------------------------
-# GET LOGIN PAGE
-# ------------------------
+# GET login page
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
 
-# ------------------------
-# POST LOGIN
-# ------------------------
+# POST login
 @router.post("/login")
 async def login(request: Request, email: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == email).first()
@@ -99,19 +89,6 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
         raise HTTPException(status_code=403, detail="Email not verified")
 
     token = create_access_token(str(user.id))
-    response = RedirectResponse(url="/dashboard", status_code=302)
+    response = RedirectResponse(url="/dashboard.html", status_code=302)
     response.set_cookie(key="access_token", value=token, httponly=True, secure=False, samesite="lax")
     return response
-
-# ------------------------
-# VERIFY EMAIL
-# ------------------------
-@router.get("/verify", response_class=HTMLResponse)
-async def verify_email(request: Request, token: str, db: Session = Depends(get_db)):
-    vt = db.query(VerificationToken).filter(VerificationToken.token == token).first()
-    if not vt or vt.expires_at < datetime.now(timezone.utc):
-        return templates.TemplateResponse("verify.html", {"request": request, "message": "Invalid or expired token."})
-    user = db.query(User).get(vt.user_id)
-    user.status = "active"
-    db.delete(vt); db.commit()
-    return templates.TemplateResponse("verify.html", {"request": request, "message": "Email verified. You can now login."})
