@@ -1,3 +1,4 @@
+<!-- File: review_saas/app/templates/dashboard.html -->
 {% extends "base.html" %}
 {% block title %}Dashboard · {{ title or 'ReviewSaaS' }}{% endblock %}
 
@@ -10,23 +11,38 @@
       <p class="text-muted mb-0">Your reviews, sentiment, and activity at a glance.</p>
     </div>
     <div class="d-flex gap-2">
-      <a class="btn btn-outline-secondary" href="/exports/activity.csv" download>Export CSV</a>
-      <a class="btn btn-outline-secondary" href="/exports/activity.xlsx" download>Export Excel</a>
+      <a class="btn btn-outline-secondary" href="/exports/activity.csv" download>
+        <span class="me-1">⬇️</span> Export CSV
+      </a>
+      <a class="btn btn-outline-secondary" href="/exports/activity.xlsx" download>
+        <span class="me-1">⬇️</span> Export Excel
+      </a>
     </div>
   </div>
 
-  <!-- Filter Bar -->
-  <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-    <div class="input-group input-group-sm" style="max-width: 320px;">
-      <span class="input-group-text">Range</span>
-      <select id="seriesRange" class="form-select">
+  <!-- Filters: Company + Range -->
+  <div class="row g-2 mb-3 align-items-center">
+    <div class="col-auto">
+      <label class="form-label mb-0 small">Company</label>
+      <select id="companyFilter" class="form-select form-select-sm">
+        <option value="">All Companies</option>
+        {% if companies %}
+          {% for c in companies %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        {% endif %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <label class="form-label mb-0 small">Range</label>
+      <select id="seriesRange" class="form-select form-select-sm">
         <option value="7">Last 7 days</option>
         <option value="14" selected>Last 14 days</option>
         <option value="30">Last 30 days</option>
         <option value="90">Last 90 days</option>
       </select>
     </div>
-    <span class="small text-muted" id="rangeNote">Showing: Last 14 days</span>
+    <div class="col-auto small text-muted" id="rangeNote">Showing: Last 14 days</div>
   </div>
 
   <!-- KPI Cards -->
@@ -74,8 +90,8 @@
     <div class="col-6 col-md-4 col-xl-2">
       <div class="card shadow-sm h-100">
         <div class="card-body">
-          <div class="text-uppercase text-muted small">Last Sync</div>
-          <div class="fs-6" id="kpi-last-sync">—</div>
+          <div class="text-uppercase text-muted small">Sentiment Score</div>
+          <div class="fs-6" id="kpi-sentiment-score">—</div>
         </div>
       </div>
     </div>
@@ -152,7 +168,7 @@
   </div>
 </div>
 
-<!-- Google Maps API key injection (from server/router) -->
+<!-- Google Maps API key injection -->
 <script>
   window.GOOGLE_MAPS_API_KEY = "{{ google_maps_api_key | default('', true) }}";
 </script>
@@ -176,12 +192,33 @@
 </style>
 
 <script>
-// ---------------- Fetch helpers with fallback paths ----------------
+// -------- Helper: build URL with query params --------
+function withParams(base, params) {
+  const url = new URL(base, window.location.origin);
+  Object.entries(params || {}).forEach(([k,v]) => {
+    if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
+  });
+  return url.pathname + (url.search ? url.search : '');
+}
+
+// -------- API paths (try /dashboard/... first, fallback to /api/...) --------
 const API_PATHS = {
-  kpis: ['/api/kpis', '/dashboard/api/kpis'],
-  seriesBase: ['/api/orders/series?days=', '/dashboard/api/orders/series?days='],
-  category: ['/api/category-mix', '/dashboard/api/category-mix'],
-  activity: ['/api/activity?limit=100', '/dashboard/api/activity?limit=100']
+  kpis: (params) => [
+    withParams('/dashboard/kpis', params),
+    withParams('/api/kpis', params)
+  ],
+  series: (days, params) => [
+    withParams('/dashboard/orders/series', { ...params, days }),
+    withParams('/api/orders/series', { ...params, days })
+  ],
+  category: (params) => [
+    withParams('/dashboard/category-mix', params),
+    withParams('/api/category-mix', params)
+  ],
+  activity: (params) => [
+    withParams('/dashboard/activity', { ...params, limit: 100 }),
+    withParams('/api/activity', { ...params, limit: 100 })
+  ]
 };
 
 async function fetchFirst(paths, options = {}) {
@@ -194,38 +231,64 @@ async function fetchFirst(paths, options = {}) {
   throw new Error('All API paths failed: ' + paths.join(', '));
 }
 
-function fmtPercent(x) { if (x === null || x === undefined) return '—'; return (x*100).toFixed(1) + '%'; }
+function fmtPercent(x) { if (x === null || x === undefined || !isFinite(x)) return '—'; return (x*100).toFixed(1) + '%'; }
 function fmtNumber(x) { if (x === null || x === undefined) return '—'; return new Intl.NumberFormat().format(x); }
 function fmtDate(s) { try { const d = new Date(s); return d.toLocaleString(); } catch { return s || '—'; } }
 
-// ---------------- State ----------------
 let trendChart, categoryChart;
 let seriesDays = 14;
 let selectedPlacePayload = null;
 
-// ---------------- KPI Load ----------------
+function computeRatios(total, pos, neu, neg) {
+  const t = Math.max(1, Number(total) || 0);
+  return { pos: Number(pos||0)/t, neu: Number(neu||0)/t, neg: Number(neg||0)/t };
+}
+
+function selectedCompanyId() {
+  const sel = document.getElementById('companyFilter');
+  return sel ? sel.value : '';
+}
+
+// ----- KPIs -----
 async function loadKpis() {
   try {
-    const kpis = await fetchFirst(API_PATHS.kpis);
-    document.getElementById('kpi-total-reviews').textContent = fmtNumber(kpis.total_reviews);
-    document.getElementById('kpi-positive').textContent = fmtPercent(kpis.positive_ratio);
-    document.getElementById('kpi-neutral').textContent = fmtPercent(kpis.neutral_ratio);
-    document.getElementById('kpi-negative').textContent = fmtPercent(kpis.negative_ratio);
-    document.getElementById('kpi-avg-rating').textContent = (kpis.avg_rating ?? '—');
-    document.getElementById('kpi-last-sync').textContent = fmtDate(kpis.last_sync_at);
+    const company_id = selectedCompanyId();
+    const data = await fetchFirst(API_PATHS.kpis({ company_id }));
+    const total = data.total_reviews ?? 0;
+    const avg = data.avg_rating ?? data.avg ?? 0;
+    const lastSync = data.last_sync_at || data.last_sync || null;
+
+    let posRatio, neuRatio, negRatio, score;
+    if (data.sentiment) {
+      const s = data.sentiment;
+      const ratios = computeRatios(total, s.positive, s.neutral, s.negative);
+      posRatio = ratios.pos; neuRatio = ratios.neu; negRatio = ratios.neg;
+      score = s.average_score ?? null;
+    } else {
+      posRatio = data.positive_ratio; neuRatio = data.neutral_ratio; negRatio = data.negative_ratio;
+      score = data.average_score ?? null;
+    }
+
+    document.getElementById('kpi-total-reviews').textContent = fmtNumber(total);
+    document.getElementById('kpi-positive').textContent = fmtPercent(posRatio);
+    document.getElementById('kpi-neutral').textContent = fmtPercent(neuRatio);
+    document.getElementById('kpi-negative').textContent = fmtPercent(negRatio);
+    document.getElementById('kpi-avg-rating').textContent = (avg ?? '—');
+    document.getElementById('kpi-sentiment-score').textContent = (score !== null && score !== undefined) ? Number(score).toFixed(3) : '—';
   } catch (e) {
     console.error('Failed to load KPIs', e);
   }
 }
 
-// ---------------- Trend (Series) ----------------
+// ----- Series -----
 async function loadSeries() {
   try {
-    const data = await fetchFirst(API_PATHS.seriesBase.map(x => x + seriesDays));
-    const labels = data.map(p => p.date);
-    const reviews = data.map(p => p.count);
-    const pos = data.map(p => p.positive || 0);
-    const neg = data.map(p => p.negative || 0);
+    const company_id = selectedCompanyId();
+    const data = await fetchFirst(API_PATHS.series(seriesDays, { company_id }));
+    const labels = (Array.isArray(data) ? data : []).map(p => p.date);
+    const reviews = (Array.isArray(data) ? data : []).map(p => p.count);
+    const pos = (Array.isArray(data) ? data : []).map(p => p.positive || 0);
+    const neg = (Array.isArray(data) ? data : []).map(p => p.negative || 0);
 
     const ctx = document.getElementById('trendChart').getContext('2d');
     if (trendChart) trendChart.destroy();
@@ -248,41 +311,36 @@ async function loadSeries() {
       }
     });
   } catch (e) {
-    console.error('Failed to load series', e);
+    console.warn('Series API not available yet.');
   }
 }
 
-// ---------------- Category Mix ----------------
+// ----- Category -----
 async function loadCategory() {
   try {
-    const { labels, values } = await fetchFirst(API_PATHS.category);
+    const company_id = selectedCompanyId();
+    const payload = await fetchFirst(API_PATHS.category({ company_id }));
+    const labels = payload.labels || [];
+    const values = payload.values || [];
     const ctx = document.getElementById('categoryChart').getContext('2d');
     if (categoryChart) categoryChart.destroy();
     categoryChart = new Chart(ctx, {
       type: 'doughnut',
-      data: {
-        labels,
-        datasets: [{ data: values, backgroundColor: [
-          '#0d6efd','#6f42c1','#198754','#ffc107','#dc3545','#20c997','#fd7e14','#6610f2'
-        ] }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { position: 'bottom' } }
-      }
+      data: { labels, datasets: [{ data: values, backgroundColor: ['#0d6efd','#6f42c1','#198754','#ffc107','#dc3545','#20c997','#fd7e14','#6610f2'] }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
     });
   } catch (e) {
-    console.error('Failed to load category mix', e);
+    console.warn('Category API not available yet.');
   }
 }
 
-// ---------------- Activity Table ----------------
+// ----- Activity -----
 async function loadActivity() {
   const tbody = document.getElementById('activityBody');
   tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">Loading…</td></tr>';
   try {
-    const rows = await fetchFirst(API_PATHS.activity);
+    const company_id = selectedCompanyId();
+    const rows = await fetchFirst(API_PATHS.activity({ company_id }));
     if (!Array.isArray(rows) || rows.length === 0) {
       tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">No activity yet.</td></tr>';
       return;
@@ -302,8 +360,8 @@ async function loadActivity() {
       tbody.appendChild(tr);
     }
   } catch (e) {
-    console.error('Failed to load activity', e);
-    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-4">Failed to load activity.</td></tr>';
+    console.warn('Activity API not available yet.');
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">—</td></tr>';
   }
 }
 
@@ -315,7 +373,7 @@ function badgeForSentiment(s) {
   return 'text-bg-secondary';
 }
 
-// ---------------- Google Places Autocomplete ----------------
+// ----- Google Places -----
 function loadGoogleMapsScript(apiKey) {
   return new Promise((resolve, reject) => {
     if (!apiKey) return reject(new Error('No API key'));
@@ -398,12 +456,12 @@ function setStatus(msg, cls) {
   el.textContent = msg;
 }
 
-// ---------------- Init ----------------
+// ----- Init -----
 window.addEventListener('DOMContentLoaded', async () => {
-  // Initialize range selector
   const rangeSel = document.getElementById('seriesRange');
   const label = document.getElementById('trend-range-label');
   const note = document.getElementById('rangeNote');
+  const companySel = document.getElementById('companyFilter');
 
   function updateRange(newDays) {
     seriesDays = parseInt(newDays, 10);
@@ -413,8 +471,18 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
 
   rangeSel.addEventListener('change', (e) => updateRange(e.target.value));
+  if (companySel) {
+    companySel.addEventListener('change', async () => {
+      await loadKpis();
+      await loadSeries();
+      await loadCategory();
+      await loadActivity();
+    });
+  }
 
-  await Promise.all([loadKpis(), loadCategory(), loadActivity()]);
+  await loadKpis();
+  await loadCategory();
+  await loadActivity();
   updateRange(rangeSel.value);
 
   await initPlaces();
