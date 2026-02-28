@@ -1,7 +1,5 @@
 # FILE: app/models.py
-# NOTE: Flask‑SQLAlchemy models (db.Model), not declarative_base()
-
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import (
     Integer, String, DateTime, Boolean, ForeignKey, Text, Float,
     UniqueConstraint, Index
@@ -17,13 +15,23 @@ class User(db.Model):
     __tablename__ = "users"
 
     id = db.Column(Integer, primary_key=True)
-    full_name = db.Column(String(100), nullable=False)
-    email = db.Column(String(255), unique=True, index=True, nullable=False)
-    password_hash = db.Column(String(255), nullable=False)
-    status = db.Column(String(20), default="pending", nullable=False)
-    profile_pic_url = db.Column(String(255), nullable=True)
-    created_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    full_name = db.Column(db.String(100), nullable=False) # Requirement 1 & 21
+    email = db.Column(db.String(255), unique=True, index=True, nullable=False) # Req 2 & 22
+    password_hash = db.Column(db.String(255), nullable=False) # Req 7 & 23
+    
+    # Account Status (active, suspended, pending)
+    status = db.Column(db.String(20), default="pending", nullable=False) # Req 24
+    profile_pic_url = db.Column(db.String(255), nullable=True) # Req 4 & 25
+    
+    # Timestamps & Security
+    created_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False) # Req 26
+    last_login_at = db.Column(DateTime, nullable=True) # Req 27
+    
+    # Login Attempt Management (Req 10 & 11)
+    failed_login_attempts = db.Column(Integer, default=0, nullable=False)
+    lockout_until = db.Column(DateTime, nullable=True)
 
+    # Relationships
     companies = relationship("Company", back_populates="owner", cascade="all, delete-orphan")
     verification_tokens = relationship("VerificationToken", back_populates="user", cascade="all, delete-orphan")
     reset_tokens = relationship("ResetToken", back_populates="user", cascade="all, delete-orphan")
@@ -40,8 +48,8 @@ class VerificationToken(db.Model):
 
     id = db.Column(Integer, primary_key=True)
     user_id = db.Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    token = db.Column(String(255), nullable=False, unique=True)
-    expires_at = db.Column(DateTime, nullable=False)
+    token = db.Column(db.String(255), nullable=False, unique=True)
+    expires_at = db.Column(DateTime, nullable=False) # Req 5 (24hr expiry)
     created_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     user = relationship("User", back_populates="verification_tokens")
@@ -52,8 +60,8 @@ class ResetToken(db.Model):
 
     id = db.Column(Integer, primary_key=True)
     user_id = db.Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    token = db.Column(String(255), nullable=False, unique=True)
-    expires_at = db.Column(DateTime, nullable=False)
+    token = db.Column(db.String(255), nullable=False, unique=True)
+    expires_at = db.Column(DateTime, nullable=False) # Req 12 (30min expiry)
     created_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     user = relationship("User", back_populates="reset_tokens")
@@ -65,7 +73,8 @@ class LoginAttempt(db.Model):
     id = db.Column(Integer, primary_key=True)
     user_id = db.Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     success = db.Column(Boolean, nullable=False)
-    ip_address = db.Column(String(50), nullable=True)
+    ip_address = db.Column(db.String(50), nullable=True) # Req 9 & 31
+    user_agent = db.Column(db.String(255), nullable=True)
     created_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     user = relationship("User", back_populates="login_attempts")
@@ -78,28 +87,21 @@ class LoginAttempt(db.Model):
 class Company(db.Model):
     __tablename__ = "companies"
 
-    id = db.Column(Integer, primary_key=True)
-    owner_id = db.Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    id = db.Column(Integer, primary_key=True) # Req 41
+    owner_id = db.Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False) # Req 42
 
-    name = db.Column(String(255), nullable=False)
-    place_id = db.Column(String(128), nullable=True)
-    maps_link = db.Column(String(512), nullable=True)
+    name = db.Column(db.String(255), nullable=False) # Req 43
+    place_id = db.Column(db.String(128), nullable=True, index=True) # Req 33 & 44
+    maps_link = db.Column(db.String(512), nullable=True) # Req 33 & 44
 
-    city = db.Column(String(128), nullable=True)
-    status = db.Column(String(20), default="active", nullable=False)
-    logo_url = db.Column(String(255), nullable=True)
-    created_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    city = db.Column(db.String(128), nullable=True) # Req 45
+    status = db.Column(db.String(20), default="active", nullable=False) # Req 46
+    logo_url = db.Column(db.String(255), nullable=True) # Req 47
+    created_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False) # Req 48
 
-    # Track last sync with Google API
+    # Integration data
     last_synced_at = db.Column(DateTime, nullable=True)
-
-    lat = db.Column(Float, nullable=True)
-    lng = db.Column(Float, nullable=True)
-
-    email = db.Column(String(255), nullable=True)
-    phone = db.Column(String(50), nullable=True)
-    address = db.Column(String(512), nullable=True)
-    description = db.Column(Text, nullable=True)
+    address = db.Column(db.String(512), nullable=True)
 
     owner = relationship("User", back_populates="companies")
     reviews = relationship("Review", back_populates="company", cascade="all, delete-orphan")
@@ -107,9 +109,8 @@ class Company(db.Model):
     reports = relationship("Report", back_populates="company", cascade="all, delete-orphan")
 
     __table_args__ = (
+        UniqueConstraint("owner_id", "place_id", name="uq_owner_company"), # Req 38
         Index("idx_company_owner_status", "owner_id", "status"),
-        Index("idx_company_place_id", "place_id"),
-        Index("idx_company_created", "created_at"),
     )
 
 
@@ -120,34 +121,32 @@ class Company(db.Model):
 class Review(db.Model):
     __tablename__ = "reviews"
 
-    id = db.Column(Integer, primary_key=True)
-    company_id = db.Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    id = db.Column(Integer, primary_key=True) # Req 58
+    company_id = db.Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False) # Req 59
 
-    external_id = db.Column(String(128), nullable=True)
-    text = db.Column(Text, nullable=True)
-    rating = db.Column(Integer, nullable=True)
+    external_id = db.Column(db.String(128), nullable=True) # Google Review ID
+    text = db.Column(Text, nullable=True) # Req 60
+    rating = db.Column(Integer, nullable=True) # Req 61
 
-    # Must be DateTime (analytics)
-    review_date = db.Column(DateTime, nullable=True)
-    reviewer_name = db.Column(String(255), nullable=True)
-    reviewer_avatar = db.Column(String(255), nullable=True)
+    review_date = db.Column(DateTime, nullable=True) # Req 62
+    reviewer_name = db.Column(db.String(255), nullable=True) # Req 63
+    reviewer_avatar = db.Column(db.String(255), nullable=True) # Req 64
 
-    sentiment_category = db.Column(String(20), nullable=True)
-    sentiment_score = db.Column(Float, nullable=True)
+    # Sentiment Analysis (Req 65, 73, 76, 79)
+    sentiment_category = db.Column(db.String(20), nullable=True) # Positive/Neutral/Negative
+    sentiment_score = db.Column(Float, nullable=True) # 0 to 1
+    
+    keywords = db.Column(db.Text, nullable=True) # Req 75 & 80
+    language = db.Column(db.String(10), nullable=True) # Req 77
 
-    keywords = db.Column(String(512), nullable=True)
-    language = db.Column(String(10), nullable=True)
-
-    fetch_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    fetch_status = db.Column(String(20), default="Success", nullable=False)
+    fetch_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False) # Req 66
+    fetch_status = db.Column(db.String(20), default="Success", nullable=False) # Req 67
 
     company = relationship("Company", back_populates="reviews")
     replies = relationship("Reply", back_populates="review", cascade="all, delete-orphan")
 
     __table_args__ = (
-        UniqueConstraint("company_id", "external_id", name="uq_review_company_ext"),
-        Index("idx_review_company_date", "company_id", "review_date"),
-        Index("idx_review_rating", "rating"),
+        UniqueConstraint("company_id", "external_id", name="uq_review_company_ext"), # Req 70
         Index("idx_review_sentiment", "sentiment_category"),
     )
 
@@ -159,15 +158,15 @@ class Review(db.Model):
 class Reply(db.Model):
     __tablename__ = "replies"
 
-    id = db.Column(Integer, primary_key=True)
+    id = db.Column(Integer, primary_key=True) # Req 89
     review_id = db.Column(Integer, ForeignKey("reviews.id", ondelete="CASCADE"), nullable=False)
 
-    suggested_text = db.Column(Text, nullable=True)
-    edited_text = db.Column(Text, nullable=True)
+    suggested_text = db.Column(Text, nullable=True) # Req 90
+    edited_text = db.Column(Text, nullable=True) # Req 91
 
-    status = db.Column(String(20), default="Draft", nullable=False)
-    suggested_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    sent_at = db.Column(DateTime, nullable=True)
+    status = db.Column(db.String(20), default="Draft", nullable=False) # Req 92 (Draft/Sent)
+    suggested_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False) # Req 93
+    sent_at = db.Column(DateTime, nullable=True) # Req 94
 
     review = relationship("Review", back_populates="replies")
 
@@ -178,9 +177,8 @@ class Report(db.Model):
     id = db.Column(Integer, primary_key=True)
     company_id = db.Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
 
-    title = db.Column(String(255), nullable=True)
-    path = db.Column(String(512), nullable=True)
-    meta = db.Column(Text, nullable=True)
+    title = db.Column(db.String(255), nullable=True) # Req 109
+    path = db.Column(db.String(512), nullable=True) # Storage path for PDF
     generated_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     company = relationship("Company", back_populates="reports")
@@ -193,8 +191,8 @@ class Notification(db.Model):
     user_id = db.Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     company_id = db.Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=True)
 
-    kind = db.Column(String(50), nullable=True)
-    payload = db.Column(Text, nullable=True)
+    kind = db.Column(db.String(50), nullable=True) # e.g., "negative_review_alert" (Req 119)
+    payload = db.Column(db.Text, nullable=True)
 
     created_at = db.Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     read = db.Column(Boolean, default=False, nullable=False)
