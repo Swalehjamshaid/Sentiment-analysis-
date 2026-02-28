@@ -1,4 +1,4 @@
-# File: app/main.py
+# File: review_saas/app/main.py
 from __future__ import annotations
 import logging
 import os
@@ -55,7 +55,7 @@ async def index(request: Request):
     })
 
 # --- Registering Routers ---
-# Included without prefix so /register and /login work directly
+# auth included without prefix to allow /register and /login at top-level
 app.include_router(auth.router) 
 app.include_router(companies.router, prefix="/companies")
 app.include_router(reviews.router, prefix="/reviews")
