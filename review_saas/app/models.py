@@ -40,7 +40,7 @@ class User(Base):
 
 
 # =========================================================
-# TOKEN & LOG MODELS
+# TOKEN &amp; LOG MODELS
 # =========================================================
 
 class VerificationToken(Base):
