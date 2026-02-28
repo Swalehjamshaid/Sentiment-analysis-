@@ -1,75 +1,45 @@
-# filename: app/core/security.py
-from __future__ import annotations
-import logging
-from datetime import datetime, timedelta, timezone
-from typing import Optional
-
-from fastapi import Request, HTTPException, status, Depends
-from jose import jwt, JWTError
 from passlib.context import CryptContext
-import passlib.handlers.bcrypt
-from sqlalchemy.orm import Session
+import logging
 
-from .settings import settings
-from .db import get_db
-from ..models.models import User
+# Set up logging to track any hashing issues
+logger = logging.getLogger("review_saas")
 
-# --- FIX 1: Passlib + Bcrypt 4.x compatibility monkeypatch ---
-try:
-    import bcrypt
-    if not hasattr(bcrypt, "__about__"):
-        bcrypt.__about__ = type('About', (object,), {'__version__': bcrypt.__version__})
-except ImportError:
-    pass
-
-# --- FIX 2: Raise max password size to prevent Internal Initialization Error ---
-# This prevents: passlib.exc.PasswordSizeError: password exceeds maximum allowed size
-from passlib.handlers.bcrypt import bcrypt as bcrypt_handler
-bcrypt_handler.truncate_size = 72  # Explicitly set the internal limit
-# -----------------------------------------------------------
-
+# We explicitly set the schemes and force the 'bcrypt' backend 
+# to avoid the 'PasswordSizeError' bug in Python 3.13
 pwd_context = CryptContext(
     schemes=["bcrypt"], 
     deprecated="auto",
-    bcrypt__truncate_size=72  # Pass it into the context as well
+    # This is the key setting to bypass the Python 3.13 compatibility bug
+    bcrypt__truncate_error=False  
 )
 
 def hash_password(password: str) -> str:
-    """Hashes a plain-text password."""
-    # Truncate to 72 to stay within Bcrypt's native limit
-    return pwd_context.hash(password[:72])
+    """
+    Hashes a plain-text password using bcrypt.
+    Bcrypt has a natural limit of 72 characters; we truncate to ensure 
+    consistency and prevent 'PasswordSizeError'.
+    """
+    try:
+        if not password:
+            raise ValueError("Password cannot be empty")
+            
+        # Explicitly truncate to 72 characters 
+        safe_password = str(password)[:72]
+        return pwd_context.hash(safe_password)
+    except Exception as e:
+        logger.error(f"Error hashing password: {str(e)}")
+        raise e
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verifies a plain-text password against a hash."""
+    """
+    Verifies a plain-text password against a stored hashed version.
+    """
     try:
-        return pwd_context.verify(plain_password, hashed_password)
-    except Exception:
+        if not plain_password or not hashed_password:
+            return False
+            
+        # Use the same truncation logic for verification
+        return pwd_context.verify(str(plain_password)[:72], hashed_password)
+    except Exception as e:
+        logger.error(f"Error verifying password: {str(e)}")
         return False
-
-def verify_password_strength(password: str) -> bool:
-    """Requirement #6: Password Complexity."""
-    if len(password) < 8: return False
-    if not any(char.isdigit() for char in password): return False
-    if not any(char.isupper() for char in password): return False
-    if not any(char.islower() for char in password): return False
-    return True
-
-# --- JWT & Authentication Logic ---
-
-def create_access_token(user_id: str) -> str:
-    """Requirement #8: Create JWT access token."""
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_MIN)
-    to_encode = {"exp": expire, "sub": str(user_id)}
-    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALG)
-    return encoded_jwt
-
-async def get_current_user(request: Request, db: Session = Depends(get_db)) -> Optional[User]:
-    """Dependency to get the current user from cookie."""
-    token = request.cookies.get("access_token")
-    if not token: return None
-    try:
-        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALG])
-        user_id: str = payload.get("sub")
-        if user_id is None: return None
-    except JWTError: return None
-    return db.query(User).filter(User.id == int(user_id)).first()
