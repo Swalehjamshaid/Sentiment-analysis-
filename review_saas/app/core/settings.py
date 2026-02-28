@@ -1,34 +1,23 @@
-# File: review_saas/app/core/security.py
+# File: app/core/settings.py
 from __future__ import annotations
-from fastapi import Request, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from ..core.db import get_db
-from ..models.models import User
+from typing import Optional
+from pydantic_settings import BaseSettings
 
-async def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
-    """
-    PURE SESSION-BASED AUTH — NO TOKEN REQUIRED.
-    Reads only request.session['user_id'].
-    """
-    try:
-        if "session" in request.scope:
-            user_id = request.session.get("user_id")
-        else:
-            user_id = None
-    except Exception:
-        user_id = None
+class Settings(BaseSettings):
+    # App
+    APP_NAME: str = "ReviewSaaS"
+    SECRET_KEY: str = "dev-secret"  # Set via env in production
 
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated"
-        )
+    # Database
+    DATABASE_URL: Optional[str] = None  # e.g., postgresql+psycopg://user:pass@host:5432/db
 
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found"
-        )
+    # Google
+    GOOGLE_MAPS_API_KEY: Optional[str] = None
+    GOOGLE_SERVICE_ACCOUNT_FILE: Optional[str] = None
+    GOOGLE_SCOPES: Optional[str] = None  # comma-separated overrides
 
-    return user
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
+
+settings = Settings()
