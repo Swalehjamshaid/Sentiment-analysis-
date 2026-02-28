@@ -1,146 +1,87 @@
-# filename: app/routes/auth.py
-from flask import Blueprint, request, jsonify, make_response, render_template, redirect, url_for
-from datetime import datetime, timedelta, timezone
-from sqlalchemy import func
-from ..db import db
-from ..core.config import Settings
-from ..models import User, VerificationToken, ResetToken, LoginAttempt
-from ..services.security import hash_password, verify_password, validate_password_strength, create_jwt, decode_jwt, new_token
-from ..services.email_service import EmailService
-from ..utilities.validators import is_valid_email, sanitize_input
+# app/routers/auth.py
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
+from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel, EmailStr, constr
+from passlib.context import CryptContext
+from jose import jwt
+from datetime import datetime, timedelta
+import secrets, re
 
-bp = Blueprint('auth', __name__)
-email_service = EmailService()
+from ..db import get_db, User  # Stub DB models
 
-@bp.route('/register', methods=['GET', 'POST'])
-def register():
-    if request.method == 'GET':
-        return render_template('register.html')
+router = APIRouter()
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+SECRET_KEY = "YOUR_SECRET_KEY"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-    data = request.form or request.get_json() or {}
-    full_name = sanitize_input(data.get('full_name','')).strip()
-    email = sanitize_input(data.get('email','')).lower().strip()
-    password = data.get('password','')
+class RegisterUser(BaseModel):
+    full_name: constr(min_length=2, max_length=100)
+    email: EmailStr
+    password: constr(min_length=8)
 
-    if not full_name or len(full_name) < 2:
-        return jsonify({'error':'Full name is required'}), 400
-    if not is_valid_email(email):
-        return jsonify({'error':'Invalid email'}), 400
-    if not validate_password_strength(password):
-        return jsonify({'error':'Weak password'}), 400
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
 
-    if User.query.filter(func.lower(User.email)==email).first():
-        return jsonify({'error':'Email already registered'}), 409
+def validate_password(password: str):
+    regex = r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$'
+    if not re.match(regex, password):
+        raise HTTPException(status_code=400, detail="Password must include uppercase, lowercase, number, special char, min 8 chars")
 
-    user = User(full_name=full_name, email=email, password_hash=hash_password(password))
-    db.session.add(user)
-    db.session.commit()
+@router.post("/register", response_model=dict)
+async def register_user(
+    full_name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    file: UploadFile | None = File(None),
+    db = Depends(get_db)
+):
+    validate_password(password)
+    if await User.get_by_email(db, email):
+        raise HTTPException(status_code=400, detail="Email already registered")
+    hashed_password = pwd_context.hash(password)
+    profile_url = None
+    if file:
+        if file.content_type not in ["image/jpeg", "image/png"]:
+            raise HTTPException(status_code=400, detail="Invalid image type")
+        profile_url = f"/uploads/{secrets.token_hex(8)}_{file.filename}"
+    user = await User.create(db, full_name, email, hashed_password, profile_url)
+    verification_token = secrets.token_urlsafe(32)
+    await User.save_verification_token(db, user.id, verification_token)
+    return {"message": "User registered. Please verify your email."}
 
-    # email verification token
-    token = new_token()
-    expires = datetime.now(timezone.utc) + timedelta(hours=Settings().verify_token_hours)
-    vt = VerificationToken(user_id=user.id, token=token, expires_at=expires)
-    db.session.add(vt)
-    db.session.commit()
+@router.post("/login", response_model=Token)
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), db=Depends(get_db)):
+    user = await User.get_by_email(db, form_data.username)
+    if not user or not pwd_context.verify(form_data.password, user.password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if user.status != "active":
+        raise HTTPException(status_code=403, detail="Account is locked or inactive")
+    access_token = jwt.encode({"sub": user.email, "exp": datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)}, SECRET_KEY, algorithm=ALGORITHM)
+    return {"access_token": access_token, "token_type": "bearer"}
 
-    verify_link = url_for('auth.verify_email', token=token, _external=True)
-    email_service.send(email, 'Verify your account', f'Click to verify: {verify_link}')
+@router.post("/reset-request")
+async def password_reset_request(email: EmailStr = Form(...), db=Depends(get_db)):
+    user = await User.get_by_email(db, email)
+    if user:
+        token = secrets.token_urlsafe(32)
+        await User.save_reset_token(db, user.id, token)
+    return {"message": "If email exists, reset link sent."}
 
-    return jsonify({'status':'registered', 'message':'Verification email sent'})
-
-@bp.route('/verify/<token>')
-def verify_email(token):
-    vt = VerificationToken.query.filter_by(token=token).first()
-    if not vt:
-        return render_template('message.html', title='Verification', message='Invalid token'), 400
-    if vt.expires_at < datetime.now(timezone.utc):
-        return render_template('message.html', title='Verification', message='Token expired'), 400
-
-    user = vt.user
-    user.status = 'active'
-    db.session.delete(vt)
-    db.session.commit()
-    return render_template('message.html', title='Verification', message='Account verified. You can login now.')
-
-@bp.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'GET':
-        return render_template('login.html')
-
-    data = request.form or request.get_json() or {}
-    email = (data.get('email') or '').lower().strip()
-    password = data.get('password') or ''
-    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-
-    user = User.query.filter(func.lower(User.email)==email).first()
+@router.post("/reset-password")
+async def reset_password(token: str = Form(...), password: str = Form(...), db=Depends(get_db)):
+    validate_password(password)
+    user = await User.get_by_reset_token(db, token)
     if not user:
-        return jsonify({'error':'Invalid credentials'}), 400
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    hashed_password = pwd_context.hash(password)
+    await User.update_password(db, user.id, hashed_password)
+    return {"message": "Password reset successful"}
 
-    # lockout check
-    s = Settings()
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=s.lockout_minutes)
-    recent_failed = LoginAttempt.query.filter_by(user_id=user.id, success=False).filter(LoginAttempt.created_at >= cutoff).count()
-    if recent_failed >= s.lockout_threshold:
-        return jsonify({'error':'Account locked. Try later.'}), 423
-
-    ok = verify_password(password, user.password_hash)
-    db.session.add(LoginAttempt(user_id=user.id, success=ok, ip_address=ip))
-    db.session.commit()
-
-    if not ok:
-        return jsonify({'error':'Invalid credentials'}), 400
-
-    if user.status != 'active':
-        return jsonify({'error':'Account not verified or suspended'}), 403
-
-    user.last_login_at = datetime.now(timezone.utc)
-    db.session.commit()
-
-    token = create_jwt({'sub': user.id, 'email': user.email})
-    resp = make_response(jsonify({'status':'ok'}))
-    resp.set_cookie(Settings().jwt_cookie_name, token, httponly=True, samesite='Lax', secure=False)
-    return resp
-
-@bp.route('/logout')
-def logout():
-    resp = make_response(redirect(url_for('auth.login')))
-    resp.delete_cookie(Settings().jwt_cookie_name)
-    return resp
-
-@bp.route('/password/forgot', methods=['POST'])
-def forgot_password():
-    data = request.get_json() or {}
-    email = (data.get('email') or '').lower().strip()
-    user = User.query.filter(func.lower(User.email)==email).first()
+@router.get("/verify-email")
+async def verify_email(token: str, db=Depends(get_db)):
+    user = await User.verify_email_token(db, token)
     if not user:
-        return jsonify({'status':'ok'})  # do not reveal existence
-    token = new_token()
-    expires = datetime.now(timezone.utc) + timedelta(minutes=Settings().reset_token_minutes)
-    rt = ResetToken(user_id=user.id, token=token, expires_at=expires)
-    db.session.add(rt)
-    db.session.commit()
-    link = url_for('auth.reset_password_form', token=token, _external=True)
-    email_service.send(email, 'Password reset', f'Reset your password: {link}')
-    return jsonify({'status':'ok'})
-
-@bp.route('/password/reset/<token>', methods=['GET'])
-def reset_password_form(token):
-    return render_template('reset.html', token=token)
-
-@bp.route('/password/reset/<token>', methods=['POST'])
-def reset_password_submit(token):
-    data = request.form or request.get_json() or {}
-    password = data.get('password','')
-    confirm = data.get('confirm','')
-    if password != confirm:
-        return jsonify({'error':'Passwords do not match'}), 400
-    if not validate_password_strength(password):
-        return jsonify({'error':'Weak password'}), 400
-    rt = ResetToken.query.filter_by(token=token).first()
-    if not rt or rt.expires_at < datetime.now(timezone.utc):
-        return jsonify({'error':'Invalid or expired token'}), 400
-    user = rt.user
-    user.password_hash = hash_password(password)
-    db.session.delete(rt)
-    db.session.commit()
-    return jsonify({'status':'reset'})
+        raise HTTPException(status_code=400, detail="Invalid or expired verification link")
+    return {"message": "Email verified successfully"}
