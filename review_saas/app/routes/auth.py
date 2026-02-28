@@ -1,15 +1,12 @@
-# File: review_saas/app/routes/auth.py
 from fastapi import APIRouter, Request, Depends, Form, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 import logging
 
-# Importing database and security dependencies
 from ..core.db import get_db
 from ..core.security import hash_password, verify_password
 
-# Use an empty prefix to ensure routes like /register are top-level
 router = APIRouter(tags=["Authentication"])
 templates = Jinja2Templates(directory="app/templates")
 logger = logging.getLogger("review_saas")
@@ -30,22 +27,20 @@ async def register_user(
     """Handles user registration logic with database persistence."""
     try:
         logger.info(f"New registration attempt for: {email}")
-        
-        # In a real scenario, you would create a User model instance here:
+        # In a real scenario, create a User model instance and persist it
         # hashed_pwd = hash_password(password)
         # new_user = User(full_name=full_name, email=email, hashed_password=hashed_pwd)
         # db.add(new_user)
         # db.commit()
-        
         return templates.TemplateResponse("register.html", {
-            "request": request, 
+            "request": request,
             "msg": "Registration successful! Please login.",
             "title": "ReviewSaaS"
         })
     except Exception as e:
         logger.error(f"Registration error: {e}")
         return templates.TemplateResponse("register.html", {
-            "request": request, 
+            "request": request,
             "error": "An error occurred during registration. Please try again.",
             "title": "ReviewSaaS"
         })
@@ -58,26 +53,21 @@ async def login_page(request: Request):
 @router.post("/auth/login")
 async def login_post(
     request: Request,
-    username: str = Form(...), # Standard OAuth2 field name for the email/username
+    username: str = Form(...),
     password: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    """
-    Handles the login POST request.
-    This explicit route solves the 'POST /auth/login' 404 error found in the logs.
-    """
     try:
         logger.info(f"Login attempt for: {username}")
         
-        # 1. Fetch user from DB (Placeholder logic)
+        # Placeholder logic for user verification
         # user = db.query(User).filter(User.email == username).first()
-        
-        # 2. Verify password (Placeholder logic)
         # if not user or not verify_password(password, user.hashed_password):
-        #     raise HTTPException(status_code=401)
-
-        # 3. On success, redirect to dashboard
-        return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+        #     raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        # On success, redirect with success message
+        response = RedirectResponse(url="/dashboard?message=success", status_code=status.HTTP_303_SEE_OTHER)
+        return response
 
     except Exception as e:
         logger.error(f"Login failure: {e}")
