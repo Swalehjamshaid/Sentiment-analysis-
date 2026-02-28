@@ -1,5 +1,6 @@
 from passlib.context import CryptContext
 import logging
+import re
 
 # Set up logging to track any hashing issues
 logger = logging.getLogger("review_saas")
@@ -43,3 +44,18 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     except Exception as e:
         logger.error(f"Error verifying password: {str(e)}")
         return False
+
+def verify_password_strength(password: str) -> bool:
+    """
+    Validates the strength of a password.
+    Criteria: At least 8 characters, one uppercase, one lowercase, one digit.
+    """
+    if len(password) < 8:
+        return False
+    if not re.search(r"[A-Z]", password):
+        return False
+    if not re.search(r"[a-z]", password):
+        return False
+    if not re.search(r"\d", password):
+        return False
+    return True
