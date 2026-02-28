@@ -1,3 +1,4 @@
+# File: app/main.py
 from __future__ import annotations
 import logging
 import os
@@ -20,25 +21,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger('review_saas')
 
-# --- Lifespan Management (Requirement #124 & #54) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup Logic
+    # Startup: Initialize Database and Scheduler
     logger.info('Initializing database...')
     init_db(Base)
-    
     try:
         start_scheduler()
         logger.info('Background scheduler active.')
     except Exception as e:
         logger.error(f'Scheduler failed to start: {e}')
-    
     yield
-    # Shutdown logic (if needed) can go here
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
-# --- Requirement #4 & #123: Static Files & Directory Safety ---
+# --- Static Files & Directory Safety ---
 STATIC_DIR = "app/static"
 UPLOAD_DIR = os.path.join(STATIC_DIR, "uploads")
 
@@ -57,14 +54,12 @@ async def index(request: Request):
         'title': settings.APP_NAME 
     })
 
-# --- Registering All Routers (Requirement #148-155) ---
-# Ensure auth is included first. 
-# Check app/routes/auth.py to ensure the route is @router.get("/register") 
-# and NOT @router.get("/") with a prefix.
-app.include_router(auth.router, tags=["Authentication"]) 
-app.include_router(companies.router, prefix="/companies", tags=["Companies"])
-app.include_router(reviews.router, prefix="/reviews", tags=["Reviews"])
-app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
-app.include_router(exports.router, prefix="/exports", tags=["Exports"])
-app.include_router(reports.router, prefix="/reports", tags=["Reports"])
-app.include_router(admin.router, prefix="/admin", tags=["Admin"])
+# --- Registering Routers ---
+# Included without prefix so /register and /login work directly
+app.include_router(auth.router) 
+app.include_router(companies.router, prefix="/companies")
+app.include_router(reviews.router, prefix="/reviews")
+app.include_router(dashboard.router, prefix="/dashboard")
+app.include_router(exports.router, prefix="/exports")
+app.include_router(reports.router, prefix="/reports")
+app.include_router(admin.router, prefix="/admin")
