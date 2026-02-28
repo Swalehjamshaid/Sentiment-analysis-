@@ -10,10 +10,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from .core.config import settings
 from .db import init_db_sync
 from .models import Base
-from .routers import auth as auth_router
-from .routers import companies as companies_router
-from .routers import dashboard as dashboard_router
-
+from .routes import auth as auth_router  # rename 'routers' → 'routes'
 
 # -------------------------------------------------------
 # LOGGING
@@ -25,11 +22,7 @@ logger = logging.getLogger("review_saas")
 # APP INIT
 # -------------------------------------------------------
 app = FastAPI(title="ReviewSaaS")
-
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.JWT_SECRET
-)
+app.add_middleware(SessionMiddleware, secret_key=settings.JWT_SECRET)
 
 # -------------------------------------------------------
 # STATIC FILES (SAFE MOUNT)
@@ -67,11 +60,7 @@ def startup():
 def index(request: Request):
     if not templates:
         return {"message": "ReviewSaaS API Running"}
-    return templates.TemplateResponse(
-        "index.html",
-        {"request": request}
-    )
+    return templates.TemplateResponse("index.html", {"request": request})
 
+# include routers
 app.include_router(auth_router.router)
-app.include_router(companies_router.router)
-app.include_router(dashboard_router.router)
