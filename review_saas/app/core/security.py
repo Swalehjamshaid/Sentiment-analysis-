@@ -1,3 +1,5 @@
+# File: app/core/security.py
+
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -7,7 +9,7 @@ import logging
 logger = logging.getLogger("review_saas")
 
 # Configuration to bypass the Python 3.13 Bcrypt bug
-# 'bcrypt__truncate_error=False' is required for Python 3.13
+# 'bcrypt__truncate_error=False' is required for Python 3.13 compatibility
 pwd_context = CryptContext(
     schemes=["bcrypt"], 
     deprecated="auto",
