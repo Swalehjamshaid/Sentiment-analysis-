@@ -1,5 +1,4 @@
-# FILE: app/models.py
-
+# filename: app/models.py
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy import (
     Column,
@@ -20,7 +19,6 @@ Base = declarative_base()
 # =========================================================
 # USER MODEL
 # =========================================================
-
 class User(Base):
     __tablename__ = "users"
 
@@ -38,11 +36,12 @@ class User(Base):
     login_attempts = relationship("LoginAttempt", back_populates="user", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
 
+    def __repr__(self) -> str:
+        return f"<User id={self.id} email={self.email!r} status={self.status!r}>"
 
 # =========================================================
-# TOKEN &amp; LOG MODELS
+# TOKEN & LOG MODELS
 # =========================================================
-
 class VerificationToken(Base):
     __tablename__ = "verification_tokens"
 
@@ -53,7 +52,6 @@ class VerificationToken(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     user = relationship("User", back_populates="verification_tokens")
-
 
 class ResetToken(Base):
     __tablename__ = "reset_tokens"
@@ -66,7 +64,6 @@ class ResetToken(Base):
 
     user = relationship("User", back_populates="reset_tokens")
 
-
 class LoginAttempt(Base):
     __tablename__ = "login_attempts"
 
@@ -78,11 +75,9 @@ class LoginAttempt(Base):
 
     user = relationship("User", back_populates="login_attempts")
 
-
 # =========================================================
 # COMPANY MODEL
 # =========================================================
-
 class Company(Base):
     __tablename__ = "companies"
 
@@ -97,8 +92,8 @@ class Company(Base):
     status = Column(String(20), default="active", nullable=False)
     logo_url = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    
-    # CRITICAL: Field to track last sync with Google API
+
+    # Track last sync with external providers (e.g., Google)
     last_synced_at = Column(DateTime, nullable=True)
 
     lat = Column(Float, nullable=True)
@@ -120,11 +115,12 @@ class Company(Base):
         Index("idx_company_created", "created_at"),
     )
 
+    def __repr__(self) -> str:
+        return f"<Company id={self.id} name={self.name!r} status={self.status!r}>"
 
 # =========================================================
 # REVIEW MODEL
 # =========================================================
-
 class Review(Base):
     __tablename__ = "reviews"
 
@@ -135,7 +131,7 @@ class Review(Base):
     text = Column(Text, nullable=True)
     rating = Column(Integer, nullable=True)
 
-    # CRITICAL: Must be DateTime to support hour extraction in analytics
+    # Must be DateTime to support hour extraction in analytics
     review_date = Column(DateTime, nullable=True)
     reviewer_name = Column(String(255), nullable=True)
     reviewer_avatar = Column(String(255), nullable=True)
@@ -159,11 +155,12 @@ class Review(Base):
         Index("idx_review_sentiment", "sentiment_category"),
     )
 
+    def __repr__(self) -> str:
+        return f"<Review id={self.id} company_id={self.company_id} rating={self.rating}>"
 
 # =========================================================
 # SUPPORTING MODELS
 # =========================================================
-
 class Reply(Base):
     __tablename__ = "replies"
 
@@ -179,7 +176,6 @@ class Reply(Base):
 
     review = relationship("Review", back_populates="replies")
 
-
 class Report(Base):
     __tablename__ = "reports"
 
@@ -192,7 +188,6 @@ class Report(Base):
     generated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     company = relationship("Company", back_populates="reports")
-
 
 class Notification(Base):
     __tablename__ = "notifications"
