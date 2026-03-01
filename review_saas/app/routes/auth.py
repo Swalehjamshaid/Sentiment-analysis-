@@ -1,7 +1,7 @@
 # filename: app/routes/auth.py
 from __future__ import annotations
 import logging
-from fastapi import APIRouter, Depends, Form, Request, status
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -14,9 +14,27 @@ logger = logging.getLogger("app.auth")
 router = APIRouter(tags=["Auth"])
 templates = Jinja2Templates(directory="app/templates")
 
-# Fixed for Python 3.13: Explicitly define the bcrypt identifier
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__ident="2b")
+# Password hashing config (Python 3.13 compatible)
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__ident="2b"
+)
 
+# ==============================
+# REGISTER - SHOW PAGE (GET)
+# ==============================
+@router.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request):
+    return templates.TemplateResponse(
+        "register.html",
+        {"request": request}
+    )
+
+
+# ==============================
+# REGISTER - HANDLE SUBMIT (POST)
+# ==============================
 @router.post("/register")
 async def register_submit(
     request: Request,
@@ -27,12 +45,18 @@ async def register_submit(
     confirm_password: str = Form(...)
 ):
     email = (email or "").strip().lower()
-    
+
     if password != confirm_password:
-        return templates.TemplateResponse("register.html", {"request": request, "error": "Passwords do not match."})
+        return templates.TemplateResponse(
+            "register.html",
+            {"request": request, "error": "Passwords do not match."}
+        )
 
     if db.query(User).filter(User.email == email).first():
-        return templates.TemplateResponse("register.html", {"request": request, "error": "Email already registered."})
+        return templates.TemplateResponse(
+            "register.html",
+            {"request": request, "error": "Email already registered."}
+        )
 
     try:
         new_user = User(
@@ -43,12 +67,35 @@ async def register_submit(
         )
         db.add(new_user)
         db.commit()
-        return RedirectResponse(url="/login?message=Registration+successful!", status_code=302)
+
+        return RedirectResponse(
+            url="/login?message=Registration+successful!",
+            status_code=303
+        )
+
     except Exception as e:
         db.rollback()
         logger.error(f"Registration failed: {e}")
-        return templates.TemplateResponse("register.html", {"request": request, "error": "Internal database error."})
+        return templates.TemplateResponse(
+            "register.html",
+            {"request": request, "error": "Internal database error."}
+        )
 
+
+# ==============================
+# LOGIN - SHOW PAGE (GET)
+# ==============================
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse(
+        "login.html",
+        {"request": request}
+    )
+
+
+# ==============================
+# LOGIN - HANDLE SUBMIT (POST)
+# ==============================
 @router.post("/login")
 async def login_submit(
     request: Request,
@@ -56,10 +103,29 @@ async def login_submit(
     email: str = Form(...),
     password: str = Form(...)
 ):
-    user = db.query(User).filter(User.email == email.lower().strip()).first()
+    email = (email or "").strip().lower()
+
+    user = db.query(User).filter(User.email == email).first()
+
     if not user or not pwd_context.verify(password, user.password_hash):
-        return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials."})
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": "Invalid credentials."}
+        )
 
     request.session["user_id"] = user.id
     request.session["user_name"] = user.full_name
-    return RedirectResponse(url="/dashboard", status_code=302)
+
+    return RedirectResponse(
+        url="/dashboard",
+        status_code=303
+    )
+
+
+# ==============================
+# LOGOUT
+# ==============================
+@router.get("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/", status_code=303)
