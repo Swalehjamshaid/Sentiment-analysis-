@@ -1,36 +1,23 @@
-# filename: app/core/db.py
-import os
+# filename: app/core/reset_db.py
 import logging
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy import text
+from app.core.db import engine, init_db
+from app.models.models import Base
 
-logger = logging.getLogger("app.db")
+logger = logging.getLogger("app.reset_db")
+logging.basicConfig(level=logging.INFO)
 
-def _resolve_db_url() -> str:
-    url = os.getenv("DATABASE_URL") or os.getenv("DATABASE_PUBLIC_URL")
-    
-    if not url or "placeholder" in url.lower():
-        logger.warning("No Postgres URL found. Falling back to SQLite.")
-        return "sqlite:///./review_saas.db"
-    
-    # Fix 'postgres://' and force the 'psycopg' (v3) driver
-    if url.startswith("postgres://"):
-        url = url.replace("postgres://", "postgresql+psycopg://", 1)
-    elif url.startswith("postgresql://"):
-        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
-        
-    return url
+def reset_database():
+    logger.info("Dropping all existing tables...")
+    with engine.connect() as conn:
+        # Drop all tables
+        conn.execute(text("DROP SCHEMA public CASCADE;"))
+        conn.execute(text("CREATE SCHEMA public;"))
+        logger.info("Schema reset complete.")
 
-DATABASE_URL = _resolve_db_url()
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-SessionLocal = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
+    logger.info("Creating all tables from models...")
+    init_db(Base)
+    logger.info("✅ Database reset and tables created successfully.")
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-def init_db(Base):
-    Base.metadata.create_all(bind=engine)
+if __name__ == "__main__":
+    reset_database()
