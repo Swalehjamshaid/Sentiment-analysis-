@@ -36,7 +36,6 @@ async def register_submit(
     email = (email or "").strip().lower()
     full_name = (full_name or "").strip()
 
-    # Basic validations
     if password != confirm_password:
         return templates.TemplateResponse("register.html", {
             "request": request,
@@ -46,7 +45,6 @@ async def register_submit(
             "email": email
         }, status_code=400)
 
-    # Email uniqueness
     existing = db.query(User).filter(User.email == email).first()
     if existing:
         return templates.TemplateResponse("register.html", {
@@ -59,33 +57,35 @@ async def register_submit(
 
     # Create user
     hashed = pwd_context.hash(password)
-    user = User(email=email)  # set name/full_name robustly
-    if hasattr(user, "full_name"):
-        user.full_name = full_name
-    elif hasattr(user, "name"):
-        user.name = full_name
-    if hasattr(user, "hashed_password"):
-        user.hashed_password = hashed
-    else:
-        # Fallback if model uses a different field name (very rare)
-        setattr(user, "password_hash", hashed)
+    user = User(email=email)
+    
+    # Robustly set attributes based on your model field names
+    for attr in ["full_name", "name"]:
+        if hasattr(user, attr):
+            setattr(user, attr, full_name)
+    
+    for attr in ["hashed_password", "password_hash"]:
+        if hasattr(user, attr):
+            setattr(user, attr, hashed)
 
     db.add(user)
     db.commit()
     db.refresh(user)
 
-    # Auto-login via session
-    if "session" in request.scope:
-        request.session["user_id"] = user.id
-
-    return RedirectResponse(url=(next or "/dashboard"), status_code=302)
+    # Logic: Redirect to login with a success message instead of auto-logging in
+    return RedirectResponse(
+        url=f"/login?message=Registration successful! Please login.&next={next}", 
+        status_code=302
+    )
 
 # ---------- LOGIN ----------
 @router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request, next: str | None = None):
+async def login_page(request: Request, next: str | None = None, message: str | None = None):
+    # This grabs the "message" from the URL if it exists (like after registration)
     return templates.TemplateResponse("login.html", {
         "request": request,
-        "next": next or "/dashboard"
+        "next": next or "/dashboard",
+        "message": message
     })
 
 @router.post("/login")
@@ -98,12 +98,14 @@ async def login_submit(
 ):
     email = (email or "").strip().lower()
     user = db.query(User).filter(User.email == email).first()
+    
     if not user:
         return templates.TemplateResponse("login.html", {
             "request": request, "error": "Invalid email or password", "next": next
         }, status_code=400)
 
     hashed = getattr(user, "hashed_password", None) or getattr(user, "password_hash", None)
+    
     try:
         ok = pwd_context.verify(password, hashed)
     except Exception:
@@ -114,9 +116,12 @@ async def login_submit(
             "request": request, "error": "Invalid email or password", "next": next
         }, status_code=400)
 
+    # Set session
     if "session" in request.scope:
         request.session["user_id"] = user.id
+        request.session["user_email"] = user.email
 
+    # Redirect directly to dashboard
     return RedirectResponse(url=(next or "/dashboard"), status_code=302)
 
 # ---------- LOGOUT ----------
@@ -124,4 +129,4 @@ async def login_submit(
 async def logout(request: Request):
     if "session" in request.scope:
         request.session.clear()
-    return RedirectResponse(url="/login", status_code=302)
+    return RedirectResponse(url="/login?message=Logged out successfully", status_code=302)
