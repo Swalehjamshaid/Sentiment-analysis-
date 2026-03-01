@@ -1,3 +1,5 @@
+requests==2.31.0
+urllib3<2
 # --- 1. CRITICAL AUTHENTICATION & FIXES ---
 bcrypt==4.0.1
 passlib[bcrypt]==1.7.4
