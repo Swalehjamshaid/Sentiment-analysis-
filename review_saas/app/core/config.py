@@ -1,80 +1,55 @@
-# filename: app/core/config.py
-
-from __future__ import annotations
-
-from functools import lru_cache
-from typing import List, Optional
-
-from pydantic import AnyHttpUrl, Field
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
+from typing import Optional
 
 class Settings(BaseSettings):
-    """
-    Central application configuration (Pydantic v2 + pydantic-settings).
-    Reads from environment variables and .env by default.
-    """
-
-    # --- App ---
+    # App Settings
     APP_NAME: str = "ReviewSaaS"
-    DEBUG: bool = False
-    ENV: str = Field(default="production", description="environment: development|staging|production")
-    SECRET_KEY: str = Field(default="change-me", description="Cryptographic secret")
+    APP_BASE_URL: str = "https://sentiment-analysis-production-ca50.up.railway.app"
+    
+    # Requirement 124: Database
+    # CRITICAL: This must be a real URL. If "host:port" is present, SQLAlchemy crashes.
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 
-    # --- Server ---
-    HOST: str = "0.0.0.0"
-    PORT: int = 8000
-
-    # --- CORS / URLs ---
-    BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []
-    BASE_URL: Optional[AnyHttpUrl] = None
-
-    # --- Database ---
-    # Keep as Optional to allow startup even if not set (you can validate later at DB init)
-    DATABASE_URL: Optional[str] = None
-    DATABASE_PUBLIC_URL: Optional[str] = None
-
-    # --- Google APIs ---
+    # Requirement 8: Security & JWT
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "fallback-secret-for-dev")
+    JWT_ALG: str = os.getenv("JWT_ALG", "HS256")
+    ACCESS_TOKEN_MIN: int = 120
+    
+    # Requirement 18: Cookies
+    COOKIE_DOMAIN: str = "sentiment-analysis-production-ca50.up.railway.app"
+    COOKIE_SECURE: bool = True
+    
+    # Requirement 128: Google APIs
+    GOOGLE_BUSINESS_API_KEY: Optional[str] = None
     GOOGLE_MAPS_API_KEY: Optional[str] = None
     GOOGLE_PLACES_API_KEY: Optional[str] = None
-    GOOGLE_BUSINESS_API_KEY: Optional[str] = None
+    
+    # Requirement 15: OAuth
+    OAUTH_GOOGLE_CLIENT_ID: Optional[str] = None
+    OAUTH_GOOGLE_CLIENT_SECRET: Optional[str] = None
+    OAUTH_GOOGLE_REDIRECT_URI: str = ""
 
-    # --- Feature Flags ---
-    ENABLE_GOOGLE_SYNC: bool = True
-    ENABLE_SENTIMENT_PIPELINE: bool = True
+    # Requirement 10: Lockout & Passwords
+    LOCKOUT_MINUTES: int = 30
+    LOCKOUT_THRESHOLD: int = 5
+    PASSLIB_MAX_PASSWORD_SIZE: int = 72
 
-    # --- Security / Auth ---
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
-    SESSION_COOKIE_NAME: str = "session"
-    SESSION_COOKIE_SECURE: bool = True
-    SESSION_COOKIE_SAMESITE: str = "lax"
+    # Requirement 5: Email & Tokens
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_EMAIL: Optional[str] = None
+    SMTP_FROM_NAME: str = "ReviewSaaS"
+    VERIFY_TOKEN_HOURS: int = 24
+    RESET_TOKEN_MINUTES: int = 30
 
-    # pydantic-settings configuration
+    # Pydantic Config to handle Railway environment
     model_config = SettingsConfigDict(
+        extra='ignore', 
         env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",  # ignore unknown env vars instead of raising
+        case_sensitive=True
     )
 
-    @property
-    def EFFECTIVE_DATABASE_URL(self) -> str:
-        """
-        Prefer DATABASE_URL; fall back to DATABASE_PUBLIC_URL if provided.
-        Returns empty string if neither is set (so callers can validate explicitly).
-        """
-        return (self.DATABASE_URL or self.DATABASE_PUBLIC_URL or "").strip()
-
-
-@lru_cache
-def get_settings() -> Settings:
-    """
-    Cached accessor to avoid re-parsing the env on each import.
-    """
-    return Settings()
-
-
-# ✅ Export a module-level 'settings' for legacy imports:
-settings: Settings = get_settings()
-
-__all__ = ["Settings", "get_settings", "settings"]
+settings = Settings()
