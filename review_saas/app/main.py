@@ -4,6 +4,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from urllib.parse import quote
+
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -65,10 +66,9 @@ templates = Jinja2Templates(directory='app/templates')
 # AUTHENTICATION HELPERS
 # ─────────────────────────────────────────────
 def is_authenticated(request: Request) -> bool:
-    """Check if user is logged in via session or JWT token."""
+    """Check if user is logged in via session only (no token)."""
     session = request.scope.get("session", {})
-    token = request.cookies.get("access_token")
-    return bool(session.get("user_id") or token)
+    return bool(session.get("user_id"))
 
 # ─────────────────────────────────────────────
 # REDIRECT MIDDLEWARE
@@ -121,7 +121,7 @@ async def google_health():
 # ─────────────────────────────────────────────
 # INCLUDE ROUTERS
 # ─────────────────────────────────────────────
-app.include_router(auth.router)       # /login, /register
+app.include_router(auth.router)       # /login, /register (simple session-based registration)
 app.include_router(dashboard.router)  # /dashboard
 app.include_router(companies.router, prefix="/companies")
 app.include_router(reviews.router, prefix="/reviews")
