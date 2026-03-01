@@ -13,9 +13,11 @@ from ..models.models import User
 logger = logging.getLogger("app.auth")
 router = APIRouter(tags=["Auth"])
 templates = Jinja2Templates(directory="app/templates")
+
+# Fixed: Explicitly using bcrypt with passlib to avoid the 500 error
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# ---------- REGISTER ----------
+# ---------- REGISTER PAGE ----------
 @router.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request, next: str | None = None):
     return templates.TemplateResponse("register.html", {
@@ -23,6 +25,7 @@ async def register_page(request: Request, next: str | None = None):
         "next": next or "/dashboard"
     })
 
+# ---------- REGISTER LOGIC (POST) ----------
 @router.post("/register")
 async def register_submit(
     request: Request,
@@ -34,60 +37,46 @@ async def register_submit(
     next: str = Form("/dashboard")
 ):
     email = (email or "").strip().lower()
-    full_name = (full_name or "").strip()
 
+    # 1. Logic: Validate password match
     if password != confirm_password:
         return templates.TemplateResponse("register.html", {
-            "request": request,
-            "error": "Passwords do not match.",
-            "next": next,
-            "full_name": full_name,
-            "email": email
-        }, status_code=400)
+            "request": request, "error": "Passwords do not match.", "full_name": full_name, "email": email
+        })
 
+    # 2. Logic: Ensure unique email in Postgres
     existing = db.query(User).filter(User.email == email).first()
     if existing:
         return templates.TemplateResponse("register.html", {
-            "request": request,
-            "error": "An account with this email already exists.",
-            "next": next,
-            "full_name": full_name,
-            "email": email
-        }, status_code=400)
+            "request": request, "error": "Email already exists.", "full_name": full_name
+        })
 
-    # Create user
+    # 3. Logic: Hash and Save (Matching your Railway Table Columns)
     hashed = pwd_context.hash(password)
-    user = User(email=email)
-    
-    # Robustly set attributes based on your model field names
-    for attr in ["full_name", "name"]:
-        if hasattr(user, attr):
-            setattr(user, attr, full_name)
-    
-    for attr in ["hashed_password", "password_hash"]:
-        if hasattr(user, attr):
-            setattr(user, attr, hashed)
-
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    # Logic: Redirect to login with a success message instead of auto-logging in
-    return RedirectResponse(
-        url=f"/login?message=Registration successful! Please login.&next={next}", 
-        status_code=302
+    new_user = User(
+        full_name=full_name,     # Matches column 'full_name'
+        email=email,             # Matches column 'email'
+        password_hash=hashed,    # Matches column 'password_hash'
+        status="active"          # Matches column 'status'
     )
 
-# ---------- LOGIN ----------
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    # Redirect to login so they can verify their credentials
+    return RedirectResponse(url=f"/login?message=Account created! Please login.&next={next}", status_code=302)
+
+# ---------- LOGIN PAGE ----------
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, next: str | None = None, message: str | None = None):
-    # This grabs the "message" from the URL if it exists (like after registration)
     return templates.TemplateResponse("login.html", {
         "request": request,
         "next": next or "/dashboard",
         "message": message
     })
 
+# ---------- LOGIN LOGIC (POST) ----------
 @router.post("/login")
 async def login_submit(
     request: Request,
@@ -97,31 +86,29 @@ async def login_submit(
     next: str = Form("/dashboard")
 ):
     email = (email or "").strip().lower()
-    user = db.query(User).filter(User.email == email).first()
     
+    # 1. Logic: Find user by email
+    user = db.query(User).filter(User.email == email).first()
     if not user:
         return templates.TemplateResponse("login.html", {
             "request": request, "error": "Invalid email or password", "next": next
-        }, status_code=400)
+        })
 
-    hashed = getattr(user, "hashed_password", None) or getattr(user, "password_hash", None)
+    # 2. Logic: Verify the password against the stored hash
+    # Uses getattr to handle both 'password_hash' and 'hashed_password' safely
+    stored_hash = getattr(user, "password_hash", None) or getattr(user, "hashed_password", None)
     
-    try:
-        ok = pwd_context.verify(password, hashed)
-    except Exception:
-        ok = False
-
-    if not ok:
+    if not pwd_context.verify(password, stored_hash):
         return templates.TemplateResponse("login.html", {
             "request": request, "error": "Invalid email or password", "next": next
-        }, status_code=400)
+        })
 
-    # Set session
+    # 3. Logic: Establish session (Recognized by main.py middleware)
     if "session" in request.scope:
         request.session["user_id"] = user.id
         request.session["user_email"] = user.email
 
-    # Redirect directly to dashboard
+    # Redirect to dashboard
     return RedirectResponse(url=(next or "/dashboard"), status_code=302)
 
 # ---------- LOGOUT ----------
@@ -129,4 +116,4 @@ async def login_submit(
 async def logout(request: Request):
     if "session" in request.scope:
         request.session.clear()
-    return RedirectResponse(url="/login?message=Logged out successfully", status_code=302)
+    return RedirectResponse(url="/login", status_code=302)
