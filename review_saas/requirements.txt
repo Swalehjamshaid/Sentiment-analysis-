@@ -1,4 +1,6 @@
-# --- 0. CORE UTILITIES ---
+# ------------------------------------------
+# 0. CORE UTILITIES
+# ------------------------------------------
 requests==2.31.0
 urllib3<2
 python-multipart==0.0.9
@@ -6,7 +8,9 @@ python-dateutil==2.9.0.post0
 tenacity==9.0.0
 apscheduler==3.10.4
 
-# --- 1. CRITICAL AUTHENTICATION & SECURITY ---
+# ------------------------------------------
+# 1. CRITICAL AUTHENTICATION & SECURITY
+# ------------------------------------------
 bcrypt==4.0.1
 passlib[bcrypt]==1.7.4
 itsdangerous==2.1.2
@@ -15,38 +19,58 @@ pyotp==2.9.0
 Authlib==1.3.1
 bleach==6.1.0
 
-# --- 2. FASTAPI CORE & SERVER ---
+# ------------------------------------------
+# 2. FASTAPI CORE & SERVER (Pydantic v2 compatible)
+# ------------------------------------------
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 jinja2==3.1.4
-pydantic==2.9.2
-pydantic-settings==2.4.0
-email-validator==2.2.0          # ADDED: Required for Pydantic EmailStr validation (Point 2)
 
-# --- 3. DATABASE & POSTGRES SUPPORT ---
+# --- Pydantic v2 ---
+pydantic==2.9.2
+pydantic-core==2.23.4
+pydantic-settings==2.4.0
+email-validator==2.2.0   # REQUIRED for EmailStr in Pydantic v2
+
+# ------------------------------------------
+# 3. DATABASE & POSTGRES SUPPORT
+# ------------------------------------------
 SQLAlchemy==2.0.31
 psycopg[binary]==3.3.2
 alembic==1.18.4
 
-# --- 4. GOOGLE API INTEGRATIONS ---
+# ------------------------------------------
+# 4. GOOGLE API INTEGRATIONS
+# ------------------------------------------
 googlemaps>=4.10.0
 google-api-python-client>=2.130.0
 google-auth>=2.34.0
 google-auth-oauthlib>=1.2.0
 google-auth-httplib2>=0.2.0
 
-# --- 5. ANALYTICS & AI ---
+# ------------------------------------------
+# 5. ANALYTICS & AI
+# ------------------------------------------
 vaderSentiment==3.3.2
 numpy==2.1.3
 pandas==2.2.3
 openpyxl==3.1.5
-google-generativeai==0.8.3     # ADDED: For "AI Suggested Replies" (Point 85) using Gemini
+google-generativeai==0.8.3   # Gemini for AI-suggested replies
 
-# --- 6. HTTP CLIENTS & UI ---
+# ------------------------------------------
+# 6. HTTP CLIENTS & UI
+# ------------------------------------------
 httpx[http2]==0.27.2
 
-# --- 7. FILE & REPORT GENERATION ---
+# ------------------------------------------
+# 7. FILE & REPORT GENERATION
+# ------------------------------------------
 reportlab==4.1.0
 Pillow==11.1.0
-svglib==1.5.1                   # ADDED: To handle logos/icons in PDF reports (Point 109)
-xhtml2pdf==0.2.16               # ADDED: Simplest way to turn your HTML Dashboard into a PDF (Point 108)
+svglib==1.5.1
+xhtml2pdf==0.2.16
+
+# ------------------------------------------
+# 8. OPTIONAL / RECOMMENDED IMPROVEMENTS
+# ------------------------------------------
+python-dotenv==1.0.1     # Useful locally; optional since pydantic-settings handles .env
