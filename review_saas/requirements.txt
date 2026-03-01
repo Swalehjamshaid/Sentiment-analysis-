@@ -1,55 +1,45 @@
-# --- 1. CRITICAL AUTHENTICATION & FIXES (Python 3.13 Compatibility) ---
-# Pinning bcrypt to 4.0.1 is the ONLY way to fix the current 500 error
+# --- CRITICAL AUTHENTICATION & DATABASE FIXES ---
 bcrypt==4.0.1
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.9
 itsdangerous==2.1.2
-cryptography>=42.0.0
+# Use psycopg version 3 to avoid the psycopg2 error
+psycopg[binary]==3.3.2
 
-# --- 2. FASTAPI CORE & SERVER ---
+# --- FASTAPI CORE & SERVER ---
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 jinja2==3.1.4
+pydantic==2.9.2
+pydantic-settings==2.4.0
 
-# --- 3. DATABASE & ORM (PostgreSQL Support) ---
-# psycopg[binary] is required for Railway Postgres
+# --- DATABASE & ORM ---
 SQLAlchemy==2.0.31
-psycopg[binary]==3.3.2
 alembic==1.18.4
 
-# --- 4. GOOGLE API INTEGRATIONS (Maps & Business Profile) ---
+# --- GOOGLE API INTEGRATIONS ---
 googlemaps>=4.10.0
 google-api-python-client>=2.130.0
 google-auth>=2.34.0
 google-auth-oauthlib>=1.2.0
 google-auth-httplib2>=0.2.0
 
-# --- 5. ANALYTICS & UTILITIES ---
-pydantic==2.9.2
-pydantic-settings==2.4.0
+# --- ANALYTICS, SENTIMENT & ML ---
 vaderSentiment==3.3.2
 numpy==2.1.3
 pandas==2.2.3
 openpyxl==3.1.5
-python-dateutil==2.9.0.post0
-apscheduler==3.10.4
-tenacity==9.0.0
 
-# --- 6. SECURITY & UI ---
+# --- SECURITY & UTILITIES ---
 bleach==6.1.0
 httpx[http2]==0.27.2
 python-jose[cryptography]==3.3.0
 pyotp==2.9.0
 Authlib==1.3.1
+apscheduler==3.10.4
+tenacity==9.0.0
+python-dateutil==2.9.0.post0
 
-# --- 7. FILE & REPORT GENERATION ---
+# --- FILE & REPORT GENERATION ---
 reportlab==4.1.0
 Pillow==11.1.0
-
-# --- 8. FUTURE-PROOFING & AI ---
-openai>=1.0.0
-celery==5.4.0
-redis==5.0.1
-jsonref==1.1.0
-pytest==8.0.0
-python-dotenv==1.0.1
