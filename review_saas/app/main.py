@@ -1,145 +1,175 @@
-# File: app/main.py
-
+# filename: app/app/main.py
 from __future__ import annotations
+
 import logging
-import os
-from contextlib import asynccontextmanager
-from urllib.parse import quote
+import warnings
+from pathlib import Path
+from contextlib import suppress
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import RedirectResponse, JSONResponse
 
-# -------------------------------
-# Core imports
-# -------------------------------
-from app.core.config import settings
-from app.core.db import init_db  # database engine initializer
-from app.models.base import Base  # SQLAlchemy Base
+from sqlalchemy import inspect, text
+from sqlalchemy.exc import SQLAlchemyError
 
-# -------------------------------
-# Routes
-# -------------------------------
-from app.routes import auth, companies, dashboard
-# Other routes can be added later: reviews, reports, exports, admin
+# App internals (one-way imports to avoid circulars)
+from app.core.settings import settings
+from app.core.db import Base, engine
 
-# -------------------------------
-# Services
-# -------------------------------
-from app.services.scheduler import start_scheduler
-# from app.services.google_api import GoogleAPI   # optional Google integration
-# from app.services.sentiment import analyze_sentiment  # optional AI logic
+# Optional: quiet the 'RequestsDependencyWarning' noise at runtime
+with suppress(Exception):
+    from requests.exceptions import RequestsDependencyWarning  # type: ignore
+    warnings.simplefilter("ignore", RequestsDependencyWarning)
 
-# -------------------------------
+# -----------------------------------------------------------------------------
 # Logging
-# -------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
+# -----------------------------------------------------------------------------
 logger = logging.getLogger("review_saas")
+if not logger.handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+logger.info("Initializing application...")
 
-# -------------------------------
-# Lifespan: DB Init + Scheduler
-# -------------------------------
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("Initializing database...")
+# -----------------------------------------------------------------------------
+# Paths
+# -----------------------------------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent
+TEMPLATES_DIR = BASE_DIR / "templates"
+STATIC_DIR = BASE_DIR / "static"
+
+# -----------------------------------------------------------------------------
+# DB self-healing (adds missing columns we care about)
+# -----------------------------------------------------------------------------
+def _auto_patch_users_table(engine) -> None:
+    """
+    Ensure the 'users' table has the columns the ORM expects.
+    Currently patches: otp_secret (String(64), nullable=True)
+
+    Safe to run on every startup:
+      - Uses SQLAlchemy inspector to only apply when actually missing.
+      - Uses dialect-aware DDL for Postgres/SQLite.
+    """
     try:
-        init_db(Base)
-        logger.info("Database initialized successfully.")
-    except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
+        insp = inspect(engine)
+        tables = set(insp.get_table_names())
+        if "users" not in tables:
+            logger.info("Table 'users' not found yet; will be created by metadata.")
+            return
 
-    try:
-        start_scheduler()
-        logger.info("Background scheduler started successfully.")
-    except Exception as e:
-        logger.error(f"Scheduler failed to start: {e}")
-    yield
+        columns = {c["name"] for c in insp.get_columns("users")}
+        if "otp_secret" not in columns:
+            dialect = engine.dialect.name
+            if dialect == "postgresql":
+                ddl = "ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_secret VARCHAR(64);"
+            elif dialect == "sqlite":
+                # SQLite lacks IF NOT EXISTS for ADD COLUMN, but we already checked it's missing
+                ddl = "ALTER TABLE users ADD COLUMN otp_secret TEXT;"
+            else:
+                # Generic fallback: most SQL dialects accept VARCHAR(64)
+                ddl = "ALTER TABLE users ADD COLUMN otp_secret VARCHAR(64);"
 
-# -------------------------------
-# FastAPI App Instance
-# -------------------------------
-app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
+            with engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info("Schema patched: added 'users.otp_secret' column.")
+        else:
+            logger.info("'users.otp_secret' already present; no patch needed.")
 
-# -------------------------------
-# Session Middleware
-# -------------------------------
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.SECRET_KEY,
-    same_site="lax",
-    https_only=settings.COOKIE_SECURE
-)
+    except SQLAlchemyError as e:
+        # Do not crash startup—log and continue so app remains responsive
+        logger.exception("DB schema self-heal step failed: %s", e)
 
-# -------------------------------
-# Static Files & Templates
-# -------------------------------
-STATIC_DIR = "app/static"
-os.makedirs(os.path.join(STATIC_DIR, "uploads"), exist_ok=True)
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-templates = Jinja2Templates(directory="app/templates")
 
-# -------------------------------
-# Auth helper
-# -------------------------------
-def is_authenticated(request: Request) -> bool:
-    """Check if user session exists."""
-    return bool(request.session.get("user_id"))
+# -----------------------------------------------------------------------------
+# App factory
+# -----------------------------------------------------------------------------
+def create_app() -> FastAPI:
+    app = FastAPI(title=settings.app_name, debug=settings.debug)
 
-# -------------------------------
-# Auth redirect middleware
-# -------------------------------
-PROTECTED_PREFIXES = ("/dashboard", "/companies", "/reviews", "/reports", "/exports", "/admin")
+    # Templates & static
+    TEMPLATES_DIR.mkdir(exist_ok=True, parents=True)
+    STATIC_DIR.mkdir(exist_ok=True, parents=True)
+    templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+    app.state.templates = templates
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-@app.middleware("http")
-async def auth_redirects(request: Request, call_next):
-    path = request.url.path
-    if path.startswith("/static") or path == "/google/health":
+    # Sessions for login state
+    app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
+
+    # -------------------------------------------------------------------------
+    # Middleware: When already authenticated, keep flows tidy
+    # Visiting "/", "/login", "/register" → redirect to "/dashboard"
+    # -------------------------------------------------------------------------
+    @app.middleware("http")
+    async def auth_redirects(request: Request, call_next):
+        path = request.url.path
+        if request.session.get("user_id") and path in ("/", "/login", "/register"):
+            return RedirectResponse(url="/dashboard")
         return await call_next(request)
 
-    authed = is_authenticated(request)
+    # -------------------------------------------------------------------------
+    # Routers (import lazily to avoid accidental circulars)
+    # -------------------------------------------------------------------------
+    try:
+        from app.routes import auth, dashboard  # noqa
+        app.include_router(auth.router)
+        app.include_router(dashboard.router)
+    except Exception as e:
+        logger.exception("Failed including routers: %s", e)
+        # Keep app booting; surface the problem at /health
+        @app.get("/__routers_error")
+        def routers_error():
+            return {"error": f"Routers failed to import: {e!r}"}
 
-    # Redirect logged-in users away from login/register
-    if authed and path in ("/", "/login", "/register"):
-        return RedirectResponse("/dashboard", status_code=302)
+    # -------------------------------------------------------------------------
+    # Landing & health
+    # -------------------------------------------------------------------------
+    @app.get("/")
+    def index(request: Request):
+        if request.session.get("user_id"):
+            return RedirectResponse(url="/dashboard")
+        return templates.TemplateResponse("index.html", {"request": request})
 
-    # Redirect unauthenticated users from protected paths
-    if not authed and path.startswith(PROTECTED_PREFIXES):
-        original = path
-        if request.url.query:
-            original += f"?{request.url.query}"
-        next_param = quote(original, safe="")
-        return RedirectResponse(url=f"/login?next={next_param}", status_code=302)
+    @app.get("/health")
+    def health():
+        return {"status": "ok", "env": settings.environment}
 
-    return await call_next(request)
+    # -------------------------------------------------------------------------
+    # Startup: create tables (idempotent) then run self-healing schema patch
+    # -------------------------------------------------------------------------
+    @app.on_event("startup")
+    def on_startup():
+        logger.info("Initializing database...")
+        # Create tables that don't exist (does not add columns to existing tables)
+        Base.metadata.create_all(bind=engine)
+        # Patch missing columns we depend on (e.g., users.otp_secret)
+        _auto_patch_users_table(engine)
+        # Optionally start background scheduler if present (keeps flexible)
+        with suppress(Exception):
+            from app.scheduler import start_scheduler  # optional module
+            start_scheduler()
+            logger.info("Background scheduler started.")
 
-# -------------------------------
-# Public routes
-# -------------------------------
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "title": settings.APP_NAME
-    })
+        logger.info("Application startup complete.")
 
-@app.get("/google/health")
-async def google_health():
-    """Health check endpoint"""
-    return JSONResponse({"status": "healthy"})
+    # -------------------------------------------------------------------------
+    # Graceful error surface for DB column mismatch (extra safety)
+    # -------------------------------------------------------------------------
+    @app.exception_handler(SQLAlchemyError)
+    async def sqlalchemy_error_handler(request: Request, exc: SQLAlchemyError):
+        # If something slips past the self-heal, return a meaningful message
+        msg = "Database error. If this is 'UndefinedColumn users.otp_secret', restart the app; the schema self-heal will add it automatically."
+        logger.exception("SQLAlchemyError: %s", exc)
+        return JSONResponse({"detail": msg}, status_code=500)
 
-# -------------------------------
-# Include routers
-# -------------------------------
-app.include_router(auth.router)        # /login, /register
-app.include_router(dashboard.router)   # /dashboard
-app.include_router(companies.router, prefix="/companies")
-# Add additional routers as needed:
-# app.include_router(reviews.router, prefix="/reviews")
-# app.include_router(exports.router, prefix="/exports")
-# app.include_router(reports.router, prefix="/reports")
-# app.include_router(admin.router, prefix="/admin")
+    return app
+
+
+# -----------------------------------------------------------------------------
+# Create the ASGI app
+# -----------------------------------------------------------------------------
+app = create_app()
