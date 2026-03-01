@@ -1,20 +1,23 @@
-# --- 1. CRITICAL AUTHENTICATION FIXES (Current Issue) ---
+# --- 1. CRITICAL AUTHENTICATION & FIXES (Python 3.13 Compatibility) ---
+# Pinning bcrypt to 4.0.1 is the ONLY way to fix the current 500 error
 bcrypt==4.0.1
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.9
 itsdangerous==2.1.2
+cryptography>=42.0.0
 
 # --- 2. FASTAPI CORE & SERVER ---
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 jinja2==3.1.4
 
-# --- 3. DATABASE & POSTGRES (Railway Support) ---
+# --- 3. DATABASE & ORM (PostgreSQL Support) ---
+# psycopg[binary] is required for Railway Postgres
 SQLAlchemy==2.0.31
 psycopg[binary]==3.3.2
 alembic==1.18.4
 
-# --- 4. GOOGLE API INTEGRATIONS (Maps & Business) ---
+# --- 4. GOOGLE API INTEGRATIONS (Maps & Business Profile) ---
 googlemaps>=4.10.0
 google-api-python-client>=2.130.0
 google-auth>=2.34.0
@@ -43,15 +46,10 @@ Authlib==1.3.1
 reportlab==4.1.0
 Pillow==11.1.0
 
-# --- 8. POTENTIAL FUTURE REQUIREMENTS (Recommended) ---
-# For AI/LLM integration (OpenAI/Anthropic)
+# --- 8. FUTURE-PROOFING & AI ---
 openai>=1.0.0
-# For advanced background task management
 celery==5.4.0
 redis==5.0.1
-# For handling structured JSON/NoSQL data
 jsonref==1.1.0
-# For better testing
 pytest==8.0.0
-# For environment variable loading during local dev
 python-dotenv==1.0.1
