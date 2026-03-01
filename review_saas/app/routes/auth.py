@@ -1,7 +1,7 @@
-# File: app/routes/auth.py
+# filename: app/routes/auth.py
 from __future__ import annotations
 import logging
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -14,8 +14,13 @@ logger = logging.getLogger("app.auth")
 router = APIRouter(tags=["Auth"])
 templates = Jinja2Templates(directory="app/templates")
 
-# Fixed: Explicitly using bcrypt with passlib to avoid the 500 error
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# --- HOLISTIC FIX: BCRYPT IDENT ---
+# Adding bcrypt__ident="2b" explicitly solves the Python 3.13 backend discovery crash
+pwd_context = CryptContext(
+    schemes=["bcrypt"], 
+    deprecated="auto",
+    bcrypt__ident="2b" 
+)
 
 # ---------- REGISTER PAGE ----------
 @router.get("/register", response_class=HTMLResponse)
@@ -37,35 +42,49 @@ async def register_submit(
     next: str = Form("/dashboard")
 ):
     email = (email or "").strip().lower()
+    full_name = (full_name or "").strip()
 
-    # 1. Logic: Validate password match
+    # 1. Validation: Password Match
     if password != confirm_password:
         return templates.TemplateResponse("register.html", {
-            "request": request, "error": "Passwords do not match.", "full_name": full_name, "email": email
+            "request": request, "error": "Passwords do not match.", 
+            "full_name": full_name, "email": email, "next": next
         })
 
-    # 2. Logic: Ensure unique email in Postgres
+    # 2. Validation: Unique Email
     existing = db.query(User).filter(User.email == email).first()
     if existing:
         return templates.TemplateResponse("register.html", {
-            "request": request, "error": "Email already exists.", "full_name": full_name
+            "request": request, "error": "Email already exists.", 
+            "full_name": full_name, "next": next
         })
 
-    # 3. Logic: Hash and Save (Matching your Railway Table Columns)
-    hashed = pwd_context.hash(password)
-    new_user = User(
-        full_name=full_name,     # Matches column 'full_name'
-        email=email,             # Matches column 'email'
-        password_hash=hashed,    # Matches column 'password_hash'
-        status="active"          # Matches column 'status'
-    )
+    try:
+        # 3. Logic: Hash and Save
+        hashed = pwd_context.hash(password)
+        new_user = User(
+            full_name=full_name,
+            email=email,
+            password_hash=hashed,
+            status="active"
+        )
 
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-
-    # Redirect to login so they can verify their credentials
-    return RedirectResponse(url=f"/login?message=Account created! Please login.&next={next}", status_code=302)
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        
+        logger.info(f"New user registered successfully: {email}")
+        return RedirectResponse(
+            url=f"/login?message=Account created successfully! Please login.&next={next}", 
+            status_code=302
+        )
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Registration failed: {str(e)}")
+        return templates.TemplateResponse("register.html", {
+            "request": request, "error": "Database error. Please try again.", 
+            "full_name": full_name, "email": email, "next": next
+        })
 
 # ---------- LOGIN PAGE ----------
 @router.get("/login", response_class=HTMLResponse)
@@ -87,28 +106,28 @@ async def login_submit(
 ):
     email = (email or "").strip().lower()
     
-    # 1. Logic: Find user by email
+    # 1. Find User
     user = db.query(User).filter(User.email == email).first()
     if not user:
         return templates.TemplateResponse("login.html", {
             "request": request, "error": "Invalid email or password", "next": next
         })
 
-    # 2. Logic: Verify the password against the stored hash
-    # Uses getattr to handle both 'password_hash' and 'hashed_password' safely
+    # 2. Verify Password
+    # Handles both potential naming conventions for safety
     stored_hash = getattr(user, "password_hash", None) or getattr(user, "hashed_password", None)
     
-    if not pwd_context.verify(password, stored_hash):
+    if not stored_hash or not pwd_context.verify(password, stored_hash):
         return templates.TemplateResponse("login.html", {
             "request": request, "error": "Invalid email or password", "next": next
         })
 
-    # 3. Logic: Establish session (Recognized by main.py middleware)
+    # 3. Session Management
     if "session" in request.scope:
         request.session["user_id"] = user.id
         request.session["user_email"] = user.email
+        request.session["user_name"] = user.full_name
 
-    # Redirect to dashboard
     return RedirectResponse(url=(next or "/dashboard"), status_code=302)
 
 # ---------- LOGOUT ----------
@@ -116,4 +135,4 @@ async def login_submit(
 async def logout(request: Request):
     if "session" in request.scope:
         request.session.clear()
-    return RedirectResponse(url="/login", status_code=302)
+    return RedirectResponse(url="/login?message=Logged out successfully", status_code=302)
