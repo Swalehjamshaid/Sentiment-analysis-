@@ -20,7 +20,7 @@ Authlib==1.3.1
 bleach==6.1.0
 
 # ------------------------------------------
-# 2. FASTAPI CORE & SERVER (Pydantic v2 compatible)
+# 2. FASTAPI CORE & SERVER
 # ------------------------------------------
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
@@ -37,12 +37,12 @@ email-validator==2.2.0
 # ------------------------------------------
 SQLAlchemy==2.0.31
 alembic==1.18.4
-# Psycopg 3 (Modern Sync driver)
+# Modern Psycopg 3
 psycopg[binary]==3.3.2
-# Psycopg 2 (Compatibility driver - FIXES YOUR ERROR)
-psycopg2-binary==2.9.9
-# Asyncpg (Required for Async Engine - Req 122)
-asyncpg==0.29.0
+# Compatibility driver for 'postgresql://' URLs
+psycopg2-binary==2.9.10
+# Asyncpg (0.30.0+ is REQUIRED for Python 3.13)
+asyncpg>=0.30.0
 
 # ------------------------------------------
 # 4. GOOGLE API INTEGRATIONS
@@ -76,6 +76,6 @@ svglib==1.5.1
 xhtml2pdf==0.2.16
 
 # ------------------------------------------
-# 8. ENVIRONMENT
+# 8. ENVIRONMENT & HELPERS
 # ------------------------------------------
 python-dotenv==1.0.1
