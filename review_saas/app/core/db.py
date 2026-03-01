@@ -1,23 +1,24 @@
-# filename: app/core/reset_db.py
-import logging
-from sqlalchemy import text
-from app.core.db import engine, init_db
-from app.models.models import Base
+# File: app/core/db.py
 
-logger = logging.getLogger("app.reset_db")
-logging.basicConfig(level=logging.INFO)
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-def reset_database():
-    logger.info("Dropping all existing tables...")
-    with engine.connect() as conn:
-        # Drop all tables
-        conn.execute(text("DROP SCHEMA public CASCADE;"))
-        conn.execute(text("CREATE SCHEMA public;"))
-        logger.info("Schema reset complete.")
+from app.core.config import settings  # your DB URL comes from here
 
-    logger.info("Creating all tables from models...")
-    init_db(Base)
-    logger.info("✅ Database reset and tables created successfully.")
+# SQLAlchemy Base
+Base = declarative_base()
 
-if __name__ == "__main__":
-    reset_database()
+# Engine
+engine = create_engine(
+    settings.DATABASE_URL,
+    echo=getattr(settings, "DEBUG", False),
+    future=True,  # SQLAlchemy 2.0 style
+)
+
+# Session factory
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+# Optional: init_db helper
+def init_db(base: Base):
+    """Create all tables."""
+    base.metadata.create_all(bind=engine)
