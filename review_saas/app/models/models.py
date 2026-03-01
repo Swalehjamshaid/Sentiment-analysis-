@@ -1,5 +1,4 @@
 # filename: app/models/models.py
-
 from __future__ import annotations
 from datetime import datetime, timezone
 from sqlalchemy import (
@@ -9,9 +8,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship, synonym
 from .base import Base
 
-
 # ────────────────────────────────────────────────
-# USER MODEL (UPDATED & FIXED)
+# USER MODEL
 # ────────────────────────────────────────────────
 class User(Base):
     __tablename__ = 'users'
@@ -20,26 +18,19 @@ class User(Base):
 
     # Basic Info
     full_name = Column(String(100), nullable=False)
-    # Provide a friendly alias so code using "user.name" still works
     name = synonym('full_name')
-
     email = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
-
-    # Account Status
+    profile_pic_url = Column(String(255), nullable=True)
     status = Column(String(20), default='pending', nullable=False)  # pending/active/suspended
-    profile_pic_url = Column(String(255))
-    last_login_at = Column(DateTime)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_login_at = Column(DateTime, nullable=True)
 
-    # --- AUTH & SECURITY (FIXED) ---
-    # This column MUST exist in your DB to avoid UndefinedColumn errors.
-    # Using length 64 is standard for TOTP secrets; if your DB column is TEXT, it's also fine in Postgres.
-    otp_secret = Column(String(64), nullable=True)
-
-    oauth_google_sub = Column(String(255), unique=True)
+    # Security & Auth
     failed_login_attempts = Column(Integer, default=0, nullable=False)
     lockout_until = Column(DateTime, nullable=True)
+    otp_secret = Column(String(64), nullable=True)
+    oauth_google_sub = Column(String(255), unique=True, nullable=True)
 
     # Relationships
     companies = relationship('Company', back_populates='owner', cascade='all, delete-orphan')
@@ -107,9 +98,9 @@ class Company(Base):
     maps_link = Column(String(512))
     city = Column(String(128))
     status = Column(String(20), default='active', nullable=False)
-    logo_url = Column(String(255))
+    logo_url = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    last_synced_at = Column(DateTime)
+    last_synced_at = Column(DateTime, nullable=True)
 
     owner = relationship('User', back_populates='companies')
     reviews = relationship('Review', back_populates='company', cascade='all, delete-orphan')
@@ -163,7 +154,7 @@ class Reply(Base):
     edited_text = Column(Text)
     status = Column(String(20), default='Draft', nullable=False)
     suggested_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    sent_at = Column(DateTime)
+    sent_at = Column(DateTime, nullable=True)
 
     review = relationship('Review', back_populates='replies')
 
@@ -191,7 +182,7 @@ class Notification(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-    company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'))
+    company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=True)
     kind = Column(String(50))
     payload = Column(Text)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
