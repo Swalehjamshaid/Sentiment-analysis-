@@ -6,7 +6,7 @@ from sqlalchemy import (
     Column, Integer, String, DateTime, Boolean, ForeignKey,
     Text, Float, UniqueConstraint, Index
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, synonym
 from .base import Base
 
 
@@ -19,23 +19,27 @@ class User(Base):
     id = Column(Integer, primary_key=True)
 
     # Basic Info
-    full_name = Column(String(100), nullable=False)      # Point 1
-    email = Column(String(255), unique=True, index=True, nullable=False)   # Point 2
-    password_hash = Column(String(255), nullable=False)  # Point 7
+    full_name = Column(String(100), nullable=False)
+    # Provide a friendly alias so code using "user.name" still works
+    name = synonym('full_name')
+
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
 
     # Account Status
-    status = Column(String(20), default='pending', nullable=False)  # pending/active/suspended (Point 24)
-    profile_pic_url = Column(String(255))   # Point 25
-    last_login_at = Column(DateTime)        # Point 27
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)  # Point 26
+    status = Column(String(20), default='pending', nullable=False)  # pending/active/suspended
+    profile_pic_url = Column(String(255))
+    last_login_at = Column(DateTime)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     # --- AUTH & SECURITY (FIXED) ---
-    # The column your DB complained about — ensure DB has this!
-    otp_secret = Column(String(32), nullable=True)  # Point 19, Two‑Factor Auth Secret
+    # This column MUST exist in your DB to avoid UndefinedColumn errors.
+    # Using length 64 is standard for TOTP secrets; if your DB column is TEXT, it's also fine in Postgres.
+    otp_secret = Column(String(64), nullable=True)
 
-    oauth_google_sub = Column(String(255), unique=True)  # Point 15
-    failed_login_attempts = Column(Integer, default=0, nullable=False)  # Point 10
-    lockout_until = Column(DateTime, nullable=True)  # Point 11
+    oauth_google_sub = Column(String(255), unique=True)
+    failed_login_attempts = Column(Integer, default=0, nullable=False)
+    lockout_until = Column(DateTime, nullable=True)
 
     # Relationships
     companies = relationship('Company', back_populates='owner', cascade='all, delete-orphan')
@@ -119,7 +123,7 @@ class Company(Base):
 
 
 # ────────────────────────────────────────────────
-# REVEWS
+# REVIEWS
 # ────────────────────────────────────────────────
 class Review(Base):
     __tablename__ = 'reviews'
