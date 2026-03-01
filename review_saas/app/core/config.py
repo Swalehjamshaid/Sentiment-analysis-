@@ -4,15 +4,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     # --------------------------
-    # Environment & app info
+    # App Info
     # --------------------------
-    ENVIRONMENT: str = "development"
     APP_NAME: str = "ReviewSaaS"
-    SECRET_KEY: str
+    ENVIRONMENT: str = "development"
     DEBUG: bool = False
+    SECRET_KEY: str
 
     # --------------------------
-    # Security & tokens
+    # Access & Security
     # --------------------------
     ACCESS_TOKEN_MIN: int = 120
     JWT_ALG: str = "HS256"
@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     GOOGLE_PLACES_API_KEY: str
 
     # --------------------------
-    # OAuth
+    # OAuth Google
     # --------------------------
     OAUTH_GOOGLE_CLIENT_ID: str
     OAUTH_GOOGLE_CLIENT_SECRET: str
@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str
 
     # --------------------------
+    # Optional / extra
+    # --------------------------
+    APP_BASE_URL: str
+
+    # --------------------------
     # Pydantic Settings config
     # --------------------------
     model_config = SettingsConfigDict(
@@ -67,5 +72,5 @@ class Settings(BaseSettings):
         case_sensitive=True
     )
 
-# Create a singleton settings object
+# Singleton settings object
 settings = Settings()
