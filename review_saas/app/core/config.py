@@ -1,9 +1,11 @@
 # File: app/core/config.py
 
 import os
-from pydantic import BaseSettings, validator
+from pydantic_settings import BaseSettings, SettingsConfigDict, validator
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env")  # optional, auto-load .env
+
     APP_NAME: str = "Review SaaS"
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "dev")
     DEBUG: bool = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
@@ -18,4 +20,5 @@ class Settings(BaseSettings):
             )
         return v
 
+# instantiate settings
 settings = Settings()
