@@ -1,35 +1,52 @@
 import os
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
 class Settings(BaseSettings):
-    # Requirement 122: Project Metadata
-    PROJECT_NAME: str = "ReviewSaaS AI"
-    PROJECT_VERSION: str = "1.0.0"
+    # --- Existing REQUIRED by main.py ---
+    APP_NAME: str = "ReviewSaaS AI"
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-here")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+    COOKIE_SECURE: bool = True
+    
+    # --- Missing Fields (Fixes the "Extra inputs" error) ---
+    # These must match the names in your error log exactly
+    JWT_SECRET: str = "supersecret256bitkeyhere"
+    JWT_ALG: str = "HS256"
+    ACCESS_TOKEN_MIN: int = 120
+    APP_BASE_URL: str = ""
+    COOKIE_DOMAIN: str = ".up.railway.app"
+    
+    # Google API Keys
+    GOOGLE_BUSINESS_API_KEY: Optional[str] = None
+    GOOGLE_MAPS_API_KEY: Optional[str] = None
+    GOOGLE_PLACES_API_KEY: Optional[str] = None
+    
+    # OAuth
+    OAUTH_GOOGLE_CLIENT_ID: Optional[str] = None
+    OAUTH_GOOGLE_CLIENT_SECRET: Optional[str] = None
+    OAUTH_GOOGLE_REDIRECT_URI: Optional[str] = None
+    
+    # Security & Lockout
+    LOCKOUT_THRESHOLD: int = 5
+    LOCKOUT_MINUTES: int = 15
+    PASSLIB_MAX_PASSWORD_SIZE: int = 1024
+    
+    # Email / Tokens
+    RESET_TOKEN_MINUTES: int = 30
+    VERIFY_TOKEN_HOURS: int = 24
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_FROM_NAME: str = "Review SaaS"
+    SMTP_FROM_EMAIL: Optional[str] = None
 
-    # Requirement 124: Database Configuration
-    # Railway provides DATABASE_URL automatically in production
-    DATABASE_URL: str = os.getenv(
-        "DATABASE_URL", 
-        "postgresql://postgres:password@localhost:5432/review_db"
+    # --- THE CRITICAL FIX ---
+    # This tells Pydantic to allow extra variables in your .env/Environment
+    # without crashing the app.
+    model_config = SettingsConfigDict(
+        extra='ignore',  # This ignores any variable not defined above
+        env_file=".env",
+        case_sensitive=True
     )
 
-    # Requirement 8 & 129: Security Settings
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "lahore-super-secret-key-2026-xyz")
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
-
-    # Requirement 128: Google Places API Key
-    GOOGLE_API_KEY: Optional[str] = os.getenv("GOOGLE_API_KEY", "")
-
-    # Requirement 10: Account Lockout Configuration
-    MAX_LOGIN_ATTEMPTS: int = 5
-    LOCKOUT_DURATION_SECONDS: int = 300  # 5 minutes
-
-    class Config:
-        case_sensitive = True
-        # Look for a .env file if it exists
-        env_file = ".env"
-
-# Create the instance that main.py is trying to import
 settings = Settings()
