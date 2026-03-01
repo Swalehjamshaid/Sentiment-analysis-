@@ -1,4 +1,5 @@
 # File: app/main.py
+
 from __future__ import annotations
 import logging
 import os
@@ -12,26 +13,27 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 # -------------------------------
-# App Core Imports
+# Core imports
 # -------------------------------
 from app.core.config import settings
-from app.core.db import init_db
-from app.models.base import Base
+from app.core.db import init_db  # database engine initializer
+from app.models.base import Base  # SQLAlchemy Base
 
 # -------------------------------
 # Routes
 # -------------------------------
 from app.routes import auth, companies, dashboard
+# Other routes can be added later: reviews, reports, exports, admin
 
 # -------------------------------
 # Services
 # -------------------------------
 from app.services.scheduler import start_scheduler
-# from app.services.google_api import GoogleAPI  # Optional integration placeholder
-# from app.services.sentiment import analyze_sentiment  # Optional AI logic
+# from app.services.google_api import GoogleAPI   # optional Google integration
+# from app.services.sentiment import analyze_sentiment  # optional AI logic
 
 # -------------------------------
-# Logging Setup
+# Logging
 # -------------------------------
 logging.basicConfig(
     level=logging.INFO,
@@ -40,17 +42,22 @@ logging.basicConfig(
 logger = logging.getLogger("review_saas")
 
 # -------------------------------
-# Lifespan: DB Init & Scheduler
+# Lifespan: DB Init + Scheduler
 # -------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing database...")
-    init_db(Base)  # Connect & create tables if needed
     try:
-        start_scheduler()  # Start background jobs
-        logger.info("Scheduler started successfully.")
+        init_db(Base)
+        logger.info("Database initialized successfully.")
     except Exception as e:
-        logger.error(f"Scheduler failed: {e}")
+        logger.error(f"Database initialization failed: {e}")
+
+    try:
+        start_scheduler()
+        logger.info("Background scheduler started successfully.")
+    except Exception as e:
+        logger.error(f"Scheduler failed to start: {e}")
     yield
 
 # -------------------------------
@@ -77,14 +84,14 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
 # -------------------------------
-# Auth Helper
+# Auth helper
 # -------------------------------
 def is_authenticated(request: Request) -> bool:
     """Check if user session exists."""
     return bool(request.session.get("user_id"))
 
 # -------------------------------
-# Auth Redirect Middleware
+# Auth redirect middleware
 # -------------------------------
 PROTECTED_PREFIXES = ("/dashboard", "/companies", "/reviews", "/reports", "/exports", "/admin")
 
@@ -96,7 +103,7 @@ async def auth_redirects(request: Request, call_next):
 
     authed = is_authenticated(request)
 
-    # Redirect logged-in users from login/register pages
+    # Redirect logged-in users away from login/register
     if authed and path in ("/", "/login", "/register"):
         return RedirectResponse("/dashboard", status_code=302)
 
@@ -111,7 +118,7 @@ async def auth_redirects(request: Request, call_next):
     return await call_next(request)
 
 # -------------------------------
-# Public Routes
+# Public routes
 # -------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -122,16 +129,16 @@ async def index(request: Request):
 
 @app.get("/google/health")
 async def google_health():
-    """Health check endpoint for monitoring"""
+    """Health check endpoint"""
     return JSONResponse({"status": "healthy"})
 
 # -------------------------------
-# Include Routers
+# Include routers
 # -------------------------------
 app.include_router(auth.router)        # /login, /register
 app.include_router(dashboard.router)   # /dashboard
 app.include_router(companies.router, prefix="/companies")
-# Add other routers as needed:
+# Add additional routers as needed:
 # app.include_router(reviews.router, prefix="/reviews")
 # app.include_router(exports.router, prefix="/exports")
 # app.include_router(reports.router, prefix="/reports")
