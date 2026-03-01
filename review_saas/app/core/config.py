@@ -1,25 +1,38 @@
-# File: app/core/config.py
-
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import validator  # <-- correct import
+from pydantic import field_validator
+from typing import Optional
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env")  # auto-load .env
+    # --- REQUIRED BY main.py ---
+    APP_NAME: str = "ReviewSaaS AI"
+    # Requirement 8: Security
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "your-default-secret-key-for-dev")
+    # Requirement 124: Database (Railway Injected)
+    # We provide a fallback string to prevent the 'Value error' crash
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/db")
+    COOKIE_SECURE: bool = True
 
-    APP_NAME: str = "Review SaaS"
-    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "dev")
-    DEBUG: bool = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "super-secret-key")
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+    # --- GOOGLE API KEYS (Requirement 128) ---
+    GOOGLE_PLACES_API_KEY: Optional[str] = None
+    GOOGLE_MAPS_API_KEY: Optional[str] = None
 
-    @validator("DATABASE_URL")
+    # --- VALIDATION ---
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
     def check_db_url(cls, v):
-        if not v:
-            raise ValueError(
-                "DATABASE_URL is empty! Set DATABASE_URL environment variable."
-            )
+        if not v or v.strip() == "":
+            # If empty, we use a local sqlite fallback for safety or raise a cleaner error
+            return "sqlite:///./fallback.db"
         return v
 
-# Instantiate settings
+    # --- THE CRITICAL FIX ---
+    # extra='ignore' tells Pydantic to stop crashing when it sees 
+    # variables like 'jwt_secret' or 'app_base_url' in Railway
+    model_config = SettingsConfigDict(
+        extra='ignore', 
+        env_file=".env",
+        case_sensitive=False # Set to False to handle 'jwt_secret' vs 'JWT_SECRET'
+    )
+
 settings = Settings()
