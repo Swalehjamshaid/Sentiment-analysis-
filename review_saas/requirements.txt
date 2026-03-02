@@ -41,6 +41,8 @@ psycopg[binary]==3.3.2
 psycopg2-binary==2.9.10
 # Asyncpg (FIX: Must be 0.30.0+ for Python 3.13)
 asyncpg>=0.30.0
+# Greenlet required for SQLAlchemy async
+greenlet>=2.0.2
 
 # ------------------------------------------
 # 4. GOOGLE API INTEGRATIONS
