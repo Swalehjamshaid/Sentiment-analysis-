@@ -1,1 +1,0 @@
-# placeholder for google_reviews.py
