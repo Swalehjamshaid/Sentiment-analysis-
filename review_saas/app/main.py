@@ -1,5 +1,3 @@
-
-# filename: app/main.py
 from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -8,7 +6,6 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncEngine
-
 from app.core.config import settings
 from app.core.db import get_engine
 from app.core.models import Base
@@ -27,15 +24,26 @@ app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY, session_co
 app.mount('/static', StaticFiles(directory='app/static'), name='static')
 templates = Jinja2Templates(directory='app/templates')
 
+
 @app.on_event('startup')
 async def on_startup():
     engine: AsyncEngine = get_engine()
-    async with engine.begin() as conn:
+    
+    # Warm up the connection pool + test connectivity (very lightweight)
+    # This often avoids obscure greenlet initialization races on startup
+    async with engine.connect() as conn:
+        await conn.execute("SELECT 1")
+    
+    # Create tables only if they don't exist (safe & idempotent)
+    # run_sync is still the correct way — we just avoid begin() if possible
+    async with engine.connect() as conn:           # ← changed from begin() to connect()
         await conn.run_sync(Base.metadata.create_all)
+
 
 @app.get('/', response_class=HTMLResponse)
 async def landing(request: Request):
     return templates.TemplateResponse('landing.html', {"request": request, "title": settings.APP_NAME, "settings": settings})
+
 
 # Routers
 app.include_router(auth_routes.router)
@@ -44,6 +52,7 @@ app.include_router(dashboard_routes.router)
 app.include_router(reviews_routes.router)
 app.include_router(exports_routes.router)
 
+
 @app.get('/health')
 async def health():
-    return {"status":"ok"}
+    return {"status": "ok"}
