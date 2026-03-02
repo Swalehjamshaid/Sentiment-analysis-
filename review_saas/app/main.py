@@ -6,6 +6,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy import text  # Added for SELECT 1
 from app.core.config import settings
 from app.core.db import get_engine
 from app.core.models import Base
@@ -17,12 +18,25 @@ from app.routes import exports as exports_routes
 
 app = FastAPI(title=settings.APP_NAME, debug=settings.DEBUG)
 
-# Security headers & CORS (HTTPS should be enforced by proxy; cookies set with https_only flag)
-app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
-app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY, session_cookie=settings.SESSION_COOKIE_NAME, same_site=settings.SESSION_COOKIE_SAMESITE, https_only=settings.SESSION_COOKIE_SECURE)
+# Security headers & CORS
+app.add_middleware(
+    CORSMiddleware, 
+    allow_origins=['*'], 
+    allow_credentials=True, 
+    allow_methods=['*'], 
+    allow_headers=['*']
+)
+app.add_middleware(
+    SessionMiddleware, 
+    secret_key=settings.SECRET_KEY, 
+    session_cookie=settings.SESSION_COOKIE_NAME, 
+    same_site=settings.SESSION_COOKIE_SAMESITE, 
+    https_only=settings.SESSION_COOKIE_SECURE
+)
 
 app.mount('/static', StaticFiles(directory='app/static'), name='static')
 templates = Jinja2Templates(directory='app/templates')
+
 
 
 @app.on_event('startup')
@@ -34,22 +48,31 @@ async def on_startup():
     await greenlet_spawn(lambda: None)  # safe no-op to initialize context
     
     try:
-        # Warm up connection pool with a simple query (helps avoid cold-start failures)
+        # 1. Warm up connection & Test Auth
         async with engine.connect() as conn:
-            await conn.execute("SELECT 1")
-        
-        # Create tables if they don't exist (idempotent operation)
-        async with engine.connect() as conn:
+            # Using text() is mandatory for raw strings in SQLAlchemy 2.0
+            await conn.execute(text("SELECT 1"))
+            print("✅ Database connection verified.")
+
+        # 2. Create tables if they don't exist
+        # Using engine.begin() ensures the schema changes are COMMITTED
+        async with engine.begin() as conn:
+            # This requires all models (User, Company, etc.) to be imported in app/core/models.py
             await conn.run_sync(Base.metadata.create_all)
+            print("✅ Database schema synchronized (Tables created).")
             
     except Exception as exc:
         print(f"Database startup failed: {exc!r}")
-        raise  # still let the app crash if DB is unreachable (better for alerting)
+        # Keeping 'raise' as requested to ensure alerting triggers on failure
+        raise 
 
 
 @app.get('/', response_class=HTMLResponse)
 async def landing(request: Request):
-    return templates.TemplateResponse('landing.html', {"request": request, "title": settings.APP_NAME, "settings": settings})
+    return templates.TemplateResponse(
+        'landing.html', 
+        {"request": request, "title": settings.APP_NAME, "settings": settings}
+    )
 
 
 # Routers
@@ -62,4 +85,4 @@ app.include_router(exports_routes.router)
 
 @app.get('/health')
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "database": "connected"}
