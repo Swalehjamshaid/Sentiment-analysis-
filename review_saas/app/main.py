@@ -29,15 +29,22 @@ templates = Jinja2Templates(directory='app/templates')
 async def on_startup():
     engine: AsyncEngine = get_engine()
     
-    # Warm up the connection pool + test connectivity (very lightweight)
-    # This often avoids obscure greenlet initialization races on startup
-    async with engine.connect() as conn:
-        await conn.execute("SELECT 1")
+    # Force greenlet bridge initialization early (critical fix for Python 3.13 startup races)
+    from sqlalchemy.util import greenlet_spawn
+    await greenlet_spawn(lambda: None)  # safe no-op to initialize context
     
-    # Create tables only if they don't exist (safe & idempotent)
-    # run_sync is still the correct way — we just avoid begin() if possible
-    async with engine.connect() as conn:           # ← changed from begin() to connect()
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        # Warm up connection pool with a simple query (helps avoid cold-start failures)
+        async with engine.connect() as conn:
+            await conn.execute("SELECT 1")
+        
+        # Create tables if they don't exist (idempotent operation)
+        async with engine.connect() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            
+    except Exception as exc:
+        print(f"Database startup failed: {exc!r}")
+        raise  # still let the app crash if DB is unreachable (better for alerting)
 
 
 @app.get('/', response_class=HTMLResponse)
