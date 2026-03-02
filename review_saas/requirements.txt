@@ -11,9 +11,10 @@ python-multipart==0.0.9
 # ────────────────────────────────────────────────────────────────
 SQLAlchemy==2.0.31
 psycopg[binary]==3.3.2
-asyncpg==0.31.0                  # ← UPDATED for Python 3.13
+asyncpg==0.31.0             # ← required for async PostgreSQL
 aiosqlite==0.20.0
 alembic==1.18.4
+greenlet==2.0.2             # ← required for async SQLAlchemy
 
 # ────────────────────────────────────────────────────────────────
 # Data Validation & Settings
