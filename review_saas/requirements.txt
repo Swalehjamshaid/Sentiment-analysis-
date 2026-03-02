@@ -11,8 +11,8 @@ python-multipart==0.0.9
 # ────────────────────────────────────────────────────────────────
 SQLAlchemy==2.0.31
 psycopg[binary]==3.3.2
-asyncpg==0.27.1                  # ← NEW: async PostgreSQL driver
-aiosqlite==0.20.0                # ← NEW: async SQLite fallback
+asyncpg==0.31.0                  # ← UPDATED for Python 3.13
+aiosqlite==0.20.0
 alembic==1.18.4
 
 # ────────────────────────────────────────────────────────────────
