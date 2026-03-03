@@ -34,8 +34,7 @@
       <div class="row g-2">
         <div class="col-8">
           <select class="form-select" id="companySelect">
-            <!-- Filled by JavaScript -->
-          </select>
+            </select>
         </div>
         <div class="col-4 d-grid">
           <button class="btn btn-outline-secondary" id="switchCompanyBtn">Switch</button>
@@ -125,7 +124,6 @@
 
 </div>
 
-<!-- Add Company Modal (unchanged) -->
 <div class="modal fade" id="addCompanyModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
@@ -173,7 +171,7 @@
 </div>
 
 <script>
-// ────────────────────────────────────────────────
+// Logic Configuration
 const el = {
   companySelect:    document.getElementById('companySelect'),
   switchBtn:        document.getElementById('switchCompanyBtn'),
@@ -204,14 +202,9 @@ let currentCompanyId = null;
 let selectedPlace = null;
 let charts = {};
 
-// ────────────────────────────────────────────────
-function show(elId, visible) {
-  el[elId].style.display = visible ? 'block' : 'none';
-}
-
-function qs(obj) {
-  return new URLSearchParams(obj).toString();
-}
+// Helpers
+const show = (elId, visible) => el[elId].style.display = visible ? 'block' : 'none';
+const qs = (obj) => new URLSearchParams(obj).toString();
 
 async function safeJsonFetch(url) {
   const res = await fetch(url);
@@ -219,7 +212,7 @@ async function safeJsonFetch(url) {
   return res.json();
 }
 
-// ────────────────────────────────────────────────
+// Data Fetching
 async function loadCompanies() {
   try {
     const data = await safeJsonFetch('/api/companies/list');
@@ -232,7 +225,6 @@ async function loadCompanies() {
       el.companySelect.appendChild(opt);
     });
 
-    // Try to restore previously selected company
     const savedId = localStorage.getItem('lastCompanyId');
     if (savedId && data.companies.some(c => c.id == savedId)) {
       el.companySelect.value = savedId;
@@ -242,22 +234,15 @@ async function loadCompanies() {
 
     currentCompanyId = el.companySelect.value;
   } catch (err) {
-    console.error("Failed to load companies", err);
     el.companySelect.innerHTML = '<option value="">Error loading companies</option>';
   }
 }
 
-// ────────────────────────────────────────────────
 async function fetchDashboardData() {
-  if (!currentCompanyId) {
-    show('errorBox', true);
-    return;
-  }
+  if (!currentCompanyId) return show('errorBox', true);
 
   show('loadingBox', true);
-  show('successBox', false);
-  show('nodataBox', false);
-  show('errorBox', false);
+  ['successBox', 'nodataBox', 'errorBox'].forEach(box => show(box, false));
 
   const params = {
     company_id: currentCompanyId,
@@ -266,31 +251,31 @@ async function fetchDashboardData() {
   };
 
   try {
-    const [kpis, reviewsSeries, ratingsDist, sentimentSeries] = await Promise.all([
+    const [kpis, revSeries, ratDist, sentSeries] = await Promise.all([
       safeJsonFetch(`/api/kpis?${qs(params)}`),
       safeJsonFetch(`/api/series/reviews?${qs(params)}`),
       safeJsonFetch(`/api/ratings/distribution?${qs(params)}`),
       safeJsonFetch(`/api/sentiment/series?${qs(params)}`)
     ]);
 
-    // KPIs
+    // Update KPIs
     el.kpiTotal.textContent   = kpis.total_reviews ?? 0;
     el.kpiRating.textContent  = (kpis.avg_rating ?? 0).toFixed(2);
     el.kpiSent.textContent    = (kpis.avg_sentiment ?? 0).toFixed(3);
-    el.kpiNew.textContent     = reviewsSeries.series?.at(-1)?.value ?? 0;
+    el.kpiNew.textContent      = revSeries.series?.at(-1)?.value ?? 0;
 
-    // Destroy old charts
     Object.values(charts).forEach(c => c?.destroy?.());
 
-    // Reviews per day
+    // Chart: Reviews per day
     charts.rev = new Chart(document.getElementById('seriesReviews'), {
       type: 'line',
       data: {
-        labels: reviewsSeries.series.map(x => x.date),
+        labels: revSeries.series.map(x => x.date),
         datasets: [{
           label: 'Reviews',
-          data: reviewsSeries.series.map(x => x.value),
+          data: revSeries.series.map(x => x.value),
           borderColor: '#0d6efd',
+          backgroundColor: 'rgba(13, 110, 253, 0.1)',
           tension: 0.3,
           fill: true
         }]
@@ -298,29 +283,29 @@ async function fetchDashboardData() {
       options: { responsive: true, scales: { y: { beginAtZero: true } } }
     });
 
-    // Ratings distribution
+    // Chart: Ratings
     charts.dist = new Chart(document.getElementById('ratingsDist'), {
       type: 'bar',
       data: {
-        labels: Object.keys(ratingsDist.distribution),
+        labels: Object.keys(ratDist.distribution),
         datasets: [{
           label: 'Rating Count',
-          data: Object.values(ratingsDist.distribution),
+          data: Object.values(ratDist.distribution),
           backgroundColor: '#ffc107'
         }]
-      },
-      options: { responsive: true }
+      }
     });
 
-    // Sentiment series
+    // Chart: Sentiment
     charts.sent = new Chart(document.getElementById('sentSeries'), {
       type: 'line',
       data: {
-        labels: sentimentSeries.series.map(x => x.date),
+        labels: sentSeries.series.map(x => x.date),
         datasets: [{
           label: 'Sentiment',
-          data: sentimentSeries.series.map(x => x.value),
+          data: sentSeries.series.map(x => x.value),
           borderColor: '#6610f2',
+          backgroundColor: 'rgba(102, 16, 242, 0.1)',
           tension: 0.3,
           fill: true
         }]
@@ -329,34 +314,22 @@ async function fetchDashboardData() {
     });
 
     await loadReviewsList();
-
     show('loadingBox', false);
     show('successBox', true);
+    if (kpis.total_reviews === 0) show('nodataBox', true);
 
-    if (Number(kpis.total_reviews) === 0) {
-      show('nodataBox', true);
-    }
   } catch (err) {
-    console.error(err);
     show('loadingBox', false);
     show('errorBox', true);
   }
 }
 
-// ────────────────────────────────────────────────
 async function loadReviewsList() {
   if (!currentCompanyId) return;
-
-  const params = {
-    company_id: currentCompanyId,
-    sort: el.sortReviews.value,
-    start: el.startDate.value || '',
-    end: el.endDate.value || ''
-  };
-
+  const params = { company_id: currentCompanyId, sort: el.sortReviews.value, start: el.startDate.value, end: el.endDate.value };
+  
   try {
     const { items } = await safeJsonFetch(`/api/reviews/list?${qs(params)}`);
-
     el.reviewsList.innerHTML = items.map(r => {
       const stars = '★'.repeat(Math.round(r.rating || 0)) + '☆'.repeat(5 - Math.round(r.rating || 0));
       return `
@@ -365,110 +338,65 @@ async function loadReviewsList() {
             <span>${r.author_name || 'Anonymous'}</span>
             <span>${r.review_time || ''}</span>
           </div>
-          <div>${stars} ${(r.rating || 0).toFixed(1)}</div>
+          <div class="text-warning">${stars} <span class="text-dark">${(r.rating || 0).toFixed(1)}</span></div>
           <div>${r.text || ''}</div>
-        </div>
-      `;
+        </div>`;
     }).join('') || '<p class="text-muted">No reviews found.</p>';
   } catch (err) {
-    console.error("Reviews fetch failed", err);
     el.reviewsList.innerHTML = '<p class="text-danger">Failed to load reviews.</p>';
   }
 }
 
-// ──────────────────────────────────────────────── Google Places Autocomplete
-function loadGoogleMapsScript() {
-  const script = document.createElement('script');
-  script.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initGooglePlaces";
-  script.async = true;
-  script.defer = true;
-  document.head.appendChild(script);
+// Google Maps Logic
+function loadGoogleScript() {
+  const s = document.createElement('script');
+  s.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initGooglePlaces";
+  s.async = true; s.defer = true;
+  document.head.appendChild(s);
 }
 
 window.initGooglePlaces = function() {
-  if (typeof google === 'undefined' || !google.maps?.places) return;
+  const auto = new google.maps.places.Autocomplete(el.placeSearch, { types: ["establishment"] });
+  auto.addListener("place_changed", () => {
+    const p = auto.getPlace();
+    if (!p.place_id) return;
 
-  const autocomplete = new google.maps.places.Autocomplete(el.placeSearch, {
-    fields: ["name", "place_id", "formatted_address", "formatted_phone_number", "website", "types", "opening_hours"],
-    types: ["establishment"]
-  });
-
-  autocomplete.addListener("place_changed", () => {
-    const place = autocomplete.getPlace();
-    if (!place.place_id) return;
-
-    el.prevAddress.value  = place.formatted_address  || '';
-    el.prevPhone.value    = place.formatted_phone_number || 'N/A';
-    el.prevWebsite.value  = place.website || 'N/A';
-    el.prevCategory.value = place.types?.[0]?.replace(/_/g, ' ') || 'Business';
-
-    let hours = 'No hours listed';
-    if (place.opening_hours?.weekday_text) {
-      hours = place.opening_hours.weekday_text.join('\n');
-    }
-    el.prevHours.value = hours;
-
+    el.prevAddress.value  = p.formatted_address || '';
+    el.prevPhone.value    = p.formatted_phone_number || 'N/A';
+    el.prevWebsite.value  = p.website || 'N/A';
+    el.prevCategory.value = p.types?.[0]?.replace(/_/g, ' ') || 'Business';
+    el.prevHours.value    = p.opening_hours?.weekday_text?.join('\n') || 'No hours listed';
     el.previewBox.style.display = 'block';
 
-    selectedPlace = {
-      name: place.name,
-      place_id: place.place_id,
-      address: place.formatted_address,
-      phone: place.formatted_phone_number,
-      website: place.website,
-      category: el.prevCategory.value,
-      hours,
-      google_data: place
-    };
-
+    selectedPlace = { name: p.name, place_id: p.place_id, address: p.formatted_address, phone: p.formatted_phone_number, website: p.website, category: el.prevCategory.value, hours: el.prevHours.value, google_data: p };
     el.saveBtn.disabled = false;
   });
 };
 
-// ──────────────────────────────────────────────── Event Listeners
+// Init
 el.switchBtn.addEventListener('click', () => {
   currentCompanyId = el.companySelect.value;
-  if (currentCompanyId) {
-    localStorage.setItem('lastCompanyId', currentCompanyId);
-    fetchDashboardData();
-  }
+  localStorage.setItem('lastCompanyId', currentCompanyId);
+  fetchDashboardData();
 });
 
 el.fetchBtn.addEventListener('click', fetchDashboardData);
 el.sortReviews.addEventListener('change', loadReviewsList);
 
 el.saveBtn.onclick = async () => {
-  if (!selectedPlace) return;
   try {
-    const res = await fetch('/companies/add', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(selectedPlace)
-    });
-    const data = await res.json();
-    if (data.success) {
-      alert('Company added!');
-      location.reload(); // or better: reload companies list + select new one
-    } else {
-      alert(data.message || 'Failed to add company');
-    }
-  } catch (err) {
-    console.error(err);
-    alert('Error while saving company');
-  }
+    const res = await fetch('/companies/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(selectedPlace) });
+    const d = await res.json();
+    if (d.success) location.reload();
+    else alert(d.message || 'Error adding company');
+  } catch (err) { alert('Save failed'); }
 };
 
-// ──────────────────────────────────────────────── Init
 document.addEventListener("DOMContentLoaded", () => {
-  loadGoogleMapsScript();
-
-  const today = new Date().toISOString().slice(0, 10);
-  el.endDate.value = today;
-  el.startDate.value = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-
-  loadCompanies().then(() => {
-    if (currentCompanyId) fetchDashboardData();
-  });
+  loadGoogleScript();
+  el.endDate.value = new Date().toISOString().slice(0, 10);
+  el.startDate.value = new Date(Date.now() - 2505600000).toISOString().slice(0, 10); // 29 days
+  loadCompanies().then(() => { if (currentCompanyId) fetchDashboardData(); });
 });
 </script>
 
