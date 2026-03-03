@@ -1,161 +1,355 @@
-# filename: app/routes/dashboard.py
-from __future__ import annotations
-import logging
-from datetime import datetime, timedelta
-from fastapi import APIRouter, Request, Query, HTTPException
-from fastapi.responses import HTMLResponse
-from sqlalchemy import select, func, desc, asc, cast, Date
-from starlette.templating import Jinja2Templates
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard - ReviewSaaS</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    .spinner { display: none; }
+    .success-msg, .nodata-msg, .error-msg { display: none; }
+    #addCompanyModal .modal-dialog { max-width: 500px; }
+    .pac-container { z-index: 1060 !important; }
+    .auto-field { background-color: #f8f9fa; pointer-events: none; }
+  </style>
+</head>
+<body>
 
-from app.core.db import get_session
-from app.core.models import Company, Review
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="/">ReviewSaaS</a>
+    <div class="d-flex gap-2">
+      <a href="/companies" class="btn btn-outline-light btn-sm">Companies</a>
+      <a href="/logout" class="btn btn-warning btn-sm">Logout</a>
+    </div>
+  </div>
+</nav>
 
-router = APIRouter(tags=["dashboard"])
-templates = Jinja2Templates(directory="app/templates")
-logger = logging.getLogger("app.dashboard")
+<div class="container py-4">
 
-# --- Utility: parse dates ---
-def parse_date(date_str: str | None) -> datetime | None:
-    if not date_str:
-        return None
-    try:
-        return datetime.strptime(date_str, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid date format: {date_str}. Use YYYY-MM-DD")
+  <div class="row g-3 align-items-end">
+    <div class="col-lg-4">
+      <label class="form-label">Company</label>
+      <div class="row g-2">
+        <div class="col-8">
+          <select class="form-select" id="companySelect"></select>
+        </div>
+        <div class="col-4 d-grid">
+          <button class="btn btn-outline-secondary" id="switchCompanyBtn">Switch</button>
+        </div>
+      </div>
+    </div>
 
-# --- UI Route ---
-@router.get("/dashboard", response_class=HTMLResponse)
-async def get_dashboard(request: Request):
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    <div class="col-lg-3 d-grid">
+      <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+        + Add New Company
+      </button>
+    </div>
 
-# --- API: Company List ---
-@router.get("/api/companies/list")
-async def api_companies_list():
-    async with get_session() as session:
-        stmt = select(Company.id, Company.name).order_by(Company.name)
-        result = await session.execute(stmt)
-        companies = result.all()
-        return {"companies": [{"id": c.id, "name": c.name} for c in companies]}
+    <div class="col-lg-5">
+      <div class="row g-2">
+        <div class="col">
+          <label class="form-label">Start Date</label>
+          <input type="date" class="form-control" id="startDate">
+        </div>
+        <div class="col">
+          <label class="form-label">End Date</label>
+          <input type="date" class="form-control" id="endDate">
+        </div>
+      </div>
+    </div>
 
-# --- API: KPI Cards ---
-@router.get("/api/kpis")
-async def api_kpis(company_id: int, start: str | None = None, end: str | None = None):
-    start_date = parse_date(start)
-    end_date = parse_date(end)
+    <div class="col-lg-2 d-grid">
+      <button class="btn btn-primary" id="fetchBtn">Fetch Data</button>
+    </div>
+  </div>
 
-    async with get_session() as session:
-        q = select(
-            func.count(Review.id).label("total"),
-            func.avg(Review.rating).label("avg_rating"),
-            func.avg(Review.sentiment_score).label("avg_sent")
-        ).where(Review.company_id == company_id)
+  <div class="alert alert-info mt-3 spinner" id="loadingBox">Loading…</div>
+  <div class="alert alert-success mt-3 success-msg" id="successBox">Data fetched successfully.</div>
+  <div class="alert alert-warning mt-3 nodata-msg" id="nodataBox">No Data Found for selected date range.</div>
+  <div class="alert alert-danger mt-3 error-msg" id="errorBox">Error loading data.</div>
 
-        if start_date:
-            q = q.where(cast(Review.review_time, Date) >= start_date)
-        if end_date:
-            q = q.where(cast(Review.review_time, Date) <= end_date)
+  <div class="row g-3 mt-2">
+    <div class="col-md-3"><div class="p-3 bg-light border rounded">Total Reviews <h4 id="kpi-total" class="mb-0">0</h4></div></div>
+    <div class="col-md-3"><div class="p-3 bg-light border rounded">Avg Rating <h4 id="kpi-rating" class="mb-0">0.0</h4></div></div>
+    <div class="col-md-3"><div class="p-3 bg-light border rounded">Avg Sentiment <h4 id="kpi-sent" class="mb-0">0.000</h4></div></div>
+    <div class="col-md-3"><div class="p-3 bg-light border rounded">New (24h) <h4 id="kpi-new" class="mb-0">0</h4></div></div>
+  </div>
 
-        res = await session.execute(q)
-        stats = res.fetchone()
+  <div class="row g-3 mt-1">
+    <div class="col-lg-8">
+      <div class="card">
+        <div class="card-body">
+          <h6 class="text-muted">Reviews per day</h6>
+          <canvas id="seriesReviews" height="120"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="text-muted">Ratings distribution</h6>
+          <canvas id="ratingsDist" height="120"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-body">
+          <h6 class="text-muted">Avg sentiment per day</h6>
+          <canvas id="sentSeries" height="120"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
 
-        return {
-            "total_reviews": stats.total or 0,
-            "avg_rating": round(float(stats.avg_rating or 0.0), 2),
-            "avg_sentiment": round(float(stats.avg_sent or 0.0), 3)
-        }
+  <div class="row g-3 mt-1">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center">
+            <h6 class="text-muted mb-0">Reviews</h6>
+            <select id="sortReviews" class="form-select form-select-sm" style="width: auto;">
+              <option value="newest" selected>Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="highest">Highest rating</option>
+              <option value="lowest">Lowest rating</option>
+            </select>
+          </div>
+          <div id="reviewsList" class="mt-3"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-# --- API: Review List ---
-@router.get("/api/reviews/list")
-async def api_reviews_list(
-    company_id: int,
-    sort: str = "newest",
-    start: str | None = None,
-    end: str | None = None
-):
-    start_date = parse_date(start)
-    end_date = parse_date(end)
+</div>
 
-    async with get_session() as session:
-        stmt = select(Review).where(Review.company_id == company_id)
+<!-- Add Company Modal -->
+<div class="modal fade" id="addCompanyModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add New Company via Google Places</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-bold">Search Company / Place</label>
+          <input type="text" class="form-control" id="placeSearch" placeholder="e.g. McDonald's Lahore">
+        </div>
+        <div id="detailsPreview" style="display:none;" class="border-top pt-3">
+          <div class="mb-2">
+            <label class="small text-muted">Address</label>
+            <input type="text" id="prev_address" class="form-control form-control-sm auto-field">
+          </div>
+          <div class="row mb-2">
+            <div class="col">
+              <label class="small text-muted">Phone</label>
+              <input type="text" id="prev_phone" class="form-control form-control-sm auto-field">
+            </div>
+            <div class="col">
+              <label class="small text-muted">Category</label>
+              <input type="text" id="prev_category" class="form-control form-control-sm auto-field">
+            </div>
+          </div>
+          <div class="mb-2">
+            <label class="small text-muted">Website</label>
+            <input type="text" id="prev_website" class="form-control form-control-sm auto-field">
+          </div>
+          <div class="mb-2">
+            <label class="small text-muted">Business Hours</label>
+            <textarea id="prev_hours" rows="2" class="form-control form-control-sm auto-field"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" id="saveCompanyBtn" disabled>Save Selected Company</button>
+      </div>
+    </div>
+  </div>
+</div>
 
-        # Sorting
-        if sort == "newest": stmt = stmt.order_by(desc(Review.review_time))
-        elif sort == "oldest": stmt = stmt.order_by(asc(Review.review_time))
-        elif sort == "highest": stmt = stmt.order_by(desc(Review.rating))
-        elif sort == "lowest": stmt = stmt.order_by(asc(Review.rating))
+<script>
+const el = {
+  companySelect: document.getElementById('companySelect'),
+  switchBtn: document.getElementById('switchCompanyBtn'),
+  startDate: document.getElementById('startDate'),
+  endDate: document.getElementById('endDate'),
+  fetchBtn: document.getElementById('fetchBtn'),
+  sortReviews: document.getElementById('sortReviews'),
+  loadingBox: document.getElementById('loadingBox'),
+  successBox: document.getElementById('successBox'),
+  nodataBox: document.getElementById('nodataBox'),
+  errorBox: document.getElementById('errorBox'),
+  reviewsList: document.getElementById('reviewsList'),
+  saveBtn: document.getElementById('saveCompanyBtn'),
+  placeSearch: document.getElementById('placeSearch'),
+  kpiTotal: document.getElementById('kpi-total'),
+  kpiRating: document.getElementById('kpi-rating'),
+  kpiSent: document.getElementById('kpi-sent'),
+  kpiNew: document.getElementById('kpi-new'),
+  previewBox: document.getElementById('detailsPreview'),
+  prevAddress: document.getElementById('prev_address'),
+  prevPhone: document.getElementById('prev_phone'),
+  prevWebsite: document.getElementById('prev_website'),
+  prevCategory: document.getElementById('prev_category'),
+  prevHours: document.getElementById('prev_hours')
+};
 
-        # Filtering by date using SQL casting
-        if start_date:
-            stmt = stmt.where(cast(Review.review_time, Date) >= start_date)
-        if end_date:
-            stmt = stmt.where(cast(Review.review_time, Date) <= end_date)
+let currentCompanyId = null;
+let selectedPlace = null;
+let charts = {};
 
-        res = await session.execute(stmt.limit(50))
-        items = res.scalars().all()
+const show = (elId, visible) => el[elId].style.display = visible ? 'block' : 'none';
+const qs = (obj) => new URLSearchParams(obj).toString();
 
-        return {
-            "items": [
-                {
-                    "author_name": r.author_name or "Anonymous",
-                    "rating": r.rating,
-                    "text": r.text,
-                    "review_time": r.review_time.strftime("%Y-%m-%d %H:%M") if r.review_time else ""
-                }
-                for r in items
-            ]
-        }
+async function safeJsonFetch(url) {
+  const res = await fetch(url);
+  if(!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
 
-# --- API: Reviews Series ---
-@router.get("/api/series/reviews")
-async def api_series_reviews(company_id: int, start: str | None = None, end: str | None = None):
-    start_date = parse_date(start)
-    end_date = parse_date(end)
+// Load Companies Dropdown
+async function loadCompanies() {
+  try {
+    const data = await safeJsonFetch('/api/companies/list');
+    el.companySelect.innerHTML = '';
+    if(!data.companies || data.companies.length===0){
+      el.companySelect.innerHTML='<option value="">No companies found</option>'; return;
+    }
+    data.companies.forEach(c=>{
+      const opt=document.createElement('option');
+      opt.value=c.id; opt.textContent=c.name;
+      el.companySelect.appendChild(opt);
+    });
+    const savedId=localStorage.getItem('lastCompanyId');
+    if(savedId && data.companies.some(c=>c.id==savedId)){ el.companySelect.value=savedId; }
+    else{ el.companySelect.value=data.companies[0].id; }
+    currentCompanyId = el.companySelect.value;
+  } catch(err){
+    el.companySelect.innerHTML='<option value="">Error loading companies</option>';
+  }
+}
 
-    async with get_session() as session:
-        stmt = select(
-            cast(Review.review_time, Date).label("date"),
-            func.count(Review.id).label("value")
-        ).where(Review.company_id == company_id)
+// Fetch Dashboard Data
+async function fetchDashboardData() {
+  if(!currentCompanyId) return;
+  show('loadingBox', true);
+  ['successBox','nodataBox','errorBox'].forEach(b=>show(b,false));
 
-        if start_date:
-            stmt = stmt.where(cast(Review.review_time, Date) >= start_date)
-        if end_date:
-            stmt = stmt.where(cast(Review.review_time, Date) <= end_date)
+  const params={ company_id: currentCompanyId, start: el.startDate.value, end: el.endDate.value };
 
-        stmt = stmt.group_by(cast(Review.review_time, Date)).order_by("date")
-        res = await session.execute(stmt)
+  try {
+    const [kpis, revSeries, ratDist, sentSeries] = await Promise.all([
+      safeJsonFetch(`/api/kpis?${qs(params)}`),
+      safeJsonFetch(`/api/series/reviews?${qs(params)}`),
+      safeJsonFetch(`/api/ratings/distribution?${qs(params)}`),
+      safeJsonFetch(`/api/sentiment/series?${qs(params)}`)
+    ]);
 
-        return {"series": [{"date": str(r.date), "value": int(r.value or 0)} for r in res.all()]}
+    el.kpiTotal.textContent = kpis.total_reviews ?? 0;
+    el.kpiRating.textContent = (kpis.avg_rating ?? 0).toFixed(2);
+    el.kpiSent.textContent = (kpis.avg_sentiment ?? 0).toFixed(3);
+    el.kpiNew.textContent = (revSeries.series && revSeries.series.length>0) ? revSeries.series.at(-1).value : 0;
 
-# --- API: Ratings Distribution ---
-@router.get("/api/ratings/distribution")
-async def api_ratings_distribution(company_id: int):
-    async with get_session() as session:
-        stmt = select(Review.rating, func.count(Review.id)).where(Review.company_id == company_id).group_by(Review.rating)
-        res = await session.execute(stmt)
-        dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-        for r in res.all():
-            if r[0] in dist: dist[r[0]] = r[1]
-        return {"distribution": dist}
+    Object.values(charts).forEach(c=>c?.destroy?.());
 
-# --- API: Sentiment Series ---
-@router.get("/api/sentiment/series")
-async def api_sentiment_series(company_id: int, start: str | None = None, end: str | None = None):
-    start_date = parse_date(start)
-    end_date = parse_date(end)
+    charts.rev = new Chart(document.getElementById('seriesReviews'), {
+      type:'line',
+      data:{ labels: revSeries.series ? revSeries.series.map(x=>x.date) : [], datasets:[{label:'Reviews', data: revSeries.series ? revSeries.series.map(x=>x.value) : [], borderColor:'#0d6efd', backgroundColor:'rgba(13,110,253,0.1)', tension:0.3, fill:true}] },
+      options:{ responsive:true, scales:{y:{beginAtZero:true}} }
+    });
 
-    async with get_session() as session:
-        stmt = select(
-            cast(Review.review_time, Date).label("date"),
-            func.avg(Review.sentiment_score).label("value")
-        ).where(Review.company_id == company_id)
+    charts.dist = new Chart(document.getElementById('ratingsDist'), {
+      type:'bar',
+      data:{ labels:Object.keys(ratDist.distribution), datasets:[{label:'Rating Count', data:Object.values(ratDist.distribution), backgroundColor:'#ffc107'}] }
+    });
 
-        if start_date:
-            stmt = stmt.where(cast(Review.review_time, Date) >= start_date)
-        if end_date:
-            stmt = stmt.where(cast(Review.review_time, Date) <= end_date)
+    charts.sent = new Chart(document.getElementById('sentSeries'), {
+      type:'line',
+      data:{ labels: sentSeries.series ? sentSeries.series.map(x=>x.date) : [], datasets:[{label:'Sentiment', data: sentSeries.series ? sentSeries.series.map(x=>x.value) : [], borderColor:'#6610f2', backgroundColor:'rgba(102,16,242,0.1)', tension:0.3, fill:true}] },
+      options:{ responsive:true, scales:{y:{min:-1, max:1}} }
+    });
 
-        stmt = stmt.group_by(cast(Review.review_time, Date)).order_by("date")
-        res = await session.execute(stmt)
+    await loadReviewsList();
+    show('loadingBox', false);
+    show('successBox', true);
+    if(kpis.total_reviews===0) show('nodataBox', true);
 
-        return {"series": [{"date": str(r.date), "value": float(r.value or 0)} for r in res.all()]}
+  } catch(err){
+    show('loadingBox', false);
+    show('errorBox', true);
+    console.error("Dashboard error:", err);
+  }
+}
+
+// Load Reviews List
+async function loadReviewsList() {
+  if(!currentCompanyId) return;
+  const params={ company_id:currentCompanyId, sort:el.sortReviews.value, start:el.startDate.value, end:el.endDate.value };
+  try {
+    const { items } = await safeJsonFetch(`/api/reviews/list?${qs(params)}`);
+    el.reviewsList.innerHTML = items.map(r=>{
+      const rating=r.rating||0;
+      const stars='★'.repeat(Math.round(rating))+'☆'.repeat(5-Math.round(rating));
+      return `<div class="border rounded p-2 mb-2">
+        <div class="d-flex justify-content-between small text-muted"><span>${r.author_name||'Anonymous'}</span><span>${r.review_time||''}</span></div>
+        <div class="text-warning">${stars} <span class="text-dark">${rating.toFixed(1)}</span></div>
+        <div>${r.text||''}</div></div>`;
+    }).join('')||'<p class="text-muted text-center">No reviews found.</p>';
+  } catch(err){
+    el.reviewsList.innerHTML='<p class="text-danger text-center">Failed to load reviews.</p>';
+  }
+}
+
+// Google Places Autocomplete
+function loadGoogleScript(){
+  const s=document.createElement('script');
+  s.src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places&callback=initGooglePlaces";
+  s.async=true; s.defer=true;
+  document.head.appendChild(s);
+}
+window.initGooglePlaces=function(){
+  if(typeof google==='undefined') return;
+  const auto=new google.maps.places.Autocomplete(el.placeSearch,{types:["establishment"]});
+  auto.addListener("place_changed",()=>{
+    const p=auto.getPlace();
+    if(!p.place_id) return;
+    el.prevAddress.value=p.formatted_address||'';
+    el.prevPhone.value=p.formatted_phone_number||'N/A';
+    el.prevWebsite.value=p.website||'N/A';
+    el.prevCategory.value=p.types?.[0]?.replace(/_/g,' ')||'Business';
+    el.prevHours.value=p.opening_hours?.weekday_text?.join('\n')||'No hours listed';
+    el.previewBox.style.display='block';
+    selectedPlace={name:p.name, place_id:p.place_id, address:p.formatted_address, phone:p.formatted_phone_number, website:p.website, category:el.prevCategory.value, hours:el.prevHours.value, google_data:p};
+    el.saveBtn.disabled=false;
+  });
+};
+
+el.switchBtn.addEventListener('click',()=>{ currentCompanyId=el.companySelect.value; localStorage.setItem('lastCompanyId',currentCompanyId); fetchDashboardData(); });
+el.fetchBtn.addEventListener('click',fetchDashboardData);
+el.sortReviews.addEventListener('change',loadReviewsList);
+
+el.saveBtn.onclick=async()=>{
+  try{
+    const res=await fetch('/companies/add',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(selectedPlace)});
+    const d=await res.json();
+    if(d.success){ alert("Company added! Data is loading in the background."); location.reload(); }
+    else{ alert(d.message||'Error adding company'); }
+  } catch(err){ alert('Save failed'); }
+};
+
+// Initial Load
+document.addEventListener("DOMContentLoaded",()=>{
+  loadGoogleScript();
+  const today=new Date();
+  const start=new Date(); start.setDate(today.getDate()-30);
+  el.startDate.value=start.toISOString().slice(0,10);
+  el.endDate.value=today.toISOString().slice(0,10);
+  loadCompanies().then(()=>{ if(currentCompanyId) fetchDashboardData(); });
+});
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
