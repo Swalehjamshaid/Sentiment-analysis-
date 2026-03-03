@@ -9,7 +9,7 @@ from app.core.db import get_session
 from app.core.models import Company, AuditLog
 from app.core.config import settings
 from app.services.google_reviews import ingest_company_reviews
-from googlemaps import Client
+import googlemaps
 from pydantic import BaseModel
 
 router = APIRouter(tags=['companies'])
@@ -19,7 +19,7 @@ def _require_user(request: Request):
     return request.session.get('user_id')
 
 # ──────────────────────────────────────────────────────────────
-# Existing endpoints (unchanged)
+# Existing endpoints (preserved)
 # ──────────────────────────────────────────────────────────────
 
 @router.get('/companies', response_class=HTMLResponse)
@@ -37,7 +37,9 @@ async def companies_page(request: Request, q: str | None = None, rating: float |
             stmt = stmt.where(Company.category.ilike(f'%{category}%'))
         if location:
             stmt = stmt.where(Company.address.ilike(f'%{location}%'))
-        all_rows = (await session.execute(stmt)).scalars().all()
+        
+        result = await session.execute(stmt)
+        all_rows = result.scalars().all()
         total = len(all_rows)
         items = all_rows[(page-1)*size: (page-1)*size+size]
     return templates.TemplateResponse('companies.html', {"request": request, "items": items, "page": page, "size": size, "total": total, "q": q or ''})
@@ -73,10 +75,10 @@ async def company_sync(company_id: int, request: Request):
     if not uid:
         return RedirectResponse('/login', status_code=302)
     async with get_session() as session:
-        c = (await session.execute(select(Company).where(Company.id==company_id))).scalar_one_or_none()
+        result = await session.execute(select(Company).where(Company.id==company_id))
+        c = result.scalar_one_or_none()
         if not c:
             raise HTTPException(status_code=404, detail='Company not found')
-        old = c.avg_rating
         stats = await ingest_company_reviews(session, c)
         await session.commit()
         session.add(AuditLog(user_id=uid, action='company_sync', meta={'company_id': c.id, 'ingested': stats}))
@@ -84,7 +86,7 @@ async def company_sync(company_id: int, request: Request):
     return RedirectResponse(url=f'/dashboard?company_id={company_id}', status_code=302)
 
 # ──────────────────────────────────────────────────────────────
-# NEW: Google Places & Maps API Integration
+# Google Places & Maps API Integration
 # ──────────────────────────────────────────────────────────────
 
 class PlaceSearchResult(BaseModel):
@@ -94,17 +96,14 @@ class PlaceSearchResult(BaseModel):
     vicinity: str | None = None
 
 @router.get("/google/places/search")
-async def search_google_places(q: str = Query(min_length=3)):
+async def search_google_places(q: str = Query(..., min_length=3)):
     """
     Search Google Places API for companies/locations
     """
     try:
-        # Enable both APIs with keys
-        gmaps_places = Client(key=settings.GOOGLE_PLACES_API_KEY)
-        gmaps_maps = Client(key=settings.GOOGLE_MAPS_API_KEY)  # Optional usage if maps needed
-        
-        # Bias toward Pakistan (Lahore/Rawalpindi center)
-        result = gmaps_places.places(query=q, location="33.6844,73.0479", radius=200000)
+        gmaps = googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
+        # Bias toward Pakistan
+        result = gmaps.places(query=q, location="33.6844,73.0479", radius=200000)
         
         places = []
         for p in result.get("results", []):
@@ -116,7 +115,6 @@ async def search_google_places(q: str = Query(min_length=3)):
             ))
         
         return {"success": True, "results": places}
-    
     except Exception as e:
         return {"success": False, "message": str(e)}
 
@@ -127,31 +125,43 @@ class AddCompanyRequest(BaseModel):
     google_data: dict | None = None
 
 @router.post("/companies/add")
-async def add_new_company(data: AddCompanyRequest, session: AsyncSession = Depends(get_session)):
+async def add_new_company(request: Request, data: AddCompanyRequest):
     """
-    Add a new company from Google Places search result
+    Add a new company from Google Places search result.
+    Uses 'async with get_session()' to ensure proper session handling.
     """
-    # Prevent duplicate by place_id
-    existing = await session.execute(
-        select(Company).where(Company.place_id == data.place_id)
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Company with this place_id already exists")
+    uid = _require_user(request)
+    # Note: Requirement specified user tracking, so we capture UID if available
+    
+    async with get_session() as session:
+        # Prevent duplicate by place_id
+        result = await session.execute(
+            select(Company).where(Company.place_id == data.place_id)
+        )
+        existing = result.scalar_one_or_none()
+        
+        if existing:
+            return {"success": False, "message": "Company with this place_id already exists"}
 
-    new_company = Company(
-        name=data.name,
-        place_id=data.place_id,
-        address=data.address,
-        google_data=data.google_data or {}
-    )
+        new_company = Company(
+            name=data.name,
+            place_id=data.place_id,
+            address=data.address,
+            google_data=data.google_data or {},
+            owner_id=uid # Link to logged in user
+        )
 
-    session.add(new_company)
-    await session.commit()
-    await session.refresh(new_company)
+        session.add(new_company)
+        await session.flush() # Get ID before commit
+        
+        if uid:
+            session.add(AuditLog(user_id=uid, action='company_add_google', meta={'company_id': new_company.id}))
+        
+        await session.commit()
 
-    return {
-        "success": True,
-        "company_id": new_company.id,
-        "name": new_company.name,
-        "message": "Company added successfully"
-    }
+        return {
+            "success": True,
+            "company_id": new_company.id,
+            "name": new_company.name,
+            "message": "Company added successfully"
+        }
