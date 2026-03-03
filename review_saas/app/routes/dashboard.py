@@ -1,158 +1,180 @@
-
-# filename: app/routes/dashboard.py
+# filename: app/routes/companies.py
 from __future__ import annotations
-from datetime import datetime, timedelta, timezone, date
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Form, HTTPException, Query, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, delete, or_
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
-from app.core.models import Company, Review
+from app.core.models import Company, AuditLog
 from app.core.config import settings
-from app.core.cache import make_key, get as cache_get, set as cache_set
+from app.services.google_reviews import ingest_company_reviews
+import googlemaps
+from pydantic import BaseModel
 
-router = APIRouter(tags=['dashboard'])
+router = APIRouter(tags=['companies'])
 templates = Jinja2Templates(directory='app/templates')
-
 
 def _require_user(request: Request):
     return request.session.get('user_id')
 
-@router.get('/dashboard', response_class=HTMLResponse)
-async def dashboard_page(request: Request, company_id: int | None = None):
+# ──────────────────────────────────────────────────────────────
+# Existing endpoints (preserved)
+# ──────────────────────────────────────────────────────────────
+
+@router.get('/companies', response_class=HTMLResponse)
+async def companies_page(request: Request, q: str | None = None, rating: float | None = None, category: str | None = None, location: str | None = None, page: int = 1, size: int = 10):
     uid = _require_user(request)
     if not uid:
         return RedirectResponse('/login', status_code=302)
     async with get_session() as session:
-        companies = (await session.execute(select(Company).order_by(Company.created_at.desc()))).scalars().all()
-        active_id = company_id or (companies[0].id if companies else None)
-    return templates.TemplateResponse('dashboard.html', {"request": request, "companies": companies, "active_company_id": active_id, "title": 'Dashboard'})
+        stmt = select(Company).order_by(Company.created_at.desc())
+        if q:
+            stmt = stmt.where(or_(Company.name.ilike(f'%{q}%'), Company.address.ilike(f'%{q}%')))
+        if rating:
+            stmt = stmt.where(Company.avg_rating >= rating)
+        if category:
+            stmt = stmt.where(Company.category.ilike(f'%{category}%'))
+        if location:
+            stmt = stmt.where(Company.address.ilike(f'%{location}%'))
+        
+        result = await session.execute(stmt)
+        all_rows = result.scalars().all()
+        total = len(all_rows)
+        items = all_rows[(page-1)*size: (page-1)*size+size]
+    return templates.TemplateResponse('companies.html', {"request": request, "items": items, "page": page, "size": size, "total": total, "q": q or ''})
 
-@router.get('/api/kpis')
-async def api_kpis(company_id: int | None = None, start: str | None = None, end: str | None = None):
-    key = make_key('kpis', str(company_id or 0), start or '', end or '')
-    c = cache_get(key)
-    if c: return c
-    if end: end_dt = datetime.fromisoformat(end).date()
-    else: end_dt = datetime.now(tz=timezone.utc).date()
-    if start: start_dt = datetime.fromisoformat(start).date()
-    else: start_dt = end_dt - timedelta(days=29)
+@router.post('/companies/create')
+async def company_create(request: Request, name: str = Form(...), place_id: str = Form(''), address: str = Form(''), phone: str = Form(''), website: str = Form(''), category: str = Form(''), hours: str = Form('')):
+    uid = _require_user(request)
+    if not uid:
+        return RedirectResponse('/login', status_code=302)
     async with get_session() as session:
-        q = select(func.count(Review.id), func.avg(Review.rating), func.avg(Review.sentiment_compound))
-        q = q.where(Review.review_time != None, func.date(Review.review_time) >= start_dt, func.date(Review.review_time) <= end_dt)
-        if company_id: q = q.where(Review.company_id==company_id)
-        total, avg_rating, avg_sent = (await session.execute(q)).one()
-        # previous period compare
-        period = (end_dt - start_dt).days + 1
-        prev_start = start_dt - timedelta(days=period)
-        prev_end = start_dt - timedelta(days=1)
-        qprev = select(func.count(Review.id), func.avg(Review.rating))
-        qprev = qprev.where(Review.review_time != None, func.date(Review.review_time) >= prev_start, func.date(Review.review_time) <= prev_end)
-        if company_id: qprev = qprev.where(Review.company_id==company_id)
-        ptotal, prating = (await session.execute(qprev)).one()
-        data = {"total_reviews": int(total or 0), "avg_rating": float(avg_rating or 0.0), "avg_sentiment": float(avg_sent or 0.0), "prev_total": int(ptotal or 0), "prev_avg_rating": float(prating or 0.0)}
-    cache_set(key, data)
-    return data
+        c = Company(name=name, place_id=(place_id or None), address=address or None, phone=phone or None, website=website or None, category=category or None, hours=hours or None, owner_id=uid)
+        session.add(c)
+        await session.commit()
+        session.add(AuditLog(user_id=uid, action='company_create', meta={'company_id': c.id}))
+        await session.commit()
+    return RedirectResponse('/companies', status_code=302)
 
-@router.get('/api/series/reviews')
-async def api_series_reviews(days: int = 30, company_id: int | None = None, start: str | None = None, end: str | None = None):
-    if end: end_dt = datetime.fromisoformat(end).date()
-    else: end_dt = datetime.now(tz=timezone.utc).date()
-    if start: start_dt = datetime.fromisoformat(start).date()
-    else: start_dt = end_dt - timedelta(days=days-1)
+@router.post('/companies/{company_id}/delete')
+async def company_delete(request: Request, company_id: int):
+    uid = _require_user(request)
+    if not uid:
+        return RedirectResponse('/login', status_code=302)
     async with get_session() as session:
-        stmt = select(func.date(Review.review_time), func.count(Review.id))
-        stmt = stmt.where(Review.review_time != None, func.date(Review.review_time) >= start_dt, func.date(Review.review_time) <= end_dt)
-        if company_id: stmt = stmt.where(Review.company_id==company_id)
-        stmt = stmt.group_by(func.date(Review.review_time)).order_by(func.date(Review.review_time))
-        rows = (await session.execute(stmt)).all()
-        counts = {str(r[0]): int(r[1]) for r in rows if r[0] is not None}
-    series = []
-    days = (end_dt - start_dt).days + 1
-    for i in range(days):
-        d = (start_dt + timedelta(days=i)).isoformat()
-        series.append({"date": d, "value": counts.get(d, 0)})
-    return {"series": series}
+        await session.execute(delete(Company).where(Company.id==company_id))
+        await session.commit()
+        session.add(AuditLog(user_id=uid, action='company_delete', meta={'company_id': company_id}))
+        await session.commit()
+    return RedirectResponse('/companies', status_code=302)
 
-@router.get('/api/ratings/distribution')
-async def api_ratings_distribution(company_id: int | None = None, start: str | None = None, end: str | None = None):
-    if end: end_dt = datetime.fromisoformat(end).date()
-    else: end_dt = datetime.now(tz=timezone.utc).date()
-    if start: start_dt = datetime.fromisoformat(start).date()
-    else: start_dt = end_dt - timedelta(days=29)
+@router.post('/companies/{company_id}/sync')
+async def company_sync(company_id: int, request: Request):
+    uid = _require_user(request)
+    if not uid:
+        return RedirectResponse('/login', status_code=302)
     async with get_session() as session:
-        dist = {}
-        for r in range(1,6):
-            stmt = select(func.count(Review.id)).where(Review.rating == r, Review.review_time != None, func.date(Review.review_time) >= start_dt, func.date(Review.review_time) <= end_dt)
-            if company_id: stmt = stmt.where(Review.company_id==company_id)
-            dist[str(r)] = int((await session.execute(stmt)).scalar() or 0)
-    return {"distribution": dist}
+        result = await session.execute(select(Company).where(Company.id==company_id))
+        c = result.scalar_one_or_none()
+        if not c:
+            raise HTTPException(status_code=404, detail='Company not found')
+        stats = await ingest_company_reviews(session, c)
+        await session.commit()
+        session.add(AuditLog(user_id=uid, action='company_sync', meta={'company_id': c.id, 'ingested': stats}))
+        await session.commit()
+    return RedirectResponse(url=f'/dashboard?company_id={company_id}', status_code=302)
 
-@router.get('/api/sentiment/series')
-async def api_sentiment_series(company_id: int | None = None, start: str | None = None, end: str | None = None):
-    if end: end_dt = datetime.fromisoformat(end).date()
-    else: end_dt = datetime.now(tz=timezone.utc).date()
-    if start: start_dt = datetime.fromisoformat(start).date()
-    else: start_dt = end_dt - timedelta(days=29)
-    async with get_session() as session:
-        stmt = select(func.date(Review.review_time), func.avg(Review.sentiment_compound)).where(Review.review_time != None, func.date(Review.review_time) >= start_dt, func.date(Review.review_time) <= end_dt)
-        if company_id: stmt = stmt.where(Review.company_id==company_id)
-        stmt = stmt.group_by(func.date(Review.review_time)).order_by(func.date(Review.review_time))
-        rows = (await session.execute(stmt)).all()
-        vals = {str(r[0]): float(r[1]) for r in rows if r[0] is not None}
-    series = []
-    days = (end_dt - start_dt).days + 1
-    for i in range(days):
-        d = (start_dt + timedelta(days=i)).isoformat()
-        series.append({"date": d, "value": vals.get(d, 0.0)})
-    return {"series": series}
+# ──────────────────────────────────────────────────────────────
+# Google Places & Maps API Integration
+# ──────────────────────────────────────────────────────────────
 
-@router.get('/api/reviews/list')
-async def api_reviews_list(company_id: int, start: str | None = None, end: str | None = None, sort: str = 'newest'):
-    if end: end_dt = datetime.fromisoformat(end).date()
-    else: end_dt = datetime.now(tz=timezone.utc).date()
-    if start: start_dt = datetime.fromisoformat(start).date()
-    else: start_dt = end_dt - timedelta(days=29)
-    async with get_session() as session:
-        stmt = select(Review).where(Review.company_id==company_id, Review.review_time != None, func.date(Review.review_time) >= start_dt, func.date(Review.review_time) <= end_dt)
-        if sort == 'oldest':
-            stmt = stmt.order_by(Review.review_time.asc())
-        elif sort == 'highest':
-            stmt = stmt.order_by(Review.rating.desc())
-        elif sort == 'lowest':
-            stmt = stmt.order_by(Review.rating.asc())
-        else:
-            stmt = stmt.order_by(Review.review_time.desc())
-        rows = (await session.execute(stmt)).scalars().all()
-        items = [{
-            'author_name': r.author_name,
-            'review_time': r.review_time.isoformat() if r.review_time else None,
-            'rating': r.rating,
-            'text': r.text,
-            'sentiment_compound': r.sentiment_compound,
-        } for r in rows]
-    return {"items": items}
+class PlaceSearchResult(BaseModel):
+    place_id: str
+    name: str
+    formatted_address: str | None = None
+    vicinity: str | None = None
 
-@router.get('/api/summary/weekly')
-async def api_summary_weekly(company_id: int | None = None):
-    end_dt = datetime.now(tz=timezone.utc).date()
-    start_dt = end_dt - timedelta(days=6*7)
-    async with get_session() as session:
-        stmt = select(func.strftime('%Y-%W', Review.review_time), func.count(Review.id), func.avg(Review.rating))
-        stmt = stmt.where(Review.review_time != None, func.date(Review.review_time) >= start_dt)
-        if company_id: stmt = stmt.where(Review.company_id==company_id)
-        stmt = stmt.group_by(func.strftime('%Y-%W', Review.review_time)).order_by(func.strftime('%Y-%W', Review.review_time))
-        rows = (await session.execute(stmt)).all()
-    return {"weekly": [{"week": k, "count": int(c or 0), "avg_rating": float(a or 0.0)} for k,c,a in rows]}
+@router.get("/google/places/search")
+async def search_google_places(q: str = Query(..., min_length=3)):
+    """
+    Search Google Places API for companies/locations
+    """
+    try:
+        gmaps = googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
+        # Bias toward Pakistan
+        result = gmaps.places(query=q, location="33.6844,73.0479", radius=200000)
+        
+        places = []
+        for p in result.get("results", []):
+            places.append(PlaceSearchResult(
+                place_id=p["place_id"],
+                name=p["name"],
+                formatted_address=p.get("formatted_address"),
+                vicinity=p.get("vicinity")
+            ))
+        
+        return {"success": True, "results": places}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
 
-@router.get('/api/summary/monthly')
-async def api_summary_monthly(company_id: int | None = None):
-    end_dt = datetime.now(tz=timezone.utc).date()
-    start_dt = end_dt - timedelta(days=365)
+# UPDATED: Added additional fields to support auto-fill requirements
+class AddCompanyRequest(BaseModel):
+    name: str
+    place_id: str
+    address: str | None = None
+    phone: str | None = None
+    website: str | None = None
+    category: str | None = None
+    hours: str | None = None
+    google_data: dict | None = None
+
+@router.post("/companies/add")
+async def add_new_company(request: Request, data: AddCompanyRequest):
+    """
+    Add a new company from Google Places search result.
+    Fulfills requirements for auto-filling and storing metadata.
+    """
+    uid = _require_user(request)
+    
     async with get_session() as session:
-        stmt = select(func.strftime('%Y-%m', Review.review_time), func.count(Review.id), func.avg(Review.rating))
-        stmt = stmt.where(Review.review_time != None, func.date(Review.review_time) >= start_dt)
-        if company_id: stmt = stmt.where(Review.company_id==company_id)
-        stmt = stmt.group_by(func.strftime('%Y-%m', Review.review_time)).order_by(func.strftime('%Y-%m', Review.review_time))
-        rows = (await session.execute(stmt)).all()
-    return {"monthly": [{"month": k, "count": int(c or 0), "avg_rating": float(a or 0.0)} for k,c,a in rows]}
+        # Prevent duplicate by place_id
+        result = await session.execute(
+            select(Company).where(Company.place_id == data.place_id)
+        )
+        existing = result.scalar_one_or_none()
+        
+        if existing:
+            return {"success": False, "message": "Company with this place_id already exists"}
+
+        # Mapping all auto-filled attributes from the frontend request
+        new_company = Company(
+            name=data.name,
+            place_id=data.place_id,
+            address=data.address,
+            phone=data.phone,
+            website=data.website,
+            category=data.category,
+            hours=data.hours,
+            google_data=data.google_data or {},
+            owner_id=uid
+        )
+
+        session.add(new_company)
+        await session.flush() 
+        
+        if uid:
+            session.add(AuditLog(
+                user_id=uid, 
+                action='company_add_google', 
+                meta={'company_id': new_company.id, 'place_id': data.place_id}
+            ))
+        
+        await session.commit()
+
+        return {
+            "success": True,
+            "company_id": new_company.id,
+            "name": new_company.name,
+            "message": "Company added successfully"
+        }
