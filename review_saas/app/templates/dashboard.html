@@ -13,7 +13,7 @@
     .spinner { display: none; }
     .success-msg, .nodata-msg, .error-msg { display: none; }
     #addCompanyModal .modal-dialog { max-width: 500px; }
-    /* Ensures Google suggestions appear on top of the modal */
+    /* Ensures Google suggestions appear on top of the Bootstrap modal */
     .pac-container { z-index: 1060 !important; }
   </style>
 </head>
@@ -144,7 +144,7 @@ function setLoading(v){document.getElementById('loadingBox').style.display=v?'bl
 function showSuccess(v){document.getElementById('successBox').style.display=v?'block':'none'}
 function showNoData(v){document.getElementById('nodataBox').style.display=v?'block':'none'}
 
-// Google Autocomplete Fix
+// Google Autocomplete Initialization
 function initAutocomplete() {
   const input = document.getElementById('placeSearch');
   const autocomplete = new google.maps.places.Autocomplete(input, {
@@ -154,7 +154,10 @@ function initAutocomplete() {
 
   autocomplete.addListener("place_changed", () => {
     const place = autocomplete.getPlace();
-    if (!place.place_id) { saveBtn.disabled = true; return; }
+    if (!place.place_id) { 
+      saveBtn.disabled = true; 
+      return; 
+    }
     selectedPlace = {
         name: place.name,
         place_id: place.place_id,
@@ -164,7 +167,7 @@ function initAutocomplete() {
   });
 }
 
-// Data Fetching
+// Data Fetching Logic for KPI and Charts
 async function fetchAll(){
   if(!companyId){return}
   setLoading(true); showSuccess(false); showNoData(false)
@@ -185,7 +188,7 @@ async function fetchAll(){
     document.getElementById('kpi-sent').textContent = (k.avg_sentiment||0).toFixed(3);
     document.getElementById('kpi-new').textContent = Math.max(0, r.series.length? r.series[r.series.length-1].value:0);
 
-    // Charts
+    // Initialize/Update Charts
     new Chart(document.getElementById('seriesReviews'), { type:'line', data:{ labels:r.series.map(x=>x.date), datasets:[{label:'Reviews/day', data:r.series.map(x=>x.value), borderColor:'#0d6efd', backgroundColor:'rgba(13,110,253,0.1)', tension:0.3, fill:true}] }, options:{responsive:true}});
     new Chart(document.getElementById('ratingsDist'), { type:'bar', data:{ labels:Object.keys(d.distribution), datasets:[{label:'Count', data:Object.values(d.distribution), backgroundColor:['#dc3545','#fd7e14','#ffc107','#0dcaf0','#198754']}] }, options:{responsive:true}});
     new Chart(document.getElementById('sentSeries'), { type:'line', data:{ labels:sent.series.map(x=>x.date), datasets:[{label:'Avg Sentiment', data:sent.series.map(x=>x.value), borderColor:'#6610f2', backgroundColor:'rgba(102,16,242,0.1)', tension:0.3, fill:true}] }, options:{responsive:true, scales:{y:{min:-1,max:1}}}});
@@ -193,7 +196,11 @@ async function fetchAll(){
     await loadReviews();
     setLoading(false); showSuccess(true);
     if(k.total_reviews===0) showNoData(true);
-  } catch(err){ setLoading(false); document.getElementById('errorBox').style.display='block'; }
+  } catch(err){ 
+    setLoading(false); 
+    document.getElementById('errorBox').style.display='block'; 
+    console.error("Dashboard fetch error:", err);
+  }
 }
 
 async function loadReviews(){
@@ -208,6 +215,7 @@ async function loadReviews(){
   }).join('');
 }
 
+// Handle Saving Company
 saveBtn.onclick = async () => {
   if(!selectedPlace) return;
   try {
@@ -221,11 +229,18 @@ saveBtn.onclick = async () => {
         })
     });
     const result = await res.json();
-    if(result.success) location.reload();
-    else alert(result.message || 'Error saving company');
-  } catch(err) { alert('Server error'); }
+    if(result.success) {
+      location.reload(); 
+    } else {
+      alert(result.message || 'Error saving company');
+    }
+  } catch(err) { 
+    alert('Server error while saving company');
+    console.error("Save error:", err);
+  }
 };
 
+// Startup initialization
 document.addEventListener('DOMContentLoaded', () => {
     initAutocomplete();
     const today = new Date().toISOString().slice(0,10);
@@ -236,6 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchAll();
 });
 </script>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
