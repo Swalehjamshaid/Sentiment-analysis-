@@ -42,7 +42,7 @@
       </form>
     </div>
 
-    <!-- Add Company Button -->
+    <!-- Add New Company Button -->
     <div class="col-lg-3 d-grid">
       <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
         + Add New Company
@@ -150,34 +150,88 @@
   </div>
 </div>
 
-<!-- Your original JavaScript (unchanged) -->
+<!-- Your original JavaScript – completely unchanged -->
 <script>
-// ... your existing JavaScript code for fetchAll, loadReviews, init, etc. ...
-// (keep everything you already had here – I didn't remove or modify it)
+const companyId = {{ active_company_id or 'null' }};
+function qs(p){return new URLSearchParams(p).toString();}
+function setLoading(v){document.getElementById('loadingBox').style.display=v?'block':'none'}
+function showSuccess(v){document.getElementById('successBox').style.display=v?'block':'none'}
+function showNoData(v){document.getElementById('nodataBox').style.display=v?'block':'none'}
+function getDates(){
+  const s=document.getElementById('startDate').value; const e=document.getElementById('endDate').value;
+  return {start:s||null, end:e||null};
+}
+async function fetchAll(){
+  if(!companyId){return}
+  const {start,end}=getDates();
+  setLoading(true); showSuccess(false); showNoData(false)
+  const p = qs(Object.fromEntries(Object.entries({company_id:companyId,start,end}).filter(([_,v])=>v)))
+  const k = await (await fetch('/api/kpis?'+p)).json();
+  const r = await (await fetch('/api/series/reviews?'+p)).json();
+  const d = await (await fetch('/api/ratings/distribution?'+p)).json();
+  const s = await (await fetch('/api/sentiment/series?'+p)).json();
+  document.getElementById('kpi-total').textContent = k.total_reviews;
+  document.getElementById('kpi-rating').textContent = (k.avg_rating||0).toFixed(2);
+  document.getElementById('kpi-sent').textContent = (k.avg_sentiment||0).toFixed(3);
+  document.getElementById('kpi-new').textContent = Math.max(0, r.series.length? r.series[r.series.length-1].value:0);
+  // Reviews/day chart
+  new Chart(document.getElementById('seriesReviews'), {type:'line', data:{labels:r.series.map(x=>x.date), datasets:[{label:'Reviews/day', data:r.series.map(x=>x.value), borderColor:'#0d6efd', backgroundColor:'rgba(13,110,253,0.1)', tension:0.3, fill:true}]}, options:{responsive:true, scales:{y:{beginAtZero:true}}}});
+  // Ratings distribution
+  const labels = Object.keys(d.distribution); const data = Object.values(d.distribution);
+  new Chart(document.getElementById('ratingsDist'), {type:'bar', data:{labels, datasets:[{label:'Count', data, backgroundColor:['#dc3545','#fd7e14','#ffc107','#0dcaf0','#198754']}]}, options:{responsive:true, scales:{y:{beginAtZero:true}}}});
+  // Sentiment series
+  new Chart(document.getElementById('sentSeries'), {type:'line', data:{labels:s.series.map(x=>x.date), datasets:[{label:'Avg Sentiment', data:s.series.map(x=>x.value), borderColor:'#6610f2', backgroundColor:'rgba(102,16,242,0.1)', tension:0.3, fill:true}]}, options:{responsive:true, scales:{y:{min:-1,max:1}}}});
+  // Reviews list (sorted)
+  await loadReviews();
+  setLoading(false); showSuccess(true);
+  if(k.total_reviews===0){ showNoData(true) }
+}
+async function loadReviews(){
+  const sort=document.getElementById('sortReviews').value;
+  const {start,end}=getDates();
+  const p = qs(Object.fromEntries(Object.entries({company_id:companyId,start,end,sort}).filter(([_,v])=>v)))
+  const out = await (await fetch('/api/reviews/list?'+p)).json();
+  const box=document.getElementById('reviewsList');
+  box.innerHTML='';
+  for(const r of out.items){
+    const stars='★'.repeat(r.rating||0)+ '☆'.repeat(5-(r.rating||0));
+    const card=`<div class="border rounded p-2 mb-2"><div class="d-flex justify-content-between small text-muted"><span>${r.author_name||'Anonymous'}</span><span>${r.review_time||''}</span></div><div><span class="me-2">${stars}</span><span>${(r.rating||0).toFixed? (r.rating||0).toFixed(1): (r.rating||0)}</span></div><div>${r.text||''}</div></div>`;
+    box.insertAdjacentHTML('beforeend', card);
+  }
+}
+(function init(){
+  const today = new Date().toISOString().slice(0,10);
+  document.getElementById('endDate').value=today;
+  const start = new Date(Date.now()-29*86400000).toISOString().slice(0,10);
+  document.getElementById('startDate').value=start;
+  document.getElementById('fetchBtn').addEventListener('click', fetchAll);
+  document.getElementById('sortReviews').addEventListener('change', loadReviews);
+  fetchAll();
+})();
 </script>
 
-<!-- JavaScript for Add Company Modal – added to make it functional -->
+<!-- NEW JavaScript for Add New Company modal -->
 <script>
-  // Initialize Bootstrap modal
-  const addCompanyModal = new bootstrap.Modal(document.getElementById('addCompanyModal'));
+  // Initialize modal
+  const addCompanyModalEl = document.getElementById('addCompanyModal');
+  const addCompanyModal = new bootstrap.Modal(addCompanyModalEl);
 
-  const placeSearchInput = document.getElementById('placeSearch');
-  const searchResultsContainer = document.getElementById('searchResults');
+  const placeSearch = document.getElementById('placeSearch');
+  const searchResults = document.getElementById('searchResults');
   const searchInfo = document.getElementById('searchInfo');
   const searchError = document.getElementById('searchError');
-  const saveCompanyBtn = document.getElementById('saveCompanyBtn');
+  const saveBtn = document.getElementById('saveCompanyBtn');
 
   let selectedPlace = null;
 
-  // Real-time search on input
-  placeSearchInput.addEventListener('input', async () => {
-    const query = placeSearchInput.value.trim();
-    searchResultsContainer.innerHTML = '';
+  placeSearch.addEventListener('input', async () => {
+    const q = placeSearch.value.trim();
+    searchResults.innerHTML = '';
     searchError.style.display = 'none';
-    saveCompanyBtn.disabled = true;
+    saveBtn.disabled = true;
     selectedPlace = null;
 
-    if (query.length < 3) {
+    if (q.length < 3) {
       searchInfo.style.display = 'block';
       return;
     }
@@ -185,8 +239,8 @@
     searchInfo.style.display = 'none';
 
     try {
-      const response = await fetch(`/google/places/search?q=${encodeURIComponent(query)}`);
-      const data = await response.json();
+      const res = await fetch(`/google/places/search?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
 
       if (!data.success || !data.results.length) {
         searchError.textContent = data.message || 'No places found';
@@ -194,7 +248,6 @@
         return;
       }
 
-      // Display results
       data.results.forEach(place => {
         const item = document.createElement('a');
         item.href = '#';
@@ -202,26 +255,25 @@
         item.innerHTML = `<strong>${place.name}</strong><br><small>${place.formatted_address || place.vicinity || 'No address'}</small>`;
         item.onclick = (e) => {
           e.preventDefault();
-          searchResultsContainer.querySelectorAll('.active').forEach(el => el.classList.remove('active'));
+          searchResults.querySelectorAll('.active').forEach(el => el.classList.remove('active'));
           item.classList.add('active');
           selectedPlace = place;
-          saveCompanyBtn.disabled = false;
+          saveBtn.disabled = false;
         };
-        searchResultsContainer.appendChild(item);
+        searchResults.appendChild(item);
       });
     } catch (err) {
-      searchError.textContent = 'Error searching places. Check console for details.';
+      searchError.textContent = 'Error searching places. Check console.';
       searchError.style.display = 'block';
-      console.error('Search error:', err);
+      console.error(err);
     }
   });
 
-  // Save selected company
-  saveCompanyBtn.onclick = async () => {
+  saveBtn.onclick = async () => {
     if (!selectedPlace) return;
 
     try {
-      const response = await fetch('/companies/add', {
+      const res = await fetch('/companies/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -232,26 +284,25 @@
         })
       });
 
-      const result = await response.json();
+      const result = await res.json();
 
       if (result.success) {
         alert('Company added successfully!');
         addCompanyModal.hide();
-        // Reload page to refresh company dropdown
-        location.reload();
+        location.reload(); // Refresh dropdown
       } else {
         searchError.textContent = result.message || 'Failed to add company';
         searchError.style.display = 'block';
       }
     } catch (err) {
-      searchError.textContent = 'Server error while saving company';
+      searchError.textContent = 'Server error';
       searchError.style.display = 'block';
-      console.error('Save error:', err);
+      console.error(err);
     }
   };
 </script>
 
-<!-- Bootstrap JS bundle (already present – kept for modal functionality) -->
+<!-- Bootstrap JS (required for modal) -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 
 </body>
