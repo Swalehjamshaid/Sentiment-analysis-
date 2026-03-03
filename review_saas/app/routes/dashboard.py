@@ -15,21 +15,21 @@ router = APIRouter(tags=['dashboard'])
 templates = Jinja2Templates(directory='app/templates')
 logger = logging.getLogger("app.dashboard")
 
-# --- UI ROUTE (Renders the Dashboard Page) ---
+# --- UI ROUTE (Fixes the Empty Dropdown) ---
 
 @router.get('/dashboard', response_class=HTMLResponse)
 async def get_dashboard(request: Request, company_id: int | None = None):
     """
-    Renders the main dashboard. 
-    Crucial: It fetches all companies so the 'Company' dropdown in your UI is populated.
+    Renders the main dashboard HTML. 
+    Crucial: It fetches ALL companies so they appear in your dropdown menu.
     """
     async with get_session() as session:
-        # 1. Fetch all companies for the dropdown selector
+        # 1. Fetch all companies for the 'Company' selector in your UI
         all_comps_stmt = select(Company).order_by(Company.name)
         all_comps_res = await session.execute(all_comps_stmt)
         all_companies = all_comps_res.scalars().all()
 
-        # 2. Match selection or default to the first one found
+        # 2. Match selection or default to the first one available
         selected_company = None
         if company_id:
             res = await session.execute(select(Company).where(Company.id == company_id))
@@ -42,11 +42,11 @@ async def get_dashboard(request: Request, company_id: int | None = None):
             {
                 "request": request, 
                 "company": selected_company,
-                "all_companies": all_companies
+                "all_companies": all_companies # Pass this to fill the dropdown
             }
         )
 
-# --- API ENDPOINTS (Connected to DB for Real-time Data) ---
+# --- API ENDPOINTS (Populates the KPI Cards and Charts) ---
 
 @router.get('/api/kpis')
 async def api_kpis(
@@ -54,27 +54,24 @@ async def api_kpis(
     start: str | None = Query(None), 
     end: str | None = Query(None)
 ):
-    """
-    Fetches the numeric values for the four KPI cards.
-    """
     async with get_session() as session:
-        # Metric for the "New (24h)" card
+        # Calculation for the "New (24h)" card
         last_24h = datetime.now() - timedelta(hours=24)
 
-        # Base query for main KPI values (Total, Avg Rating, Avg Sentiment)
+        # Main stats query for Total Reviews, Avg Rating, and Avg Sentiment
         stats_stmt = select(
             func.count(Review.id).label("total"),
             func.avg(Review.rating).label("avg_rating"),
             func.avg(Review.sentiment_score).label("avg_sent")
         ).where(Review.company_id == company_id)
 
-        # Count for reviews added in the last day
+        # Count for reviews added in the last 24 hours
         new_stmt = select(func.count(Review.id)).where(
             Review.company_id == company_id,
             Review.review_time >= last_24h
         )
 
-        # Apply Date filters from the UI date-pickers (MM/DD/YYYY)
+        # Apply UI Date filters
         if start:
             stats_stmt = stats_stmt.where(func.date(Review.review_time) >= cast(start, Date))
         if end:
@@ -99,9 +96,6 @@ async def api_sentiment_series(
     start: str | None = Query(None), 
     end: str | None = Query(None)
 ):
-    """
-    Populates the 'Avg sentiment per day' chart.
-    """
     async with get_session() as session:
         stmt = select(
             func.date(Review.review_time).label("date"), 
@@ -122,9 +116,6 @@ async def api_ratings_distribution(
     start: str | None = Query(None), 
     end: str | None = Query(None)
 ):
-    """
-    Populates the 'Ratings distribution' bar chart.
-    """
     async with get_session() as session:
         stmt = select(
             Review.rating, 
@@ -138,7 +129,7 @@ async def api_ratings_distribution(
         
         res = await session.execute(stmt)
         
-        # Ensures all 1-5 stars are represented in the chart even if count is zero
+        # Ensure all 1-5 star levels are represented in the chart
         dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
         for r in res.all():
             if r[0] in dist:
