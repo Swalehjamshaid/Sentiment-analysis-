@@ -14,16 +14,14 @@ router = APIRouter(tags=['dashboard'])
 templates = Jinja2Templates(directory='app/templates')
 logger = logging.getLogger("app.dashboard")
 
-# --- UI ROUTE ---
-
 @router.get('/dashboard', response_class=HTMLResponse)
 async def get_dashboard(request: Request, company_id: int | None = None):
     async with get_session() as session:
-        # Fetch all companies for the dropdown selector
-        all_comps_res = await session.execute(select(Company).order_by(Company.name))
-        all_companies = all_comps_res.scalars().all()
+        # Fetch existing companies to populate the dropdown
+        all_comps_stmt = select(Company.id, Company.name).order_by(Company.name)
+        all_comps_res = await session.execute(all_comps_stmt)
+        all_companies = all_comps_res.all()
 
-        # Match active selection
         active_id = company_id
         if not active_id and all_companies:
             active_id = all_companies[0].id
@@ -37,11 +35,10 @@ async def get_dashboard(request: Request, company_id: int | None = None):
             }
         )
 
-# --- API ENDPOINTS (Aligned with your HTML JavaScript) ---
-
 @router.get('/api/kpis')
 async def api_kpis(company_id: int, start: str | None = None, end: str | None = None):
     async with get_session() as session:
+        # Calculate sentiment and ratings live from the Review table
         q = select(
             func.count(Review.id).label("total"),
             func.avg(Review.rating).label("avg_rating"),
@@ -56,13 +53,12 @@ async def api_kpis(company_id: int, start: str | None = None, end: str | None = 
         
         return {
             "total_reviews": stats.total or 0,
-            "avg_rating": float(stats.avg_rating or 0),
-            "avg_sentiment": float(stats.avg_sent or 0)
+            "avg_rating": round(float(stats.avg_rating or 0.0), 1),
+            "avg_sentiment": round(float(stats.avg_sent or 0.0), 3)
         }
 
 @router.get('/api/series/reviews')
 async def api_series_reviews(company_id: int, start: str | None = None, end: str | None = None):
-    """Populates the 'Reviews per day' chart."""
     async with get_session() as session:
         stmt = select(
             func.date(Review.review_time).label("date"), 
@@ -77,7 +73,6 @@ async def api_series_reviews(company_id: int, start: str | None = None, end: str
 
 @router.get('/api/ratings/distribution')
 async def api_ratings_distribution(company_id: int, start: str | None = None, end: str | None = None):
-    """Populates the 'Ratings distribution' bar chart."""
     async with get_session() as session:
         stmt = select(Review.rating, func.count(Review.id)).where(Review.company_id == company_id).group_by(Review.rating)
         
@@ -92,7 +87,6 @@ async def api_ratings_distribution(company_id: int, start: str | None = None, en
 
 @router.get('/api/sentiment/series')
 async def api_sentiment_series(company_id: int, start: str | None = None, end: str | None = None):
-    """Populates the 'Avg sentiment per day' chart."""
     async with get_session() as session:
         stmt = select(
             func.date(Review.review_time).label("date"), 
@@ -106,17 +100,10 @@ async def api_sentiment_series(company_id: int, start: str | None = None, end: s
         return {"series": [{"date": str(r.date), "value": float(r.value or 0)} for r in res.all()]}
 
 @router.get('/api/reviews/list')
-async def api_reviews_list(
-    company_id: int, 
-    sort: str = "newest", 
-    start: str | None = None, 
-    end: str | None = None
-):
-    """Populates the scrollable reviews list at the bottom."""
+async def api_reviews_list(company_id: int, sort: str = "newest", start: str | None = None, end: str | None = None):
     async with get_session() as session:
         stmt = select(Review).where(Review.company_id == company_id)
         
-        # Sorting logic
         if sort == "newest": stmt = stmt.order_by(desc(Review.review_time))
         elif sort == "oldest": stmt = stmt.order_by(asc(Review.review_time))
         elif sort == "highest": stmt = stmt.order_by(desc(Review.rating))
