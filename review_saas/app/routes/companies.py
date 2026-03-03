@@ -1,21 +1,26 @@
-
 # filename: app/routes/companies.py
 from __future__ import annotations
-from fastapi import APIRouter, Request, Form, HTTPException
+from fastapi import APIRouter, Request, Form, HTTPException, Query, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
 from sqlalchemy import select, delete, or_, and_
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.core.models import Company, AuditLog
 from app.core.config import settings
 from app.services.google_reviews import ingest_company_reviews
+from googlemaps import Client
+from pydantic import BaseModel
 
 router = APIRouter(tags=['companies'])
 templates = Jinja2Templates(directory='app/templates')
 
-
 def _require_user(request: Request):
     return request.session.get('user_id')
+
+# ──────────────────────────────────────────────────────────────
+# Existing endpoints (unchanged)
+# ──────────────────────────────────────────────────────────────
 
 @router.get('/companies', response_class=HTMLResponse)
 async def companies_page(request: Request, q: str | None = None, rating: float | None = None, category: str | None = None, location: str | None = None, page: int = 1, size: int = 10):
@@ -78,3 +83,77 @@ async def company_sync(company_id: int, request: Request):
         session.add(AuditLog(user_id=uid, action='company_sync', meta={'company_id': c.id, 'ingested': stats}))
         await session.commit()
     return RedirectResponse(url=f'/dashboard?company_id={company_id}', status_code=302)
+
+# ──────────────────────────────────────────────────────────────
+# NEW ENDPOINTS – Add Company via Google Places API
+# ──────────────────────────────────────────────────────────────
+
+class PlaceSearchResult(BaseModel):
+    place_id: str
+    name: str
+    formatted_address: str | None = None
+    vicinity: str | None = None
+
+@router.get("/google/places/search")
+async def search_google_places(q: str = Query(min_length=3)):
+    """
+    Search Google Places API for companies/locations
+    Used by dashboard modal to find places
+    """
+    try:
+        gmaps = Client(key=settings.GOOGLE_PLACES_API_KEY)
+        # Optional: center search near Pakistan / Rawalpindi
+        result = gmaps.places(query=q, location="33.6844,73.0479", radius=100000)
+        places = []
+        for p in result.get("results", []):
+            places.append(PlaceSearchResult(
+                place_id=p["place_id"],
+                name=p["name"],
+                formatted_address=p.get("formatted_address"),
+                vicinity=p.get("vicinity")
+            ))
+        return {"success": True, "results": places}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+class AddCompanyRequest(BaseModel):
+    name: str
+    place_id: str
+    address: str | None = None
+    google_data: dict | None = None
+
+@router.post("/companies/add")
+async def add_new_company(data: AddCompanyRequest, session: AsyncSession = Depends(get_session)):
+    """
+    Add a new company from Google Places search result
+    Used by dashboard modal after user selects a place
+    """
+    # Prevent duplicate place_id
+    existing = await session.execute(
+        select(Company).where(Company.place_id == data.place_id)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Company with this place_id already exists")
+
+    new_company = Company(
+        name=data.name,
+        place_id=data.place_id,
+        address=data.address,
+        google_data=data.google_data or {},
+        # Add owner_id if you have user auth context
+        # owner_id = current_user.id (add Depends on auth if needed)
+    )
+
+    session.add(new_company)
+    await session.commit()
+    await session.refresh(new_company)
+
+    # Optional: log the action
+    # session.add(AuditLog(user_id=..., action='company_add', meta={'company_id': new_company.id}))
+
+    return {
+        "success": True,
+        "company_id": new_company.id,
+        "name": new_company.name,
+        "message": "Company added successfully"
+    }
