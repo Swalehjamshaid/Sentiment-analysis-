@@ -123,6 +123,7 @@
 
 </div>
 
+<!-- Add Company Modal -->
 <div class="modal fade" id="addCompanyModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
@@ -170,7 +171,6 @@
 </div>
 
 <script>
-// Element references
 const el = {
   companySelect: document.getElementById('companySelect'),
   switchBtn: document.getElementById('switchCompanyBtn'),
@@ -201,51 +201,40 @@ let currentCompanyId = null;
 let selectedPlace = null;
 let charts = {};
 
-// Show/hide
 const show = (elId, visible) => el[elId].style.display = visible ? 'block' : 'none';
 const qs = (obj) => new URLSearchParams(obj).toString();
 
-async function safeJsonFetch(url) {
+async function safeJsonFetch(url){
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if(!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
-// Load companies
-async function loadCompanies() {
-  try {
+async function loadCompanies(){
+  try{
     const data = await safeJsonFetch('/api/companies/list');
     el.companySelect.innerHTML = '';
-    data.companies.forEach(c => {
+    data.companies.forEach(c=>{
       const opt = document.createElement('option');
-      opt.value = c.id;
-      opt.textContent = c.name;
+      opt.value=c.id;
+      opt.textContent=c.name;
       el.companySelect.appendChild(opt);
     });
-
     const savedId = localStorage.getItem('lastCompanyId');
-    if (savedId && data.companies.some(c => c.id == savedId)) el.companySelect.value = savedId;
-    else if (data.companies.length) el.companySelect.value = data.companies[0].id;
-
+    if(savedId && data.companies.some(c=>c.id==savedId)) el.companySelect.value = savedId;
+    else if(data.companies.length) el.companySelect.value = data.companies[0].id;
     currentCompanyId = el.companySelect.value;
-  } catch (err) {
-    el.companySelect.innerHTML = '<option value="">Error loading companies</option>';
+  }catch(err){
+    el.companySelect.innerHTML='<option value="">Error loading companies</option>';
   }
 }
 
-// Fetch dashboard
-async function fetchDashboardData() {
-  if (!currentCompanyId) return show('errorBox', true);
+async function fetchDashboardData(){
+  if(!currentCompanyId) return show('errorBox', true);
   show('loadingBox', true);
-  ['successBox','nodataBox','errorBox'].forEach(b => show(b,false));
-
-  const params = {
-    company_id: currentCompanyId,
-    start: el.startDate.value || '',
-    end: el.endDate.value || ''
-  };
-
-  try {
+  ['successBox','nodataBox','errorBox'].forEach(b=>show(b,false));
+  const params = { company_id:currentCompanyId, start:el.startDate.value, end:el.endDate.value };
+  try{
     const [kpis, revSeries, ratDist, sentSeries] = await Promise.all([
       safeJsonFetch(`/api/kpis?${qs(params)}`),
       safeJsonFetch(`/api/series/reviews?${qs(params)}`),
@@ -258,44 +247,42 @@ async function fetchDashboardData() {
     el.kpiSent.textContent   = (kpis.avg_sentiment ?? 0).toFixed(3);
     el.kpiNew.textContent    = revSeries.series?.at(-1)?.value ?? 0;
 
-    Object.values(charts).forEach(c => c?.destroy?.());
+    Object.values(charts).forEach(c=>c?.destroy?.());
 
     charts.rev = new Chart(document.getElementById('seriesReviews'), {
-      type: 'line',
-      data: { labels: revSeries.series.map(x=>x.date), datasets:[{label:'Reviews', data: revSeries.series.map(x=>x.value), borderColor:'#0d6efd', backgroundColor:'rgba(13,110,253,0.1)', tension:0.3, fill:true}] },
-      options: { responsive:true, scales:{y:{beginAtZero:true}} }
+      type:'line',
+      data:{ labels:revSeries.series.map(x=>x.date), datasets:[{label:'Reviews', data:revSeries.series.map(x=>x.value), borderColor:'#0d6efd', backgroundColor:'rgba(13,110,253,0.1)', tension:0.3, fill:true}] },
+      options:{ responsive:true, scales:{y:{beginAtZero:true}} }
     });
 
     charts.dist = new Chart(document.getElementById('ratingsDist'), {
-      type: 'bar',
-      data: { labels: Object.keys(ratDist.distribution), datasets:[{label:'Rating Count', data: Object.values(ratDist.distribution), backgroundColor:'#ffc107'}] }
+      type:'bar',
+      data:{ labels:Object.keys(ratDist.distribution), datasets:[{label:'Rating Count', data:Object.values(ratDist.distribution), backgroundColor:'#ffc107'}] }
     });
 
     charts.sent = new Chart(document.getElementById('sentSeries'), {
-      type: 'line',
-      data: { labels: sentSeries.series.map(x=>x.date), datasets:[{label:'Sentiment', data: sentSeries.series.map(x=>x.value), borderColor:'#6610f2', backgroundColor:'rgba(102,16,242,0.1)', tension:0.3, fill:true}] },
-      options: { responsive:true, scales:{y:{min:-1,max:1}} }
+      type:'line',
+      data:{ labels:sentSeries.series.map(x=>x.date), datasets:[{label:'Sentiment', data:sentSeries.series.map(x=>x.value), borderColor:'#6610f2', backgroundColor:'rgba(102,16,242,0.1)', tension:0.3, fill:true}] },
+      options:{ responsive:true, scales:{y:{min:-1,max:1}} }
     });
 
     await loadReviewsList();
     show('loadingBox', false);
     show('successBox', true);
-    if (kpis.total_reviews===0) show('nodataBox', true);
-  } catch(err){
+    if(kpis.total_reviews===0) show('nodataBox', true);
+  }catch(err){
     show('loadingBox', false);
     show('errorBox', true);
   }
 }
 
-// Load reviews list
-async function loadReviewsList() {
-  if (!currentCompanyId) return;
-  const params = { company_id: currentCompanyId, sort: el.sortReviews.value, start: el.startDate.value, end: el.endDate.value };
-
-  try {
-    const { items } = await safeJsonFetch(`/api/reviews/list?${qs(params)}`);
-    el.reviewsList.innerHTML = items.map(r => {
-      const stars = '★'.repeat(Math.round(r.rating||0))+'☆'.repeat(5-Math.round(r.rating||0));
+async function loadReviewsList(){
+  if(!currentCompanyId) return;
+  const params={ company_id:currentCompanyId, sort:el.sortReviews.value, start:el.startDate.value, end:el.endDate.value };
+  try{
+    const {items} = await safeJsonFetch(`/api/reviews/list?${qs(params)}`);
+    el.reviewsList.innerHTML = items.map(r=>{
+      const stars='★'.repeat(Math.round(r.rating||0))+'☆'.repeat(5-Math.round(r.rating||0));
       return `<div class="border rounded p-2 mb-2">
         <div class="d-flex justify-content-between small text-muted">
           <span>${r.author_name||'Anonymous'}</span>
@@ -305,16 +292,15 @@ async function loadReviewsList() {
         <div>${r.text||''}</div>
       </div>`;
     }).join('') || '<p class="text-muted">No reviews found.</p>';
-  } catch(err){
+  }catch(err){
     el.reviewsList.innerHTML = '<p class="text-danger">Failed to load reviews.</p>';
   }
 }
 
-// Google Places
 function loadGoogleScript(){
   const s=document.createElement('script');
   s.src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initGooglePlaces";
-  s.async=true;s.defer=true;
+  s.async=true; s.defer=true;
   document.head.appendChild(s);
 }
 
@@ -334,14 +320,15 @@ window.initGooglePlaces=function(){
   });
 };
 
-// Init
 el.switchBtn.addEventListener('click',()=>{
   currentCompanyId=el.companySelect.value;
   localStorage.setItem('lastCompanyId',currentCompanyId);
   fetchDashboardData();
 });
+
 el.fetchBtn.addEventListener('click',fetchDashboardData);
 el.sortReviews.addEventListener('change',loadReviewsList);
+
 el.saveBtn.onclick=async()=>{
   try{
     const res=await fetch('/companies/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(selectedPlace)});
@@ -353,13 +340,11 @@ el.saveBtn.onclick=async()=>{
 document.addEventListener("DOMContentLoaded",()=>{
   loadGoogleScript();
 
-  // Set dates: start = yesterday, end = today
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-
-  el.startDate.value = yesterday.toISOString().slice(0,10);
-  el.endDate.value = today.toISOString().slice(0,10);
+  // Set default dates
+  const today=new Date();
+  const sevenDaysAgo=new Date(today.getTime()-7*24*60*60*1000);
+  el.endDate.value=today.toISOString().slice(0,10);
+  el.startDate.value=sevenDaysAgo.toISOString().slice(0,10);
 
   loadCompanies().then(()=>{if(currentCompanyId) fetchDashboardData();});
 });
