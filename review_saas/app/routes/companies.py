@@ -19,7 +19,7 @@ def _require_user(request: Request):
     return request.session.get('user_id')
 
 # ──────────────────────────────────────────────────────────────
-# Existing endpoints (unchanged)
+# Existing endpoints (completely unchanged)
 # ──────────────────────────────────────────────────────────────
 
 @router.get('/companies', response_class=HTMLResponse)
@@ -85,7 +85,7 @@ async def company_sync(company_id: int, request: Request):
     return RedirectResponse(url=f'/dashboard?company_id={company_id}', status_code=302)
 
 # ──────────────────────────────────────────────────────────────
-# NEW ENDPOINTS – Add Company via Google Places API
+# NEW: Google Places API Integration
 # ──────────────────────────────────────────────────────────────
 
 class PlaceSearchResult(BaseModel):
@@ -98,12 +98,13 @@ class PlaceSearchResult(BaseModel):
 async def search_google_places(q: str = Query(min_length=3)):
     """
     Search Google Places API for companies/locations
-    Used by dashboard modal to find places
+    Used by the dashboard modal to find places
     """
     try:
         gmaps = Client(key=settings.GOOGLE_PLACES_API_KEY)
-        # Optional: center search near Pakistan / Rawalpindi
-        result = gmaps.places(query=q, location="33.6844,73.0479", radius=100000)
+        # Bias toward Pakistan (centered on Lahore/Rawalpindi area, 200km radius)
+        result = gmaps.places(query=q, location="33.6844,73.0479", radius=200000)
+        
         places = []
         for p in result.get("results", []):
             places.append(PlaceSearchResult(
@@ -112,7 +113,9 @@ async def search_google_places(q: str = Query(min_length=3)):
                 formatted_address=p.get("formatted_address"),
                 vicinity=p.get("vicinity")
             ))
+        
         return {"success": True, "results": places}
+    
     except Exception as e:
         return {"success": False, "message": str(e)}
 
@@ -126,9 +129,9 @@ class AddCompanyRequest(BaseModel):
 async def add_new_company(data: AddCompanyRequest, session: AsyncSession = Depends(get_session)):
     """
     Add a new company from Google Places search result
-    Used by dashboard modal after user selects a place
+    Used by the dashboard modal after user selects a place
     """
-    # Prevent duplicate place_id
+    # Prevent duplicate by place_id
     existing = await session.execute(
         select(Company).where(Company.place_id == data.place_id)
     )
@@ -140,7 +143,7 @@ async def add_new_company(data: AddCompanyRequest, session: AsyncSession = Depen
         place_id=data.place_id,
         address=data.address,
         google_data=data.google_data or {},
-        # Add owner_id if you have user auth context
+        # If you have user auth, you can add owner_id here
         # owner_id = current_user.id (add Depends on auth if needed)
     )
 
@@ -148,8 +151,9 @@ async def add_new_company(data: AddCompanyRequest, session: AsyncSession = Depen
     await session.commit()
     await session.refresh(new_company)
 
-    # Optional: log the action
+    # Optional: log the action (uncomment if you want audit)
     # session.add(AuditLog(user_id=..., action='company_add', meta={'company_id': new_company.id}))
+    # await session.commit()
 
     return {
         "success": True,
