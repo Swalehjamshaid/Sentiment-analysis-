@@ -1,5 +1,6 @@
 # filename: app/routes/dashboard.py
 from __future__ import annotations
+import logging
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
@@ -11,42 +12,36 @@ from app.core.models import Company, Review
 
 router = APIRouter(tags=['dashboard'])
 templates = Jinja2Templates(directory='app/templates')
+logger = logging.getLogger("app.dashboard")
 
-# --- MAIN UI ROUTE ---
+# --- UI ROUTE ---
 @router.get('/dashboard', response_class=HTMLResponse)
 async def get_dashboard(request: Request, company_id: int | None = None):
-    async with get_session() as session:
-        # Fetch companies for the dropdown
-        all_comps_stmt = select(Company.id, Company.name).order_by(Company.name)
-        all_comps_res = await session.execute(all_comps_stmt)
-        all_companies = all_comps_res.all()
+    """Renders the base HTML. The JS then calls the APIs below."""
+    return templates.TemplateResponse("dashboard.html", {"request": request})
 
-        active_id = company_id
-        if not active_id and all_companies:
-            active_id = all_companies[0].id
-
-        return templates.TemplateResponse(
-            "dashboard.html", 
-            {
-                "request": request, 
-                "companies": all_companies,
-                "active_company_id": active_id
-            }
-        )
-
-# --- API ENDPOINTS ---
+# --- API: COMPANY LIST (Fixes 'Error loading companies') ---
 @router.get('/api/companies/list')
 async def api_companies_list():
-    """Returns the company list for AJAX calls if needed by the UI."""
+    """
+    Fetches existing companies from the database.
+    Returns: {"companies": [{"id": 1, "name": "Haier Pakistan"}, ...]}
+    """
     async with get_session() as session:
-        res = await session.execute(select(Company.id, Company.name).order_by(Company.name))
-        companies = res.all()
-        return [{"id": c.id, "name": c.name} for c in companies]
+        # We select specific columns to avoid 'avg_sentiment' if not migrated
+        stmt = select(Company.id, Company.name).order_by(Company.name)
+        result = await session.execute(stmt)
+        companies = result.all()
+        
+        return {
+            "companies": [{"id": c.id, "name": c.name} for c in companies]
+        }
 
+# --- API: KPI CARDS ---
 @router.get('/api/kpis')
 async def api_kpis(company_id: int, start: str | None = None, end: str | None = None):
     async with get_session() as session:
-        # Live calculation from Review table
+        # Dynamic calculation from Review table
         q = select(
             func.count(Review.id).label("total"),
             func.avg(Review.rating).label("avg_rating"),
@@ -61,57 +56,23 @@ async def api_kpis(company_id: int, start: str | None = None, end: str | None = 
         
         return {
             "total_reviews": stats.total or 0,
-            "avg_rating": round(float(stats.avg_rating or 0.0), 1),
+            "avg_rating": round(float(stats.avg_rating or 0.0), 2),
             "avg_sentiment": round(float(stats.avg_sent or 0.0), 3)
         }
 
-@router.get('/api/series/reviews')
-async def api_series_reviews(company_id: int, start: str | None = None, end: str | None = None):
-    async with get_session() as session:
-        stmt = select(
-            func.date(Review.review_time).label("date"), 
-            func.count(Review.id).label("value")
-        ).where(Review.company_id == company_id).group_by(func.date(Review.review_time)).order_by("date")
-        
-        if start: stmt = stmt.where(func.date(Review.review_time) >= cast(start, Date))
-        if end: stmt = stmt.where(func.date(Review.review_time) <= cast(end, Date))
-        
-        res = await session.execute(stmt)
-        return {"series": [{"date": str(r.date), "value": int(r.value or 0)} for r in res.all()]}
-
-@router.get('/api/ratings/distribution')
-async def api_ratings_distribution(company_id: int, start: str | None = None, end: str | None = None):
-    async with get_session() as session:
-        stmt = select(Review.rating, func.count(Review.id)).where(Review.company_id == company_id).group_by(Review.rating)
-        
-        if start: stmt = stmt.where(func.date(Review.review_time) >= cast(start, Date))
-        if end: stmt = stmt.where(func.date(Review.review_time) <= cast(end, Date))
-        
-        res = await session.execute(stmt)
-        dist = {1:0, 2:0, 3:0, 4:0, 5:0}
-        for r in res.all():
-            if r[0] in dist: dist[r[0]] = r[1]
-        return {"distribution": dist}
-
-@router.get('/api/sentiment/series')
-async def api_sentiment_series(company_id: int, start: str | None = None, end: str | None = None):
-    async with get_session() as session:
-        stmt = select(
-            func.date(Review.review_time).label("date"), 
-            func.avg(Review.sentiment_score).label("value")
-        ).where(Review.company_id == company_id).group_by(func.date(Review.review_time)).order_by("date")
-        
-        if start: stmt = stmt.where(func.date(Review.review_time) >= cast(start, Date))
-        if end: stmt = stmt.where(func.date(Review.review_time) <= cast(end, Date))
-        
-        res = await session.execute(stmt)
-        return {"series": [{"date": str(r.date), "value": float(r.value or 0)} for r in res.all()]}
-
+# --- API: REVIEW LIST (Bottom of Dashboard) ---
 @router.get('/api/reviews/list')
-async def api_reviews_list(company_id: int, sort: str = "newest", start: str | None = None, end: str | None = None):
+async def api_reviews_list(
+    company_id: int, 
+    sort: str = "newest", 
+    start: str | None = None, 
+    end: str | None = None
+):
+    """Fetches the actual text reviews to show in the list."""
     async with get_session() as session:
         stmt = select(Review).where(Review.company_id == company_id)
         
+        # Apply Sorting logic requested by UI
         if sort == "newest": stmt = stmt.order_by(desc(Review.review_time))
         elif sort == "oldest": stmt = stmt.order_by(asc(Review.review_time))
         elif sort == "highest": stmt = stmt.order_by(desc(Review.rating))
@@ -126,10 +87,42 @@ async def api_reviews_list(company_id: int, sort: str = "newest", start: str | N
         return {
             "items": [
                 {
-                    "author_name": i.author_name,
-                    "rating": i.rating,
-                    "text": i.text,
-                    "review_time": i.review_time.strftime("%Y-%m-%d") if i.review_time else ""
-                } for i in items
+                    "author_name": r.author_name or "Anonymous",
+                    "rating": r.rating,
+                    "text": r.text,
+                    "review_time": r.review_time.strftime("%Y-%m-%d %H:%M") if r.review_time else ""
+                } for r in items
             ]
         }
+
+# --- CHART DATA APIS ---
+@router.get('/api/series/reviews')
+async def api_series_reviews(company_id: int, start: str | None = None, end: str | None = None):
+    async with get_session() as session:
+        stmt = select(
+            func.date(Review.review_time).label("date"), 
+            func.count(Review.id).label("value")
+        ).where(Review.company_id == company_id).group_by(func.date(Review.review_time)).order_by("date")
+        
+        res = await session.execute(stmt)
+        return {"series": [{"date": str(r.date), "value": int(r.value or 0)} for r in res.all()]}
+
+@router.get('/api/ratings/distribution')
+async def api_ratings_distribution(company_id: int):
+    async with get_session() as session:
+        stmt = select(Review.rating, func.count(Review.id)).where(Review.company_id == company_id).group_by(Review.rating)
+        res = await session.execute(stmt)
+        dist = {1:0, 2:0, 3:0, 4:0, 5:0}
+        for r in res.all():
+            if r[0] in dist: dist[r[0]] = r[1]
+        return {"distribution": dist}
+
+@router.get('/api/sentiment/series')
+async def api_sentiment_series(company_id: int):
+    async with get_session() as session:
+        stmt = select(
+            func.date(Review.review_time).label("date"), 
+            func.avg(Review.sentiment_score).label("value")
+        ).where(Review.company_id == company_id).group_by(func.date(Review.review_time)).order_by("date")
+        res = await session.execute(stmt)
+        return {"series": [{"date": str(r.date), "value": float(r.value or 0)} for r in res.all()]}
