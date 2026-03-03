@@ -33,8 +33,7 @@
       <label class="form-label">Company</label>
       <div class="row g-2">
         <div class="col-8">
-          <select class="form-select" id="companySelect">
-            </select>
+          <select class="form-select" id="companySelect"></select>
         </div>
         <div class="col-4 d-grid">
           <button class="btn btn-outline-secondary" id="switchCompanyBtn">Switch</button>
@@ -171,38 +170,38 @@
 </div>
 
 <script>
-// Logic Configuration
+// Element references
 const el = {
-  companySelect:    document.getElementById('companySelect'),
-  switchBtn:        document.getElementById('switchCompanyBtn'),
-  startDate:        document.getElementById('startDate'),
-  endDate:          document.getElementById('endDate'),
-  fetchBtn:         document.getElementById('fetchBtn'),
-  sortReviews:      document.getElementById('sortReviews'),
-  loadingBox:       document.getElementById('loadingBox'),
-  successBox:       document.getElementById('successBox'),
-  nodataBox:        document.getElementById('nodataBox'),
-  errorBox:         document.getElementById('errorBox'),
-  reviewsList:      document.getElementById('reviewsList'),
-  saveBtn:          document.getElementById('saveCompanyBtn'),
-  placeSearch:      document.getElementById('placeSearch'),
-  kpiTotal:         document.getElementById('kpi-total'),
-  kpiRating:        document.getElementById('kpi-rating'),
-  kpiSent:          document.getElementById('kpi-sent'),
-  kpiNew:           document.getElementById('kpi-new'),
-  previewBox:       document.getElementById('detailsPreview'),
-  prevAddress:      document.getElementById('prev_address'),
-  prevPhone:        document.getElementById('prev_phone'),
-  prevWebsite:      document.getElementById('prev_website'),
-  prevCategory:     document.getElementById('prev_category'),
-  prevHours:        document.getElementById('prev_hours')
+  companySelect: document.getElementById('companySelect'),
+  switchBtn: document.getElementById('switchCompanyBtn'),
+  startDate: document.getElementById('startDate'),
+  endDate: document.getElementById('endDate'),
+  fetchBtn: document.getElementById('fetchBtn'),
+  sortReviews: document.getElementById('sortReviews'),
+  loadingBox: document.getElementById('loadingBox'),
+  successBox: document.getElementById('successBox'),
+  nodataBox: document.getElementById('nodataBox'),
+  errorBox: document.getElementById('errorBox'),
+  reviewsList: document.getElementById('reviewsList'),
+  saveBtn: document.getElementById('saveCompanyBtn'),
+  placeSearch: document.getElementById('placeSearch'),
+  kpiTotal: document.getElementById('kpi-total'),
+  kpiRating: document.getElementById('kpi-rating'),
+  kpiSent: document.getElementById('kpi-sent'),
+  kpiNew: document.getElementById('kpi-new'),
+  previewBox: document.getElementById('detailsPreview'),
+  prevAddress: document.getElementById('prev_address'),
+  prevPhone: document.getElementById('prev_phone'),
+  prevWebsite: document.getElementById('prev_website'),
+  prevCategory: document.getElementById('prev_category'),
+  prevHours: document.getElementById('prev_hours')
 };
 
 let currentCompanyId = null;
 let selectedPlace = null;
 let charts = {};
 
-// Helpers
+// Show/hide
 const show = (elId, visible) => el[elId].style.display = visible ? 'block' : 'none';
 const qs = (obj) => new URLSearchParams(obj).toString();
 
@@ -212,12 +211,11 @@ async function safeJsonFetch(url) {
   return res.json();
 }
 
-// Data Fetching
+// Load companies
 async function loadCompanies() {
   try {
     const data = await safeJsonFetch('/api/companies/list');
     el.companySelect.innerHTML = '';
-
     data.companies.forEach(c => {
       const opt = document.createElement('option');
       opt.value = c.id;
@@ -226,11 +224,8 @@ async function loadCompanies() {
     });
 
     const savedId = localStorage.getItem('lastCompanyId');
-    if (savedId && data.companies.some(c => c.id == savedId)) {
-      el.companySelect.value = savedId;
-    } else if (data.companies.length > 0) {
-      el.companySelect.value = data.companies[0].id;
-    }
+    if (savedId && data.companies.some(c => c.id == savedId)) el.companySelect.value = savedId;
+    else if (data.companies.length) el.companySelect.value = data.companies[0].id;
 
     currentCompanyId = el.companySelect.value;
   } catch (err) {
@@ -238,11 +233,11 @@ async function loadCompanies() {
   }
 }
 
+// Fetch dashboard
 async function fetchDashboardData() {
   if (!currentCompanyId) return show('errorBox', true);
-
   show('loadingBox', true);
-  ['successBox', 'nodataBox', 'errorBox'].forEach(box => show(box, false));
+  ['successBox','nodataBox','errorBox'].forEach(b => show(b,false));
 
   const params = {
     company_id: currentCompanyId,
@@ -258,145 +253,109 @@ async function fetchDashboardData() {
       safeJsonFetch(`/api/sentiment/series?${qs(params)}`)
     ]);
 
-    // Update KPIs
-    el.kpiTotal.textContent   = kpis.total_reviews ?? 0;
-    el.kpiRating.textContent  = (kpis.avg_rating ?? 0).toFixed(2);
-    el.kpiSent.textContent    = (kpis.avg_sentiment ?? 0).toFixed(3);
-    el.kpiNew.textContent      = revSeries.series?.at(-1)?.value ?? 0;
+    el.kpiTotal.textContent  = kpis.total_reviews ?? 0;
+    el.kpiRating.textContent = (kpis.avg_rating ?? 0).toFixed(2);
+    el.kpiSent.textContent   = (kpis.avg_sentiment ?? 0).toFixed(3);
+    el.kpiNew.textContent    = revSeries.series?.at(-1)?.value ?? 0;
 
     Object.values(charts).forEach(c => c?.destroy?.());
 
-    // Chart: Reviews per day
     charts.rev = new Chart(document.getElementById('seriesReviews'), {
       type: 'line',
-      data: {
-        labels: revSeries.series.map(x => x.date),
-        datasets: [{
-          label: 'Reviews',
-          data: revSeries.series.map(x => x.value),
-          borderColor: '#0d6efd',
-          backgroundColor: 'rgba(13, 110, 253, 0.1)',
-          tension: 0.3,
-          fill: true
-        }]
-      },
-      options: { responsive: true, scales: { y: { beginAtZero: true } } }
+      data: { labels: revSeries.series.map(x=>x.date), datasets:[{label:'Reviews', data: revSeries.series.map(x=>x.value), borderColor:'#0d6efd', backgroundColor:'rgba(13,110,253,0.1)', tension:0.3, fill:true}] },
+      options: { responsive:true, scales:{y:{beginAtZero:true}} }
     });
 
-    // Chart: Ratings
     charts.dist = new Chart(document.getElementById('ratingsDist'), {
       type: 'bar',
-      data: {
-        labels: Object.keys(ratDist.distribution),
-        datasets: [{
-          label: 'Rating Count',
-          data: Object.values(ratDist.distribution),
-          backgroundColor: '#ffc107'
-        }]
-      }
+      data: { labels: Object.keys(ratDist.distribution), datasets:[{label:'Rating Count', data: Object.values(ratDist.distribution), backgroundColor:'#ffc107'}] }
     });
 
-    // Chart: Sentiment
     charts.sent = new Chart(document.getElementById('sentSeries'), {
       type: 'line',
-      data: {
-        labels: sentSeries.series.map(x => x.date),
-        datasets: [{
-          label: 'Sentiment',
-          data: sentSeries.series.map(x => x.value),
-          borderColor: '#6610f2',
-          backgroundColor: 'rgba(102, 16, 242, 0.1)',
-          tension: 0.3,
-          fill: true
-        }]
-      },
-      options: { responsive: true, scales: { y: { min: -1, max: 1 } } }
+      data: { labels: sentSeries.series.map(x=>x.date), datasets:[{label:'Sentiment', data: sentSeries.series.map(x=>x.value), borderColor:'#6610f2', backgroundColor:'rgba(102,16,242,0.1)', tension:0.3, fill:true}] },
+      options: { responsive:true, scales:{y:{min:-1,max:1}} }
     });
 
     await loadReviewsList();
     show('loadingBox', false);
     show('successBox', true);
-    if (kpis.total_reviews === 0) show('nodataBox', true);
-
-  } catch (err) {
+    if (kpis.total_reviews===0) show('nodataBox', true);
+  } catch(err){
     show('loadingBox', false);
     show('errorBox', true);
   }
 }
 
+// Load reviews list
 async function loadReviewsList() {
   if (!currentCompanyId) return;
   const params = { company_id: currentCompanyId, sort: el.sortReviews.value, start: el.startDate.value, end: el.endDate.value };
-  
+
   try {
     const { items } = await safeJsonFetch(`/api/reviews/list?${qs(params)}`);
     el.reviewsList.innerHTML = items.map(r => {
-      const stars = '★'.repeat(Math.round(r.rating || 0)) + '☆'.repeat(5 - Math.round(r.rating || 0));
-      return `
-        <div class="border rounded p-2 mb-2">
-          <div class="d-flex justify-content-between small text-muted">
-            <span>${r.author_name || 'Anonymous'}</span>
-            <span>${r.review_time || ''}</span>
-          </div>
-          <div class="text-warning">${stars} <span class="text-dark">${(r.rating || 0).toFixed(1)}</span></div>
-          <div>${r.text || ''}</div>
-        </div>`;
+      const stars = '★'.repeat(Math.round(r.rating||0))+'☆'.repeat(5-Math.round(r.rating||0));
+      return `<div class="border rounded p-2 mb-2">
+        <div class="d-flex justify-content-between small text-muted">
+          <span>${r.author_name||'Anonymous'}</span>
+          <span>${r.review_time||''}</span>
+        </div>
+        <div class="text-warning">${stars} <span class="text-dark">${(r.rating||0).toFixed(1)}</span></div>
+        <div>${r.text||''}</div>
+      </div>`;
     }).join('') || '<p class="text-muted">No reviews found.</p>';
-  } catch (err) {
+  } catch(err){
     el.reviewsList.innerHTML = '<p class="text-danger">Failed to load reviews.</p>';
   }
 }
 
-// Google Maps Logic
-function loadGoogleScript() {
-  const s = document.createElement('script');
-  s.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initGooglePlaces";
-  s.async = true; s.defer = true;
+// Google Places
+function loadGoogleScript(){
+  const s=document.createElement('script');
+  s.src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initGooglePlaces";
+  s.async=true;s.defer=true;
   document.head.appendChild(s);
 }
 
-window.initGooglePlaces = function() {
-  const auto = new google.maps.places.Autocomplete(el.placeSearch, { types: ["establishment"] });
-  auto.addListener("place_changed", () => {
-    const p = auto.getPlace();
-    if (!p.place_id) return;
-
-    el.prevAddress.value  = p.formatted_address || '';
-    el.prevPhone.value    = p.formatted_phone_number || 'N/A';
-    el.prevWebsite.value  = p.website || 'N/A';
-    el.prevCategory.value = p.types?.[0]?.replace(/_/g, ' ') || 'Business';
-    el.prevHours.value    = p.opening_hours?.weekday_text?.join('\n') || 'No hours listed';
-    el.previewBox.style.display = 'block';
-
-    selectedPlace = { name: p.name, place_id: p.place_id, address: p.formatted_address, phone: p.formatted_phone_number, website: p.website, category: el.prevCategory.value, hours: el.prevHours.value, google_data: p };
-    el.saveBtn.disabled = false;
+window.initGooglePlaces=function(){
+  const auto=new google.maps.places.Autocomplete(el.placeSearch,{types:["establishment"]});
+  auto.addListener("place_changed",()=>{
+    const p=auto.getPlace();
+    if(!p.place_id) return;
+    el.prevAddress.value=p.formatted_address||'';
+    el.prevPhone.value=p.formatted_phone_number||'N/A';
+    el.prevWebsite.value=p.website||'N/A';
+    el.prevCategory.value=p.types?.[0]?.replace(/_/g,' ')||'Business';
+    el.prevHours.value=p.opening_hours?.weekday_text?.join('\n')||'No hours listed';
+    el.previewBox.style.display='block';
+    selectedPlace={name:p.name,place_id:p.place_id,address:p.formatted_address,phone:p.formatted_phone_number,website:p.website,category:el.prevCategory.value,hours:el.prevHours.value,google_data:p};
+    el.saveBtn.disabled=false;
   });
 };
 
 // Init
-el.switchBtn.addEventListener('click', () => {
-  currentCompanyId = el.companySelect.value;
-  localStorage.setItem('lastCompanyId', currentCompanyId);
+el.switchBtn.addEventListener('click',()=>{
+  currentCompanyId=el.companySelect.value;
+  localStorage.setItem('lastCompanyId',currentCompanyId);
   fetchDashboardData();
 });
-
-el.fetchBtn.addEventListener('click', fetchDashboardData);
-el.sortReviews.addEventListener('change', loadReviewsList);
-
-el.saveBtn.onclick = async () => {
-  try {
-    const res = await fetch('/companies/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(selectedPlace) });
-    const d = await res.json();
-    if (d.success) location.reload();
-    else alert(d.message || 'Error adding company');
-  } catch (err) { alert('Save failed'); }
+el.fetchBtn.addEventListener('click',fetchDashboardData);
+el.sortReviews.addEventListener('change',loadReviewsList);
+el.saveBtn.onclick=async()=>{
+  try{
+    const res=await fetch('/companies/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(selectedPlace)});
+    const d=await res.json();
+    if(d.success) location.reload(); else alert(d.message||'Error adding company');
+  }catch(err){alert('Save failed');}
 };
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded",()=>{
   loadGoogleScript();
-  el.endDate.value = new Date().toISOString().slice(0, 10);
-  el.startDate.value = new Date(Date.now() - 2505600000).toISOString().slice(0, 10); // 29 days
-  loadCompanies().then(() => { if (currentCompanyId) fetchDashboardData(); });
+  const today = new Date().toISOString().slice(0,10);
+  el.endDate.value=today;
+  el.startDate.value=new Date(Date.now()-29*24*60*60*1000).toISOString().slice(0,10);
+  loadCompanies().then(()=>{if(currentCompanyId) fetchDashboardData();});
 });
 </script>
 
