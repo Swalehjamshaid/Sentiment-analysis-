@@ -1,53 +1,91 @@
-
 # filename: app/core/db.py
 from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.engine.url import make_url, URL
+import os
+
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine, 
+    create_async_engine, 
+    async_sessionmaker, 
+    AsyncSession
+)
+from sqlalchemy.engine.url import make_url
 from app.core.config import settings
 
+# Global instances for reuse
 _engine: Optional[AsyncEngine] = None
 _sessionmaker: Optional[async_sessionmaker[AsyncSession]] = None
 
 def _normalize_async_url(raw_url: str) -> str:
+    """
+    Ensures the DATABASE_URL is compatible with SQLAlchemy's async drivers.
+    Converts postgres:// to postgresql+asyncpg://
+    """
     if not raw_url or not raw_url.strip():
-        # default to sqlite if not provided
+        # Fallback to local SQLite if no URL is provided
         return 'sqlite+aiosqlite:///./app.db'
+    
+    # Clean the URL from potential quotes or whitespace
     v = raw_url.strip().strip('"').strip("'")
+    
+    # Railway/Heroku style fix: replace postgres:// with postgresql://
     if v.startswith('postgres://'):
-        v = v.replace('postgres://','postgresql://',1)
+        v = v.replace('postgres://', 'postgresql://', 1)
+    
+    # Add the asyncpg driver if it's a postgresql URL
     if v.startswith('postgresql://'):
-        v = v.replace('postgresql://','postgresql+asyncpg://',1)
+        v = v.replace('postgresql://', 'postgresql+asyncpg://', 1)
+    
+    # Final check for driver consistency
     try:
-        url: URL = make_url(v)
+        url = make_url(v)
+        if url.drivername in ('postgresql', 'postgres'):
+            v = str(url.set(drivername='postgresql+asyncpg'))
     except Exception as exc:
-        raise ValueError('Invalid DATABASE_URL') from exc
-    if url.port is not None and not isinstance(url.port, int):
-        raise ValueError(f'Invalid port in DATABASE_URL: {url.port!r}')
-    if url.drivername in {'postgresql','postgres'}:
-        url = url.set(drivername='postgresql+asyncpg')
-    return str(url)
+        raise ValueError(f'Invalid DATABASE_URL provided: {raw_url}') from exc
+        
+    return v
 
 def get_database_url() -> str:
+    """Retrieves the normalized URL from settings."""
     return _normalize_async_url(settings.DATABASE_URL or '')
 
 def get_engine() -> AsyncEngine:
+    """Returns the global AsyncEngine, initializing it if necessary."""
     global _engine, _sessionmaker
     if _engine is None:
-        _engine = create_async_engine(get_database_url(), echo=settings.DEBUG, future=True)
-        _sessionmaker = async_sessionmaker(bind=_engine, expire_on_commit=False)
+        url = get_database_url()
+        # pool_pre_ping helps maintain connections to Railway Postgres
+        _engine = create_async_engine(
+            url, 
+            echo=settings.DEBUG, 
+            future=True,
+            pool_pre_ping=True
+        )
+        _sessionmaker = async_sessionmaker(
+            bind=_engine, 
+            expire_on_commit=False,
+            class_=AsyncSession
+        )
     return _engine
 
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
-    global _sessionmaker
+    """Returns the global session factory."""
     if _sessionmaker is None:
         get_engine()
-    assert _sessionmaker is not None
     return _sessionmaker
 
 @asynccontextmanager
 async def get_session() -> AsyncIterator[AsyncSession]:
-    sm = get_sessionmaker()
-    async with sm() as session:
-        yield session
+    """Provides a transactional scope for the database session."""
+    session_factory = get_sessionmaker()
+    async with session_factory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
