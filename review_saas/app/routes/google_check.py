@@ -38,3 +38,4 @@ def verify_google_apis():
 
     except Exception as e:
         print("❌ Google API check failed:", str(e))
+        print("❌ Google API check failed:", str(e))
