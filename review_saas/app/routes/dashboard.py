@@ -1,179 +1,122 @@
-# filename: app/routes/companies.py
+# filename: app/routes/dashboard.py
 from __future__ import annotations
-from fastapi import APIRouter, Request, Form, HTTPException, Query, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Request, Query, HTTPException
+from fastapi.responses import HTMLResponse
 from starlette.templating import Jinja2Templates
-from sqlalchemy import select, delete, or_
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.db import get_session
-from app.core.models import Company, AuditLog
-from app.core.config import settings
-from app.services.google_reviews import ingest_company_reviews
-import googlemaps
-from pydantic import BaseModel
+from sqlalchemy import select, func
+from datetime import datetime, timedelta
+import logging
 
-router = APIRouter(tags=['companies'])
+from app.core.db import get_session
+from app.core.models import Company, Review
+from app.services.google_reviews import ingest_company_reviews
+
+router = APIRouter(tags=['dashboard'])
 templates = Jinja2Templates(directory='app/templates')
+logger = logging.getLogger(__name__)
 
 def _require_user(request: Request):
     return request.session.get('user_id')
 
-# ──────────────────────────────────────────────────────────────
-# Existing endpoints (preserved exactly)
-# ──────────────────────────────────────────────────────────────
-
-@router.get('/companies', response_class=HTMLResponse)
-async def companies_page(request: Request, q: str | None = None, rating: float | None = None, category: str | None = None, location: str | None = None, page: int = 1, size: int = 10):
+@router.get('/dashboard', response_class=HTMLResponse)
+async def dashboard_page(request: Request, company_id: int | None = Query(None)):
     uid = _require_user(request)
     if not uid:
+        from fastapi.responses import RedirectResponse
         return RedirectResponse('/login', status_code=302)
+
     async with get_session() as session:
-        stmt = select(Company).order_by(Company.created_at.desc())
-        if q:
-            stmt = stmt.where(or_(Company.name.ilike(f'%{q}%'), Company.address.ilike(f'%{q}%')))
-        if rating:
-            stmt = stmt.where(Company.avg_rating >= rating)
-        if category:
-            stmt = stmt.where(Company.category.ilike(f'%{category}%'))
-        if location:
-            stmt = stmt.where(Company.address.ilike(f'%{location}%'))
+        # Load all companies for the dropdown
+        result = await session.execute(select(Company).order_by(Company.name))
+        companies = result.scalars().all()
         
-        result = await session.execute(stmt)
-        all_rows = result.scalars().all()
-        total = len(all_rows)
-        items = all_rows[(page-1)*size: (page-1)*size+size]
-    return templates.TemplateResponse('companies.html', {"request": request, "items": items, "page": page, "size": size, "total": total, "q": q or ''})
+        active_company_id = company_id
+        if not active_company_id and companies:
+            active_company_id = companies[0].id
 
-@router.post('/companies/create')
-async def company_create(request: Request, name: str = Form(...), place_id: str = Form(''), address: str = Form(''), phone: str = Form(''), website: str = Form(''), category: str = Form(''), hours: str = Form('')):
-    uid = _require_user(request)
-    if not uid:
-        return RedirectResponse('/login', status_code=302)
-    async with get_session() as session:
-        c = Company(name=name, place_id=(place_id or None), address=address or None, phone=phone or None, website=website or None, category=category or None, hours=hours or None, owner_id=uid)
-        session.add(c)
-        await session.commit()
-        session.add(AuditLog(user_id=uid, action='company_create', meta={'company_id': c.id}))
-        await session.commit()
-    return RedirectResponse('/companies', status_code=302)
-
-@router.post('/companies/{company_id}/delete')
-async def company_delete(request: Request, company_id: int):
-    uid = _require_user(request)
-    if not uid:
-        return RedirectResponse('/login', status_code=302)
-    async with get_session() as session:
-        await session.execute(delete(Company).where(Company.id==company_id))
-        await session.commit()
-        session.add(AuditLog(user_id=uid, action='company_delete', meta={'company_id': company_id}))
-        await session.commit()
-    return RedirectResponse('/companies', status_code=302)
-
-@router.post('/companies/{company_id}/sync')
-async def company_sync(company_id: int, request: Request):
-    uid = _require_user(request)
-    if not uid:
-        return RedirectResponse('/login', status_code=302)
-    async with get_session() as session:
-        result = await session.execute(select(Company).where(Company.id==company_id))
-        c = result.scalar_one_or_none()
-        if not c:
-            raise HTTPException(status_code=404, detail='Company not found')
-        stats = await ingest_company_reviews(session, c)
-        await session.commit()
-        session.add(AuditLog(user_id=uid, action='company_sync', meta={'company_id': c.id, 'ingested': stats}))
-        await session.commit()
-    return RedirectResponse(url=f'/dashboard?company_id={company_id}', status_code=302)
+        return templates.TemplateResponse('dashboard.html', {
+            "request": request,
+            "companies": companies,
+            "active_company_id": active_company_id
+        })
 
 # ──────────────────────────────────────────────────────────────
-# Google Places & Maps API Integration
+# FIXED API ENDPOINTS (Using sentiment_score instead of sentiment_compound)
 # ──────────────────────────────────────────────────────────────
 
-class PlaceSearchResult(BaseModel):
-    place_id: str
-    name: str
-    formatted_address: str | None = None
-    vicinity: str | None = None
-
-@router.get("/google/places/search")
-async def search_google_places(q: str = Query(..., min_length=3)):
-    """
-    Search Google Places API for companies/locations
-    """
-    try:
-        gmaps = googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
-        # Bias toward Pakistan (Lahore/Rawalpindi area)
-        result = gmaps.places(query=q, location="33.6844,73.0479", radius=200000)
-        
-        places = []
-        for p in result.get("results", []):
-            places.append(PlaceSearchResult(
-                place_id=p["place_id"],
-                name=p["name"],
-                formatted_address=p.get("formatted_address"),
-                vicinity=p.get("vicinity")
-            ))
-        
-        return {"success": True, "results": places}
-    except Exception as e:
-        return {"success": False, "message": str(e)}
-
-class AddCompanyRequest(BaseModel):
-    name: str
-    place_id: str
-    address: str | None = None
-    phone: str | None = None
-    website: str | None = None
-    category: str | None = None
-    hours: str | None = None
-    google_data: dict | None = None
-
-@router.post("/companies/add")
-async def add_new_company(request: Request, data: AddCompanyRequest):
-    """
-    Add a new company from Google Places search result.
-    Fulfills requirements for auto-filling and storing metadata.
-    """
-    uid = _require_user(request)
-    
+@router.get('/api/kpis')
+async def api_kpis(company_id: int, start: str | None = None, end: str | None = None):
     async with get_session() as session:
-        # Prevent duplicate by place_id
-        result = await session.execute(
-            select(Company).where(Company.place_id == data.place_id)
-        )
-        existing = result.scalar_one_or_none()
-        
-        if existing:
-            return {"success": False, "message": "Company with this place_id already exists"}
+        # Fixed: Using sentiment_score to match models.py
+        q = select(
+            func.count(Review.id).label("total"),
+            func.avg(Review.rating).label("avg_rating"),
+            func.avg(Review.sentiment_score).label("avg_sent")
+        ).where(Review.company_id == company_id)
 
-        # Mapping all auto-filled attributes from the frontend request
-        new_company = Company(
-            name=data.name,
-            place_id=data.place_id,
-            address=data.address,
-            phone=data.phone,
-            website=data.website,
-            category=data.category,
-            hours=data.hours,
-            google_data=data.google_data or {},
-            owner_id=uid
-        )
+        if start:
+            q = q.where(func.date(Review.review_time) >= start)
+        if end:
+            q = q.where(func.date(Review.review_time) <= end)
 
-        session.add(new_company)
-        await session.flush() 
-        
-        if uid:
-            session.add(AuditLog(
-                user_id=uid, 
-                action='company_add_google', 
-                meta={'company_id': new_company.id, 'place_id': data.place_id}
-            ))
-        
-        await session.commit()
+        res = await session.execute(q)
+        stats = res.fetchone()
 
         return {
-            "success": True,
-            "company_id": new_company.id,
-            "name": new_company.name,
-            "message": "Company added successfully"
+            "total_reviews": stats.total or 0,
+            "avg_rating": float(stats.avg_rating or 0),
+            "avg_sentiment": float(stats.avg_sent or 0)
+        }
+
+@router.get('/api/sentiment/series')
+async def api_sentiment_series(company_id: int, start: str | None = None, end: str | None = None):
+    async with get_session() as session:
+        # Fixed: Using sentiment_score to match models.py
+        stmt = select(
+            func.date(Review.review_time).label("date"),
+            func.avg(Review.sentiment_score).label("value")
+        ).where(Review.company_id == company_id).group_by(func.date(Review.review_time)).order_by("date")
+
+        if start:
+            stmt = stmt.where(func.date(Review.review_time) >= start)
+        if end:
+            stmt = stmt.where(func.date(Review.review_time) <= end)
+
+        res = await session.execute(stmt)
+        rows = res.all()
+        return {"series": [{"date": str(r.date), "value": float(r.value or 0)} for r in rows]}
+
+@router.get('/api/reviews/summary/{company_id}')
+async def api_review_summary(company_id: int, refresh: bool = False):
+    """
+    Unified endpoint for the dashboard to trigger a sync and get KPIs
+    """
+    async with get_session() as session:
+        result = await session.execute(select(Company).where(Company.id == company_id))
+        company = result.scalar_one_or_none()
+        
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+
+        # Automatically fetch from Google if refresh is True or data is missing
+        if refresh or not company.last_updated:
+            try:
+                await ingest_company_reviews(session, company)
+            except Exception as e:
+                logger.error(f"Sync failed: {e}")
+
+        # Return latest KPIs
+        q = select(
+            func.count(Review.id).label("total"),
+            func.avg(Review.rating).label("avg_rating"),
+            func.avg(Review.sentiment_score).label("avg_sent")
+        ).where(Review.company_id == company_id)
+        
+        res = await session.execute(q)
+        stats = res.fetchone()
+
+        return {
+            "total_reviews": stats.total or 0,
+            "avg_rating": float(stats.avg_rating or 0),
+            "avg_sentiment": float(stats.avg_sent or 0)
         }
