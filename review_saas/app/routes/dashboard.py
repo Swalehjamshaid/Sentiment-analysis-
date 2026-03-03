@@ -1,9 +1,9 @@
 # filename: app/routes/dashboard.py
 from __future__ import annotations
 from fastapi import APIRouter, Request, Query, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
-from sqlalchemy import select, func
+from sqlalchemy import select, func, cast, Date # Added cast and Date to fix type mismatch
 from datetime import datetime, timedelta
 import logging
 
@@ -22,7 +22,6 @@ def _require_user(request: Request):
 async def dashboard_page(request: Request, company_id: int | None = Query(None)):
     uid = _require_user(request)
     if not uid:
-        from fastapi.responses import RedirectResponse
         return RedirectResponse('/login', status_code=302)
 
     async with get_session() as session:
@@ -41,56 +40,71 @@ async def dashboard_page(request: Request, company_id: int | None = Query(None))
         })
 
 # ──────────────────────────────────────────────────────────────
-# FIXED API ENDPOINTS (Using sentiment_score instead of sentiment_compound)
+# FIXED API ENDPOINTS (Corrected Date Casting and Column Names)
 # ──────────────────────────────────────────────────────────────
 
 @router.get('/api/kpis')
 async def api_kpis(company_id: int, start: str | None = None, end: str | None = None):
     async with get_session() as session:
-        # Fixed: Using sentiment_score to match models.py
+        # Using sentiment_score to match your updated models.py
         q = select(
             func.count(Review.id).label("total"),
             func.avg(Review.rating).label("avg_rating"),
             func.avg(Review.sentiment_score).label("avg_sent")
         ).where(Review.company_id == company_id)
 
+        # Apply cast(start, Date) to resolve "operator does not exist: date >= character varying"
         if start:
-            q = q.where(func.date(Review.review_time) >= start)
+            q = q.where(func.date(Review.review_time) >= cast(start, Date))
         if end:
-            q = q.where(func.date(Review.review_time) <= end)
+            q = q.where(func.date(Review.review_time) <= cast(end, Date))
 
         res = await session.execute(q)
         stats = res.fetchone()
 
         return {
             "total_reviews": stats.total or 0,
-            "avg_rating": float(stats.avg_rating or 0),
-            "avg_sentiment": float(stats.avg_sent or 0)
+            "avg_rating": round(float(stats.avg_rating or 0), 2),
+            "avg_sentiment": round(float(stats.avg_sent or 0), 3)
         }
 
 @router.get('/api/sentiment/series')
 async def api_sentiment_series(company_id: int, start: str | None = None, end: str | None = None):
     async with get_session() as session:
-        # Fixed: Using sentiment_score to match models.py
         stmt = select(
             func.date(Review.review_time).label("date"),
             func.avg(Review.sentiment_score).label("value")
         ).where(Review.company_id == company_id).group_by(func.date(Review.review_time)).order_by("date")
 
         if start:
-            stmt = stmt.where(func.date(Review.review_time) >= start)
+            stmt = stmt.where(func.date(Review.review_time) >= cast(start, Date))
         if end:
-            stmt = stmt.where(func.date(Review.review_time) <= end)
+            stmt = stmt.where(func.date(Review.review_time) <= cast(end, Date))
 
         res = await session.execute(stmt)
         rows = res.all()
         return {"series": [{"date": str(r.date), "value": float(r.value or 0)} for r in rows]}
 
+# Added to fix the 404 error for the "Reviews per day" chart
+@router.get('/api/series/reviews')
+async def api_series_reviews(company_id: int, start: str | None = None, end: str | None = None):
+    async with get_session() as session:
+        stmt = select(
+            func.date(Review.review_time).label("date"),
+            func.count(Review.id).label("value")
+        ).where(Review.company_id == company_id).group_by(func.date(Review.review_time)).order_by("date")
+
+        if start:
+            stmt = stmt.where(func.date(Review.review_time) >= cast(start, Date))
+        if end:
+            stmt = stmt.where(func.date(Review.review_time) <= cast(end, Date))
+
+        res = await session.execute(stmt)
+        rows = res.all()
+        return {"series": [{"date": str(r.date), "value": int(r.value or 0)} for r in rows]}
+
 @router.get('/api/reviews/summary/{company_id}')
 async def api_review_summary(company_id: int, refresh: bool = False):
-    """
-    Unified endpoint for the dashboard to trigger a sync and get KPIs
-    """
     async with get_session() as session:
         result = await session.execute(select(Company).where(Company.id == company_id))
         company = result.scalar_one_or_none()
@@ -98,14 +112,12 @@ async def api_review_summary(company_id: int, refresh: bool = False):
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
-        # Automatically fetch from Google if refresh is True or data is missing
         if refresh or not company.last_updated:
             try:
                 await ingest_company_reviews(session, company)
             except Exception as e:
                 logger.error(f"Sync failed: {e}")
 
-        # Return latest KPIs
         q = select(
             func.count(Review.id).label("total"),
             func.avg(Review.rating).label("avg_rating"),
@@ -117,6 +129,6 @@ async def api_review_summary(company_id: int, refresh: bool = False):
 
         return {
             "total_reviews": stats.total or 0,
-            "avg_rating": float(stats.avg_rating or 0),
-            "avg_sentiment": float(stats.avg_sent or 0)
+            "avg_rating": round(float(stats.avg_rating or 0), 2),
+            "avg_sentiment": round(float(stats.avg_sent or 0), 3)
         }
