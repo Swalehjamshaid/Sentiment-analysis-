@@ -170,7 +170,8 @@
 </div>
 
 <script>
-// Element references
+// ==================== Dashboard JS ====================
+// References
 const el = {
   companySelect: document.getElementById('companySelect'),
   switchBtn: document.getElementById('switchCompanyBtn'),
@@ -201,7 +202,6 @@ let currentCompanyId = null;
 let selectedPlace = null;
 let charts = {};
 
-// Show/hide helpers
 const show = (elId, visible) => el[elId].style.display = visible ? 'block' : 'none';
 const qs = (obj) => new URLSearchParams(obj).toString();
 
@@ -211,49 +211,58 @@ async function safeJsonFetch(url) {
   return res.json();
 }
 
-// Load companies into dropdown
+// ---------------- Load companies ----------------
 async function loadCompanies() {
   try {
     const data = await safeJsonFetch('/api/companies/list');
     el.companySelect.innerHTML = '';
-    
     if (!data.companies || data.companies.length === 0) {
       el.companySelect.innerHTML = '<option value="">No companies found</option>';
       return;
     }
-
     data.companies.forEach(c => {
       const opt = document.createElement('option');
       opt.value = c.id;
       opt.textContent = c.name;
       el.companySelect.appendChild(opt);
     });
-
     const savedId = localStorage.getItem('lastCompanyId');
     if (savedId && data.companies.some(c => c.id == savedId)) {
       el.companySelect.value = savedId;
     } else {
       el.companySelect.value = data.companies[0].id;
     }
-
     currentCompanyId = el.companySelect.value;
   } catch (err) {
     el.companySelect.innerHTML = '<option value="">Error loading companies</option>';
   }
 }
 
-// Fetch dashboard analytics
+// ---------------- Fetch full date range ----------------
+async function fetchFullDateRange(companyId) {
+  try {
+    const series = await safeJsonFetch(`/api/series/reviews?company_id=${companyId}`);
+    if (series.series && series.series.length > 0) {
+      const dates = series.series.map(x => new Date(x.date));
+      const minDate = new Date(Math.min(...dates));
+      const maxDate = new Date(Math.max(...dates));
+      el.startDate.value = minDate.toISOString().slice(0,10);
+      el.endDate.value = maxDate.toISOString().slice(0,10);
+    } else {
+      const today = new Date();
+      el.startDate.value = today.toISOString().slice(0,10);
+      el.endDate.value = today.toISOString().slice(0,10);
+    }
+  } catch(err) { console.error('Failed to fetch full date range', err); }
+}
+
+// ---------------- Fetch dashboard data ----------------
 async function fetchDashboardData() {
   if (!currentCompanyId) return;
   show('loadingBox', true);
   ['successBox','nodataBox','errorBox'].forEach(b => show(b, false));
 
-  const params = {
-    company_id: currentCompanyId,
-    start: el.startDate.value || '',
-    end: el.endDate.value || ''
-  };
-
+  const params = { company_id: currentCompanyId, start: el.startDate.value || '', end: el.endDate.value || '' };
   try {
     const [kpis, revSeries, ratDist, sentSeries] = await Promise.all([
       safeJsonFetch(`/api/kpis?${qs(params)}`),
@@ -266,61 +275,13 @@ async function fetchDashboardData() {
     el.kpiTotal.textContent  = kpis.total_reviews ?? 0;
     el.kpiRating.textContent = (kpis.avg_rating ?? 0).toFixed(2);
     el.kpiSent.textContent   = (kpis.avg_sentiment ?? 0).toFixed(3);
-    
-    // Safety check for empty series
-    const latestValue = (revSeries.series && revSeries.series.length > 0) 
-                        ? revSeries.series.at(-1).value 
-                        : 0;
-    el.kpiNew.textContent = latestValue;
+    el.kpiNew.textContent    = (revSeries.series?.at(-1)?.value ?? 0);
 
     Object.values(charts).forEach(c => c?.destroy?.());
 
-    // Main Review Chart
-    charts.rev = new Chart(document.getElementById('seriesReviews'), {
-      type: 'line',
-      data: { 
-        labels: revSeries.series ? revSeries.series.map(x=>x.date) : [], 
-        datasets:[{
-          label:'Reviews', 
-          data: revSeries.series ? revSeries.series.map(x=>x.value) : [], 
-          borderColor:'#0d6efd', 
-          backgroundColor:'rgba(13,110,253,0.1)', 
-          tension:0.3, 
-          fill:true
-        }] 
-      },
-      options: { responsive:true, scales:{y:{beginAtZero:true}} }
-    });
-
-    // Ratings Bar Chart
-    charts.dist = new Chart(document.getElementById('ratingsDist'), {
-      type: 'bar',
-      data: { 
-        labels: ratDist.distribution ? Object.keys(ratDist.distribution) : [], 
-        datasets:[{
-          label:'Rating Count', 
-          data: ratDist.distribution ? Object.values(ratDist.distribution) : [], 
-          backgroundColor:'#ffc107'
-        }] 
-      }
-    });
-
-    // Sentiment Series Chart
-    charts.sent = new Chart(document.getElementById('sentSeries'), {
-      type: 'line',
-      data: { 
-        labels: sentSeries.series ? sentSeries.series.map(x=>x.date) : [], 
-        datasets:[{
-          label:'Sentiment', 
-          data: sentSeries.series ? sentSeries.series.map(x=>x.value) : [], 
-          borderColor:'#6610f2', 
-          backgroundColor:'rgba(102,16,242,0.1)', 
-          tension:0.3, 
-          fill:true
-        }] 
-      },
-      options: { responsive:true, scales:{y:{min:-1, max:1}} }
-    });
+    charts.rev = new Chart(document.getElementById('seriesReviews'), {type:'line', data:{labels:revSeries.series?.map(x=>x.date)||[], datasets:[{label:'Reviews', data:revSeries.series?.map(x=>x.value)||[], borderColor:'#0d6efd', backgroundColor:'rgba(13,110,253,0.1)', tension:0.3, fill:true}]}, options:{responsive:true, scales:{y:{beginAtZero:true}}}});
+    charts.dist = new Chart(document.getElementById('ratingsDist'), {type:'bar', data:{labels:Object.keys(ratDist.distribution||{}), datasets:[{label:'Rating Count', data:Object.values(ratDist.distribution||{}), backgroundColor:'#ffc107'}]}});
+    charts.sent = new Chart(document.getElementById('sentSeries'), {type:'line', data:{labels:sentSeries.series?.map(x=>x.date)||[], datasets:[{label:'Sentiment', data:sentSeries.series?.map(x=>x.value)||[], borderColor:'#6610f2', backgroundColor:'rgba(102,16,242,0.1)', tension:0.3, fill:true}]}, options:{responsive:true, scales:{y:{min:-1,max:1}}}});
 
     await loadReviewsList();
     show('loadingBox', false);
@@ -333,111 +294,30 @@ async function fetchDashboardData() {
   }
 }
 
-// Populate the reviews list feed
+// ---------------- Load reviews ----------------
 async function loadReviewsList() {
   if (!currentCompanyId) return;
   const params = { company_id: currentCompanyId, sort: el.sortReviews.value, start: el.startDate.value, end: el.endDate.value };
-
   try {
     const { items } = await safeJsonFetch(`/api/reviews/list?${qs(params)}`);
     el.reviewsList.innerHTML = items.map(r => {
       const rating = r.rating || 0;
       const stars = '★'.repeat(Math.round(rating)) + '☆'.repeat(5 - Math.round(rating));
-      return `
-        <div class="border rounded p-2 mb-2">
-          <div class="d-flex justify-content-between small text-muted">
-            <span>${r.author_name || 'Anonymous'}</span>
-            <span>${r.review_time || ''}</span>
-          </div>
-          <div class="text-warning">${stars} <span class="text-dark">${rating.toFixed(1)}</span></div>
-          <div>${r.text || ''}</div>
-        </div>`;
+      return `<div class="border rounded p-2 mb-2"><div class="d-flex justify-content-between small text-muted"><span>${r.author_name||'Anonymous'}</span><span>${r.review_time||''}</span></div><div class="text-warning">${stars} <span class="text-dark">${rating.toFixed(1)}</span></div><div>${r.text||''}</div></div>`;
     }).join('') || '<p class="text-muted text-center">No reviews found.</p>';
   } catch(err){
     el.reviewsList.innerHTML = '<p class="text-danger text-center">Failed to load reviews.</p>';
   }
 }
 
-// Google Places Autocomplete Setup
-function loadGoogleScript(){
-  const s = document.createElement('script');
-  s.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initGooglePlaces";
-  s.async = true; s.defer = true;
-  document.head.appendChild(s);
-}
-
-window.initGooglePlaces = function(){
-  if (typeof google === 'undefined') return;
-  const auto = new google.maps.places.Autocomplete(el.placeSearch, {types:["establishment"]});
-  auto.addListener("place_changed", () => {
-    const p = auto.getPlace();
-    if (!p.place_id) return;
-    
-    el.prevAddress.value = p.formatted_address || '';
-    el.prevPhone.value = p.formatted_phone_number || 'N/A';
-    el.prevWebsite.value = p.website || 'N/A';
-    el.prevCategory.value = p.types?.[0]?.replace(/_/g,' ') || 'Business';
-    el.prevHours.value = p.opening_hours?.weekday_text?.join('\n') || 'No hours listed';
-    el.previewBox.style.display = 'block';
-    
-    selectedPlace = {
-      name: p.name,
-      place_id: p.place_id,
-      address: p.formatted_address,
-      phone: p.formatted_phone_number,
-      website: p.website,
-      category: el.prevCategory.value,
-      hours: el.prevHours.value,
-      google_data: p
-    };
-    el.saveBtn.disabled = false;
-  });
-};
-
-// Event Listeners
-el.switchBtn.addEventListener('click', () => {
-  currentCompanyId = el.companySelect.value;
-  localStorage.setItem('lastCompanyId', currentCompanyId);
-  fetchDashboardData();
-});
-
-el.fetchBtn.addEventListener('click', fetchDashboardData);
-el.sortReviews.addEventListener('change', loadReviewsList);
-
-el.saveBtn.onclick = async () => {
-  try {
-    const res = await fetch('/companies/add', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(selectedPlace)
-    });
-    const d = await res.json();
-    if (d.success) {
-      alert("Company added! Data is loading in the background.");
-      location.reload();
-    } else {
-      alert(d.message || 'Error adding company');
-    }
-  } catch(err){
-    alert('Save failed');
-  }
-};
-
-// Initial Page Load
-document.addEventListener("DOMContentLoaded", () => {
+// ---------------- Initial load ----------------
+document.addEventListener("DOMContentLoaded", async () => {
   loadGoogleScript();
-
-  // Set default 30-day range
-  const today = new Date();
-  const start = new Date();
-  start.setDate(today.getDate() - 30);
-
-  el.startDate.value = start.toISOString().slice(0, 10);
-  el.endDate.value = today.toISOString().slice(0, 10);
-
-  loadCompanies().then(() => {
-    if (currentCompanyId) fetchDashboardData();
-  });
+  await loadCompanies();
+  if (currentCompanyId) {
+    await fetchFullDateRange(currentCompanyId);
+    fetchDashboardData();
+  }
 });
 </script>
 
