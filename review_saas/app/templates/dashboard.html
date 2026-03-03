@@ -1,31 +1,20 @@
-<!-- filename: app/templates/dashboard.html -->
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dashboard — ReviewSaaS</title>
-
-  <!-- Bootstrap 5 -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-
-  <!-- Chart.js 4 -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-
   <style>
-    .spinner-overlay {
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,0.35);
-      display: none; align-items: center; justify-content: center; z-index: 1000;
-    }
-    .spinner-overlay .spinner-border { width: 3rem; height: 3rem; }
-    .alert-placeholder { display: none; }
-    .kpi-box{ background:#f8f9fa; border:1px solid #e9ecef; border-radius:.5rem; padding:1rem; }
-    .review-card{border:1px solid #ececec; border-radius:.5rem; padding:.6rem;}
-    .star{ color:#f4c150; }
+    .spinner { display: none; }
+    .success-msg, .nodata-msg, .error-msg { display: none; }
+    #addCompanyModal .modal-dialog { max-width: 500px; }
+    .pac-container { z-index: 1060 !important; }
   </style>
 </head>
 <body>
+
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
   <div class="container-fluid">
     <a class="navbar-brand" href="/">ReviewSaaS</a>
@@ -37,16 +26,14 @@
 </nav>
 
 <div class="container py-4">
-
-  <!-- Row: Pick company + Date range + Fetch -->
   <div class="row g-3 align-items-end">
     <div class="col-lg-4">
       <label class="form-label">Company</label>
-      <form class="row g-2" method="get" action="/dashboard" id="companyForm">
+      <form class="row g-2" method="get" action="/dashboard">
         <div class="col-8">
-          <select class="form-select" name="company_id" id="companySelect">
+          <select class="form-select" name="company_id">
             {% for c in companies %}
-              <option value="{{c.id}}" {% if active_company_id==c.id %}selected{% endif %}>{{ c.name }}</option>
+              <option value="{{c.id}}" {% if active_company_id == c.id %}selected{% endif %}>{{ c.name }}</option>
             {% endfor %}
           </select>
         </div>
@@ -56,16 +43,16 @@
       </form>
     </div>
 
-    <div class="col-lg-6">
+    <div class="col-lg-3 d-grid">
+      <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+        + Add New Company
+      </button>
+    </div>
+
+    <div class="col-lg-5">
       <div class="row g-2">
-        <div class="col">
-          <label class="form-label">Start Date</label>
-          <input type="date" class="form-control" id="startDate">
-        </div>
-        <div class="col">
-          <label class="form-label">End Date</label>
-          <input type="date" class="form-control" id="endDate">
-        </div>
+        <div class="col"><label class="form-label">Start Date</label><input type="date" class="form-control" id="startDate"></div>
+        <div class="col"><label class="form-label">End Date</label><input type="date" class="form-control" id="endDate"></div>
       </div>
     </div>
 
@@ -74,321 +61,249 @@
     </div>
   </div>
 
-  <!-- Alerts -->
-  <div class="mt-3">
-    <div id="loadingBox" class="alert alert-info alert-placeholder">Loading…</div>
-    <div id="successBox" class="alert alert-success alert-placeholder">Data fetched successfully.</div>
-    <div id="nodataBox" class="alert alert-warning alert-placeholder">No Data Found for selected date range.</div>
-    <div id="errorBox" class="alert alert-danger alert-placeholder">An error occurred while fetching data. Please try again.</div>
-  </div>
+  <div class="alert alert-info mt-3 spinner" id="loadingBox">Loading…</div>
+  <div class="alert alert-success mt-3 success-msg" id="successBox">Data fetched successfully.</div>
+  <div class="alert alert-warning mt-3 nodata-msg" id="nodataBox">No Data Found for selected date range.</div>
+  <div class="alert alert-danger mt-3 error-msg" id="errorBox">Error loading data.</div>
 
-  <!-- KPIs -->
   <div class="row g-3 mt-2">
-    <div class="col-md-3"><div class="kpi-box">Total Reviews <h4 id="kpi-total" class="mb-0">0</h4></div></div>
-    <div class="col-md-3"><div class="kpi-box">Avg Rating <h4 id="kpi-rating" class="mb-0">0.00</h4></div></div>
-    <div class="col-md-3"><div class="kpi-box">Avg Sentiment <h4 id="kpi-sent" class="mb-0">0.000</h4></div></div>
-    <div class="col-md-3"><div class="kpi-box">New (24h) <h4 id="kpi-new" class="mb-0">0</h4></div></div>
+    <div class="col-md-3"><div class="p-3 bg-light border rounded">Total Reviews <h4 id="kpi-total" class="mb-0">0</h4></div></div>
+    <div class="col-md-3"><div class="p-3 bg-light border rounded">Avg Rating <h4 id="kpi-rating" class="mb-0">0.0</h4></div></div>
+    <div class="col-md-3"><div class="p-3 bg-light border rounded">Avg Sentiment <h4 id="kpi-sent" class="mb-0">0.000</h4></div></div>
+    <div class="col-md-3"><div class="p-3 bg-light border rounded">New (24h) <h4 id="kpi-new" class="mb-0">0</h4></div></div>
   </div>
 
-  <!-- Charts -->
   <div class="row g-3 mt-1">
-    <div class="col-lg-8">
-      <div class="card">
-        <div class="card-body">
-          <h6 class="text-muted">Reviews per day</h6>
-          <canvas id="seriesReviews" height="120"></canvas>
-        </div>
-      </div>
-    </div>
+    <div class="col-lg-8"><div class="card"><div class="card-body">
+      <h6 class="text-muted">Reviews per day</h6>
+      <canvas id="seriesReviews" height="120"></canvas>
+    </div></div></div>
     <div class="col-lg-4">
-      <div class="card mb-3">
-        <div class="card-body">
-          <h6 class="text-muted">Ratings distribution</h6>
-          <canvas id="ratingsDist" height="120"></canvas>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-body">
-          <h6 class="text-muted">Avg sentiment per day</h6>
-          <canvas id="sentSeries" height="120"></canvas>
-        </div>
-      </div>
+      <div class="card mb-3"><div class="card-body">
+        <h6 class="text-muted">Ratings distribution</h6>
+        <canvas id="ratingsDist" height="120"></canvas>
+      </div></div>
+      <div class="card"><div class="card-body">
+        <h6 class="text-muted">Avg sentiment per day</h6>
+        <canvas id="sentSeries" height="120"></canvas>
+      </div></div>
     </div>
   </div>
 
-  <!-- Reviews & Keywords -->
   <div class="row g-3 mt-1">
-    <div class="col-lg-8">
-      <div class="card">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center">
-            <h6 class="text-muted mb-0">Reviews</h6>
-            <div>
-              <select id="sortReviews" class="form-select form-select-sm">
-                <option value="newest" selected>Newest</option>
-                <option value="oldest">Oldest</option>
-                <option value="highest">Highest rating</option>
-                <option value="lowest">Lowest rating</option>
-              </select>
-            </div>
-          </div>
-          <div id="reviewsList" class="mt-3"></div>
-        </div>
+    <div class="col-12"><div class="card"><div class="card-body">
+      <div class="d-flex justify-content-between align-items-center">
+        <h6 class="text-muted mb-0">Reviews</h6>
+        <select id="sortReviews" class="form-select form-select-sm" style="width: auto;">
+          <option value="newest" selected>Newest</option>
+          <option value="oldest">Oldest</option>
+          <option value="highest">Highest rating</option>
+          <option value="lowest">Lowest rating</option>
+        </select>
       </div>
-    </div>
-
-    <div class="col-lg-4">
-      <div class="card">
-        <div class="card-body">
-          <h6 class="text-muted">Top Keywords</h6>
-          <ul id="keywordsList" class="small mb-0"></ul>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Actions -->
-  <div class="mt-3">
-    {% if active_company_id %}
-      <a class="btn btn-outline-primary" href="/api/export/reviews.csv?company_id={{active_company_id}}">Export CSV</a>
-      <a class="btn btn-outline-primary" href="/api/export/reviews.xlsx?company_id={{active_company_id}}">Export Excel</a>
-      <a class="btn btn-outline-primary" href="/api/export/summary.pdf?company_id={{active_company_id}}">Export PDF</a>
-      <form class="d-inline" method="post" action="/companies/{{active_company_id}}/sync">
-        <button class="btn btn-success">Sync Reviews for Active Company</button>
-      </form>
-    {% endif %}
+      <div id="reviewsList" class="mt-3"></div>
+    </div></div></div>
   </div>
 </div>
 
-<!-- Full-screen loading overlay -->
-<div class="spinner-overlay" id="spinnerOverlay">
-  <div class="spinner-border text-light" role="status" aria-hidden="true"></div>
+<div class="modal fade" id="addCompanyModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add New Company via Google Places</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Search Company / Place</label>
+          <input type="text" class="form-control" id="placeSearch" placeholder="e.g. McDonald's Lahore">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" id="saveCompanyBtn" disabled>Save Selected Company</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
-  // ---------- Utilities ----------
-  const companyId = {{ active_company_id or 'null' }};
-  const $ = (sel) => document.querySelector(sel);
-  const qs = (obj) => new URLSearchParams(Object.entries(obj).filter(([_,v]) => v !== null && v !== undefined && v !== '')).toString();
+// Logic to handle safe element referencing and API calls
+const companyId = {{ active_company_id or 'null' }};
+const el = {
+    startDate: document.getElementById('startDate'),
+    endDate: document.getElementById('endDate'),
+    fetchBtn: document.getElementById('fetchBtn'),
+    sortReviews: document.getElementById('sortReviews'),
+    loadingBox: document.getElementById('loadingBox'),
+    successBox: document.getElementById('successBox'),
+    nodataBox: document.getElementById('nodataBox'),
+    errorBox: document.getElementById('errorBox'),
+    reviewsList: document.getElementById('reviewsList'),
+    saveBtn: document.getElementById('saveCompanyBtn'),
+    placeSearch: document.getElementById('placeSearch'),
+    kpiTotal: document.getElementById('kpi-total'),
+    kpiRating: document.getElementById('kpi-rating'),
+    kpiSent: document.getElementById('kpi-sent'),
+    kpiNew: document.getElementById('kpi-new')
+};
 
-  function show(el, visible){ el.style.display = visible ? 'block' : 'none'; }
-  function msgClear(){
-    ['#loadingBox','#successBox','#nodataBox','#errorBox'].forEach(id => show($(id), false));
-  }
-  function setOverlay(v){ show($('#spinnerOverlay'), v); }
+let selectedPlace = null;
+let charts = {};
 
-  // Keep references to charts to destroy on re-render
-  let charts = {
-    reviews: null,
-    ratings: null,
-    sentiment: null
-  };
+// 1. IMPROVED GOOGLE LOAD
+function loadGoogle() {
+    const script = document.createElement("script");
+    script.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initAutocomplete";
+    script.async = true;
+    script.defer = true;
+    document.head.appendChild(script);
+}
 
-  function destroyCharts(){
-    Object.keys(charts).forEach(k => {
-      if (charts[k]) { charts[k].destroy(); charts[k] = null; }
-    });
-  }
-
-  // Default dates: today and today-29
-  (function initDates(){
-    const today = new Date();
-    const pad = n => String(n).padStart(2,'0');
-    const toISO = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-    $('#endDate').value = toISO(today);
-    const start = new Date(today.getTime() - 29*86400000);
-    $('#startDate').value = toISO(start);
-  })();
-
-  // ---------- Fetch helpers ----------
-  async function apiGet(path, params){
-    const url = path + (params ? ('?' + qs(params)) : '');
-    const res = await fetch(url, { credentials: 'same-origin' });
-    if (!res.ok) {
-      let detail = '';
-      try { detail = (await res.json()).detail || ''; } catch {}
-      throw new Error(`HTTP ${res.status} ${res.statusText} ${detail}`);
-    }
-    return res.json();
-  }
-
-  function getRange(){
-    const s = $('#startDate').value || null;
-    const e = $('#endDate').value || null;
-    return { start: s, end: e };
-  }
-
-  // ---------- Renderers ----------
-  function renderKPIs(k, reviewsSeries){
-    $('#kpi-total').textContent = k.total_reviews ?? 0;
-    $('#kpi-rating').textContent = (k.avg_rating ?? 0).toFixed(2);
-    $('#kpi-sent').textContent = (k.avg_sentiment ?? 0).toFixed(3);
-    const last = Array.isArray(reviewsSeries?.series) && reviewsSeries.series.length
-      ? reviewsSeries.series[reviewsSeries.series.length - 1].value : 0;
-    $('#kpi-new').textContent = last ?? 0;
-  }
-
-  function renderCharts(seriesData, distData, sentData){
-    const revCtx = $('#seriesReviews');
-    const distCtx = $('#ratingsDist');
-    const sentCtx = $('#sentSeries');
-
-    destroyCharts();
-
-    charts.reviews = new Chart(revCtx, {
-      type: 'line',
-      data: {
-        labels: seriesData.series.map(x => x.date),
-        datasets: [{
-          label: 'Reviews/day',
-          data: seriesData.series.map(x => x.value),
-          borderColor: '#0d6efd',
-          backgroundColor: 'rgba(13,110,253,.1)',
-          tension: .3, fill: true
-        }]
-      },
-      options: { responsive: true, scales: { y: { beginAtZero: true } } }
+window.initAutocomplete = function() {
+    if (typeof google === "undefined") return;
+    const auto = new google.maps.places.Autocomplete(el.placeSearch, {
+        fields: ["name", "place_id", "formatted_address"],
+        types: ["establishment"]
     });
 
-    const labels = Object.keys(distData.distribution || {});
-    const values = Object.values(distData.distribution || {});
-    charts.ratings = new Chart(distCtx, {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: [{
-          label: 'Count',
-          data: values,
-          backgroundColor: ['#dc3545','#fd7e14','#ffc107','#0dcaf0','#198754']
-        }]
-      },
-      options: { responsive: true, scales: { y: { beginAtZero: true } } }
+    auto.addListener("place_changed", () => {
+        const p = auto.getPlace();
+        if (!p.place_id) return;
+        selectedPlace = {
+            name: p.name,
+            place_id: p.place_id,
+            address: p.formatted_address
+        };
+        el.saveBtn.disabled = false;
     });
+};
 
-    charts.sentiment = new Chart(sentCtx, {
-      type: 'line',
-      data: {
-        labels: sentData.series.map(x => x.date),
-        datasets: [{
-          label: 'Avg Sentiment',
-          data: sentData.series.map(x => x.value),
-          borderColor: '#6610f2',
-          backgroundColor: 'rgba(102,16,242,.1)',
-          tension: .3, fill: true
-        }]
-      },
-      options: { responsive: true, scales: { y: { min: -1, max: 1 } } }
-    });
-  }
+// 2. REFINED FETCH LOGIC
+function qs(p) { return new URLSearchParams(p).toString(); }
+function show(id, v) { el[id].style.display = v ? 'block' : 'none'; }
 
-  function renderReviews(items){
-    const box = $('#reviewsList');
-    box.innerHTML = '';
-    if (!Array.isArray(items) || !items.length){
-      box.innerHTML = '<div class="text-muted">No reviews in this range.</div>';
-      return;
+async function safeFetch(url) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error();
+    return r.json();
+}
+
+async function fetchAll() {
+    if (!companyId) return;
+    show("loadingBox", true);
+    show("successBox", false);
+    show("nodataBox", false);
+    show("errorBox", false);
+
+    const s = el.startDate.value;
+    const e = el.endDate.value;
+    const p = qs({ company_id: companyId, start: s || '', end: e || '' });
+
+    try {
+        const [k, r, d, sent] = await Promise.all([
+            safeFetch('/api/kpis?' + p),
+            safeFetch('/api/series/reviews?' + p),
+            safeFetch('/api/ratings/distribution?' + p),
+            safeFetch('/api/sentiment/series?' + p)
+        ]);
+
+        el.kpiTotal.textContent = k.total_reviews;
+        el.kpiRating.textContent = (k.avg_rating || 0).toFixed(2);
+        el.kpiSent.textContent = (k.avg_sentiment || 0).toFixed(3);
+        el.kpiNew.textContent = r.series?.length ? r.series[r.series.length - 1].value : 0;
+
+        Object.values(charts).forEach(c => c.destroy());
+
+        charts.rev = new Chart(document.getElementById('seriesReviews'), {
+            type: 'line',
+            data: {
+                labels: r.series.map(x => x.date),
+                datasets: [{ label: 'Reviews', data: r.series.map(x => x.value), borderColor: '#0d6efd', tension: .3, fill: true }]
+            },
+            options: { responsive: true, scales: { y: { beginAtZero: true } } }
+        });
+
+        charts.dist = new Chart(document.getElementById('ratingsDist'), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(d.distribution),
+                datasets: [{ label: 'Rating Count', data: Object.values(d.distribution), backgroundColor: '#ffc107' }]
+            },
+            options: { responsive: true }
+        });
+
+        charts.sent = new Chart(document.getElementById('sentSeries'), {
+            type: 'line',
+            data: {
+                labels: sent.series.map(x => x.date),
+                datasets: [{ label: 'Sentiment', data: sent.series.map(x => x.value), borderColor: '#6610f2', tension: .3, fill: true }]
+            },
+            options: { responsive: true, scales: { y: { min: -1, max: 1 } } }
+        });
+
+        await loadReviews();
+        show("loadingBox", false);
+        show("successBox", true);
+        if (k.total_reviews === 0) show("nodataBox", true);
+
+    } catch (err) {
+        show("loadingBox", false);
+        show("errorBox", true);
+        console.error(err);
     }
-    for (const r of items){
-      const n = Math.max(0, Math.min(5, +r.rating || 0));
-      const stars = '★'.repeat(n) + '☆'.repeat(5-n);
-      box.insertAdjacentHTML('beforeend', `
-        <div class="review-card mb-2">
-          <div class="d-flex justify-content-between small text-muted">
-            <span>${(r.author_name || 'Anonymous')}</span>
-            <span>${(r.review_time || '').toString().replace('T',' ').slice(0,16)}</span>
-          </div>
-          <div class="mb-1"><span class="star">${stars}</span> <strong>${(r.rating || 0).toFixed ? (r.rating || 0).toFixed(1) : (r.rating || 0)}</strong></div>
-          <div>${(r.text || '').replace(/\n/g,'<br>')}</div>
-        </div>
-      `);
+}
+
+async function loadReviews() {
+    const sort = el.sortReviews.value;
+    const s = el.startDate.value;
+    const e = el.endDate.value;
+
+    try {
+        const out = await safeFetch('/api/reviews/list?' + qs({ company_id: companyId, sort, start: s || '', end: e || '' }));
+        el.reviewsList.innerHTML = out.items.map(r => {
+            const stars = '★'.repeat(Math.round(r.rating || 0)) + '☆'.repeat(5 - Math.round(r.rating || 0));
+            return `<div class="border rounded p-2 mb-2">
+                <div class="d-flex justify-content-between small text-muted">
+                    <span>${r.author_name || 'Anonymous'}</span>
+                    <span>${r.review_time || ''}</span>
+                </div>
+                <div>${stars} ${(r.rating || 0).toFixed(1)}</div>
+                <div>${r.text || ''}</div>
+            </div>`;
+        }).join('');
+    } catch (err) {
+        console.error("Review load error:", err);
     }
-  }
+}
 
-  function renderKeywords(list){
-    const ul = $('#keywordsList');
-    ul.innerHTML = '';
-    if (!Array.isArray(list) || !list.length){
-      ul.innerHTML = '<li class="text-muted">No keywords found.</li>';
-      return;
+el.saveBtn.onclick = async () => {
+    if (!selectedPlace) return;
+    try {
+        const res = await fetch('/companies/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(selectedPlace)
+        });
+        const r = await res.json();
+        if (r.success) location.reload();
+        else alert(r.message || "Error adding company");
+    } catch (err) {
+        console.error("Save error:", err);
     }
-    list.forEach(k => {
-      ul.insertAdjacentHTML('beforeend', `<li>${k.word} <span class="text-muted">(${k.count})</span></li>`);
-    });
-  }
+};
 
-  // ---------- Main fetch flow ----------
-  async function fetchAll(){
-    msgClear();
-    show($('#loadingBox'), true);
-    setOverlay(true);
-    show($('#successBox'), false);
-    show($('#nodataBox'), false);
-    show($('#errorBox'), false);
-
-    if (!companyId){
-      destroyCharts();
-      renderKPIs({ total_reviews: 0, avg_rating: 0, avg_sentiment: 0 }, { series: [] });
-      renderReviews([]);
-      renderKeywords([]);
-      show($('#loadingBox'), false);
-      setOverlay(false);
-      show($('#nodataBox'), true);
-      return;
-    }
-
-    const { start, end } = getRange();
-
-    try{
-      // Consolidated parallel fetch
-      const params = { company_id: companyId, start, end };
-      const [kpi, series, dist, sent, reviews, keywords] = await Promise.all([
-        apiGet('/api/kpis', params),
-        apiGet('/api/series/reviews', params),
-        apiGet('/api/ratings/distribution', params),
-        apiGet('/api/sentiment/series', params),
-        apiGet('/api/reviews/list', { ...params, sort: $('#sortReviews').value }),
-        apiGet('/api/keywords/top', params)
-      ]);
-
-      renderKPIs(kpi, series);
-      renderCharts(series, dist, sent);
-      renderReviews(reviews.items || []);
-      renderKeywords(keywords.keywords || []);
-
-      show($('#loadingBox'), false);
-      setOverlay(false);
-      show($('#successBox'), true);
-
-      const total = kpi.total_reviews || 0;
-      if (total === 0){
-        show($('#nodataBox'), true);
-      }
-    } catch(err){
-      console.error('Fetch error:', err);
-      destroyCharts();
-      show($('#loadingBox'), false);
-      setOverlay(false);
-      show($('#errorBox'), true);
-    }
-  }
-
-  async function reloadReviewsOnly(){
-    try{
-      const { start, end } = getRange();
-      const reviews = await apiGet('/api/reviews/list', { company_id: companyId, start, end, sort: $('#sortReviews').value });
-      renderReviews(reviews.items || []);
-    } catch(err){
-      console.error('reviews reload error:', err);
-      show($('#errorBox'), true);
-    }
-  }
-
-  // ---------- Wire up ----------
-  $('#fetchBtn').addEventListener('click', fetchAll);
-  $('#sortReviews').addEventListener('change', reloadReviewsOnly);
-
-  // Initial load on page open
-  fetchAll();
+document.addEventListener("DOMContentLoaded", () => {
+    loadGoogle();
+    const today = new Date().toISOString().slice(0, 10);
+    el.endDate.value = today;
+    el.startDate.value = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+    el.fetchBtn.addEventListener("click", fetchAll);
+    el.sortReviews.addEventListener("change", loadReviews);
+    fetchAll();
+});
 </script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
