@@ -19,7 +19,7 @@ def _require_user(request: Request):
     return request.session.get('user_id')
 
 # ──────────────────────────────────────────────────────────────
-# Existing endpoints (preserved)
+# Existing endpoints (preserved exactly)
 # ──────────────────────────────────────────────────────────────
 
 @router.get('/companies', response_class=HTMLResponse)
@@ -102,7 +102,7 @@ async def search_google_places(q: str = Query(..., min_length=3)):
     """
     try:
         gmaps = googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
-        # Bias toward Pakistan
+        # Bias toward Pakistan (Lahore/Rawalpindi area)
         result = gmaps.places(query=q, location="33.6844,73.0479", radius=200000)
         
         places = []
@@ -118,7 +118,6 @@ async def search_google_places(q: str = Query(..., min_length=3)):
     except Exception as e:
         return {"success": False, "message": str(e)}
 
-# UPDATED: Added additional fields to support auto-fill requirements
 class AddCompanyRequest(BaseModel):
     name: str
     place_id: str
