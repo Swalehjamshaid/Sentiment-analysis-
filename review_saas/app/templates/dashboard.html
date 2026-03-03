@@ -6,20 +6,31 @@
   <title>Dashboard — ReviewSaaS</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  
+
   <style>
     .spinner { display: none; }
     .success-msg, .nodata-msg, .error-msg { display: none; }
     #addCompanyModal .modal-dialog { max-width: 500px; }
-    /* Ensures Google suggestions appear on top of the Bootstrap modal */
     .pac-container { z-index: 1060 !important; }
   </style>
 
-  <script 
-    src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_API_KEY&libraries=places&callback=initAutocomplete" 
-    async defer>
+  <!-- GOOGLE API LOADER (FIXED) -->
+  <script>
+    function loadGoogleMaps() {
+      const script = document.createElement("script");
+      script.src = "https://maps.googleapis.com/maps/api/js?key=YOUR_REAL_GOOGLE_API_KEY&libraries=places";
+      script.async = true;
+      script.defer = true;
+      script.onload = () => {
+        if (typeof google !== "undefined") {
+          initAutocomplete();
+        }
+      };
+      document.head.appendChild(script);
+    }
   </script>
 </head>
+
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
   <div class="container-fluid">
@@ -114,6 +125,7 @@
   </div>
 </div>
 
+<!-- ADD COMPANY MODAL -->
 <div class="modal fade" id="addCompanyModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -139,12 +151,11 @@
 <script>
 const companyId = {{ active_company_id or 'null' }};
 let selectedPlace = null;
-const saveBtn = document.getElementById('saveCompanyBtn');
+let charts = {};
 
-// Handheld logic to make initialization safe for async loading
 function initAutocomplete() {
   const input = document.getElementById('placeSearch');
-  if (!input) return;
+  if (!input || typeof google === "undefined") return;
 
   const autocomplete = new google.maps.places.Autocomplete(input, {
     fields: ["formatted_address", "place_id", "name"],
@@ -153,99 +164,123 @@ function initAutocomplete() {
 
   autocomplete.addListener("place_changed", () => {
     const place = autocomplete.getPlace();
-    if (!place.place_id) { 
-      saveBtn.disabled = true; 
-      return; 
-    }
+    if (!place.place_id) return;
     selectedPlace = {
         name: place.name,
         place_id: place.place_id,
         formatted_address: place.formatted_address
     };
-    saveBtn.disabled = false;
+    document.getElementById('saveCompanyBtn').disabled = false;
   });
 }
 
-// Data Fetching Logic
 function qs(p){return new URLSearchParams(p).toString();}
 function setLoading(v){document.getElementById('loadingBox').style.display=v?'block':'none'}
 function showSuccess(v){document.getElementById('successBox').style.display=v?'block':'none'}
 function showNoData(v){document.getElementById('nodataBox').style.display=v?'block':'none'}
+function showError(v){document.getElementById('errorBox').style.display=v?'block':'none'}
+
+async function safeFetch(url){
+  const res = await fetch(url);
+  if(!res.ok) throw new Error("Network error");
+  return res.json();
+}
 
 async function fetchAll(){
-  if(!companyId){return}
-  setLoading(true); showSuccess(false); showNoData(false)
-  const s=document.getElementById('startDate').value; 
+  if(!companyId) return;
+
+  setLoading(true); showSuccess(false); showNoData(false); showError(false);
+
+  const s=document.getElementById('startDate').value;
   const e=document.getElementById('endDate').value;
   const p = qs({company_id:companyId, start:s||'', end:e||''});
-  
+
   try {
     const [k, r, d, sent] = await Promise.all([
-        fetch('/api/kpis?'+p).then(res => res.json()),
-        fetch('/api/series/reviews?'+p).then(res => res.json()),
-        fetch('/api/ratings/distribution?'+p).then(res => res.json()),
-        fetch('/api/sentiment/series?'+p).then(res => res.json())
+      safeFetch('/api/kpis?'+p),
+      safeFetch('/api/series/reviews?'+p),
+      safeFetch('/api/ratings/distribution?'+p),
+      safeFetch('/api/sentiment/series?'+p)
     ]);
 
     document.getElementById('kpi-total').textContent = k.total_reviews;
     document.getElementById('kpi-rating').textContent = (k.avg_rating||0).toFixed(2);
     document.getElementById('kpi-sent').textContent = (k.avg_sentiment||0).toFixed(3);
-    document.getElementById('kpi-new').textContent = Math.max(0, r.series.length? r.series[r.series.length-1].value:0);
+    document.getElementById('kpi-new').textContent = r.series?.length ? r.series[r.series.length-1].value : 0;
 
-    new Chart(document.getElementById('seriesReviews'), { type:'line', data:{ labels:r.series.map(x=>x.date), datasets:[{label:'Reviews/day', data:r.series.map(x=>x.value), borderColor:'#0d6efd', backgroundColor:'rgba(13,110,253,0.1)', tension:0.3, fill:true}] }, options:{responsive:true}});
-    new Chart(document.getElementById('ratingsDist'), { type:'bar', data:{ labels:Object.keys(d.distribution), datasets:[{label:'Count', data:Object.values(d.distribution), backgroundColor:['#dc3545','#fd7e14','#ffc107','#0dcaf0','#198754']}] }, options:{responsive:true}});
-    new Chart(document.getElementById('sentSeries'), { type:'line', data:{ labels:sent.series.map(x=>x.date), datasets:[{label:'Avg Sentiment', data:sent.series.map(x=>x.value), borderColor:'#6610f2', backgroundColor:'rgba(102,16,242,0.1)', tension:0.3, fill:true}] }, options:{responsive:true, scales:{y:{min:-1,max:1}}}});
+    Object.values(charts).forEach(c=>c.destroy());
+
+    charts.reviews = new Chart(document.getElementById('seriesReviews'), {
+      type:'line',
+      data:{ labels:r.series.map(x=>x.date),
+      datasets:[{label:'Reviews/day', data:r.series.map(x=>x.value), borderColor:'#0d6efd', tension:0.3, fill:true}] }
+    });
+
+    charts.dist = new Chart(document.getElementById('ratingsDist'), {
+      type:'bar',
+      data:{ labels:Object.keys(d.distribution),
+      datasets:[{label:'Count', data:Object.values(d.distribution)}] }
+    });
+
+    charts.sent = new Chart(document.getElementById('sentSeries'), {
+      type:'line',
+      data:{ labels:sent.series.map(x=>x.date),
+      datasets:[{label:'Avg Sentiment', data:sent.series.map(x=>x.value), borderColor:'#6610f2', tension:0.3, fill:true}] },
+      options:{scales:{y:{min:-1,max:1}}}
+    });
 
     await loadReviews();
     setLoading(false); showSuccess(true);
     if(k.total_reviews===0) showNoData(true);
-  } catch(err){ 
-    setLoading(false); 
-    document.getElementById('errorBox').style.display='block'; 
+
+  } catch(e){
+    setLoading(false);
+    showError(true);
   }
 }
 
 async function loadReviews(){
   const sort=document.getElementById('sortReviews').value;
-  const s=document.getElementById('startDate').value; 
+  const s=document.getElementById('startDate').value;
   const e=document.getElementById('endDate').value;
-  const out = await (await fetch('/api/reviews/list?'+qs({company_id:companyId,sort,start:s||'',end:e||''}))).json();
+
+  const out = await safeFetch('/api/reviews/list?'+qs({company_id:companyId,sort,start:s||'',end:e||''}));
+
   const box=document.getElementById('reviewsList');
-  box.innerHTML = out.items.map(r => {
-    const stars='★'.repeat(r.rating||0)+ '☆'.repeat(5-(r.rating||0));
-    return `<div class="border rounded p-2 mb-2"><div class="d-flex justify-content-between small text-muted"><span>${r.author_name||'Anonymous'}</span><span>${r.review_time||''}</span></div><div><span class="me-2">${stars}</span><span>${(r.rating||0).toFixed(1)}</span></div><div>${r.text||''}</div></div>`;
+  box.innerHTML = out.items.map(r=>{
+    const stars='★'.repeat(r.rating||0)+'☆'.repeat(5-(r.rating||0));
+    return `<div class="border rounded p-2 mb-2">
+      <div class="d-flex justify-content-between small text-muted">
+      <span>${r.author_name||'Anonymous'}</span>
+      <span>${r.review_time||''}</span></div>
+      <div><span class="me-2">${stars}</span>
+      <span>${(r.rating||0).toFixed(1)}</span></div>
+      <div>${r.text||''}</div></div>`;
   }).join('');
 }
 
-saveBtn.onclick = async () => {
+document.getElementById('saveCompanyBtn').onclick = async ()=>{
   if(!selectedPlace) return;
-  try {
-    const res = await fetch('/companies/add', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-            name: selectedPlace.name,
-            place_id: selectedPlace.place_id,
-            address: selectedPlace.formatted_address
-        })
+  try{
+    const res = await fetch('/companies/add',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(selectedPlace)
     });
     const result = await res.json();
     if(result.success) location.reload();
-    else alert(result.message || 'Error saving company');
-  } catch(err) { alert('Server error while saving'); }
+    else alert(result.message||'Error saving company');
+  }catch{alert('Server error while saving')}
 };
 
-document.addEventListener('DOMContentLoaded', () => {
-    // Only call init if script was already loaded somehow, 
-    // otherwise the callback handles it.
-    if (typeof google !== 'undefined') initAutocomplete();
-    
-    const today = new Date().toISOString().slice(0,10);
-    document.getElementById('endDate').value=today;
-    document.getElementById('startDate').value = new Date(Date.now()-29*86400000).toISOString().slice(0,10);
-    document.getElementById('fetchBtn').addEventListener('click', fetchAll);
-    document.getElementById('sortReviews').addEventListener('change', loadReviews);
-    fetchAll();
+document.addEventListener('DOMContentLoaded',()=>{
+  loadGoogleMaps();
+  const today=new Date().toISOString().slice(0,10);
+  document.getElementById('endDate').value=today;
+  document.getElementById('startDate').value=new Date(Date.now()-29*86400000).toISOString().slice(0,10);
+  document.getElementById('fetchBtn').addEventListener('click',fetchAll);
+  document.getElementById('sortReviews').addEventListener('change',loadReviews);
+  fetchAll();
 });
 </script>
 
