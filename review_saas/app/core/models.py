@@ -1,114 +1,268 @@
-# filename: app/core/models.py
+# filename: app/routes/dashboard.py
 from __future__ import annotations
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy import Integer, String, DateTime, Float, ForeignKey, Boolean, JSON, UniqueConstraint, func, Text
-from datetime import datetime
+import logging
+from typing import Dict, Any, List
 
-class Base(DeclarativeBase):
-    pass
+from fastapi import APIRouter, Request, Query, HTTPException, Body, Depends
+from fastapi.responses import HTMLResponse
 
-# -------------------- USERS & AUTH --------------------
-class User(Base):
-    __tablename__ = "users"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String(255))
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    hashed_password: Mapped[str] = mapped_column(String(255))
-    
-    # Role-based access control (Admin, Editor, Viewer)
-    role: Mapped[str] = mapped_column(String(20), default="viewer") 
-    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    profile_pic: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+from starlette.templating import Jinja2Templates
 
-    # Relationships
-    companies: Mapped[list["Company"]] = relationship("Company", back_populates="owner", cascade="all, delete-orphan")
-    notifications: Mapped[list["Notification"]] = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
-    audit_logs: Mapped[list["AuditLog"]] = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan")
+from sqlalchemy import select, func, cast, Date, desc, asc
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.db import get_session
+from app.core.models import Company, Review, User
+
+router = APIRouter(tags=['dashboard'])
+
+templates = Jinja2Templates(directory='app/templates')
+logger = logging.getLogger("app.dashboard")
 
 
-# -------------------- COMPANIES --------------------
-class Company(Base):
-    __tablename__ = "companies"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
-    name: Mapped[str] = mapped_column(String(255), index=True)
-    
-    # Google Place ID - critical for API calls and avoiding duplicates
-    place_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    
-    # Business Details
-    address: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    website: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    category: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
-    hours: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    
-    # Aggregated Analytics (Cached for Dashboard Performance)
-    avg_rating: Mapped[float | None] = mapped_column(Float, nullable=True, default=0.0)
-    review_count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
-    status: Mapped[str] = mapped_column(String(32), default="active") # active | paused | archived
-    
-    last_updated: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    google_data: Mapped[dict | None] = mapped_column(JSON, nullable=True) # Full API Snapshot
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+# ────────────────────────────────────────────────
+#               HTML DASHBOARD PAGE
+# ────────────────────────────────────────────────
+@router.get("/dashboard", response_class=HTMLResponse)
+async def get_dashboard(
+    request: Request,
+    company_id: int | None = Query(None),
+    session: AsyncSession = Depends(get_session)
+):
+    # Fetch all companies for dropdown
+    result = await session.execute(
+        select(Company).order_by(Company.name)
+    )
+    all_companies = result.scalars().all()
 
-    # Relationships
-    owner: Mapped["User"] = relationship("User", back_populates="companies")
-    reviews: Mapped[list["Review"]] = relationship("Review", back_populates="company", cascade="all, delete-orphan")
+    # Determine active company
+    active_id = company_id
+    if not active_id and all_companies:
+        active_id = all_companies[0].id
 
-
-# -------------------- REVIEWS & SENTIMENT --------------------
-class Review(Base):
-    __tablename__ = "reviews"
-    # Prevents duplicate reviews if the same data is fetched twice
-    __table_args__ = (UniqueConstraint("company_id", "source_id", name="uq_review_source"),)
-    
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True)
-    source_id: Mapped[str] = mapped_column(String(255), index=True) # Remote ID from Google
-    
-    author_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    rating: Mapped[int] = mapped_column(Integer, index=True)
-    text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    review_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    
-    # Sentiment Analysis Fields
-    sentiment_score: Mapped[float | None] = mapped_column(Float, nullable=True) # -1.0 to 1.0
-    sentiment_label: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True) 
-    
-    # NLP Keywords
-    keywords: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    # Relationships
-    company: Mapped["Company"] = relationship("Company", back_populates="reviews")
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "companies": all_companies,
+            "active_company_id": active_id
+        }
+    )
 
 
-# -------------------- NOTIFICATIONS & ALERTS --------------------
-class Notification(Base):
-    __tablename__ = "notifications"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    
-    type: Mapped[str] = mapped_column(String(64)) # info, alert, etc.
-    message: Mapped[str] = mapped_column(String(1000))
-    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+# ────────────────────────────────────────────────
+#               API: List all companies
+# ────────────────────────────────────────────────
+@router.get("/api/companies/list")
+async def api_companies_list(session: AsyncSession = Depends(get_session)):
+    """
+    Returns minimal list of companies (id + name) for frontend dropdown
+    """
+    result = await session.execute(
+        select(Company.id, Company.name).order_by(Company.name)
+    )
+    companies = [
+        {"id": row.id, "name": row.name}
+        for row in result.all()
+    ]
+    return {"companies": companies}
 
-    user: Mapped["User"] = relationship("User", back_populates="notifications")
+
+# ────────────────────────────────────────────────
+#               API: Add new company from Google Places
+# ────────────────────────────────────────────────
+@router.post("/companies/add")
+async def api_add_company(
+    data: Dict[str, Any] = Body(...),
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Saves a new company from Google Places autocomplete data
+    Expected fields: name, place_id, address, phone, website, category, hours, google_data
+    """
+    try:
+        # Basic validation
+        if not data.get("place_id"):
+            raise HTTPException(400, detail="place_id is required")
+
+        # Check for duplicate place_id
+        existing = await session.execute(
+            select(Company).where(Company.place_id == data["place_id"])
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(409, detail="Company with this place_id already exists")
+
+        new_company = Company(
+            name=data.get("name"),
+            place_id=data["place_id"],
+            address=data.get("address"),
+            phone=data.get("phone"),
+            website=data.get("website"),
+            category=data.get("category"),
+            hours=data.get("hours"),
+            google_data=data.get("google_data"),          # full JSON snapshot
+            avg_rating=0.0,
+            review_count=0,
+            status="active",
+            last_updated=None,
+            owner_id=None                                 # can be set later if you add auth
+        )
+
+        session.add(new_company)
+        await session.commit()
+        await session.refresh(new_company)
+
+        return {
+            "success": True,
+            "id": new_company.id,
+            "name": new_company.name,
+            "message": "Company added successfully"
+        }
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.exception("Failed to add company")
+        raise HTTPException(500, detail=f"Server error: {str(e)}")
 
 
-# -------------------- AUDIT LOGS (GDPR Compliance) --------------------
-class AuditLog(Base):
-    __tablename__ = "audit_logs"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    
-    action: Mapped[str] = mapped_column(String(128)) # e.g., "LOGIN", "EXPORT"
-    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
-    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+# ────────────────────────────────────────────────
+#               KPI & CHART ENDPOINTS (aligned)
+# ────────────────────────────────────────────────
 
-    user: Mapped["User"] = relationship("User", back_populates="audit_logs")
+@router.get("/api/kpis")
+async def api_kpis(
+    company_id: int = Query(...),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    session: AsyncSession = Depends(get_session)
+):
+    q = select(
+        func.count(Review.id).label("total_reviews"),
+        func.avg(Review.rating).label("avg_rating"),
+        func.avg(Review.sentiment_score).label("avg_sentiment")
+    ).where(Review.company_id == company_id)
+
+    if start:
+        q = q.where(func.date(Review.review_time) >= cast(start, Date))
+    if end:
+        q = q.where(func.date(Review.review_time) <= cast(end, Date))
+
+    result = await session.execute(q)
+    stats = result.fetchone()
+
+    return {
+        "total_reviews": int(stats.total_reviews or 0),
+        "avg_rating": float(stats.avg_rating or 0.0),
+        "avg_sentiment": float(stats.avg_sentiment or 0.0)
+    }
+
+
+@router.get("/api/series/reviews")
+async def api_series_reviews(
+    company_id: int = Query(...),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    session: AsyncSession = Depends(get_session)
+):
+    stmt = select(
+        func.date(Review.review_time).label("date"),
+        func.count(Review.id).label("value")
+    ).where(Review.company_id == company_id)\
+     .group_by(func.date(Review.review_time))\
+     .order_by("date")
+
+    if start: stmt = stmt.where(func.date(Review.review_time) >= cast(start, Date))
+    if end:   stmt = stmt.where(func.date(Review.review_time) <= cast(end, Date))
+
+    result = await session.execute(stmt)
+    return {
+        "series": [{"date": str(row.date), "value": int(row.value or 0)} for row in result.all()]
+    }
+
+
+@router.get("/api/ratings/distribution")
+async def api_ratings_distribution(
+    company_id: int = Query(...),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    session: AsyncSession = Depends(get_session)
+):
+    stmt = select(
+        Review.rating,
+        func.count(Review.id).label("count")
+    ).where(Review.company_id == company_id)\
+     .group_by(Review.rating)
+
+    if start: stmt = stmt.where(func.date(Review.review_time) >= cast(start, Date))
+    if end:   stmt = stmt.where(func.date(Review.review_time) <= cast(end, Date))
+
+    result = await session.execute(stmt)
+    dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    for rating, count in result.all():
+        if rating in dist:
+            dist[rating] = int(count)
+
+    return {"distribution": dist}
+
+
+@router.get("/api/sentiment/series")
+async def api_sentiment_series(
+    company_id: int = Query(...),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    session: AsyncSession = Depends(get_session)
+):
+    stmt = select(
+        func.date(Review.review_time).label("date"),
+        func.avg(Review.sentiment_score).label("value")
+    ).where(Review.company_id == company_id)\
+     .group_by(func.date(Review.review_time))\
+     .order_by("date")
+
+    if start: stmt = stmt.where(func.date(Review.review_time) >= cast(start, Date))
+    if end:   stmt = stmt.where(func.date(Review.review_time) <= cast(end, Date))
+
+    result = await session.execute(stmt)
+    return {
+        "series": [{"date": str(row.date), "value": float(row.value or 0.0)} for row in result.all()]
+    }
+
+
+@router.get("/api/reviews/list")
+async def api_reviews_list(
+    company_id: int = Query(...),
+    sort: str = Query("newest"),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    session: AsyncSession = Depends(get_session)
+):
+    stmt = select(Review).where(Review.company_id == company_id)
+
+    # Sorting
+    if sort == "newest":
+        stmt = stmt.order_by(desc(Review.review_time))
+    elif sort == "oldest":
+        stmt = stmt.order_by(asc(Review.review_time))
+    elif sort == "highest":
+        stmt = stmt.order_by(desc(Review.rating))
+    elif sort == "lowest":
+        stmt = stmt.order_by(asc(Review.rating))
+
+    if start: stmt = stmt.where(func.date(Review.review_time) >= cast(start, Date))
+    if end:   stmt = stmt.where(func.date(Review.review_time) <= cast(end, Date))
+
+    result = await session.execute(stmt.limit(50))
+    reviews = result.scalars().all()
+
+    return {
+        "items": [
+            {
+                "author_name": r.author_name,
+                "rating": r.rating,
+                "text": r.text,
+                "review_time": r.review_time.strftime("%Y-%m-%d") if r.review_time else None
+            }
+            for r in reviews
+        ]
+    }
