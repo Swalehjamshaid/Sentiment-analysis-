@@ -1,48 +1,54 @@
 # filename: app/routes/reviews.py
 from __future__ import annotations
-from fastapi import APIRouter, Request, HTTPException, Query
+from fastapi import APIRouter, Request, Query
 from fastapi.responses import JSONResponse
-import logging
-
+from sqlalchemy import select
 from app.core.db import get_session
-from app.core.models import Company
-# Fixed: Importing the bridge function that we just added to services
+from app.core.models import Review, Company
 from app.services.google_reviews import fetch_place_details
 
-router = APIRouter(prefix="/google", tags=['google_api'])
-logger = logging.getLogger(__name__)
+router = APIRouter(tags=['reviews'])
 
-@router.get('/details')
-async def google_place_details(place_id: str = Query(...)):
-    """
-    Fetches raw details from Google for the search/preview feature.
-    """
-    try:
-        # Calls the bridge function in services/google_reviews.py
-        details = await fetch_place_details(place_id)
-        
-        if not details or details.get('status') != 'OK':
-            return JSONResponse(
-                status_code=400, 
-                content={"status": "error", "message": "Invalid Place ID or API error"}
-            )
-            
-        return details.get('result', {})
-    except Exception as e:
-        logger.error(f"Error fetching Google details: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+# --- VIEW REVIEWS FOR A COMPANY ---
+@router.get("/reviews")
+async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
+    async with get_session() as session:
+        result = await session.execute(select(Company).where(Company.id == company_id))
+        company = result.scalar_one_or_none()
+        if not company:
+            return JSONResponse(status_code=404, content={"success": False, "message": "Company not found"})
 
-@router.get('/preview/{place_id}')
-async def google_reviews_preview(place_id: str):
-    """
-    Returns a quick preview of reviews before a user decides to import the company.
-    """
-    details = await fetch_place_details(place_id)
-    result = details.get('result', {})
-    
+        result = await session.execute(select(Review).where(Review.company_id == company_id).order_by(Review.review_time.desc()))
+        all_reviews = result.scalars().all()
+        total = len(all_reviews)
+        items = all_reviews[(page-1)*size:(page-1)*size+size]
+
+        reviews_list = [
+            {
+                "author": r.author_name,
+                "rating": r.rating,
+                "text": r.text,
+                "time": r.review_time,
+                "sentiment_score": r.sentiment_score,
+                "sentiment_label": r.sentiment_label
+            }
+            for r in items
+        ]
+
     return {
-        "name": result.get('name'),
-        "rating": result.get('rating'),
-        "review_count": result.get('user_ratings_total'),
-        "sample_reviews": result.get('reviews', [])[:3] # Show first 3 only
+        "success": True,
+        "company": {"id": company.id, "name": company.name},
+        "reviews": reviews_list,
+        "total": total,
+        "page": page,
+        "size": size
     }
+
+# --- FETCH LATEST GOOGLE PLACE DETAILS (Optional Refresh) ---
+@router.get("/reviews/fetch_google")
+async def fetch_google_place(place_id: str):
+    try:
+        details = fetch_place_details(place_id)
+        return {"success": True, "details": details}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
