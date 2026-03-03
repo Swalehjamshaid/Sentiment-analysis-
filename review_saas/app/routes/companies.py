@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request, Form, HTTPException, Query, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
-from sqlalchemy import select, delete, or_, and_
+from sqlalchemy import select, delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.core.models import Company, AuditLog
@@ -19,7 +19,7 @@ def _require_user(request: Request):
     return request.session.get('user_id')
 
 # ──────────────────────────────────────────────────────────────
-# Existing endpoints (completely unchanged)
+# Existing endpoints (unchanged)
 # ──────────────────────────────────────────────────────────────
 
 @router.get('/companies', response_class=HTMLResponse)
@@ -35,7 +35,6 @@ async def companies_page(request: Request, q: str | None = None, rating: float |
             stmt = stmt.where(Company.avg_rating >= rating)
         if category:
             stmt = stmt.where(Company.category.ilike(f'%{category}%'))
-        # location simplistic filter inside address
         if location:
             stmt = stmt.where(Company.address.ilike(f'%{location}%'))
         all_rows = (await session.execute(stmt)).scalars().all()
@@ -85,7 +84,7 @@ async def company_sync(company_id: int, request: Request):
     return RedirectResponse(url=f'/dashboard?company_id={company_id}', status_code=302)
 
 # ──────────────────────────────────────────────────────────────
-# NEW: Google Places API Integration
+# NEW: Google Places & Maps API Integration
 # ──────────────────────────────────────────────────────────────
 
 class PlaceSearchResult(BaseModel):
@@ -98,12 +97,14 @@ class PlaceSearchResult(BaseModel):
 async def search_google_places(q: str = Query(min_length=3)):
     """
     Search Google Places API for companies/locations
-    Used by the dashboard modal to find places
     """
     try:
-        gmaps = Client(key=settings.GOOGLE_PLACES_API_KEY)
-        # Bias toward Pakistan (centered on Lahore/Rawalpindi area, 200km radius)
-        result = gmaps.places(query=q, location="33.6844,73.0479", radius=200000)
+        # Enable both APIs with keys
+        gmaps_places = Client(key=settings.GOOGLE_PLACES_API_KEY)
+        gmaps_maps = Client(key=settings.GOOGLE_MAPS_API_KEY)  # Optional usage if maps needed
+        
+        # Bias toward Pakistan (Lahore/Rawalpindi center)
+        result = gmaps_places.places(query=q, location="33.6844,73.0479", radius=200000)
         
         places = []
         for p in result.get("results", []):
@@ -129,7 +130,6 @@ class AddCompanyRequest(BaseModel):
 async def add_new_company(data: AddCompanyRequest, session: AsyncSession = Depends(get_session)):
     """
     Add a new company from Google Places search result
-    Used by the dashboard modal after user selects a place
     """
     # Prevent duplicate by place_id
     existing = await session.execute(
@@ -142,18 +142,12 @@ async def add_new_company(data: AddCompanyRequest, session: AsyncSession = Depen
         name=data.name,
         place_id=data.place_id,
         address=data.address,
-        google_data=data.google_data or {},
-        # If you have user auth, you can add owner_id here
-        # owner_id = current_user.id (add Depends on auth if needed)
+        google_data=data.google_data or {}
     )
 
     session.add(new_company)
     await session.commit()
     await session.refresh(new_company)
-
-    # Optional: log the action (uncomment if you want audit)
-    # session.add(AuditLog(user_id=..., action='company_add', meta={'company_id': new_company.id}))
-    # await session.commit()
 
     return {
         "success": True,
