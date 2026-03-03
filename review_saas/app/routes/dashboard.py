@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request, Query, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
-from sqlalchemy import select, func, cast, Date # Added cast and Date to fix type mismatch
+from sqlalchemy import select, func, cast, Date # Added cast and Date
 from datetime import datetime, timedelta
 import logging
 
@@ -25,7 +25,6 @@ async def dashboard_page(request: Request, company_id: int | None = Query(None))
         return RedirectResponse('/login', status_code=302)
 
     async with get_session() as session:
-        # Load all companies for the dropdown
         result = await session.execute(select(Company).order_by(Company.name))
         companies = result.scalars().all()
         
@@ -40,20 +39,19 @@ async def dashboard_page(request: Request, company_id: int | None = Query(None))
         })
 
 # ──────────────────────────────────────────────────────────────
-# FIXED API ENDPOINTS (Corrected Date Casting and Column Names)
+# FIXED API ENDPOINTS (Corrected Date Casting)
 # ──────────────────────────────────────────────────────────────
 
 @router.get('/api/kpis')
 async def api_kpis(company_id: int, start: str | None = None, end: str | None = None):
     async with get_session() as session:
-        # Using sentiment_score to match your updated models.py
         q = select(
             func.count(Review.id).label("total"),
             func.avg(Review.rating).label("avg_rating"),
             func.avg(Review.sentiment_score).label("avg_sent")
         ).where(Review.company_id == company_id)
 
-        # Apply cast(start, Date) to resolve "operator does not exist: date >= character varying"
+        # Fix: Convert string dates from frontend to SQL Date objects
         if start:
             q = q.where(func.date(Review.review_time) >= cast(start, Date))
         if end:
@@ -85,7 +83,31 @@ async def api_sentiment_series(company_id: int, start: str | None = None, end: s
         rows = res.all()
         return {"series": [{"date": str(r.date), "value": float(r.value or 0)} for r in rows]}
 
-# Added to fix the 404 error for the "Reviews per day" chart
+# Fixed: Added missing endpoint for the "Ratings Distribution" chart
+@router.get('/api/ratings/distribution')
+async def api_ratings_distribution(company_id: int, start: str | None = None, end: str | None = None):
+    async with get_session() as session:
+        stmt = select(
+            Review.rating,
+            func.count(Review.id).label("count")
+        ).where(Review.company_id == company_id).group_by(Review.rating).order_by(Review.rating)
+
+        if start:
+            stmt = stmt.where(func.date(Review.review_time) >= cast(start, Date))
+        if end:
+            stmt = stmt.where(func.date(Review.review_time) <= cast(end, Date))
+
+        res = await session.execute(stmt)
+        rows = res.all()
+        
+        # Ensure all ratings 1-5 are present in the response
+        dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        for r in rows:
+            dist[r.rating] = r.count
+            
+        return {"labels": ["1 Star", "2 Star", "3 Star", "4 Star", "5 Star"], "values": list(dist.values())}
+
+# Fixed: Ensuring "Reviews per day" chart works
 @router.get('/api/series/reviews')
 async def api_series_reviews(company_id: int, start: str | None = None, end: str | None = None):
     async with get_session() as session:
@@ -102,33 +124,3 @@ async def api_series_reviews(company_id: int, start: str | None = None, end: str
         res = await session.execute(stmt)
         rows = res.all()
         return {"series": [{"date": str(r.date), "value": int(r.value or 0)} for r in rows]}
-
-@router.get('/api/reviews/summary/{company_id}')
-async def api_review_summary(company_id: int, refresh: bool = False):
-    async with get_session() as session:
-        result = await session.execute(select(Company).where(Company.id == company_id))
-        company = result.scalar_one_or_none()
-        
-        if not company:
-            raise HTTPException(status_code=404, detail="Company not found")
-
-        if refresh or not company.last_updated:
-            try:
-                await ingest_company_reviews(session, company)
-            except Exception as e:
-                logger.error(f"Sync failed: {e}")
-
-        q = select(
-            func.count(Review.id).label("total"),
-            func.avg(Review.rating).label("avg_rating"),
-            func.avg(Review.sentiment_score).label("avg_sent")
-        ).where(Review.company_id == company_id)
-        
-        res = await session.execute(q)
-        stats = res.fetchone()
-
-        return {
-            "total_reviews": stats.total or 0,
-            "avg_rating": round(float(stats.avg_rating or 0), 2),
-            "avg_sentiment": round(float(stats.avg_sent or 0), 3)
-        }
