@@ -5,137 +5,136 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Request, Query, HTTPException
 from fastapi.responses import HTMLResponse
 from starlette.templating import Jinja2Templates
-from sqlalchemy import select, func, cast, Date
+from sqlalchemy import select, func, cast, Date, desc, asc
 
 from app.core.db import get_session
 from app.core.models import Company, Review
 
-# Initialize router and templates
 router = APIRouter(tags=['dashboard'])
 templates = Jinja2Templates(directory='app/templates')
 logger = logging.getLogger("app.dashboard")
 
-# --- UI ROUTE (Fixes the Empty Dropdown) ---
+# --- UI ROUTE ---
 
 @router.get('/dashboard', response_class=HTMLResponse)
 async def get_dashboard(request: Request, company_id: int | None = None):
-    """
-    Renders the main dashboard HTML. 
-    Crucial: It fetches ALL companies so they appear in your dropdown menu.
-    """
     async with get_session() as session:
-        # 1. Fetch all companies for the 'Company' selector in your UI
-        all_comps_stmt = select(Company).order_by(Company.name)
-        all_comps_res = await session.execute(all_comps_stmt)
+        # Fetch all companies for the dropdown selector
+        all_comps_res = await session.execute(select(Company).order_by(Company.name))
         all_companies = all_comps_res.scalars().all()
 
-        # 2. Match selection or default to the first one available
-        selected_company = None
-        if company_id:
-            res = await session.execute(select(Company).where(Company.id == company_id))
-            selected_company = res.scalar_one_or_none()
-        elif all_companies:
-            selected_company = all_companies[0]
+        # Match active selection
+        active_id = company_id
+        if not active_id and all_companies:
+            active_id = all_companies[0].id
 
         return templates.TemplateResponse(
             "dashboard.html", 
             {
                 "request": request, 
-                "company": selected_company,
-                "all_companies": all_companies # Pass this to fill the dropdown
+                "companies": all_companies,
+                "active_company_id": active_id
             }
         )
 
-# --- API ENDPOINTS (Populates the KPI Cards and Charts) ---
+# --- API ENDPOINTS (Aligned with your HTML JavaScript) ---
 
 @router.get('/api/kpis')
-async def api_kpis(
-    company_id: int, 
-    start: str | None = Query(None), 
-    end: str | None = Query(None)
-):
+async def api_kpis(company_id: int, start: str | None = None, end: str | None = None):
     async with get_session() as session:
-        # Calculation for the "New (24h)" card
-        last_24h = datetime.now() - timedelta(hours=24)
-
-        # Main stats query for Total Reviews, Avg Rating, and Avg Sentiment
-        stats_stmt = select(
+        q = select(
             func.count(Review.id).label("total"),
             func.avg(Review.rating).label("avg_rating"),
             func.avg(Review.sentiment_score).label("avg_sent")
         ).where(Review.company_id == company_id)
 
-        # Count for reviews added in the last 24 hours
-        new_stmt = select(func.count(Review.id)).where(
-            Review.company_id == company_id,
-            Review.review_time >= last_24h
-        )
+        if start: q = q.where(func.date(Review.review_time) >= cast(start, Date))
+        if end: q = q.where(func.date(Review.review_time) <= cast(end, Date))
 
-        # Apply UI Date filters
-        if start:
-            stats_stmt = stats_stmt.where(func.date(Review.review_time) >= cast(start, Date))
-        if end:
-            stats_stmt = stats_stmt.where(func.date(Review.review_time) <= cast(end, Date))
-
-        res = await session.execute(stats_stmt)
+        res = await session.execute(q)
         stats = res.fetchone()
-        
-        new_res = await session.execute(new_stmt)
-        new_count = new_res.scalar() or 0
         
         return {
             "total_reviews": stats.total or 0,
-            "avg_rating": round(float(stats.avg_rating or 0.0), 1),
-            "avg_sentiment": round(float(stats.avg_sent or 0.0), 3),
-            "new_24h": new_count
+            "avg_rating": float(stats.avg_rating or 0),
+            "avg_sentiment": float(stats.avg_sent or 0)
         }
 
+@router.get('/api/series/reviews')
+async def api_series_reviews(company_id: int, start: str | None = None, end: str | None = None):
+    """Populates the 'Reviews per day' chart."""
+    async with get_session() as session:
+        stmt = select(
+            func.date(Review.review_time).label("date"), 
+            func.count(Review.id).label("value")
+        ).where(Review.company_id == company_id).group_by(func.date(Review.review_time)).order_by("date")
+        
+        if start: stmt = stmt.where(func.date(Review.review_time) >= cast(start, Date))
+        if end: stmt = stmt.where(func.date(Review.review_time) <= cast(end, Date))
+        
+        res = await session.execute(stmt)
+        return {"series": [{"date": str(r.date), "value": int(r.value or 0)} for r in res.all()]}
+
+@router.get('/api/ratings/distribution')
+async def api_ratings_distribution(company_id: int, start: str | None = None, end: str | None = None):
+    """Populates the 'Ratings distribution' bar chart."""
+    async with get_session() as session:
+        stmt = select(Review.rating, func.count(Review.id)).where(Review.company_id == company_id).group_by(Review.rating)
+        
+        if start: stmt = stmt.where(func.date(Review.review_time) >= cast(start, Date))
+        if end: stmt = stmt.where(func.date(Review.review_time) <= cast(end, Date))
+        
+        res = await session.execute(stmt)
+        dist = {1:0, 2:0, 3:0, 4:0, 5:0}
+        for r in res.all():
+            if r[0] in dist: dist[r[0]] = r[1]
+        return {"distribution": dist}
+
 @router.get('/api/sentiment/series')
-async def api_sentiment_series(
-    company_id: int, 
-    start: str | None = Query(None), 
-    end: str | None = Query(None)
-):
+async def api_sentiment_series(company_id: int, start: str | None = None, end: str | None = None):
+    """Populates the 'Avg sentiment per day' chart."""
     async with get_session() as session:
         stmt = select(
             func.date(Review.review_time).label("date"), 
             func.avg(Review.sentiment_score).label("value")
         ).where(Review.company_id == company_id).group_by(func.date(Review.review_time)).order_by("date")
         
-        if start:
-            stmt = stmt.where(func.date(Review.review_time) >= cast(start, Date))
-        if end:
-            stmt = stmt.where(func.date(Review.review_time) <= cast(end, Date))
+        if start: stmt = stmt.where(func.date(Review.review_time) >= cast(start, Date))
+        if end: stmt = stmt.where(func.date(Review.review_time) <= cast(end, Date))
         
         res = await session.execute(stmt)
         return {"series": [{"date": str(r.date), "value": float(r.value or 0)} for r in res.all()]}
 
-@router.get('/api/ratings/distribution')
-async def api_ratings_distribution(
+@router.get('/api/reviews/list')
+async def api_reviews_list(
     company_id: int, 
-    start: str | None = Query(None), 
-    end: str | None = Query(None)
+    sort: str = "newest", 
+    start: str | None = None, 
+    end: str | None = None
 ):
+    """Populates the scrollable reviews list at the bottom."""
     async with get_session() as session:
-        stmt = select(
-            Review.rating, 
-            func.count(Review.id)
-        ).where(Review.company_id == company_id).group_by(Review.rating)
+        stmt = select(Review).where(Review.company_id == company_id)
         
-        if start:
-            stmt = stmt.where(func.date(Review.review_time) >= cast(start, Date))
-        if end:
-            stmt = stmt.where(func.date(Review.review_time) <= cast(end, Date))
+        # Sorting logic
+        if sort == "newest": stmt = stmt.order_by(desc(Review.review_time))
+        elif sort == "oldest": stmt = stmt.order_by(asc(Review.review_time))
+        elif sort == "highest": stmt = stmt.order_by(desc(Review.rating))
+        elif sort == "lowest": stmt = stmt.order_by(asc(Review.rating))
+
+        if start: stmt = stmt.where(func.date(Review.review_time) >= cast(start, Date))
+        if end: stmt = stmt.where(func.date(Review.review_time) <= cast(end, Date))
+
+        res = await session.execute(stmt.limit(50))
+        items = res.scalars().all()
         
-        res = await session.execute(stmt)
-        
-        # Ensure all 1-5 star levels are represented in the chart
-        dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-        for r in res.all():
-            if r[0] in dist:
-                dist[r[0]] = r[1]
-            
         return {
-            "labels": ["1 Star", "2 Star", "3 Star", "4 Star", "5 Star"], 
-            "values": [dist[1], dist[2], dist[3], dist[4], dist[5]]
+            "items": [
+                {
+                    "author_name": i.author_name,
+                    "rating": i.rating,
+                    "text": i.text,
+                    "review_time": i.review_time.strftime("%Y-%m-%d") if i.review_time else ""
+                } for i in items
+            ]
         }
