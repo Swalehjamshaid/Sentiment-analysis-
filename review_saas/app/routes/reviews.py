@@ -1,18 +1,48 @@
-
 # filename: app/routes/reviews.py
 from __future__ import annotations
-from fastapi import APIRouter, HTTPException
-from app.core.config import settings
+from fastapi import APIRouter, Request, HTTPException, Query
+from fastapi.responses import JSONResponse
+import logging
+
+from app.core.db import get_session
+from app.core.models import Company
+# Fixed: Importing the bridge function that we just added to services
 from app.services.google_reviews import fetch_place_details
 
-router = APIRouter(tags=['google'])
+router = APIRouter(prefix="/google", tags=['google_api'])
+logger = logging.getLogger(__name__)
 
-@router.get('/google/health')
-async def google_health():
-    if not settings.GOOGLE_MAPS_API_KEY:
-        raise HTTPException(status_code=400, detail='GOOGLE_MAPS_API_KEY missing')
+@router.get('/details')
+async def google_place_details(place_id: str = Query(...)):
+    """
+    Fetches raw details from Google for the search/preview feature.
+    """
     try:
-        details = fetch_place_details('ChIJ2eUgeAK6j4ARbn5u_wAGqWA')
-        return {"ok": True, "status": details.get('status'), "has_result": bool(details.get('result'))}
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Google API error: {exc}")
+        # Calls the bridge function in services/google_reviews.py
+        details = await fetch_place_details(place_id)
+        
+        if not details or details.get('status') != 'OK':
+            return JSONResponse(
+                status_code=400, 
+                content={"status": "error", "message": "Invalid Place ID or API error"}
+            )
+            
+        return details.get('result', {})
+    except Exception as e:
+        logger.error(f"Error fetching Google details: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get('/preview/{place_id}')
+async def google_reviews_preview(place_id: str):
+    """
+    Returns a quick preview of reviews before a user decides to import the company.
+    """
+    details = await fetch_place_details(place_id)
+    result = details.get('result', {})
+    
+    return {
+        "name": result.get('name'),
+        "rating": result.get('rating'),
+        "review_count": result.get('user_ratings_total'),
+        "sample_reviews": result.get('reviews', [])[:3] # Show first 3 only
+    }
