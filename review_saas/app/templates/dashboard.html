@@ -150,46 +150,82 @@
   </div>
 </div>
 
-<!-- Your original JavaScript – completely unchanged -->
+<!-- JavaScript for Dashboard APIs -->
 <script>
 const companyId = {{ active_company_id or 'null' }};
+
 function qs(p){return new URLSearchParams(p).toString();}
 function setLoading(v){document.getElementById('loadingBox').style.display=v?'block':'none'}
 function showSuccess(v){document.getElementById('successBox').style.display=v?'block':'none'}
 function showNoData(v){document.getElementById('nodataBox').style.display=v?'block':'none'}
+
 function getDates(){
-  const s=document.getElementById('startDate').value; const e=document.getElementById('endDate').value;
+  const s=document.getElementById('startDate').value; 
+  const e=document.getElementById('endDate').value;
   return {start:s||null, end:e||null};
 }
+
 async function fetchAll(){
   if(!companyId){return}
   const {start,end}=getDates();
   setLoading(true); showSuccess(false); showNoData(false)
-  const p = qs(Object.fromEntries(Object.entries({company_id:companyId,start,end}).filter(([_,v])=>v)))
-  const k = await (await fetch('/api/kpis?'+p)).json();
-  const r = await (await fetch('/api/series/reviews?'+p)).json();
-  const d = await (await fetch('/api/ratings/distribution?'+p)).json();
-  const s = await (await fetch('/api/sentiment/series?'+p)).json();
-  document.getElementById('kpi-total').textContent = k.total_reviews;
-  document.getElementById('kpi-rating').textContent = (k.avg_rating||0).toFixed(2);
-  document.getElementById('kpi-sent').textContent = (k.avg_sentiment||0).toFixed(3);
-  document.getElementById('kpi-new').textContent = Math.max(0, r.series.length? r.series[r.series.length-1].value:0);
-  // Reviews/day chart
-  new Chart(document.getElementById('seriesReviews'), {type:'line', data:{labels:r.series.map(x=>x.date), datasets:[{label:'Reviews/day', data:r.series.map(x=>x.value), borderColor:'#0d6efd', backgroundColor:'rgba(13,110,253,0.1)', tension:0.3, fill:true}]}, options:{responsive:true, scales:{y:{beginAtZero:true}}}});
-  // Ratings distribution
-  const labels = Object.keys(d.distribution); const data = Object.values(d.distribution);
-  new Chart(document.getElementById('ratingsDist'), {type:'bar', data:{labels, datasets:[{label:'Count', data, backgroundColor:['#dc3545','#fd7e14','#ffc107','#0dcaf0','#198754']}]}, options:{responsive:true, scales:{y:{beginAtZero:true}}}});
-  // Sentiment series
-  new Chart(document.getElementById('sentSeries'), {type:'line', data:{labels:s.series.map(x=>x.date), datasets:[{label:'Avg Sentiment', data:s.series.map(x=>x.value), borderColor:'#6610f2', backgroundColor:'rgba(102,16,242,0.1)', tension:0.3, fill:true}]}, options:{responsive:true, scales:{y:{min:-1,max:1}}}});
-  // Reviews list (sorted)
-  await loadReviews();
-  setLoading(false); showSuccess(true);
-  if(k.total_reviews===0){ showNoData(true) }
+  try {
+    const k = await (await fetch('/api/kpis?'+qs({company_id:companyId,start,end}))).json();
+    const r = await (await fetch('/api/series/reviews?'+qs({company_id:companyId,start,end}))).json();
+    const d = await (await fetch('/api/ratings/distribution?'+qs({company_id:companyId,start,end}))).json();
+    const s = await (await fetch('/api/sentiment/series?'+qs({company_id:companyId,start,end}))).json();
+
+    document.getElementById('kpi-total').textContent = k.total_reviews;
+    document.getElementById('kpi-rating').textContent = (k.avg_rating||0).toFixed(2);
+    document.getElementById('kpi-sent').textContent = (k.avg_sentiment||0).toFixed(3);
+    document.getElementById('kpi-new').textContent = Math.max(0, r.series.length? r.series[r.series.length-1].value:0);
+
+    // Reviews/day chart
+    new Chart(document.getElementById('seriesReviews'), {
+      type:'line',
+      data:{
+        labels:r.series.map(x=>x.date),
+        datasets:[{label:'Reviews/day', data:r.series.map(x=>x.value), borderColor:'#0d6efd', backgroundColor:'rgba(13,110,253,0.1)', tension:0.3, fill:true}]
+      },
+      options:{responsive:true, scales:{y:{beginAtZero:true}}}
+    });
+
+    // Ratings distribution
+    new Chart(document.getElementById('ratingsDist'), {
+      type:'bar',
+      data:{
+        labels:Object.keys(d.distribution),
+        datasets:[{label:'Count', data:Object.values(d.distribution), backgroundColor:['#dc3545','#fd7e14','#ffc107','#0dcaf0','#198754']}]
+      },
+      options:{responsive:true, scales:{y:{beginAtZero:true}}}
+    });
+
+    // Sentiment series
+    new Chart(document.getElementById('sentSeries'), {
+      type:'line',
+      data:{
+        labels:s.series.map(x=>x.date),
+        datasets:[{label:'Avg Sentiment', data:s.series.map(x=>x.value), borderColor:'#6610f2', backgroundColor:'rgba(102,16,242,0.1)', tension:0.3, fill:true}]
+      },
+      options:{responsive:true, scales:{y:{min:-1,max:1}}}
+    });
+
+    await loadReviews();
+
+    setLoading(false); showSuccess(true);
+    if(k.total_reviews===0){ showNoData(true) }
+
+  } catch(err){
+    console.error(err);
+    setLoading(false);
+    document.getElementById('errorBox').style.display='block';
+  }
 }
+
 async function loadReviews(){
   const sort=document.getElementById('sortReviews').value;
   const {start,end}=getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id:companyId,start,end,sort}).filter(([_,v])=>v)))
+  const p = qs({company_id:companyId,start,end,sort});
   const out = await (await fetch('/api/reviews/list?'+p)).json();
   const box=document.getElementById('reviewsList');
   box.innerHTML='';
@@ -199,6 +235,7 @@ async function loadReviews(){
     box.insertAdjacentHTML('beforeend', card);
   }
 }
+
 (function init(){
   const today = new Date().toISOString().slice(0,10);
   document.getElementById('endDate').value=today;
@@ -210,100 +247,51 @@ async function loadReviews(){
 })();
 </script>
 
-<!-- NEW JavaScript for Add New Company modal -->
+<!-- Add Company Modal JavaScript (unchanged) -->
 <script>
-  // Initialize modal
-  const addCompanyModalEl = document.getElementById('addCompanyModal');
-  const addCompanyModal = new bootstrap.Modal(addCompanyModalEl);
+const addCompanyModalEl = document.getElementById('addCompanyModal');
+const addCompanyModal = new bootstrap.Modal(addCompanyModalEl);
+const placeSearch = document.getElementById('placeSearch');
+const searchResults = document.getElementById('searchResults');
+const searchInfo = document.getElementById('searchInfo');
+const searchError = document.getElementById('searchError');
+const saveBtn = document.getElementById('saveCompanyBtn');
+let selectedPlace = null;
 
-  const placeSearch = document.getElementById('placeSearch');
-  const searchResults = document.getElementById('searchResults');
-  const searchInfo = document.getElementById('searchInfo');
-  const searchError = document.getElementById('searchError');
-  const saveBtn = document.getElementById('saveCompanyBtn');
+placeSearch.addEventListener('input', async () => {
+  const q = placeSearch.value.trim();
+  searchResults.innerHTML = '';
+  searchError.style.display = 'none';
+  saveBtn.disabled = true;
+  selectedPlace = null;
 
-  let selectedPlace = null;
+  if(q.length < 3){ searchInfo.style.display='block'; return; }
+  searchInfo.style.display='none';
+  try{
+    const res = await fetch(`/google/places/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    if(!data.success || !data.results.length){ searchError.textContent = data.message || 'No places found'; searchError.style.display='block'; return; }
+    data.results.forEach(place => {
+      const item = document.createElement('a');
+      item.href='#'; item.className='list-group-item list-group-item-action';
+      item.innerHTML = `<strong>${place.name}</strong><br><small>${place.formatted_address || place.vicinity || 'No address'}</small>`;
+      item.onclick = (e)=>{ e.preventDefault(); searchResults.querySelectorAll('.active').forEach(el=>el.classList.remove('active')); item.classList.add('active'); selectedPlace=place; saveBtn.disabled=false; }
+      searchResults.appendChild(item);
+    });
+  }catch(err){ searchError.textContent='Error searching places'; searchError.style.display='block'; console.error(err); }
+});
 
-  placeSearch.addEventListener('input', async () => {
-    const q = placeSearch.value.trim();
-    searchResults.innerHTML = '';
-    searchError.style.display = 'none';
-    saveBtn.disabled = true;
-    selectedPlace = null;
-
-    if (q.length < 3) {
-      searchInfo.style.display = 'block';
-      return;
-    }
-
-    searchInfo.style.display = 'none';
-
-    try {
-      const res = await fetch(`/google/places/search?q=${encodeURIComponent(q)}`);
-      const data = await res.json();
-
-      if (!data.success || !data.results.length) {
-        searchError.textContent = data.message || 'No places found';
-        searchError.style.display = 'block';
-        return;
-      }
-
-      data.results.forEach(place => {
-        const item = document.createElement('a');
-        item.href = '#';
-        item.className = 'list-group-item list-group-item-action';
-        item.innerHTML = `<strong>${place.name}</strong><br><small>${place.formatted_address || place.vicinity || 'No address'}</small>`;
-        item.onclick = (e) => {
-          e.preventDefault();
-          searchResults.querySelectorAll('.active').forEach(el => el.classList.remove('active'));
-          item.classList.add('active');
-          selectedPlace = place;
-          saveBtn.disabled = false;
-        };
-        searchResults.appendChild(item);
-      });
-    } catch (err) {
-      searchError.textContent = 'Error searching places. Check console.';
-      searchError.style.display = 'block';
-      console.error(err);
-    }
-  });
-
-  saveBtn.onclick = async () => {
-    if (!selectedPlace) return;
-
-    try {
-      const res = await fetch('/companies/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: selectedPlace.name,
-          place_id: selectedPlace.place_id,
-          address: selectedPlace.formatted_address || selectedPlace.vicinity,
-          google_data: selectedPlace
-        })
-      });
-
-      const result = await res.json();
-
-      if (result.success) {
-        alert('Company added successfully!');
-        addCompanyModal.hide();
-        location.reload(); // Refresh dropdown
-      } else {
-        searchError.textContent = result.message || 'Failed to add company';
-        searchError.style.display = 'block';
-      }
-    } catch (err) {
-      searchError.textContent = 'Server error';
-      searchError.style.display = 'block';
-      console.error(err);
-    }
-  };
+saveBtn.onclick = async () => {
+  if(!selectedPlace) return;
+  try{
+    const res = await fetch('/companies/add',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ name:selectedPlace.name, place_id:selectedPlace.place_id, address:selectedPlace.formatted_address||selectedPlace.vicinity, google_data:selectedPlace }) });
+    const result = await res.json();
+    if(result.success){ alert('Company added successfully!'); addCompanyModal.hide(); location.reload(); }
+    else{ searchError.textContent=result.message||'Failed to add company'; searchError.style.display='block'; }
+  }catch(err){ searchError.textContent='Server error'; searchError.style.display='block'; console.error(err); }
+};
 </script>
 
-<!-- Bootstrap JS (required for modal) -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
-
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
 </body>
 </html>
