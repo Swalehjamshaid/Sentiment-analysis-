@@ -29,8 +29,6 @@ async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
                 "rating": r.rating,
                 "text": r.text,
                 "time": r.review_time,
-                "sentiment_score": r.sentiment_score,
-                "sentiment_label": r.sentiment_label
             }
             for r in items
         ]
@@ -44,7 +42,7 @@ async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
         "size": size
     }
 
-# --- FETCH LATEST GOOGLE PLACE DETAILS (Optional Refresh) ---
+# --- FETCH LATEST GOOGLE PLACE DETAILS ---
 @router.get("/reviews/fetch_google")
 async def fetch_google_place(place_id: str):
     try:
