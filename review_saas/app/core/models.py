@@ -14,7 +14,6 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(255))
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
-    
     role: Mapped[str] = mapped_column(String(20), default="viewer") 
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     profile_pic: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -23,7 +22,6 @@ class User(Base):
     companies: Mapped[list["Company"]] = relationship("Company", back_populates="owner", cascade="all, delete-orphan")
     notifications: Mapped[list["Notification"]] = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
     audit_logs: Mapped[list["AuditLog"]] = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan")
-
 
 # -------------------- COMPANIES --------------------
 class Company(Base):
@@ -39,13 +37,11 @@ class Company(Base):
     category: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     hours: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     
-    # Aggregated Analytics (Fixed: Matches DB schema)
+    # Retained Analytic Columns
     avg_rating: Mapped[float | None] = mapped_column(Float, nullable=True, default=0.0)
     review_count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
     
-    # CRITICAL: We calculate sentiment from the Review table in dashboard.py, 
-    # so we remove avg_sentiment from here to stop the "UndefinedColumn" crash.
-    
+    # Metadata
     status: Mapped[str] = mapped_column(String(32), default="active")
     last_updated: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     google_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -53,7 +49,6 @@ class Company(Base):
 
     owner: Mapped["User"] = relationship("User", back_populates="companies")
     reviews: Mapped[list["Review"]] = relationship("Review", back_populates="company", cascade="all, delete-orphan")
-
 
 # -------------------- REVIEWS & SENTIMENT --------------------
 class Review(Base):
@@ -74,9 +69,7 @@ class Review(Base):
     keywords: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
     company: Mapped["Company"] = relationship("Company", back_populates="reviews")
-
 
 # -------------------- NOTIFICATIONS & AUDIT --------------------
 class Notification(Base):
