@@ -1,94 +1,98 @@
 # filename: app/services/google_reviews.py
 from __future__ import annotations
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from datetime import datetime, timezone
 import hashlib
+import os
 import googlemaps  # type: ignore
-from sqlalchemy import select
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.models import Company, Review
-from app.services.sentiment import score as get_sentiment_score
-from app.core.config import settings
+from app.services.sentiment import score  # returns sentiment score (-1 to 1) and label
 
-def _client() -> 'googlemaps.Client':
-    # Using PLACES_API_KEY as the primary key for consistency with your other files
-    api_key = settings.GOOGLE_PLACES_API_KEY or settings.GOOGLE_MAPS_API_KEY
-    if not api_key:
-        raise RuntimeError('GOOGLE_PLACES_API_KEY or GOOGLE_MAPS_API_KEY missing')
-    return googlemaps.Client(key=api_key)
+# Load API keys from environment
+GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+GOOGLE_BUSINESS_API_KEY = os.getenv("GOOGLE_BUSINESS_API_KEY")
 
-def fetch_place_details(place_id: str) -> Dict[str, Any]:
-    gm = _client()
-    # Adding fields parameter to ensure reviews are specifically requested
-    return gm.place(place_id=place_id, fields=['name', 'rating', 'reviews', 'user_ratings_total'])
+# Initialize Google Maps client (for Places API)
+gmaps_client = googlemaps.Client(key=GOOGLE_PLACES_API_KEY or GOOGLE_MAPS_API_KEY)
 
-def _make_source_id(r: Dict[str, Any]) -> str:
-    # Generates a unique hash to prevent duplicate reviews
-    base = f"{r.get('author_name','')}-{r.get('time','')}-{r.get('rating','')}-{(r.get('text') or '')[:50]}"
-    return hashlib.sha1(base.encode('utf-8', errors='ignore')).hexdigest()
 
-def _parse_review_time(r: Dict[str, Any]) -> Optional[datetime]:
-    t = r.get('time')
-    if t is None: return None
-    try: return datetime.fromtimestamp(int(t), tz=timezone.utc)
-    except Exception: return None
+class GoogleReviewsService:
+    def __init__(self, db: AsyncSession):
+        self.db = db
 
-def _get_sentiment_label(score: float) -> str:
-    # Classification logic as defined in your requirements
-    if score >= 0.05: return "positive"
-    if score <= -0.05: return "negative"
-    return "neutral"
+    async def fetch_place_reviews(self, place_id: str) -> List[Dict[str, Any]]:
+        """Fetch public reviews from Google Places API"""
+        place_details = gmaps_client.place(place_id=place_id, fields=["name", "rating", "reviews"])
+        reviews = place_details.get("result", {}).get("reviews", [])
+        processed_reviews = []
 
-def extract_reviews(details: Dict[str, Any]) -> List[Dict[str, Any]]:
-    return (details.get('result') or {}).get('reviews') or []
+        for r in reviews:
+            sentiment_score, sentiment_label = score(r.get("text", ""))
+            processed_reviews.append({
+                "source_id": f"place_{r.get('author_name')}_{r.get('time')}",  # unique per review
+                "author_name": r.get("author_name"),
+                "rating": int(r.get("rating", 0)),
+                "text": r.get("text"),
+                "review_time": datetime.fromtimestamp(r.get("time"), tz=timezone.utc),
+                "sentiment_score": sentiment_score,
+                "sentiment_label": sentiment_label,
+                "keywords": [],  # optional: implement keyword extraction
+            })
+        return processed_reviews
 
-async def ingest_company_reviews(session: AsyncSession, company: Company) -> Dict[str, Any]:
-    if not company.place_id:
-        return {"ingested": 0, "skipped": 0, "reason": "no place_id"}
-    
-    try:
-        details = fetch_place_details(company.place_id)
-    except Exception as e:
-        return {"ingested": 0, "skipped": 0, "error": str(e)}
+    async def fetch_business_reviews(self, account_id: str) -> List[Dict[str, Any]]:
+        """Fetch reviews from your own Google Business account"""
+        if not GOOGLE_BUSINESS_API_KEY:
+            raise ValueError("GOOGLE_BUSINESS_API_KEY not set in environment")
 
-    items = extract_reviews(details)
+        url = f"https://mybusiness.googleapis.com/v4/accounts/{account_id}/locations/reviews"
+        headers = {"Authorization": f"Bearer {GOOGLE_BUSINESS_API_KEY}"}
 
-    # Update company snapshot attributes
-    result = details.get('result') or {}
-    company.avg_rating = result.get('rating')
-    company.review_count = result.get('user_ratings_total')
-    company.last_updated = datetime.now(tz=timezone.utc)
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
 
-    ingested = 0; skipped = 0
-    for r in items:
-        sid = _make_source_id(r)
-        
-        # Check for existing review to prevent duplicates
-        stmt = select(Review.id).where(Review.company_id == company.id, Review.source_id == sid)
-        exists = (await session.execute(stmt)).scalar_one_or_none()
-        
-        if exists: 
-            skipped += 1
-            continue
-            
-        # Calculate sentiment
-        text_content = r.get('text') or ''
-        score = get_sentiment_score(text_content)
-        label = _get_sentiment_label(score)
+        processed_reviews = []
+        for r in data.get("reviews", []):
+            sentiment_score, sentiment_label = score(r.get("comment", ""))
+            processed_reviews.append({
+                "source_id": r.get("reviewId"),
+                "author_name": r.get("reviewer", {}).get("displayName"),
+                "rating": int(r.get("starRating", 0)),
+                "text": r.get("comment"),
+                "review_time": datetime.fromisoformat(r.get("createTime").replace("Z", "+00:00")),
+                "sentiment_score": sentiment_score,
+                "sentiment_label": sentiment_label,
+                "keywords": [],  # optional
+            })
+        return processed_reviews
 
-        # FIXED: Mapping attributes correctly to match your models.py
-        review = Review(
-            company_id=company.id,
-            source_id=sid,
-            author_name=r.get('author_name'),
-            rating=r.get('rating'),
-            text=text_content,
-            review_time=_parse_review_time(r),
-            sentiment_score=score,    # Matches models.py
-            sentiment_label=label      # Matches models.py
-        )
-        session.add(review)
-        ingested += 1
-    
-    await session.commit()
-    return {"ingested": ingested, "skipped": skipped}
+    async def save_reviews_to_db(self, company: Company, reviews: List[Dict[str, Any]]):
+        """Save reviews into database with UniqueConstraint on (company_id, source_id)"""
+        for r in reviews:
+            existing = await self.db.scalar(
+                Review.__table__.select().where(
+                    (Review.company_id == company.id) &
+                    (Review.source_id == r["source_id"])
+                )
+            )
+            if existing:
+                continue  # skip duplicate
+
+            db_review = Review(
+                company_id=company.id,
+                source_id=r["source_id"],
+                author_name=r.get("author_name"),
+                rating=r.get("rating"),
+                text=r.get("text"),
+                review_time=r.get("review_time"),
+                sentiment_score=r.get("sentiment_score"),
+                sentiment_label=r.get("sentiment_label"),
+                keywords=r.get("keywords") or [],
+            )
+            self.db.add(db_review)
+        await self.db.commit()
