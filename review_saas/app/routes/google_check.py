@@ -9,7 +9,7 @@ def verify_google_apis():
     Prints status to the console.
     """
     try:
-        # ----- Google Places API -----
+        # Google Places API
         gmaps_places = Client(key=settings.GOOGLE_PLACES_API_KEY)
         places_result = gmaps_places.places(query="Haier Lahore")
         if places_result.get("status") != "OK":
@@ -17,7 +17,7 @@ def verify_google_apis():
         else:
             print("✅ Google Places API is working.")
 
-        # ----- Google Maps API -----
+        # Google Maps API
         gmaps_maps = Client(key=settings.GOOGLE_MAPS_API_KEY)
         maps_result = gmaps_maps.geocode("Lahore, Pakistan")
         if not maps_result:
@@ -25,7 +25,7 @@ def verify_google_apis():
         else:
             print("✅ Google Maps API is working.")
 
-        # ----- Google Business API -----
+        # Google Business API
         business_url = (
             f"https://mybusinessbusinessinformation.googleapis.com/v1/locations"
             f"?key={settings.GOOGLE_BUSINESS_API_KEY}"
@@ -37,5 +37,4 @@ def verify_google_apis():
             print("✅ Google Business API is working.")
 
     except Exception as e:
-        print("❌ Google API check failed:", str(e))
         print("❌ Google API check failed:", str(e))
