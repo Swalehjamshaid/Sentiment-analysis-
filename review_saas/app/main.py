@@ -1,3 +1,4 @@
+# File: /app/main.py
 from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
@@ -21,13 +22,12 @@ from app.routes import dashboard as dashboard_routes
 from app.routes import reviews as reviews_routes
 from app.routes import exports as exports_routes
 
-# Safe Google API checker placeholder
+# Import Google check router (updated to use /api/check-google endpoint)
 try:
-    from app.core.google_check import verify_google_apis
+    from app.core.google_check import router as google_router
 except ModuleNotFoundError:
-    # Fallback placeholder to prevent import error
-    def verify_google_apis():
-        logging.info("⚠️ Google API check skipped (placeholder).")
+    logging.warning("⚠️ Google check router not found. /api/check-google will be unavailable.")
+    google_router = None
 
 # Standard logging configuration
 logging.basicConfig(level=logging.INFO)
@@ -49,14 +49,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Database migration failed: {e}")
 
-    # 2. External API Verification (safe, placeholder will prevent errors)
-    try:
-        verify_google_apis()
-    except Exception as e:
-        logger.error(f"⚠️ Google API check failed at startup: {e}")
-    
     yield
+    # Place for shutdown tasks if needed
+    logger.info("⚡ Application shutdown complete.")
 
+# Initialize FastAPI app
 app = FastAPI(
     title=settings.APP_NAME, 
     debug=settings.DEBUG,
@@ -84,6 +81,7 @@ app.add_middleware(
 app.mount('/static', StaticFiles(directory='app/static'), name='static')
 templates = Jinja2Templates(directory='app/templates')
 
+# Landing page
 @app.get('/', response_class=HTMLResponse)
 async def landing(request: Request):
     return templates.TemplateResponse('landing.html', {
@@ -99,6 +97,11 @@ app.include_router(dashboard_routes.router)
 app.include_router(reviews_routes.router)
 app.include_router(exports_routes.router)
 
+# Include Google check router if available
+if google_router:
+    app.include_router(google_router, prefix="/api")
+
+# Health endpoint
 @app.get('/health')
 async def health():
     return {"status": "ok"}
