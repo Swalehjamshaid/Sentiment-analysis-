@@ -1,8 +1,7 @@
 # filename: app/routes/dashboard.py
 from __future__ import annotations
-import logging
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Request, Query, HTTPException
+from fastapi import APIRouter, Request, Query
 from fastapi.responses import HTMLResponse
 from starlette.templating import Jinja2Templates
 from sqlalchemy import select, func, cast, Date, desc, asc
@@ -12,13 +11,12 @@ from app.core.models import Company, Review
 
 router = APIRouter(tags=['dashboard'])
 templates = Jinja2Templates(directory='app/templates')
-logger = logging.getLogger("app.dashboard")
 
-# --- UI ROUTE ---
-
+# --- MAIN UI ROUTE ---
 @router.get('/dashboard', response_class=HTMLResponse)
 async def get_dashboard(request: Request, company_id: int | None = None):
     async with get_session() as session:
+        # Fetch companies for the dropdown
         all_comps_stmt = select(Company.id, Company.name).order_by(Company.name)
         all_comps_res = await session.execute(all_comps_stmt)
         all_companies = all_comps_res.all()
@@ -36,25 +34,19 @@ async def get_dashboard(request: Request, company_id: int | None = None):
             }
         )
 
-# --- NEW: API ENDPOINT TO FIX 404 ---
-
+# --- API ENDPOINTS ---
 @router.get('/api/companies/list')
 async def api_companies_list():
-    """Fixes the 404 error seen in the logs."""
+    """Returns the company list for AJAX calls if needed by the UI."""
     async with get_session() as session:
         res = await session.execute(select(Company.id, Company.name).order_by(Company.name))
         companies = res.all()
         return [{"id": c.id, "name": c.name} for c in companies]
 
-# --- KPI & SERIES APIS ---
-
 @router.get('/api/kpis')
 async def api_kpis(company_id: int, start: str | None = None, end: str | None = None):
     async with get_session() as session:
-        # Default date range to prevent "Start of Range" errors
-        if not start:
-            start = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-            
+        # Live calculation from Review table
         q = select(
             func.count(Review.id).label("total"),
             func.avg(Review.rating).label("avg_rating"),
