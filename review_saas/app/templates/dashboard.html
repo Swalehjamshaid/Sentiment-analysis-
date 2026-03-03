@@ -352,9 +352,15 @@ el.saveBtn.onclick=async()=>{
 
 document.addEventListener("DOMContentLoaded",()=>{
   loadGoogleScript();
-  const today = new Date().toISOString().slice(0,10);
-  el.endDate.value=today;
-  el.startDate.value=new Date(Date.now()-29*24*60*60*1000).toISOString().slice(0,10);
+
+  // Set dates: start = yesterday, end = today
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+
+  el.startDate.value = yesterday.toISOString().slice(0,10);
+  el.endDate.value = today.toISOString().slice(0,10);
+
   loadCompanies().then(()=>{if(currentCompanyId) fetchDashboardData();});
 });
 </script>
