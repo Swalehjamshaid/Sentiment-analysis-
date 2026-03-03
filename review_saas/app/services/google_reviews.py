@@ -1,5 +1,6 @@
+# filename: app/services/google_reviews.py
 from __future__ import annotations
-from typing import Optional, List
+from typing import List
 from datetime import datetime
 import googlemaps
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,13 +9,9 @@ from app.core.models import Company, Review
 from app.core.config import settings
 
 # ------------------------
-# Fetch place details and reviews from Google
+# Fetch place details from Google Places API
 # ------------------------
 def fetch_place_details(place_id: str) -> dict:
-    """
-    Fetch full details of a place from Google Places API including reviews.
-    Returns a dict with place info and reviews.
-    """
     gmaps = googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
     try:
         details = gmaps.place(
@@ -27,21 +24,14 @@ def fetch_place_details(place_id: str) -> dict:
         return {}
 
 def fetch_google_reviews(place_id: str, max_results: int = 50) -> List[dict]:
-    """
-    Fetch reviews only for a place_id.
-    """
     details = fetch_place_details(place_id)
     reviews = details.get('reviews', [])
     return reviews[:max_results]
 
 # ------------------------
-# Ingest Reviews into DB
+# Ingest reviews into database
 # ------------------------
 async def ingest_company_reviews(session: AsyncSession, company_id: int, place_id: str):
-    """
-    Fetch reviews from Google API and save them to the DB.
-    Updates Company avg_rating & review_count
-    """
     reviews_data = fetch_google_reviews(place_id)
     if not reviews_data:
         print(f"No reviews found for company_id={company_id}")
@@ -58,19 +48,18 @@ async def ingest_company_reviews(session: AsyncSession, company_id: int, place_i
             source_id = f"{place_id}_{r.get('author_name','unknown')}_{r.get('time',0)}"
             existing = await session.execute(select(Review).where(Review.source_id == source_id))
             if existing.scalar_one_or_none():
-                continue  # skip duplicates
+                continue
 
             new_review = Review(
                 company_id=company.id,
                 source_id=source_id,
                 author_name=r.get('author_name'),
-                rating=int(r.get('rating',0)),
+                rating=int(r.get('rating', 0)),
                 text=r.get('text'),
                 review_time=datetime.fromtimestamp(r.get('time',0)),
             )
             session.add(new_review)
 
-        # Update company metrics
         await session.flush()
         all_reviews = await session.execute(select(Review).where(Review.company_id == company.id))
         all_reviews_list = all_reviews.scalars().all()
