@@ -2,11 +2,10 @@
 from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Request, Query, HTTPException
+from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from starlette.templating import Jinja2Templates
-# Added 'cast' and 'Date' to handle Postgres timezone-aware comparisons
-from sqlalchemy import select, func, desc, asc, cast, Date
+from sqlalchemy import select, func, desc, asc
 
 from app.core.db import get_session
 from app.core.models import Company, Review
@@ -20,10 +19,16 @@ def parse_date(date_str: str | None) -> datetime | None:
     if not date_str:
         return None
     try:
-        # Standardize conversion to date object for SQL compatibility
         return datetime.strptime(date_str, "%Y-%m-%d")
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid date format: {date_str}. Use YYYY-MM-DD")
+
+async def get_date_range_for_company(session, company_id: int):
+    """Return (min_date, max_date) of reviews for the company"""
+    stmt = select(func.min(Review.review_time), func.max(Review.review_time)).where(Review.company_id == company_id)
+    res = await session.execute(stmt)
+    min_date, max_date = res.fetchone()
+    return (min_date.date() if min_date else None, max_date.date() if max_date else None)
 
 # --- UI ROUTE ---
 @router.get('/dashboard', response_class=HTMLResponse)
@@ -42,25 +47,27 @@ async def api_companies_list():
 # --- API: KPI CARDS ---
 @router.get('/api/kpis')
 async def api_kpis(company_id: int, start: str | None = None, end: str | None = None):
-    start_date = parse_date(start)
-    end_date = parse_date(end)
-
     async with get_session() as session:
+        if not start or not end:
+            # auto-select full date range
+            min_date, max_date = await get_date_range_for_company(session, company_id)
+            start_date = min_date or datetime.today().date()
+            end_date = max_date or datetime.today().date()
+        else:
+            start_date = parse_date(start)
+            end_date = parse_date(end)
+
         q = select(
             func.count(Review.id).label("total"),
             func.avg(Review.rating).label("avg_rating"),
             func.avg(Review.sentiment_score).label("avg_sent")
         ).where(Review.company_id == company_id)
 
-        # FIXED: Cast Review.review_time to Date for accurate filtering against dashboard strings
-        if start_date:
-            q = q.where(cast(Review.review_time, Date) >= start_date.date())
-        if end_date:
-            q = q.where(cast(Review.review_time, Date) <= end_date.date())
+        q = q.where(Review.review_time >= start_date)
+        q = q.where(Review.review_time <= end_date + timedelta(days=1))
 
         res = await session.execute(q)
         stats = res.fetchone()
-
         return {
             "total_reviews": stats.total or 0,
             "avg_rating": round(float(stats.avg_rating or 0.0), 2),
@@ -69,32 +76,27 @@ async def api_kpis(company_id: int, start: str | None = None, end: str | None = 
 
 # --- API: REVIEW LIST ---
 @router.get('/api/reviews/list')
-async def api_reviews_list(
-    company_id: int, 
-    sort: str = "newest", 
-    start: str | None = None, 
-    end: str | None = None
-):
-    start_date = parse_date(start)
-    end_date = parse_date(end)
-
+async def api_reviews_list(company_id: int, sort: str = "newest", start: str | None = None, end: str | None = None):
     async with get_session() as session:
+        if not start or not end:
+            min_date, max_date = await get_date_range_for_company(session, company_id)
+            start_date = min_date or datetime.today().date()
+            end_date = max_date or datetime.today().date()
+        else:
+            start_date = parse_date(start)
+            end_date = parse_date(end)
+
         stmt = select(Review).where(Review.company_id == company_id)
+        stmt = stmt.where(Review.review_time >= start_date)
+        stmt = stmt.where(Review.review_time <= end_date + timedelta(days=1))
 
         if sort == "newest": stmt = stmt.order_by(desc(Review.review_time))
         elif sort == "oldest": stmt = stmt.order_by(asc(Review.review_time))
         elif sort == "highest": stmt = stmt.order_by(desc(Review.rating))
         elif sort == "lowest": stmt = stmt.order_by(asc(Review.rating))
 
-        # FIXED: Cast to Date to ignore database time/timezone offsets
-        if start_date:
-            stmt = stmt.where(cast(Review.review_time, Date) >= start_date.date())
-        if end_date:
-            stmt = stmt.where(cast(Review.review_time, Date) <= end_date.date())
-
         res = await session.execute(stmt.limit(50))
         items = res.scalars().all()
-
         return {
             "items": [
                 {
@@ -109,23 +111,21 @@ async def api_reviews_list(
 # --- API: CHART DATA ---
 @router.get('/api/series/reviews')
 async def api_series_reviews(company_id: int, start: str | None = None, end: str | None = None):
-    start_date = parse_date(start)
-    end_date = parse_date(end)
-
     async with get_session() as session:
-        stmt = select(
-            func.date(Review.review_time).label("date"), 
-            func.count(Review.id).label("value")
-        ).where(Review.company_id == company_id)
+        if not start or not end:
+            min_date, max_date = await get_date_range_for_company(session, company_id)
+            start_date = min_date or datetime.today().date()
+            end_date = max_date or datetime.today().date()
+        else:
+            start_date = parse_date(start)
+            end_date = parse_date(end)
 
-        if start_date:
-            stmt = stmt.where(cast(Review.review_time, Date) >= start_date.date())
-        if end_date:
-            stmt = stmt.where(cast(Review.review_time, Date) <= end_date.date())
-
-        stmt = stmt.group_by(func.date(Review.review_time)).order_by("date")
+        stmt = select(func.date(Review.review_time).label("date"), func.count(Review.id).label("value")) \
+            .where(Review.company_id == company_id) \
+            .where(Review.review_time >= start_date) \
+            .where(Review.review_time <= end_date + timedelta(days=1)) \
+            .group_by(func.date(Review.review_time)).order_by("date")
         res = await session.execute(stmt)
-
         return {"series": [{"date": str(r.date), "value": int(r.value or 0)} for r in res.all()]}
 
 @router.get('/api/ratings/distribution')
@@ -140,21 +140,19 @@ async def api_ratings_distribution(company_id: int):
 
 @router.get('/api/sentiment/series')
 async def api_sentiment_series(company_id: int, start: str | None = None, end: str | None = None):
-    start_date = parse_date(start)
-    end_date = parse_date(end)
-
     async with get_session() as session:
-        stmt = select(
-            func.date(Review.review_time).label("date"), 
-            func.avg(Review.sentiment_score).label("value")
-        ).where(Review.company_id == company_id)
+        if not start or not end:
+            min_date, max_date = await get_date_range_for_company(session, company_id)
+            start_date = min_date or datetime.today().date()
+            end_date = max_date or datetime.today().date()
+        else:
+            start_date = parse_date(start)
+            end_date = parse_date(end)
 
-        if start_date:
-            stmt = stmt.where(cast(Review.review_time, Date) >= start_date.date())
-        if end_date:
-            stmt = stmt.where(cast(Review.review_time, Date) <= end_date.date())
-
-        stmt = stmt.group_by(func.date(Review.review_time)).order_by("date")
+        stmt = select(func.date(Review.review_time).label("date"), func.avg(Review.sentiment_score).label("value")) \
+            .where(Review.company_id == company_id) \
+            .where(Review.review_time >= start_date) \
+            .where(Review.review_time <= end_date + timedelta(days=1)) \
+            .group_by(func.date(Review.review_time)).order_by("date")
         res = await session.execute(stmt)
-
         return {"series": [{"date": str(r.date), "value": float(r.value or 0)} for r in res.all()]}
