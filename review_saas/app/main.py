@@ -13,8 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app.core.config import settings
 from app.core.db import get_engine
 from app.core.models import Base
-# CRITICAL: Import models specifically to ensure they are registered with Base.metadata
-from app.core.models import User, Company, Review 
+from app.core.models import User, Company, Review  # CRITICAL: register models
 
 from app.routes import auth as auth_routes
 from app.routes import companies as companies_routes
@@ -22,12 +21,16 @@ from app.routes import dashboard as dashboard_routes
 from app.routes import reviews as reviews_routes
 from app.routes import exports as exports_routes
 
-# Import Google check router (updated to use /api/check-google endpoint)
+# Import the Google API check endpoint
 try:
     from app.core.google_check import router as google_router
+    from app.core.google_check import check_google  # the async function
 except ModuleNotFoundError:
     logging.warning("⚠️ Google check router not found. /api/check-google will be unavailable.")
     google_router = None
+    async def check_google():
+        logging.warning("⚠️ Google API check skipped (placeholder).")
+        return {"status": "skipped"}
 
 # Standard logging configuration
 logging.basicConfig(level=logging.INFO)
@@ -36,44 +39,50 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Lifecycle manager for startup and shutdown tasks.
-    Ensures database synchronization happens before the app starts.
+    Lifecycle manager for startup tasks.
+    Ensures database synchronization and Google API check happen before the app starts.
     """
     # 1. Database Schema Synchronization
     try:
         engine: AsyncEngine = get_engine()
         async with engine.begin() as conn:
-            # Create all tables defined in models.py if they don't exist
             await conn.run_sync(Base.metadata.create_all)
         logger.info("✓ Database migration: Tables verified/created.")
     except Exception as e:
         logger.error(f"❌ Database migration failed: {e}")
 
+    # 2. Active Google API check at startup
+    try:
+        result = await check_google()
+        logger.info(f"✓ Google API check passed at startup: {result}")
+    except Exception as e:
+        logger.error(f"⚠️ Google API check failed at startup: {e}")
+    
     yield
     # Place for shutdown tasks if needed
     logger.info("⚡ Application shutdown complete.")
 
 # Initialize FastAPI app
 app = FastAPI(
-    title=settings.APP_NAME, 
+    title=settings.APP_NAME,
     debug=settings.DEBUG,
     lifespan=lifespan
 )
 
 # Middlewares
 app.add_middleware(
-    CORSMiddleware, 
-    allow_origins=['*'], 
-    allow_credentials=True, 
-    allow_methods=['*'], 
+    CORSMiddleware,
+    allow_origins=['*'],
+    allow_credentials=True,
+    allow_methods=['*'],
     allow_headers=['*']
 )
 
 app.add_middleware(
-    SessionMiddleware, 
-    secret_key=settings.SECRET_KEY, 
-    session_cookie=settings.SESSION_COOKIE_NAME, 
-    same_site=settings.SESSION_COOKIE_SAMESITE, 
+    SessionMiddleware,
+    secret_key=settings.SECRET_KEY,
+    session_cookie=settings.SESSION_COOKIE_NAME,
+    same_site=settings.SESSION_COOKIE_SAMESITE,
     https_only=settings.SESSION_COOKIE_SECURE
 )
 
@@ -85,8 +94,8 @@ templates = Jinja2Templates(directory='app/templates')
 @app.get('/', response_class=HTMLResponse)
 async def landing(request: Request):
     return templates.TemplateResponse('landing.html', {
-        "request": request, 
-        "title": settings.APP_NAME, 
+        "request": request,
+        "title": settings.APP_NAME,
         "settings": settings
     })
 
