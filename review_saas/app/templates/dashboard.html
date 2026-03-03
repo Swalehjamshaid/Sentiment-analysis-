@@ -11,6 +11,8 @@
     .success-msg, .nodata-msg, .error-msg { display: none; }
     #addCompanyModal .modal-dialog { max-width: 500px; }
     .pac-container { z-index: 1060 !important; }
+    /* Style for auto-filled preview fields */
+    .auto-field { background-color: #f8f9fa; pointer-events: none; }
   </style>
 </head>
 <body>
@@ -107,7 +109,7 @@
 </div>
 
 <div class="modal fade" id="addCompanyModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title">Add New Company via Google Places</h5>
@@ -115,8 +117,33 @@
       </div>
       <div class="modal-body">
         <div class="mb-3">
-          <label class="form-label">Search Company / Place</label>
+          <label class="form-label fw-bold">Search Company / Place</label>
           <input type="text" class="form-control" id="placeSearch" placeholder="e.g. McDonald's Lahore">
+        </div>
+        
+        <div id="detailsPreview" style="display:none;" class="border-top pt-3">
+            <div class="mb-2">
+                <label class="small text-muted">Address</label>
+                <input type="text" id="prev_address" class="form-control form-control-sm auto-field">
+            </div>
+            <div class="row mb-2">
+                <div class="col">
+                    <label class="small text-muted">Phone</label>
+                    <input type="text" id="prev_phone" class="form-control form-control-sm auto-field">
+                </div>
+                <div class="col">
+                    <label class="small text-muted">Category</label>
+                    <input type="text" id="prev_category" class="form-control form-control-sm auto-field">
+                </div>
+            </div>
+            <div class="mb-2">
+                <label class="small text-muted">Website</label>
+                <input type="text" id="prev_website" class="form-control form-control-sm auto-field">
+            </div>
+            <div class="mb-2">
+                <label class="small text-muted">Business Hours</label>
+                <textarea id="prev_hours" rows="2" class="form-control form-control-sm auto-field"></textarea>
+            </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -128,7 +155,6 @@
 </div>
 
 <script>
-// Logic to handle safe element referencing and API calls
 const companyId = {{ active_company_id or 'null' }};
 const el = {
     startDate: document.getElementById('startDate'),
@@ -145,13 +171,19 @@ const el = {
     kpiTotal: document.getElementById('kpi-total'),
     kpiRating: document.getElementById('kpi-rating'),
     kpiSent: document.getElementById('kpi-sent'),
-    kpiNew: document.getElementById('kpi-new')
+    kpiNew: document.getElementById('kpi-new'),
+    // New preview fields
+    previewBox: document.getElementById('detailsPreview'),
+    prevAddress: document.getElementById('prev_address'),
+    prevPhone: document.getElementById('prev_phone'),
+    prevWebsite: document.getElementById('prev_website'),
+    prevCategory: document.getElementById('prev_category'),
+    prevHours: document.getElementById('prev_hours')
 };
 
 let selectedPlace = null;
 let charts = {};
 
-// 1. IMPROVED GOOGLE LOAD
 function loadGoogle() {
     const script = document.createElement("script");
     script.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initAutocomplete";
@@ -163,23 +195,43 @@ function loadGoogle() {
 window.initAutocomplete = function() {
     if (typeof google === "undefined") return;
     const auto = new google.maps.places.Autocomplete(el.placeSearch, {
-        fields: ["name", "place_id", "formatted_address"],
+        fields: ["name", "place_id", "formatted_address", "formatted_phone_number", "website", "types", "opening_hours"],
         types: ["establishment"]
     });
 
     auto.addListener("place_changed", () => {
         const p = auto.getPlace();
         if (!p.place_id) return;
+
+        // Auto-fill logic for visual confirmation
+        el.prevAddress.value = p.formatted_address || '';
+        el.prevPhone.value = p.formatted_phone_number || 'N/A';
+        el.prevWebsite.value = p.website || 'N/A';
+        el.prevCategory.value = p.types ? p.types[0].replace(/_/g, ' ') : 'Business';
+        
+        let hours = 'No hours listed';
+        if(p.opening_hours && p.opening_hours.weekday_text) {
+            hours = p.opening_hours.weekday_text.join('\n');
+        }
+        el.prevHours.value = hours;
+        
+        // Show the preview area
+        el.previewBox.style.display = 'block';
+
         selectedPlace = {
             name: p.name,
             place_id: p.place_id,
-            address: p.formatted_address
+            address: p.formatted_address,
+            phone: p.formatted_phone_number,
+            website: p.website,
+            category: el.prevCategory.value,
+            hours: hours,
+            google_data: p 
         };
         el.saveBtn.disabled = false;
     });
 };
 
-// 2. REFINED FETCH LOGIC
 function qs(p) { return new URLSearchParams(p).toString(); }
 function show(id, v) { el[id].style.display = v ? 'block' : 'none'; }
 
