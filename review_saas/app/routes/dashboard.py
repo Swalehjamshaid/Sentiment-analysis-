@@ -5,7 +5,8 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Request, Query, HTTPException
 from fastapi.responses import HTMLResponse
 from starlette.templating import Jinja2Templates
-from sqlalchemy import select, func, desc, asc
+# Added 'cast' and 'Date' to handle Postgres timezone-aware comparisons
+from sqlalchemy import select, func, desc, asc, cast, Date
 
 from app.core.db import get_session
 from app.core.models import Company, Review
@@ -19,6 +20,7 @@ def parse_date(date_str: str | None) -> datetime | None:
     if not date_str:
         return None
     try:
+        # Standardize conversion to date object for SQL compatibility
         return datetime.strptime(date_str, "%Y-%m-%d")
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid date format: {date_str}. Use YYYY-MM-DD")
@@ -26,7 +28,6 @@ def parse_date(date_str: str | None) -> datetime | None:
 # --- UI ROUTE ---
 @router.get('/dashboard', response_class=HTMLResponse)
 async def get_dashboard(request: Request, company_id: int | None = None):
-    """Renders the base HTML. The JS then calls the APIs below."""
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
 # --- API: COMPANY LIST ---
@@ -51,11 +52,11 @@ async def api_kpis(company_id: int, start: str | None = None, end: str | None = 
             func.avg(Review.sentiment_score).label("avg_sent")
         ).where(Review.company_id == company_id)
 
+        # FIXED: Cast Review.review_time to Date for accurate filtering against dashboard strings
         if start_date:
-            q = q.where(Review.review_time >= start_date)
+            q = q.where(cast(Review.review_time, Date) >= start_date.date())
         if end_date:
-            # Include entire end day
-            q = q.where(Review.review_time <= end_date + timedelta(days=1))
+            q = q.where(cast(Review.review_time, Date) <= end_date.date())
 
         res = await session.execute(q)
         stats = res.fetchone()
@@ -80,16 +81,16 @@ async def api_reviews_list(
     async with get_session() as session:
         stmt = select(Review).where(Review.company_id == company_id)
 
-        # Sorting
         if sort == "newest": stmt = stmt.order_by(desc(Review.review_time))
         elif sort == "oldest": stmt = stmt.order_by(asc(Review.review_time))
         elif sort == "highest": stmt = stmt.order_by(desc(Review.rating))
         elif sort == "lowest": stmt = stmt.order_by(asc(Review.rating))
 
+        # FIXED: Cast to Date to ignore database time/timezone offsets
         if start_date:
-            stmt = stmt.where(Review.review_time >= start_date)
+            stmt = stmt.where(cast(Review.review_time, Date) >= start_date.date())
         if end_date:
-            stmt = stmt.where(Review.review_time <= end_date + timedelta(days=1))
+            stmt = stmt.where(cast(Review.review_time, Date) <= end_date.date())
 
         res = await session.execute(stmt.limit(50))
         items = res.scalars().all()
@@ -118,9 +119,9 @@ async def api_series_reviews(company_id: int, start: str | None = None, end: str
         ).where(Review.company_id == company_id)
 
         if start_date:
-            stmt = stmt.where(Review.review_time >= start_date)
+            stmt = stmt.where(cast(Review.review_time, Date) >= start_date.date())
         if end_date:
-            stmt = stmt.where(Review.review_time <= end_date + timedelta(days=1))
+            stmt = stmt.where(cast(Review.review_time, Date) <= end_date.date())
 
         stmt = stmt.group_by(func.date(Review.review_time)).order_by("date")
         res = await session.execute(stmt)
@@ -149,9 +150,9 @@ async def api_sentiment_series(company_id: int, start: str | None = None, end: s
         ).where(Review.company_id == company_id)
 
         if start_date:
-            stmt = stmt.where(Review.review_time >= start_date)
+            stmt = stmt.where(cast(Review.review_time, Date) >= start_date.date())
         if end_date:
-            stmt = stmt.where(Review.review_time <= end_date + timedelta(days=1))
+            stmt = stmt.where(cast(Review.review_time, Date) <= end_date.date())
 
         stmt = stmt.group_by(func.date(Review.review_time)).order_by("date")
         res = await session.execute(stmt)
