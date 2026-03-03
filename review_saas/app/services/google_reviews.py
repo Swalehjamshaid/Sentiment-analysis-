@@ -1,74 +1,39 @@
-# File: app/services/google_reviews.py
-
-from __future__ import annotations
-import logging
-from typing import Dict, Any, List
-
-import googlemaps
+import requests
+from typing import Dict, Any, Optional
 from app.core.config import settings
 
-logger = logging.getLogger("app.google")
 
-# Initialize Google Maps Client
-gmaps = googlemaps.Client(key=settings.GOOGLE_API_KEY)
-
-
-# ---------------------------------------------------------
-# Fetch full place details (used in reviews.py import)
-# ---------------------------------------------------------
-async def fetch_place_details(place_id: str) -> Dict[str, Any]:
+def fetch_place_details(place_id: str) -> Optional[Dict[str, Any]]:
     """
-    Fetch place details from Google Places API.
-    This is the function your reviews.py is trying to import.
+    Fetch place details and reviews using Google Places API.
     """
 
-    try:
-        response = gmaps.place(
-            place_id=place_id,
-            fields=[
-                "name",
-                "formatted_address",
-                "formatted_phone_number",
-                "website",
-                "rating",
-                "user_ratings_total",
-                "reviews",
-                "types",
-                "opening_hours",
-            ],
-        )
+    if not settings.GOOGLE_PLACES_API_KEY:
+        raise ValueError("GOOGLE_PLACES_API_KEY is not configured")
 
-        result = response.get("result", {})
+    url = "https://maps.googleapis.com/maps/api/place/details/json"
 
-        logger.info(f"✓ Google place details fetched for {place_id}")
+    params = {
+        "place_id": place_id,
+        "fields": "name,rating,user_ratings_total,reviews",
+        "key": settings.GOOGLE_PLACES_API_KEY,
+    }
 
-        return result
+    response = requests.get(url, params=params, timeout=10)
 
-    except Exception as e:
-        logger.error(f"❌ Google API error: {e}")
-        return {"error": str(e)}
+    if response.status_code != 200:
+        raise Exception(f"Google API HTTP error: {response.status_code}")
 
+    data = response.json()
 
-# ---------------------------------------------------------
-# Fetch only reviews (optional helper)
-# ---------------------------------------------------------
-async def fetch_reviews(place_id: str) -> List[Dict[str, Any]]:
-    """
-    Fetch reviews only from Google Places API.
-    """
+    if data.get("status") != "OK":
+        raise Exception(f"Google API error: {data.get('status')}")
 
-    try:
-        response = gmaps.place(
-            place_id=place_id,
-            fields=["reviews"],
-        )
+    result = data.get("result", {})
 
-        reviews = response.get("result", {}).get("reviews", [])
-
-        logger.info(f"✓ {len(reviews)} reviews fetched from Google")
-
-        return reviews
-
-    except Exception as e:
-        logger.error(f"❌ Failed to fetch reviews: {e}")
-        return []
+    return {
+        "name": result.get("name"),
+        "rating": result.get("rating"),
+        "total_reviews": result.get("user_ratings_total"),
+        "reviews": result.get("reviews", []),
+    }
