@@ -1,286 +1,281 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dashboard — ReviewSaaS</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard — ReviewSaaS</title>
 
-  <style>
-    .spinner { display: none; }
-    .success-msg, .nodata-msg, .error-msg { display: none; }
-    #addCompanyModal .modal-dialog { max-width: 500px; }
-    .pac-container { z-index: 1060 !important; }
-  </style>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
-  <!-- GOOGLE API LOADER (FIXED) -->
-  <script>
-    function loadGoogleMaps() {
-      const script = document.createElement("script");
-      script.src = "https://maps.googleapis.com/maps/api/js?key=YOUR_REAL_GOOGLE_API_KEY&libraries=places";
-      script.async = true;
-      script.defer = true;
-      script.onload = () => {
-        if (typeof google !== "undefined") {
-          initAutocomplete();
-        }
-      };
-      document.head.appendChild(script);
-    }
-  </script>
+<style>
+.spinner { display:none; }
+.success-msg, .nodata-msg, .error-msg { display:none; }
+#addCompanyModal .modal-dialog { max-width:500px; }
+.pac-container { z-index:1060 !important; }
+</style>
+
 </head>
-
 <body>
+
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-  <div class="container-fluid">
-    <a class="navbar-brand" href="/">ReviewSaaS</a>
-    <div class="d-flex gap-2">
-      <a href="/companies" class="btn btn-outline-light btn-sm">Companies</a>
-      <a href="/logout" class="btn btn-warning btn-sm">Logout</a>
-    </div>
-  </div>
+<div class="container-fluid">
+<a class="navbar-brand" href="/">ReviewSaaS</a>
+<div class="d-flex gap-2">
+<a href="/companies" class="btn btn-outline-light btn-sm">Companies</a>
+<a href="/logout" class="btn btn-warning btn-sm">Logout</a>
+</div>
+</div>
 </nav>
 
 <div class="container py-4">
-  <div class="row g-3 align-items-end">
-    <div class="col-lg-4">
-      <label class="form-label">Company</label>
-      <form class="row g-2" method="get" action="/dashboard">
-        <div class="col-8">
-          <select class="form-select" name="company_id">
-            {% for c in companies %}
-              <option value="{{c.id}}" {% if active_company_id==c.id %}selected{% endif %}>{{ c.name }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="col-4 d-grid">
-          <button class="btn btn-outline-secondary">Switch</button>
-        </div>
-      </form>
-    </div>
 
-    <div class="col-lg-3 d-grid">
-      <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
-        + Add New Company
-      </button>
-    </div>
-
-    <div class="col-lg-5">
-      <div class="row g-2">
-        <div class="col"><label class="form-label">Start Date</label><input type="date" class="form-control" id="startDate"></div>
-        <div class="col"><label class="form-label">End Date</label><input type="date" class="form-control" id="endDate"></div>
-      </div>
-    </div>
-
-    <div class="col-lg-2 d-grid">
-      <button class="btn btn-primary" id="fetchBtn">Fetch Data</button>
-    </div>
-  </div>
-
-  <div class="alert alert-info mt-3 spinner" id="loadingBox">Loading…</div>
-  <div class="alert alert-success mt-3 success-msg" id="successBox">Data fetched successfully.</div>
-  <div class="alert alert-warning mt-3 nodata-msg" id="nodataBox">No Data Found for selected date range.</div>
-  <div class="alert alert-danger mt-3 error-msg" id="errorBox">Error loading data.</div>
-
-  <div class="row g-3 mt-2">
-    <div class="col-md-3"><div class="p-3 bg-light border rounded">Total Reviews <h4 id="kpi-total" class="mb-0">0</h4></div></div>
-    <div class="col-md-3"><div class="p-3 bg-light border rounded">Avg Rating <h4 id="kpi-rating" class="mb-0">0.0</h4></div></div>
-    <div class="col-md-3"><div class="p-3 bg-light border rounded">Avg Sentiment <h4 id="kpi-sent" class="mb-0">0.000</h4></div></div>
-    <div class="col-md-3"><div class="p-3 bg-light border rounded">New (24h) <h4 id="kpi-new" class="mb-0">0</h4></div></div>
-  </div>
-
-  <div class="row g-3 mt-1">
-    <div class="col-lg-8"><div class="card"><div class="card-body">
-      <h6 class="text-muted">Reviews per day</h6>
-      <canvas id="seriesReviews" height="120"></canvas>
-    </div></div></div>
-    <div class="col-lg-4">
-      <div class="card mb-3"><div class="card-body">
-        <h6 class="text-muted">Ratings distribution</h6>
-        <canvas id="ratingsDist" height="120"></canvas>
-      </div></div>
-      <div class="card"><div class="card-body">
-        <h6 class="text-muted">Avg sentiment per day</h6>
-        <canvas id="sentSeries" height="120"></canvas>
-      </div></div>
-    </div>
-  </div>
-
-  <div class="row g-3 mt-1">
-    <div class="col-12"><div class="card"><div class="card-body">
-      <div class="d-flex justify-content-between align-items-center">
-        <h6 class="text-muted mb-0">Reviews</h6>
-        <div>
-          <select id="sortReviews" class="form-select form-select-sm">
-            <option value="newest" selected>Newest</option>
-            <option value="oldest">Oldest</option>
-            <option value="highest">Highest rating</option>
-            <option value="lowest">Lowest rating</option>
-          </select>
-        </div>
-      </div>
-      <div id="reviewsList" class="mt-3"></div>
-    </div></div></div>
-  </div>
+<div class="row g-3 align-items-end">
+<div class="col-lg-4">
+<label class="form-label">Company</label>
+<form class="row g-2" method="get" action="/dashboard">
+<div class="col-8">
+<select class="form-select" name="company_id">
+{% for c in companies %}
+<option value="{{c.id}}" {% if active_company_id==c.id %}selected{% endif %}>{{ c.name }}</option>
+{% endfor %}
+</select>
+</div>
+<div class="col-4 d-grid">
+<button class="btn btn-outline-secondary">Switch</button>
+</div>
+</form>
 </div>
 
-<!-- ADD COMPANY MODAL -->
+<div class="col-lg-3 d-grid">
+<button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
++ Add New Company
+</button>
+</div>
+
+<div class="col-lg-5">
+<div class="row g-2">
+<div class="col">
+<label class="form-label">Start Date</label>
+<input type="date" class="form-control" id="startDate">
+</div>
+<div class="col">
+<label class="form-label">End Date</label>
+<input type="date" class="form-control" id="endDate">
+</div>
+</div>
+</div>
+
+<div class="col-lg-2 d-grid">
+<button class="btn btn-primary" id="fetchBtn">Fetch Data</button>
+</div>
+</div>
+
+<div class="alert alert-info mt-3 spinner" id="loadingBox">Loading…</div>
+<div class="alert alert-success mt-3 success-msg" id="successBox">Data fetched successfully.</div>
+<div class="alert alert-warning mt-3 nodata-msg" id="nodataBox">No Data Found for selected date range.</div>
+<div class="alert alert-danger mt-3 error-msg" id="errorBox">Error loading data.</div>
+
+<div class="row g-3 mt-2">
+<div class="col-md-3"><div class="p-3 bg-light border rounded">Total Reviews <h4 id="kpi-total">0</h4></div></div>
+<div class="col-md-3"><div class="p-3 bg-light border rounded">Avg Rating <h4 id="kpi-rating">0.0</h4></div></div>
+<div class="col-md-3"><div class="p-3 bg-light border rounded">Avg Sentiment <h4 id="kpi-sent">0.000</h4></div></div>
+<div class="col-md-3"><div class="p-3 bg-light border rounded">New (24h) <h4 id="kpi-new">0</h4></div></div>
+</div>
+
+<div class="row g-3 mt-1">
+<div class="col-lg-8">
+<div class="card"><div class="card-body">
+<h6 class="text-muted">Reviews per day</h6>
+<canvas id="seriesReviews" height="120"></canvas>
+</div></div>
+</div>
+
+<div class="col-lg-4">
+<div class="card mb-3"><div class="card-body">
+<h6 class="text-muted">Ratings distribution</h6>
+<canvas id="ratingsDist" height="120"></canvas>
+</div></div>
+
+<div class="card"><div class="card-body">
+<h6 class="text-muted">Avg sentiment per day</h6>
+<canvas id="sentSeries" height="120"></canvas>
+</div></div>
+</div>
+</div>
+
+<div class="row g-3 mt-1">
+<div class="col-12">
+<div class="card"><div class="card-body">
+<div class="d-flex justify-content-between align-items-center">
+<h6 class="text-muted mb-0">Reviews</h6>
+<select id="sortReviews" class="form-select form-select-sm">
+<option value="newest" selected>Newest</option>
+<option value="oldest">Oldest</option>
+<option value="highest">Highest rating</option>
+<option value="lowest">Lowest rating</option>
+</select>
+</div>
+<div id="reviewsList" class="mt-3"></div>
+</div></div>
+</div>
+</div>
+</div>
+
+<!-- MODAL -->
 <div class="modal fade" id="addCompanyModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Add New Company via Google Places</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="mb-3">
-          <label class="form-label">Search Company / Place</label>
-          <input type="text" class="form-control" id="placeSearch" placeholder="e.g. McDonald's Lahore">
-        </div>
-        <div class="alert alert-danger mt-3" id="searchError" style="display:none;"></div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-        <button type="button" class="btn btn-primary" id="saveCompanyBtn" disabled>Save Selected Company</button>
-      </div>
-    </div>
-  </div>
+<div class="modal-dialog">
+<div class="modal-content">
+<div class="modal-header">
+<h5 class="modal-title">Add New Company via Google Places</h5>
+<button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body">
+<label class="form-label">Search Company / Place</label>
+<input type="text" class="form-control" id="placeSearch" placeholder="e.g. McDonald's Lahore">
+</div>
+<div class="modal-footer">
+<button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+<button class="btn btn-primary" id="saveCompanyBtn" disabled>Save Selected Company</button>
+</div>
+</div>
+</div>
 </div>
 
 <script>
 const companyId = {{ active_company_id or 'null' }};
-let selectedPlace = null;
-let charts = {};
+let selectedPlace=null;
+let charts={};
 
-function initAutocomplete() {
-  const input = document.getElementById('placeSearch');
-  if (!input || typeof google === "undefined") return;
-
-  const autocomplete = new google.maps.places.Autocomplete(input, {
-    fields: ["formatted_address", "place_id", "name"],
-    types: ["establishment"]
-  });
-
-  autocomplete.addListener("place_changed", () => {
-    const place = autocomplete.getPlace();
-    if (!place.place_id) return;
-    selectedPlace = {
-        name: place.name,
-        place_id: place.place_id,
-        formatted_address: place.formatted_address
-    };
-    document.getElementById('saveCompanyBtn').disabled = false;
-  });
+// GOOGLE LOAD
+function loadGoogle(){
+const script=document.createElement("script");
+script.src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places";
+script.async=true;
+script.defer=true;
+script.onload=initAutocomplete;
+document.head.appendChild(script);
 }
 
+function initAutocomplete(){
+if(typeof google==="undefined") return;
+const input=document.getElementById("placeSearch");
+if(!input) return;
+
+const auto=new google.maps.places.Autocomplete(input,{
+fields:["name","place_id","formatted_address"],
+types:["establishment"]
+});
+
+auto.addListener("place_changed",()=>{
+const p=auto.getPlace();
+if(!p.place_id) return;
+selectedPlace={
+name:p.name,
+place_id:p.place_id,
+address:p.formatted_address
+};
+document.getElementById("saveCompanyBtn").disabled=false;
+});
+}
+
+// FETCH LOGIC
 function qs(p){return new URLSearchParams(p).toString();}
-function setLoading(v){document.getElementById('loadingBox').style.display=v?'block':'none'}
-function showSuccess(v){document.getElementById('successBox').style.display=v?'block':'none'}
-function showNoData(v){document.getElementById('nodataBox').style.display=v?'block':'none'}
-function showError(v){document.getElementById('errorBox').style.display=v?'block':'none'}
+function show(id,v){document.getElementById(id).style.display=v?'block':'none';}
 
 async function safeFetch(url){
-  const res = await fetch(url);
-  if(!res.ok) throw new Error("Network error");
-  return res.json();
+const r=await fetch(url);
+if(!r.ok) throw new Error();
+return r.json();
 }
 
 async function fetchAll(){
-  if(!companyId) return;
+if(!companyId) return;
+show("loadingBox",true);
+show("successBox",false);
+show("nodataBox",false);
+show("errorBox",false);
 
-  setLoading(true); showSuccess(false); showNoData(false); showError(false);
+const s=startDate.value;
+const e=endDate.value;
+const p=qs({company_id:companyId,start:s||'',end:e||''});
 
-  const s=document.getElementById('startDate').value;
-  const e=document.getElementById('endDate').value;
-  const p = qs({company_id:companyId, start:s||'', end:e||''});
+try{
+const [k,r,d,sent]=await Promise.all([
+safeFetch('/api/kpis?'+p),
+safeFetch('/api/series/reviews?'+p),
+safeFetch('/api/ratings/distribution?'+p),
+safeFetch('/api/sentiment/series?'+p)
+]);
 
-  try {
-    const [k, r, d, sent] = await Promise.all([
-      safeFetch('/api/kpis?'+p),
-      safeFetch('/api/series/reviews?'+p),
-      safeFetch('/api/ratings/distribution?'+p),
-      safeFetch('/api/sentiment/series?'+p)
-    ]);
+kpi-total.textContent=k.total_reviews;
+kpi-rating.textContent=(k.avg_rating||0).toFixed(2);
+kpi-sent.textContent=(k.avg_sentiment||0).toFixed(3);
+kpi-new.textContent=r.series?.length?r.series[r.series.length-1].value:0;
 
-    document.getElementById('kpi-total').textContent = k.total_reviews;
-    document.getElementById('kpi-rating').textContent = (k.avg_rating||0).toFixed(2);
-    document.getElementById('kpi-sent').textContent = (k.avg_sentiment||0).toFixed(3);
-    document.getElementById('kpi-new').textContent = r.series?.length ? r.series[r.series.length-1].value : 0;
+Object.values(charts).forEach(c=>c.destroy());
 
-    Object.values(charts).forEach(c=>c.destroy());
+charts.rev=new Chart(seriesReviews,{type:'line',
+data:{labels:r.series.map(x=>x.date),
+datasets:[{data:r.series.map(x=>x.value),borderColor:'#0d6efd',tension:.3,fill:true}]}});
 
-    charts.reviews = new Chart(document.getElementById('seriesReviews'), {
-      type:'line',
-      data:{ labels:r.series.map(x=>x.date),
-      datasets:[{label:'Reviews/day', data:r.series.map(x=>x.value), borderColor:'#0d6efd', tension:0.3, fill:true}] }
-    });
+charts.dist=new Chart(ratingsDist,{type:'bar',
+data:{labels:Object.keys(d.distribution),
+datasets:[{data:Object.values(d.distribution)}]}});
 
-    charts.dist = new Chart(document.getElementById('ratingsDist'), {
-      type:'bar',
-      data:{ labels:Object.keys(d.distribution),
-      datasets:[{label:'Count', data:Object.values(d.distribution)}] }
-    });
+charts.sent=new Chart(sentSeries,{type:'line',
+data:{labels:sent.series.map(x=>x.date),
+datasets:[{data:sent.series.map(x=>x.value),borderColor:'#6610f2',tension:.3,fill:true}]},
+options:{scales:{y:{min:-1,max:1}}}});
 
-    charts.sent = new Chart(document.getElementById('sentSeries'), {
-      type:'line',
-      data:{ labels:sent.series.map(x=>x.date),
-      datasets:[{label:'Avg Sentiment', data:sent.series.map(x=>x.value), borderColor:'#6610f2', tension:0.3, fill:true}] },
-      options:{scales:{y:{min:-1,max:1}}}
-    });
+await loadReviews();
+show("loadingBox",false);
+show("successBox",true);
+if(k.total_reviews===0) show("nodataBox",true);
 
-    await loadReviews();
-    setLoading(false); showSuccess(true);
-    if(k.total_reviews===0) showNoData(true);
-
-  } catch(e){
-    setLoading(false);
-    showError(true);
-  }
+}catch{
+show("loadingBox",false);
+show("errorBox",true);
+}
 }
 
 async function loadReviews(){
-  const sort=document.getElementById('sortReviews').value;
-  const s=document.getElementById('startDate').value;
-  const e=document.getElementById('endDate').value;
+const sort=sortReviews.value;
+const s=startDate.value;
+const e=endDate.value;
 
-  const out = await safeFetch('/api/reviews/list?'+qs({company_id:companyId,sort,start:s||'',end:e||''}));
+const out=await safeFetch('/api/reviews/list?'+qs({company_id:companyId,sort,start:s||'',end:e||''}));
 
-  const box=document.getElementById('reviewsList');
-  box.innerHTML = out.items.map(r=>{
-    const stars='★'.repeat(r.rating||0)+'☆'.repeat(5-(r.rating||0));
-    return `<div class="border rounded p-2 mb-2">
-      <div class="d-flex justify-content-between small text-muted">
-      <span>${r.author_name||'Anonymous'}</span>
-      <span>${r.review_time||''}</span></div>
-      <div><span class="me-2">${stars}</span>
-      <span>${(r.rating||0).toFixed(1)}</span></div>
-      <div>${r.text||''}</div></div>`;
-  }).join('');
+reviewsList.innerHTML=out.items.map(r=>{
+const stars='★'.repeat(r.rating||0)+'☆'.repeat(5-(r.rating||0));
+return `<div class="border rounded p-2 mb-2">
+<div class="d-flex justify-content-between small text-muted">
+<span>${r.author_name||'Anonymous'}</span>
+<span>${r.review_time||''}</span></div>
+<div>${stars} ${(r.rating||0).toFixed(1)}</div>
+<div>${r.text||''}</div></div>`;
+}).join('');
 }
 
-document.getElementById('saveCompanyBtn').onclick = async ()=>{
-  if(!selectedPlace) return;
-  try{
-    const res = await fetch('/companies/add',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(selectedPlace)
-    });
-    const result = await res.json();
-    if(result.success) location.reload();
-    else alert(result.message||'Error saving company');
-  }catch{alert('Server error while saving')}
+saveCompanyBtn.onclick=async()=>{
+if(!selectedPlace) return;
+const res=await fetch('/companies/add',{
+method:'POST',
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify(selectedPlace)
+});
+const r=await res.json();
+if(r.success) location.reload();
 };
 
-document.addEventListener('DOMContentLoaded',()=>{
-  loadGoogleMaps();
-  const today=new Date().toISOString().slice(0,10);
-  document.getElementById('endDate').value=today;
-  document.getElementById('startDate').value=new Date(Date.now()-29*86400000).toISOString().slice(0,10);
-  document.getElementById('fetchBtn').addEventListener('click',fetchAll);
-  document.getElementById('sortReviews').addEventListener('change',loadReviews);
-  fetchAll();
+document.addEventListener("DOMContentLoaded",()=>{
+loadGoogle();
+const today=new Date().toISOString().slice(0,10);
+endDate.value=today;
+startDate.value=new Date(Date.now()-29*86400000).toISOString().slice(0,10);
+fetchBtn.addEventListener("click",fetchAll);
+sortReviews.addEventListener("change",loadReviews);
+fetchAll();
 });
 </script>
 
