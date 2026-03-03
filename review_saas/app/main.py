@@ -20,6 +20,9 @@ from app.routes import dashboard as dashboard_routes
 from app.routes import reviews as reviews_routes
 from app.routes import exports as exports_routes
 
+# Import Google API checker
+from app.core.google_check import verify_google_apis
+
 app = FastAPI(title=settings.APP_NAME, debug=settings.DEBUG)
 
 # Middlewares
@@ -48,6 +51,12 @@ async def on_startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     print("✓ Database migration: Tables verified/created.")
+
+    # --------- Google API Verification ---------
+    try:
+        verify_google_apis()
+    except Exception as e:
+        print(f"⚠️ Google API check failed at startup: {e}")
 
 @app.get('/', response_class=HTMLResponse)
 async def landing(request: Request):
