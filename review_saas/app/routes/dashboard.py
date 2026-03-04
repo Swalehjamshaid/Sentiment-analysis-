@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from sqlalchemy import select, func, desc
 from starlette.templating import Jinja2Templates
 from app.core.db import get_session
@@ -62,7 +62,7 @@ async def get_dashboard(request: Request):
 @router.get("/api/dashboard/companies")
 async def api_dashboard_companies():
     """
-    Returns all companies with review_count and avg_rating immediately after ingestion.
+    Returns all companies with review_count and avg_rating after any ingestion.
     """
     async with get_session() as session:
         stmt = (
