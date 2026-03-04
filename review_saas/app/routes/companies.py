@@ -10,6 +10,9 @@ from app.core.config import settings
 from app.services.google_reviews import ingest_company_reviews
 from pydantic import BaseModel
 import googlemaps
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=['companies'])
 templates = Jinja2Templates(directory='app/templates')
@@ -23,7 +26,6 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
     uid = _require_user(request)
     if not uid:
         return RedirectResponse('/login', status_code=302)
-
     async with get_session() as session:
         stmt = select(Company).order_by(Company.created_at.desc())
         if q:
@@ -32,7 +34,6 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
         all_rows = result.scalars().all()
         total = len(all_rows)
         items = all_rows[(page-1)*size:(page-1)*size+size]
-
     return templates.TemplateResponse("companies.html", {
         "request": request,
         "items": items,
@@ -48,19 +49,15 @@ async def company_sync(company_id: int, request: Request, bg_tasks: BackgroundTa
     uid = _require_user(request)
     if not uid:
         return RedirectResponse("/login", status_code=302)
-
     async with get_session() as session:
         result = await session.execute(select(Company).where(Company.id == company_id))
         company = result.scalar_one_or_none()
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
-
         # Trigger background fetch
-        bg_tasks.add_task(ingest_company_reviews, session, company.id, company.place_id)
-
+        bg_tasks.add_task(ingest_company_reviews, session, company.id, company.google_place_id)  # ← fixed here too
         session.add(AuditLog(user_id=uid, action="company_sync_triggered", meta={"company_id": company.id}))
         await session.commit()
-
     return RedirectResponse(url=f"/dashboard?company_id={company_id}", status_code=302)
 
 # --- GOOGLE PLACE SEARCH ---
@@ -99,14 +96,14 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
         return {"success": False, "message": "Unauthorized"}
 
     async with get_session() as session:
-        # Prevent duplicates
-        res = await session.execute(select(Company).where(Company.place_id == data.place_id))
+        # Prevent duplicates — FIXED: use google_place_id instead of place_id
+        res = await session.execute(select(Company).where(Company.google_place_id == data.place_id))
         if res.scalar_one_or_none():
             return {"success": False, "message": "Company already exists"}
 
         new_company = Company(
             name=data.name,
-            place_id=data.place_id,
+            google_place_id=data.place_id,  # ← FIXED: map to correct column name
             address=data.address,
             google_data=data.google_data or {},
             owner_id=uid
@@ -114,11 +111,13 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
         session.add(new_company)
         await session.flush()
 
-        # Trigger background ingestion
-        bg_tasks.add_task(ingest_company_reviews, session, new_company.id, new_company.place_id)
+        # Trigger background ingestion — FIXED: use google_place_id
+        bg_tasks.add_task(ingest_company_reviews, session, new_company.id, new_company.google_place_id)
 
         session.add(AuditLog(user_id=uid, action="company_add_google", meta={"company_id": new_company.id}))
         await session.commit()
+
+        logger.info(f"Company added: {new_company.name} (ID: {new_company.id})")
 
         return {"success": True, "company_id": new_company.id, "message": "Company added and reviews loading!"}
 
@@ -128,10 +127,8 @@ async def company_delete(request: Request, company_id: int):
     uid = _require_user(request)
     if not uid:
         return RedirectResponse("/login", status_code=302)
-
     async with get_session() as session:
         await session.execute(delete(Company).where(Company.id == company_id))
         session.add(AuditLog(user_id=uid, action="company_delete", meta={"company_id": company_id}))
         await session.commit()
-
     return RedirectResponse("/companies", status_code=302)
