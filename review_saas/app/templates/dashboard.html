@@ -123,7 +123,6 @@
 
 </div>
 
-<!-- Add Company Modal -->
 <div class="modal fade" id="addCompanyModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
@@ -209,7 +208,6 @@ async function safeJsonFetch(url) {
   return res.json();
 }
 
-// Load Companies Dropdown
 async function loadCompanies() {
   try {
     const data = await safeJsonFetch('/api/companies/list');
@@ -231,7 +229,6 @@ async function loadCompanies() {
   }
 }
 
-// Fetch Dashboard Data
 async function fetchDashboardData() {
   if(!currentCompanyId) return;
   show('loadingBox', true);
@@ -283,7 +280,6 @@ async function fetchDashboardData() {
   }
 }
 
-// Load Reviews List
 async function loadReviewsList() {
   if(!currentCompanyId) return;
   const params={ company_id:currentCompanyId, sort:el.sortReviews.value, start:el.startDate.value, end:el.endDate.value };
@@ -305,24 +301,47 @@ async function loadReviewsList() {
 // Google Places Autocomplete
 function loadGoogleScript(){
   const s=document.createElement('script');
+  // REPLACE YOUR_API_KEY WITH YOUR ACTUAL GOOGLE API KEY
   s.src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places&callback=initGooglePlaces";
   s.async=true; s.defer=true;
   document.head.appendChild(s);
 }
+
 window.initGooglePlaces=function(){
   if(typeof google==='undefined') return;
-  const auto=new google.maps.places.Autocomplete(el.placeSearch,{types:["establishment"]});
+  const auto=new google.maps.places.Autocomplete(el.placeSearch,{
+    fields: ["place_id", "name", "formatted_address", "formatted_phone_number", "website", "types", "opening_hours", "rating", "user_ratings_total"],
+    types: ["establishment"]
+  });
+  
   auto.addListener("place_changed",()=>{
     const p=auto.getPlace();
     if(!p.place_id) return;
-    el.prevAddress.value=p.formatted_address||'';
-    el.prevPhone.value=p.formatted_phone_number||'N/A';
-    el.prevWebsite.value=p.website||'N/A';
-    el.prevCategory.value=p.types?.[0]?.replace(/_/g,' ')||'Business';
-    el.prevHours.value=p.opening_hours?.weekday_text?.join('\n')||'No hours listed';
-    el.previewBox.style.display='block';
-    selectedPlace={name:p.name, place_id:p.place_id, address:p.formatted_address, phone:p.formatted_phone_number, website:p.website, category:el.prevCategory.value, hours:el.prevHours.value, google_data:p};
-    el.saveBtn.disabled=false;
+    
+    // Autofilling fields through Google API
+    el.prevAddress.value = p.formatted_address || '';
+    el.prevPhone.value = p.formatted_phone_number || 'N/A';
+    el.prevWebsite.value = p.website || 'N/A';
+    el.prevCategory.value = p.types ? p.types[0].replace(/_/g,' ') : 'Business';
+    el.prevHours.value = p.opening_hours?.weekday_text?.join('\n') || 'No hours listed';
+    
+    el.previewBox.style.display = 'block';
+    
+    // Auto populated attributes for save functionality
+    selectedPlace = {
+      name: p.name, 
+      place_id: p.place_id, 
+      address: p.formatted_address, 
+      phone: p.formatted_phone_number, 
+      website: p.website, 
+      category: el.prevCategory.value, 
+      hours: el.prevHours.value,
+      avg_rating: p.rating || 0,
+      review_count: p.user_ratings_total || 0,
+      google_data: p
+    };
+    
+    el.saveBtn.disabled = false;
   });
 };
 
@@ -339,7 +358,6 @@ el.saveBtn.onclick=async()=>{
   } catch(err){ alert('Save failed'); }
 };
 
-// Initial Load
 document.addEventListener("DOMContentLoaded",()=>{
   loadGoogleScript();
   const today=new Date();
