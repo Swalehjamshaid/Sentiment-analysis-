@@ -19,7 +19,7 @@ logger = logging.getLogger("app.dashboard")
 @router.get("/dashboard", response_class=HTMLResponse)
 async def get_dashboard(request: Request):
     """
-    Renders dashboard and fetches companies from DB and updated reviews.
+    Renders dashboard and fetches companies from DB and updated reviews for the logged-in user.
     """
     uid = _require_user(request)
     if not uid:
@@ -35,6 +35,7 @@ async def get_dashboard(request: Request):
                 func.coalesce(func.avg(Review.rating), 0).label("avg_rating"),
             )
             .outerjoin(Review, Company.id == Review.company_id)
+            .where(Company.owner_id == uid)  # Ensure only this user's companies
             .group_by(Company.id, Company.name, Company.address)
             .order_by(desc(Company.created_at))
         )
@@ -62,8 +63,12 @@ async def get_dashboard(request: Request):
 @router.get("/api/dashboard/companies")
 async def api_dashboard_companies():
     """
-    Returns all companies with review_count and avg_rating after any ingestion.
+    Returns all companies for the logged-in user with review_count and avg_rating.
     """
+    uid = _require_user(request)
+    if not uid:
+        return JSONResponse({"success": False, "results": [], "message": "Unauthorized"}, status_code=401)
+
     async with get_session() as session:
         stmt = (
             select(
@@ -74,6 +79,7 @@ async def api_dashboard_companies():
                 func.coalesce(func.avg(Review.rating), 0).label("avg_rating"),
             )
             .outerjoin(Review, Company.id == Review.company_id)
+            .where(Company.owner_id == uid)  # Ensure we only fetch the user's companies
             .group_by(Company.id, Company.name, Company.address)
             .order_by(desc(Company.created_at))
         )
