@@ -10,11 +10,13 @@
     .spinner { display: none; }
     .success-msg, .nodata-msg, .error-msg { display: none; }
     #addCompanyModal .modal-dialog { max-width: 500px; }
-    .pac-container { z-index: 1060 !important; }
+    /* Fix: Ensures Google results appear above the Bootstrap Modal */
+    .pac-container { z-index: 10000 !important; }
     .auto-field { background-color: #f8f9fa; pointer-events: none; }
   </style>
 </head>
 <body>
+
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
   <div class="container-fluid">
     <a class="navbar-brand" href="/">ReviewSaaS</a>
@@ -26,7 +28,6 @@
 </nav>
 
 <div class="container py-4">
-  <!-- Controls -->
   <div class="row g-3 align-items-end">
     <div class="col-lg-4">
       <label class="form-label">Company</label>
@@ -61,13 +62,11 @@
     </div>
   </div>
 
-  <!-- Alerts -->
-  <div class="alert alert-info mt-3 spinner" id="loadingBox">Loading…</div>
+  <div class="alert alert-info mt-3 spinner" id="loadingBox">Loading Data...</div>
   <div class="alert alert-success mt-3 success-msg" id="successBox">Data fetched successfully.</div>
   <div class="alert alert-warning mt-3 nodata-msg" id="nodataBox">No Data Found for selected date range.</div>
   <div class="alert alert-danger mt-3 error-msg" id="errorBox">Error loading data. Check console (F12).</div>
 
-  <!-- KPIs -->
   <div class="row g-3 mt-2">
     <div class="col-md-3"><div class="p-3 bg-light border rounded">Total Reviews <h4 id="kpi-total" class="mb-0">0</h4></div></div>
     <div class="col-md-3"><div class="p-3 bg-light border rounded">Avg Rating <h4 id="kpi-rating" class="mb-0">0.0</h4></div></div>
@@ -75,7 +74,6 @@
     <div class="col-md-3"><div class="p-3 bg-light border rounded">New (24h) <h4 id="kpi-new" class="mb-0">0</h4></div></div>
   </div>
 
-  <!-- Charts -->
   <div class="row g-3 mt-1">
     <div class="col-lg-8">
       <div class="card">
@@ -101,7 +99,6 @@
     </div>
   </div>
 
-  <!-- Reviews List -->
   <div class="row g-3 mt-1">
     <div class="col-12">
       <div class="card">
@@ -122,22 +119,21 @@
   </div>
 </div>
 
-<!-- Add Company Modal -->
 <div class="modal fade" id="addCompanyModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Add New Company via Google Places</h5>
+        <h5 class="modal-title">Add Company via Google Maps</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <div class="mb-3">
-          <label class="form-label fw-bold">Search Company / Place</label>
-          <input type="text" class="form-control" id="placeSearch" placeholder="e.g. McDonald's Lahore, fabric London">
+          <label class="form-label fw-bold">Search Business Name</label>
+          <input type="text" class="form-control" id="placeSearch" placeholder="Search Place...">
         </div>
         <div id="detailsPreview" style="display:none;" class="border-top pt-3">
           <div class="mb-2">
-            <label class="small text-muted">Address</label>
+            <label class="small text-muted">Full Address</label>
             <input type="text" id="prev_address" class="form-control form-control-sm auto-field">
           </div>
           <div class="row mb-2">
@@ -154,22 +150,17 @@
             <label class="small text-muted">Website</label>
             <input type="text" id="prev_website" class="form-control form-control-sm auto-field">
           </div>
-          <div class="mb-2">
-            <label class="small text-muted">Business Hours</label>
-            <textarea id="prev_hours" rows="2" class="form-control form-control-sm auto-field"></textarea>
-          </div>
         </div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-        <button type="button" class="btn btn-primary" id="saveCompanyBtn" disabled>Save Selected Company</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="saveCompanyBtn" disabled>Add to Dashboard</button>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-// --- Elements ---
 const el = {
   companySelect: document.getElementById('companySelect'),
   switchBtn: document.getElementById('switchCompanyBtn'),
@@ -189,11 +180,7 @@ const el = {
   kpiSent: document.getElementById('kpi-sent'),
   kpiNew: document.getElementById('kpi-new'),
   previewBox: document.getElementById('detailsPreview'),
-  prevAddress: document.getElementById('prev_address'),
-  prevPhone: document.getElementById('prev_phone'),
-  prevWebsite: document.getElementById('prev_website'),
-  prevCategory: document.getElementById('prev_category'),
-  prevHours: document.getElementById('prev_hours')
+  prevAddress: document.getElementById('prev_address')
 };
 
 let currentCompanyId = null;
@@ -201,146 +188,163 @@ let selectedPlace = null;
 let charts = {};
 let reviewsDataGlobal = [];
 
-// --- Helpers ---
-const show = (elId, visible) => el[elId].style.display = visible ? 'block' : 'none';
-const qs = (obj) => new URLSearchParams(obj).toString();
+const show = (id, v) => el[id].style.display = v ? 'block' : 'none';
+const qs = (o) => new URLSearchParams(o).toString();
+
 async function safeJsonFetch(url) {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status} - ${res.statusText}`);
-    const json = await res.json();
-    console.log(`[API OK] ${url}:`, json);
-    return json;
-  } catch (err) { console.error(`[API FAIL] ${url}:`, err); throw err; }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("API Failure");
+  return res.json();
 }
 
-// --- Load Companies ---
 async function loadCompanies() {
   try {
     const data = await safeJsonFetch('/api/companies/list');
     el.companySelect.innerHTML = '';
-    if (!data.companies || data.companies.length===0) {
+    if (!data.companies || data.companies.length === 0) {
       el.companySelect.innerHTML = '<option value="">No companies found</option>';
       return;
     }
-    data.companies.forEach(c=>{
-      const opt=document.createElement('option');
-      opt.value=c.id; opt.textContent=c.name;
+    data.companies.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id; opt.textContent = c.name;
       el.companySelect.appendChild(opt);
     });
-    const savedId = localStorage.getItem('lastCompanyId');
-    if (savedId && data.companies.some(c=>c.id==savedId)) el.companySelect.value=savedId;
-    else el.companySelect.value=data.companies[0].id;
-    currentCompanyId=el.companySelect.value;
-  } catch(err){ el.companySelect.innerHTML='<option value="">Error loading companies</option>'; show('errorBox',true);}
+    const lastId = localStorage.getItem('lastCompanyId');
+    if (lastId && data.companies.some(c => c.id == lastId)) el.companySelect.value = lastId;
+    currentCompanyId = el.companySelect.value;
+  } catch (err) { el.companySelect.innerHTML = '<option value="">Error Loading</option>'; }
 }
 
-// --- Load Reviews List ---
-function loadReviewsList() {
+function renderReviewsList() {
   let items = [...reviewsDataGlobal];
   const sort = el.sortReviews.value;
   if(sort==='newest') items.sort((a,b)=>new Date(b.review_time)-new Date(a.review_time));
   else if(sort==='oldest') items.sort((a,b)=>new Date(a.review_time)-new Date(b.review_time));
   else if(sort==='highest') items.sort((a,b)=>b.rating-a.rating);
   else if(sort==='lowest') items.sort((a,b)=>a.rating-b.rating);
-  el.reviewsList.innerHTML = items.length>0 ? items.map(r=>{
-    const rating=r.rating||0;
-    const stars='★'.repeat(Math.round(rating))+'☆'.repeat(5-Math.round(rating));
+
+  el.reviewsList.innerHTML = items.length > 0 ? items.map(r => {
+    const stars = '★'.repeat(Math.round(r.rating)) + '☆'.repeat(5 - Math.round(r.rating));
     return `<div class="border rounded p-2 mb-2">
       <div class="d-flex justify-content-between small text-muted">
-        <span>${r.author_name||'Anonymous'}</span>
-        <span>${r.review_time||''}</span>
+        <span>${r.author_name || 'Anonymous'}</span>
+        <span>${r.review_time || ''}</span>
       </div>
-      <div class="text-warning">${stars} <span class="text-dark">${rating.toFixed(1)}</span></div>
-      <div>${r.text||''}</div>
+      <div class="text-warning">${stars} <span class="text-dark">${(r.rating || 0).toFixed(1)}</span></div>
+      <div>${r.text || ''}</div>
     </div>`;
   }).join('') : '<p class="text-muted text-center">No reviews found.</p>';
 }
 
-// --- Fetch Dashboard ---
 async function fetchDashboardData() {
-  if(!currentCompanyId){ show('errorBox',true); return; }
-  show('loadingBox',true); ['successBox','nodataBox','errorBox'].forEach(id=>show(id,false));
-  const params={company_id:currentCompanyId,start:el.startDate.value,end:el.endDate.value};
+  if (!currentCompanyId) return;
+  show('loadingBox', true); ['successBox','nodataBox','errorBox'].forEach(id => show(id, false));
+  const p = { company_id: currentCompanyId, start: el.startDate.value, end: el.endDate.value };
   try {
-    const [kpis,revSeries,ratDist,sentSeries,reviewsData]=await Promise.all([
-      safeJsonFetch(`/api/kpis?${qs(params)}`),
-      safeJsonFetch(`/api/series/reviews?${qs(params)}`),
-      safeJsonFetch(`/api/ratings/distribution?${qs(params)}`),
-      safeJsonFetch(`/api/sentiment/series?${qs(params)}`),
-      safeJsonFetch(`/api/reviews/list?${qs(params)}`)
+    const [kpis, revS, ratD, sentS, revL] = await Promise.all([
+      safeJsonFetch(`/api/kpis?${qs(p)}`),
+      safeJsonFetch(`/api/series/reviews?${qs(p)}`),
+      safeJsonFetch(`/api/ratings/distribution?${qs(p)}`),
+      safeJsonFetch(`/api/sentiment/series?${qs(p)}`),
+      safeJsonFetch(`/api/reviews/list?${qs(p)}`)
     ]);
-    // KPIs
-    el.kpiTotal.textContent=kpis?.total_reviews??0;
-    el.kpiRating.textContent=(kpis?.avg_rating??0).toFixed(2);
-    el.kpiSent.textContent=(kpis?.avg_sentiment??0).toFixed(3);
-    el.kpiNew.textContent=(revSeries?.series?.length>0?revSeries.series.at(-1).value:0);
 
-    // Charts
-    Object.values(charts).forEach(c=>c?.destroy?.());
-    charts.rev=new Chart(document.getElementById('seriesReviews'),{type:'line',data:{labels:revSeries?.series?.map(x=>x.date)||[],datasets:[{label:'Reviews',data:revSeries?.series?.map(x=>x.value)||[],borderColor:'#0d6efd',backgroundColor:'rgba(13,110,253,0.1)',tension:0.3,fill:true}]}});
-    charts.dist=new Chart(document.getElementById('ratingsDist'),{type:'bar',data:{labels:Object.keys(ratDist?.distribution||{}),datasets:[{label:'Rating Count',data:Object.values(ratDist?.distribution||{}),backgroundColor:'#ffc107'}]}});
-    charts.sent=new Chart(document.getElementById('sentSeries'),{type:'line',data:{labels:sentSeries?.series?.map(x=>x.date)||[],datasets:[{label:'Sentiment',data:sentSeries?.series?.map(x=>x.value)||[],borderColor:'#6610f2',backgroundColor:'rgba(102,16,242,0.1)',tension:0.3,fill:true}]}});
-    
-    // Reviews
-    reviewsDataGlobal=reviewsData?.items||[];
-    loadReviewsList();
-    show('loadingBox',false);
-    ((kpis?.total_reviews??0)===0)?show('nodataBox',true):show('successBox',true);
-  } catch(err){ show('loadingBox',false); show('errorBox',true); console.error(err);}
+    el.kpiTotal.textContent = kpis.total_reviews ?? 0;
+    el.kpiRating.textContent = (kpis.avg_rating || 0).toFixed(2);
+    el.kpiSent.textContent = (kpis.avg_sentiment || 0).toFixed(3);
+    el.kpiNew.textContent = (revS.series?.length > 0) ? revS.series.at(-1).value : 0;
+
+    Object.values(charts).forEach(c => c?.destroy?.());
+    charts.rev = new Chart(document.getElementById('seriesReviews'), {
+      type: 'line', 
+      data: { labels: revS.series?.map(x => x.date) || [], datasets: [{ label: 'Reviews', data: revS.series?.map(x => x.value) || [], borderColor: '#0d6efd', backgroundColor: 'rgba(13,110,253,0.1)', tension: 0.3, fill: true }] }
+    });
+    charts.dist = new Chart(document.getElementById('ratingsDist'), {
+      type: 'bar',
+      data: { labels: Object.keys(ratD.distribution || {}), datasets: [{ label: 'Rating Count', data: Object.values(ratD.distribution || {}), backgroundColor: '#ffc107' }] }
+    });
+    charts.sent = new Chart(document.getElementById('sentSeries'), {
+      type: 'line',
+      data: { labels: sentS.series?.map(x => x.date) || [], datasets: [{ label: 'Sentiment', data: sentS.series?.map(x => x.value) || [], borderColor: '#6610f2', backgroundColor: 'rgba(102,16,242,0.1)', tension: 0.3, fill: true }] },
+      options: { scales: { y: { min: -1, max: 1 } } }
+    });
+
+    reviewsDataGlobal = revL.items || [];
+    renderReviewsList();
+    show('loadingBox', false);
+    (kpis.total_reviews === 0) ? show('nodataBox', true) : show('successBox', true);
+  } catch (err) { show('loadingBox', false); show('errorBox', true); }
 }
 
-// --- Google Places ---
-function loadGoogleScript(){
-  const s=document.createElement('script');
-  s.src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initGooglePlaces";
-  s.async=true; s.defer=true;
-  s.onerror=()=>console.error("Google Maps script failed to load");
+function loadGoogleScript() {
+  const s = document.createElement('script');
+  // REPLACE YOUR_API_KEY
+  s.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initGooglePlaces";
+  s.async = true; s.defer = true;
   document.head.appendChild(s);
 }
-window.initGooglePlaces=function(){
-  if(!window.google?.maps?.places){console.error("Google Places not loaded");return;}
-  const autocomplete=new google.maps.places.Autocomplete(el.placeSearch,{types:["establishment"],fields:["place_id","name","formatted_address","formatted_phone_number","website","types","opening_hours","rating","user_ratings_total"]});
-  autocomplete.addListener("place_changed",()=>{
-    const place=autocomplete.getPlace();
-    if(!place.place_id){alert("Select valid suggestion."); return;}
-    el.prevAddress.value=place.formatted_address||'N/A';
-    el.prevPhone.value=place.formatted_phone_number||'N/A';
-    el.prevWebsite.value=place.website||'N/A';
-    el.prevCategory.value=place.types?.[0]?.replace(/_/g,' ')||'Business';
-    el.prevHours.value=place.opening_hours?.weekday_text?.join('\n')||'No hours listed';
-    el.previewBox.style.display='block';
-    selectedPlace={name:place.name||'',place_id:place.place_id,address:place.formatted_address||'',phone:place.formatted_phone_number||'',website:place.website||'',category:el.prevCategory.value,hours:el.prevHours.value,avg_rating:place.rating||0,review_count:place.user_ratings_total||0};
-    el.saveBtn.disabled=false;
+
+window.initGooglePlaces = function() {
+  const autocomplete = new google.maps.places.Autocomplete(el.placeSearch, {
+    types: ["establishment"],
+    fields: ["place_id", "name", "formatted_address", "rating", "user_ratings_total"]
+  });
+  autocomplete.addListener("place_changed", () => {
+    const p = autocomplete.getPlace();
+    if (!p.place_id) return;
+    el.prevAddress.value = p.formatted_address || '';
+    document.getElementById('detailsPreview').style.display = 'block';
+    selectedPlace = {
+      name: p.name,
+      place_id: p.place_id,
+      address: p.formatted_address,
+      avg_rating: p.rating || 0,
+      review_count: p.user_ratings_total || 0
+    };
+    el.saveBtn.disabled = false;
   });
 };
 
-// --- Event Listeners ---
-el.fetchBtn.addEventListener('click',fetchDashboardData);
-el.sortReviews.addEventListener('change',loadReviewsList);
-el.switchBtn.addEventListener('click',()=>{
-  currentCompanyId=el.companySelect.value;
-  localStorage.setItem('lastCompanyId',currentCompanyId);
-  fetchDashboardData();
-});
-el.saveBtn.onclick=async()=>{
-  if(!selectedPlace?.place_id){alert("Select valid place"); return;}
-  try{
-    const res=await fetch('/companies/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(selectedPlace)});
-    const result=await res.json(); console.log("Save response:",result);
-    if(result.success){alert("Company added! Refreshing..."); location.reload();} else {alert(result.message||"Failed to add company");}
-  }catch(err){console.error("Save error:",err); alert("Save failed - check console (F12)");}
+el.saveBtn.onclick = async () => {
+  if (!selectedPlace) return;
+  el.saveBtn.disabled = true;
+  try {
+    const res = await fetch('/companies/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(selectedPlace)
+    });
+    const d = await res.json();
+    if (d.success) {
+      alert("Company Added!");
+      // CRITICAL: Re-fetch list from database immediately
+      await loadCompanies(); 
+      el.companySelect.value = d.company.id;
+      currentCompanyId = d.company.id;
+      await fetchDashboardData();
+      bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
+    } else { alert(d.message); }
+  } catch (err) { alert("Save failed"); }
+  finally { el.saveBtn.disabled = false; }
 };
 
-// --- Initial Load ---
-window.addEventListener('DOMContentLoaded',async()=>{
-  const today=new Date().toISOString().split('T')[0];
-  el.startDate.value=new Date(new Date().setMonth(new Date().getMonth()-1)).toISOString().split('T')[0];
-  el.endDate.value=today;
+el.fetchBtn.onclick = fetchDashboardData;
+el.sortReviews.onchange = renderReviewsList;
+el.switchBtn.onclick = () => {
+  currentCompanyId = el.companySelect.value;
+  localStorage.setItem('lastCompanyId', currentCompanyId);
+  fetchDashboardData();
+};
+
+window.onload = async () => {
   loadGoogleScript();
+  const end = new Date().toISOString().split('T')[0];
+  const start = new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().split('T')[0];
+  el.startDate.value = start; el.endDate.value = end;
   await loadCompanies();
-  if(currentCompanyId) await fetchDashboardData();
-});
+  if (currentCompanyId) await fetchDashboardData();
+};
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
