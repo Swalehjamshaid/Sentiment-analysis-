@@ -1,11 +1,11 @@
 # filename: app/routes/companies.py
 from __future__ import annotations
-from fastapi import APIRouter, Request, Query, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Request, BackgroundTasks, Query, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from starlette.templating import Jinja2Templates
 from sqlalchemy import select, delete, or_, func
 from app.core.db import get_session
-from app.core.models import Company, AuditLog, User, Review
+from app.core.models import Company, AuditLog, User
 from app.core.config import settings
 from app.services.google_reviews import ingest_company_reviews
 from pydantic import BaseModel
@@ -17,16 +17,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["companies"])
 templates = Jinja2Templates(directory="app/templates")
 
-# -----------------------------
-# Helper: Require Logged User
-# -----------------------------
+
 def _require_user(request: Request):
     return request.session.get("user_id")
 
 
-# -----------------------------
-# SERVER RENDERED COMPANIES PAGE
-# -----------------------------
 @router.get("/companies", response_class=HTMLResponse)
 async def companies_page(request: Request, q: str | None = None, page: int = 1, size: int = 10):
     uid = _require_user(request)
@@ -66,9 +61,6 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
     )
 
 
-# -----------------------------
-# JSON API: LIST COMPANIES
-# -----------------------------
 @router.get("/api/companies/list")
 async def list_companies(request: Request, q: str | None = None):
     uid = _require_user(request)
@@ -114,12 +106,9 @@ async def list_companies(request: Request, q: str | None = None):
             for c in companies
         ]
 
-        return {"success": True, "companies": data}
+    return {"success": True, "companies": data}
 
 
-# -----------------------------
-# GOOGLE PLACE SEARCH
-# -----------------------------
 class PlaceSearchResult(BaseModel):
     place_id: str
     name: str
@@ -148,9 +137,6 @@ async def search_google_places(q: str = Query(..., min_length=3)):
         return {"success": False, "message": str(e)}
 
 
-# -----------------------------
-# ADD COMPANY
-# -----------------------------
 class AddCompanyRequest(BaseModel):
     name: str
     place_id: str
@@ -186,7 +172,7 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
         )
 
         session.add(new_company)
-        await session.flush()  # get ID
+        await session.flush()
 
         # Add background task for Google reviews
         bg_tasks.add_task(
@@ -218,9 +204,6 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
         }
 
 
-# -----------------------------
-# SYNC COMPANY
-# -----------------------------
 @router.post("/companies/{company_id}/sync")
 async def company_sync(company_id: int, request: Request, bg_tasks: BackgroundTasks):
     uid = _require_user(request)
@@ -238,6 +221,7 @@ async def company_sync(company_id: int, request: Request, bg_tasks: BackgroundTa
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
+        # Trigger ingestion for this company
         bg_tasks.add_task(
             ingest_company_reviews,
             company.id,
@@ -257,9 +241,6 @@ async def company_sync(company_id: int, request: Request, bg_tasks: BackgroundTa
     return RedirectResponse(url=f"/dashboard?company_id={company_id}", status_code=302)
 
 
-# -----------------------------
-# DELETE COMPANY
-# -----------------------------
 @router.post("/companies/{company_id}/delete")
 async def company_delete(request: Request, company_id: int):
     uid = _require_user(request)
@@ -267,7 +248,6 @@ async def company_delete(request: Request, company_id: int):
         return RedirectResponse("/login", status_code=302)
 
     async with get_session() as session:
-        # Only delete if owned by user
         await session.execute(delete(Company).where(Company.id == company_id, Company.owner_id == uid))
 
         session.add(
