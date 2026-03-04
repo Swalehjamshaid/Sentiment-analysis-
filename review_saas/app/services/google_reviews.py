@@ -1,9 +1,7 @@
-# filename: app/services/google_reviews.py
-
 import logging
 import googlemaps
 import httpx
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.core.db import get_session
@@ -19,7 +17,6 @@ def _get_places_client():
     if not settings.GOOGLE_PLACES_API_KEY:
         return None
     return googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
-
 
 # ---------------------------------------------------------
 # REQUIRED FUNCTION (Top-level for import)
@@ -39,19 +36,16 @@ def fetch_place_details(place_id: str):
     )
     return result.get("result", {})
 
-
 # ---------------------------------------------------------
 # Google Business API (OAuth Required)
 # ---------------------------------------------------------
 async def _fetch_reviews_from_business_api(place_id: str):
     access_token = getattr(settings, "GOOGLE_BUSINESS_ACCESS_TOKEN", None)
-
     if not access_token:
         logger.warning("No Google Business OAuth token found.")
         return None
 
     url = f"https://mybusiness.googleapis.com/v4/accounts/-/locations/{place_id}/reviews"
-
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/json",
@@ -59,13 +53,10 @@ async def _fetch_reviews_from_business_api(place_id: str):
 
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(url, headers=headers)
-
         if response.status_code != 200:
             logger.warning("Business API failed, falling back to Places API.")
             return None
-
         return response.json().get("reviews", [])
-
 
 # ---------------------------------------------------------
 # Google Places API (Fallback - Max 5 Reviews)
@@ -79,26 +70,22 @@ def _fetch_reviews_from_places_api(place_id: str):
         place_id=place_id,
         fields=["reviews"]
     )
-
     return result.get("result", {}).get("reviews", [])
-
 
 # ---------------------------------------------------------
 # Main Ingestion Function
 # ---------------------------------------------------------
 async def ingest_company_reviews(company_id: int, place_id: str):
     """
-    1. Try Google Business API (Full Reviews)
-    2. Fallback to Google Places API (Max 5 Reviews)
-    3. Save to Database
+    1. Fetch reviews from Google APIs.
+    2. Map data to the exact schema in app/core/models.py.
+    3. Commit changes to the database.
     """
     logger.info(f"Starting review ingestion for company_id={company_id}")
 
     try:
-        # Try Business API first
+        # Fetch reviews (Try Business API, then fallback to Places API)
         reviews = await _fetch_reviews_from_business_api(place_id)
-
-        # Fallback to Places API
         if not reviews:
             logger.info("Using Google Places API fallback.")
             reviews = _fetch_reviews_from_places_api(place_id)
@@ -108,57 +95,49 @@ async def ingest_company_reviews(company_id: int, place_id: str):
             return
 
         async with get_session() as session:
-            for r in reviews:
-                # Handle both API formats
-                author = (
-                    r.get("reviewer", {}).get("displayName")
-                    if "reviewer" in r else r.get("author_name")
-                )
-                rating = (
-                    r.get("starRating")
-                    if "starRating" in r else r.get("rating")
-                )
-                text = (
-                    r.get("comment")
-                    if "comment" in r else r.get("text")
-                )
-                profile_photo = (
-                    r.get("reviewer", {}).get("profilePhotoUrl")
-                    if "reviewer" in r else r.get("profile_photo_url")
-                )
+            # We use a transaction block to ensure data integrity
+            async with session.begin():
+                for r in reviews:
+                    # EXTRACT DATA
+                    author = r.get("reviewer", {}).get("displayName") if "reviewer" in r else r.get("author_name")
+                    rating = r.get("starRating") if "starRating" in r else r.get("rating")
+                    text = r.get("comment") if "comment" in r else r.get("text")
+                    photo = r.get("reviewer", {}).get("profilePhotoUrl") if "reviewer" in r else r.get("profile_photo_url")
 
-                review_date = None
-                if "createTime" in r:
-                    review_date = datetime.fromisoformat(
-                        r["createTime"].replace("Z", "+00:00")
+                    # FORMAT TIME (Required by model: google_review_time)
+                    g_time = None
+                    if "createTime" in r:
+                        # Business API format
+                        g_time = datetime.fromisoformat(r["createTime"].replace("Z", "+00:00"))
+                    elif "time" in r:
+                        # Places API format (Unix timestamp)
+                        g_time = datetime.fromtimestamp(r["time"], tz=timezone.utc)
+
+                    # GENERATE UNIQUE ID (Required by model: google_review_id)
+                    g_id = r.get("reviewId") or f"{place_id}_{r.get('time', 0)}_{author}"
+
+                    # PREVENT DUPLICATES
+                    existing = await session.execute(
+                        select(Review).where(Review.google_review_id == g_id)
                     )
-                elif "time" in r:
-                    review_date = datetime.utcfromtimestamp(r["time"])
+                    if existing.scalar_one_or_none():
+                        continue
 
-                # Prevent duplicates
-                existing = await session.execute(
-                    select(Review).where(
-                        Review.company_id == company_id,
-                        Review.author_name == author,
-                        Review.text == text
+                    # CREATE MODEL INSTANCE (Using exact names from models.py)
+                    new_review = Review(
+                        company_id=company_id,
+                        google_review_id=g_id,
+                        author_name=author,
+                        rating=int(rating) if rating else 0,
+                        text=text,
+                        google_review_time=g_time,
+                        profile_photo_url=photo,
                     )
-                )
-                if existing.scalar_one_or_none():
-                    continue
+                    session.add(new_review)
 
-                new_review = Review(
-                    company_id=company_id,
-                    author_name=author,
-                    rating=int(rating) if rating else None,
-                    text=text,
-                    review_date=review_date,
-                    source="google",
-                    profile_photo=profile_photo,
-                )
-                session.add(new_review)
-
-            await session.commit()
-        logger.info("Review ingestion completed successfully.")
+                # The transaction block automatically COMMITS all changes here 💾
+        
+        logger.info(f"✅ Successfully ingested reviews for company {company_id}")
 
     except Exception as e:
-        logger.error(f"Review ingestion failed: {e}")
+        logger.error(f"❌ Review ingestion failed: {e}")
