@@ -17,15 +17,38 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["companies"])
 templates = Jinja2Templates(directory="app/templates")
 
-# --- Helper: Authentication ---
+# ---------------------------------------------------------
+# Helper: Authentication
+# ---------------------------------------------------------
 def _require_user(request: Request):
     return request.session.get("user_id")
 
-# --- Pydantic Schemas ---
+
+# ---------------------------------------------------------
+# NEW REQUIRED FUNCTION
+# Safe Google Maps Client Initializer
+# ---------------------------------------------------------
+def _get_gmaps_client():
+    """
+    Initializes Google Maps client safely.
+    Prevents crashes if API key is missing.
+    """
+    if not settings.GOOGLE_PLACES_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Google Places API key is not configured."
+        )
+    return googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
+
+
+# ---------------------------------------------------------
+# Pydantic Schemas
+# ---------------------------------------------------------
 class PlaceSearchResult(BaseModel):
     place_id: str
     name: str
     formatted_address: str | None = None
+
 
 class AddCompanyRequest(BaseModel):
     name: str
@@ -33,12 +56,11 @@ class AddCompanyRequest(BaseModel):
     address: str | None = None
     google_data: dict | None = None
 
-# --- Helper: Get Updated List Logic (Database Fetch) ---
+
+# ---------------------------------------------------------
+# Helper: Fetch Companies With Aggregated Data
+# ---------------------------------------------------------
 async def _get_companies_data(session, uid: int):
-    """
-    Core logic to fetch data from the database. 
-    Ensures front-end display stays in sync with actual DB state.
-    """
     stmt = (
         select(
             Company.id,
@@ -53,7 +75,9 @@ async def _get_companies_data(session, uid: int):
         .group_by(Company.id, Company.name, Company.address, Company.google_place_id)
         .order_by(desc(Company.created_at))
     )
+
     res = await session.execute(stmt)
+
     return [
         {
             "id": int(r.id),
@@ -66,7 +90,10 @@ async def _get_companies_data(session, uid: int):
         for r in res.all()
     ]
 
-# --- UI Route: Companies Management Page ---
+
+# ---------------------------------------------------------
+# UI Route: Companies Page
+# ---------------------------------------------------------
 @router.get("/companies", response_class=HTMLResponse)
 async def companies_page(request: Request, q: str | None = None, page: int = 1, size: int = 10):
     uid = _require_user(request)
@@ -80,14 +107,18 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
             return RedirectResponse("/login", status_code=302)
 
         stmt = select(Company).where(Company.owner_id == uid).order_by(Company.created_at.desc())
+
         if q:
-            stmt = stmt.where(or_(
-                Company.name.ilike(f"%{q}%"),
-                Company.address.ilike(f"%{q}%")
-            ))
+            stmt = stmt.where(
+                or_(
+                    Company.name.ilike(f"%{q}%"),
+                    Company.address.ilike(f"%{q}%")
+                )
+            )
 
         result = await session.execute(stmt)
         all_rows = result.scalars().all()
+
         total = len(all_rows)
         items = all_rows[(page - 1) * size : (page - 1) * size + size]
 
@@ -103,23 +134,32 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
         },
     )
 
-# --- API: List Companies (Fetch from Database) ---
+
+# ---------------------------------------------------------
+# API: List Companies
+# ---------------------------------------------------------
 @router.get("/api/companies/list")
 async def list_companies(request: Request):
     uid = _require_user(request)
     if not uid:
-        return JSONResponse({"success": False, "companies": [], "message": "Unauthorized"}, status_code=401)
+        return JSONResponse({"success": False, "companies": []}, status_code=401)
 
     async with get_session() as session:
         data = await _get_companies_data(session, uid)
+
     return {"success": True, "companies": data}
 
-# --- API: Search Google Places (Input from Google API) ---
+
+# ---------------------------------------------------------
+# API: Search Google Places
+# ---------------------------------------------------------
 @router.get("/google/places/search")
 async def search_google_places(q: str = Query(..., min_length=3)):
     try:
-        gmaps_client = googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
+        gmaps_client = _get_gmaps_client()
+
         result = gmaps_client.places(query=q)
+
         places = [
             PlaceSearchResult(
                 place_id=p["place_id"],
@@ -128,12 +168,17 @@ async def search_google_places(q: str = Query(..., min_length=3)):
             )
             for p in result.get("results", [])
         ]
+
         return {"success": True, "results": places}
+
     except Exception as e:
         logger.error(f"Google search error: {e}")
         return {"success": False, "message": str(e)}
 
-# --- API: Add New Company (Input -> Database -> Fetch -> Display) ---
+
+# ---------------------------------------------------------
+# API: Add New Company
+# ---------------------------------------------------------
 @router.post("/companies/add")
 async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: BackgroundTasks):
     uid = _require_user(request)
@@ -141,14 +186,20 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
         return JSONResponse({"success": False, "message": "Unauthorized"}, status_code=401)
 
     async with get_session() as session:
-        # Check for duplication
-        existing = await session.execute(
-            select(Company).where(Company.google_place_id == data.place_id, Company.owner_id == uid)
-        )
-        if existing.scalar_one_or_none():
-            return JSONResponse({"success": False, "message": "Company already exists in your account"}, status_code=400)
 
-        # 1. DATABASE INPUT: Save record to Postgres
+        existing = await session.execute(
+            select(Company).where(
+                Company.google_place_id == data.place_id,
+                Company.owner_id == uid,
+            )
+        )
+
+        if existing.scalar_one_or_none():
+            return JSONResponse(
+                {"success": False, "message": "Company already exists"},
+                status_code=400,
+            )
+
         new_company = Company(
             name=data.name,
             google_place_id=data.place_id,
@@ -156,53 +207,87 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
             google_data=data.google_data or {},
             owner_id=uid,
         )
+
         session.add(new_company)
-        await session.flush() # Generate ID for Audit Log
+        await session.flush()
 
-        # 2. AUDIT LOG: Track activity
-        session.add(AuditLog(user_id=uid, action="company_add_google", meta={"company_id": new_company.id}))
+        session.add(
+            AuditLog(
+                user_id=uid,
+                action="company_add_google",
+                meta={"company_id": new_company.id},
+            )
+        )
 
-        # 3. COMMIT TRANSACTION: Hard-save to DB before responding
         await session.commit()
         await session.refresh(new_company)
 
-        # 4. BACKGROUND PROCESS: Start scraping reviews
-        bg_tasks.add_task(ingest_company_reviews, new_company.id, new_company.google_place_id)
+        # Background review ingestion
+        bg_tasks.add_task(
+            ingest_company_reviews,
+            new_company.id,
+            new_company.google_place_id,
+        )
 
-        # 5. DATABASE FETCH: Get full updated list for front-end refresh
         companies = await _get_companies_data(session, uid)
-        
+
     return {
         "success": True,
         "company": {"id": new_company.id, "name": new_company.name},
-        "companies": companies, 
-        "message": "Company saved! Refreshing your list..."
+        "companies": companies,
+        "message": "Company saved! Review sync started.",
     }
 
-# --- API: Sync/Refresh Company ---
+
+# ---------------------------------------------------------
+# API: Sync Company Reviews
+# ---------------------------------------------------------
 @router.post("/companies/{company_id}/sync")
 async def company_sync(company_id: int, request: Request, bg_tasks: BackgroundTasks):
     uid = _require_user(request)
     if not uid:
-        return JSONResponse({"success": False, "message": "Unauthorized"}, status_code=401)
+        return JSONResponse({"success": False}, status_code=401)
 
     async with get_session() as session:
-        result = await session.execute(select(Company).where(Company.id == company_id, Company.owner_id == uid))
+        result = await session.execute(
+            select(Company).where(
+                Company.id == company_id,
+                Company.owner_id == uid,
+            )
+        )
+
         company = result.scalar_one_or_none()
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
-        # Trigger background scraper
-        bg_tasks.add_task(ingest_company_reviews, company.id, company.google_place_id)
-        session.add(AuditLog(user_id=uid, action="company_sync_triggered", meta={"company_id": company.id}))
+        bg_tasks.add_task(
+            ingest_company_reviews,
+            company.id,
+            company.google_place_id,
+        )
+
+        session.add(
+            AuditLog(
+                user_id=uid,
+                action="company_sync_triggered",
+                meta={"company_id": company.id},
+            )
+        )
+
         await session.commit()
-        
-        # DATABASE FETCH: Refresh display data
+
         companies = await _get_companies_data(session, uid)
 
-    return {"success": True, "message": "Review sync started!", "companies": companies}
+    return {
+        "success": True,
+        "message": "Review sync started!",
+        "companies": companies,
+    }
 
-# --- POST: Delete Company ---
+
+# ---------------------------------------------------------
+# POST: Delete Company
+# ---------------------------------------------------------
 @router.post("/companies/{company_id}/delete")
 async def company_delete(request: Request, company_id: int):
     uid = _require_user(request)
@@ -210,8 +295,21 @@ async def company_delete(request: Request, company_id: int):
         return RedirectResponse("/login", status_code=302)
 
     async with get_session() as session:
-        await session.execute(delete(Company).where(Company.id == company_id, Company.owner_id == uid))
-        session.add(AuditLog(user_id=uid, action="company_delete", meta={"company_id": company_id}))
+        await session.execute(
+            delete(Company).where(
+                Company.id == company_id,
+                Company.owner_id == uid,
+            )
+        )
+
+        session.add(
+            AuditLog(
+                user_id=uid,
+                action="company_delete",
+                meta={"company_id": company_id},
+            )
+        )
+
         await session.commit()
 
     return RedirectResponse("/companies", status_code=302)
