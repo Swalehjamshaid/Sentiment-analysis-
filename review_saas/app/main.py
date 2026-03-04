@@ -10,9 +10,10 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy import text
 from app.core.config import settings
 from app.core.db import get_engine, reset_database
-from app.core.models import Base
+from app.core.models import Base, SCHEMA_VERSION  # ← ADDED: import SCHEMA_VERSION
 from app.core.models import User, Company, Review  # CRITICAL: register models
 from app.routes import auth as auth_routes
 from app.routes import companies as companies_routes
@@ -41,21 +42,50 @@ async def lifespan(app: FastAPI):
     Lifecycle manager for startup tasks.
     Ensures database synchronization and Google API check happen before the app starts.
     """
-    # 1. Database Schema Synchronization + Reset in development mode
+    # 1. Database Schema Synchronization + Conditional Reset
     try:
         engine: AsyncEngine = get_engine()
 
         # Determine if we are in development mode
         is_dev_mode = settings.DEBUG or os.getenv("ENV", "").lower() in ("development", "dev")
-
         logger.info(f"Startup environment check → DEBUG={settings.DEBUG}, ENV={os.getenv('ENV')}, is_dev_mode={is_dev_mode}")
 
         if is_dev_mode:
-            logger.warning("⚠️ DEVELOPMENT MODE DETECTED → Resetting database (dropping all tables and recreating)...")
-            await reset_database()
-            logger.info("✅ Database has been fully reset and tables recreated from current models.py")
+            logger.info("Development mode active. Checking schema version...")
+
+            async with engine.connect() as conn:
+                try:
+                    result = await conn.execute(text(
+                        "SELECT value FROM config WHERE key = 'schema_version'"
+                    ))
+                    row = result.first()
+                    db_version = row[0] if row else None
+                except Exception:
+                    db_version = None  # config table or row doesn't exist
+
+            if db_version != SCHEMA_VERSION:
+                logger.warning(
+                    f"Schema version mismatch or missing! "
+                    f"DB: {db_version or 'missing'}, Code: {SCHEMA_VERSION} → Resetting database..."
+                )
+                await reset_database()
+
+                # Save new schema version so reset doesn't run again until next model change
+                async with engine.begin() as conn:
+                    await conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS config (
+                            key TEXT PRIMARY KEY,
+                            value TEXT
+                        );
+                        INSERT INTO config (key, value) VALUES ('schema_version', :ver)
+                        ON CONFLICT (key) DO UPDATE SET value = :ver;
+                    """), {"ver": SCHEMA_VERSION})
+
+                logger.info(f"Database reset complete. Schema version set to {SCHEMA_VERSION}")
+            else:
+                logger.info(f"Schema version matches ({SCHEMA_VERSION}). No reset needed — preserving data.")
         else:
-            # Normal behavior in production: just ensure tables exist
+            # Production: only create missing tables, never wipe
             logger.info("Production mode → Only verifying/creating missing tables (no data wipe)")
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
@@ -74,7 +104,6 @@ async def lifespan(app: FastAPI):
     yield
     # Place for shutdown tasks if needed
     logger.info("⚡ Application shutdown complete.")
-
 
 # Initialize FastAPI app
 app = FastAPI(
