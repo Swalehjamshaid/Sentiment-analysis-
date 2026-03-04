@@ -1,27 +1,67 @@
 # filename: app/routes/companies.py
 from __future__ import annotations
+import logging
+import googlemaps
 from fastapi import APIRouter, Request, BackgroundTasks, Query, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
-from sqlalchemy import select, delete, or_, func
+from sqlalchemy import select, delete, or_, func, desc
+from pydantic import BaseModel
+
 from app.core.db import get_session
 from app.core.models import Company, AuditLog, User, Review
 from app.core.config import settings
 from app.services.google_reviews import ingest_company_reviews
-from pydantic import BaseModel
-import googlemaps
-import logging
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter(tags=["companies"])
 templates = Jinja2Templates(directory="app/templates")
 
-
+# --- Helper: Authentication ---
 def _require_user(request: Request):
     return request.session.get("user_id")
 
+# --- Pydantic Schemas ---
+class PlaceSearchResult(BaseModel):
+    place_id: str
+    name: str
+    formatted_address: str | None = None
 
+class AddCompanyRequest(BaseModel):
+    name: str
+    place_id: str
+    address: str | None = None
+    google_data: dict | None = None
+
+# --- Helper: Get Updated List Logic ---
+async def _get_companies_data(session, uid: int):
+    """Reusable logic to fetch current companies with stats."""
+    stmt = (
+        select(
+            Company.id,
+            Company.name,
+            Company.address,
+            func.count(Review.id).label("review_count"),
+            func.coalesce(func.avg(Review.rating), 0).label("avg_rating"),
+        )
+        .outerjoin(Review, Company.id == Review.company_id)
+        .where(Company.owner_id == uid)
+        .group_by(Company.id, Company.name, Company.address)
+        .order_by(desc(Company.created_at))
+    )
+    res = await session.execute(stmt)
+    return [
+        {
+            "id": int(r.id),
+            "name": r.name,
+            "address": r.address,
+            "review_count": int(r.review_count or 0),
+            "avg_rating": round(float(r.avg_rating or 0), 2),
+        }
+        for r in res.all()
+    ]
+
+# --- UI Route: Companies Management Page ---
 @router.get("/companies", response_class=HTMLResponse)
 async def companies_page(request: Request, q: str | None = None, page: int = 1, size: int = 10):
     uid = _require_user(request)
@@ -36,12 +76,10 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
 
         stmt = select(Company).where(Company.owner_id == uid).order_by(Company.created_at.desc())
         if q:
-            stmt = stmt.where(
-                or_(
-                    Company.name.ilike(f"%{q}%"),
-                    Company.address.ilike(f"%{q}%")
-                )
-            )
+            stmt = stmt.where(or_(
+                Company.name.ilike(f"%{q}%"),
+                Company.address.ilike(f"%{q}%")
+            ))
 
         result = await session.execute(stmt)
         all_rows = result.scalars().all()
@@ -60,67 +98,24 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
         },
     )
 
-
+# --- API: List Companies for Dropdowns/Tables ---
 @router.get("/api/companies/list")
-async def list_companies(request: Request, q: str | None = None):
+async def list_companies(request: Request):
     uid = _require_user(request)
     if not uid:
         return JSONResponse({"success": False, "companies": [], "message": "Unauthorized"}, status_code=401)
 
     async with get_session() as session:
-        stmt = (
-            select(
-                Company.id,
-                Company.name,
-                Company.address,
-                Company.google_place_id,
-                func.coalesce(func.avg(Review.rating), 0).label("avg_rating"),
-                func.count(Review.id).label("review_count")
-            )
-            .outerjoin(Review, Review.company_id == Company.id)
-            .where(Company.owner_id == uid)
-            .group_by(Company.id)
-            .order_by(Company.created_at.desc())
-        )
-
-        if q:
-            stmt = stmt.where(
-                or_(
-                    Company.name.ilike(f"%{q}%"),
-                    Company.address.ilike(f"%{q}%")
-                )
-            )
-
-        result = await session.execute(stmt)
-        companies = result.all()
-
-        data = [
-            {
-                "id": c.id,
-                "name": c.name,
-                "address": c.address or "",
-                "place_id": c.google_place_id or "",
-                "avg_rating": round(c.avg_rating or 0, 2),
-                "review_count": c.review_count,
-            }
-            for c in companies
-        ]
-
+        data = await _get_companies_data(session, uid)
     return {"success": True, "companies": data}
 
-
-class PlaceSearchResult(BaseModel):
-    place_id: str
-    name: str
-    formatted_address: str | None = None
-
-
+# --- API: Search Google Places ---
 @router.get("/google/places/search")
 async def search_google_places(q: str = Query(..., min_length=3)):
     try:
         gmaps = googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
-        result = gmaps.places(query=q, location="33.6844,73.0479", radius=200000)
-
+        # Narrowing results to a specific region or general search
+        result = gmaps.places(query=q)
         places = [
             PlaceSearchResult(
                 place_id=p["place_id"],
@@ -129,21 +124,12 @@ async def search_google_places(q: str = Query(..., min_length=3)):
             )
             for p in result.get("results", [])
         ]
-
         return {"success": True, "results": places}
-
     except Exception as e:
         logger.error(f"Google search error: {e}")
         return {"success": False, "message": str(e)}
 
-
-class AddCompanyRequest(BaseModel):
-    name: str
-    place_id: str
-    address: str | None = None
-    google_data: dict | None = None
-
-
+# --- API: Add New Company (Database Input Logic) ---
 @router.post("/companies/add")
 async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: BackgroundTasks):
     uid = _require_user(request)
@@ -151,153 +137,66 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
         return JSONResponse({"success": False, "message": "Unauthorized"}, status_code=401)
 
     async with get_session() as session:
-        user_result = await session.execute(select(User).where(User.id == uid))
-        user = user_result.scalar_one_or_none()
-        if not user:
-            request.session.clear()
-            return JSONResponse({"success": False, "message": "Session expired"}, status_code=401)
-
+        # Check for duplication
         existing = await session.execute(
             select(Company).where(Company.google_place_id == data.place_id, Company.owner_id == uid)
         )
         if existing.scalar_one_or_none():
-            return {"success": False, "message": "Company already exists"}
+            return JSONResponse({"success": False, "message": "Company already exists"}, status_code=400)
 
+        # 1. Input Data to Database
         new_company = Company(
             name=data.name,
             google_place_id=data.place_id,
             address=data.address,
             google_data=data.google_data or {},
-            owner_id=user.id,
+            owner_id=uid,
         )
-
         session.add(new_company)
-        await session.flush()
+        await session.flush() # Generate ID for Audit Log
 
-        # Add background task for Google reviews
-        bg_tasks.add_task(
-            ingest_company_reviews,
-            new_company.id,
-            new_company.google_place_id,
-        )
+        # 2. Add Audit Log
+        session.add(AuditLog(user_id=uid, action="company_add_google", meta={"company_id": new_company.id}))
 
-        session.add(
-            AuditLog(
-                user_id=user.id,
-                action="company_add_google",
-                meta={"company_id": new_company.id},
-            )
-        )
-
+        # 3. COMMIT Transaction (Ensures data is saved before response is sent)
         await session.commit()
+        await session.refresh(new_company)
 
-        # After adding, return updated company list
-        stmt = (
-            select(
-                Company.id,
-                Company.name,
-                Company.address,
-                func.count(Review.id).label("review_count"),
-                func.coalesce(func.avg(Review.rating), 0).label("avg_rating"),
-            )
-            .outerjoin(Review, Company.id == Review.company_id)
-            .where(Company.owner_id == uid)
-            .group_by(Company.id, Company.name, Company.address)
-            .order_by(desc(Company.created_at))
-        )
-        res = await session.execute(stmt)
-        companies = [
-            {
-                "id": int(r.id),
-                "name": r.name,
-                "address": r.address,
-                "review_count": int(r.review_count or 0),
-                "avg_rating": round(float(r.avg_rating or 0), 2),
-            }
-            for r in res.all()
-        ]
+        # 4. Background Task for Reviews (Extract logic)
+        bg_tasks.add_task(ingest_company_reviews, new_company.id, new_company.google_place_id)
 
+        # 5. Fetch fresh data from database for frontend display
+        companies = await _get_companies_data(session, uid)
+        
     return {
         "success": True,
-        "company": {
-            "id": new_company.id,
-            "name": new_company.name,
-            "address": new_company.address,
-            "avg_rating": 0.0,
-            "review_count": 0,
-        },
-        "message": "Company added and reviews loading!",
-        "companies": companies,  # Returning updated list to frontend
+        "company": {"id": new_company.id, "name": new_company.name},
+        "companies": companies, # Returning full list for instant UI update
+        "message": "Company saved and added to database!"
     }
 
-
+# --- API: Sync/Refresh Company ---
 @router.post("/companies/{company_id}/sync")
 async def company_sync(company_id: int, request: Request, bg_tasks: BackgroundTasks):
     uid = _require_user(request)
     if not uid:
-        return RedirectResponse("/login", status_code=302)
+        return JSONResponse({"success": False, "message": "Unauthorized"}, status_code=401)
 
     async with get_session() as session:
-        user_check = await session.execute(select(User).where(User.id == uid))
-        if not user_check.scalar_one_or_none():
-            request.session.clear()
-            return RedirectResponse("/login", status_code=302)
-
         result = await session.execute(select(Company).where(Company.id == company_id, Company.owner_id == uid))
         company = result.scalar_one_or_none()
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
-        # Trigger ingestion for this company
-        bg_tasks.add_task(
-            ingest_company_reviews,
-            company.id,
-            company.google_place_id,
-        )
-
-        session.add(
-            AuditLog(
-                user_id=uid,
-                action="company_sync_triggered",
-                meta={"company_id": company.id},
-            )
-        )
-
+        bg_tasks.add_task(ingest_company_reviews, company.id, company.google_place_id)
+        session.add(AuditLog(user_id=uid, action="company_sync_triggered", meta={"company_id": company.id}))
         await session.commit()
+        
+        companies = await _get_companies_data(session, uid)
 
-        # After sync, return updated company list
-        stmt = (
-            select(
-                Company.id,
-                Company.name,
-                Company.address,
-                func.count(Review.id).label("review_count"),
-                func.coalesce(func.avg(Review.rating), 0).label("avg_rating"),
-            )
-            .outerjoin(Review, Company.id == Review.company_id)
-            .where(Company.owner_id == uid)
-            .group_by(Company.id, Company.name, Company.address)
-            .order_by(desc(Company.created_at))
-        )
-        res = await session.execute(stmt)
-        companies = [
-            {
-                "id": int(r.id),
-                "name": r.name,
-                "address": r.address,
-                "review_count": int(r.review_count or 0),
-                "avg_rating": round(float(r.avg_rating or 0), 2),
-            }
-            for r in res.all()
-        ]
+    return {"success": True, "message": "Sync started!", "companies": companies}
 
-    return {
-        "success": True,
-        "message": "Company reviews synced!",
-        "companies": companies,  # Updated list returned
-    }
-
-
+# --- POST: Delete Company ---
 @router.post("/companies/{company_id}/delete")
 async def company_delete(request: Request, company_id: int):
     uid = _require_user(request)
@@ -306,15 +205,7 @@ async def company_delete(request: Request, company_id: int):
 
     async with get_session() as session:
         await session.execute(delete(Company).where(Company.id == company_id, Company.owner_id == uid))
-
-        session.add(
-            AuditLog(
-                user_id=uid,
-                action="company_delete",
-                meta={"company_id": company_id},
-            )
-        )
-
+        session.add(AuditLog(user_id=uid, action="company_delete", meta={"company_id": company_id}))
         await session.commit()
 
     return RedirectResponse("/companies", status_code=302)
