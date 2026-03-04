@@ -33,7 +33,6 @@ async def get_dashboard(request: Request):
 async def api_kpis(company_id: int, start: str | None = None, end: str | None = None):
     start_dt, end_dt = parse_date(start), parse_date(end)
     async with get_session() as session:
-        # FIXED: Using google_review_time and sentiment_score to match Database
         stmt = select(
             func.count(Review.id).label("total"),
             func.avg(Review.rating).label("avg_rating"),
@@ -51,13 +50,26 @@ async def api_kpis(company_id: int, start: str | None = None, end: str | None = 
             "avg_sentiment": round(float(stats.avg_sent or 0.0), 3)
         }
 
+@router.get("/api/ratings/distribution")
+async def api_ratings_distribution(company_id: int, start: str | None = None, end: str | None = None):
+    start_dt, end_dt = parse_date(start), parse_date(end)
+    async with get_session() as session:
+        stmt = select(Review.rating, func.count(Review.id)).where(Review.company_id == company_id)
+        if start_dt: stmt = stmt.where(cast(Review.google_review_time, Date) >= start_dt)
+        if end_dt: stmt = stmt.where(cast(Review.google_review_time, Date) <= end_dt)
+        
+        stmt = stmt.group_by(Review.rating)
+        res = await session.execute(stmt)
+        dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        for row in res.all():
+            dist[int(row[0])] = row[1]
+        return {"distribution": dist}
+
 @router.get("/api/reviews/list")
 async def api_reviews_list(company_id: int, start: str | None = None, end: str | None = None):
     start_dt, end_dt = parse_date(start), parse_date(end)
     async with get_session() as session:
-        # FIXED: Using google_review_time to match Database
         stmt = select(Review).where(Review.company_id == company_id)
-        
         if start_dt: stmt = stmt.where(cast(Review.google_review_time, Date) >= start_dt)
         if end_dt: stmt = stmt.where(cast(Review.google_review_time, Date) <= end_dt)
         
@@ -74,20 +86,29 @@ async def api_reviews_list(company_id: int, start: str | None = None, end: str |
         }
 
 @router.get("/api/series/reviews")
-async def api_series_reviews(company_id: int):
+async def api_series_reviews(company_id: int, start: str | None = None, end: str | None = None):
+    start_dt, end_dt = parse_date(start), parse_date(end)
     async with get_session() as session:
         date_col = cast(Review.google_review_time, Date)
-        stmt = select(date_col.label("date"), func.count(Review.id).label("value")).where(Review.company_id == company_id).group_by("date").order_by("date")
+        stmt = select(date_col.label("date"), func.count(Review.id).label("value")).where(Review.company_id == company_id)
+        
+        if start_dt: stmt = stmt.where(date_col >= start_dt)
+        if end_dt: stmt = stmt.where(date_col <= end_dt)
+        
+        stmt = stmt.group_by("date").order_by("date")
         res = await session.execute(stmt)
         return {"series": [{"date": str(r.date), "value": r.value} for r in res.all()]}
 
 @router.get("/api/sentiment/series")
-async def api_sentiment_series(company_id: int):
+async def api_sentiment_series(company_id: int, start: str | None = None, end: str | None = None):
+    start_dt, end_dt = parse_date(start), parse_date(end)
     async with get_session() as session:
         date_col = cast(Review.google_review_time, Date)
-        stmt = select(
-            date_col.label("date"), 
-            func.avg(Review.sentiment_score).label("value")
-        ).where(Review.company_id == company_id).group_by("date").order_by("date")
+        stmt = select(date_col.label("date"), func.avg(Review.sentiment_score).label("value")).where(Review.company_id == company_id)
+        
+        if start_dt: stmt = stmt.where(date_col >= start_dt)
+        if end_dt: stmt = stmt.where(date_col <= end_dt)
+        
+        stmt = stmt.group_by("date").order_by("date")
         res = await session.execute(stmt)
         return {"series": [{"date": str(r.date), "value": round(float(r.value or 0), 3)} for r in res.all()]}
