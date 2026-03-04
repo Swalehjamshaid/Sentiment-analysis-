@@ -1,7 +1,7 @@
 # filename: app/routes/companies.py
 from __future__ import annotations
 from fastapi import APIRouter, Request, BackgroundTasks, Query, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
 from sqlalchemy import select, delete, or_, func
 from app.core.db import get_session
