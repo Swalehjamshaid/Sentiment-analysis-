@@ -13,10 +13,11 @@ router = APIRouter(tags=["dashboard"])
 templates = Jinja2Templates(directory="app/templates")
 logger = logging.getLogger("app.dashboard")
 
+
 # =====================================================
 # Safe Date Parser
 # =====================================================
-def parse_date(date_str: str | None):
+def parse_date(date_str: str | None) -> datetime.date | None:
     if not date_str:
         return None
     try:
@@ -24,6 +25,7 @@ def parse_date(date_str: str | None):
     except Exception as e:
         logger.warning(f"Invalid date format: {date_str} - {e}")
         return None
+
 
 # =====================================================
 # UI Route
@@ -34,6 +36,7 @@ async def get_dashboard(request: Request):
         "dashboard.html",
         {"request": request}
     )
+
 
 # =====================================================
 # Company List
@@ -51,13 +54,19 @@ async def api_companies_list():
             ]
         }
 
+
 # =====================================================
 # KPI Cards
 # =====================================================
 @router.get("/api/kpis")
-async def api_kpis(company_id: int, start: str | None = None, end: str | None):
+async def api_kpis(
+    company_id: int,
+    start: str | None = None,
+    end: str | None = None,
+):
     start_dt = parse_date(start)
     end_dt = parse_date(end)
+
     async with get_session() as session:
         stmt = select(
             func.count(Review.id).label("total"),
@@ -83,18 +92,20 @@ async def api_kpis(company_id: int, start: str | None = None, end: str | None):
             "avg_sentiment": round(avg_sent, 3),
         }
 
+
 # =====================================================
 # Reviews List
 # =====================================================
 @router.get("/api/reviews/list")
 async def api_reviews_list(
     company_id: int,
-    sort: str = "newest",
     start: str | None = None,
     end: str | None = None,
+    sort: str = "newest",
 ):
     start_dt = parse_date(start)
     end_dt = parse_date(end)
+
     async with get_session() as session:
         stmt = select(Review).where(Review.company_id == company_id)
 
@@ -132,13 +143,19 @@ async def api_reviews_list(
             ]
         }
 
+
 # =====================================================
 # Reviews Time Series
 # =====================================================
 @router.get("/api/series/reviews")
-async def api_series_reviews(company_id: int, start: str | None = None, end: str | None):
+async def api_series_reviews(
+    company_id: int,
+    start: str | None = None,
+    end: str | None = None,
+):
     start_dt = parse_date(start)
     end_dt = parse_date(end)
+
     async with get_session() as session:
         date_col = cast(Review.google_review_time, Date)
         stmt = select(
@@ -164,6 +181,7 @@ async def api_series_reviews(company_id: int, start: str | None = None, end: str
             ]
         }
 
+
 # =====================================================
 # Ratings Distribution
 # =====================================================
@@ -182,13 +200,19 @@ async def api_ratings_distribution(company_id: int):
                 dist[int(rating)] = int(count or 0)
         return {"distribution": dist}
 
+
 # =====================================================
 # Sentiment Series
 # =====================================================
 @router.get("/api/sentiment/series")
-async def api_sentiment_series(company_id: int, start: str | None = None, end: str | None):
+async def api_sentiment_series(
+    company_id: int,
+    start: str | None = None,
+    end: str | None = None,
+):
     start_dt = parse_date(start)
     end_dt = parse_date(end)
+
     async with get_session() as session:
         date_col = cast(Review.google_review_time, Date)
         stmt = select(
@@ -214,8 +238,9 @@ async def api_sentiment_series(company_id: int, start: str | None = None, end: s
             ]
         }
 
+
 # =====================================================
-# Debug Route (unchanged, useful for checking data)
+# Debug Route – useful to check if data exists
 # =====================================================
 @router.get("/api/debug/company-check")
 async def debug_company_check():
