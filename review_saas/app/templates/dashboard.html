@@ -10,7 +10,7 @@
     .spinner { display: none; }
     .success-msg, .nodata-msg, .error-msg { display: none; }
     #addCompanyModal .modal-dialog { max-width: 500px; }
-    /* Critical: Ensures Google Autocomplete dropdown appears above modal */
+    /* Ensures Google Autocomplete appears above modal */
     .pac-container { z-index: 1060 !important; }
     .auto-field { background-color: #f8f9fa; pointer-events: none; }
   </style>
@@ -129,7 +129,7 @@
       <div class="modal-body">
         <div class="mb-3">
           <label class="form-label fw-bold">Search Company / Place</label>
-          <input type="text" class="form-control" id="placeSearch" placeholder="e.g. McDonald's Lahore or fabric London">
+          <input type="text" class="form-control" id="placeSearch" placeholder="e.g. McDonald's Lahore, fabric London">
         </div>
         <div id="detailsPreview" style="display:none;" class="border-top pt-3">
           <div class="mb-2">
@@ -334,27 +334,33 @@ async function loadReviewsList() {
   }
 }
 
-// Load Google Places Script
+// Load Google Places Script with debug
 function loadGoogleScript() {
   const s = document.createElement('script');
-  // Replace YOUR_API_KEY with your real Google Maps API Key
-  // Ensure "Places API" is enabled in Google Cloud Console
-  s.src = "https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places&callback=initGooglePlaces";
+  // ← REPLACE WITH YOUR REAL API KEY
+  s.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyBc...your-real-key-here...&libraries=places&callback=initGooglePlaces";
   s.async = true;
   s.defer = true;
-  s.onerror = () => console.error("Google Maps script failed to load. Check API key and network.");
+  s.onload = () => console.log("Google Maps JS API loaded successfully");
+  s.onerror = (err) => {
+    console.error("Failed to load Google Maps script. Check API key, enabled APIs (Places API + Maps JS API), billing, and network.");
+    alert("Google Places could not load. Check console (F12) for details.");
+  };
   document.head.appendChild(s);
 }
 
 // Initialize Google Places Autocomplete
 window.initGooglePlaces = function() {
   if (typeof google === 'undefined' || !google.maps?.places) {
-    console.error("Google Places library not loaded. Check API key, enabled APIs, and billing.");
+    console.error("Google Places library failed to initialize. Check: API key validity, Places API enabled, billing linked, network/VPN/adblocker.");
+    alert("Google Places is not available. See browser console (F12) for details.");
     return;
   }
 
+  console.log("Google Places Autocomplete initialized successfully");
+
   const autocomplete = new google.maps.places.Autocomplete(el.placeSearch, {
-    types: ["establishment"], // Only businesses/places
+    types: ["establishment"], // Only businesses / places
     fields: [
       "place_id", "name", "formatted_address", "formatted_phone_number",
       "website", "types", "opening_hours", "rating", "user_ratings_total"
@@ -363,15 +369,16 @@ window.initGooglePlaces = function() {
 
   autocomplete.addListener("place_changed", () => {
     const place = autocomplete.getPlace();
-    console.log("Selected Google Place:", place); // Debug in browser console
+    console.log("Google Place selected:", place);
 
     if (!place.place_id) {
-      console.warn("No place_id returned from Google");
+      console.warn("No place_id - user may have pressed Enter without selecting a suggestion");
+      alert("Please select a place from the dropdown suggestions.");
       return;
     }
 
-    // Autofill preview fields
-    el.prevAddress.value = place.formatted_address || '';
+    // Autofill preview fields with real Google data
+    el.prevAddress.value = place.formatted_address || 'N/A';
     el.prevPhone.value = place.formatted_phone_number || 'N/A';
     el.prevWebsite.value = place.website || 'N/A';
     el.prevCategory.value = place.types?.[0]?.replace(/_/g, ' ') || 'Business';
@@ -379,7 +386,7 @@ window.initGooglePlaces = function() {
 
     el.previewBox.style.display = 'block';
 
-    // Prepare data for backend save
+    // Prepare data to send to backend
     selectedPlace = {
       name: place.name || '',
       place_id: place.place_id,
@@ -390,14 +397,15 @@ window.initGooglePlaces = function() {
       hours: el.prevHours.value,
       avg_rating: place.rating || 0,
       review_count: place.user_ratings_total || 0,
-      google_data: place  // optional: full object
+      google_data: place
     };
 
     el.saveBtn.disabled = false;
+    console.log("Ready to save - data prepared:", selectedPlace);
   });
 };
 
-// Event Listeners
+// Event Listeners (unchanged except save button logic)
 el.switchBtn.addEventListener('click', () => {
   currentCompanyId = el.companySelect.value;
   localStorage.setItem('lastCompanyId', currentCompanyId);
@@ -408,8 +416,8 @@ el.fetchBtn.addEventListener('click', fetchDashboardData);
 el.sortReviews.addEventListener('change', loadReviewsList);
 
 el.saveBtn.onclick = async () => {
-  if (!selectedPlace) {
-    alert("Please select a place from suggestions first.");
+  if (!selectedPlace || !selectedPlace.place_id) {
+    alert("Please select a valid place from the suggestions first.");
     return;
   }
   try {
@@ -420,20 +428,20 @@ el.saveBtn.onclick = async () => {
     });
     const d = await res.json();
     if (d.success) {
-      alert("Company added successfully! Data is being fetched in background.");
-      location.reload(); // Refresh to show new company
+      alert("Company added successfully! Reviews are being fetched in the background.");
+      location.reload(); // Refresh to show new company in dropdown
     } else {
-      alert(d.message || 'Error adding company');
+      alert(d.message || 'Error adding company - check server logs.');
     }
   } catch (err) {
-    console.error("Save error:", err);
-    alert('Save failed - check console for details');
+    console.error("Save failed:", err);
+    alert('Failed to save company - check browser console (F12) for details.');
   }
 };
 
 // Initial Load
 document.addEventListener("DOMContentLoaded", () => {
-  loadGoogleScript(); // Load Google Maps JS
+  loadGoogleScript(); // Loads Google API
   const today = new Date();
   const start = new Date();
   start.setDate(today.getDate() - 30);
