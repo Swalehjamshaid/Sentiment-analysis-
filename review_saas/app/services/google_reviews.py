@@ -1,4 +1,5 @@
 # filename: app/services/google_reviews.py
+
 import logging
 import googlemaps
 import httpx
@@ -11,85 +12,148 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------
+# Google Places Client
+# ---------------------------------------------------------
 def _get_places_client():
     if not settings.GOOGLE_PLACES_API_KEY:
         return None
     return googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
 
+
+# ---------------------------------------------------------
+# REQUIRED FUNCTION (Top-level for import)
+# ---------------------------------------------------------
+def fetch_place_details(place_id: str):
+    """
+    Fetch basic place details from Google Places API.
+    Can be imported by app/routes/reviews.py
+    """
+    client = _get_places_client()
+    if not client:
+        raise Exception("GOOGLE_PLACES_API_KEY not configured")
+
+    result = client.place(
+        place_id=place_id,
+        fields=["name", "rating", "user_ratings_total", "formatted_address"]
+    )
+    return result.get("result", {})
+
+
+# ---------------------------------------------------------
+# Google Business API (OAuth Required)
+# ---------------------------------------------------------
 async def _fetch_reviews_from_business_api(place_id: str):
     access_token = getattr(settings, "GOOGLE_BUSINESS_ACCESS_TOKEN", None)
+
     if not access_token:
         logger.warning("No Google Business OAuth token found.")
-        return []
+        return None
+
     url = f"https://mybusiness.googleapis.com/v4/accounts/-/locations/{place_id}/reviews"
-    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+    }
+
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(url, headers=headers)
+
         if response.status_code != 200:
             logger.warning("Business API failed, falling back to Places API.")
-            return []
+            return None
+
         return response.json().get("reviews", [])
 
+
+# ---------------------------------------------------------
+# Google Places API (Fallback - Max 5 Reviews)
+# ---------------------------------------------------------
 def _fetch_reviews_from_places_api(place_id: str):
     client = _get_places_client()
     if not client:
         return []
-    result = client.place(place_id=place_id, fields=["reviews"])
+
+    result = client.place(
+        place_id=place_id,
+        fields=["reviews"]
+    )
+
     return result.get("result", {}).get("reviews", [])
 
+
+# ---------------------------------------------------------
+# Main Ingestion Function
+# ---------------------------------------------------------
 async def ingest_company_reviews(company_id: int, place_id: str):
+    """
+    1. Try Google Business API (Full Reviews)
+    2. Fallback to Google Places API (Max 5 Reviews)
+    3. Save to Database
+    """
     logger.info(f"Starting review ingestion for company_id={company_id}")
 
     try:
-        # 1️⃣ Try Business API
+        # Try Business API first
         reviews = await _fetch_reviews_from_business_api(place_id)
-        # 2️⃣ Fallback to Places API
+
+        # Fallback to Places API
         if not reviews:
             logger.info("Using Google Places API fallback.")
             reviews = _fetch_reviews_from_places_api(place_id)
+
         if not reviews:
-            logger.info("No reviews found for this company.")
+            logger.info("No reviews found from either API.")
             return
 
         async with get_session() as session:
             for r in reviews:
-                # Extract unique review ID
-                google_review_id = r.get("reviewId") or r.get("author_url") or r.get("author_name")
-                if not google_review_id:
-                    continue  # skip if no unique ID
+                # Handle both API formats
+                author = (
+                    r.get("reviewer", {}).get("displayName")
+                    if "reviewer" in r else r.get("author_name")
+                )
+                rating = (
+                    r.get("starRating")
+                    if "starRating" in r else r.get("rating")
+                )
+                text = (
+                    r.get("comment")
+                    if "comment" in r else r.get("text")
+                )
+                profile_photo = (
+                    r.get("reviewer", {}).get("profilePhotoUrl")
+                    if "reviewer" in r else r.get("profile_photo_url")
+                )
 
-                # Extract other fields
-                author = r.get("reviewer", {}).get("displayName") if "reviewer" in r else r.get("author_name")
-                rating = r.get("starRating") if "starRating" in r else r.get("rating")
-                text = r.get("comment") if "comment" in r else r.get("text")
-                profile_photo = r.get("reviewer", {}).get("profilePhotoUrl") if "reviewer" in r else r.get("profile_photo_url")
-
-                # Correct timestamp field
-                google_review_time = None
+                review_date = None
                 if "createTime" in r:
-                    google_review_time = datetime.fromisoformat(r["createTime"].replace("Z", "+00:00"))
+                    review_date = datetime.fromisoformat(
+                        r["createTime"].replace("Z", "+00:00")
+                    )
                 elif "time" in r:
-                    google_review_time = datetime.utcfromtimestamp(r["time"])
+                    review_date = datetime.utcfromtimestamp(r["time"])
 
-                # Prevent duplicates using UniqueConstraint
+                # Prevent duplicates
                 existing = await session.execute(
                     select(Review).where(
                         Review.company_id == company_id,
-                        Review.google_review_id == google_review_id
+                        Review.author_name == author,
+                        Review.text == text
                     )
                 )
                 if existing.scalar_one_or_none():
                     continue
 
-                # Create Review object
                 new_review = Review(
                     company_id=company_id,
-                    google_review_id=google_review_id,
                     author_name=author,
-                    rating=int(rating) if rating else 0,
+                    rating=int(rating) if rating else None,
                     text=text,
-                    google_review_time=google_review_time or datetime.utcnow(),
-                    profile_photo_url=profile_photo,
+                    review_date=review_date,
+                    source="google",
+                    profile_photo=profile_photo,
                 )
                 session.add(new_review)
 
