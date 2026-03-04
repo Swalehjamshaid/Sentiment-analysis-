@@ -3,16 +3,12 @@ from __future__ import annotations
 from typing import List
 from datetime import datetime, timezone
 import googlemaps
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.core.db import AsyncSessionLocal  # Ensure this is your session factory
+from app.core.db import get_session
 from app.core.models import Company, Review
 from app.core.config import settings
 from app.services.sentiment import score as get_sentiment_score, label as get_sentiment_label
 
-# ------------------------
-# Fetch place details from Google Places API
-# ------------------------
 def fetch_place_details(place_id: str) -> dict:
     gmaps = googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
     try:
@@ -28,19 +24,16 @@ def fetch_place_details(place_id: str) -> dict:
 def fetch_google_reviews(place_id: str, max_results: int = 50) -> List[dict]:
     details = fetch_place_details(place_id)
     reviews = details.get('reviews', [])
+    print(f"DEBUG: {len(reviews)} reviews fetched for place_id={place_id}")
     return reviews[:max_results]
 
-# ------------------------
-# Ingest reviews into database
-# ------------------------
 async def ingest_company_reviews(company_id: int, place_id: str):
     reviews_data = fetch_google_reviews(place_id)
     if not reviews_data:
         print(f"No reviews found for company_id={company_id}")
         return
 
-    # ✅ Create a fresh async session for background task
-    async with AsyncSessionLocal() as session:
+    async with get_session() as session:
         async with session.begin():
             result = await session.execute(select(Company).where(Company.id == company_id))
             company: Company = result.scalar_one_or_none()
@@ -69,6 +62,7 @@ async def ingest_company_reviews(company_id: int, place_id: str):
                     sentiment_label=s_label
                 )
                 session.add(new_review)
+                print(f"DEBUG: Added review by {r.get('author_name')}")
 
             await session.flush()
             all_reviews = await session.execute(select(Review).where(Review.company_id == company.id))
