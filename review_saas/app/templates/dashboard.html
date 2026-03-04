@@ -10,7 +10,8 @@
     .spinner { display: none; }
     .success-msg, .nodata-msg, .error-msg { display: none; }
     #addCompanyModal .modal-dialog { max-width: 500px; }
-    .pac-container { z-index: 1060 !important; }
+    /* CRITICAL FIX: Ensures Google results appear above the Bootstrap Modal */
+    .pac-container { z-index: 10000 !important; }
     .auto-field { background-color: #f8f9fa; pointer-events: none; }
   </style>
 </head>
@@ -27,6 +28,7 @@
 </nav>
 
 <div class="container py-4">
+
   <div class="row g-3 align-items-end">
     <div class="col-lg-4">
       <label class="form-label">Company</label>
@@ -119,6 +121,7 @@
       </div>
     </div>
   </div>
+
 </div>
 
 <div class="modal fade" id="addCompanyModal" tabindex="-1">
@@ -206,6 +209,7 @@ async function safeJsonFetch(url) {
   return res.json();
 }
 
+// Load Companies Dropdown
 async function loadCompanies() {
   try {
     const data = await safeJsonFetch('/api/companies/list');
@@ -227,10 +231,12 @@ async function loadCompanies() {
   }
 }
 
+// Fetch Dashboard Data
 async function fetchDashboardData() {
   if(!currentCompanyId) return;
   show('loadingBox', true);
   ['successBox','nodataBox','errorBox'].forEach(b=>show(b,false));
+
   const params={ company_id: currentCompanyId, start: el.startDate.value, end: el.endDate.value };
 
   try {
@@ -273,9 +279,11 @@ async function fetchDashboardData() {
   } catch(err){
     show('loadingBox', false);
     show('errorBox', true);
+    console.error("Dashboard error:", err);
   }
 }
 
+// Load Reviews List
 async function loadReviewsList() {
   if(!currentCompanyId) return;
   const params={ company_id:currentCompanyId, sort:el.sortReviews.value, start:el.startDate.value, end:el.endDate.value };
@@ -297,7 +305,9 @@ async function loadReviewsList() {
 // Fixed Google Places Implementation
 function loadGoogleScript(){
   const s=document.createElement('script');
-  // REQUIRED: Paste your key here
+  /* CRITICAL: Replace YOUR_API_KEY with your actual Google Cloud API Key.
+     Make sure "Places API" and "Maps JavaScript API" are enabled in the Google Console.
+  */
   s.src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places&callback=initGooglePlaces";
   s.async=true; s.defer=true;
   document.head.appendChild(s);
@@ -305,16 +315,17 @@ function loadGoogleScript(){
 
 window.initGooglePlaces=function(){
   if(typeof google==='undefined') return;
-  const autocomplete = new google.maps.places.Autocomplete(el.placeSearch, {
+  const autocomplete = new google.maps.places.Autocomplete(el.placeSearch,{
+    // Specify the fields we want to avoid getting empty objects
     fields: ["place_id", "name", "formatted_address", "formatted_phone_number", "website", "types", "opening_hours", "rating", "user_ratings_total"],
     types: ["establishment"]
   });
 
   autocomplete.addListener("place_changed", () => {
     const p = autocomplete.getPlace();
-    if (!p.place_id) return;
+    if(!p.place_id) return;
 
-    // Autofill Logic
+    // Autofilling your fields using the Google API results
     el.prevAddress.value = p.formatted_address || '';
     el.prevPhone.value = p.formatted_phone_number || 'N/A';
     el.prevWebsite.value = p.website || 'N/A';
@@ -323,7 +334,7 @@ window.initGooglePlaces=function(){
 
     el.previewBox.style.display = 'block';
     
-    // Save mapping
+    // Mapping attributes to selectedPlace object for backend save
     selectedPlace = {
       name: p.name,
       place_id: p.place_id,
@@ -333,40 +344,34 @@ window.initGooglePlaces=function(){
       category: el.prevCategory.value,
       hours: el.prevHours.value,
       avg_rating: p.rating || 0,
-      review_count: p.user_ratings_total || 0
+      review_count: p.user_ratings_total || 0,
+      google_data: p
     };
     el.saveBtn.disabled = false;
   });
 };
 
-el.switchBtn.onclick = () => { currentCompanyId=el.companySelect.value; localStorage.setItem('lastCompanyId',currentCompanyId); fetchDashboardData(); };
-el.fetchBtn.onclick = fetchDashboardData;
-el.sortReviews.onchange = loadReviewsList;
+el.switchBtn.addEventListener('click',()=>{ currentCompanyId=el.companySelect.value; localStorage.setItem('lastCompanyId',currentCompanyId); fetchDashboardData(); });
+el.fetchBtn.addEventListener('click',fetchDashboardData);
+el.sortReviews.addEventListener('change',loadReviewsList);
 
-el.saveBtn.onclick = async () => {
-  try {
-    const res = await fetch('/companies/add', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(selectedPlace)
-    });
-    const d = await res.json();
-    if (d.success) { 
-      alert("Company added successfully!"); 
-      location.reload(); 
-    } else { 
-      alert(d.message || 'Error adding company'); 
-    }
-  } catch (err) { alert('Save failed'); }
+el.saveBtn.onclick=async()=>{
+  try{
+    const res=await fetch('/companies/add',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(selectedPlace)});
+    const d=await res.json();
+    if(d.success){ alert("Company added successfully!"); location.reload(); }
+    else{ alert(d.message||'Error adding company'); }
+  } catch(err){ alert('Save failed'); }
 };
 
-document.addEventListener("DOMContentLoaded", () => {
+// Initial Load
+document.addEventListener("DOMContentLoaded",()=>{
   loadGoogleScript();
   const today=new Date();
   const start=new Date(); start.setDate(today.getDate()-30);
   el.startDate.value=start.toISOString().slice(0,10);
   el.endDate.value=today.toISOString().slice(0,10);
-  loadCompanies().then(() => { if(currentCompanyId) fetchDashboardData(); });
+  loadCompanies().then(()=>{ if(currentCompanyId) fetchDashboardData(); });
 });
 </script>
 
