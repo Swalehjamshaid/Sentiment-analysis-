@@ -70,15 +70,21 @@ async def lifespan(app: FastAPI):
                 )
                 await reset_database()
 
-                # Save new schema version so reset doesn't run again until next model change
+                # FIXED: Split into two separate safe statements
                 async with engine.begin() as conn:
+                    # Step 1: Create config table if it doesn't exist
                     await conn.execute(text("""
                         CREATE TABLE IF NOT EXISTS config (
                             key TEXT PRIMARY KEY,
                             value TEXT
-                        );
-                        INSERT INTO config (key, value) VALUES ('schema_version', :ver)
-                        ON CONFLICT (key) DO UPDATE SET value = :ver;
+                        )
+                    """))
+
+                    # Step 2: Insert or update the version (single command)
+                    await conn.execute(text("""
+                        INSERT INTO config (key, value) 
+                        VALUES ('schema_version', :ver)
+                        ON CONFLICT (key) DO UPDATE SET value = :ver
                     """), {"ver": SCHEMA_VERSION})
 
                 logger.info(f"Database reset complete. Schema version set to {SCHEMA_VERSION}")
