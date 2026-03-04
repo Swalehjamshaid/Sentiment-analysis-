@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
 from sqlalchemy import select, delete, or_, func
 from app.core.db import get_session
-from app.core.models import Company, AuditLog, User
+from app.core.models import Company, AuditLog, User, Review
 from app.core.config import settings
 from app.services.google_reviews import ingest_company_reviews
 from pydantic import BaseModel
@@ -191,7 +191,7 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
 
         await session.commit()
 
-        # After adding, return updated company list or relevant data
+        # After adding, return updated company list
         stmt = (
             select(
                 Company.id,
