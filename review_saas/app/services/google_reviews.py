@@ -23,14 +23,30 @@ def _get_places_client():
 
 
 # ---------------------------------------------------------
+# REQUIRED FUNCTION (Fixes Your Import Error)
+# ---------------------------------------------------------
+def fetch_place_details(place_id: str):
+    """
+    Fetch basic place details from Google Places API.
+    This is required by app/routes/reviews.py
+    """
+
+    client = _get_places_client()
+    if not client:
+        raise Exception("GOOGLE_PLACES_API_KEY not configured")
+
+    result = client.place(
+        place_id=place_id,
+        fields=["name", "rating", "user_ratings_total", "formatted_address"]
+    )
+
+    return result.get("result", {})
+
+
+# ---------------------------------------------------------
 # Google Business API (OAuth Required)
 # ---------------------------------------------------------
 async def _fetch_reviews_from_business_api(place_id: str):
-    """
-    Fetch reviews using Google Business Profile API.
-    Requires OAuth access token.
-    """
-
     access_token = getattr(settings, "GOOGLE_BUSINESS_ACCESS_TOKEN", None)
 
     if not access_token:
@@ -83,10 +99,10 @@ async def ingest_company_reviews(company_id: int, place_id: str):
     logger.info(f"Starting review ingestion for company_id={company_id}")
 
     try:
-        # 1️⃣ Try Business API
+        # Try Business API first
         reviews = await _fetch_reviews_from_business_api(place_id)
 
-        # 2️⃣ Fallback to Places API
+        # Fallback to Places API
         if not reviews:
             logger.info("Using Google Places API fallback.")
             reviews = _fetch_reviews_from_places_api(place_id)
@@ -100,14 +116,20 @@ async def ingest_company_reviews(company_id: int, place_id: str):
             for r in reviews:
 
                 # Handle both API formats
-                author = r.get("reviewer", {}).get("displayName") \
+                author = (
+                    r.get("reviewer", {}).get("displayName")
                     if "reviewer" in r else r.get("author_name")
+                )
 
-                rating = r.get("starRating") \
+                rating = (
+                    r.get("starRating")
                     if "starRating" in r else r.get("rating")
+                )
 
-                text = r.get("comment") \
+                text = (
+                    r.get("comment")
                     if "comment" in r else r.get("text")
+                )
 
                 profile_photo = (
                     r.get("reviewer", {}).get("profilePhotoUrl")
