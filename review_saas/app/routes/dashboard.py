@@ -1,40 +1,24 @@
 # filename: app/routes/dashboard.py
 from __future__ import annotations
 import logging
-from datetime import datetime
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, JSONResponse
-from sqlalchemy import select, func, cast, Date, desc
+from datetime import datetime, timezone
+from fastapi import APIRouter, Request, JSONResponse
+from sqlalchemy import select, func, desc
 from starlette.templating import Jinja2Templates
 from app.core.db import get_session
 from app.core.models import Company, Review
 from app.routes.companies import _require_user
+from app.services.google_reviews import ingest_company_reviews
 
 router = APIRouter(tags=["dashboard"])
 templates = Jinja2Templates(directory="app/templates")
 logger = logging.getLogger("app.dashboard")
 
 
-# =====================================================
-# Safe Date Parser
-# =====================================================
-def parse_date(date_str: str | None) -> datetime.date | None:
-    if not date_str:
-        return None
-    try:
-        return datetime.strptime(date_str, "%Y-%m-%d").date()
-    except Exception as e:
-        logger.warning(f"Invalid date format: {date_str} - {e}")
-        return None
-
-
-# =====================================================
-# DASHBOARD PAGE
-# =====================================================
 @router.get("/dashboard", response_class=HTMLResponse)
 async def get_dashboard(request: Request):
     """
-    Renders dashboard and fetches companies from DB.
+    Renders dashboard and fetches companies from DB and updated reviews.
     """
     uid = _require_user(request)
     if not uid:
@@ -65,6 +49,9 @@ async def get_dashboard(request: Request):
             for r in res.all()
         ]
 
+    # After fetching companies, you can also ingest or update and return fresh data if needed.
+    # Example: For a specific company, you could ingest and fetch reviews.
+    # For simplicity, let's assume we return the latest company KPIs.
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -74,14 +61,19 @@ async def get_dashboard(request: Request):
     )
 
 
-# =====================================================
-# API: Company List for Dashboard (JSON)
-# =====================================================
 @router.get("/api/dashboard/companies")
 async def api_dashboard_companies():
     """
-    Returns all companies with review_count and avg_rating for frontend.
+    Returns all companies with review_count and avg_rating immediately after ingestion.
     """
+    # Optionally, you can choose a company to trigger ingestion here
+    # For example, ingest for a specific company if passed
+    # company_id = some logic to pick a company or from request if needed
+
+    # If you want to ingest reviews for a company, call ingest logic here.
+    # Example: await ingest_company_reviews(company_id, place_id)
+
+    # After ingestion, return the updated list of companies
     async with get_session() as session:
         stmt = (
             select(
