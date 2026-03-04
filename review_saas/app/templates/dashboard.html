@@ -10,7 +10,7 @@
     .spinner { display: none; }
     .success-msg, .nodata-msg, .error-msg { display: none; }
     #addCompanyModal .modal-dialog { max-width: 500px; }
-    /* Ensures Google Autocomplete appears above modal */
+    /* Ensures Google Autocomplete dropdown appears above Bootstrap modal */
     .pac-container { z-index: 1060 !important; }
     .auto-field { background-color: #f8f9fa; pointer-events: none; }
   </style>
@@ -337,14 +337,14 @@ async function loadReviewsList() {
 // Load Google Places Script with debug
 function loadGoogleScript() {
   const s = document.createElement('script');
-  // ← REPLACE WITH YOUR REAL API KEY
-  s.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyBc...your-real-key-here...&libraries=places&callback=initGooglePlaces";
+  // Your real Google Places API key (used for Autocomplete + Details)
+  s.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initGooglePlaces";
   s.async = true;
   s.defer = true;
   s.onload = () => console.log("Google Maps JS API loaded successfully");
   s.onerror = (err) => {
-    console.error("Failed to load Google Maps script. Check API key, enabled APIs (Places API + Maps JS API), billing, and network.");
-    alert("Google Places could not load. Check console (F12) for details.");
+    console.error("Failed to load Google Maps script:", err);
+    alert("Google Places failed to load. Check console (F12) for details - likely API key or billing issue.");
   };
   document.head.appendChild(s);
 }
@@ -352,15 +352,15 @@ function loadGoogleScript() {
 // Initialize Google Places Autocomplete
 window.initGooglePlaces = function() {
   if (typeof google === 'undefined' || !google.maps?.places) {
-    console.error("Google Places library failed to initialize. Check: API key validity, Places API enabled, billing linked, network/VPN/adblocker.");
-    alert("Google Places is not available. See browser console (F12) for details.");
+    console.error("Google Places library failed to initialize. Check: API key, Places API enabled, billing linked, network/VPN/adblocker.");
+    alert("Google Places is not available. Open DevTools (F12) → Console for details.");
     return;
   }
 
   console.log("Google Places Autocomplete initialized successfully");
 
   const autocomplete = new google.maps.places.Autocomplete(el.placeSearch, {
-    types: ["establishment"], // Only businesses / places
+    types: ["establishment"], // Businesses, points of interest
     fields: [
       "place_id", "name", "formatted_address", "formatted_phone_number",
       "website", "types", "opening_hours", "rating", "user_ratings_total"
@@ -386,7 +386,6 @@ window.initGooglePlaces = function() {
 
     el.previewBox.style.display = 'block';
 
-    // Prepare data to send to backend
     selectedPlace = {
       name: place.name || '',
       place_id: place.place_id,
@@ -401,11 +400,11 @@ window.initGooglePlaces = function() {
     };
 
     el.saveBtn.disabled = false;
-    console.log("Ready to save - data prepared:", selectedPlace);
+    console.log("Save button enabled - data ready to send to backend:", selectedPlace);
   });
 };
 
-// Event Listeners (unchanged except save button logic)
+// Event Listeners
 el.switchBtn.addEventListener('click', () => {
   currentCompanyId = el.companySelect.value;
   localStorage.setItem('lastCompanyId', currentCompanyId);
@@ -441,7 +440,7 @@ el.saveBtn.onclick = async () => {
 
 // Initial Load
 document.addEventListener("DOMContentLoaded", () => {
-  loadGoogleScript(); // Loads Google API
+  loadGoogleScript(); // Load Google API
   const today = new Date();
   const start = new Date();
   start.setDate(today.getDate() - 30);
