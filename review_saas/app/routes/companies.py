@@ -23,7 +23,9 @@ templates = Jinja2Templates(directory="app/templates")
 # Helper: Require Logged User
 # -----------------------------
 def _require_user(request: Request):
-    return request.session.get("user_id")
+    user_id = request.session.get("user_id")
+    logger.debug(f"Session user_id: {user_id}")
+    return user_id
 
 
 # -----------------------------
@@ -41,7 +43,7 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
             request.session.clear()
             return RedirectResponse("/login", status_code=302)
 
-        stmt = select(Company).where(Company.owner_id == uid).order_by(Company.created_at.desc())
+        stmt = select(Company).where(Company.owner_id == uid)
         if q:
             stmt = stmt.where(
                 or_(
@@ -49,11 +51,14 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
                     Company.address.ilike(f"%{q}%")
                 )
             )
+        stmt = stmt.order_by(Company.created_at.desc())
+        total_result = await session.execute(stmt)
+        total_count = total_result.scalars().count()  # total companies
 
+        # SQL-level pagination
+        stmt = stmt.offset((page - 1) * size).limit(size)
         result = await session.execute(stmt)
-        all_rows = result.scalars().all()
-        total = len(all_rows)
-        items = all_rows[(page - 1) * size : (page - 1) * size + size]
+        items = result.scalars().all()
 
     return templates.TemplateResponse(
         "companies.html",
@@ -62,7 +67,7 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
             "items": items,
             "page": page,
             "size": size,
-            "total": total,
+            "total": total_count,
             "q": q or "",
         },
     )
@@ -73,11 +78,6 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
 # -----------------------------
 @router.get("/api/companies/list")
 async def list_companies(request: Request, q: str | None = None):
-    """
-    Returns companies in JSON for dashboard frontend.
-    Computes avg_rating and review_count dynamically.
-    Shows only companies for the logged-in user.
-    """
     uid = _require_user(request)
     if not uid:
         return JSONResponse({"success": False, "results": [], "message": "Unauthorized"}, status_code=401)
@@ -121,7 +121,7 @@ async def list_companies(request: Request, q: str | None = None):
             for c in companies
         ]
 
-        return {"success": True, "results": data}
+    return {"success": True, "results": data}
 
 
 # -----------------------------
@@ -167,7 +167,6 @@ class AddCompanyRequest(BaseModel):
 
 @router.post("/companies/add")
 async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: BackgroundTasks):
-
     uid = _require_user(request)
     if not uid:
         return JSONResponse({"success": False, "message": "Unauthorized"}, status_code=401)
@@ -196,7 +195,7 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
         session.add(new_company)
         await session.flush()  # get ID
 
-        # Add background task for Google reviews
+        # Background task: ingest reviews
         bg_tasks.add_task(
             ingest_company_reviews,
             new_company.id,
@@ -231,7 +230,6 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
 # -----------------------------
 @router.post("/companies/{company_id}/sync")
 async def company_sync(company_id: int, request: Request, bg_tasks: BackgroundTasks):
-
     uid = _require_user(request)
     if not uid:
         return RedirectResponse("/login", status_code=302)
@@ -271,13 +269,11 @@ async def company_sync(company_id: int, request: Request, bg_tasks: BackgroundTa
 # -----------------------------
 @router.post("/companies/{company_id}/delete")
 async def company_delete(request: Request, company_id: int):
-
     uid = _require_user(request)
     if not uid:
         return RedirectResponse("/login", status_code=302)
 
     async with get_session() as session:
-        # Only delete if owned by user
         await session.execute(delete(Company).where(Company.id == company_id, Company.owner_id == uid))
 
         session.add(
