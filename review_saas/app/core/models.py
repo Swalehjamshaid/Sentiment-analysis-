@@ -4,8 +4,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy import Integer, String, DateTime, Float, ForeignKey, Boolean, JSON, UniqueConstraint, func, Text, ARRAY
 from datetime import datetime
 
-# Schema version - increase this ONLY when you change the schema (add/rename/remove columns, tables, etc.)
-SCHEMA_VERSION = "2025-03-04-v1"  # ← CHANGE THIS when you update models.py next time
+# Schema version — increase this ONLY when you change the schema (add/rename/remove columns, tables, etc.)
+SCHEMA_VERSION = "2025-03-04-v1"  # ← CHANGE THIS (e.g. to v2) when you update the schema
 
 # -------------------- BASE --------------------
 class Base(DeclarativeBase):
@@ -59,11 +59,11 @@ class Company(Base):
     last_updated: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     google_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
-    # New fields aligned with Google Places API (optional, nullable)
-    vicinity: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Short address snippet
-    next_open_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # Next open time if closed
-    photos: Mapped[list[str] | None] = mapped_column(ARRAY(String(512)), nullable=True)  # URLs to photos
-    editorial_summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # Google-generated summary
+    # Additional useful Google Places fields (optional)
+    vicinity: Mapped[str | None] = mapped_column(String(255), nullable=True)               # short address snippet
+    next_open_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    photos: Mapped[list[str] | None] = mapped_column(ARRAY(String(512)), nullable=True)     # photo reference URLs
+    editorial_summary: Mapped[str | None] = mapped_column(Text, nullable=True)             # Google-generated summary
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -100,10 +100,10 @@ class Review(Base):
     sentiment_label: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     keywords: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
-    # New fields aligned with Google Places API (optional)
-    aspect_rating: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # e.g. {"Food": 4.5, "Service": 4.0}
-    original_text: Mapped[str | None] = mapped_column(Text, nullable=True)  # Original before translation
-    translation: Mapped[str | None] = mapped_column(Text, nullable=True)  # Translated version if different
+    # Additional useful Google review fields (optional)
+    aspect_rating: Mapped[dict | None] = mapped_column(JSON, nullable=True)      # e.g. {"Food": 4.5, "Service": 4.0}
+    original_text: Mapped[str | None] = mapped_column(Text, nullable=True)       # before translation
+    translation: Mapped[str | None] = mapped_column(Text, nullable=True)         # translated version
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
