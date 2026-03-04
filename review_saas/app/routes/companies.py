@@ -4,9 +4,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Request, Query, BackgroundTasks, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from starlette.templating import Jinja2Templates
-from sqlalchemy import select, delete, or_
+from sqlalchemy import select, delete, or_, func
 from app.core.db import get_session
-from app.core.models import Company, AuditLog, User
+from app.core.models import Company, AuditLog, User, Review
 from app.core.config import settings
 from app.services.google_reviews import ingest_company_reviews
 from pydantic import BaseModel
@@ -41,7 +41,7 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
             request.session.clear()
             return RedirectResponse("/login", status_code=302)
 
-        stmt = select(Company).order_by(Company.created_at.desc())
+        stmt = select(Company).where(Company.owner_id == uid).order_by(Company.created_at.desc())
         if q:
             stmt = stmt.where(
                 or_(
@@ -72,12 +72,32 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
 # JSON API: LIST COMPANIES
 # -----------------------------
 @router.get("/api/companies/list")
-async def list_companies(q: str | None = None):
+async def list_companies(request: Request, q: str | None = None):
     """
     Returns companies in JSON for dashboard frontend.
+    Computes avg_rating and review_count dynamically.
+    Shows only companies for the logged-in user.
     """
+    uid = _require_user(request)
+    if not uid:
+        return JSONResponse({"success": False, "results": [], "message": "Unauthorized"}, status_code=401)
+
     async with get_session() as session:
-        stmt = select(Company).order_by(Company.created_at.desc())
+        stmt = (
+            select(
+                Company.id,
+                Company.name,
+                Company.address,
+                Company.google_place_id,
+                func.coalesce(func.avg(Review.rating), 0).label("avg_rating"),
+                func.count(Review.id).label("review_count")
+            )
+            .outerjoin(Review, Review.company_id == Company.id)
+            .where(Company.owner_id == uid)
+            .group_by(Company.id)
+            .order_by(Company.created_at.desc())
+        )
+
         if q:
             stmt = stmt.where(
                 or_(
@@ -85,15 +105,17 @@ async def list_companies(q: str | None = None):
                     Company.address.ilike(f"%{q}%")
                 )
             )
+
         result = await session.execute(stmt)
-        companies = result.scalars().all()
+        companies = result.all()
 
         data = [
             {
                 "id": c.id,
                 "name": c.name,
-                "address": c.address,
-                "avg_rating": c.avg_rating,
+                "address": c.address or "",
+                "place_id": c.google_place_id or "",
+                "avg_rating": round(c.avg_rating or 0, 2),
                 "review_count": c.review_count,
             }
             for c in companies
@@ -158,7 +180,7 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
             return JSONResponse({"success": False, "message": "Session expired"}, status_code=401)
 
         existing = await session.execute(
-            select(Company).where(Company.google_place_id == data.place_id)
+            select(Company).where(Company.google_place_id == data.place_id, Company.owner_id == uid)
         )
         if existing.scalar_one_or_none():
             return {"success": False, "message": "Company already exists"}
@@ -197,8 +219,8 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
                 "id": new_company.id,
                 "name": new_company.name,
                 "address": new_company.address,
-                "avg_rating": new_company.avg_rating,
-                "review_count": new_company.review_count,
+                "avg_rating": 0.0,
+                "review_count": 0,
             },
             "message": "Company added and reviews loading!",
         }
@@ -220,7 +242,7 @@ async def company_sync(company_id: int, request: Request, bg_tasks: BackgroundTa
             request.session.clear()
             return RedirectResponse("/login", status_code=302)
 
-        result = await session.execute(select(Company).where(Company.id == company_id))
+        result = await session.execute(select(Company).where(Company.id == company_id, Company.owner_id == uid))
         company = result.scalar_one_or_none()
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
@@ -255,7 +277,8 @@ async def company_delete(request: Request, company_id: int):
         return RedirectResponse("/login", status_code=302)
 
     async with get_session() as session:
-        await session.execute(delete(Company).where(Company.id == company_id))
+        # Only delete if owned by user
+        await session.execute(delete(Company).where(Company.id == company_id, Company.owner_id == uid))
 
         session.add(
             AuditLog(
