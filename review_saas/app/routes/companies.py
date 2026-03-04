@@ -191,17 +191,44 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
 
         await session.commit()
 
-        return {
-            "success": True,
-            "company": {
-                "id": new_company.id,
-                "name": new_company.name,
-                "address": new_company.address,
-                "avg_rating": 0.0,
-                "review_count": 0,
-            },
-            "message": "Company added and reviews loading!",
-        }
+        # After adding, return updated company list or relevant data
+        stmt = (
+            select(
+                Company.id,
+                Company.name,
+                Company.address,
+                func.count(Review.id).label("review_count"),
+                func.coalesce(func.avg(Review.rating), 0).label("avg_rating"),
+            )
+            .outerjoin(Review, Company.id == Review.company_id)
+            .where(Company.owner_id == uid)
+            .group_by(Company.id, Company.name, Company.address)
+            .order_by(desc(Company.created_at))
+        )
+        res = await session.execute(stmt)
+        companies = [
+            {
+                "id": int(r.id),
+                "name": r.name,
+                "address": r.address,
+                "review_count": int(r.review_count or 0),
+                "avg_rating": round(float(r.avg_rating or 0), 2),
+            }
+            for r in res.all()
+        ]
+
+    return {
+        "success": True,
+        "company": {
+            "id": new_company.id,
+            "name": new_company.name,
+            "address": new_company.address,
+            "avg_rating": 0.0,
+            "review_count": 0,
+        },
+        "message": "Company added and reviews loading!",
+        "companies": companies,  # Returning updated list to frontend
+    }
 
 
 @router.post("/companies/{company_id}/sync")
@@ -238,7 +265,37 @@ async def company_sync(company_id: int, request: Request, bg_tasks: BackgroundTa
 
         await session.commit()
 
-    return RedirectResponse(url=f"/dashboard?company_id={company_id}", status_code=302)
+        # After sync, return updated company list
+        stmt = (
+            select(
+                Company.id,
+                Company.name,
+                Company.address,
+                func.count(Review.id).label("review_count"),
+                func.coalesce(func.avg(Review.rating), 0).label("avg_rating"),
+            )
+            .outerjoin(Review, Company.id == Review.company_id)
+            .where(Company.owner_id == uid)
+            .group_by(Company.id, Company.name, Company.address)
+            .order_by(desc(Company.created_at))
+        )
+        res = await session.execute(stmt)
+        companies = [
+            {
+                "id": int(r.id),
+                "name": r.name,
+                "address": r.address,
+                "review_count": int(r.review_count or 0),
+                "avg_rating": round(float(r.avg_rating or 0), 2),
+            }
+            for r in res.all()
+        ]
+
+    return {
+        "success": True,
+        "message": "Company reviews synced!",
+        "companies": companies,  # Updated list returned
+    }
 
 
 @router.post("/companies/{company_id}/delete")
