@@ -65,7 +65,7 @@
   <div class="alert alert-info mt-3 spinner" id="loadingBox">Loading…</div>
   <div class="alert alert-success mt-3 success-msg" id="successBox">Data fetched successfully.</div>
   <div class="alert alert-warning mt-3 nodata-msg" id="nodataBox">No Data Found for selected date range.</div>
-  <div class="alert alert-danger mt-3 error-msg" id="errorBox">Error loading data.</div>
+  <div class="alert alert-danger mt-3 error-msg" id="errorBox">Error loading data. Check console (F12).</div>
 
   <!-- KPIs -->
   <div class="row g-3 mt-2">
@@ -199,23 +199,27 @@ let currentCompanyId = null;
 let selectedPlace = null;
 let charts = {};
 
+// Helper to show/hide elements
 const show = (elId, visible) => el[elId].style.display = visible ? 'block' : 'none';
 const qs = (obj) => new URLSearchParams(obj).toString();
 
+// Safe fetch with logging
 async function safeJsonFetch(url) {
   try {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} - ${res.statusText}`);
+    }
     const json = await res.json();
-    console.log("API fetch:", url, json);
+    console.log(`[API Success] ${url}:`, json);
     return json;
   } catch (err) {
-    console.error("Fetch error:", err, url);
+    console.error(`[API Error] ${url}:`, err);
     throw err;
   }
 }
 
-// Load Companies Dropdown
+// Load companies dropdown
 async function loadCompanies() {
   try {
     const data = await safeJsonFetch('/api/companies/list');
@@ -237,44 +241,58 @@ async function loadCompanies() {
       el.companySelect.value = data.companies[0].id;
     }
     currentCompanyId = el.companySelect.value;
+    console.log("Companies loaded:", currentCompanyId);
   } catch (err) {
     el.companySelect.innerHTML = '<option value="">Error loading companies</option>';
+    show('errorBox', true);
   }
 }
 
-// Fetch Dashboard Data
+// Fetch and render dashboard data
 async function fetchDashboardData() {
-  if (!currentCompanyId) return;
+  if (!currentCompanyId) {
+    show('errorBox', true);
+    console.warn("No company selected");
+    return;
+  }
+
   show('loadingBox', true);
-  ['successBox','nodataBox','errorBox'].forEach(b => show(b, false));
-  const params = { company_id: currentCompanyId, start: el.startDate.value, end: el.endDate.value };
+  ['successBox', 'nodataBox', 'errorBox'].forEach(b => show(b, false));
+
+  const params = {
+    company_id: currentCompanyId,
+    start: el.startDate.value,
+    end: el.endDate.value
+  };
+
   try {
-    const [kpis, revSeries, ratDist, sentSeries] = await Promise.all([
+    const [kpis, revSeries, ratDist, sentSeries, reviewsData] = await Promise.all([
       safeJsonFetch(`/api/kpis?${qs(params)}`),
       safeJsonFetch(`/api/series/reviews?${qs(params)}`),
       safeJsonFetch(`/api/ratings/distribution?${qs(params)}`),
-      safeJsonFetch(`/api/sentiment/series?${qs(params)}`)
+      safeJsonFetch(`/api/sentiment/series?${qs(params)}`),
+      safeJsonFetch(`/api/reviews/list?${qs(params)}`)
     ]);
 
-    console.log("KPIs:", kpis, "Reviews Series:", revSeries, "Rating Distribution:", ratDist, "Sentiment Series:", sentSeries);
+    console.log("Dashboard data loaded:", { kpis, revSeries, ratDist, sentSeries, reviews: reviewsData });
 
     // Update KPIs
     el.kpiTotal.textContent = kpis.total_reviews ?? 0;
     el.kpiRating.textContent = (kpis.avg_rating ?? 0).toFixed(2);
     el.kpiSent.textContent = (kpis.avg_sentiment ?? 0).toFixed(3);
-    el.kpiNew.textContent = (revSeries.series && revSeries.series.length > 0) ? revSeries.series.at(-1).value : 0;
+    el.kpiNew.textContent = (revSeries.series?.length > 0 ? revSeries.series.at(-1).value : 0);
 
-    // Destroy old charts if exist
+    // Destroy old charts
     Object.values(charts).forEach(c => c?.destroy?.());
 
     // Reviews per day
     charts.rev = new Chart(document.getElementById('seriesReviews'), {
       type: 'line',
       data: {
-        labels: revSeries.series ? revSeries.series.map(x => x.date) : [],
+        labels: revSeries.series?.map(x => x.date) || [],
         datasets: [{
           label: 'Reviews',
-          data: revSeries.series ? revSeries.series.map(x => x.value) : [],
+          data: revSeries.series?.map(x => x.value) || [],
           borderColor: '#0d6efd',
           backgroundColor: 'rgba(13,110,253,0.1)',
           tension: 0.3,
@@ -301,10 +319,10 @@ async function fetchDashboardData() {
     charts.sent = new Chart(document.getElementById('sentSeries'), {
       type: 'line',
       data: {
-        labels: sentSeries.series ? sentSeries.series.map(x => x.date) : [],
+        labels: sentSeries.series?.map(x => x.date) || [],
         datasets: [{
           label: 'Sentiment',
-          data: sentSeries.series ? sentSeries.series.map(x => x.value) : [],
+          data: sentSeries.series?.map(x => x.value) || [],
           borderColor: '#6610f2',
           backgroundColor: 'rgba(102,16,242,0.1)',
           tension: 0.3,
@@ -314,25 +332,28 @@ async function fetchDashboardData() {
       options: { responsive: true, scales: { y: { min: -1, max: 1 } } }
     });
 
-    await loadReviewsList();
+    // Load reviews list
+    await loadReviewsList(reviewsData);
+
     show('loadingBox', false);
     show('successBox', true);
-    if (kpis.total_reviews === 0) show('nodataBox', true);
+
+    if ((kpis.total_reviews ?? 0) === 0) show('nodataBox', true);
 
   } catch (err) {
     show('loadingBox', false);
     show('errorBox', true);
-    console.error("Dashboard fetch error:", err);
+    console.error("Dashboard fetch failed:", err);
   }
 }
 
-// Load Reviews List
-async function loadReviewsList() {
+// Load Reviews List (updated to accept data)
+async function loadReviewsList(data = null) {
   if (!currentCompanyId) return;
   const params = { company_id: currentCompanyId, sort: el.sortReviews.value, start: el.startDate.value, end: el.endDate.value };
   try {
-    const { items } = await safeJsonFetch(`/api/reviews/list?${qs(params)}`);
-    el.reviewsList.innerHTML = items.map(r => {
+    const { items } = data || await safeJsonFetch(`/api/reviews/list?${qs(params)}`);
+    el.reviewsList.innerHTML = items?.map(r => {
       const rating = r.rating || 0;
       const stars = '★'.repeat(Math.round(rating)) + '☆'.repeat(5 - Math.round(rating));
       return `<div class="border rounded p-2 mb-2">
@@ -349,36 +370,48 @@ async function loadReviewsList() {
   }
 }
 
-// Google Places
+// Google Places Autocomplete
 function loadGoogleScript() {
   const s = document.createElement('script');
   s.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initGooglePlaces";
   s.async = true;
   s.defer = true;
+  s.onerror = () => console.error("Google Maps script failed to load");
   document.head.appendChild(s);
 }
 
 window.initGooglePlaces = function() {
-  if (!window.google?.maps?.places) return;
+  if (!window.google?.maps?.places) {
+    console.error("Google Places not loaded");
+    return;
+  }
   const autocomplete = new google.maps.places.Autocomplete(el.placeSearch, {
     types: ["establishment"],
     fields: ["place_id","name","formatted_address","formatted_phone_number","website","types","opening_hours","rating","user_ratings_total"]
   });
   autocomplete.addListener("place_changed", () => {
     const place = autocomplete.getPlace();
-    if (!place.place_id) { alert("Select a valid suggestion."); return; }
-    el.prevAddress.value = place.formatted_address||'N/A';
-    el.prevPhone.value = place.formatted_phone_number||'N/A';
-    el.prevWebsite.value = place.website||'N/A';
-    el.prevCategory.value = place.types?.[0]?.replace(/_/g,' ')||'Business';
-    el.prevHours.value = place.opening_hours?.weekday_text?.join('\n')||'No hours listed';
+    if (!place.place_id) {
+      alert("Please select a valid suggestion from the dropdown.");
+      return;
+    }
+    el.prevAddress.value = place.formatted_address || 'N/A';
+    el.prevPhone.value = place.formatted_phone_number || 'N/A';
+    el.prevWebsite.value = place.website || 'N/A';
+    el.prevCategory.value = place.types?.[0]?.replace(/_/g, ' ') || 'Business';
+    el.prevHours.value = place.opening_hours?.weekday_text?.join('\n') || 'No hours listed';
     el.previewBox.style.display = 'block';
+
     selectedPlace = {
-      name: place.name||'', place_id: place.place_id,
-      address: el.prevAddress.value, phone: el.prevPhone.value,
-      website: el.prevWebsite.value, category: el.prevCategory.value,
-      hours: el.prevHours.value, avg_rating: place.rating||0,
-      review_count: place.user_ratings_total||0
+      name: place.name || '',
+      place_id: place.place_id,
+      address: place.formatted_address || '',
+      phone: place.formatted_phone_number || '',
+      website: place.website || '',
+      category: el.prevCategory.value,
+      hours: el.prevHours.value,
+      avg_rating: place.rating || 0,
+      review_count: place.user_ratings_total || 0
     };
     el.saveBtn.disabled = false;
   });
@@ -386,22 +419,50 @@ window.initGooglePlaces = function() {
 
 // Event Listeners
 el.fetchBtn.addEventListener('click', fetchDashboardData);
-el.sortReviews.addEventListener('change', loadReviewsList);
+el.sortReviews.addEventListener('change', () => loadReviewsList());
 el.switchBtn.addEventListener('click', () => {
   currentCompanyId = el.companySelect.value;
   localStorage.setItem('lastCompanyId', currentCompanyId);
   fetchDashboardData();
 });
 
+// Save Company (add logging)
+el.saveBtn.onclick = async () => {
+  if (!selectedPlace?.place_id) {
+    alert("Please select a valid place from suggestions.");
+    return;
+  }
+  try {
+    const res = await fetch('/companies/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(selectedPlace)
+    });
+    const result = await res.json();
+    console.log("Save response:", result);
+    if (result.success) {
+      alert("Company added! Refreshing...");
+      location.reload();
+    } else {
+      alert(result.message || "Failed to add company");
+    }
+  } catch (err) {
+    console.error("Save error:", err);
+    alert("Save failed - check console");
+  }
+};
+
+// Initial Load
 window.addEventListener('DOMContentLoaded', async () => {
   const today = new Date().toISOString().split('T')[0];
   el.startDate.value = new Date(new Date().setMonth(new Date().getMonth()-1)).toISOString().split('T')[0];
   el.endDate.value = today;
-  await loadCompanies();
-  await fetchDashboardData();
   loadGoogleScript();
+  await loadCompanies();
+  if (currentCompanyId) await fetchDashboardData();
 });
 </script>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
