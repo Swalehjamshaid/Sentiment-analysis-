@@ -27,7 +27,6 @@
 </nav>
 
 <div class="container py-4">
-
   <div class="row g-3 align-items-end">
     <div class="col-lg-4">
       <label class="form-label">Company</label>
@@ -120,7 +119,6 @@
       </div>
     </div>
   </div>
-
 </div>
 
 <div class="modal fade" id="addCompanyModal" tabindex="-1">
@@ -233,7 +231,6 @@ async function fetchDashboardData() {
   if(!currentCompanyId) return;
   show('loadingBox', true);
   ['successBox','nodataBox','errorBox'].forEach(b=>show(b,false));
-
   const params={ company_id: currentCompanyId, start: el.startDate.value, end: el.endDate.value };
 
   try {
@@ -276,7 +273,6 @@ async function fetchDashboardData() {
   } catch(err){
     show('loadingBox', false);
     show('errorBox', true);
-    console.error("Dashboard error:", err);
   }
 }
 
@@ -298,10 +294,10 @@ async function loadReviewsList() {
   }
 }
 
-// Google Places Autocomplete
+// Fixed Google Places Implementation
 function loadGoogleScript(){
   const s=document.createElement('script');
-  // REPLACE YOUR_API_KEY WITH YOUR ACTUAL GOOGLE API KEY
+  // REQUIRED: Paste your key here
   s.src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places&callback=initGooglePlaces";
   s.async=true; s.defer=true;
   document.head.appendChild(s);
@@ -309,62 +305,68 @@ function loadGoogleScript(){
 
 window.initGooglePlaces=function(){
   if(typeof google==='undefined') return;
-  const auto=new google.maps.places.Autocomplete(el.placeSearch,{
+  const autocomplete = new google.maps.places.Autocomplete(el.placeSearch, {
     fields: ["place_id", "name", "formatted_address", "formatted_phone_number", "website", "types", "opening_hours", "rating", "user_ratings_total"],
     types: ["establishment"]
   });
-  
-  auto.addListener("place_changed",()=>{
-    const p=auto.getPlace();
-    if(!p.place_id) return;
-    
-    // Autofilling fields through Google API
+
+  autocomplete.addListener("place_changed", () => {
+    const p = autocomplete.getPlace();
+    if (!p.place_id) return;
+
+    // Autofill Logic
     el.prevAddress.value = p.formatted_address || '';
     el.prevPhone.value = p.formatted_phone_number || 'N/A';
     el.prevWebsite.value = p.website || 'N/A';
-    el.prevCategory.value = p.types ? p.types[0].replace(/_/g,' ') : 'Business';
+    el.prevCategory.value = p.types ? p.types[0].replace(/_/g, ' ') : 'Business';
     el.prevHours.value = p.opening_hours?.weekday_text?.join('\n') || 'No hours listed';
-    
+
     el.previewBox.style.display = 'block';
     
-    // Auto populated attributes for save functionality
+    // Save mapping
     selectedPlace = {
-      name: p.name, 
-      place_id: p.place_id, 
-      address: p.formatted_address, 
-      phone: p.formatted_phone_number, 
-      website: p.website, 
-      category: el.prevCategory.value, 
+      name: p.name,
+      place_id: p.place_id,
+      address: p.formatted_address,
+      phone: p.formatted_phone_number,
+      website: p.website,
+      category: el.prevCategory.value,
       hours: el.prevHours.value,
       avg_rating: p.rating || 0,
-      review_count: p.user_ratings_total || 0,
-      google_data: p
+      review_count: p.user_ratings_total || 0
     };
-    
     el.saveBtn.disabled = false;
   });
 };
 
-el.switchBtn.addEventListener('click',()=>{ currentCompanyId=el.companySelect.value; localStorage.setItem('lastCompanyId',currentCompanyId); fetchDashboardData(); });
-el.fetchBtn.addEventListener('click',fetchDashboardData);
-el.sortReviews.addEventListener('change',loadReviewsList);
+el.switchBtn.onclick = () => { currentCompanyId=el.companySelect.value; localStorage.setItem('lastCompanyId',currentCompanyId); fetchDashboardData(); };
+el.fetchBtn.onclick = fetchDashboardData;
+el.sortReviews.onchange = loadReviewsList;
 
-el.saveBtn.onclick=async()=>{
-  try{
-    const res=await fetch('/companies/add',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(selectedPlace)});
-    const d=await res.json();
-    if(d.success){ alert("Company added! Data is loading in the background."); location.reload(); }
-    else{ alert(d.message||'Error adding company'); }
-  } catch(err){ alert('Save failed'); }
+el.saveBtn.onclick = async () => {
+  try {
+    const res = await fetch('/companies/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(selectedPlace)
+    });
+    const d = await res.json();
+    if (d.success) { 
+      alert("Company added successfully!"); 
+      location.reload(); 
+    } else { 
+      alert(d.message || 'Error adding company'); 
+    }
+  } catch (err) { alert('Save failed'); }
 };
 
-document.addEventListener("DOMContentLoaded",()=>{
+document.addEventListener("DOMContentLoaded", () => {
   loadGoogleScript();
   const today=new Date();
   const start=new Date(); start.setDate(today.getDate()-30);
   el.startDate.value=start.toISOString().slice(0,10);
   el.endDate.value=today.toISOString().slice(0,10);
-  loadCompanies().then(()=>{ if(currentCompanyId) fetchDashboardData(); });
+  loadCompanies().then(() => { if(currentCompanyId) fetchDashboardData(); });
 });
 </script>
 
