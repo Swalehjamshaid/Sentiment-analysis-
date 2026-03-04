@@ -33,20 +33,24 @@ class AddCompanyRequest(BaseModel):
     address: str | None = None
     google_data: dict | None = None
 
-# --- Helper: Get Updated List Logic ---
+# --- Helper: Get Updated List Logic (Database Fetch) ---
 async def _get_companies_data(session, uid: int):
-    """Reusable logic to fetch current companies with stats."""
+    """
+    Core logic to fetch data from the database. 
+    Ensures front-end display stays in sync with actual DB state.
+    """
     stmt = (
         select(
             Company.id,
             Company.name,
             Company.address,
+            Company.google_place_id,
             func.count(Review.id).label("review_count"),
             func.coalesce(func.avg(Review.rating), 0).label("avg_rating"),
         )
         .outerjoin(Review, Company.id == Review.company_id)
         .where(Company.owner_id == uid)
-        .group_by(Company.id, Company.name, Company.address)
+        .group_by(Company.id, Company.name, Company.address, Company.google_place_id)
         .order_by(desc(Company.created_at))
     )
     res = await session.execute(stmt)
@@ -54,7 +58,8 @@ async def _get_companies_data(session, uid: int):
         {
             "id": int(r.id),
             "name": r.name,
-            "address": r.address,
+            "address": r.address or "",
+            "place_id": r.google_place_id or "",
             "review_count": int(r.review_count or 0),
             "avg_rating": round(float(r.avg_rating or 0), 2),
         }
@@ -98,7 +103,7 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
         },
     )
 
-# --- API: List Companies for Dropdowns/Tables ---
+# --- API: List Companies (Fetch from Database) ---
 @router.get("/api/companies/list")
 async def list_companies(request: Request):
     uid = _require_user(request)
@@ -109,13 +114,12 @@ async def list_companies(request: Request):
         data = await _get_companies_data(session, uid)
     return {"success": True, "companies": data}
 
-# --- API: Search Google Places ---
+# --- API: Search Google Places (Input from Google API) ---
 @router.get("/google/places/search")
 async def search_google_places(q: str = Query(..., min_length=3)):
     try:
-        gmaps = googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
-        # Narrowing results to a specific region or general search
-        result = gmaps.places(query=q)
+        gmaps_client = googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
+        result = gmaps_client.places(query=q)
         places = [
             PlaceSearchResult(
                 place_id=p["place_id"],
@@ -129,7 +133,7 @@ async def search_google_places(q: str = Query(..., min_length=3)):
         logger.error(f"Google search error: {e}")
         return {"success": False, "message": str(e)}
 
-# --- API: Add New Company (Database Input Logic) ---
+# --- API: Add New Company (Input -> Database -> Fetch -> Display) ---
 @router.post("/companies/add")
 async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: BackgroundTasks):
     uid = _require_user(request)
@@ -142,9 +146,9 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
             select(Company).where(Company.google_place_id == data.place_id, Company.owner_id == uid)
         )
         if existing.scalar_one_or_none():
-            return JSONResponse({"success": False, "message": "Company already exists"}, status_code=400)
+            return JSONResponse({"success": False, "message": "Company already exists in your account"}, status_code=400)
 
-        # 1. Input Data to Database
+        # 1. DATABASE INPUT: Save record to Postgres
         new_company = Company(
             name=data.name,
             google_place_id=data.place_id,
@@ -155,24 +159,24 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
         session.add(new_company)
         await session.flush() # Generate ID for Audit Log
 
-        # 2. Add Audit Log
+        # 2. AUDIT LOG: Track activity
         session.add(AuditLog(user_id=uid, action="company_add_google", meta={"company_id": new_company.id}))
 
-        # 3. COMMIT Transaction (Ensures data is saved before response is sent)
+        # 3. COMMIT TRANSACTION: Hard-save to DB before responding
         await session.commit()
         await session.refresh(new_company)
 
-        # 4. Background Task for Reviews (Extract logic)
+        # 4. BACKGROUND PROCESS: Start scraping reviews
         bg_tasks.add_task(ingest_company_reviews, new_company.id, new_company.google_place_id)
 
-        # 5. Fetch fresh data from database for frontend display
+        # 5. DATABASE FETCH: Get full updated list for front-end refresh
         companies = await _get_companies_data(session, uid)
         
     return {
         "success": True,
         "company": {"id": new_company.id, "name": new_company.name},
-        "companies": companies, # Returning full list for instant UI update
-        "message": "Company saved and added to database!"
+        "companies": companies, 
+        "message": "Company saved! Refreshing your list..."
     }
 
 # --- API: Sync/Refresh Company ---
@@ -188,13 +192,15 @@ async def company_sync(company_id: int, request: Request, bg_tasks: BackgroundTa
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
+        # Trigger background scraper
         bg_tasks.add_task(ingest_company_reviews, company.id, company.google_place_id)
         session.add(AuditLog(user_id=uid, action="company_sync_triggered", meta={"company_id": company.id}))
         await session.commit()
         
+        # DATABASE FETCH: Refresh display data
         companies = await _get_companies_data(session, uid)
 
-    return {"success": True, "message": "Sync started!", "companies": companies}
+    return {"success": True, "message": "Review sync started!", "companies": companies}
 
 # --- POST: Delete Company ---
 @router.post("/companies/{company_id}/delete")
