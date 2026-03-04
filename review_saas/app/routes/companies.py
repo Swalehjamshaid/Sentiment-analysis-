@@ -37,7 +37,6 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
 
     async with get_session() as session:
 
-        # 🔥 VERIFY USER EXISTS (Fix after DB reset)
         user_check = await session.execute(select(User).where(User.id == uid))
         if not user_check.scalar_one_or_none():
             request.session.clear()
@@ -122,7 +121,6 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
 
     async with get_session() as session:
 
-        # ✅ FIX 1: Verify user exists (prevents FK crash)
         user_result = await session.execute(select(User).where(User.id == uid))
         user = user_result.scalar_one_or_none()
 
@@ -130,14 +128,12 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
             request.session.clear()
             return {"success": False, "message": "Session expired. Please login again."}
 
-        # ✅ Prevent duplicate companies
         existing = await session.execute(
             select(Company).where(Company.google_place_id == data.place_id)
         )
         if existing.scalar_one_or_none():
             return {"success": False, "message": "Company already exists"}
 
-        # ✅ Safe insert
         new_company = Company(
             name=data.name,
             google_place_id=data.place_id,
@@ -149,7 +145,7 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
         session.add(new_company)
         await session.flush()  # get ID
 
-        # ✅ FIX 2: DO NOT pass session to background task
+        # ✅ FIX: Pass only required arguments to background task
         bg_tasks.add_task(
             ingest_company_reviews,
             new_company.id,
@@ -198,7 +194,6 @@ async def company_sync(company_id: int, request: Request, bg_tasks: BackgroundTa
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
-        # ✅ Safe background task
         bg_tasks.add_task(
             ingest_company_reviews,
             company.id,
