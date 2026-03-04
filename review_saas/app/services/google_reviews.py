@@ -11,89 +11,117 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------
+# Google Business API: Location Details
+# ---------------------------------------------------------
 async def fetch_place_details(place_id: str):
     """
     Fetch basic business details using the Business API.
-    Aligned with Company model fields.
+    Aligned with the Company table structure.
     """
     token = getattr(settings, "GOOGLE_BUSINESS_ACCESS_TOKEN", None)
     if not token:
-        logger.error("GOOGLE_BUSINESS_ACCESS_TOKEN missing")
+        logger.error("GOOGLE_BUSINESS_ACCESS_TOKEN missing in configuration")
         return {}
 
+    # Endpoint for specific location details
     url = f"https://mybusiness.googleapis.com/v4/accounts/-/locations/{place_id}"
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
     async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(url, headers=headers)
-        if response.status_code != 200:
+        try:
+            response = await client.get(url, headers=headers)
+            if response.status_code != 200:
+                logger.error(f"Details fetch failed: {response.status_code}")
+                return {}
+            
+            data = response.json()
+            return {
+                "name": data.get("locationName"),
+                "address": data.get("address", {}).get("addressLines", [""])[0] if data.get("address") else ""
+            }
+        except Exception as e:
+            logger.error(f"Place details connection error: {e}")
             return {}
-        
-        data = response.json()
-        return {
-            "name": data.get("locationName"),
-            "address": data.get("address", {}).get("addressLines", [""])[0] if data.get("address") else ""
-        }
 
+# ---------------------------------------------------------
+# Google Business API: Raw Review Fetch
+# ---------------------------------------------------------
 async def _fetch_reviews_from_business_api(place_id: str):
+    """
+    Fetches raw review JSON data from the Google Business Profile API.
+    """
     token = getattr(settings, "GOOGLE_BUSINESS_ACCESS_TOKEN", None)
-    if not token: return None
+    if not token: 
+        logger.error("Cannot fetch: GOOGLE_BUSINESS_ACCESS_TOKEN is null")
+        return None
     
     url = f"https://mybusiness.googleapis.com/v4/accounts/-/locations/{place_id}/reviews"
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     
     async with httpx.AsyncClient(timeout=30) as client:
-        res = await client.get(url, headers=headers)
-        if res.status_code != 200:
-            logger.error(f"Business API error: {res.status_code} - {res.text}")
+        try:
+            res = await client.get(url, headers=headers)
+            if res.status_code != 200:
+                logger.error(f"Business API error: {res.status_code} - {res.text}")
+                return None
+            return res.json().get("reviews", [])
+        except Exception as e:
+            logger.error(f"Business API connection failed: {e}")
             return None
-        return res.json().get("reviews", [])
 
+# ---------------------------------------------------------
+# Main Ingestion Logic: Alignment & Database Commit
+# ---------------------------------------------------------
 async def ingest_company_reviews(company_id: int, place_id: str):
     """
-    Ingests reviews and aligns them with the Review model schema.
-    Matches google_review_id, rating, and google_review_time constraints.
+    Ingests reviews and strictly maps them to app/core/models.py fields.
+    Ensures google_review_id, rating, and google_review_time constraints are met.
     """
-    logger.info(f"Starting FULL ingestion for company_id={company_id}")
+    logger.info(f"Starting FULL history ingestion for company_id={company_id}")
+    
     try:
+        # 1. Fetch raw data from the Business API
         reviews_data = await _fetch_reviews_from_business_api(place_id)
         if not reviews_data:
-            logger.warning("No reviews found for this location.")
+            logger.warning(f"Ingestion aborted: No reviews returned for place {place_id}")
             return
 
         async with get_session() as session:
-            # session.begin() ensures an atomic transaction (COMMIT/ROLLBACK)
+            # 2. Use session.begin() for atomic transaction (COMMIT if success, ROLLBACK if fail)
             async with session.begin():
                 for r in reviews_data:
-                    # 1. Handle google_review_id (Required: nullable=False)
+                    # Map unique Google ID (Required: nullable=False)
                     g_id = r.get("reviewId")
                     if not g_id:
                         continue
 
-                    # 2. Handle google_review_time (Required: nullable=False)
-                    g_time = None
-                    if "createTime" in r:
-                        g_time = datetime.fromisoformat(r["createTime"].replace("Z", "+00:00"))
-                    else:
-                        g_time = datetime.now(timezone.utc)
-
-                    # 3. Check for duplicates using the unique constraint field
+                    # 3. Check for duplicates using the unique ID field
                     exists = await session.execute(
                         select(Review).where(Review.google_review_id == g_id)
                     )
                     if exists.scalar_one_or_none():
                         continue
 
-                    # 4. Extract and Clean Rating (Required: nullable=False)
+                    # 4. Map Time (Required: google_review_time)
+                    g_time = None
+                    if "createTime" in r:
+                        # API uses 'Z' suffix, replace for Python's ISO parser
+                        g_time = datetime.fromisoformat(r["createTime"].replace("Z", "+00:00"))
+                    else:
+                        g_time = datetime.now(timezone.utc)
+
+                    # 5. Map Rating (Required: rating as Integer)
+                    # Converts "STAR_RATING_5" string to integer 5
                     raw_rating = r.get("starRating", "STAR_RATING_UNSPECIFIED")
                     clean_rating = 0
                     if "STAR_RATING_" in raw_rating:
                         try:
                             clean_rating = int(raw_rating.replace("STAR_RATING_", ""))
-                        except ValueError:
+                        except (ValueError, TypeError):
                             clean_rating = 0
 
-                    # 5. Populate the Review model instance
+                    # 6. Populate model instance with strict field alignment
                     session.add(Review(
                         company_id=company_id,
                         google_review_id=g_id,
@@ -105,6 +133,7 @@ async def ingest_company_reviews(company_id: int, place_id: str):
                         language=r.get("languageCode")
                     ))
                     
-        logger.info(f"✅ Full sync complete. Processed {len(reviews_data)} reviews.")
+        logger.info(f"✅ Ingestion complete. Successfully synced {len(reviews_data)} reviews to Postgres.")
+
     except Exception as e:
-        logger.error(f"❌ Ingestion failed: {e}")
+        logger.error(f"❌ Critical error during review ingestion: {e}")
