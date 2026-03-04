@@ -199,22 +199,22 @@ let currentCompanyId = null;
 let selectedPlace = null;
 let charts = {};
 
-// Helper to show/hide elements
+// Show/hide helper
 const show = (elId, visible) => el[elId].style.display = visible ? 'block' : 'none';
+
+// Query string helper
 const qs = (obj) => new URLSearchParams(obj).toString();
 
-// Safe fetch with logging
+// Safe fetch with detailed logging
 async function safeJsonFetch(url) {
   try {
     const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status} - ${res.statusText}`);
-    }
+    if (!res.ok) throw new Error(`HTTP ${res.status} - ${res.statusText}`);
     const json = await res.json();
-    console.log(`[API Success] ${url}:`, json);
+    console.log(`[API OK] ${url}:`, JSON.stringify(json, null, 2));
     return json;
   } catch (err) {
-    console.error(`[API Error] ${url}:`, err);
+    console.error(`[API FAIL] ${url}:`, err);
     throw err;
   }
 }
@@ -241,14 +241,14 @@ async function loadCompanies() {
       el.companySelect.value = data.companies[0].id;
     }
     currentCompanyId = el.companySelect.value;
-    console.log("Companies loaded:", currentCompanyId);
+    console.log("Current company ID:", currentCompanyId);
   } catch (err) {
     el.companySelect.innerHTML = '<option value="">Error loading companies</option>';
     show('errorBox', true);
   }
 }
 
-// Fetch and render dashboard data
+// Fetch and display dashboard data
 async function fetchDashboardData() {
   if (!currentCompanyId) {
     show('errorBox', true);
@@ -257,7 +257,7 @@ async function fetchDashboardData() {
   }
 
   show('loadingBox', true);
-  ['successBox', 'nodataBox', 'errorBox'].forEach(b => show(b, false));
+  ['successBox', 'nodataBox', 'errorBox'].forEach(id => show(id, false));
 
   const params = {
     company_id: currentCompanyId,
@@ -274,25 +274,30 @@ async function fetchDashboardData() {
       safeJsonFetch(`/api/reviews/list?${qs(params)}`)
     ]);
 
-    console.log("Dashboard data loaded:", { kpis, revSeries, ratDist, sentSeries, reviews: reviewsData });
+    // Debug: log raw data
+    console.log("Raw KPI data:", kpis);
+    console.log("Raw review series:", revSeries);
+    console.log("Raw ratings dist:", ratDist);
+    console.log("Raw sentiment series:", sentSeries);
+    console.log("Raw reviews list:", reviewsData);
 
-    // Update KPIs
-    el.kpiTotal.textContent = kpis.total_reviews ?? 0;
-    el.kpiRating.textContent = (kpis.avg_rating ?? 0).toFixed(2);
-    el.kpiSent.textContent = (kpis.avg_sentiment ?? 0).toFixed(3);
-    el.kpiNew.textContent = (revSeries.series?.length > 0 ? revSeries.series.at(-1).value : 0);
+    // Update KPIs with safe defaults
+    el.kpiTotal.textContent = kpis?.total_reviews ?? 0;
+    el.kpiRating.textContent = (kpis?.avg_rating ?? 0).toFixed(2);
+    el.kpiSent.textContent = (kpis?.avg_sentiment ?? 0).toFixed(3);
+    el.kpiNew.textContent = (revSeries?.series?.length > 0 ? revSeries.series.at(-1).value : 0);
 
     // Destroy old charts
     Object.values(charts).forEach(c => c?.destroy?.());
 
-    // Reviews per day
+    // Reviews per day chart
     charts.rev = new Chart(document.getElementById('seriesReviews'), {
       type: 'line',
       data: {
-        labels: revSeries.series?.map(x => x.date) || [],
+        labels: revSeries?.series?.map(x => x.date) || [],
         datasets: [{
           label: 'Reviews',
-          data: revSeries.series?.map(x => x.value) || [],
+          data: revSeries?.series?.map(x => x.value) || [],
           borderColor: '#0d6efd',
           backgroundColor: 'rgba(13,110,253,0.1)',
           tension: 0.3,
@@ -306,10 +311,10 @@ async function fetchDashboardData() {
     charts.dist = new Chart(document.getElementById('ratingsDist'), {
       type: 'bar',
       data: {
-        labels: Object.keys(ratDist.distribution || {}),
+        labels: Object.keys(ratDist?.distribution || {}),
         datasets: [{
           label: 'Rating Count',
-          data: Object.values(ratDist.distribution || {}),
+          data: Object.values(ratDist?.distribution || {}),
           backgroundColor: '#ffc107'
         }]
       }
@@ -319,10 +324,10 @@ async function fetchDashboardData() {
     charts.sent = new Chart(document.getElementById('sentSeries'), {
       type: 'line',
       data: {
-        labels: sentSeries.series?.map(x => x.date) || [],
+        labels: sentSeries?.series?.map(x => x.date) || [],
         datasets: [{
           label: 'Sentiment',
-          data: sentSeries.series?.map(x => x.value) || [],
+          data: sentSeries?.series?.map(x => x.value) || [],
           borderColor: '#6610f2',
           backgroundColor: 'rgba(102,16,242,0.1)',
           tension: 0.3,
@@ -332,28 +337,9 @@ async function fetchDashboardData() {
       options: { responsive: true, scales: { y: { min: -1, max: 1 } } }
     });
 
-    // Load reviews list
-    await loadReviewsList(reviewsData);
-
-    show('loadingBox', false);
-    show('successBox', true);
-
-    if ((kpis.total_reviews ?? 0) === 0) show('nodataBox', true);
-
-  } catch (err) {
-    show('loadingBox', false);
-    show('errorBox', true);
-    console.error("Dashboard fetch failed:", err);
-  }
-}
-
-// Load Reviews List (updated to accept data)
-async function loadReviewsList(data = null) {
-  if (!currentCompanyId) return;
-  const params = { company_id: currentCompanyId, sort: el.sortReviews.value, start: el.startDate.value, end: el.endDate.value };
-  try {
-    const { items } = data || await safeJsonFetch(`/api/reviews/list?${qs(params)}`);
-    el.reviewsList.innerHTML = items?.map(r => {
+    // Reviews list
+    const items = reviewsData?.items || [];
+    el.reviewsList.innerHTML = items.length > 0 ? items.map(r => {
       const rating = r.rating || 0;
       const stars = '★'.repeat(Math.round(rating)) + '☆'.repeat(5 - Math.round(rating));
       return `<div class="border rounded p-2 mb-2">
@@ -364,9 +350,20 @@ async function loadReviewsList(data = null) {
         <div class="text-warning">${stars} <span class="text-dark">${rating.toFixed(1)}</span></div>
         <div>${r.text || ''}</div>
       </div>`;
-    }).join('') || '<p class="text-muted text-center">No reviews found.</p>';
+    }).join('') : '<p class="text-muted text-center">No reviews found.</p>';
+
+    show('loadingBox', false);
+
+    if ((kpis?.total_reviews ?? 0) === 0) {
+      show('nodataBox', true);
+    } else {
+      show('successBox', true);
+    }
+
   } catch (err) {
-    el.reviewsList.innerHTML = '<p class="text-danger text-center">Failed to load reviews.</p>';
+    show('loadingBox', false);
+    show('errorBox', true);
+    console.error("Dashboard fetch failed:", err);
   }
 }
 
@@ -426,7 +423,7 @@ el.switchBtn.addEventListener('click', () => {
   fetchDashboardData();
 });
 
-// Save Company (add logging)
+// Save Company with logging
 el.saveBtn.onclick = async () => {
   if (!selectedPlace?.place_id) {
     alert("Please select a valid place from suggestions.");
@@ -448,7 +445,7 @@ el.saveBtn.onclick = async () => {
     }
   } catch (err) {
     console.error("Save error:", err);
-    alert("Save failed - check console");
+    alert("Save failed - check console (F12)");
   }
 };
 
