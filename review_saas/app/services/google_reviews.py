@@ -1,5 +1,6 @@
+# filename: app/services/google_reviews.py
+
 import logging
-import googlemaps
 import httpx
 from datetime import datetime, timezone
 from sqlalchemy import select
@@ -11,36 +12,18 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------
-# Google Places Client
-# ---------------------------------------------------------
-def _get_places_client():
-    if not settings.GOOGLE_PLACES_API_KEY:
-        return None
-    return googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
-
-# ---------------------------------------------------------
-# REQUIRED FUNCTION (Top-level for import)
-# ---------------------------------------------------------
-def fetch_place_details(place_id: str):
-    client = _get_places_client()
-    if not client:
-        raise Exception("GOOGLE_PLACES_API_KEY not configured")
-
-    result = client.place(
-        place_id=place_id,
-        fields=["name", "rating", "user_ratings_total", "formatted_address"]
-    )
-    return result.get("result", {})
-
-# ---------------------------------------------------------
-# Google Business API (OAuth Required)
+# Google Business API (Strict Ingestion)
 # ---------------------------------------------------------
 async def _fetch_reviews_from_business_api(place_id: str):
+    """
+    Fetches full review history using OAuth2 Token.
+    """
     access_token = getattr(settings, "GOOGLE_BUSINESS_ACCESS_TOKEN", None)
     if not access_token:
-        logger.warning("No Google Business OAuth token found.")
+        logger.error("❌ CRITICAL: GOOGLE_BUSINESS_ACCESS_TOKEN is missing in settings.")
         return None
 
+    # Note: place_id here must be the 'location resource name' for Business API
     url = f"https://mybusiness.googleapis.com/v4/accounts/-/locations/{place_id}/reviews"
     headers = {
         "Authorization": f"Bearer {access_token}",
@@ -48,82 +31,75 @@ async def _fetch_reviews_from_business_api(place_id: str):
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(url, headers=headers)
-        if response.status_code != 200:
+        try:
+            response = await client.get(url, headers=headers)
+            if response.status_code == 401:
+                logger.error("❌ Business API Error: Unauthorized. Token may be expired.")
+                return None
+            if response.status_code != 200:
+                logger.error(f"❌ Business API Error {response.status_code}: {response.text}")
+                return None
+            
+            return response.json().get("reviews", [])
+        except Exception as e:
+            logger.error(f"❌ Connection to Business API failed: {e}")
             return None
-        return response.json().get("reviews", [])
 
 # ---------------------------------------------------------
-# Google Places API (Fallback - Max 5 Reviews)
-# ---------------------------------------------------------
-def _fetch_reviews_from_places_api(place_id: str):
-    client = _get_places_client()
-    if not client:
-        return []
-
-    result = client.place(
-        place_id=place_id,
-        fields=["reviews"]
-    )
-    return result.get("result", {}).get("reviews", [])
-
-# ---------------------------------------------------------
-# Main Ingestion Function (The Fix)
+# Main Ingestion Function
 # ---------------------------------------------------------
 async def ingest_company_reviews(company_id: int, place_id: str):
     """
-    Ensures data matches Review model fields: google_review_id, google_review_time, etc.
+    Strictly uses Google Business API to bypass the 5-review limit.
+    Ensures data matches Review model fields.
     """
-    logger.info(f"Starting review ingestion for company_id={company_id}")
+    logger.info(f"Starting FULL review ingestion for company_id={company_id}")
 
     try:
-        # 1. Fetch data
+        # 1. Fetch data ONLY from Business API
         reviews_data = await _fetch_reviews_from_business_api(place_id)
-        if not reviews_data:
-            reviews_data = _fetch_reviews_from_places_api(place_id)
 
         if not reviews_data:
-            logger.info("No reviews found from Google APIs.")
+            logger.warning("⚠️ No reviews fetched. Check token validity or location access.")
             return
 
         async with get_session() as session:
             # 2. Start explicit transaction
             async with session.begin():
                 for r in reviews_data:
-                    # Map unique ID (Required by model: google_review_id)
-                    g_id = r.get("reviewId") or f"{place_id}_{r.get('time', 0)}_{r.get('author_name')}"
+                    # Map unique ID (Required: google_review_id)
+                    g_id = r.get("reviewId")
 
-                    # Map and format time (Required by model: google_review_time)
+                    # Map and format time (Required: google_review_time)
                     g_time = None
                     if "createTime" in r:
                         g_time = datetime.fromisoformat(r["createTime"].replace("Z", "+00:00"))
-                    elif "time" in r:
-                        g_time = datetime.fromtimestamp(r["time"], tz=timezone.utc)
                     else:
+                        # Fallback to current time if Business API missing createTime
                         g_time = datetime.now(timezone.utc)
 
-                    # 3. Prevent duplicate crashes (Check against the DB)
+                    # 3. Prevent duplicates
                     existing = await session.execute(
                         select(Review).where(Review.google_review_id == g_id)
                     )
                     if existing.scalar_one_or_none():
                         continue
 
-                    # 4. Create Review using EXACT model names from your models.py
+                    # 4. Create Review object
                     new_review = Review(
                         company_id=company_id,
                         google_review_id=g_id,       # Required
-                        author_name=r.get("author_name") or r.get("reviewer", {}).get("displayName"),
-                        rating=int(r.get("rating") or r.get("starRating") or 0), # Required
-                        text=r.get("text") or r.get("comment") or "",
+                        author_name=r.get("reviewer", {}).get("displayName"),
+                        rating=int(r.get("starRating", 0)), # Business API uses starRating
+                        text=r.get("comment") or "",        # Business API uses comment
                         google_review_time=g_time,   # Required
-                        profile_photo_url=r.get("profile_photo_url") or r.get("reviewer", {}).get("profilePhotoUrl"),
+                        profile_photo_url=r.get("reviewer", {}).get("profilePhotoUrl"),
                     )
                     session.add(new_review)
 
-                # The 'async with session.begin()' automatically COMMITS here 💾
+                # Automatically COMMITS all fetched history here 💾
         
-        logger.info("✅ Review ingestion completed successfully.")
+        logger.info(f"✅ Full ingestion completed. Processed {len(reviews_data)} reviews.")
 
     except Exception as e:
         logger.error(f"❌ Review ingestion failed: {e}")
