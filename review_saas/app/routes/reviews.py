@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from app.core.db import get_session
 from app.core.models import Review, Company
-from app.services.google_reviews import fetch_place_details
+from app.services.google_reviews import fetch_place_details, ingest_company_reviews
 
 router = APIRouter(tags=['reviews'])
 
@@ -18,7 +18,11 @@ async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
         if not company:
             return JSONResponse(status_code=404, content={"success": False, "message": "Company not found"})
 
-        result = await session.execute(select(Review).where(Review.company_id == company_id).order_by(Review.review_time.desc()))
+        result = await session.execute(
+            select(Review)
+            .where(Review.company_id == company_id)
+            .order_by(Review.review_date.desc())
+        )
         all_reviews = result.scalars().all()
         total = len(all_reviews)
         items = all_reviews[(page-1)*size:(page-1)*size+size]
@@ -28,7 +32,7 @@ async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
                 "author": r.author_name,
                 "rating": r.rating,
                 "text": r.text,
-                "time": r.review_time,
+                "time": r.review_date,
             }
             for r in items
         ]
@@ -42,11 +46,24 @@ async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
         "size": size
     }
 
-# --- FETCH LATEST GOOGLE PLACE DETAILS ---
+# --- FETCH LATEST GOOGLE PLACE DETAILS (without saving) ---
 @router.get("/reviews/fetch_google")
 async def fetch_google_place(place_id: str):
     try:
         details = fetch_place_details(place_id)
         return {"success": True, "details": details}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+# --- FETCH AND SAVE GOOGLE REVIEWS TO DATABASE ---
+@router.post("/reviews/fetch_google/save")
+async def fetch_and_save_google_reviews(company_id: int, place_id: str):
+    """
+    Fetch reviews from Google (Business API or Places API fallback)
+    and save them into the database.
+    """
+    try:
+        await ingest_company_reviews(company_id=company_id, place_id=place_id)
+        return {"success": True, "message": "Reviews fetched and saved successfully."}
     except Exception as e:
         return {"success": False, "message": str(e)}
