@@ -7,11 +7,13 @@ from sqlalchemy import select
 from datetime import datetime, timezone
 from app.core.db import get_session
 from app.core.models import Review, Company
-from app.services.google_reviews import fetch_place_details
+# 🚨 UPDATED: Import ingest_company_reviews to use the new centralized async logic
+from app.services.google_reviews import fetch_place_details, ingest_company_reviews
 
 router = APIRouter(tags=['reviews'])
 logger = logging.getLogger(__name__)
 
+# --- VIEW REVIEWS FOR A COMPANY ---
 @router.get("/reviews")
 async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
     async with get_session() as session:
@@ -20,7 +22,7 @@ async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
-        # 🚨 FIXED: Changed Review.review_time to Review.google_review_time
+        # Get all reviews using the correct model field: google_review_time
         result = await session.execute(
             select(Review)
             .where(Review.company_id == company_id)
@@ -28,15 +30,15 @@ async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
         )
         all_reviews = result.scalars().all()
         total = len(all_reviews)
-        items = all_reviews[(page-1)*size:(page-1)*size+size]
+        items = all_reviews[(page-1)*size : (page-1)*size+size]
 
         reviews_list = [
             {
                 "author": r.author_name,
                 "rating": r.rating,
                 "text": r.text,
-                # 🚨 FIXED: Changed r.review_time to r.google_review_time
                 "time": r.google_review_time.isoformat() if r.google_review_time else None,
+                "photo": r.profile_photo_url
             }
             for r in items
         ]
@@ -50,56 +52,41 @@ async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
         "size": size
     }
 
+# --- FETCH GOOGLE PLACE DETAILS AND STORE IN DB ---
 @router.get("/reviews/fetch_google")
 async def fetch_google_place(place_id: str, company_id: int):
+    """
+    Triggers the strict Business API ingestion from google_reviews.py
+    """
     async with get_session() as session:
+        # Ensure company exists
         result = await session.execute(select(Company).where(Company.id == company_id))
         company = result.scalar_one_or_none()
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
-        try:
-            details = fetch_place_details(place_id)
-        except Exception as e:
-            logger.error(f"Google fetch failed: {e}")
-            raise HTTPException(status_code=500, detail=f"Google fetch failed: {e}")
-
-        reviews = details.get("reviews", [])
-        if not reviews:
-            return {"success": True, "message": "No new reviews found", "stored": 0}
-
-        stored_count = 0
-        for r in reviews:
-            # 🚨 FIXED: Mapping Google data to your model requirements
-            g_id = r.get("reviewId") or f"{place_id}_{r.get('time', 0)}"
-            
-            # Format time correctly for Postgres
-            if isinstance(r.get("time"), (int, float)):
-                g_time = datetime.fromtimestamp(r["time"], tz=timezone.utc)
-            else:
-                g_time = datetime.now(timezone.utc)
-
-            # 🚨 FIXED: Check existence using google_review_id (more accurate)
-            exists = await session.execute(
-                select(Review).where(Review.google_review_id == g_id)
+    try:
+        # 🚨 FIXED: Now calling the service function with 'await'
+        # This handles the GOOGLE_BUSINESS_ACCESS_TOKEN logic and DB saving automatically
+        await ingest_company_reviews(company_id=company_id, place_id=place_id)
+        
+        # 🚨 FIXED: Now 'awaiting' the async details fetch
+        details = await fetch_place_details(place_id)
+        
+        # Get the new total count from DB for the response
+        async with get_session() as session:
+            count_res = await session.execute(
+                select(Review).where(Review.company_id == company_id)
             )
-            if exists.scalar_one_or_none():
-                continue
+            total_now = len(count_res.scalars().all())
 
-            # 🚨 FIXED: Using correct model field names
-            new_review = Review(
-                company_id=company_id,
-                google_review_id=g_id,
-                author_name=r.get("author_name"),
-                rating=int(r.get("rating", 0)),
-                text=r.get("text", ""),
-                google_review_time=g_time, # Correct field
-                profile_photo_url=r.get("profile_photo_url")
-            )
-            session.add(new_review)
-            stored_count += 1
+        return {
+            "success": True, 
+            "message": "Full history ingestion triggered via Business API",
+            "company_name": details.get("name"),
+            "total_reviews_in_db": total_now
+        }
 
-        await session.commit()
-        logger.info(f"Stored {stored_count} new reviews for company_id={company_id}")
-
-    return {"success": True, "stored": stored_count, "total_fetched": len(reviews)}
+    except Exception as e:
+        logger.error(f"Google fetch/ingest failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
