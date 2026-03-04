@@ -1,115 +1,155 @@
-from __future__ import annotations
-from typing import List
-from datetime import datetime, timezone
-import googlemaps
+# filename: app/services/google_reviews.py
+
 import logging
+import googlemaps
+import httpx
+from datetime import datetime
 from sqlalchemy import select
+
 from app.core.db import get_session
-from app.core.models import Company, Review
+from app.core.models import Review
 from app.core.config import settings
-from app.services.sentiment import score as get_sentiment_score, label as get_sentiment_label
 
-# Logger setup
-logger = logging.getLogger("google_reviews")
-logger.setLevel(logging.INFO)
-
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-    logger.addHandler(handler)
+logger = logging.getLogger(__name__)
 
 
-def fetch_place_details(place_id: str) -> dict:
-    try:
-        gmaps = googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
-
-        details = gmaps.place(
-            place_id=place_id,
-            fields=[
-                "name",
-                "rating",
-                "user_ratings_total",
-                "reviews",
-                "formatted_address",
-                "website",
-            ],
-        )
-
-        logger.info(f"Fetched place details for place_id={place_id}")
-        return details.get("result", {})
-
-    except Exception as e:
-        logger.error(f"Google API error: {e}")
-        return {}
+# ---------------------------------------------------------
+# Google Places Client
+# ---------------------------------------------------------
+def _get_places_client():
+    if not settings.GOOGLE_PLACES_API_KEY:
+        return None
+    return googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
 
 
-def fetch_google_reviews(place_id: str, max_results: int = 50) -> List[dict]:
-    details = fetch_place_details(place_id)
-    reviews = details.get("reviews", [])
-    logger.info(f"{len(reviews)} reviews received from Google")
-    return reviews[:max_results]
+# ---------------------------------------------------------
+# Google Business API (OAuth Required)
+# ---------------------------------------------------------
+async def _fetch_reviews_from_business_api(place_id: str):
+    """
+    Fetch reviews using Google Business Profile API.
+    Requires OAuth access token.
+    """
+
+    access_token = getattr(settings, "GOOGLE_BUSINESS_ACCESS_TOKEN", None)
+
+    if not access_token:
+        logger.warning("No Google Business OAuth token found.")
+        return None
+
+    url = f"https://mybusiness.googleapis.com/v4/accounts/-/locations/{place_id}/reviews"
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(url, headers=headers)
+
+        if response.status_code != 200:
+            logger.warning("Business API failed, falling back to Places API.")
+            return None
+
+        return response.json().get("reviews", [])
 
 
+# ---------------------------------------------------------
+# Google Places API (Fallback - Max 5 Reviews)
+# ---------------------------------------------------------
+def _fetch_reviews_from_places_api(place_id: str):
+    client = _get_places_client()
+    if not client:
+        return []
+
+    result = client.place(
+        place_id=place_id,
+        fields=["reviews"]
+    )
+
+    return result.get("result", {}).get("reviews", [])
+
+
+# ---------------------------------------------------------
+# Main Ingestion Function
+# ---------------------------------------------------------
 async def ingest_company_reviews(company_id: int, place_id: str):
-    logger.info(f"Starting ingestion for company_id={company_id}")
+    """
+    1. Try Google Business API (Full Reviews)
+    2. Fallback to Google Places API (Max 5 Reviews)
+    3. Save to Database
+    """
 
-    reviews_data = fetch_google_reviews(place_id)
+    logger.info(f"Starting review ingestion for company_id={company_id}")
 
-    if not reviews_data:
-        logger.warning("No reviews returned from Google.")
-        return
+    try:
+        # 1️⃣ Try Business API
+        reviews = await _fetch_reviews_from_business_api(place_id)
 
-    async with get_session() as session:
-        try:
-            result = await session.execute(
-                select(Company).where(Company.id == company_id)
-            )
-            company: Company = result.scalar_one_or_none()
+        # 2️⃣ Fallback to Places API
+        if not reviews:
+            logger.info("Using Google Places API fallback.")
+            reviews = _fetch_reviews_from_places_api(place_id)
 
-            if not company:
-                logger.error(f"Company {company_id} not found.")
-                return
+        if not reviews:
+            logger.info("No reviews found from either API.")
+            return
 
-            added_count = 0
+        async with get_session() as session:
 
-            for r in reviews_data:
-                source_id = f"{place_id}_{r.get('author_name','unknown')}_{r.get('time',0)}"
+            for r in reviews:
+
+                # Handle both API formats
+                author = r.get("reviewer", {}).get("displayName") \
+                    if "reviewer" in r else r.get("author_name")
+
+                rating = r.get("starRating") \
+                    if "starRating" in r else r.get("rating")
+
+                text = r.get("comment") \
+                    if "comment" in r else r.get("text")
+
+                profile_photo = (
+                    r.get("reviewer", {}).get("profilePhotoUrl")
+                    if "reviewer" in r else r.get("profile_photo_url")
+                )
+
+                review_date = None
+
+                if "createTime" in r:
+                    review_date = datetime.fromisoformat(
+                        r["createTime"].replace("Z", "+00:00")
+                    )
+                elif "time" in r:
+                    review_date = datetime.utcfromtimestamp(r["time"])
 
                 # Prevent duplicates
                 existing = await session.execute(
-                    select(Review).where(Review.source_id == source_id)
+                    select(Review).where(
+                        Review.company_id == company_id,
+                        Review.author_name == author,
+                        Review.text == text
+                    )
                 )
+
                 if existing.scalar_one_or_none():
                     continue
 
-                text_content = r.get("text", "")
-
-                sentiment_score = get_sentiment_score(text_content)
-                sentiment_label = get_sentiment_label(sentiment_score)
-
-                review_time = datetime.fromtimestamp(
-                    r.get("time", 0), tz=timezone.utc
-                )
-
                 new_review = Review(
-                    company_id=company.id,
-                    source_id=source_id,
-                    author_name=r.get("author_name"),
-                    rating=int(r.get("rating", 0)),
-                    text=text_content,
-                    google_review_time=review_time,
-                    sentiment_score=sentiment_score,
-                    sentiment_label=sentiment_label,
+                    company_id=company_id,
+                    author_name=author,
+                    rating=int(rating) if rating else None,
+                    text=text,
+                    review_date=review_date,
+                    source="google",
+                    profile_photo=profile_photo,
                 )
 
                 session.add(new_review)
-                added_count += 1
 
-            # IMPORTANT: Commit to save reviews
             await session.commit()
 
-            logger.info(f"Successfully saved {added_count} new reviews.")
+        logger.info("Review ingestion completed successfully.")
 
-        except Exception as e:
-            await session.rollback()
-            logger.error(f"Database error during ingestion: {e}")
+    except Exception as e:
+        logger.error(f"Review ingestion failed: {e}")
