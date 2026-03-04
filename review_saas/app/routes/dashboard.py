@@ -49,9 +49,6 @@ async def get_dashboard(request: Request):
             for r in res.all()
         ]
 
-    # After fetching companies, you can also ingest or update and return fresh data if needed.
-    # Example: For a specific company, you could ingest and fetch reviews.
-    # For simplicity, let's assume we return the latest company KPIs.
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -66,14 +63,6 @@ async def api_dashboard_companies():
     """
     Returns all companies with review_count and avg_rating immediately after ingestion.
     """
-    # Optionally, you can choose a company to trigger ingestion here
-    # For example, ingest for a specific company if passed
-    # company_id = some logic to pick a company or from request if needed
-
-    # If you want to ingest reviews for a company, call ingest logic here.
-    # Example: await ingest_company_reviews(company_id, place_id)
-
-    # After ingestion, return the updated list of companies
     async with get_session() as session:
         stmt = (
             select(
