@@ -10,11 +10,15 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import settings
 from app.core.models import Base  # Import your Base here
 
+# --------------------
 # Global instances for reuse
+# --------------------
 _engine: Optional[AsyncEngine] = None
 _sessionmaker: Optional[async_sessionmaker[AsyncSession]] = None
 
-# -------------------- URL NORMALIZATION --------------------
+# --------------------
+# URL NORMALIZATION
+# --------------------
 def _normalize_async_url(raw_url: str) -> str:
     """
     Ensures the DATABASE_URL is compatible with SQLAlchemy's async drivers.
@@ -43,7 +47,9 @@ def get_database_url() -> str:
     """Retrieves the normalized URL from settings."""
     return _normalize_async_url(settings.DATABASE_URL or '')
 
-# -------------------- ENGINE & SESSION --------------------
+# --------------------
+# ENGINE & SESSION
+# --------------------
 def get_engine() -> AsyncEngine:
     """Returns the global AsyncEngine, initializing it if necessary."""
     global _engine, _sessionmaker
@@ -82,7 +88,9 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         finally:
             await session.close()
 
-# -------------------- DATABASE RESET --------------------
+# --------------------
+# DATABASE RESET
+# --------------------
 async def reset_database():
     """
     DEV ONLY: Drops all tables and recreates them fresh.
@@ -98,3 +106,8 @@ async def reset_database():
             print("✅ Database reset complete")
         except SQLAlchemyError as e:
             print(f"⚠ Error resetting database: {e}")
+
+# --------------------
+# SESSION FACTORY FOR BACKGROUND TASKS
+# --------------------
+AsyncSessionLocal: async_sessionmaker[AsyncSession] = get_sessionmaker()
