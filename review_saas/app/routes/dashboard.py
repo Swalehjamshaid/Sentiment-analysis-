@@ -2,7 +2,8 @@
 from __future__ import annotations
 import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, Request, JSONResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy import select, func, desc
 from starlette.templating import Jinja2Templates
 from app.core.db import get_session
