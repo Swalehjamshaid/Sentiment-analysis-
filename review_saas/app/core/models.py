@@ -5,7 +5,8 @@ from sqlalchemy import Integer, String, DateTime, Float, ForeignKey, Boolean, JS
 from datetime import datetime
 
 # Schema version — increase this ONLY when you change the schema (add/rename/remove columns, tables, etc.)
-SCHEMA_VERSION = "2025-03-04-v1"  # ← CHANGE THIS (e.g. to v2) when you update the schema
+# Bump this version (e.g. to "2025-03-05-v2") → then deploy → reset will run and create missing columns / full tables
+SCHEMA_VERSION = "2025-03-04-v1"  # ← CHANGE THIS to trigger recreation (e.g. v2, v3...)
 
 # -------------------- BASE --------------------
 class Base(DeclarativeBase):
@@ -59,11 +60,19 @@ class Company(Base):
     last_updated: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     google_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
-    # Additional useful Google Places fields (optional)
-    vicinity: Mapped[str | None] = mapped_column(String(255), nullable=True)               # short address snippet
+    # Added missing Google Places columns (all nullable/optional)
+    vicinity: Mapped[str | None] = mapped_column(String(255), nullable=True)                    # short address
     next_open_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    photos: Mapped[list[str] | None] = mapped_column(ARRAY(String(512)), nullable=True)     # photo reference URLs
-    editorial_summary: Mapped[str | None] = mapped_column(Text, nullable=True)             # Google-generated summary
+    photos: Mapped[list[str] | None] = mapped_column(ARRAY(String(512)), nullable=True)          # photo URLs
+    editorial_summary: Mapped[str | None] = mapped_column(Text, nullable=True)                  # Google summary
+    curbside_pickup: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    delivery: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    takeout: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    reservable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    serves_beer: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    serves_wine: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    outdoor_seating: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    wheelchair_accessible_entrance: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -100,10 +109,10 @@ class Review(Base):
     sentiment_label: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     keywords: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
-    # Additional useful Google review fields (optional)
-    aspect_rating: Mapped[dict | None] = mapped_column(JSON, nullable=True)      # e.g. {"Food": 4.5, "Service": 4.0}
-    original_text: Mapped[str | None] = mapped_column(Text, nullable=True)       # before translation
-    translation: Mapped[str | None] = mapped_column(Text, nullable=True)         # translated version
+    # Added missing Google review columns (optional)
+    aspect_rating: Mapped[dict | None] = mapped_column(JSON, nullable=True)          # e.g. {"Atmosphere": 4.5}
+    original_text: Mapped[str | None] = mapped_column(Text, nullable=True)           # before translation
+    translation: Mapped[str | None] = mapped_column(Text, nullable=True)             # translated text
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
