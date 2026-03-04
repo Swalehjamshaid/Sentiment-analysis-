@@ -1,10 +1,10 @@
 # filename: app/routes/reviews.py
+
 from __future__ import annotations
 import logging
 from fastapi import APIRouter, Query, HTTPException
-from fastapi.responses import JSONResponse
 from sqlalchemy import select
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.db import get_session
 from app.core.models import Review, Company
 from app.services.google_reviews import fetch_place_details
@@ -12,21 +12,19 @@ from app.services.google_reviews import fetch_place_details
 router = APIRouter(tags=['reviews'])
 logger = logging.getLogger(__name__)
 
-# --- VIEW REVIEWS FOR A COMPANY ---
 @router.get("/reviews")
 async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
     async with get_session() as session:
-        # Check company exists
         result = await session.execute(select(Company).where(Company.id == company_id))
         company = result.scalar_one_or_none()
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
-        # Get all reviews
+        # 🚨 FIXED: Changed Review.review_time to Review.google_review_time
         result = await session.execute(
             select(Review)
             .where(Review.company_id == company_id)
-            .order_by(Review.review_time.desc())
+            .order_by(Review.google_review_time.desc())
         )
         all_reviews = result.scalars().all()
         total = len(all_reviews)
@@ -37,7 +35,8 @@ async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
                 "author": r.author_name,
                 "rating": r.rating,
                 "text": r.text,
-                "time": r.review_time.isoformat(),
+                # 🚨 FIXED: Changed r.review_time to r.google_review_time
+                "time": r.google_review_time.isoformat() if r.google_review_time else None,
             }
             for r in items
         ]
@@ -51,14 +50,9 @@ async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
         "size": size
     }
 
-# --- FETCH GOOGLE PLACE DETAILS AND STORE IN DB ---
 @router.get("/reviews/fetch_google")
 async def fetch_google_place(place_id: str, company_id: int):
-    """
-    Fetch latest Google reviews for a place and store them in DB.
-    """
     async with get_session() as session:
-        # Ensure company exists
         result = await session.execute(select(Company).where(Company.id == company_id))
         company = result.scalar_one_or_none()
         if not company:
@@ -76,27 +70,31 @@ async def fetch_google_place(place_id: str, company_id: int):
 
         stored_count = 0
         for r in reviews:
-            # Convert timestamp to datetime if needed
-            review_time = datetime.fromtimestamp(r["time"]) if isinstance(r["time"], (int, float)) else r["time"]
+            # 🚨 FIXED: Mapping Google data to your model requirements
+            g_id = r.get("reviewId") or f"{place_id}_{r.get('time', 0)}"
+            
+            # Format time correctly for Postgres
+            if isinstance(r.get("time"), (int, float)):
+                g_time = datetime.fromtimestamp(r["time"], tz=timezone.utc)
+            else:
+                g_time = datetime.now(timezone.utc)
 
-            # Check if review already exists (by author + text + company)
+            # 🚨 FIXED: Check existence using google_review_id (more accurate)
             exists = await session.execute(
-                select(Review)
-                .where(
-                    Review.company_id == company_id,
-                    Review.author_name == r["author_name"],
-                    Review.text == r["text"]
-                )
+                select(Review).where(Review.google_review_id == g_id)
             )
             if exists.scalar_one_or_none():
                 continue
 
+            # 🚨 FIXED: Using correct model field names
             new_review = Review(
                 company_id=company_id,
-                author_name=r["author_name"],
-                rating=r.get("rating", 0),
+                google_review_id=g_id,
+                author_name=r.get("author_name"),
+                rating=int(r.get("rating", 0)),
                 text=r.get("text", ""),
-                review_time=review_time
+                google_review_time=g_time, # Correct field
+                profile_photo_url=r.get("profile_photo_url")
             )
             session.add(new_review)
             stored_count += 1
