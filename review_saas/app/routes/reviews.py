@@ -1,64 +1,101 @@
-# filename: app/services/google_reviews.py
+# filename: app/routes/reviews.py
+from __future__ import annotations
+from fastapi import APIRouter, Query
+from fastapi.responses import JSONResponse
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
+from app.core.db import get_session
+from app.core.models import Review, Company
+from app.services.google_reviews import fetch_place_details
+from datetime import datetime
 
-async def ingest_company_reviews(company_id: int, place_id: str):
-    """
-    Fetch reviews from Google Business API or Places API, store in database.
-    """
-    logger.info(f"Starting review ingestion for company_id={company_id}")
+router = APIRouter(tags=['reviews'])
 
-    try:
-        # Fetch reviews
-        reviews = await _fetch_reviews_from_business_api(place_id)
-        if not reviews:
-            logger.info("Falling back to Google Places API.")
-            reviews = _fetch_reviews_from_places_api(place_id)
+# --- VIEW REVIEWS FOR A COMPANY ---
+@router.get("/reviews")
+async def get_company_reviews(
+    company_id: int,
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1)
+):
+    async with get_session() as session:
+        # Get company
+        result = await session.execute(select(Company).where(Company.id == company_id))
+        company = result.scalar_one_or_none()
+        if not company:
+            return JSONResponse(status_code=404, content={"success": False, "message": "Company not found"})
 
-        if not reviews:
-            logger.info("No reviews found from Google.")
-            return
+        # Get reviews for the company
+        result = await session.execute(
+            select(Review)
+            .where(Review.company_id == company_id)
+            .order_by(Review.review_time.desc())
+        )
+        all_reviews = result.scalars().all()
+        total = len(all_reviews)
+        items = all_reviews[(page - 1) * size : (page - 1) * size + size]
 
-        async with get_session() as session:
+        reviews_list = [
+            {
+                "author": r.author_name,
+                "rating": r.rating,
+                "text": r.text,
+                "time": r.review_time,
+            }
+            for r in items
+        ]
+
+    return {
+        "success": True,
+        "company": {"id": company.id, "name": company.name},
+        "reviews": reviews_list,
+        "total": total,
+        "page": page,
+        "size": size
+    }
+
+# --- FETCH LATEST GOOGLE PLACE DETAILS AND STORE IN DB ---
+@router.get("/reviews/fetch_google")
+async def fetch_google_place(place_id: str, company_id: int):
+    async with get_session() as session:
+        try:
+            # Get company
+            result = await session.execute(select(Company).where(Company.id == company_id))
+            company = result.scalar_one_or_none()
+            if not company:
+                return JSONResponse(status_code=404, content={"success": False, "message": "Company not found"})
+
+            # Fetch Google place details
+            details = fetch_place_details(place_id)
+            reviews = details.get("reviews", [])
+
+            # Save new reviews to DB
             for r in reviews:
-                # Extract fields for both API formats
-                author = r.get("reviewer", {}).get("displayName") if "reviewer" in r else r.get("author_name")
-                rating = r.get("starRating") if "starRating" in r else r.get("rating")
-                text = r.get("comment") if "comment" in r else r.get("text")
-                profile_photo = r.get("reviewer", {}).get("profilePhotoUrl") if "reviewer" in r else r.get("profile_photo_url")
-
-                review_date = None
-                if "createTime" in r:
-                    review_date = datetime.fromisoformat(r["createTime"].replace("Z", "+00:00"))
-                elif "time" in r:
-                    review_date = datetime.utcfromtimestamp(r["time"])
-
-                # Skip duplicates
                 existing = await session.execute(
                     select(Review).where(
-                        Review.company_id == company_id,
-                        Review.author_name == author,
-                        Review.text == text
+                        Review.company_id == company.id,
+                        Review.author_name == r.get("author_name"),
+                        Review.review_time == r.get("time")
                     )
                 )
                 if existing.scalar_one_or_none():
-                    continue
+                    continue  # Skip if review already exists
 
-                # Create review object
-                new_review = Review(
-                    company_id=company_id,
-                    author_name=author,
-                    rating=int(rating) if rating else None,
-                    text=text,
-                    review_date=review_date,
-                    source="google",
-                    profile_photo=profile_photo,
+                review = Review(
+                    company_id=company.id,
+                    author_name=r.get("author_name"),
+                    rating=r.get("rating"),
+                    text=r.get("text"),
+                    review_time=r.get("time") or datetime.utcnow()
                 )
-                session.add(new_review)
+                session.add(review)
 
-            # Push all changes to DB
-            await session.flush()
             await session.commit()
 
-        logger.info("Google review ingestion completed successfully.")
+            return {"success": True, "fetched_reviews": len(reviews)}
 
-    except Exception as e:
-        logger.error(f"Failed to ingest Google reviews: {e}")
+        except SQLAlchemyError as e:
+            await session.rollback()
+            return {"success": False, "message": f"Database error: {str(e)}"}
+        except Exception as e:
+            return {"success": False, "message": f"Google API error: {str(e)}"}
