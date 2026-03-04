@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from fastapi import APIRouter, Request, Query, BackgroundTasks, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from starlette.templating import Jinja2Templates
 from sqlalchemy import select, delete, or_
 from app.core.db import get_session
@@ -27,7 +27,7 @@ def _require_user(request: Request):
 
 
 # -----------------------------
-# VIEW COMPANIES
+# SERVER RENDERED COMPANIES PAGE
 # -----------------------------
 @router.get("/companies", response_class=HTMLResponse)
 async def companies_page(request: Request, q: str | None = None, page: int = 1, size: int = 10):
@@ -36,14 +36,12 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
         return RedirectResponse("/login", status_code=302)
 
     async with get_session() as session:
-
         user_check = await session.execute(select(User).where(User.id == uid))
         if not user_check.scalar_one_or_none():
             request.session.clear()
             return RedirectResponse("/login", status_code=302)
 
         stmt = select(Company).order_by(Company.created_at.desc())
-
         if q:
             stmt = stmt.where(
                 or_(
@@ -54,7 +52,6 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
 
         result = await session.execute(stmt)
         all_rows = result.scalars().all()
-
         total = len(all_rows)
         items = all_rows[(page - 1) * size : (page - 1) * size + size]
 
@@ -69,6 +66,40 @@ async def companies_page(request: Request, q: str | None = None, page: int = 1, 
             "q": q or "",
         },
     )
+
+
+# -----------------------------
+# JSON API: LIST COMPANIES
+# -----------------------------
+@router.get("/api/companies/list")
+async def list_companies(q: str | None = None):
+    """
+    Returns companies in JSON for dashboard frontend.
+    """
+    async with get_session() as session:
+        stmt = select(Company).order_by(Company.created_at.desc())
+        if q:
+            stmt = stmt.where(
+                or_(
+                    Company.name.ilike(f"%{q}%"),
+                    Company.address.ilike(f"%{q}%")
+                )
+            )
+        result = await session.execute(stmt)
+        companies = result.scalars().all()
+
+        data = [
+            {
+                "id": c.id,
+                "name": c.name,
+                "address": c.address,
+                "avg_rating": c.avg_rating,
+                "review_count": c.review_count,
+            }
+            for c in companies
+        ]
+
+        return {"success": True, "results": data}
 
 
 # -----------------------------
@@ -117,16 +148,14 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
 
     uid = _require_user(request)
     if not uid:
-        return {"success": False, "message": "Unauthorized"}
+        return JSONResponse({"success": False, "message": "Unauthorized"}, status_code=401)
 
     async with get_session() as session:
-
         user_result = await session.execute(select(User).where(User.id == uid))
         user = user_result.scalar_one_or_none()
-
         if not user:
             request.session.clear()
-            return {"success": False, "message": "Session expired. Please login again."}
+            return JSONResponse({"success": False, "message": "Session expired"}, status_code=401)
 
         existing = await session.execute(
             select(Company).where(Company.google_place_id == data.place_id)
@@ -145,7 +174,7 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
         session.add(new_company)
         await session.flush()  # get ID
 
-        # ✅ FIX: Pass only required arguments to background task
+        # Add background task for Google reviews
         bg_tasks.add_task(
             ingest_company_reviews,
             new_company.id,
@@ -162,11 +191,15 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
 
         await session.commit()
 
-        logger.info(f"Company added: {new_company.name} (ID: {new_company.id})")
-
         return {
             "success": True,
-            "company_id": new_company.id,
+            "company": {
+                "id": new_company.id,
+                "name": new_company.name,
+                "address": new_company.address,
+                "avg_rating": new_company.avg_rating,
+                "review_count": new_company.review_count,
+            },
             "message": "Company added and reviews loading!",
         }
 
@@ -182,7 +215,6 @@ async def company_sync(company_id: int, request: Request, bg_tasks: BackgroundTa
         return RedirectResponse("/login", status_code=302)
 
     async with get_session() as session:
-
         user_check = await session.execute(select(User).where(User.id == uid))
         if not user_check.scalar_one_or_none():
             request.session.clear()
@@ -190,7 +222,6 @@ async def company_sync(company_id: int, request: Request, bg_tasks: BackgroundTa
 
         result = await session.execute(select(Company).where(Company.id == company_id))
         company = result.scalar_one_or_none()
-
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
@@ -224,7 +255,6 @@ async def company_delete(request: Request, company_id: int):
         return RedirectResponse("/login", status_code=302)
 
     async with get_session() as session:
-
         await session.execute(delete(Company).where(Company.id == company_id))
 
         session.add(
