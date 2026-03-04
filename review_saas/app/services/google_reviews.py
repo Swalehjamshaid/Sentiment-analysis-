@@ -10,62 +10,61 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-async def _fetch_reviews_from_google(place_id: str):
-    """
-    Attempts to fetch reviews using the provided API Key.
-    NOTE: Using an API Key (AIza...) typically limits results to 5.
-    """
-    # Using the key you provided
-    api_key = "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc"
-    
-    # This is the Places API endpoint (supports API Keys)
-    url = f"https://maps.googleapis.com/maps/api/place/details/json?place_id={place_id}&fields=reviews&key={api_key}"
+# YOUR API KEY
+API_KEY = "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc"
 
-    async with httpx.AsyncClient(timeout=30) as client:
+async def fetch_place_details(place_id: str):
+    """
+    Restored function to fix the ImportError.
+    Fetches basic business info using your API Key.
+    """
+    url = f"https://maps.googleapis.com/maps/api/place/details/json?place_id={place_id}&fields=name,formatted_address&key={API_KEY}"
+    
+    async with httpx.AsyncClient(timeout=10) as client:
         try:
             response = await client.get(url)
-            result = response.json().get("result", {})
-            reviews = result.get("reviews", [])
-            
-            if len(reviews) == 5:
-                logger.warning("⚠️ Only 5 reviews fetched. This is a limit of using an API Key.")
-            
-            return reviews
+            data = response.json().get("result", {})
+            return {
+                "name": data.get("name", "Unknown Business"),
+                "address": data.get("formatted_address", "")
+            }
         except Exception as e:
-            logger.error(f"❌ Google API connection failed: {e}")
-            return None
+            logger.error(f"Error fetching place details: {e}")
+            return {"name": "Unknown", "address": ""}
 
 async def ingest_company_reviews(company_id: int, place_id: str):
     """
-    Ingests reviews into Postgres based on the API Key results.
+    Fetches reviews using your API Key. 
+    Note: Google limits this to 5 reviews for 'Public' API Keys.
     """
-    logger.info(f"🚀 Starting sync for company_id={company_id} using API Key.")
-    
-    reviews_data = await _fetch_reviews_from_google(place_id)
-    if not reviews_data:
-        return
+    logger.info(f"Starting ingestion for company {company_id}")
+    url = f"https://maps.googleapis.com/maps/api/place/details/json?place_id={place_id}&fields=reviews&key={API_KEY}"
 
-    async with get_session() as session:
-        async with session.begin():
-            for r in reviews_data:
-                # Generate a unique ID since Places API doesn't provide a 'reviewId' field
-                g_id = f"{place_id}_{r.get('time')}_{r.get('author_name')[:5]}"
-                
-                # Convert timestamp to datetime
-                g_time = datetime.fromtimestamp(r["time"], tz=timezone.utc) if "time" in r else datetime.now(timezone.utc)
-                
-                # Duplicate check
-                exists = await session.execute(select(Review).where(Review.google_review_id == g_id))
-                if exists.scalar_one_or_none():
-                    continue
+    async with httpx.AsyncClient(timeout=20) as client:
+        try:
+            response = await client.get(url)
+            reviews_data = response.json().get("result", {}).get("reviews", [])
+            
+            async with get_session() as session:
+                async with session.begin():
+                    for r in reviews_data:
+                        # Create a unique ID for the review
+                        g_id = f"G_{place_id}_{r.get('time')}"
+                        
+                        # Check if already exists
+                        exists = await session.execute(select(Review).where(Review.google_review_id == g_id))
+                        if exists.scalar_one_or_none():
+                            continue
 
-                session.add(Review(
-                    company_id=company_id,
-                    google_review_id=g_id,
-                    author_name=r.get("author_name"),
-                    rating=int(r.get("rating", 0)),
-                    text=r.get("text") or "",
-                    google_review_time=g_time,
-                    profile_photo_url=r.get("profile_photo_url")
-                ))
-    logger.info(f"✅ Sync complete. Processed {len(reviews_data)} reviews.")
+                        session.add(Review(
+                            company_id=company_id,
+                            google_review_id=g_id,
+                            author_name=r.get("author_name"),
+                            rating=int(r.get("rating", 0)),
+                            text=r.get("text", ""),
+                            google_review_time=datetime.fromtimestamp(r["time"], tz=timezone.utc),
+                            profile_photo_url=r.get("profile_photo_url")
+                        ))
+            logger.info(f"Successfully ingested {len(reviews_data)} reviews.")
+        except Exception as e:
+            logger.error(f"Ingestion failed: {e}")
