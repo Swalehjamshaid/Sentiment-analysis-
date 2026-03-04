@@ -4,136 +4,68 @@ import logging
 import httpx
 from datetime import datetime, timezone
 from sqlalchemy import select
-
 from app.core.db import get_session
 from app.core.models import Review
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------
-# Google Business API: Location Details
-# ---------------------------------------------------------
-async def fetch_place_details(place_id: str):
+async def _fetch_reviews_from_google(place_id: str):
     """
-    Fetch basic business details using the Business API.
-    Aligned with the Company table structure.
+    Attempts to fetch reviews using the provided API Key.
+    NOTE: Using an API Key (AIza...) typically limits results to 5.
     """
-    token = getattr(settings, "GOOGLE_BUSINESS_ACCESS_TOKEN", None)
-    if not token:
-        logger.error("GOOGLE_BUSINESS_ACCESS_TOKEN missing in configuration")
-        return {}
-
-    # Endpoint for specific location details
-    url = f"https://mybusiness.googleapis.com/v4/accounts/-/locations/{place_id}"
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    # Using the key you provided
+    api_key = "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc"
+    
+    # This is the Places API endpoint (supports API Keys)
+    url = f"https://maps.googleapis.com/maps/api/place/details/json?place_id={place_id}&fields=reviews&key={api_key}"
 
     async with httpx.AsyncClient(timeout=30) as client:
         try:
-            response = await client.get(url, headers=headers)
-            if response.status_code != 200:
-                logger.error(f"Details fetch failed: {response.status_code}")
-                return {}
+            response = await client.get(url)
+            result = response.json().get("result", {})
+            reviews = result.get("reviews", [])
             
-            data = response.json()
-            return {
-                "name": data.get("locationName"),
-                "address": data.get("address", {}).get("addressLines", [""])[0] if data.get("address") else ""
-            }
+            if len(reviews) == 5:
+                logger.warning("⚠️ Only 5 reviews fetched. This is a limit of using an API Key.")
+            
+            return reviews
         except Exception as e:
-            logger.error(f"Place details connection error: {e}")
-            return {}
-
-# ---------------------------------------------------------
-# Google Business API: Raw Review Fetch
-# ---------------------------------------------------------
-async def _fetch_reviews_from_business_api(place_id: str):
-    """
-    Fetches raw review JSON data from the Google Business Profile API.
-    """
-    token = getattr(settings, "GOOGLE_BUSINESS_ACCESS_TOKEN", None)
-    if not token: 
-        logger.error("Cannot fetch: GOOGLE_BUSINESS_ACCESS_TOKEN is null")
-        return None
-    
-    url = f"https://mybusiness.googleapis.com/v4/accounts/-/locations/{place_id}/reviews"
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-    
-    async with httpx.AsyncClient(timeout=30) as client:
-        try:
-            res = await client.get(url, headers=headers)
-            if res.status_code != 200:
-                logger.error(f"Business API error: {res.status_code} - {res.text}")
-                return None
-            return res.json().get("reviews", [])
-        except Exception as e:
-            logger.error(f"Business API connection failed: {e}")
+            logger.error(f"❌ Google API connection failed: {e}")
             return None
 
-# ---------------------------------------------------------
-# Main Ingestion Logic: Alignment & Database Commit
-# ---------------------------------------------------------
 async def ingest_company_reviews(company_id: int, place_id: str):
     """
-    Ingests reviews and strictly maps them to app/core/models.py fields.
-    Ensures google_review_id, rating, and google_review_time constraints are met.
+    Ingests reviews into Postgres based on the API Key results.
     """
-    logger.info(f"Starting FULL history ingestion for company_id={company_id}")
+    logger.info(f"🚀 Starting sync for company_id={company_id} using API Key.")
     
-    try:
-        # 1. Fetch raw data from the Business API
-        reviews_data = await _fetch_reviews_from_business_api(place_id)
-        if not reviews_data:
-            logger.warning(f"Ingestion aborted: No reviews returned for place {place_id}")
-            return
+    reviews_data = await _fetch_reviews_from_google(place_id)
+    if not reviews_data:
+        return
 
-        async with get_session() as session:
-            # 2. Use session.begin() for atomic transaction (COMMIT if success, ROLLBACK if fail)
-            async with session.begin():
-                for r in reviews_data:
-                    # Map unique Google ID (Required: nullable=False)
-                    g_id = r.get("reviewId")
-                    if not g_id:
-                        continue
+    async with get_session() as session:
+        async with session.begin():
+            for r in reviews_data:
+                # Generate a unique ID since Places API doesn't provide a 'reviewId' field
+                g_id = f"{place_id}_{r.get('time')}_{r.get('author_name')[:5]}"
+                
+                # Convert timestamp to datetime
+                g_time = datetime.fromtimestamp(r["time"], tz=timezone.utc) if "time" in r else datetime.now(timezone.utc)
+                
+                # Duplicate check
+                exists = await session.execute(select(Review).where(Review.google_review_id == g_id))
+                if exists.scalar_one_or_none():
+                    continue
 
-                    # 3. Check for duplicates using the unique ID field
-                    exists = await session.execute(
-                        select(Review).where(Review.google_review_id == g_id)
-                    )
-                    if exists.scalar_one_or_none():
-                        continue
-
-                    # 4. Map Time (Required: google_review_time)
-                    g_time = None
-                    if "createTime" in r:
-                        # API uses 'Z' suffix, replace for Python's ISO parser
-                        g_time = datetime.fromisoformat(r["createTime"].replace("Z", "+00:00"))
-                    else:
-                        g_time = datetime.now(timezone.utc)
-
-                    # 5. Map Rating (Required: rating as Integer)
-                    # Converts "STAR_RATING_5" string to integer 5
-                    raw_rating = r.get("starRating", "STAR_RATING_UNSPECIFIED")
-                    clean_rating = 0
-                    if "STAR_RATING_" in raw_rating:
-                        try:
-                            clean_rating = int(raw_rating.replace("STAR_RATING_", ""))
-                        except (ValueError, TypeError):
-                            clean_rating = 0
-
-                    # 6. Populate model instance with strict field alignment
-                    session.add(Review(
-                        company_id=company_id,
-                        google_review_id=g_id,
-                        author_name=r.get("reviewer", {}).get("displayName"),
-                        profile_photo_url=r.get("reviewer", {}).get("profilePhotoUrl"),
-                        rating=clean_rating,
-                        text=r.get("comment") or "",
-                        google_review_time=g_time,
-                        language=r.get("languageCode")
-                    ))
-                    
-        logger.info(f"✅ Ingestion complete. Successfully synced {len(reviews_data)} reviews to Postgres.")
-
-    except Exception as e:
-        logger.error(f"❌ Critical error during review ingestion: {e}")
+                session.add(Review(
+                    company_id=company_id,
+                    google_review_id=g_id,
+                    author_name=r.get("author_name"),
+                    rating=int(r.get("rating", 0)),
+                    text=r.get("text") or "",
+                    google_review_time=g_time,
+                    profile_photo_url=r.get("profile_photo_url")
+                ))
+    logger.info(f"✅ Sync complete. Processed {len(reviews_data)} reviews.")
