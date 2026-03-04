@@ -9,7 +9,7 @@ from app.core.db import get_session
 from app.core.models import Review, Company
 from app.services.google_reviews import fetch_place_details, ingest_company_reviews
 
-# 🚨 THE FIX: This line was missing, causing the NameError
+# ✅ REQUIRED: This line fixes your 'NameError'
 router = APIRouter(tags=['reviews'])
 logger = logging.getLogger(__name__)
 
@@ -17,13 +17,12 @@ logger = logging.getLogger(__name__)
 @router.get("/reviews")
 async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
     async with get_session() as session:
-        # Check company exists
         result = await session.execute(select(Company).where(Company.id == company_id))
         company = result.scalar_one_or_none()
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
-        # Get all reviews using the correct model field name
+        # Sorting by the correct model attribute
         result = await session.execute(
             select(Review)
             .where(Review.company_id == company_id)
@@ -53,27 +52,23 @@ async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
         "size": size
     }
 
-# --- FETCH GOOGLE PLACE DETAILS AND STORE IN DB ---
+# --- FETCH FULL HISTORY VIA BUSINESS API ---
 @router.get("/reviews/fetch_google")
 async def fetch_google_place(place_id: str, company_id: int):
-    """
-    Triggers the strict Business API ingestion from google_reviews.py
-    """
     async with get_session() as session:
-        # Ensure company exists
         result = await session.execute(select(Company).where(Company.id == company_id))
         company = result.scalar_one_or_none()
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
     try:
-        # 1. Trigger Full Ingestion via Business API service
+        # 1. Trigger Full Ingestion (Strict Business API)
         await ingest_company_reviews(company_id=company_id, place_id=place_id)
         
-        # 2. Fetch details for response (Must be awaited)
+        # 2. Fetch basic details for the response
         details = await fetch_place_details(place_id)
         
-        # 3. Get total count for response
+        # 3. Get updated count from Postgres
         async with get_session() as session:
             count_res = await session.execute(
                 select(Review).where(Review.company_id == company_id)
@@ -82,11 +77,11 @@ async def fetch_google_place(place_id: str, company_id: int):
 
         return {
             "success": True, 
-            "message": "Full history ingestion triggered via Business API",
-            "company_name": details.get("name") if details else "Unknown",
+            "message": "Full history fetched via Google Business API",
+            "company_name": details.get("name") if details else company.name,
             "total_reviews_in_db": total_now
         }
 
     except Exception as e:
-        logger.error(f"Google fetch/ingest failed: {e}")
+        logger.error(f"Sync failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
