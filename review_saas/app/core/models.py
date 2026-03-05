@@ -1,24 +1,22 @@
-# File: app/core/models.py
+# filename: app/core/models.py
 from __future__ import annotations
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy import (
-    Integer,
-    String,
-    DateTime,
-    Float,
-    ForeignKey,
-    Boolean,
-    JSON,
-    UniqueConstraint,
-    func,
-    Text,
-    ARRAY,
+    Integer, String, DateTime, Float, ForeignKey, Boolean, JSON,
+    UniqueConstraint, func, Text, ARRAY, create_engine
 )
 from datetime import datetime
+import os
+from dotenv import load_dotenv
 
 # -------------------- CONFIG --------------------
-# BUMP THIS TO FORCE FULL RESET
+load_dotenv()
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./test.db")  # fallback
+
+# 🚨 BUMP THIS TO FORCE FULL RESET
 SCHEMA_VERSION = "2025-03-05-v2-reset"
+
+engine = create_engine(DATABASE_URL, echo=True)
 
 # -------------------- BASE --------------------
 class Base(DeclarativeBase):
@@ -37,7 +35,6 @@ class User(Base):
     profile_pic: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    # Relationships
     companies: Mapped[list["Company"]] = relationship(back_populates="owner", cascade="all, delete-orphan")
     notifications: Mapped[list["Notification"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="user", cascade="all, delete-orphan")
@@ -68,7 +65,7 @@ class Company(Base):
     # Location & hours
     latitude: Mapped[float | None] = mapped_column(Float)
     longitude: Mapped[float | None] = mapped_column(Float)
-    hours: Mapped[dict | None] = mapped_column(JSON)
+    hours: Mapped[dict | None] = mapped_column(JSON)  # opening_hours object
 
     business_status: Mapped[str | None] = mapped_column(String(64))
     price_level: Mapped[int | None] = mapped_column(Integer)
@@ -88,7 +85,7 @@ class Company(Base):
     photos: Mapped[list[str] | None] = mapped_column(ARRAY(String(512)))
     editorial_summary: Mapped[str | None] = mapped_column(Text)
 
-    # Google Business API attributes
+    # Google attributes
     curbside_pickup: Mapped[bool | None] = mapped_column(Boolean)
     delivery: Mapped[bool | None] = mapped_column(Boolean)
     takeout: Mapped[bool | None] = mapped_column(Boolean)
@@ -99,8 +96,6 @@ class Company(Base):
     wheelchair_accessible_entrance: Mapped[bool | None] = mapped_column(Boolean)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    # Relationships
     owner: Mapped["User"] = relationship(back_populates="companies")
     reviews: Mapped[list["Review"]] = relationship(back_populates="company", cascade="all, delete-orphan")
 
@@ -142,7 +137,6 @@ class Review(Base):
 # -------------------- NOTIFICATIONS --------------------
 class Notification(Base):
     __tablename__ = "notifications"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
     type: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -154,7 +148,6 @@ class Notification(Base):
 # -------------------- AUDIT LOGS --------------------
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     action: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -162,3 +155,15 @@ class AuditLog(Base):
     meta: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     user: Mapped["User"] = relationship(back_populates="audit_logs")
+
+# -------------------- RESET FUNCTION --------------------
+def reset_db():
+    """
+    Drops all tables and creates new ones based on updated models.
+    WARNING: This deletes ALL existing data!
+    """
+    print("Dropping all tables...")
+    Base.metadata.drop_all(bind=engine)
+    print("Creating new tables...")
+    Base.metadata.create_all(bind=engine)
+    print("Database reset complete!")
