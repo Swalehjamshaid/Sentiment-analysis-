@@ -13,20 +13,20 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy import text
 from app.core.config import settings
 from app.core.db import get_engine, reset_database
-from app.core.models import Base, SCHEMA_VERSION  # ← SCHEMA_VERSION used for reset check
-from app.core.models import User, Company, Review, AuditLog  # register models including AuditLog
+from app.core.models import Base, SCHEMA_VERSION  # SCHEMA_VERSION check
+from app.core.models import User, Company, Review, AuditLog  # register all models
 from app.routes import auth as auth_routes
 from app.routes import companies as companies_routes
 from app.routes import dashboard as dashboard_routes
 from app.routes import reviews as reviews_routes
 from app.routes import exports as exports_routes
 
-# Import Google API check endpoint
+# Import Google API check
 try:
     from app.core.google_check import router as google_router
     from app.core.google_check import check_google  # async function
 except ModuleNotFoundError:
-    logging.warning("⚠️ Google check router not found. /api/check-google will be unavailable.")
+    logging.warning("⚠️ Google check router not found. /api/check-google unavailable.")
     google_router = None
     async def check_google():
         logging.warning("⚠️ Google API check skipped (placeholder).")
@@ -39,13 +39,13 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Lifecycle manager: runs on startup & shutdown
-    Ensures database is synced and Google API is reachable
+    Lifecycle manager: startup + shutdown.
+    Ensures database schema is up-to-date and Google API is reachable.
     """
     try:
         engine: AsyncEngine = get_engine()
 
-        # Detect dev mode
+        # Dev mode detection
         is_dev_mode = settings.DEBUG or os.getenv("ENV", "").lower() in ("development", "dev")
         logger.info(f"Startup environment → DEBUG={settings.DEBUG}, ENV={os.getenv('ENV')}, is_dev_mode={is_dev_mode}")
 
@@ -60,7 +60,6 @@ async def lifespan(app: FastAPI):
                 except Exception:
                     db_version = None
 
-            # Reset database if schema version differs
             if db_version != SCHEMA_VERSION:
                 logger.warning(
                     f"Schema version mismatch or missing! DB: {db_version or 'missing'}, Code: {SCHEMA_VERSION} → Resetting database..."
@@ -68,7 +67,7 @@ async def lifespan(app: FastAPI):
                 # Drops and recreates all tables
                 await reset_database()
 
-                # Ensure config table exists and set schema_version
+                # Ensure config table exists and set SCHEMA_VERSION
                 async with engine.begin() as conn:
                     await conn.execute(text("""
                         CREATE TABLE IF NOT EXISTS config (
@@ -84,10 +83,14 @@ async def lifespan(app: FastAPI):
 
                 logger.info(f"Database reset complete. Schema version set to {SCHEMA_VERSION}")
             else:
-                logger.info(f"Schema version matches ({SCHEMA_VERSION}). No reset needed — preserving data.")
+                logger.info(f"Schema version matches ({SCHEMA_VERSION}). Preserving data.")
+                # Always create missing tables in dev mode
+                async with engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+                logger.info("✓ Verified/created missing tables for updated models.")
         else:
-            # Production: only create missing tables
-            logger.info("Production mode → Verifying/creating missing tables (no data wipe)")
+            # Production → only create missing tables
+            logger.info("Production mode → Verifying/creating missing tables (no data wipe).")
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
             logger.info("✓ Database migration complete: tables verified/created.")
