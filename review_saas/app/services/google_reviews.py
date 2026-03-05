@@ -10,20 +10,41 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Use the specific key name from your configuration
+# This matches the key name in your Railway environment variables
 API_KEY = settings.GOOGLE_BUSINESS_API_KEY
+
+async def fetch_place_details(place_id: str):
+    """
+    Fetch basic details for a place (Name, Address, Status) from Google Places API.
+    Required by routes/reviews.py to confirm which restaurant was fetched.
+    """
+    url = "https://maps.googleapis.com/maps/api/place/details/json"
+    params = {
+        "place_id": place_id,
+        "fields": "name,formatted_address,rating,user_ratings_total,business_status",
+        "key": API_KEY
+    }
+    
+    async with httpx.AsyncClient(timeout=10) as client:
+        try:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            if data.get("status") == "OK":
+                return data.get("result", {})
+            else:
+                logger.error(f"❌ Google Places API Error: {data.get('status')}")
+                return None
+        except Exception as e:
+            logger.error(f"❌ Failed to fetch place details: {e}")
+            return None
 
 async def ingest_company_reviews(company_id: int, place_id: str):
     """
-    Fetch reviews for a business.
-    Phase 1: Uses Places API (via API Key) for the latest 5 public reviews.
-    Phase 2: Ready for Business Profile API (v4) once Quota is approved.
+    Fetch reviews for a business and store them in the database.
     """
-
     logger.info(f"🔍 Fetching reviews for company_id={company_id}, place_id={place_id}")
 
-    # For now, we use the Places API endpoint as the primary 'Discovery' source
-    # because the Business Information API requires Account/Location IDs.
     url = "https://maps.googleapis.com/maps/api/place/details/json"
     params = {
         "place_id": place_id,
@@ -51,11 +72,10 @@ async def ingest_company_reviews(company_id: int, place_id: str):
                 inserted_count = 0
                 
                 for r in reviews_data:
-                    # Create a unique ID to prevent database duplicates
-                    # We combine G (Google), the place_id, and the review timestamp
+                    # Create a unique ID: G_{place_id}_{timestamp}
                     g_id = f"G_{place_id}_{r.get('time')}"
 
-                    # 1. Check if review already exists
+                    # 1. Check if review already exists to prevent duplicates
                     stmt = select(Review).where(Review.google_review_id == g_id)
                     existing = await session.execute(stmt)
                     if existing.scalar_one_or_none():
@@ -79,9 +99,8 @@ async def ingest_company_reviews(company_id: int, place_id: str):
                     session.add(new_review)
                     inserted_count += 1
 
-                # Commit all new reviews at once
                 await session.commit()
-                logger.info(f"✅ Successfully ingested {inserted_count} new reviews.")
+                logger.info(f"✅ Ingested {inserted_count} reviews for company {company_id}.")
 
         except Exception as e:
             logger.error(f"❌ Failed to ingest reviews: {str(e)}")
