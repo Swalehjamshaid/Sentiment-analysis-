@@ -26,7 +26,6 @@ SCHEMA_VERSION = "2025-03-05-v2-reset"
 
 load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./test.db")  # fallback for dev
-
 engine = create_engine(DATABASE_URL, echo=True)
 
 # -------------------- BASE --------------------
