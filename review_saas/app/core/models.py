@@ -1,4 +1,4 @@
-# filename: app/core/models.py
+# File: /app/core/models.py
 from __future__ import annotations
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy import (
@@ -14,7 +14,7 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./test.db")  # fallback
 
 # 🚨 BUMP THIS TO FORCE FULL RESET
-SCHEMA_VERSION = "2025-03-05-v2-reset"
+SCHEMA_VERSION = "2025-03-05-v3-google"
 
 engine = create_engine(DATABASE_URL, echo=True)
 
@@ -160,7 +160,7 @@ class AuditLog(Base):
 def reset_db():
     """
     Drops all tables and creates new ones based on updated models.
-    WARNING: This deletes ALL existing data!
+    WARNING: Deletes ALL data!
     """
     print("Dropping all tables...")
     Base.metadata.drop_all(bind=engine)
