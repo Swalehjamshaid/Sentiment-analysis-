@@ -15,8 +15,8 @@ asyncpg==0.31.0
 aiosqlite==0.20.0
 alembic==1.18.4
 greenlet>=3.1.1
-# ADDED: Required for traditional psycopg2 imports in your scripts
-psycopg2-binary==2.9.10
+# UPDATED: Using latest binary for Python 3.13 compatibility
+psycopg2-binary>=2.9.10
 
 # ────────────────────────────────────────────────────────────────
 # Data Validation & Settings
@@ -41,8 +41,9 @@ pyotp==2.9.0
 bleach==6.1.0
 httpx[http2]==0.27.2
 requests==2.32.3
-urllib3>=2.0,<3
-charset_normalizer>=3.3.2
+# UPDATED: urllib3 2.3+ is required for Python 3.13 and newer OpenSSL
+urllib3>=2.3.0
+charset_normalizer>=3.4.0
 python-dateutil==2.9.0.post0
 
 # ────────────────────────────────────────────────────────────────
@@ -78,21 +79,17 @@ googlemaps>=4.10.0
 # ────────────────────────────────────────────────────────────────
 # Google-related APIs & retry support
 # ────────────────────────────────────────────────────────────────
-google-api-python-client>=2.149.0
+google-api-python-client>=2.150.0
 google-auth>=2.35.0
 google-auth-oauthlib>=1.2.1
 tenacity==9.0.0
 
 # ────────────────────────────────────────────────────────────────
-# Unlimited Reviews Extraction (NEW)
+# Unlimited Reviews Extraction (NEW & FIXED)
 # ────────────────────────────────────────────────────────────────
-outscraper==0.1.0
-google-search-results==2.4.2
-
-# ────────────────────────────────────────────────────────────────
-# Optional: Dev & Debugging
-# ────────────────────────────────────────────────────────────────
-python-json-logger==4.0.0
+# FIXED: Version 0.1.0 was not found. Using the latest stable.
+outscraper>=6.0.2
+google-search-results>=2.4.2
 
 # ────────────────────────────────────────────────────────────────
 # Required for SessionMiddleware in FastAPI/Starlette
