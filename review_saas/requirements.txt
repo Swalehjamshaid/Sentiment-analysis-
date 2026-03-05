@@ -1,3 +1,4 @@
+outscraper
 google-search-results
 # ────────────────────────────────────────────────────────────────
 # Core Web Framework & Server
