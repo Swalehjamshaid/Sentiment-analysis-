@@ -17,15 +17,12 @@ from sqlalchemy import (
 )
 from datetime import datetime
 
-
 # 🚨 BUMP THIS TO FORCE FULL RESET
 SCHEMA_VERSION = "2025-03-05-v2-reset"
-
 
 # -------------------- BASE --------------------
 class Base(DeclarativeBase):
     pass
-
 
 # -------------------- USERS --------------------
 class User(Base):
@@ -60,7 +57,6 @@ class User(Base):
         cascade="all, delete-orphan",
     )
 
-
 # -------------------- COMPANIES --------------------
 class Company(Base):
     __tablename__ = "companies"
@@ -73,34 +69,43 @@ class Company(Base):
         index=True,
     )
 
+    # Basic info
     name: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
     google_place_id: Mapped[str] = mapped_column(
         String(512), unique=True, index=True, nullable=False
     )
-
     formatted_address: Mapped[str | None] = mapped_column(String(512))
     address: Mapped[str | None] = mapped_column(String(512))
     vicinity: Mapped[str | None] = mapped_column(String(255))
 
+    # Contact
     international_phone_number: Mapped[str | None] = mapped_column(String(64))
     phone: Mapped[str | None] = mapped_column(String(64))
     website: Mapped[str | None] = mapped_column(String(512))
 
+    # Categories
     category: Mapped[str | None] = mapped_column(String(255), index=True)
     types: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
 
-    hours: Mapped[str | None] = mapped_column(String(2048))
+    # Location & hours
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
+    hours: Mapped[dict | None] = mapped_column(JSON)  # Stores opening_hours JSON
+
     business_status: Mapped[str | None] = mapped_column(String(64))
     price_level: Mapped[int | None] = mapped_column(Integer)
     utc_offset_minutes: Mapped[int | None] = mapped_column(Integer)
 
+    # Ratings
     google_rating: Mapped[float | None] = mapped_column(Float)
     google_user_ratings_total: Mapped[int | None] = mapped_column(Integer)
 
+    # Metadata
     status: Mapped[str] = mapped_column(String(32), default="active")
     last_updated: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     next_open_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # Full JSON & photos
     google_data: Mapped[dict | None] = mapped_column(JSON)
     photos: Mapped[list[str] | None] = mapped_column(ARRAY(String(512)))
     editorial_summary: Mapped[str | None] = mapped_column(Text)
@@ -127,7 +132,6 @@ class Company(Base):
         cascade="all, delete-orphan",
     )
 
-
 # -------------------- REVIEWS --------------------
 class Review(Base):
     __tablename__ = "reviews"
@@ -153,20 +157,16 @@ class Review(Base):
     author_name: Mapped[str | None] = mapped_column(String(255))
     author_url: Mapped[str | None] = mapped_column(String(512))
     profile_photo_url: Mapped[str | None] = mapped_column(String(512))
-
     reviewer_is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False)
 
     rating: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     text: Mapped[str | None] = mapped_column(Text)
-
     google_review_time: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), index=True, nullable=False
     )
-
     language: Mapped[str | None] = mapped_column(String(10), index=True)
     original_language: Mapped[str | None] = mapped_column(String(10))
     relative_time_description: Mapped[str | None] = mapped_column(String(100))
-
     publish_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     review_reply_text: Mapped[str | None] = mapped_column(Text)
     review_reply_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -186,7 +186,6 @@ class Review(Base):
 
     company: Mapped["Company"] = relationship(back_populates="reviews")
 
-
 # -------------------- NOTIFICATIONS --------------------
 class Notification(Base):
     __tablename__ = "notifications"
@@ -201,7 +200,6 @@ class Notification(Base):
 
     type: Mapped[str] = mapped_column(String(64), nullable=False)
     message: Mapped[str] = mapped_column(String(1000), nullable=False)
-
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -209,7 +207,6 @@ class Notification(Base):
     )
 
     user: Mapped["User"] = relationship(back_populates="notifications")
-
 
 # -------------------- AUDIT LOGS --------------------
 class AuditLog(Base):
@@ -224,7 +221,6 @@ class AuditLog(Base):
 
     action: Mapped[str] = mapped_column(String(128), nullable=False)
     ip_address: Mapped[str | None] = mapped_column(String(45))
-
     meta: Mapped[dict | None] = mapped_column(JSON)
 
     created_at: Mapped[datetime] = mapped_column(
