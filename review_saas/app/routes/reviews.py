@@ -3,7 +3,7 @@
 from __future__ import annotations
 import logging
 from fastapi import APIRouter, Query, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.core.db import get_session
 from app.core.models import Review, Company
 from app.services.google_reviews import fetch_place_details, ingest_company_reviews
@@ -26,18 +26,22 @@ async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
-        # 2. Fetch reviews sorted by most recent first
-        # Uses 'google_review_time' from app/core/models.py
-        result = await session.execute(
+        # 2. Get total count for pagination metadata
+        count_stmt = select(func.count()).select_from(Review).where(Review.company_id == company_id)
+        total_result = await session.execute(count_stmt)
+        total = total_result.scalar() or 0
+
+        # 3. Fetch paginated reviews sorted by most recent first
+        # Offset calculation: (page - 1) * size
+        stmt = (
             select(Review)
             .where(Review.company_id == company_id)
             .order_by(Review.google_review_time.desc())
+            .offset((page - 1) * size)
+            .limit(size)
         )
-        all_reviews = result.scalars().all()
-        total = len(all_reviews)
-        
-        # 3. Apply manual pagination
-        items = all_reviews[(page-1)*size : (page-1)*size+size]
+        result = await session.execute(stmt)
+        items = result.scalars().all()
 
         # 4. Map to clean JSON response
         reviews_list = [
@@ -67,26 +71,27 @@ async def fetch_google_place(place_id: str, company_id: int):
     Triggers the ingestion service. 
     Matches the button click on the Dashboard.
     """
-    # Verify company existence first
     async with get_session() as session:
+        # 1. Verify company existence
         result = await session.execute(select(Company).where(Company.id == company_id))
         company = result.scalar_one_or_none()
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
     try:
-        # 1. Trigger the sync in google_reviews.py
+        # 2. Trigger the sync in google_reviews.py
+        # This function is now correctly imported and aligned
         await ingest_company_reviews(company_id=company_id, place_id=place_id)
         
-        # 2. Get business name/address for the UI success message
+        # 3. Get business name/address for the UI success message
+        # This function is now also correctly imported
         details = await fetch_place_details(place_id)
         
-        # 3. Get the new total count to show in the UI response
+        # 4. Get the updated total count from DB
         async with get_session() as session:
-            count_res = await session.execute(
-                select(Review).where(Review.company_id == company_id)
-            )
-            total_now = len(count_res.scalars().all())
+            count_stmt = select(func.count()).select_from(Review).where(Review.company_id == company_id)
+            count_res = await session.execute(count_stmt)
+            total_now = count_res.scalar() or 0
 
         return {
             "success": True, 
