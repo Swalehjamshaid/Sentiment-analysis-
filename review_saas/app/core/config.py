@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     GOOGLE_MAPS_API_KEY: Optional[str] = None
     GOOGLE_PLACES_API_KEY: Optional[str] = None
     GOOGLE_BUSINESS_API_KEY: Optional[str] = None
+    
+    # --- NEW: OAuth Credentials for Business Profile API ---
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_REDIRECT_URI: Optional[str] = None
+
+    # --- NEW: SerpApi Key (For > 5 Reviews) ---
+    SERPAPI_KEY: Optional[str] = None
 
     # SMTP (email verification + notifications)
     SMTP_HOST: Optional[str] = None
