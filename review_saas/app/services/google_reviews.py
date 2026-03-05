@@ -1,75 +1,150 @@
-# filename: app/services/google_reviews.py
+# fetch_all_gbp_reviews.py
+# --------------------------------------------
+# Fetch all Google Business Profile reviews (500+)
+# for last 1 year, save locally, GitHub, and Railway DB
+# --------------------------------------------
 
-import logging
-from serpapi import GoogleSearch
-from datetime import datetime
-from sqlalchemy import select
-from app.core.db import get_session
-from app.core.models import Review
-from app.core.config import settings
+from google_auth_oauthlib.flow import InstalledAppFlow
+import requests
+from datetime import datetime, timedelta
+import json
+import base64
+import psycopg2
 
-logger = logging.getLogger(__name__)
+# ----------------------------
+# 1️⃣ OAuth Setup
+# ----------------------------
+SCOPES = ["https://www.googleapis.com/auth/business.manage"]
+CREDENTIALS_FILE = "client_secret.json"  # your OAuth JSON
 
-# You would add SERPAPI_KEY to your Railway variables
-SERP_KEY = settings.SERPAPI_KEY 
+flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+creds = flow.run_local_server(port=0)
+access_token = creds.token
+print("✅ Access Token:", access_token)
 
-async def ingest_company_reviews(company_id: int, place_id: str):
-    """
-    Fetches UNLIMITED reviews using SerpApi.
-    This bypasses the 5-review limit of the official Google Places API.
-    """
-    params = {
-        "engine": "google_maps_reviews",
-        "place_id": place_id,
-        "api_key": SER_KEY,
-        "hl": "en",
-        "sort_by": "newestFirst"
-    }
+headers = {"Authorization": f"Bearer {access_token}"}
 
-    try:
-        search = GoogleSearch(params)
-        results = search.get_dict()
-        
-        # SerpApi provides reviews in batches (usually 10-20 per page)
-        reviews_data = results.get("reviews", [])
-        
-        # To get even more than the first page, we check for next_page_token
-        # For now, let's process the first large batch
-        if not reviews_data:
-            logger.warning(f"No reviews found for {place_id}")
-            return
+# ----------------------------
+# 2️⃣ Get accounts
+# ----------------------------
+accounts_url = "https://mybusinessaccountmanagement.googleapis.com/v1/accounts"
+response = requests.get(accounts_url, headers=headers)
+accounts = response.json()
+account_id = accounts['accounts'][0]['name']  # first account
+print("✅ Account ID:", account_id)
 
-        async with get_session() as session:
-            inserted_count = 0
-            for r in reviews_data:
-                # SerpApi review IDs are unique strings
-                g_id = r.get("review_id")
+# ----------------------------
+# 3️⃣ Get locations
+# ----------------------------
+locations_url = f"https://mybusinessbusinessinformation.googleapis.com/v1/{account_id}/locations"
+locations_resp = requests.get(locations_url, headers=headers)
+locations = locations_resp.json()
+location_id = locations['locations'][0]['name']  # first location
+print("✅ Location ID:", location_id)
 
-                # Duplicate Check
-                stmt = select(Review).where(Review.google_review_id == g_id)
-                existing = await session.execute(stmt)
-                if existing.scalar_one_or_none():
-                    continue
+# ----------------------------
+# 4️⃣ Fetch all reviews (500+ possible)
+# ----------------------------
+reviews = []
+page_token = None
+one_year_ago = datetime.utcnow() - timedelta(days=365)
 
-                # Mapping SerpApi data to your Model
-                session.add(Review(
-                    company_id=company_id,
-                    google_review_id=g_id,
-                    author_name=r.get("user", {}).get("name", "Anonymous"),
-                    rating=int(r.get("rating", 0)),
-                    text=r.get("snippet", ""),
-                    google_review_time=datetime.fromtimestamp(r.get("timestamp")),
-                    profile_photo_url=r.get("user", {}).get("thumbnail"),
-                ))
-                inserted_count += 1
-            
-            await session.commit()
-            logger.info(f"✅ Successfully ingested {inserted_count} reviews for company {company_id}.")
+while True:
+    reviews_url = f"https://mybusiness.googleapis.com/v4/{account_id}/{location_id}/reviews"
+    if page_token:
+        reviews_url += f"?pageToken={page_token}"
 
-    except Exception as e:
-        logger.error(f"❌ SerpApi Sync Failed: {e}")
+    resp = requests.get(reviews_url, headers=headers)
+    data = resp.json()
 
-# Keeping this for basic confirmation in your routes
-async def fetch_place_details(place_id: str):
-    # (Existing Place Details logic using Google Maps API Key)
-    ...
+    for r in data.get("reviews", []):
+        # filter last 1 year
+        review_date = datetime.strptime(r['createTime'][:10], "%Y-%m-%d")
+        if review_date >= one_year_ago:
+            reviews.append({
+                "author": r['reviewer'].get('displayName', 'Unknown'),
+                "rating": r.get('starRating', 'Unknown'),
+                "comment": r.get('comment', ''),
+                "date": r.get('createTime')
+            })
+
+    page_token = data.get("nextPageToken")
+    if not page_token:
+        break
+
+print(f"✅ Total Reviews from last 1 year: {len(reviews)}")
+
+# ----------------------------
+# 5️⃣ Save locally as JSON
+# ----------------------------
+output_file = "reviews_last_year.json"
+with open(output_file, "w", encoding="utf-8") as f:
+    json.dump(reviews, f, indent=4, ensure_ascii=False)
+print(f"✅ Reviews saved locally: {output_file}")
+
+# ----------------------------
+# 6️⃣ Push to GitHub (optional)
+# ----------------------------
+GITHUB_USER = "your_github_username"
+REPO_NAME = "google-business-reviews"
+FILE_PATH = "reviews_last_year.json"
+BRANCH = "main"
+GITHUB_TOKEN = "your_github_personal_access_token"
+
+with open(output_file, "r", encoding="utf-8") as f:
+    content = f.read()
+
+b64_content = base64.b64encode(content.encode()).decode()
+url = f"https://api.github.com/repos/{GITHUB_USER}/{REPO_NAME}/contents/{FILE_PATH}"
+headers_github = {
+    "Authorization": f"token {GITHUB_TOKEN}",
+    "Accept": "application/vnd.github+json"
+}
+response = requests.get(url, headers=headers_github)
+sha = response.json()["sha"] if response.status_code == 200 else None
+
+data = {"message": "Update reviews for last year", "content": b64_content, "branch": BRANCH}
+if sha:
+    data["sha"] = sha
+
+response = requests.put(url, headers=headers_github, data=json.dumps(data))
+if response.status_code in [200, 201]:
+    print("✅ Reviews pushed to GitHub successfully!")
+else:
+    print("❌ Failed to push to GitHub:", response.json())
+
+# ----------------------------
+# 7️⃣ Save to Railway PostgreSQL
+# ----------------------------
+DB_HOST = "your_db_host"
+DB_PORT = 5432
+DB_NAME = "your_db_name"
+DB_USER = "your_db_user"
+DB_PASSWORD = "your_db_password"
+
+conn = psycopg2.connect(
+    host=DB_HOST, port=DB_PORT, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD
+)
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS reviews (
+    id SERIAL PRIMARY KEY,
+    author TEXT,
+    rating TEXT,
+    comment TEXT,
+    date TIMESTAMP
+)
+""")
+conn.commit()
+
+for r in reviews:
+    cursor.execute("""
+    INSERT INTO reviews (author, rating, comment, date)
+    VALUES (%s, %s, %s, %s)
+    """, (r["author"], r["rating"], r["comment"], r["date"]))
+
+conn.commit()
+cursor.close()
+conn.close()
+print("✅ Reviews saved to Railway database!")
