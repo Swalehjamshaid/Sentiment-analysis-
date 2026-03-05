@@ -14,11 +14,20 @@ from sqlalchemy import (
     func,
     Text,
     ARRAY,
+    create_engine,
 )
 from datetime import datetime
+import os
+from dotenv import load_dotenv
 
+# -------------------- CONFIG --------------------
 # 🚨 BUMP THIS TO FORCE FULL RESET
 SCHEMA_VERSION = "2025-03-05-v2-reset"
+
+load_dotenv()
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./test.db")  # fallback for dev
+
+engine = create_engine(DATABASE_URL, echo=True)
 
 # -------------------- BASE --------------------
 class Base(DeclarativeBase):
@@ -32,48 +41,25 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
-
     role: Mapped[str] = mapped_column(String(20), default="viewer")
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     profile_pic: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-
-    # Relationships
-    companies: Mapped[list["Company"]] = relationship(
-        back_populates="owner",
-        cascade="all, delete-orphan",
-    )
-
-    notifications: Mapped[list["Notification"]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
-
-    audit_logs: Mapped[list["AuditLog"]] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
+    companies: Mapped[list["Company"]] = relationship(back_populates="owner", cascade="all, delete-orphan")
+    notifications: Mapped[list["Notification"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 # -------------------- COMPANIES --------------------
 class Company(Base):
     __tablename__ = "companies"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-
-    owner_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # Basic info
     name: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
-    google_place_id: Mapped[str] = mapped_column(
-        String(512), unique=True, index=True, nullable=False
-    )
+    google_place_id: Mapped[str] = mapped_column(String(512), unique=True, index=True, nullable=False)
     formatted_address: Mapped[str | None] = mapped_column(String(512))
     address: Mapped[str | None] = mapped_column(String(512))
     vicinity: Mapped[str | None] = mapped_column(String(255))
@@ -90,7 +76,7 @@ class Company(Base):
     # Location & hours
     latitude: Mapped[float | None] = mapped_column(Float)
     longitude: Mapped[float | None] = mapped_column(Float)
-    hours: Mapped[dict | None] = mapped_column(JSON)  # Stores opening_hours JSON
+    hours: Mapped[dict | None] = mapped_column(JSON)
 
     business_status: Mapped[str | None] = mapped_column(String(64))
     price_level: Mapped[int | None] = mapped_column(Integer)
@@ -120,38 +106,18 @@ class Company(Base):
     outdoor_seating: Mapped[bool | None] = mapped_column(Boolean)
     wheelchair_accessible_entrance: Mapped[bool | None] = mapped_column(Boolean)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    # Relationships
     owner: Mapped["User"] = relationship(back_populates="companies")
-
-    reviews: Mapped[list["Review"]] = relationship(
-        back_populates="company",
-        cascade="all, delete-orphan",
-    )
+    reviews: Mapped[list["Review"]] = relationship(back_populates="company", cascade="all, delete-orphan")
 
 # -------------------- REVIEWS --------------------
 class Review(Base):
     __tablename__ = "reviews"
-
-    __table_args__ = (
-        UniqueConstraint(
-            "company_id",
-            "google_review_id",
-            name="uq_review_company_source",
-        ),
-    )
+    __table_args__ = (UniqueConstraint("company_id", "google_review_id", name="uq_review_company_source"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-
-    company_id: Mapped[int] = mapped_column(
-        ForeignKey("companies.id", ondelete="CASCADE"),
-        index=True,
-        nullable=False,
-    )
-
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True, nullable=False)
     google_review_id: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
 
     author_name: Mapped[str | None] = mapped_column(String(255))
@@ -161,9 +127,7 @@ class Review(Base):
 
     rating: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     text: Mapped[str | None] = mapped_column(Text)
-    google_review_time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), index=True, nullable=False
-    )
+    google_review_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
     language: Mapped[str | None] = mapped_column(String(10), index=True)
     original_language: Mapped[str | None] = mapped_column(String(10))
     relative_time_description: Mapped[str | None] = mapped_column(String(100))
@@ -176,55 +140,42 @@ class Review(Base):
 
     keywords: Mapped[list[str] | None] = mapped_column(JSON)
     aspect_rating: Mapped[dict | None] = mapped_column(JSON)
-
     original_text: Mapped[str | None] = mapped_column(Text)
     translation: Mapped[str | None] = mapped_column(Text)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     company: Mapped["Company"] = relationship(back_populates="reviews")
 
 # -------------------- NOTIFICATIONS --------------------
 class Notification(Base):
     __tablename__ = "notifications"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-
-    user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"),
-        index=True,
-        nullable=False,
-    )
-
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
     type: Mapped[str] = mapped_column(String(64), nullable=False)
     message: Mapped[str] = mapped_column(String(1000), nullable=False)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     user: Mapped["User"] = relationship(back_populates="notifications")
 
 # -------------------- AUDIT LOGS --------------------
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-
-    user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     action: Mapped[str] = mapped_column(String(128), nullable=False)
     ip_address: Mapped[str | None] = mapped_column(String(45))
     meta: Mapped[dict | None] = mapped_column(JSON)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     user: Mapped["User"] = relationship(back_populates="audit_logs")
+
+# -------------------- RESET FUNCTION --------------------
+def reset_db():
+    """
+    Drops all tables and creates new ones based on updated models.
+    WARNING: This deletes ALL existing data!
+    """
+    print("Dropping all tables...")
+    Base.metadata.drop_all(bind=engine)
+    print("Creating new tables...")
+    Base.metadata.create_all(bind=engine)
+    print("Database reset complete!")
