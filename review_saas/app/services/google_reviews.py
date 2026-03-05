@@ -1,69 +1,71 @@
-# fetch_all_gbp_reviews.py
-# --------------------------------------------
-# Fetch all Google Business Profile reviews (500+)
-# for last 1 year, save locally, GitHub, and Railway DB
-# --------------------------------------------
-
-from google_auth_oauthlib.flow import InstalledAppFlow
+import os
 import requests
-from datetime import datetime, timedelta
 import json
 import base64
 import psycopg2
+from datetime import datetime, timedelta, timezone
+from google_auth_oauthlib.flow import InstalledAppFlow
 
 # ----------------------------
-# 1️⃣ OAuth Setup
+# 1️⃣ Configuration & OAuth
 # ----------------------------
+# These will be pulled from your Railway Environment Variables
+DATABASE_URL = os.getenv("DATABASE_URL")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GITHUB_USER = "your_github_username"
+REPO_NAME = "google-business-reviews"
+
 SCOPES = ["https://www.googleapis.com/auth/business.manage"]
-CREDENTIALS_FILE = "client_secret.json"  # your OAuth JSON
+# This file should match the JSON you shared earlier
+CREDENTIALS_FILE = "client_secret.json" 
 
 flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
 creds = flow.run_local_server(port=0)
 access_token = creds.token
-print("✅ Access Token:", access_token)
-
 headers = {"Authorization": f"Bearer {access_token}"}
 
 # ----------------------------
-# 2️⃣ Get accounts
+# 2️⃣ Get IDs (Accounts & Locations)
 # ----------------------------
-accounts_url = "https://mybusinessaccountmanagement.googleapis.com/v1/accounts"
-response = requests.get(accounts_url, headers=headers)
-accounts = response.json()
-account_id = accounts['accounts'][0]['name']  # first account
-print("✅ Account ID:", account_id)
+# Step A: Get Account ID
+acc_resp = requests.get("https://mybusinessaccountmanagement.googleapis.com/v1/accounts", headers=headers)
+account_id = acc_resp.json()['accounts'][0]['name'] 
+
+# Step B: Get Location ID (using the correct v1 businessinformation endpoint)
+loc_url = f"https://mybusinessbusinessinformation.googleapis.com/v1/{account_id}/locations?readMask=name,title"
+loc_resp = requests.get(loc_url, headers=headers)
+location_id = loc_resp.json()['locations'][0]['name'] 
+
+print(f"✅ Syncing: {account_id} | {location_id}")
 
 # ----------------------------
-# 3️⃣ Get locations
+# 3️⃣ Fetch ALL Reviews (Pagination Loop)
 # ----------------------------
-locations_url = f"https://mybusinessbusinessinformation.googleapis.com/v1/{account_id}/locations"
-locations_resp = requests.get(locations_url, headers=headers)
-locations = locations_resp.json()
-location_id = locations['locations'][0]['name']  # first location
-print("✅ Location ID:", location_id)
-
-# ----------------------------
-# 4️⃣ Fetch all reviews (500+ possible)
-# ----------------------------
-reviews = []
+all_reviews = []
 page_token = None
-one_year_ago = datetime.utcnow() - timedelta(days=365)
+one_year_ago = datetime.now(timezone.utc) - timedelta(days=365)
 
 while True:
-    reviews_url = f"https://mybusiness.googleapis.com/v4/{account_id}/{location_id}/reviews"
+    # Use the correct v4 reviews endpoint for 'Unlimited' access
+    reviews_url = f"https://mybusiness.googleapis.com/v4/{location_id}/reviews"
+    params = {"pageSize": 50} # Maximize batch size
     if page_token:
-        reviews_url += f"?pageToken={page_token}"
+        params["pageToken"] = page_token
 
-    resp = requests.get(reviews_url, headers=headers)
+    resp = requests.get(reviews_url, headers=headers, params=params)
     data = resp.json()
 
-    for r in data.get("reviews", []):
-        # filter last 1 year
-        review_date = datetime.strptime(r['createTime'][:10], "%Y-%m-%d")
+    if "reviews" not in data:
+        break
+
+    for r in data["reviews"]:
+        # Parse Google's ISO date format: 2026-03-05T10:00:00Z
+        review_date = datetime.fromisoformat(r['createTime'].replace("Z", "+00:00"))
+        
         if review_date >= one_year_ago:
-            reviews.append({
-                "author": r['reviewer'].get('displayName', 'Unknown'),
-                "rating": r.get('starRating', 'Unknown'),
+            all_reviews.append({
+                "author": r['reviewer'].get('displayName', 'Anonymous'),
+                "rating": r.get('starRating', 'STAR_RATING_UNSPECIFIED').replace("STAR_RATING_", ""),
                 "comment": r.get('comment', ''),
                 "date": r.get('createTime')
             })
@@ -72,79 +74,58 @@ while True:
     if not page_token:
         break
 
-print(f"✅ Total Reviews from last 1 year: {len(reviews)}")
+print(f"✅ Total Reviews fetched (last 1 year): {len(all_reviews)}")
 
 # ----------------------------
-# 5️⃣ Save locally as JSON
+# 4️⃣ Save Locally & Push to GitHub
 # ----------------------------
 output_file = "reviews_last_year.json"
 with open(output_file, "w", encoding="utf-8") as f:
-    json.dump(reviews, f, indent=4, ensure_ascii=False)
-print(f"✅ Reviews saved locally: {output_file}")
+    json.dump(all_reviews, f, indent=4, ensure_ascii=False)
+
+if GITHUB_TOKEN:
+    content_encoded = base64.b64encode(open(output_file, "rb").read()).decode()
+    gh_url = f"https://api.github.com/repos/{GITHUB_USER}/{REPO_NAME}/contents/{output_file}"
+    gh_headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    
+    # Get SHA if file exists to update it
+    curr = requests.get(gh_url, headers=gh_headers)
+    sha = curr.json().get("sha") if curr.status_code == 200 else None
+    
+    gh_data = {"message": "Update reviews", "content": content_encoded, "branch": "main"}
+    if sha: gh_data["sha"] = sha
+    
+    requests.put(gh_url, headers=gh_headers, data=json.dumps(gh_data))
+    print("✅ Pushed to GitHub.")
 
 # ----------------------------
-# 6️⃣ Push to GitHub (optional)
+# 5️⃣ Save to Railway PostgreSQL
 # ----------------------------
-GITHUB_USER = "your_github_username"
-REPO_NAME = "google-business-reviews"
-FILE_PATH = "reviews_last_year.json"
-BRANCH = "main"
-GITHUB_TOKEN = "your_github_personal_access_token"
-
-with open(output_file, "r", encoding="utf-8") as f:
-    content = f.read()
-
-b64_content = base64.b64encode(content.encode()).decode()
-url = f"https://api.github.com/repos/{GITHUB_USER}/{REPO_NAME}/contents/{FILE_PATH}"
-headers_github = {
-    "Authorization": f"token {GITHUB_TOKEN}",
-    "Accept": "application/vnd.github+json"
-}
-response = requests.get(url, headers=headers_github)
-sha = response.json()["sha"] if response.status_code == 200 else None
-
-data = {"message": "Update reviews for last year", "content": b64_content, "branch": BRANCH}
-if sha:
-    data["sha"] = sha
-
-response = requests.put(url, headers=headers_github, data=json.dumps(data))
-if response.status_code in [200, 201]:
-    print("✅ Reviews pushed to GitHub successfully!")
-else:
-    print("❌ Failed to push to GitHub:", response.json())
-
-# ----------------------------
-# 7️⃣ Save to Railway PostgreSQL
-# ----------------------------
-DB_HOST = "your_db_host"
-DB_PORT = 5432
-DB_NAME = "your_db_name"
-DB_USER = "your_db_user"
-DB_PASSWORD = "your_db_password"
-
-conn = psycopg2.connect(
-    host=DB_HOST, port=DB_PORT, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD
-)
-cursor = conn.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS reviews (
-    id SERIAL PRIMARY KEY,
-    author TEXT,
-    rating TEXT,
-    comment TEXT,
-    date TIMESTAMP
-)
-""")
-conn.commit()
-
-for r in reviews:
+if DATABASE_URL:
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    
     cursor.execute("""
-    INSERT INTO reviews (author, rating, comment, date)
-    VALUES (%s, %s, %s, %s)
-    """, (r["author"], r["rating"], r["comment"], r["date"]))
-
-conn.commit()
-cursor.close()
-conn.close()
-print("✅ Reviews saved to Railway database!")
+        CREATE TABLE IF NOT EXISTS reviews (
+            id SERIAL PRIMARY KEY,
+            author TEXT,
+            rating INTEGER,
+            comment TEXT,
+            date TIMESTAMP,
+            unique_id TEXT UNIQUE
+        )
+    """)
+    
+    for r in all_reviews:
+        # Create a unique ID to prevent duplicates if the script runs twice
+        uid = f"{r['author']}_{r['date']}"
+        cursor.execute("""
+            INSERT INTO reviews (author, rating, comment, date, unique_id)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (unique_id) DO NOTHING
+        """, (r["author"], int(r["rating"]), r["comment"], r["date"], uid))
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("✅ Database Sync Complete.")
