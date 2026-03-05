@@ -13,18 +13,18 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy import text
 from app.core.config import settings
 from app.core.db import get_engine, reset_database
-from app.core.models import Base, SCHEMA_VERSION  # ← ADDED: import SCHEMA_VERSION
-from app.core.models import User, Company, Review  # CRITICAL: register models
+from app.core.models import Base, SCHEMA_VERSION  # ← SCHEMA_VERSION used for reset check
+from app.core.models import User, Company, Review, AuditLog  # register models including AuditLog
 from app.routes import auth as auth_routes
 from app.routes import companies as companies_routes
 from app.routes import dashboard as dashboard_routes
 from app.routes import reviews as reviews_routes
 from app.routes import exports as exports_routes
 
-# Import the Google API check endpoint
+# Import Google API check endpoint
 try:
     from app.core.google_check import router as google_router
-    from app.core.google_check import check_google  # the async function
+    from app.core.google_check import check_google  # async function
 except ModuleNotFoundError:
     logging.warning("⚠️ Google check router not found. /api/check-google will be unavailable.")
     google_router = None
@@ -32,57 +32,52 @@ except ModuleNotFoundError:
         logging.warning("⚠️ Google API check skipped (placeholder).")
         return {"status": "skipped"}
 
-# Standard logging configuration
+# Standard logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Lifecycle manager for startup tasks.
-    Ensures database synchronization and Google API check happen before the app starts.
+    Lifecycle manager: runs on startup & shutdown
+    Ensures database is synced and Google API is reachable
     """
-    # 1. Database Schema Synchronization + Conditional Reset
     try:
         engine: AsyncEngine = get_engine()
 
-        # Determine if we are in development mode
+        # Detect dev mode
         is_dev_mode = settings.DEBUG or os.getenv("ENV", "").lower() in ("development", "dev")
-        logger.info(f"Startup environment check → DEBUG={settings.DEBUG}, ENV={os.getenv('ENV')}, is_dev_mode={is_dev_mode}")
+        logger.info(f"Startup environment → DEBUG={settings.DEBUG}, ENV={os.getenv('ENV')}, is_dev_mode={is_dev_mode}")
 
         if is_dev_mode:
             logger.info("Development mode active. Checking schema version...")
 
             async with engine.connect() as conn:
                 try:
-                    result = await conn.execute(text(
-                        "SELECT value FROM config WHERE key = 'schema_version'"
-                    ))
+                    result = await conn.execute(text("SELECT value FROM config WHERE key = 'schema_version'"))
                     row = result.first()
                     db_version = row[0] if row else None
                 except Exception:
-                    db_version = None  # config table or row doesn't exist
+                    db_version = None
 
+            # Reset database if schema version differs
             if db_version != SCHEMA_VERSION:
                 logger.warning(
-                    f"Schema version mismatch or missing! "
-                    f"DB: {db_version or 'missing'}, Code: {SCHEMA_VERSION} → Resetting database..."
+                    f"Schema version mismatch or missing! DB: {db_version or 'missing'}, Code: {SCHEMA_VERSION} → Resetting database..."
                 )
+                # Drops and recreates all tables
                 await reset_database()
 
-                # FIXED: Split into two separate safe statements
+                # Ensure config table exists and set schema_version
                 async with engine.begin() as conn:
-                    # Step 1: Create config table if it doesn't exist
                     await conn.execute(text("""
                         CREATE TABLE IF NOT EXISTS config (
                             key TEXT PRIMARY KEY,
                             value TEXT
                         )
                     """))
-
-                    # Step 2: Insert or update the version (single command)
                     await conn.execute(text("""
-                        INSERT INTO config (key, value) 
+                        INSERT INTO config (key, value)
                         VALUES ('schema_version', :ver)
                         ON CONFLICT (key) DO UPDATE SET value = :ver
                     """), {"ver": SCHEMA_VERSION})
@@ -91,34 +86,33 @@ async def lifespan(app: FastAPI):
             else:
                 logger.info(f"Schema version matches ({SCHEMA_VERSION}). No reset needed — preserving data.")
         else:
-            # Production: only create missing tables, never wipe
-            logger.info("Production mode → Only verifying/creating missing tables (no data wipe)")
+            # Production: only create missing tables
+            logger.info("Production mode → Verifying/creating missing tables (no data wipe)")
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-            logger.info("✓ Database migration: Tables verified/created.")
+            logger.info("✓ Database migration complete: tables verified/created.")
 
     except Exception as e:
-        logger.error(f"❌ Database migration / reset failed: {e}", exc_info=True)
+        logger.error(f"❌ Database migration/reset failed: {e}", exc_info=True)
 
-    # 2. Active Google API check at startup
+    # Google API check
     try:
         result = await check_google()
-        logger.info(f"✓ Google API check passed at startup: {result}")
+        logger.info(f"✓ Google API check passed: {result}")
     except Exception as e:
-        logger.error(f"⚠️ Google API check failed at startup: {e}")
+        logger.error(f"⚠️ Google API check failed: {e}")
 
     yield
-    # Place for shutdown tasks if needed
     logger.info("⚡ Application shutdown complete.")
 
-# Initialize FastAPI app
+# Initialize FastAPI
 app = FastAPI(
     title=settings.APP_NAME,
     debug=settings.DEBUG,
     lifespan=lifespan
 )
 
-# Middlewares
+# Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=['*'],
@@ -134,7 +128,7 @@ app.add_middleware(
     https_only=settings.SESSION_COOKIE_SECURE
 )
 
-# Static files and templates
+# Static files & templates
 app.mount('/static', StaticFiles(directory='app/static'), name='static')
 templates = Jinja2Templates(directory='app/templates')
 
@@ -147,18 +141,18 @@ async def landing(request: Request):
         "settings": settings
     })
 
-# Router Inclusions
+# Include routers
 app.include_router(auth_routes.router)
 app.include_router(companies_routes.router)
 app.include_router(dashboard_routes.router)
 app.include_router(reviews_routes.router)
 app.include_router(exports_routes.router)
 
-# Include Google check router if available
+# Google router
 if google_router:
     app.include_router(google_router, prefix="/api")
 
-# Health endpoint
+# Health check
 @app.get('/health')
 async def health():
     return {"status": "ok"}
