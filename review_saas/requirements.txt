@@ -1,5 +1,3 @@
-outscraper
-google-search-results
 # ────────────────────────────────────────────────────────────────
 # Core Web Framework & Server
 # ────────────────────────────────────────────────────────────────
@@ -11,13 +9,14 @@ python-multipart==0.0.9
 # ────────────────────────────────────────────────────────────────
 # Database & ORM & Migrations
 # ────────────────────────────────────────────────────────────────
-# UPDATED: SQLAlchemy and greenlet must be newer for Python 3.13
 SQLAlchemy>=2.0.35
 psycopg[binary]==3.3.2
 asyncpg==0.31.0
 aiosqlite==0.20.0
 alembic==1.18.4
 greenlet>=3.1.1
+# ADDED: Required for traditional psycopg2 imports in your scripts
+psycopg2-binary==2.9.10
 
 # ────────────────────────────────────────────────────────────────
 # Data Validation & Settings
@@ -83,6 +82,12 @@ google-api-python-client>=2.149.0
 google-auth>=2.35.0
 google-auth-oauthlib>=1.2.1
 tenacity==9.0.0
+
+# ────────────────────────────────────────────────────────────────
+# Unlimited Reviews Extraction (NEW)
+# ────────────────────────────────────────────────────────────────
+outscraper==0.1.0
+google-search-results==2.4.2
 
 # ────────────────────────────────────────────────────────────────
 # Optional: Dev & Debugging
