@@ -10,97 +10,80 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# This matches the key name in your Railway environment variables
-API_KEY = settings.GOOGLE_BUSINESS_API_KEY
+# Note: Full history requires the Business Profile API (v4) and OAuth Token
+# Public Places API Key will still only return the top 5.
 
-async def fetch_place_details(place_id: str):
+async def ingest_all_business_reviews(
+    company_id: int, 
+    account_id: str, 
+    location_id: str, 
+    access_token: str
+):
     """
-    Fetch basic details for a place (Name, Address, Status) from Google Places API.
-    Required by routes/reviews.py to confirm which restaurant was fetched.
+    Fetch ALL reviews for a business using the Business Profile API.
+    Bypasses the 5-review limit via pagination (nextPageToken).
     """
-    url = "https://maps.googleapis.com/maps/api/place/details/json"
-    params = {
-        "place_id": place_id,
-        "fields": "name,formatted_address,rating,user_ratings_total,business_status",
-        "key": API_KEY
-    }
+    # Endpoint for the Business Profile Reviews API
+    base_url = f"https://mybusiness.googleapis.com/v4/accounts/{account_id}/locations/{location_id}/reviews"
+    headers = {"Authorization": f"Bearer {access_token}"}
     
-    async with httpx.AsyncClient(timeout=10) as client:
+    next_page_token = None
+    total_new_reviews = 0
+
+    async with httpx.AsyncClient(timeout=30) as client:
         try:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
-            if data.get("status") == "OK":
-                return data.get("result", {})
-            else:
-                logger.error(f"❌ Google Places API Error: {data.get('status')}")
-                return None
-        except Exception as e:
-            logger.error(f"❌ Failed to fetch place details: {e}")
-            return None
-
-async def ingest_company_reviews(company_id: int, place_id: str):
-    """
-    Fetch reviews for a business and store them in the database.
-    """
-    logger.info(f"🔍 Fetching reviews for company_id={company_id}, place_id={place_id}")
-
-    url = "https://maps.googleapis.com/maps/api/place/details/json"
-    params = {
-        "place_id": place_id,
-        "fields": "reviews",
-        "key": API_KEY
-    }
-
-    async with httpx.AsyncClient(timeout=20) as client:
-        try:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            
-            data = response.json()
-            if data.get("status") != "OK":
-                logger.error(f"❌ Google API Error: {data.get('status')} - {data.get('error_message')}")
-                return
-
-            reviews_data = data.get("result", {}).get("reviews", [])
-
-            if not reviews_data:
-                logger.warning(f"⚠️ No reviews found for place_id={place_id}")
-                return
-
-            async with get_session() as session:
-                inserted_count = 0
+            while True:
+                # Add pagination token if we have one
+                params = {"pageToken": next_page_token} if next_page_token else {}
                 
-                for r in reviews_data:
-                    # Create a unique ID: G_{place_id}_{timestamp}
-                    g_id = f"G_{place_id}_{r.get('time')}"
+                response = await client.get(base_url, headers=headers, params=params)
+                response.raise_for_status()
+                data = response.json()
+                
+                reviews_data = data.get("reviews", [])
+                if not reviews_data:
+                    break
 
-                    # 1. Check if review already exists to prevent duplicates
-                    stmt = select(Review).where(Review.google_review_id == g_id)
-                    existing = await session.execute(stmt)
-                    if existing.scalar_one_or_none():
-                        continue
+                async with get_session() as session:
+                    for r in reviews_data:
+                        # Business API unique ID
+                        g_id = r.get("reviewId")
 
-                    # 2. Add new review record
-                    new_review = Review(
-                        company_id=company_id,
-                        google_review_id=g_id,
-                        author_name=r.get("author_name") or "Anonymous",
-                        rating=int(r.get("rating", 0)),
-                        text=r.get("text") or "",
-                        google_review_time=datetime.fromtimestamp(
-                            r.get("time", int(datetime.now().timestamp())), 
-                            tz=timezone.utc
-                        ),
-                        profile_photo_url=r.get("profile_photo_url"),
-                        reviewer_is_anonymous=False
-                    )
+                        # Duplicate check
+                        stmt = select(Review).where(Review.google_review_id == g_id)
+                        existing = await session.execute(stmt)
+                        if existing.scalar_one_or_none():
+                            continue
+
+                        # Map API fields to your DB Model
+                        session.add(Review(
+                            company_id=company_id,
+                            google_review_id=g_id,
+                            author_name=r.get("reviewer", {}).get("displayName", "Anonymous"),
+                            rating=int(r.get("starRating", "0").replace("STAR_RATING_", "")),
+                            text=r.get("comment", ""),
+                            google_review_time=datetime.fromisoformat(
+                                r.get("createTime").replace("Z", "+00:00")
+                            ),
+                            profile_photo_url=r.get("reviewer", {}).get("profilePhotoUrl"),
+                            review_reply_text=r.get("reviewReply", {}).get("comment"),
+                            # Handle reply time if it exists
+                            review_reply_time=datetime.fromisoformat(
+                                r.get("reviewReply", {}).get("updateTime").replace("Z", "+00:00")
+                            ) if r.get("reviewReply") else None
+                        ))
+                        total_new_reviews += 1
                     
-                    session.add(new_review)
-                    inserted_count += 1
+                    await session.commit()
 
-                await session.commit()
-                logger.info(f"✅ Ingested {inserted_count} reviews for company {company_id}.")
+                # Check if there's another page
+                next_page_token = data.get("nextPageToken")
+                if not next_page_token:
+                    break
+            
+            logger.info(f"✅ Sync Complete: Added {total_new_reviews} reviews for company {company_id}.")
 
+        except httpx.HTTPStatusError as e:
+            logger.error(f"❌ API Error ({e.response.status_code}): {e.response.text}")
         except Exception as e:
-            logger.error(f"❌ Failed to ingest reviews: {str(e)}")
+            logger.error(f"❌ Critical Error during full sync: {e}")
