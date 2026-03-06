@@ -1,6 +1,4 @@
-# ============================================
 # File: app/routes/reviews.py
-# ============================================
 
 from fastapi import APIRouter, HTTPException
 import httpx
@@ -15,35 +13,26 @@ from app.core.models import Review
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------
-# FastAPI Router (REQUIRED or server will crash)
-# ---------------------------------------------------------
 router = APIRouter(
     prefix="/reviews",
     tags=["Reviews"]
 )
 
-# ---------------------------------------------------------
-# Google Reviews Service (Outscraper)
-# ---------------------------------------------------------
 class GoogleReviewsService:
 
     def __init__(self):
         self.api_key = settings.OUTSCAPTER_KEY
-        self.base_url = "https://api.outscraper.com/v2/google-maps/reviews"
+        self.base_url = "https://api.outscraper.com/maps/reviews-v3"
 
-    async def fetch_reviews(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
-        """
-        Fetch reviews from Outscraper
-        (bypasses Google 5-review API limitation)
-        """
+    async def fetch_reviews(self, query: str, limit: int = 200):
 
-        headers = {"X-API-KEY": self.api_key}
+        headers = {
+            "X-API-KEY": self.api_key
+        }
 
         params = {
             "query": query,
-            "limit": limit,
-            "async": "false",
+            "reviewsLimit": limit,   # IMPORTANT PARAMETER
             "sort": "newest"
         }
 
@@ -58,9 +47,7 @@ class GoogleReviewsService:
                 )
 
                 if response.status_code != 200:
-                    logger.error(
-                        f"Outscraper API Error: {response.status_code} - {response.text}"
-                    )
+                    logger.error(f"Outscraper API Error: {response.text}")
                     return []
 
                 data = response.json()
@@ -77,9 +64,9 @@ class GoogleReviewsService:
 
                         mapped_reviews.append({
                             "reviewId": rev.get("review_id"),
-                            "author": rev.get("author_title", "Anonymous"),
-                            "rating": rev.get("review_rating") or rev.get("rating"),
-                            "text": rev.get("review_text", ""),
+                            "author": rev.get("author_title"),
+                            "rating": rev.get("review_rating"),
+                            "text": rev.get("review_text"),
                             "time_str": rev.get("review_datetime_utc"),
                             "photo": rev.get("author_image")
                         })
@@ -87,22 +74,15 @@ class GoogleReviewsService:
                 return mapped_reviews
 
             except Exception as e:
-                logger.error(f"Outscraper request failed: {e}")
+                logger.error(f"Outscraper fetch failed: {e}")
                 return []
 
 
-# Singleton instance
 google_reviews_service = GoogleReviewsService()
 
 
-# ---------------------------------------------------------
-# API Route - Fetch Reviews (Testing Endpoint)
-# ---------------------------------------------------------
 @router.get("/fetch")
-async def fetch_reviews(query: str, limit: int = 50):
-    """
-    Fetch reviews directly from Outscraper
-    """
+async def fetch_reviews(query: str, limit: int = 200):
 
     reviews = await google_reviews_service.fetch_reviews(query, limit)
 
@@ -112,65 +92,4 @@ async def fetch_reviews(query: str, limit: int = 50):
     return {
         "total_reviews": len(reviews),
         "reviews": reviews
-    }
-
-
-# ---------------------------------------------------------
-# Ingest Reviews Into Database
-# ---------------------------------------------------------
-async def ingest_company_reviews(place_id: str, company_id: int):
-
-    reviews_data = await google_reviews_service.fetch_reviews(place_id, limit=100)
-
-    async with get_session() as session:
-
-        new_count = 0
-
-        for rd in reviews_data:
-
-            exists = await session.execute(
-                select(Review).where(
-                    Review.google_review_id == rd["reviewId"]
-                )
-            )
-
-            if exists.scalar_one_or_none():
-                continue
-
-            review_date = datetime.utcnow()
-
-            if rd["time_str"]:
-                try:
-                    review_date = datetime.fromisoformat(
-                        rd["time_str"].replace("Z", "")
-                    )
-                except:
-                    pass
-
-            review = Review(
-                company_id=company_id,
-                google_review_id=rd["reviewId"],
-                author_name=rd["author"],
-                rating=rd["rating"],
-                text=rd["text"],
-                profile_photo_url=rd["photo"],
-                google_review_time=review_date
-            )
-
-            session.add(review)
-
-            new_count += 1
-
-        await session.commit()
-
-        logger.info(f"Ingested {new_count} reviews for company {company_id}")
-
-
-# ---------------------------------------------------------
-# Dummy place details function (compatibility)
-# ---------------------------------------------------------
-async def fetch_place_details(place_id: str):
-
-    return {
-        "name": "Business Location"
     }
