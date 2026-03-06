@@ -1,156 +1,154 @@
-# File: /app/main.py
+# File: /app/core/models.py
 from __future__ import annotations
-import logging
-import os
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.sessions import SessionMiddleware
-from starlette.templating import Jinja2Templates
-from starlette.staticfiles import StaticFiles
-from sqlalchemy.ext.asyncio import AsyncEngine
-from sqlalchemy import text
-from app.core.config import settings
-from app.core.db import get_engine, reset_database
-from app.core.models import Base, SCHEMA_VERSION  # SCHEMA_VERSION check
-from app.core.models import User, Company, Review, AuditLog  # register all models
-from app.routes import auth as auth_routes
-from app.routes import companies as companies_routes
-from app.routes import dashboard as dashboard_routes
-from app.routes import reviews as reviews_routes
-from app.routes import exports as exports_routes
+from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, Text, ForeignKey
+from sqlalchemy.orm import declarative_base, relationship
+from datetime import datetime
 
-# Import Google API check
-try:
-    from app.core.google_check import router as google_router
-    from app.core.google_check import check_google  # async function
-except ModuleNotFoundError:
-    logging.warning("⚠️ Google check router not found. /api/check-google unavailable.")
-    google_router = None
-    async def check_google():
-        logging.warning("⚠️ Google API check skipped (placeholder).")
-        return {"status": "skipped"}
+# Track schema version → increment whenever models change
+SCHEMA_VERSION = "3.0.0"
 
-# Standard logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+Base = declarative_base()
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    Lifecycle manager: startup + shutdown.
-    Drops old tables and recreates all tables whenever SCHEMA_VERSION changes or models.py updates.
-    """
-    try:
-        engine: AsyncEngine = get_engine()
-        is_dev_mode = settings.DEBUG or os.getenv("ENV", "").lower() in ("development", "dev")
-        logger.info(f"Startup environment → DEBUG={settings.DEBUG}, ENV={os.getenv('ENV')}, is_dev_mode={is_dev_mode}")
+# =======================
+# Core Tables
+# =======================
 
-        async with engine.begin() as conn:
-            # Get current schema version from database
-            try:
-                result = await conn.execute(text("SELECT value FROM config WHERE key='schema_version'"))
-                row = result.first()
-                db_version = row[0] if row else None
-            except Exception:
-                db_version = None
+class User(Base):
+    __tablename__ = "users"
 
-            # If schema version mismatch OR forced dev reset → drop all tables
-            if db_version != SCHEMA_VERSION or is_dev_mode:
-                logger.warning(
-                    f"Schema version mismatch or dev reset! DB: {db_version or 'missing'}, Code: {SCHEMA_VERSION} → Resetting database..."
-                )
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), unique=True, nullable=False)
+    email = Column(String(100), unique=True, nullable=False)
+    hashed_password = Column(String(200), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-                # Drop all existing tables
-                logger.info("🔥 Dropping all existing tables...")
-                await conn.run_sync(Base.metadata.drop_all)
+    notifications = relationship("Notification", back_populates="user")
+    audit_logs = relationship("AuditLog", back_populates="user")
 
-                # Recreate all tables from models.py
-                logger.info("✨ Creating all tables fresh...")
-                await conn.run_sync(Base.metadata.create_all)
 
-                # Ensure config table exists and update SCHEMA_VERSION
-                await conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS config (
-                        key TEXT PRIMARY KEY,
-                        value TEXT
-                    )
-                """))
-                await conn.execute(text("""
-                    INSERT INTO config (key, value)
-                    VALUES ('schema_version', :ver)
-                    ON CONFLICT(key) DO UPDATE SET value = :ver
-                """), {"ver": SCHEMA_VERSION})
+class Company(Base):
+    __tablename__ = "companies"
 
-                logger.info(f"✅ Database reset complete. Schema version set to {SCHEMA_VERSION}")
-            else:
-                # Production: create missing tables only, preserving existing data
-                logger.info("Production mode → Verified existing tables, creating missing ones if needed...")
-                await conn.run_sync(Base.metadata.create_all)
-                logger.info("✓ Database migration complete: tables verified/created.")
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    address = Column(String(300))
+    phone = Column(String(50))
+    website = Column(String(200))
+    google_place_id = Column(String(100), unique=True)
+    category = Column(String(100))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    except Exception as e:
-        logger.error(f"❌ Database migration/reset failed: {e}", exc_info=True)
+    reviews = relationship("Review", back_populates="company")
+    competitors = relationship("Competitor", back_populates="company")
 
-    # Google API check
-    try:
-        result = await check_google()
-        logger.info(f"✓ Google API check passed: {result}")
-    except Exception as e:
-        logger.error(f"⚠️ Google API check failed: {e}")
 
-    yield
-    logger.info("⚡ Application shutdown complete.")
+class Review(Base):
+    __tablename__ = "reviews"
 
-# Initialize FastAPI
-app = FastAPI(
-    title=settings.APP_NAME,
-    debug=settings.DEBUG,
-    lifespan=lifespan
-)
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"))
+    author_name = Column(String(200))
+    rating = Column(Float)
+    text = Column(Text)
+    time_created = Column(DateTime)
+    source = Column(String(50))  # Google, Outscraper, etc.
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-# Middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=['*'],
-    allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*']
-)
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.SECRET_KEY,
-    session_cookie=settings.SESSION_COOKIE_NAME,
-    same_site=settings.SESSION_COOKIE_SAMESITE,
-    https_only=settings.SESSION_COOKIE_SECURE
-)
+    company = relationship("Company", back_populates="reviews")
+    extras = relationship("ReviewExtra", back_populates="review")
 
-# Static files & templates
-app.mount('/static', StaticFiles(directory='app/static'), name='static')
-templates = Jinja2Templates(directory='app/templates')
 
-# Landing page
-@app.get('/', response_class=HTMLResponse)
-async def landing(request: Request):
-    return templates.TemplateResponse('landing.html', {
-        "request": request,
-        "title": settings.APP_NAME,
-        "settings": settings
-    })
+class Competitor(Base):
+    __tablename__ = "competitors"
 
-# Include routers
-app.include_router(auth_routes.router)
-app.include_router(companies_routes.router)
-app.include_router(dashboard_routes.router)
-app.include_router(reviews_routes.router)
-app.include_router(exports_routes.router)
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"))
+    competitor_name = Column(String(200))
+    competitor_place_id = Column(String(100))
+    distance_km = Column(Float)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-# Google router
-if google_router:
-    app.include_router(google_router, prefix="/api")
+    company = relationship("Company", back_populates="competitors")
+    extras = relationship("CompetitorExtra", back_populates="competitor")
 
-# Health check
-@app.get('/health')
-async def health():
-    return {"status": "ok"}
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    action = Column(String(200))
+    table_name = Column(String(100))
+    record_id = Column(Integer)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="audit_logs")
+
+
+class Config(Base):
+    __tablename__ = "config"
+
+    key = Column(String(50), primary_key=True)
+    value = Column(String(100))
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    title = Column(String(200))
+    message = Column(Text)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="notifications")
+
+
+# =======================
+# Outscraper Output Tables
+# =======================
+
+class PlaceDetails(Base):
+    __tablename__ = "place_details"
+
+    id = Column(Integer, primary_key=True)
+    place_id = Column(String(100), unique=True)
+    name = Column(String(200))
+    address = Column(String(300))
+    phone = Column(String(50))
+    website = Column(String(200))
+    rating = Column(Float)
+    total_reviews = Column(Integer)
+    category = Column(String(100))
+    latitude = Column(Float)
+    longitude = Column(Float)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ReviewExtra(Base):
+    __tablename__ = "review_extras"
+
+    id = Column(Integer, primary_key=True)
+    review_id = Column(Integer, ForeignKey("reviews.id", ondelete="CASCADE"))
+    sentiment = Column(String(50))  # Positive, Neutral, Negative
+    language = Column(String(20))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    review = relationship("Review", back_populates="extras")
+
+
+class CompetitorExtra(Base):
+    __tablename__ = "competitor_extras"
+
+    id = Column(Integer, primary_key=True)
+    competitor_id = Column(Integer, ForeignKey("competitors.id", ondelete="CASCADE"))
+    category = Column(String(100))
+    rating = Column(Float)
+    total_reviews = Column(Integer)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    competitor = relationship("Competitor", back_populates="extras")
