@@ -1,74 +1,46 @@
 # filename: app/core/config.py
-from __future__ import annotations
-from functools import lru_cache
-from typing import Optional, List
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
+from pydantic_settings import BaseSettings
+from typing import Optional
 
 class Settings(BaseSettings):
-    APP_NAME: str = "ReviewSaaS"
-    DEBUG: bool = True
-    SECRET_KEY: str = "change-me"
-    JWT_SECRET: str = "change-me-too"
-    JWT_ALG: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+    # App General Settings
+    APP_NAME: str = "Sentiment-Analysis-SaaS"
+    ENVIRONMENT: str = "production"
+    DEBUG: bool = False
+    APP_BASE_URL: str = "https://sentiment-analysis-production-f96a.up.railway.app"
 
-    # Async DB URL (postgresql+asyncpg or sqlite+aiosqlite)
-    DATABASE_URL: Optional[str] = None
-
-    # =========================
-    # Google API Keys
-    # =========================
-    GOOGLE_MAPS_API_KEY: Optional[str] = None
-    GOOGLE_PLACES_API_KEY: Optional[str] = None
-    GOOGLE_BUSINESS_API_KEY: Optional[str] = None
+    # Google OAuth & API Settings
+    GOOGLE_CLIENT_ID: str
+    GOOGLE_CLIENT_SECRET: str
+    # THIS IS THE MISSING LINE FIXING YOUR ERROR:
+    GOOGLE_REFRESH_TOKEN: str 
     
-    # --- NEW: OAuth Credentials for Business Profile API ---
-    GOOGLE_CLIENT_ID: Optional[str] = None
-    GOOGLE_CLIENT_SECRET: Optional[str] = None
-    GOOGLE_REDIRECT_URI: Optional[str] = None
+    GOOGLE_REDIRECT_URI: str = "https://sentiment-analysis-production-f96a.up.railway.app/auth/callback"
+    GOOGLE_PLACES_API_KEY: str
+    GOOGLE_MAPS_API_KEY: Optional[str] = None
 
-    # --- NEW: SerpApi Key (For > 5 Reviews) ---
-    SERPAPI_KEY: Optional[str] = None
+    # Database Settings
+    DATABASE_URL: str
 
-    # SMTP (email verification + notifications)
-    SMTP_HOST: Optional[str] = None
+    # Security Settings
+    SECRET_KEY: str
+    JWT_SECRET: str
+    JWT_ALG: str = "HS256"
+    ACCESS_TOKEN_MINUTES: int = 60
+
+    # Email / SMTP Settings
+    SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
     SMTP_USERNAME: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_NAME: str = "ReviewSaaS-Support"
     SMTP_FROM_EMAIL: Optional[str] = None
-    SMTP_FROM_NAME: str = "ReviewSaaS"
 
-    # Sessions
-    SESSION_COOKIE_NAME: str = "session"
-    SESSION_COOKIE_SECURE: bool = False
-    SESSION_COOKIE_SAMESITE: str = "lax"
+    class Config:
+        case_sensitive = True
+        # This allows the app to read from a .env file locally 
+        # and environment variables on Railway
+        env_file = ".env"
 
-    # Rate limiting & cache
-    RATE_LIMIT_REQUESTS: int = 120
-    RATE_LIMIT_WINDOW_SEC: int = 900
-    CACHE_TTL_SEC: int = 300
-
-    # i18n
-    DEFAULT_LANG: str = "en"
-    SUPPORTED_LANGS: List[str] = ["en"]
-
-    # Branding/SEO
-    TAGLINE: str = "Turn reviews into decisions"
-    LOGO_URL: str = "/static/logo.svg"
-    EXPLAINER_VIDEO_URL: str = "https://www.youtube.com/embed/dQw4w9WgXcQ"
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
-
-
-@lru_cache
-def get_settings() -> Settings:
-    return Settings()
-
-
-settings = get_settings()
+# Initialize settings
+settings = Settings()
