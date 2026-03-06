@@ -1,6 +1,7 @@
+# File: review_saas/app/core/config.py
 import os
 from pydantic_settings import BaseSettings
-from typing import Optional, List
+from typing import Optional
 
 class Settings(BaseSettings):
     # --- App General Settings ---
@@ -14,11 +15,12 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str
     GOOGLE_REFRESH_TOKEN: str
     GOOGLE_REDIRECT_URI: str = "https://sentiment-analysis-production-f96a.up.railway.app/auth/callback"
-    
-    # Google API Keys
     GOOGLE_PLACES_API_KEY: str
-    GOOGLE_MAPS_API_KEY: Optional[str] = None
     
+    # --- Rate Limiting Settings (FIXES THE CURRENT ERROR) ---
+    RATE_LIMIT_WINDOW_SEC: int = 60
+    RATE_LIMIT_MAX_REQUESTS: int = 5
+
     # --- Database Settings ---
     DATABASE_URL: str
 
@@ -28,29 +30,16 @@ class Settings(BaseSettings):
     JWT_ALG: str = "HS256"
     ACCESS_TOKEN_MINUTES: int = 60
 
-    # --- Session & Cookie Settings ---
-    SESSION_COOKIE_NAME: str = "session"
-    SESSION_COOKIE_SAMESITE: str = "lax"
-    SESSION_COOKIE_SECURE: bool = True
-
     # --- Email / SMTP Settings ---
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
     SMTP_USERNAME: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
-    SMTP_FROM_NAME: str = "ReviewSaaS-Support"
-    SMTP_FROM_EMAIL: Optional[str] = None
-
-    # --- Third Party APIs ---
-    SERPAPI_KEY: Optional[str] = None
-    OUTSCRAPER_API_KEY: Optional[str] = None
 
     class Config:
         case_sensitive = True
         env_file = ".env"
-        # CRITICAL FIX: This prevents "Extra inputs are not permitted" crashes
-        # if Railway has variables like GOOGLE_BUSINESS_API_KEY or FORCE_HTTPS
+        # Ignores extra variables in Railway dashboard to prevent crashes
         extra = "ignore"
 
-# Initialize settings object to be used across the app
 settings = Settings()
