@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     # This must match your .env variable exactly
     OUTSCAPTER_KEY: str 
     
+    # --- Database Settings ---
+    DATABASE_URL: str
+
     # --- Google OAuth & API Settings ---
     GOOGLE_CLIENT_ID: str
     GOOGLE_CLIENT_SECRET: str
@@ -28,9 +31,6 @@ class Settings(BaseSettings):
     SESSION_COOKIE_NAME: str = "session"
     SESSION_COOKIE_SAMESITE: str = "lax"
     SESSION_COOKIE_SECURE: bool = True
-
-    # --- Database Settings ---
-    DATABASE_URL: str
 
     # --- Security & JWT Settings ---
     SECRET_KEY: str
