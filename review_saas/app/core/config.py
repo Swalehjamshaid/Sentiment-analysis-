@@ -17,9 +17,14 @@ class Settings(BaseSettings):
     GOOGLE_REDIRECT_URI: str = "https://sentiment-analysis-production-f96a.up.railway.app/auth/callback"
     GOOGLE_PLACES_API_KEY: str
     
-    # --- Rate Limiting Settings (FIXES THE CURRENT ERROR) ---
+    # --- Rate Limiting Settings ---
     RATE_LIMIT_WINDOW_SEC: int = 60
     RATE_LIMIT_MAX_REQUESTS: int = 5
+
+    # --- Session & Cookie Settings (FIXES THE CURRENT ERROR) ---
+    SESSION_COOKIE_NAME: str = "session"
+    SESSION_COOKIE_SAMESITE: str = "lax"
+    SESSION_COOKIE_SECURE: bool = True
 
     # --- Database Settings ---
     DATABASE_URL: str
@@ -39,7 +44,7 @@ class Settings(BaseSettings):
     class Config:
         case_sensitive = True
         env_file = ".env"
-        # Ignores extra variables in Railway dashboard to prevent crashes
+        # This prevents crashes if you have extra variables in Railway
         extra = "ignore"
 
 settings = Settings()
