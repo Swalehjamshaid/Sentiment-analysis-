@@ -1,4 +1,5 @@
-# filename: app/routes/companies.py
+# File: app/routes/companies.py
+
 from __future__ import annotations
 import logging
 import googlemaps
@@ -25,14 +26,9 @@ def _require_user(request: Request):
 
 
 # ---------------------------------------------------------
-# NEW REQUIRED FUNCTION
 # Safe Google Maps Client Initializer
 # ---------------------------------------------------------
 def _get_gmaps_client():
-    """
-    Initializes Google Maps client safely.
-    Prevents crashes if API key is missing.
-    """
     if not settings.GOOGLE_PLACES_API_KEY:
         raise HTTPException(
             status_code=500,
@@ -222,11 +218,13 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
         await session.commit()
         await session.refresh(new_company)
 
-        # Background review ingestion
+        # ----------------------------
+        # Background review ingestion (FIXED)
+        # ----------------------------
         bg_tasks.add_task(
             ingest_company_reviews,
-            new_company.id,
-            new_company.google_place_id,
+            new_company.google_place_id,  # <-- corrected
+            new_company.id,               # <-- corrected
         )
 
         companies = await _get_companies_data(session, uid)
@@ -260,10 +258,13 @@ async def company_sync(company_id: int, request: Request, bg_tasks: BackgroundTa
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
+        # ----------------------------
+        # Background review ingestion (FIXED)
+        # ----------------------------
         bg_tasks.add_task(
             ingest_company_reviews,
-            company.id,
-            company.google_place_id,
+            company.google_place_id,  # <-- corrected
+            company.id,               # <-- corrected
         )
 
         session.add(
