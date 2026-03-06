@@ -40,60 +40,55 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """
     Lifecycle manager: startup + shutdown.
-    Ensures database schema is up-to-date and Google API is reachable.
+    Drops all tables and recreates them fresh if models.py is updated.
     """
     try:
         engine: AsyncEngine = get_engine()
-
-        # Dev mode detection
         is_dev_mode = settings.DEBUG or os.getenv("ENV", "").lower() in ("development", "dev")
         logger.info(f"Startup environment → DEBUG={settings.DEBUG}, ENV={os.getenv('ENV')}, is_dev_mode={is_dev_mode}")
 
-        if is_dev_mode:
-            logger.info("Development mode active. Checking schema version...")
+        async with engine.begin() as conn:
+            # Fetch current schema version from DB
+            try:
+                result = await conn.execute(text("SELECT value FROM config WHERE key='schema_version'"))
+                row = result.first()
+                db_version = row[0] if row else None
+            except Exception:
+                db_version = None
 
-            async with engine.connect() as conn:
-                try:
-                    result = await conn.execute(text("SELECT value FROM config WHERE key = 'schema_version'"))
-                    row = result.first()
-                    db_version = row[0] if row else None
-                except Exception:
-                    db_version = None
-
-            if db_version != SCHEMA_VERSION:
+            # If schema version mismatch OR dev mode → reset database
+            if db_version != SCHEMA_VERSION or is_dev_mode:
                 logger.warning(
-                    f"Schema version mismatch or missing! DB: {db_version or 'missing'}, Code: {SCHEMA_VERSION} → Resetting database..."
+                    f"Schema version mismatch or forced reset! DB: {db_version or 'missing'}, Code: {SCHEMA_VERSION} → Resetting database..."
                 )
-                # Drops and recreates all tables
-                await reset_database()
+
+                # Drop all tables first
+                logger.info("🔥 Dropping all existing tables...")
+                await conn.run_sync(Base.metadata.drop_all)
+
+                # Recreate all tables from models.py
+                logger.info("✨ Creating all tables fresh...")
+                await conn.run_sync(Base.metadata.create_all)
 
                 # Ensure config table exists and set SCHEMA_VERSION
-                async with engine.begin() as conn:
-                    await conn.execute(text("""
-                        CREATE TABLE IF NOT EXISTS config (
-                            key TEXT PRIMARY KEY,
-                            value TEXT
-                        )
-                    """))
-                    await conn.execute(text("""
-                        INSERT INTO config (key, value)
-                        VALUES ('schema_version', :ver)
-                        ON CONFLICT (key) DO UPDATE SET value = :ver
-                    """), {"ver": SCHEMA_VERSION})
+                await conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS config (
+                        key TEXT PRIMARY KEY,
+                        value TEXT
+                    )
+                """))
+                await conn.execute(text("""
+                    INSERT INTO config (key, value)
+                    VALUES ('schema_version', :ver)
+                    ON CONFLICT(key) DO UPDATE SET value = :ver
+                """), {"ver": SCHEMA_VERSION})
 
-                logger.info(f"Database reset complete. Schema version set to {SCHEMA_VERSION}")
+                logger.info(f"✅ Database reset complete. Schema version set to {SCHEMA_VERSION}")
             else:
-                logger.info(f"Schema version matches ({SCHEMA_VERSION}). Preserving data.")
-                # Always create missing tables in dev mode
-                async with engine.begin() as conn:
-                    await conn.run_sync(Base.metadata.create_all)
-                logger.info("✓ Verified/created missing tables for updated models.")
-        else:
-            # Production → only create missing tables
-            logger.info("Production mode → Verifying/creating missing tables (no data wipe).")
-            async with engine.begin() as conn:
+                # Production: just create missing tables (no wipe)
+                logger.info("Production mode → Verified existing tables, creating missing ones if needed...")
                 await conn.run_sync(Base.metadata.create_all)
-            logger.info("✓ Database migration complete: tables verified/created.")
+                logger.info("✓ Database migration complete: tables verified/created.")
 
     except Exception as e:
         logger.error(f"❌ Database migration/reset failed: {e}", exc_info=True)
