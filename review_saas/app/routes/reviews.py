@@ -1,4 +1,4 @@
-# filename: review_saas/app/services/google_reviews.py
+# File: review_saas/app/services/google_reviews.py
 
 import httpx
 import logging
@@ -23,47 +23,69 @@ class OutscraperReviewsService:
     async def fetch_reviews(self, query: str, limit: int = 1000) -> List[Dict[str, Any]]:
         """
         Fetches up to `limit` reviews from Outscraper for a business.
+        Supports fetching in multiple pages if limit > 100 (Outscraper pagination).
         """
         headers = {"X-API-KEY": self.api_key}
-        params = {
-            "query": query,
-            "limit": limit,
-            "async": False,
-            "sort": "newest"
-        }
+        all_reviews: List[Dict[str, Any]] = []
+        remaining = limit
+        page = 1
 
         async with httpx.AsyncClient(timeout=180.0) as client:
             try:
-                logger.info(f"Fetching {limit} reviews for place_id={query}")
-                response = await client.get(self.base_url, headers=headers, params=params)
-                
-                if response.status_code != 200:
-                    logger.error(f"Outscraper Error: {response.status_code} - {response.text}")
-                    return []
+                while remaining > 0:
+                    batch_limit = min(100, remaining)  # Outscraper may limit per request
+                    params = {
+                        "query": query,
+                        "limit": batch_limit,
+                        "async": False,
+                        "sort": "newest",
+                        "page": page
+                    }
 
-                data = response.json()
-                results = data.get("data", [])
-                
-                all_reviews = []
-                for result in results:
-                    reviews = result.get("reviews_data", [])
-                    for rev in reviews:
-                        all_reviews.append({
-                            "reviewId": rev.get("review_id"),
-                            "author": rev.get("author_title") or "Anonymous",
-                            "author_url": rev.get("author_url"),
-                            "author_image": rev.get("author_image"),
-                            "rating": rev.get("review_rating") or rev.get("rating") or 0,
-                            "text": rev.get("review_text") or "",
-                            "time_str": rev.get("review_datetime_utc"),
-                            "likes": rev.get("likes"),
-                            "response_text": rev.get("response_text"),
-                            "response_datetime": rev.get("response_datetime_utc"),
-                            "language": rev.get("language"),
-                            "place_id": rev.get("place_id")
-                        })
-                logger.info(f"Fetched {len(all_reviews)} reviews for place_id={query}")
+                    logger.info(f"Fetching page {page} with limit={batch_limit} for place_id={query}")
+                    response = await client.get(self.base_url, headers=headers, params=params)
+
+                    if response.status_code != 200:
+                        logger.error(f"Outscraper Error: {response.status_code} - {response.text}")
+                        break
+
+                    data = response.json()
+                    results = data.get("data", [])
+
+                    if not results:
+                        logger.info(f"No more reviews returned at page {page}. Stopping fetch.")
+                        break
+
+                    for result in results:
+                        reviews = result.get("reviews_data", [])
+                        for rev in reviews:
+                            all_reviews.append({
+                                "reviewId": rev.get("review_id"),
+                                "author": rev.get("author_title") or "Anonymous",
+                                "author_url": rev.get("author_url"),
+                                "author_image": rev.get("author_image"),
+                                "rating": rev.get("review_rating") or rev.get("rating") or 0,
+                                "text": rev.get("review_text") or "",
+                                "time_str": rev.get("review_datetime_utc"),
+                                "likes": rev.get("likes"),
+                                "response_text": rev.get("response_text"),
+                                "response_datetime": rev.get("response_datetime_utc"),
+                                "language": rev.get("language"),
+                                "place_id": rev.get("place_id")
+                            })
+
+                    fetched = len(all_reviews)
+                    logger.info(f"Fetched {fetched} reviews so far for place_id={query}")
+
+                    remaining = limit - fetched
+                    page += 1
+
+                    if fetched >= limit:
+                        break
+
+                logger.info(f"Total fetched reviews for place_id={query}: {len(all_reviews)}")
                 return all_reviews
+
             except Exception as e:
                 logger.error(f"Failed to fetch from Outscraper: {e}")
                 return []
