@@ -1,4 +1,3 @@
-# File: review_saas/app/core/config.py
 import os
 from pydantic_settings import BaseSettings
 from typing import Optional
@@ -7,20 +6,13 @@ class Settings(BaseSettings):
     # --- App General Settings ---
     APP_NAME: str = "Sentiment-Analysis-SaaS"
     ENVIRONMENT: str = "production"
-    
-    # Restoring the missing DEBUG attribute
-    DEBUG: bool = False  
-    
+    DEBUG: bool = False
     APP_BASE_URL: str = "https://sentiment-analysis-production-f96a.up.railway.app"
     
     # --- Scraping Settings ---
-    # Ensure this matches the name in your .env / Railway variables exactly
+    # This must match your .env variable exactly
     OUTSCAPTER_KEY: str 
     
-    # --- Database Settings ---
-    # Restoring the missing DATABASE_URL attribute
-    DATABASE_URL: str 
-
     # --- Google OAuth & API Settings ---
     GOOGLE_CLIENT_ID: str
     GOOGLE_CLIENT_SECRET: str
@@ -36,6 +28,9 @@ class Settings(BaseSettings):
     SESSION_COOKIE_NAME: str = "session"
     SESSION_COOKIE_SAMESITE: str = "lax"
     SESSION_COOKIE_SECURE: bool = True
+
+    # --- Database Settings ---
+    DATABASE_URL: str
 
     # --- Security & JWT Settings ---
     SECRET_KEY: str
