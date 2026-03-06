@@ -10,7 +10,13 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     APP_BASE_URL: str = "https://sentiment-analysis-production-f96a.up.railway.app"
     
+    # --- Scraping Settings ---
+    # ADD THIS LINE HERE:
+    OUTSCAPTER_KEY: str 
+    
     # --- Google OAuth & API Settings ---
+    # Note: You can keep these or remove them if you are fully 
+    # switching to Outscapter and don't need OAuth anymore.
     GOOGLE_CLIENT_ID: str
     GOOGLE_CLIENT_SECRET: str
     GOOGLE_REFRESH_TOKEN: str
@@ -29,11 +35,10 @@ class Settings(BaseSettings):
     # --- Database Settings ---
     DATABASE_URL: str
 
-    # --- Security & JWT Settings (FIXED NAME HERE) ---
+    # --- Security & JWT Settings ---
     SECRET_KEY: str
     JWT_SECRET: str
     JWT_ALG: str = "HS256"
-    # Changed from ACCESS_TOKEN_MINUTES to match security.py
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 
 
     # --- Email / SMTP Settings ---
