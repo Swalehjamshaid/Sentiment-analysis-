@@ -4,117 +4,98 @@ import logging
 from typing import List, Dict, Any, Optional
 from app.core.config import settings
 
-# Configure logging for Railway dashboard visibility
 logger = logging.getLogger(__name__)
 
 class GoogleReviewsService:
     def __init__(self):
-        self.client_id = settings.GOOGLE_CLIENT_ID
-        self.client_secret = settings.GOOGLE_CLIENT_SECRET
-        self.refresh_token = settings.GOOGLE_REFRESH_TOKEN
-        self.token_url = "https://oauth2.googleapis.com/token"
+        # Ensure OUTSCAPTER_KEY is defined in your settings.py
+        self.api_key = settings.OUTSCAPTER_KEY 
+        self.base_url = "https://api.outscapter.com/v1/reviews/google-maps"
 
-    async def get_access_token(self) -> Optional[str]:
-        """Exchanges refresh token for a fresh access token."""
-        data = {
-            "client_id": self.client_id,
-            "client_secret": self.client_secret,
-            "refresh_token": self.refresh_token,
-            "grant_type": "refresh_token",
-        }
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(self.token_url, data=data)
-                if response.status_code == 200:
-                    return response.json().get("access_token")
-                logger.error(f"Token refresh failed: {response.text}")
-                return None
-            except Exception as e:
-                logger.error(f"Auth error during token refresh: {str(e)}")
-                return None
-
-    async def fetch_reviews(self, account_id: str, location_id: str) -> List[Dict[str, Any]]:
+    async def fetch_reviews(self, queries: str, limit: int = 100) -> List[Dict[str, Any]]:
         """
-        Fetches ALL reviews from Google Business API using OAuth2 and Pagination.
-        This fixes the issue where only 5 reviews were being displayed.
+        Fetches reviews from Outscapter. 
+        Outscapter often uses 'queries' (the Google Maps URL or Place Name) 
+        to identify the location.
         """
-        token = await self.get_access_token()
-        if not token:
-            logger.error("No access token available for fetching reviews.")
-            return []
-
         all_reviews = []
-        next_page_token = None
         
-        # Base URL for the Google Business Profile reviews endpoint
-        base_url = f"https://mybusiness.googleapis.com/v4/accounts/{account_id}/locations/{location_id}/reviews"
-        headers = {"Authorization": f"Bearer {token}"}
+        # Outscapter uses the API key in the 'X-API-KEY' or 'Authorization' header
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            while True:
-                # pageSize=50 is the maximum allowed by Google per request
-                params = {"pageSize": 50}
-                if next_page_token:
-                    params["pageToken"] = next_page_token
+        # Outscapter parameters often include 'queries' and 'limit'
+        params = {
+            "queries": [queries],  # Outscapter expects an array of queries
+            "limit": limit,
+            "sort": "newest"       # Common parameter for Outscapter
+        }
 
-                try:
-                    response = await client.get(base_url, headers=headers, params=params)
-                    
-                    if response.status_code != 200:
-                        logger.error(f"Google API Error: {response.status_code} - {response.text}")
-                        break
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            try:
+                # Outscapter's modern endpoints often use POST for query arrays
+                response = await client.post(self.base_url, headers=headers, json=params)
+                
+                if response.status_code != 200:
+                    logger.error(f"Outscapter API Error: {response.status_code} - {response.text}")
+                    return []
 
-                    data = response.json()
-                    reviews = data.get("reviews", [])
-                    all_reviews.extend(reviews)
+                response_data = response.json()
+                
+                # Outscapter's typical structure: {"data": [{"reviews": [...]}]}
+                # We extract and flatten the results
+                results = response_data.get("data", [])
+                
+                for result in results:
+                    reviews = result.get("reviews_data", [])
+                    # Map Outscapter fields to standard Google API fields if necessary
+                    for rev in reviews:
+                        mapped_review = {
+                            "reviewId": rev.get("review_id"),
+                            "reviewer": {"displayName": rev.get("author_title")},
+                            "starRating": rev.get("rating"),
+                            "comment": rev.get("review_text"),
+                            "createTime": rev.get("review_datetime_utc"),
+                            "reply": rev.get("owner_answer")
+                        }
+                        all_reviews.append(mapped_review)
 
-                    # Check if there is another page of reviews (Pagination)
-                    next_page_token = data.get("nextPageToken")
-                    
-                    # Stop if no more pages or if we hit a safety limit (e.g., 500 reviews)
-                    if not next_page_token or len(all_reviews) >= 500:
-                        break
-                        
-                except Exception as e:
-                    logger.error(f"Error during Google review pagination loop: {str(e)}")
-                    break
+            except Exception as e:
+                logger.error(f"Outscapter request failed: {str(e)}")
+                return []
 
-        logger.info(f"Successfully fetched {len(all_reviews)} reviews for location {location_id}")
+        logger.info(f"Successfully fetched {len(all_reviews)} reviews from Outscapter.")
         return all_reviews
 
-# Initialize Service Instance for the application
+# Initialize Service Instance
 google_reviews_service = GoogleReviewsService()
 
-# --- HELPER FUNCTIONS FOR ROUTES ---
+# --- HELPER FUNCTIONS ---
 
-async def fetch_place_details(place_id: str) -> Dict[str, Any]:
+async def fetch_place_details(query: str) -> Dict[str, Any]:
     """
-    Fetches details for a place using the Google Places API.
-    Required by app/routes/reviews.py to resolve ImportErrors.
+    Fetches business details using Outscapter search.
     """
-    url = "https://maps.googleapis.com/maps/api/place/details/json"
-    params = {
-        "place_id": place_id,
-        "key": settings.GOOGLE_PLACES_API_KEY
-    }
+    url = "https://api.outscapter.com/v1/search/google-maps"
+    headers = {"Authorization": f"Bearer {settings.OUTSCAPTER_KEY}"}
+    payload = {"queries": [query], "limit": 1}
+
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.get(url, params=params)
+            response = await client.post(url, headers=headers, json=payload)
             if response.status_code == 200:
-                return response.json().get("result", {})
-            logger.error(f"Google Places API error: {response.text}")
+                data = response.json().get("data", [])
+                return data[0] if data else {}
             return {}
         except Exception as e:
-            logger.error(f"Failed to fetch place details for {place_id}: {str(e)}")
+            logger.error(f"Outscapter detail fetch failed: {str(e)}")
             return {}
 
-async def ingest_company_reviews(account_id: str, location_id: str):
+async def ingest_company_reviews(query: str):
     """
-    Top-level function to trigger review ingestion.
-    Required by app/routes/companies.py to resolve ImportErrors.
+    Simplified ingestion function for routes.
+    'query' can be the Google Maps CID, Place ID, or Search Term.
     """
-    try:
-        return await google_reviews_service.fetch_reviews(account_id, location_id)
-    except Exception as e:
-        logger.error(f"Ingestion failed for {location_id}: {str(e)}")
-        return []
+    return await google_reviews_service.fetch_reviews(query)
