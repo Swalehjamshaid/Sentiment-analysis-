@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """
     Lifecycle manager: startup + shutdown.
-    Drops all tables and recreates them fresh if models.py is updated.
+    Drops old tables and recreates all tables whenever SCHEMA_VERSION changes or models.py updates.
     """
     try:
         engine: AsyncEngine = get_engine()
@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
         logger.info(f"Startup environment → DEBUG={settings.DEBUG}, ENV={os.getenv('ENV')}, is_dev_mode={is_dev_mode}")
 
         async with engine.begin() as conn:
-            # Fetch current schema version from DB
+            # Get current schema version from database
             try:
                 result = await conn.execute(text("SELECT value FROM config WHERE key='schema_version'"))
                 row = result.first()
@@ -56,13 +56,13 @@ async def lifespan(app: FastAPI):
             except Exception:
                 db_version = None
 
-            # If schema version mismatch OR dev mode → reset database
+            # If schema version mismatch OR forced dev reset → drop all tables
             if db_version != SCHEMA_VERSION or is_dev_mode:
                 logger.warning(
-                    f"Schema version mismatch or forced reset! DB: {db_version or 'missing'}, Code: {SCHEMA_VERSION} → Resetting database..."
+                    f"Schema version mismatch or dev reset! DB: {db_version or 'missing'}, Code: {SCHEMA_VERSION} → Resetting database..."
                 )
 
-                # Drop all tables first
+                # Drop all existing tables
                 logger.info("🔥 Dropping all existing tables...")
                 await conn.run_sync(Base.metadata.drop_all)
 
@@ -70,7 +70,7 @@ async def lifespan(app: FastAPI):
                 logger.info("✨ Creating all tables fresh...")
                 await conn.run_sync(Base.metadata.create_all)
 
-                # Ensure config table exists and set SCHEMA_VERSION
+                # Ensure config table exists and update SCHEMA_VERSION
                 await conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS config (
                         key TEXT PRIMARY KEY,
@@ -85,7 +85,7 @@ async def lifespan(app: FastAPI):
 
                 logger.info(f"✅ Database reset complete. Schema version set to {SCHEMA_VERSION}")
             else:
-                # Production: just create missing tables (no wipe)
+                # Production: create missing tables only, preserving existing data
                 logger.info("Production mode → Verified existing tables, creating missing ones if needed...")
                 await conn.run_sync(Base.metadata.create_all)
                 logger.info("✓ Database migration complete: tables verified/created.")
