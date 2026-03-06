@@ -1,78 +1,108 @@
-# File: review_saas/app/routes/reviews.py
-from __future__ import annotations
+import httpx
 import logging
-from fastapi import APIRouter, HTTPException
-from sqlalchemy import select, func
+from datetime import datetime
+from typing import List, Dict, Any
+from sqlalchemy import select
+from app.core.config import settings
 from app.core.db import get_session
-from app.core.models import Review, Company
-from app.services.google_reviews import fetch_place_details, ingest_company_reviews
+from app.core.models import Review
 
-router = APIRouter(tags=['reviews'])
 logger = logging.getLogger(__name__)
 
-@router.get("/reviews")
-async def get_company_reviews(company_id: int, page: int = 1, size: int = 20):
+class GoogleReviewsService:
+    def __init__(self):
+        # Matches your Railway Variable: OUTSCAPTER_API_KEY
+        self.api_key = settings.OUTSCAPTER_API_KEY 
+        self.base_url = "https://api.outscraper.cloud/google-maps-reviews"
+
+    async def fetch_reviews(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Fetches reviews from Outscraper. 
+        Outscraper bypasses the 5-review limit of the official Google API.
+        """
+        headers = {
+            "X-API-KEY": self.api_key,
+            "Content-Type": "application/json"
+        }
+        
+        # Outscraper parameters
+        params = {
+            "query": query,
+            "reviewsLimit": limit,
+            "async": "false",
+            "sort": "newest"
+        }
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            try:
+                response = await client.get(self.base_url, headers=headers, params=params)
+                
+                if response.status_code != 200:
+                    logger.error(f"Outscraper Error: {response.status_code} - {response.text}")
+                    return []
+
+                data = response.json()
+                # Outscraper returns a list of results (one per query)
+                results = data.get("data", [])
+                
+                all_mapped = []
+                for result in results:
+                    # Reviews are stored in 'reviews_data'
+                    reviews = result.get("reviews_data", [])
+                    for rev in reviews:
+                        all_mapped.append({
+                            "reviewId": rev.get("review_id"),
+                            "author": rev.get("author_title", "Anonymous"),
+                            "rating": rev.get("review_rating") or rev.get("rating"),
+                            "text": rev.get("review_text", ""),
+                            "time_str": rev.get("review_datetime_utc"),
+                            "photo": rev.get("author_image")
+                        })
+                return all_mapped
+            except Exception as e:
+                logger.error(f"Outscraper fetch failed: {e}")
+                return []
+
+google_reviews_service = GoogleReviewsService()
+
+async def ingest_company_reviews(place_id: str, company_id: int):
+    """Fetches from Outscraper and saves unique reviews to the database."""
+    # Breaking the 5-review limit by requesting 100
+    reviews_data = await google_reviews_service.fetch_reviews(place_id, limit=100)
+    
     async with get_session() as session:
-        # 1. Verify Company
-        result = await session.execute(select(Company).where(Company.id == company_id))
-        company = result.scalar_one_or_none()
-        if not company:
-            raise HTTPException(status_code=404, detail="Company not found")
+        new_count = 0
+        for rd in reviews_data:
+            # Duplicate Check: Don't save if already in DB
+            exists = await session.execute(
+                select(Review).where(Review.google_review_id == rd["reviewId"])
+            )
+            if exists.scalar_one_or_none():
+                continue
 
-        # 2. Count Total
-        count_stmt = select(func.count()).select_from(Review).where(Review.company_id == company_id)
-        total_res = await session.execute(count_stmt)
-        total = total_res.scalar() or 0
+            # Parse the timestamp for charts
+            review_date = None
+            if rd["time_str"]:
+                try:
+                    review_date = datetime.fromisoformat(rd["time_str"].replace("Z", ""))
+                except:
+                    review_date = datetime.utcnow()
 
-        # 3. Paginated Results
-        stmt = (
-            select(Review)
-            .where(Review.company_id == company_id)
-            .order_by(Review.google_review_time.desc())
-            .offset((page - 1) * size)
-            .limit(size)
-        )
-        items_res = await session.execute(stmt)
-        items = items_res.scalars().all()
-
-        return {
-            "success": True,
-            "reviews": [
-                {
-                    "author": r.author_name,
-                    "rating": r.rating,
-                    "text": r.text,
-                    "time": r.google_review_time.isoformat() if r.google_review_time else None,
-                    "photo": r.profile_photo_url
-                } for r in items
-            ],
-            "total": total,
-            "page": page,
-            "size": size
-        }
-
-@router.get("/reviews/fetch_google")
-async def fetch_google_place(place_id: str, company_id: int):
-    """Matches the 'Fetch Data' button on the dashboard."""
-    try:
-        # 1. Trigger the Outscraper Sync
-        await ingest_company_reviews(place_id=place_id, company_id=company_id)
+            review = Review(
+                company_id=company_id,
+                google_review_id=rd["reviewId"],
+                author_name=rd["author"],
+                rating=rd["rating"],
+                text=rd["text"],
+                profile_photo_url=rd["photo"],
+                google_review_time=review_date
+            )
+            session.add(review)
+            new_count += 1
         
-        # 2. Fetch place name for UI (Optional)
-        details = await fetch_place_details(place_id)
-        
-        # 3. Get updated count from DB
-        async with get_session() as session:
-            count_stmt = select(func.count()).select_from(Review).where(Review.company_id == company_id)
-            count_res = await session.execute(count_stmt)
-            total_now = count_res.scalar() or 0
+        await session.commit()
+        logger.info(f"Successfully saved {new_count} new reviews for company {company_id}.")
 
-        return {
-            "success": True, 
-            "message": f"Sync complete via Outscraper. Total reviews: {total_now}",
-            "total_reviews_in_db": total_now
-        }
-
-    except Exception as e:
-        logger.error(f"Sync failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+async def fetch_place_details(place_id: str):
+    """Simple placeholder for UI compatibility."""
+    return {"name": "Business Location"}
