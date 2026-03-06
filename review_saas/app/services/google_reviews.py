@@ -1,3 +1,5 @@
+# File: app/services/outscraper_reviews.py
+
 import httpx
 import logging
 from datetime import datetime
@@ -9,30 +11,29 @@ from app.core.models import Review
 
 logger = logging.getLogger(__name__)
 
-class GoogleReviewsService:
+class OutscraperReviewsService:
+    """
+    Fetches Google Maps reviews via Outscraper API.
+    """
     def __init__(self):
-        # Matches the variable name in config.py
-        self.api_key = settings.OUTSCAPTER_KEY 
-        # Endpoint for Google Maps Reviews
+        self.api_key = settings.OUTSCRAPER_KEY
         self.base_url = "https://api.outscraper.com/v2/google-maps/reviews"
 
-    async def fetch_reviews(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
+    async def fetch_reviews(self, query: str, limit: int = 1000) -> List[Dict[str, Any]]:
         """
-        Fetches up to 100 reviews from Outscraper.
-        This bypasses the standard 5-review limit.
+        Fetches up to `limit` reviews from Outscraper.
         """
         headers = {"X-API-KEY": self.api_key}
         params = {
             "query": query,
             "limit": limit,
-            "async": "false",
+            "async": False,
             "sort": "newest"
         }
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             try:
                 response = await client.get(self.base_url, headers=headers, params=params)
-                
                 if response.status_code != 200:
                     logger.error(f"Outscraper Error: {response.status_code} - {response.text}")
                     return []
@@ -42,35 +43,39 @@ class GoogleReviewsService:
                 
                 all_mapped = []
                 for result in results:
-                    # Outscraper nests reviews inside 'reviews_data'
                     reviews = result.get("reviews_data", [])
                     for rev in reviews:
                         all_mapped.append({
                             "reviewId": rev.get("review_id"),
-                            "author": rev.get("author_title", "Anonymous"),
-                            "rating": rev.get("review_rating") or rev.get("rating"),
-                            "text": rev.get("review_text", ""),
+                            "author": rev.get("author_title") or "Anonymous",
+                            "author_url": rev.get("author_url"),
+                            "author_image": rev.get("author_image"),
+                            "rating": rev.get("review_rating") or rev.get("rating") or 0,
+                            "text": rev.get("review_text") or "",
                             "time_str": rev.get("review_datetime_utc"),
-                            "photo": rev.get("author_image")
+                            "likes": rev.get("likes"),
+                            "response_text": rev.get("response_text"),
+                            "response_datetime": rev.get("response_datetime_utc"),
+                            "language": rev.get("language"),
+                            "place_id": rev.get("place_id")
                         })
                 return all_mapped
             except Exception as e:
                 logger.error(f"Failed to fetch from Outscraper: {e}")
                 return []
 
-google_reviews_service = GoogleReviewsService()
+outscraper_service = OutscraperReviewsService()
 
 async def ingest_company_reviews(place_id: str, company_id: int):
     """
-    Fetches data from Outscraper and saves unique records to Postgres.
+    Fetches reviews from Outscraper and saves unique records to Postgres.
     """
-    # Requesting 100 reviews to ensure we get a full dataset
-    reviews_data = await google_reviews_service.fetch_reviews(place_id, limit=100)
+    reviews_data = await outscraper_service.fetch_reviews(place_id, limit=1000)
     
     async with get_session() as session:
         new_count = 0
         for rd in reviews_data:
-            # Check for existing review to prevent duplicates
+            # Avoid duplicates
             exists = await session.execute(
                 select(Review).where(Review.google_review_id == rd["reviewId"])
             )
@@ -81,18 +86,32 @@ async def ingest_company_reviews(place_id: str, company_id: int):
             review_date = datetime.utcnow()
             if rd["time_str"]:
                 try:
-                    review_date = datetime.fromisoformat(rd["time_str"].replace("Z", ""))
-                except:
+                    review_date = datetime.fromisoformat(rd["time_str"].replace("Z", "+00:00"))
+                except Exception:
+                    pass
+
+            # Parse response datetime
+            response_date = None
+            if rd.get("response_datetime"):
+                try:
+                    response_date = datetime.fromisoformat(rd["response_datetime"].replace("Z", "+00:00"))
+                except Exception:
                     pass
 
             review = Review(
                 company_id=company_id,
                 google_review_id=rd["reviewId"],
                 author_name=rd["author"],
+                author_url=rd.get("author_url"),
+                profile_photo_url=rd.get("author_image"),
                 rating=rd["rating"],
                 text=rd["text"],
-                profile_photo_url=rd["photo"],
-                google_review_time=review_date
+                review_likes=rd.get("likes"),
+                owner_response=rd.get("response_text"),
+                owner_response_time=response_date,
+                review_language=rd.get("language"),
+                google_review_time=review_date,
+                place_id=rd.get("place_id")
             )
             session.add(review)
             new_count += 1
@@ -101,5 +120,5 @@ async def ingest_company_reviews(place_id: str, company_id: int):
         logger.info(f"Ingested {new_count} reviews for company {company_id}.")
 
 async def fetch_place_details(place_id: str):
-    """Placeholder for UI compatibility."""
+    """Optional placeholder for UI compatibility."""
     return {"name": "Business Location"}
