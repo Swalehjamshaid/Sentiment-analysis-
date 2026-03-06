@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy import (
     Integer, String, DateTime, Float, ForeignKey, Boolean, JSON,
-    UniqueConstraint, Text, ARRAY, create_engine, func
+    UniqueConstraint, func, Text, ARRAY, create_engine
 )
 from datetime import datetime
 import os
@@ -14,7 +14,7 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./test.db")  # fallback
 
 # 🚨 BUMP THIS TO FORCE FULL RESET
-SCHEMA_VERSION = "2026-03-06-v1-outscreaper"
+SCHEMA_VERSION = "2026-03-06-v1-comprehensive"
 
 engine = create_engine(DATABASE_URL, echo=True)
 
@@ -65,7 +65,7 @@ class Company(Base):
     # Location & hours
     latitude: Mapped[float | None] = mapped_column(Float)
     longitude: Mapped[float | None] = mapped_column(Float)
-    hours: Mapped[dict | None] = mapped_column(JSON)  # opening_hours object
+    hours: Mapped[dict | None] = mapped_column(JSON)
 
     business_status: Mapped[str | None] = mapped_column(String(64))
     price_level: Mapped[int | None] = mapped_column(Integer)
@@ -98,7 +98,6 @@ class Company(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     owner: Mapped["User"] = relationship(back_populates="companies")
     reviews: Mapped[list["Review"]] = relationship(back_populates="company", cascade="all, delete-orphan")
-    competitors: Mapped[list["Competitor"]] = relationship(back_populates="company", cascade="all, delete-orphan")
 
 # -------------------- REVIEWS --------------------
 class Review(Base):
@@ -109,7 +108,7 @@ class Review(Base):
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True, nullable=False)
     google_review_id: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
 
-    # Reviewer info
+    # Author
     author_name: Mapped[str | None] = mapped_column(String(255))
     author_url: Mapped[str | None] = mapped_column(String(512))
     profile_photo_url: Mapped[str | None] = mapped_column(String(512))
@@ -123,42 +122,28 @@ class Review(Base):
     original_language: Mapped[str | None] = mapped_column(String(10))
     relative_time_description: Mapped[str | None] = mapped_column(String(100))
     publish_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Reply
     review_reply_text: Mapped[str | None] = mapped_column(Text)
     review_reply_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    # Advanced data
+    # Sentiment & keywords
     sentiment_score: Mapped[float | None] = mapped_column(Float)
     sentiment_label: Mapped[str | None] = mapped_column(String(20), index=True)
     keywords: Mapped[list[str] | None] = mapped_column(JSON)
     aspect_rating: Mapped[dict | None] = mapped_column(JSON)
+
+    # Original & translated text
     original_text: Mapped[str | None] = mapped_column(Text)
     translation: Mapped[str | None] = mapped_column(Text)
+
+    # Media & competitor analysis
     photos: Mapped[list[str] | None] = mapped_column(ARRAY(String(512)))
     tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)))
+    competitor_analysis: Mapped[dict | None] = mapped_column(JSON)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     company: Mapped["Company"] = relationship(back_populates="reviews")
-
-# -------------------- COMPETITOR ANALYSIS --------------------
-class Competitor(Base):
-    __tablename__ = "competitors"
-    __table_args__ = (UniqueConstraint("company_id", "place_id", name="uq_company_competitor"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True, nullable=False)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    place_id: Mapped[str] = mapped_column(String(512), nullable=False)
-    rating: Mapped[float | None] = mapped_column(Float)
-    user_ratings_total: Mapped[int | None] = mapped_column(Integer)
-    category: Mapped[str | None] = mapped_column(String(255))
-    address: Mapped[str | None] = mapped_column(String(512))
-    latitude: Mapped[float | None] = mapped_column(Float)
-    longitude: Mapped[float | None] = mapped_column(Float)
-    phone: Mapped[str | None] = mapped_column(String(64))
-    website: Mapped[str | None] = mapped_column(String(512))
-    google_data: Mapped[dict | None] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    company: Mapped["Company"] = relationship(back_populates="competitors")
 
 # -------------------- NOTIFICATIONS --------------------
 class Notification(Base):
