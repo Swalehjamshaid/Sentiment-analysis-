@@ -13,37 +13,36 @@ logger = logging.getLogger(__name__)
 
 class OutscraperReviewsService:
     """
-    Service to fetch Google Maps reviews via Outscraper API.
+    Service to fetch Google Maps reviews and competitor reviews via Outscraper API.
     """
     def __init__(self):
-        # Use the key from .env / config.py
-        self.api_key = settings.OUTSCAPTER_KEY  # match your .env key
+        self.api_key = settings.OUTSCAPTER_KEY
         self.base_url = "https://api.outscraper.com/v2/google-maps/reviews"
 
     async def fetch_reviews(self, query: str, limit: int = 1000) -> List[Dict[str, Any]]:
         """
-        Fetches up to `limit` reviews from Outscraper for a business.
+        Fetches up to `limit` reviews for a given business or competitor.
         """
         headers = {"X-API-KEY": self.api_key}
         params = {
             "query": query,
-            "limit": limit,
+            "limit": limit,  # fetch all reviews in one request
             "async": False,
             "sort": "newest"
         }
 
         async with httpx.AsyncClient(timeout=180.0) as client:
             try:
+                logger.info(f"Fetching reviews for query={query} limit={limit}")
                 response = await client.get(self.base_url, headers=headers, params=params)
-                
                 if response.status_code != 200:
-                    logger.error(f"Outscraper Error: {response.status_code} - {response.text}")
+                    logger.error(f"Outscraper API Error {response.status_code}: {response.text}")
                     return []
 
                 data = response.json()
                 results = data.get("data", [])
-                
                 all_reviews = []
+
                 for result in results:
                     reviews = result.get("reviews_data", [])
                     for rev in reviews:
@@ -61,31 +60,33 @@ class OutscraperReviewsService:
                             "language": rev.get("language"),
                             "place_id": rev.get("place_id")
                         })
+
+                logger.info(f"Fetched {len(all_reviews)} reviews for query={query}")
                 return all_reviews
             except Exception as e:
-                logger.error(f"Failed to fetch from Outscraper: {e}")
+                logger.error(f"Failed to fetch reviews from Outscraper: {e}")
                 return []
 
 # Instantiate the service
 outscraper_service = OutscraperReviewsService()
 
+
 async def ingest_company_reviews(place_id: str, company_id: int):
     """
-    Fetch reviews from Outscraper and save unique entries to Postgres.
+    Fetches reviews and saves unique entries to Postgres.
     """
     reviews_data = await outscraper_service.fetch_reviews(place_id, limit=1000)
     
     async with get_session() as session:
         new_count = 0
         for rd in reviews_data:
-            # Avoid duplicates
             exists = await session.execute(
                 select(Review).where(Review.google_review_id == rd["reviewId"])
             )
             if exists.scalar_one_or_none():
                 continue
 
-            # Parse review datetime
+            # parse review date
             review_date = datetime.utcnow()
             if rd["time_str"]:
                 try:
@@ -93,11 +94,11 @@ async def ingest_company_reviews(place_id: str, company_id: int):
                 except Exception:
                     pass
 
-            # Parse owner response datetime
+            # parse owner response date
             response_date = None
             if rd.get("response_datetime"):
                 try:
-                    response_date = datetime.fromisoformat(rd["response_datetime"].replace("Z", "+00:00"))
+                    response_date = datetime.fromisoformat(rd.get("response_datetime").replace("Z", "+00:00"))
                 except Exception:
                     pass
 
@@ -120,7 +121,15 @@ async def ingest_company_reviews(place_id: str, company_id: int):
             new_count += 1
         
         await session.commit()
-        logger.info(f"Ingested {new_count} reviews for company {company_id}.")
+        logger.info(f"Ingested {new_count} new reviews for company {company_id}.")
+
+
+async def fetch_competitor_reviews(competitor_name: str, limit: int = 500):
+    """
+    Fetch reviews for a competitor business.
+    """
+    return await outscraper_service.fetch_reviews(query=competitor_name, limit=limit)
+
 
 async def fetch_place_details(place_id: str):
     """
