@@ -73,7 +73,8 @@ async def api_reviews_list(company_id: int, start: str | None = None, end: str |
         if start_dt: stmt = stmt.where(cast(Review.google_review_time, Date) >= start_dt)
         if end_dt: stmt = stmt.where(cast(Review.google_review_time, Date) <= end_dt)
         
-        stmt = stmt.order_by(desc(Review.google_review_time)).limit(50)
+        # Removed the .limit(50) to fetch all reviews
+        stmt = stmt.order_by(desc(Review.google_review_time))
         res = await session.execute(stmt)
         items = res.scalars().all()
         return {
