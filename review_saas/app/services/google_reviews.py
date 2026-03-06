@@ -1,4 +1,4 @@
-# File: app/services/outscraper_reviews.py
+# File: review_saas/app/services/google_reviews.py
 
 import httpx
 import logging
@@ -13,15 +13,16 @@ logger = logging.getLogger(__name__)
 
 class OutscraperReviewsService:
     """
-    Fetches Google Maps reviews via Outscraper API.
+    Service to fetch Google Maps reviews via Outscraper API.
     """
     def __init__(self):
-        self.api_key = settings.OUTSCRAPER_KEY
+        # Use the key from .env / config.py
+        self.api_key = settings.OUTSCAPTER_KEY  # match your .env key
         self.base_url = "https://api.outscraper.com/v2/google-maps/reviews"
 
     async def fetch_reviews(self, query: str, limit: int = 1000) -> List[Dict[str, Any]]:
         """
-        Fetches up to `limit` reviews from Outscraper.
+        Fetches up to `limit` reviews from Outscraper for a business.
         """
         headers = {"X-API-KEY": self.api_key}
         params = {
@@ -34,6 +35,7 @@ class OutscraperReviewsService:
         async with httpx.AsyncClient(timeout=180.0) as client:
             try:
                 response = await client.get(self.base_url, headers=headers, params=params)
+                
                 if response.status_code != 200:
                     logger.error(f"Outscraper Error: {response.status_code} - {response.text}")
                     return []
@@ -41,11 +43,11 @@ class OutscraperReviewsService:
                 data = response.json()
                 results = data.get("data", [])
                 
-                all_mapped = []
+                all_reviews = []
                 for result in results:
                     reviews = result.get("reviews_data", [])
                     for rev in reviews:
-                        all_mapped.append({
+                        all_reviews.append({
                             "reviewId": rev.get("review_id"),
                             "author": rev.get("author_title") or "Anonymous",
                             "author_url": rev.get("author_url"),
@@ -59,16 +61,17 @@ class OutscraperReviewsService:
                             "language": rev.get("language"),
                             "place_id": rev.get("place_id")
                         })
-                return all_mapped
+                return all_reviews
             except Exception as e:
                 logger.error(f"Failed to fetch from Outscraper: {e}")
                 return []
 
+# Instantiate the service
 outscraper_service = OutscraperReviewsService()
 
 async def ingest_company_reviews(place_id: str, company_id: int):
     """
-    Fetches reviews from Outscraper and saves unique records to Postgres.
+    Fetch reviews from Outscraper and save unique entries to Postgres.
     """
     reviews_data = await outscraper_service.fetch_reviews(place_id, limit=1000)
     
@@ -82,7 +85,7 @@ async def ingest_company_reviews(place_id: str, company_id: int):
             if exists.scalar_one_or_none():
                 continue
 
-            # Parse datetime
+            # Parse review datetime
             review_date = datetime.utcnow()
             if rd["time_str"]:
                 try:
@@ -90,7 +93,7 @@ async def ingest_company_reviews(place_id: str, company_id: int):
                 except Exception:
                     pass
 
-            # Parse response datetime
+            # Parse owner response datetime
             response_date = None
             if rd.get("response_datetime"):
                 try:
@@ -120,5 +123,7 @@ async def ingest_company_reviews(place_id: str, company_id: int):
         logger.info(f"Ingested {new_count} reviews for company {company_id}.")
 
 async def fetch_place_details(place_id: str):
-    """Optional placeholder for UI compatibility."""
+    """
+    Placeholder function for UI compatibility.
+    """
     return {"name": "Business Location"}
