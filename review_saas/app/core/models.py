@@ -1,130 +1,101 @@
-# filename: app/core/models.py
-SCHEMA_VERSION
+# File: /app/core/models.py
 from __future__ import annotations
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy import (
-    Integer, String, DateTime, Float, ForeignKey, Boolean, JSON,
-    UniqueConstraint, func, Text, ARRAY
-)
+from sqlalchemy import Column, Integer, String, Float, Text, Boolean, DateTime, JSON, ForeignKey
+from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime
 
-# -------------------- BASE --------------------
-class Base(DeclarativeBase):
-    pass
+# --------------------
+# Base and Schema version
+# --------------------
+Base = declarative_base()
+SCHEMA_VERSION = "1.1"  # Increment this whenever you add/change models
 
-# -------------------- USERS --------------------
+# --------------------
+# User Table
+# --------------------
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
-    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(String(20), default="viewer")
-    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    profile_pic: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    is_active = Column(Boolean, default=True)
+    is_admin = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    companies: Mapped[list["Company"]] = relationship(back_populates="owner", cascade="all, delete-orphan")
-    notifications: Mapped[list["Notification"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-
-# -------------------- COMPANIES --------------------
+# --------------------
+# Company Table (Outscraper business info)
+# --------------------
 class Company(Base):
     __tablename__ = "companies"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
-    name: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
-    google_place_id: Mapped[str] = mapped_column(String(512), unique=True, index=True, nullable=False)
-    formatted_address: Mapped[str | None] = mapped_column(String(512))
-    address: Mapped[str | None] = mapped_column(String(512))
-    vicinity: Mapped[str | None] = mapped_column(String(255))
-    international_phone_number: Mapped[str | None] = mapped_column(String(64))
-    phone: Mapped[str | None] = mapped_column(String(64))
-    website: Mapped[str | None] = mapped_column(String(512))
-    category: Mapped[str | None] = mapped_column(String(255), index=True)
-    types: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
-    latitude: Mapped[float | None] = mapped_column(Float)
-    longitude: Mapped[float | None] = mapped_column(Float)
-    hours: Mapped[dict | None] = mapped_column(JSON)
-    business_status: Mapped[str | None] = mapped_column(String(64))
-    price_level: Mapped[int | None] = mapped_column(Integer)
-    utc_offset_minutes: Mapped[int | None] = mapped_column(Integer)
-    google_rating: Mapped[float | None] = mapped_column(Float)
-    google_user_ratings_total: Mapped[int | None] = mapped_column(Integer)
-    status: Mapped[str] = mapped_column(String(32), default="active")
-    last_updated: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    next_open_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    google_data: Mapped[dict | None] = mapped_column(JSON)
-    photos: Mapped[list[str] | None] = mapped_column(ARRAY(String(512)))
-    editorial_summary: Mapped[str | None] = mapped_column(Text)
-    curbside_pickup: Mapped[bool | None] = mapped_column(Boolean)
-    delivery: Mapped[bool | None] = mapped_column(Boolean)
-    takeout: Mapped[bool | None] = mapped_column(Boolean)
-    reservable: Mapped[bool | None] = mapped_column(Boolean)
-    serves_beer: Mapped[bool | None] = mapped_column(Boolean)
-    serves_wine: Mapped[bool | None] = mapped_column(Boolean)
-    outdoor_seating: Mapped[bool | None] = mapped_column(Boolean)
-    wheelchair_accessible_entrance: Mapped[bool | None] = mapped_column(Boolean)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    owner: Mapped["User"] = relationship(back_populates="companies")
-    reviews: Mapped[list["Review"]] = relationship(back_populates="company", cascade="all, delete-orphan")
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    address = Column(String(500))
+    phone = Column(String(100))
+    website = Column(String(255))
+    category = Column(String(255))
+    rating = Column(Float)
+    total_reviews = Column(Integer)
+    place_id = Column(String(255), unique=True, index=True)
+    lat = Column(Float)
+    lng = Column(Float)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-# -------------------- REVIEWS --------------------
+# --------------------
+# Review Table (Outscraper reviews)
+# --------------------
 class Review(Base):
     __tablename__ = "reviews"
-    __table_args__ = (UniqueConstraint("company_id", "google_review_id", name="uq_review_company_source"),)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True, nullable=False)
-    google_review_id: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
-    author_name: Mapped[str | None] = mapped_column(String(255))
-    author_url: Mapped[str | None] = mapped_column(String(512))
-    profile_photo_url: Mapped[str | None] = mapped_column(String(512))
-    reviewer_is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False)
-    rating: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
-    text: Mapped[str | None] = mapped_column(Text)
-    google_review_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
-    language: Mapped[str | None] = mapped_column(String(10), index=True)
-    original_language: Mapped[str | None] = mapped_column(String(10))
-    relative_time_description: Mapped[str | None] = mapped_column(String(100))
-    publish_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    review_reply_text: Mapped[str | None] = mapped_column(Text)
-    review_reply_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    author_name = Column(String(255))
+    author_profile_photo = Column(String(500))
+    rating = Column(Float)
+    text = Column(Text)
+    relative_time_description = Column(String(100))
+    review_time = Column(DateTime)
+    reply_text = Column(Text)
+    reply_time = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    # ✅ New fields aligned with Outscraper output
-    photos: Mapped[list[str] | None] = mapped_column(ARRAY(String(512)))
-    tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(255)))
-    competitor_analysis: Mapped[dict | None] = mapped_column(JSON)
+    company = relationship("Company", back_populates="reviews")
 
-    sentiment_score: Mapped[float | None] = mapped_column(Float)
-    sentiment_label: Mapped[str | None] = mapped_column(String(20), index=True)
-    keywords: Mapped[list[str] | None] = mapped_column(JSON)
-    aspect_rating: Mapped[dict | None] = mapped_column(JSON)
-    original_text: Mapped[str | None] = mapped_column(Text)
-    translation: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    company: Mapped["Company"] = relationship(back_populates="reviews")
+Company.reviews = relationship("Review", order_by=Review.id, back_populates="company")
 
-# -------------------- NOTIFICATIONS --------------------
-class Notification(Base):
-    __tablename__ = "notifications"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
-    type: Mapped[str] = mapped_column(String(64), nullable=False)
-    message: Mapped[str] = mapped_column(String(1000), nullable=False)
-    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    user: Mapped["User"] = relationship(back_populates="notifications")
-
-# -------------------- AUDIT LOGS --------------------
+# --------------------
+# AuditLog Table
+# --------------------
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    action: Mapped[str] = mapped_column(String(128), nullable=False)
-    ip_address: Mapped[str | None] = mapped_column(String(45))
-    meta: Mapped[dict | None] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    user: Mapped["User"] = relationship(back_populates="audit_logs")
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    action = Column(String(255), nullable=False)
+    details = Column(JSON)  # Store any extra info
+    ip_address = Column(String(100))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+
+# --------------------
+# Competitor Table (optional Outscraper competitor output)
+# --------------------
+class Competitor(Base):
+    __tablename__ = "competitors"
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    name = Column(String(255), nullable=False)
+    place_id = Column(String(255), nullable=True)
+    rating = Column(Float)
+    total_reviews = Column(Integer)
+    lat = Column(Float)
+    lng = Column(Float)
+
+    company = relationship("Company", back_populates="competitors")
+
+Company.competitors = relationship("Competitor", order_by=Competitor.id, back_populates="company")
