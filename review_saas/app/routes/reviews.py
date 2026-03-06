@@ -11,24 +11,20 @@ logger = logging.getLogger(__name__)
 
 class GoogleReviewsService:
     def __init__(self):
-        # Matches your Railway Variable: OUTSCAPTER_API_KEY
-        self.api_key = settings.OUTSCAPTER_API_KEY 
-        self.base_url = "https://api.outscraper.cloud/google-maps-reviews"
+        # Successfully calling the attribute defined in config.py
+        self.api_key = settings.OUTSCAPTER_KEY 
+        # Outscraper Google Maps Reviews Endpoint
+        self.base_url = "https://api.outscraper.com/v2/google-maps/reviews"
 
     async def fetch_reviews(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
         """
         Fetches reviews from Outscraper. 
-        Outscraper bypasses the 5-review limit of the official Google API.
+        Bypasses the official Google 5-review limit.
         """
-        headers = {
-            "X-API-KEY": self.api_key,
-            "Content-Type": "application/json"
-        }
-        
-        # Outscraper parameters
+        headers = {"X-API-KEY": self.api_key}
         params = {
             "query": query,
-            "reviewsLimit": limit,
+            "limit": limit,
             "async": "false",
             "sort": "newest"
         }
@@ -42,12 +38,11 @@ class GoogleReviewsService:
                     return []
 
                 data = response.json()
-                # Outscraper returns a list of results (one per query)
                 results = data.get("data", [])
                 
                 all_mapped = []
                 for result in results:
-                    # Reviews are stored in 'reviews_data'
+                    # Reviews are nested in 'reviews_data'
                     reviews = result.get("reviews_data", [])
                     for rev in reviews:
                         all_mapped.append({
@@ -63,30 +58,33 @@ class GoogleReviewsService:
                 logger.error(f"Outscraper fetch failed: {e}")
                 return []
 
+# Initialize singleton instance
 google_reviews_service = GoogleReviewsService()
 
 async def ingest_company_reviews(place_id: str, company_id: int):
-    """Fetches from Outscraper and saves unique reviews to the database."""
-    # Breaking the 5-review limit by requesting 100
+    """
+    Orchestrates the fetch and the database storage.
+    """
+    # Requesting 100 to prove we can get more than 5
     reviews_data = await google_reviews_service.fetch_reviews(place_id, limit=100)
     
     async with get_session() as session:
         new_count = 0
         for rd in reviews_data:
-            # Duplicate Check: Don't save if already in DB
+            # Prevent Duplicates
             exists = await session.execute(
                 select(Review).where(Review.google_review_id == rd["reviewId"])
             )
             if exists.scalar_one_or_none():
                 continue
 
-            # Parse the timestamp for charts
-            review_date = None
+            # Parse datetime
+            review_date = datetime.utcnow()
             if rd["time_str"]:
                 try:
                     review_date = datetime.fromisoformat(rd["time_str"].replace("Z", ""))
                 except:
-                    review_date = datetime.utcnow()
+                    pass
 
             review = Review(
                 company_id=company_id,
@@ -101,8 +99,8 @@ async def ingest_company_reviews(place_id: str, company_id: int):
             new_count += 1
         
         await session.commit()
-        logger.info(f"Successfully saved {new_count} new reviews for company {company_id}.")
+        logger.info(f"Ingested {new_count} reviews for company {company_id}.")
 
 async def fetch_place_details(place_id: str):
-    """Simple placeholder for UI compatibility."""
+    """Required for route compatibility."""
     return {"name": "Business Location"}
