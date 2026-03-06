@@ -14,16 +14,16 @@ logger = logging.getLogger(__name__)
 class OutscraperReviewsService:
     """
     Service to fetch Google Maps reviews via Outscraper API.
+    Supports fetching multiple pages for large limits.
     """
     def __init__(self):
-        # Use the key from .env / config.py
-        self.api_key = settings.OUTSCAPTER_KEY  # match your .env key
+        self.api_key = settings.OUTSCAPTER_KEY  # from .env/config.py
         self.base_url = "https://api.outscraper.com/v2/google-maps/reviews"
 
     async def fetch_reviews(self, query: str, limit: int = 1000) -> List[Dict[str, Any]]:
         """
-        Fetches up to `limit` reviews from Outscraper for a business.
-        Supports fetching in multiple pages if limit > 100 (Outscraper pagination).
+        Fetches up to `limit` reviews for a business using Outscraper.
+        Automatically handles pagination if needed.
         """
         headers = {"X-API-KEY": self.api_key}
         all_reviews: List[Dict[str, Any]] = []
@@ -33,7 +33,7 @@ class OutscraperReviewsService:
         async with httpx.AsyncClient(timeout=180.0) as client:
             try:
                 while remaining > 0:
-                    batch_limit = min(100, remaining)  # Outscraper may limit per request
+                    batch_limit = min(100, remaining)  # Outscraper max per page
                     params = {
                         "query": query,
                         "limit": batch_limit,
@@ -95,14 +95,14 @@ outscraper_service = OutscraperReviewsService()
 
 async def ingest_company_reviews(place_id: str, company_id: int):
     """
-    Fetch reviews from Outscraper and save unique entries to Postgres.
+    Fetch reviews from Outscraper and save unique entries to the database.
     """
     reviews_data = await outscraper_service.fetch_reviews(place_id, limit=1000)
-    
+
     async with get_session() as session:
         new_count = 0
         for rd in reviews_data:
-            # Avoid duplicates
+            # Skip duplicates
             exists = await session.execute(
                 select(Review).where(Review.google_review_id == rd["reviewId"])
             )
@@ -142,12 +142,12 @@ async def ingest_company_reviews(place_id: str, company_id: int):
             )
             session.add(review)
             new_count += 1
-        
+
         await session.commit()
         logger.info(f"Ingested {new_count} reviews for company {company_id}.")
 
 async def fetch_place_details(place_id: str):
     """
-    Placeholder function for UI compatibility.
+    Placeholder for UI compatibility.
     """
     return {"name": "Business Location"}
