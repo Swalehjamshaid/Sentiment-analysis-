@@ -17,9 +17,9 @@ class Settings(BaseSettings):
     GOOGLE_REDIRECT_URI: str = "https://sentiment-analysis-production-f96a.up.railway.app/auth/callback"
     GOOGLE_PLACES_API_KEY: str
     
-    # --- Rate Limiting Settings (FIXED NAME) ---
+    # --- Rate Limiting Settings ---
     RATE_LIMIT_WINDOW_SEC: int = 60
-    RATE_LIMIT_REQUESTS: int = 5  # Changed from RATE_LIMIT_MAX_REQUESTS
+    RATE_LIMIT_REQUESTS: int = 5 
 
     # --- Session & Cookie Settings ---
     SESSION_COOKIE_NAME: str = "session"
@@ -29,11 +29,12 @@ class Settings(BaseSettings):
     # --- Database Settings ---
     DATABASE_URL: str
 
-    # --- Security & JWT Settings ---
+    # --- Security & JWT Settings (FIXED NAME HERE) ---
     SECRET_KEY: str
     JWT_SECRET: str
     JWT_ALG: str = "HS256"
-    ACCESS_TOKEN_MINUTES: int = 60
+    # Changed from ACCESS_TOKEN_MINUTES to match security.py
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 
 
     # --- Email / SMTP Settings ---
     SMTP_HOST: str = "smtp.gmail.com"
