@@ -1,153 +1,72 @@
-# File: review_saas/app/services/google_reviews.py
+# File: app/routes/reviews.py
 
-import httpx
-import logging
-from datetime import datetime
-from typing import List, Dict, Any
-from sqlalchemy import select
-from app.core.config import settings
-from app.core.db import get_session
-from app.core.models import Review
+from fastapi import APIRouter, HTTPException, Query
+from typing import List, Optional, Dict, Any
+from app.services.google_reviews import ingest_company_reviews, OutscraperReviewsService
 
-logger = logging.getLogger(__name__)
+# Initialize router
+router = APIRouter(prefix="/reviews", tags=["reviews"])
 
-class OutscraperReviewsService:
-    """
-    Service to fetch Google Maps reviews via Outscraper API.
-    Supports fetching multiple pages for large limits.
-    """
-    def __init__(self):
-        self.api_key = settings.OUTSCAPTER_KEY  # from .env/config.py
-        self.base_url = "https://api.outscraper.com/v2/google-maps/reviews"
-
-    async def fetch_reviews(self, query: str, limit: int = 1000) -> List[Dict[str, Any]]:
-        """
-        Fetches up to `limit` reviews for a business using Outscraper.
-        Automatically handles pagination if needed.
-        """
-        headers = {"X-API-KEY": self.api_key}
-        all_reviews: List[Dict[str, Any]] = []
-        remaining = limit
-        page = 1
-
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            try:
-                while remaining > 0:
-                    batch_limit = min(100, remaining)  # Outscraper max per page
-                    params = {
-                        "query": query,
-                        "limit": batch_limit,
-                        "async": False,
-                        "sort": "newest",
-                        "page": page
-                    }
-
-                    logger.info(f"Fetching page {page} with limit={batch_limit} for place_id={query}")
-                    response = await client.get(self.base_url, headers=headers, params=params)
-
-                    if response.status_code != 200:
-                        logger.error(f"Outscraper Error: {response.status_code} - {response.text}")
-                        break
-
-                    data = response.json()
-                    results = data.get("data", [])
-
-                    if not results:
-                        logger.info(f"No more reviews returned at page {page}. Stopping fetch.")
-                        break
-
-                    for result in results:
-                        reviews = result.get("reviews_data", [])
-                        for rev in reviews:
-                            all_reviews.append({
-                                "reviewId": rev.get("review_id"),
-                                "author": rev.get("author_title") or "Anonymous",
-                                "author_url": rev.get("author_url"),
-                                "author_image": rev.get("author_image"),
-                                "rating": rev.get("review_rating") or rev.get("rating") or 0,
-                                "text": rev.get("review_text") or "",
-                                "time_str": rev.get("review_datetime_utc"),
-                                "likes": rev.get("likes"),
-                                "response_text": rev.get("response_text"),
-                                "response_datetime": rev.get("response_datetime_utc"),
-                                "language": rev.get("language"),
-                                "place_id": rev.get("place_id")
-                            })
-
-                    fetched = len(all_reviews)
-                    logger.info(f"Fetched {fetched} reviews so far for place_id={query}")
-
-                    remaining = limit - fetched
-                    page += 1
-
-                    if fetched >= limit:
-                        break
-
-                logger.info(f"Total fetched reviews for place_id={query}: {len(all_reviews)}")
-                return all_reviews
-
-            except Exception as e:
-                logger.error(f"Failed to fetch from Outscraper: {e}")
-                return []
-
-# Instantiate the service
+# Initialize the service
 outscraper_service = OutscraperReviewsService()
 
-async def ingest_company_reviews(place_id: str, company_id: int):
+
+# -------------------- Ingest reviews for a company --------------------
+@router.post("/ingest/{place_id}/{company_id}")
+async def ingest_reviews(
+    place_id: str,
+    company_id: int,
+    limit: Optional[int] = Query(1000, description="Max number of reviews to fetch")
+):
     """
-    Fetch reviews from Outscraper and save unique entries to the database.
+    Ingest reviews for a company using Outscraper.
+    Supports a limit parameter to fetch more than 5 reviews.
     """
-    reviews_data = await outscraper_service.fetch_reviews(place_id, limit=1000)
+    try:
+        # Fetch reviews from Outscraper
+        reviews_data = await outscraper_service.fetch_reviews(place_id, limit=limit)
+        
+        # Save unique reviews to database
+        await ingest_company_reviews(place_id, company_id)
+        
+        return {
+            "status": "success",
+            "message": f"Ingested {len(reviews_data)} reviews for company {company_id}",
+            "reviews_fetched": len(reviews_data)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to ingest reviews: {str(e)}")
 
-    async with get_session() as session:
-        new_count = 0
-        for rd in reviews_data:
-            # Skip duplicates
-            exists = await session.execute(
-                select(Review).where(Review.google_review_id == rd["reviewId"])
-            )
-            if exists.scalar_one_or_none():
-                continue
 
-            # Parse review datetime
-            review_date = datetime.utcnow()
-            if rd["time_str"]:
-                try:
-                    review_date = datetime.fromisoformat(rd["time_str"].replace("Z", "+00:00"))
-                except Exception:
-                    pass
+# -------------------- Fetch reviews for competitors --------------------
+@router.post("/competitor-analysis/")
+async def competitor_analysis(
+    queries: List[str],
+    limit: Optional[int] = Query(500, description="Max reviews per competitor")
+) -> Dict[str, Any]:
+    """
+    Fetch reviews for multiple competitors at once.
+    Accepts a list of competitor names or place_ids in `queries`.
+    """
+    try:
+        all_data: Dict[str, List[Dict[str, Any]]] = {}
+        for q in queries:
+            reviews = await outscraper_service.fetch_reviews(q, limit=limit)
+            all_data[q] = reviews
+        return {"status": "success", "data": all_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed competitor analysis: {str(e)}")
 
-            # Parse owner response datetime
-            response_date = None
-            if rd.get("response_datetime"):
-                try:
-                    response_date = datetime.fromisoformat(rd.get("response_datetime").replace("Z", "+00:00"))
-                except Exception:
-                    pass
 
-            review = Review(
-                company_id=company_id,
-                google_review_id=rd["reviewId"],
-                author_name=rd["author"],
-                author_url=rd.get("author_url"),
-                profile_photo_url=rd.get("author_image"),
-                rating=rd["rating"],
-                text=rd["text"],
-                review_likes=rd.get("likes"),
-                owner_response=rd.get("response_text"),
-                owner_response_time=response_date,
-                review_language=rd.get("language"),
-                google_review_time=review_date,
-                place_id=rd.get("place_id")
-            )
-            session.add(review)
-            new_count += 1
-
-        await session.commit()
-        logger.info(f"Ingested {new_count} reviews for company {company_id}.")
-
+# -------------------- Optional: Fetch single place details --------------------
+@router.get("/place-details/{place_id}")
 async def fetch_place_details(place_id: str):
     """
-    Placeholder for UI compatibility.
+    Placeholder endpoint for fetching place details.
+    Can be extended later to use Outscraper or Google Business Profile API.
     """
-    return {"name": "Business Location"}
+    try:
+        details = await outscraper_service.fetch_reviews(place_id, limit=1)  # just a sample
+        return {"status": "success", "place_id": place_id, "sample_data": details}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch place details: {str(e)}")
