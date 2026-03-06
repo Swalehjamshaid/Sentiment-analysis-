@@ -33,7 +33,7 @@ class GoogleReviewsService:
                 return None
 
     async def fetch_reviews(self, account_id: str, location_id: str) -> List[Dict[str, Any]]:
-        """Fetches reviews from Google Business API."""
+        """Fetches reviews from Google Business API using OAuth2."""
         token = await self.get_access_token()
         if not token:
             return []
@@ -50,16 +50,36 @@ class GoogleReviewsService:
 # Initialize Service Instance
 google_reviews_service = GoogleReviewsService()
 
-# --- MISSING FUNCTION ADDED BELOW ---
+# --- THE FUNCTIONS BELOW FIX THE IMPORT ERRORS ---
+
+async def fetch_place_details(place_id: str) -> Dict[str, Any]:
+    """
+    Fetches details for a place using the Google Places API.
+    Used by app/routes/reviews.py
+    """
+    url = "https://maps.googleapis.com/maps/api/place/details/json"
+    params = {
+        "place_id": place_id,
+        "key": settings.GOOGLE_PLACES_API_KEY
+    }
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, params=params)
+            if response.status_code == 200:
+                return response.json().get("result", {})
+            logger.error(f"Google Places API error: {response.text}")
+            return {}
+        except Exception as e:
+            logger.error(f"Failed to fetch place details: {str(e)}")
+            return {}
 
 async def ingest_company_reviews(account_id: str, location_id: str):
     """
-    This is the function your routes/companies.py is looking for.
-    It calls the service and returns the data.
+    Wrapper function to ingest reviews.
+    Used by app/routes/companies.py
     """
     try:
-        reviews = await google_reviews_service.fetch_reviews(account_id, location_id)
-        return reviews
+        return await google_reviews_service.fetch_reviews(account_id, location_id)
     except Exception as e:
         logger.error(f"Ingestion failed: {str(e)}")
         return []
