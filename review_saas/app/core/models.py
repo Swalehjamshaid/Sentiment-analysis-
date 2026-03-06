@@ -1,4 +1,5 @@
 # filename: app/core/models.py
+SCHEMA_VERSION
 from __future__ import annotations
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy import (
