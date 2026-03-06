@@ -1,91 +1,80 @@
 import logging
-from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, func
+import re
+from collections import Counter
+from typing import List, Set
+from sqlalchemy import select
 from app.core.db import get_session
-from app.core.models import Company, Review
-from app.core.config import settings
-from app.services.google_reviews import ingest_company_reviews
+from app.core.models import Review
 
-router = APIRouter(tags=['dashboard'])
-templates = Jinja2Templates(directory="app/templates")
 logger = logging.getLogger(__name__)
 
-@router.get("/dashboard", response_class=HTMLResponse)
-async def show_dashboard(request: Request, company_id: int = None):
-    """
-    Main Dashboard View.
-    Displays company stats and the full list of scraped reviews.
-    """
-    async with get_session() as session:
-        # 1. Fetch all companies for the dropdown
-        company_res = await session.execute(select(Company).order_by(Company.name))
-        all_companies = company_res.scalars().all()
+# List of common words to ignore during keyword extraction to ensure quality results
+STOP_WORDS: Set[str] = {
+    'the', 'a', 'an', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'in', 'on', 'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through',
+    'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down', 'of', 'off',
+    'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where',
+    'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 
+    'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 
+    'can', 'will', 'just', 'should', 'now', 'hotel', 'stay', 'place', 'rooms', 'service',
+    'really', 'they', 'them', 'their', 'what', 'which', 'who', 'whom', 'this', 'that'
+}
 
-        if not company_id and all_companies:
-            company_id = all_companies[0].id
+class KeywordService:
+    @staticmethod
+    def extract_keywords(text: str, top_n: int = 5) -> List[str]:
+        """
+        Cleans raw review text and extracts the most frequent meaningful keywords.
+        """
+        if not text or len(text.strip()) < 10:
+            return []
 
-        if not company_id:
-            return templates.TemplateResponse("dashboard.html", {
-                "request": request,
-                "companies": [],
-                "selected_company": None,
-                "reviews": [],
-                "stats": {"total": 0, "avg_rating": 0}
-            })
-
-        # 2. Fetch Selected Company and Stats
-        selected_company = await session.get(Company, company_id)
+        # Remove special characters and split into lowercase words
+        words = re.findall(r'\b[a-z]{3,}\b', text.lower())
         
-        # Count total reviews in DB for this company
-        total_stmt = select(func.count()).select_from(Review).where(Review.company_id == company_id)
-        avg_stmt = select(func.avg(Review.rating)).where(Review.company_id == company_id)
-        
-        total_reviews = (await session.execute(total_stmt)).scalar() or 0
-        avg_rating = round(float((await session.execute(avg_stmt)).scalar() or 0), 2)
+        # Filter out stop words and common noise
+        filtered_words = [
+            word for word in words 
+            if word not in STOP_WORDS
+        ]
 
-        # 3. Fetch latest reviews (No longer limited to 5)
-        review_stmt = (
-            select(Review)
-            .where(Review.company_id == company_id)
-            .order_by(Review.google_review_time.desc())
-            .limit(100)
-        )
-        reviews = (await session.execute(review_stmt)).scalars().all()
+        # Count frequencies and return the top N keywords
+        counts = Counter(filtered_words)
+        return [word for word, count in counts.most_common(top_n)]
 
-        stats = {
-            "total": total_reviews,
-            "avg_rating": avg_rating
-        }
-
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
-        "companies": all_companies,
-        "selected_company": selected_company,
-        "reviews": reviews,
-        "stats": stats
-    })
-
-@router.post("/dashboard/fetch")
-async def trigger_fetch(company_id: int, place_id: str):
-    """
-    Triggered by the 'Fetch Data' button.
-    Calls Outscapter to get a full review set.
-    """
-    try:
-        # Use the ingestion service which is now configured for Outscapter
-        await ingest_company_reviews(place_id=place_id, company_id=company_id)
-        
-        # Update last synced time on the company record
+    async def process_company_reviews_keywords(self, company_id: int):
+        """
+        Batch processes all reviews for a specific company that currently lack keywords.
+        This aligns with the Outscraper ingestion by processing newly added reviews.
+        """
         async with get_session() as session:
-            company = await session.get(Company, company_id)
-            if company:
-                company.last_synced_at = func.now()
-                await session.commit()
+            try:
+                # Select reviews for this company that haven't been processed yet
+                stmt = select(Review).where(
+                    Review.company_id == company_id,
+                    Review.text.isnot(None)
+                )
+                result = await session.execute(stmt)
+                reviews = result.scalars().all()
 
-        return RedirectResponse(url=f"/dashboard?company_id={company_id}", status_code=303)
-    
-    except Exception as e:
-        logger.error(f"Manual fetch failed: {e}")
-        raise HTTPException(status_code=500, detail="Failed to sync with Outscapter")
+                if not reviews:
+                    logger.info(f"No reviews found to process keywords for company {company_id}")
+                    return
+
+                processed_count = 0
+                for review in reviews:
+                    # Only process if keywords are currently empty or null
+                    if not review.keywords:
+                        extracted = self.extract_keywords(review.text)
+                        review.keywords = extracted
+                        processed_count += 1
+                
+                await session.commit()
+                logger.info(f"Successfully updated keywords for {processed_count} reviews for company {company_id}")
+                
+            except Exception as e:
+                logger.error(f"Error in KeywordService for company {company_id}: {str(e)}")
+                await session.rollback()
+
+# Initialize a singleton instance for use across the application
+keyword_service = KeywordService()
