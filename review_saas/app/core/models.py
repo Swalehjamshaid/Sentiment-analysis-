@@ -7,8 +7,8 @@ from datetime import datetime
 # Base and Schema version
 # --------------------
 Base = declarative_base()
-# Bumping version to reflect deep Outscraper integration
-SCHEMA_VERSION = "4.0.0-outscraper-v2"
+# Bumping version to reflect full Outscraper + Competitor Analysis compatibility
+SCHEMA_VERSION = "5.0.0-outscraper-comprehensive"
 
 # --------------------
 # User Table
@@ -24,8 +24,10 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    companies = relationship("Company", back_populates="owner")
+
 # --------------------
-# Company Table (Outscraper business info)
+# Company Table (Outscraper Business Info)
 # --------------------
 class Company(Base):
     __tablename__ = "companies"
@@ -33,33 +35,36 @@ class Company(Base):
     id = Column(Integer, primary_key=True, index=True)
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     
-    # Core Outscraper Data
+    # Core Outscraper/Google Identifiers
     name = Column(String(255), nullable=False)
-    place_id = Column(String(512), unique=True, index=True) # Essential for Outscraper syncing
-    address = Column(String(500))
+    place_id = Column(String(512), unique=True, index=True) 
+    google_id = Column(String(255)) # Outscraper internal ID
+    
+    # Location & Contact
     full_address = Column(String(1000))
+    city = Column(String(100))
+    state = Column(String(100))
+    postal_code = Column(String(20))
     phone = Column(String(100))
     website = Column(String(512))
     
-    # Categorization
+    # Categorization & Attributes
     category = Column(String(255))
-    sub_categories = Column(JSON) # Outscraper provides multiple types
+    sub_categories = Column(JSON) 
+    type = Column(JSON) # Outscraper business types array
     
-    # Performance Stats
+    # Performance & Sync
     rating = Column(Float)
-    total_reviews = Column(Integer)
-    price_level = Column(Integer)
-    
-    # Map coordinates
+    reviews_count = Column(Integer)
     lat = Column(Float)
     lng = Column(Float)
     
-    # Sync Metadata
     last_synced_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
+    owner = relationship("User", back_populates="companies")
     reviews = relationship("Review", back_populates="company", cascade="all, delete-orphan")
     competitors = relationship("Competitor", back_populates="company", cascade="all, delete-orphan")
 
@@ -68,7 +73,7 @@ class Company(Base):
 # --------------------
 class Review(Base):
     __tablename__ = "reviews"
-    # Prevent duplicate reviews being saved for the same business
+    # CRITICAL: Prevents duplicate storage of the same scrape data
     __table_args__ = (UniqueConstraint('company_id', 'google_review_id', name='_company_review_uc'),)
 
     id = Column(Integer, primary_key=True, index=True)
@@ -77,51 +82,37 @@ class Review(Base):
     # Outscraper Identifiers
     google_review_id = Column(String(512), nullable=False, index=True)
     
-    # Reviewer Info
+    # Reviewer Info (Authority Tracking)
     author_name = Column(String(255))
     author_id = Column(String(255))
     author_profile_photo = Column(String(1024))
-    author_reviews_count = Column(Integer) # Outscraper tells us how active the user is
+    author_reviews_count = Column(Integer) # Tracks if reviewer is a "Heavy Reviewer"
+    author_level = Column(Integer) # Local Guide Level
     
-    # Review Content
-    rating = Column(Float)
+    # Content
+    rating = Column(Integer)
     text = Column(Text)
-    language = Column(String(50))
-    review_time = Column(DateTime) # Actual UTC time from Outscraper
-    relative_time_description = Column(String(100))
+    review_language = Column(String(50))
+    google_review_time = Column(DateTime) # UTC timestamp from Outscraper
     
-    # Owner Response (Critical for Reputation SaaS)
-    reply_text = Column(Text)
-    reply_time = Column(DateTime)
+    # Business Interaction
+    owner_answer = Column(Text)
+    owner_answer_timestamp = Column(DateTime)
     
-    # Metadata
+    # Metrics
     review_likes = Column(Integer, default=0)
-    review_photos = Column(JSON) # Array of photo URLs attached to review
+    review_photos = Column(JSON) # URLs of photos attached to this specific review
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    company = relationship("Company", back_populates="reviews")
-    analysis = relationship("ReviewExtra", back_populates="review", uselist=False, cascade="all, delete-orphan")
-
-# --------------------
-# ReviewExtra (AI/Sentiment Analysis)
-# --------------------
-class ReviewExtra(Base):
-    __tablename__ = "review_extras"
-
-    id = Column(Integer, primary_key=True)
-    review_id = Column(Integer, ForeignKey("reviews.id", ondelete="CASCADE"), unique=True)
-    
-    sentiment_label = Column(String(50)) # Positive, Negative, Neutral
+    # AI Enrichment Fields
+    sentiment_label = Column(String(50)) # Positive/Negative/Neutral
     sentiment_score = Column(Float)
-    keywords = Column(JSON) # Extracted topics
-    
-    created_at = Column(DateTime, default=datetime.utcnow)
+    keywords = Column(JSON) 
 
-    review = relationship("Review", back_populates="analysis")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    company = relationship("Company", back_populates="reviews")
 
 # --------------------
-# Competitor Table
+# Competitor Table (Competitive Benchmarking)
 # --------------------
 class Competitor(Base):
     __tablename__ = "competitors"
@@ -129,23 +120,22 @@ class Competitor(Base):
     id = Column(Integer, primary_key=True)
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
     
-    # Competitor Identity
+    # Competitor Data
     name = Column(String(255), nullable=False)
     place_id = Column(String(512))
-    
-    # Competitive Metrics (Calculated or scraped)
     rating = Column(Float)
-    total_reviews = Column(Integer)
+    reviews_count = Column(Integer)
+    
+    # Distance and Location
+    distance_km = Column(Float)
     lat = Column(Float)
     lng = Column(Float)
     
-    # Distance from your main business
-    distance_km = Column(Float)
-
+    created_at = Column(DateTime, default=datetime.utcnow)
     company = relationship("Company", back_populates="competitors")
 
 # --------------------
-# AuditLog Table
+# AuditLog Table (Security Tracking)
 # --------------------
 class AuditLog(Base):
     __tablename__ = "audit_logs"
@@ -156,15 +146,3 @@ class AuditLog(Base):
     details = Column(JSON)
     ip_address = Column(String(100))
     created_at = Column(DateTime, default=datetime.utcnow)
-
-    user = relationship("User")
-
-# --------------------
-# DATABASE RESET UTILITY
-# --------------------
-def reset_db(engine):
-    """Drops and re-creates tables. USE WITH CAUTION."""
-    print(f"Applying Schema Version: {SCHEMA_VERSION}")
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    print("✓ Database successfully updated with Outscraper-compatible schema.")
