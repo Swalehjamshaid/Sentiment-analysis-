@@ -29,6 +29,7 @@
 </nav>
 
 <div class="container py-4">
+  <!-- Filters and company selector -->
   <div class="row g-3 align-items-end">
     <div class="col-lg-4">
       <label class="form-label">Company</label>
@@ -42,9 +43,7 @@
       </div>
     </div>
     <div class="col-lg-3 d-grid">
-      <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
-        + Add New Company
-      </button>
+      <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">+ Add New Company</button>
     </div>
     <div class="col-lg-5">
       <div class="row g-2">
@@ -63,11 +62,13 @@
     </div>
   </div>
 
+  <!-- Alerts -->
   <div class="alert alert-info mt-3 spinner" id="loadingBox">Loading Data...</div>
   <div class="alert alert-success mt-3 success-msg" id="successBox">Data fetched successfully.</div>
   <div class="alert alert-warning mt-3 nodata-msg" id="nodataBox">No Data Found for selected date range.</div>
   <div class="alert alert-danger mt-3 error-msg" id="errorBox">Error loading some data. See console (F12) for details.</div>
 
+  <!-- KPI cards -->
   <div class="row g-3 mt-2">
     <div class="col-md-3"><div class="p-3 bg-light border rounded">Total Reviews <h4 id="kpi-total" class="mb-0">0</h4></div></div>
     <div class="col-md-3"><div class="p-3 bg-light border rounded">Avg Rating <h4 id="kpi-rating" class="mb-0">0.0</h4></div></div>
@@ -75,6 +76,7 @@
     <div class="col-md-3"><div class="p-3 bg-light border rounded">New (24h) <h4 id="kpi-new" class="mb-0">0</h4></div></div>
   </div>
 
+  <!-- Charts -->
   <div class="row g-3 mt-1">
     <div class="col-lg-8">
       <div class="card">
@@ -100,6 +102,7 @@
     </div>
   </div>
 
+  <!-- Reviews List -->
   <div class="row g-3 mt-1">
     <div class="col-12">
       <div class="card">
@@ -121,21 +124,19 @@
 
   <!-- Decision Making Section -->
   <div class="row g-3 mt-4">
-    <div class="col-12">
-      <h5 class="mb-3 text-primary">Business Insights & Recommendations</h5>
-    </div>
+    <div class="col-12"><h5 class="mb-3 text-primary">Business Insights & Recommendations</h5></div>
 
+    <!-- Average Sentiment by Aspect -->
     <div class="col-lg-6">
       <div class="card h-100">
         <div class="card-body">
           <h6 class="text-muted mb-3">Average Sentiment by Aspect</h6>
-          <div class="row g-3" id="aspectsContainer">
-            <!-- Filled dynamically -->
-          </div>
+          <div class="row g-3" id="aspectsContainer"></div>
         </div>
       </div>
     </div>
 
+    <!-- Complaints, Keywords, Recommendations -->
     <div class="col-lg-6">
       <div class="card mb-3">
         <div class="card-body">
@@ -238,297 +239,107 @@ const qs = (o) => new URLSearchParams(o).toString();
 async function safeJsonFetch(url, fallback = {}) {
   try {
     const res = await fetch(url);
-    if (!res.ok) {
-      console.warn(`Fetch failed for ${url}: ${res.status} ${res.statusText}`);
-      return fallback;
-    }
+    if (!res.ok) return fallback;
     return await res.json();
-  } catch (err) {
-    console.error(`Error fetching ${url}:`, err);
-    return fallback;
-  }
+  } catch { return fallback; }
 }
 
 async function loadCompanies() {
-  try {
-    const data = await safeJsonFetch('/api/companies/list', { companies: [] });
-    el.companySelect.innerHTML = '';
-    if (!data.companies?.length) {
-      el.companySelect.innerHTML = '<option value="">No companies found</option>';
-      return;
-    }
-    data.companies.forEach(c => {
-      const opt = document.createElement('option');
-      opt.value = c.id; opt.textContent = c.name;
-      el.companySelect.appendChild(opt);
-    });
-    const lastId = localStorage.getItem('lastCompanyId');
-    if (lastId && data.companies.some(c => c.id == lastId)) {
-      el.companySelect.value = lastId;
-    }
-    currentCompanyId = el.companySelect.value;
-  } catch (err) {
-    console.error('Load companies failed:', err);
-    el.companySelect.innerHTML = '<option value="">Error Loading</option>';
-  }
+  const data = await safeJsonFetch('/api/companies/list', { companies: [] });
+  el.companySelect.innerHTML = '';
+  if (!data.companies?.length) el.companySelect.innerHTML = '<option value="">No companies found</option>';
+  else data.companies.forEach(c => {
+    const opt = document.createElement('option'); opt.value = c.id; opt.textContent = c.name;
+    el.companySelect.appendChild(opt);
+  });
+  const lastId = localStorage.getItem('lastCompanyId');
+  if (lastId && data.companies.some(c => c.id == lastId)) el.companySelect.value = lastId;
+  currentCompanyId = el.companySelect.value;
 }
 
+// --- Render reviews ---
 function renderReviewsList() {
   let items = [...reviewsDataGlobal];
   const sort = el.sortReviews.value;
-  if (sort === 'newest') items.sort((a,b) => new Date(b.review_time) - new Date(a.review_time));
-  else if (sort === 'oldest') items.sort((a,b) => new Date(a.review_time) - new Date(b.review_time));
-  else if (sort === 'highest') items.sort((a,b) => b.rating - a.rating);
-  else if (sort === 'lowest') items.sort((a,b) => a.rating - b.rating);
-
-  el.reviewsList.innerHTML = items.length > 0 
-    ? items.map(r => {
-        const stars = '★'.repeat(Math.round(r.rating || 0)) + '☆'.repeat(5 - Math.round(r.rating || 0));
-        return `<div class="border rounded p-2 mb-2">
-          <div class="d-flex justify-content-between small text-muted">
-            <span>${r.author_name || 'Anonymous'}</span>
-            <span>${r.review_time || ''}</span>
-          </div>
-          <div class="text-warning">${stars} <span class="text-dark">${(r.rating || 0).toFixed(1)}</span></div>
-          <div>${r.text || ''}</div>
-        </div>`;
-      }).join('')
-    : '<p class="text-muted text-center">No reviews found.</p>';
+  if (sort==='newest') items.sort((a,b)=>new Date(b.review_time)-new Date(a.review_time));
+  else if (sort==='oldest') items.sort((a,b)=>new Date(a.review_time)-new Date(b.review_time));
+  else if (sort==='highest') items.sort((a,b)=>b.rating-a.rating);
+  else if (sort==='lowest') items.sort((a,b)=>a.rating-b.rating);
+  el.reviewsList.innerHTML = items.length ? items.map(r=>{
+    const stars='★'.repeat(Math.round(r.rating||0))+'☆'.repeat(5-Math.round(r.rating||0));
+    return `<div class="border rounded p-2 mb-2">
+      <div class="d-flex justify-content-between small text-muted">
+        <span>${r.author_name||'Anonymous'}</span>
+        <span>${r.review_time||''}</span>
+      </div>
+      <div class="text-warning">${stars} <span class="text-dark">${(r.rating||0).toFixed(1)}</span></div>
+      <div>${r.text||''}</div>
+    </div>`;
+  }).join('') : '<p class="text-muted text-center">No reviews found.</p>';
 }
 
+// --- Fetch Dashboard Data ---
 async function fetchDashboardData() {
-  if (!currentCompanyId) {
-    show('errorBox', true);
-    return;
-  }
+  if (!currentCompanyId) return show('errorBox', true);
 
-  show('loadingBox', true);
-  show('successBox', false);
-  show('nodataBox', false);
-  show('errorBox', false);
+  show('loadingBox', true); show('successBox', false); show('nodataBox', false); show('errorBox', false);
+  const p={company_id: currentCompanyId, start: el.startDate.value, end: el.endDate.value}, q=qs(p);
 
-  const p = { company_id: currentCompanyId, start: el.startDate.value, end: el.endDate.value };
-  const q = qs(p);
+  const kpis      = await safeJsonFetch(`/api/kpis?${q}`, { total_reviews:0, avg_rating:0, avg_sentiment:0 });
+  const revS      = await safeJsonFetch(`/api/series/reviews?${q}`, { series:[] });
+  const ratD      = await safeJsonFetch(`/api/ratings/distribution?${q}`, { distribution:{} });
+  const sentS     = await safeJsonFetch(`/api/sentiment/series?${q}`, { series:[] });
+  const revL      = await safeJsonFetch(`/api/reviews/list?${q}`, { items:[] });
+  const aspects    = await safeJsonFetch(`/api/aspects/avg?${q}`, { aspects:{} });
+  const complaints = await safeJsonFetch(`/api/complaints/stats?${q}`, { complaint_rate:0, complaint_count:0, praise_count:0, total_reviews:0 });
+  const keywords   = await safeJsonFetch(`/api/keywords/top?${q}`, { positive_keywords:[], negative_keywords:[] });
+  const recs       = await safeJsonFetch(`/api/recommendations/simple?${q}`, { recommendations:[] });
 
-  // Core data (required)
-  const kpis      = await safeJsonFetch(`/api/kpis?${q}`, { total_reviews: 0, avg_rating: 0, avg_sentiment: 0 });
-  const revS      = await safeJsonFetch(`/api/series/reviews?${q}`, { series: [] });
-  const ratD      = await safeJsonFetch(`/api/ratings/distribution?${q}`, { distribution: {} });
-  const sentS     = await safeJsonFetch(`/api/sentiment/series?${q}`, { series: [] });
-  const revL      = await safeJsonFetch(`/api/reviews/list?${q}`, { items: [] });
-
-  // Optional decision data
-  const aspects    = await safeJsonFetch(`/api/aspects/avg?${q}`, { aspects: {} });
-  const complaints = await safeJsonFetch(`/api/complaints/stats?${q}`, { complaint_rate: 0, complaint_count: 0, praise_count: 0, total_reviews: 0 });
-  const keywords   = await safeJsonFetch(`/api/keywords/top?${q}`, { positive_keywords: [], negative_keywords: [] });
-  const recs       = await safeJsonFetch(`/api/recommendations/simple?${q}`, { recommendations: [] });
-
-  // Update KPIs
+  // KPIs
   el.kpiTotal.textContent = kpis.total_reviews ?? 0;
-  el.kpiRating.textContent = (kpis.avg_rating || 0).toFixed(2);
-  el.kpiSent.textContent   = (kpis.avg_sentiment || 0).toFixed(3);
-  el.kpiNew.textContent    = revS.series?.length ? revS.series.at(-1)?.value ?? 0 : 0;
-
-  // Destroy old charts
-  Object.values(charts).forEach(c => c?.destroy?.());
+  el.kpiRating.textContent = (kpis.avg_rating||0).toFixed(2);
+  el.kpiSent.textContent   = (kpis.avg_sentiment||0).toFixed(3);
+  el.kpiNew.textContent    = revS.series?.length ? revS.series.at(-1)?.value??0 : 0;
 
   // Charts
-  charts.rev = new Chart(document.getElementById('seriesReviews'), {
-    type: 'line',
-    data: {
-      labels: revS.series?.map(x => x.date) || [],
-      datasets: [{
-        label: 'Reviews',
-        data: revS.series?.map(x => x.value) || [],
-        borderColor: '#0d6efd',
-        backgroundColor: 'rgba(13,110,253,0.1)',
-        tension: 0.3,
-        fill: true
-      }]
-    }
-  });
+  Object.values(charts).forEach(c=>c?.destroy?.());
+  charts.rev = new Chart(document.getElementById('seriesReviews'), { type:'line', data:{ labels:revS.series?.map(x=>x.date)||[], datasets:[{ label:'Reviews', data:revS.series?.map(x=>x.value)||[], borderColor:'#0d6efd', backgroundColor:'rgba(13,110,253,0.1)', tension:0.3, fill:true }] } });
+  charts.dist = new Chart(document.getElementById('ratingsDist'), { type:'bar', data:{ labels:Object.keys(ratD.distribution||{}), datasets:[{ label:'Rating Count', data:Object.values(ratD.distribution||{}), backgroundColor:'#ffc107' }] } });
+  charts.sent = new Chart(document.getElementById('sentSeries'), { type:'line', data:{ labels:sentS.series?.map(x=>x.date)||[], datasets:[{ label:'Sentiment', data:sentS.series?.map(x=>x.value)||[], borderColor:'#6610f2', backgroundColor:'rgba(102,16,242,0.1)', tension:0.3, fill:true }] }, options:{ scales:{ y:{ min:-1, max:1 } } } });
 
-  charts.dist = new Chart(document.getElementById('ratingsDist'), {
-    type: 'bar',
-    data: {
-      labels: Object.keys(ratD.distribution || {}),
-      datasets: [{
-        label: 'Rating Count',
-        data: Object.values(ratD.distribution || {}),
-        backgroundColor: '#ffc107'
-      }]
-    }
-  });
-
-  charts.sent = new Chart(document.getElementById('sentSeries'), {
-    type: 'line',
-    data: {
-      labels: sentS.series?.map(x => x.date) || [],
-      datasets: [{
-        label: 'Sentiment',
-        data: sentS.series?.map(x => x.value) || [],
-        borderColor: '#6610f2',
-        backgroundColor: 'rgba(102,16,242,0.1)',
-        tension: 0.3,
-        fill: true
-      }]
-    },
-    options: { scales: { y: { min: -1, max: 1 } } }
-  });
-
-  // Reviews list
-  reviewsDataGlobal = revL.items || [];
-  renderReviewsList();
+  // Reviews
+  reviewsDataGlobal = revL.items||[]; renderReviewsList();
 
   // Aspects
-  const aspectsDiv = document.getElementById('aspectsContainer');
-  aspectsDiv.innerHTML = '';
-  if (Object.keys(aspects.aspects || {}).length === 0) {
-    aspectsDiv.innerHTML = '<div class="col-12 text-muted small">Aspect data not available yet</div>';
-  } else {
-    Object.entries(aspects.aspects).forEach(([key, value]) => {
-      if (value == null) return;
-      const color = value > 0.2 ? 'success' : value < -0.1 ? 'danger' : 'warning';
-      aspectsDiv.innerHTML += `
-        <div class="col-6">
-          <div class="card border-${color} aspect-card">
-            <div class="card-body text-center">
-              <h6 class="text-capitalize mb-1">${key}</h6>
-              <h4 class="text-${color} mb-0">${Number(value).toFixed(2)}</h4>
-              <small class="text-muted">sentiment</small>
-            </div>
-          </div>
-        </div>`;
-    });
-  }
+  const aspectsDiv = document.getElementById('aspectsContainer'); aspectsDiv.innerHTML='';
+  Object.entries(aspects.aspects||{}).forEach(([key,value])=>{
+    if(value==null) return;
+    const color=value>0.2?'success':value<-0.1?'danger':'warning';
+    aspectsDiv.innerHTML+=`<div class="col-6"><div class="card border-${color} aspect-card"><div class="card-body text-center"><h6 class="text-capitalize mb-1">${key}</h6><h4 class="text-${color} mb-0">${Number(value).toFixed(2)}</h4><small class="text-muted">sentiment</small></div></div></div>`;
+  });
 
   // Complaints
-  document.getElementById('complaintsStats').innerHTML = complaints.total_reviews > 0 ? `
-    <div class="d-flex justify-content-between mb-2">
-      <span>Complaint Rate:</span>
-      <strong class="${complaints.complaint_rate > 15 ? 'text-danger' : 'text-success'}">
-        ${complaints.complaint_rate}%
-      </strong>
-    </div>
-    <div class="d-flex justify-content-between mb-2">
-      <span>Complaints / Total:</span>
-      <strong>${complaints.complaint_count} / ${complaints.total_reviews}</strong>
-    </div>
-    <div class="d-flex justify-content-between">
-      <span>Praise:</span>
-      <strong class="text-success">${complaints.praise_count}</strong>
-    </div>` : '<p class="text-muted small">No complaint data available</p>';
+  const cs=document.getElementById('complaintsStats');
+  cs.innerHTML=complaints.total_reviews>0?`<p>Complaint Rate: ${(complaints.complaint_rate*100).toFixed(1)}%</p><p>Complaints: ${complaints.complaint_count}</p><p>Praise: ${complaints.praise_count}</p>`:'<p class="text-muted small">No complaints/praise data.</p>';
 
   // Keywords
-  const posDiv = document.getElementById('keywordsPositive');
-  const negDiv = document.getElementById('keywordsNegative');
-  posDiv.innerHTML = '<small class="text-success fw-bold me-2">Positive:</small>';
-  negDiv.innerHTML = '<small class="text-danger fw-bold me-2">Negative:</small>';
-
-  (keywords.positive_keywords || []).forEach(w => {
-    posDiv.innerHTML += `<span class="badge bg-success-subtle text-success me-1">${w}</span>`;
-  });
-  (keywords.negative_keywords || []).forEach(w => {
-    negDiv.innerHTML += `<span class="badge bg-danger-subtle text-danger me-1">${w}</span>`;
-  });
+  const kpos=document.getElementById('keywordsPositive'), kneg=document.getElementById('keywordsNegative');
+  kpos.innerHTML=(keywords.positive_keywords||[]).map(k=>`<span class="badge bg-success recommendation-badge">${k}</span>`).join('');
+  kneg.innerHTML=(keywords.negative_keywords||[]).map(k=>`<span class="badge bg-danger recommendation-badge">${k}</span>`).join('');
 
   // Recommendations
-  const recList = document.getElementById('recommendationsList');
-  recList.innerHTML = (recs.recommendations || []).length > 0
-    ? recs.recommendations.map(r => `<div class="alert alert-info recommendation-badge py-1 px-2 mb-2">${r}</div>`).join('')
-    : '<p class="text-muted small">No recommendations available yet</p>';
+  const recDiv=document.getElementById('recommendationsList');
+  recDiv.innerHTML=(recs.recommendations||[]).map(r=>`<div class="badge bg-info text-dark mb-1 recommendation-badge">${r}</div>`).join('') || '<p class="text-muted small">No recommendations available.</p>';
 
-  // Final status
-  show('loadingBox', false);
-
-  if (kpis.total_reviews === 0) {
-    show('nodataBox', true);
-  } else if (Object.keys(kpis).length > 0) {
-    show('successBox', true);
-    if (Object.keys(aspects.aspects || {}).length === 0 || complaints.total_reviews === 0) {
-      document.getElementById('errorBox').innerHTML = 'Partial data loaded. Some advanced insights are not available yet.';
-      show('errorBox', true);
-    }
-  } else {
-    show('errorBox', true);
-  }
+  show('loadingBox', false); show('successBox', true);
 }
 
-// Google Places (unchanged)
-function loadGoogleScript() {
-  const s = document.createElement('script');
-  s.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initGooglePlaces";
-  s.async = true; s.defer = true;
-  document.head.appendChild(s);
-}
+el.fetchBtn.addEventListener('click', ()=>{ currentCompanyId = el.companySelect.value; localStorage.setItem('lastCompanyId', currentCompanyId); fetchDashboardData(); });
+el.sortReviews.addEventListener('change', renderReviewsList);
 
-window.initGooglePlaces = function() {
-  const autocomplete = new google.maps.places.Autocomplete(el.placeSearch, {
-    types: ["establishment"],
-    fields: ["place_id", "name", "formatted_address", "rating", "user_ratings_total"]
-  });
-  autocomplete.addListener("place_changed", () => {
-    const p = autocomplete.getPlace();
-    if (!p.place_id) return;
-    el.prevAddress.value = p.formatted_address || '';
-    el.previewBox.style.display = 'block';
-    selectedPlace = {
-      name: p.name,
-      place_id: p.place_id,
-      address: p.formatted_address,
-      avg_rating: p.rating || 0,
-      review_count: p.user_ratings_total || 0
-    };
-    el.saveBtn.disabled = false;
-  });
-};
-
-el.saveBtn.onclick = async () => {
-  if (!selectedPlace) return;
-  el.saveBtn.disabled = true;
-  try {
-    const res = await fetch('/companies/add', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(selectedPlace)
-    });
-    const d = await res.json();
-    if (d.success) {
-      alert("Company Added!");
-      await loadCompanies();
-      el.companySelect.value = d.company?.id;
-      currentCompanyId = d.company?.id;
-      await fetchDashboardData();
-      bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
-    } else {
-      alert(d.message || "Failed to add company");
-    }
-  } catch (err) {
-    alert("Save failed");
-    console.error(err);
-  } finally {
-    el.saveBtn.disabled = false;
-  }
-};
-
-el.fetchBtn.onclick = fetchDashboardData;
-el.sortReviews.onchange = renderReviewsList;
-el.switchBtn.onclick = () => {
-  currentCompanyId = el.companySelect.value;
-  localStorage.setItem('lastCompanyId', currentCompanyId);
-  fetchDashboardData();
-};
-
-window.onload = async () => {
-  loadGoogleScript();
-  const end = new Date().toISOString().split('T')[0];
-  const start = new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().split('T')[0];
-  el.startDate.value = start;
-  el.endDate.value = end;
-  await loadCompanies();
-  if (currentCompanyId) await fetchDashboardData();
-};
+window.addEventListener('load', loadCompanies);
 </script>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
