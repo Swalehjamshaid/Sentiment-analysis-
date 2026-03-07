@@ -15,6 +15,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
 from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.db import get_engine
@@ -47,12 +48,60 @@ async def lifespan(app: FastAPI):
 
         async with engine.begin() as conn:
 
-            logger.info("Creating database tables if missing")
+            # ---------------------------------------
+            # Check schema version in database
+            # ---------------------------------------
 
-            # This WILL NOT delete existing tables
-            await conn.run_sync(Base.metadata.create_all)
+            try:
+                result = await conn.execute(
+                    text("SELECT value FROM config WHERE key='schema_version'")
+                )
+                row = result.first()
+                db_version = row[0] if row else None
+            except Exception:
+                db_version = None
 
-            logger.info("Database tables verified")
+            # ---------------------------------------
+            # If schema changed → recreate database
+            # ---------------------------------------
+
+            if db_version != SCHEMA_VERSION:
+
+                logger.warning(
+                    f"Schema change detected (DB={db_version}, CODE={SCHEMA_VERSION})"
+                )
+
+                logger.warning("Dropping ALL tables...")
+
+                await conn.run_sync(Base.metadata.drop_all)
+
+                logger.info("Creating NEW database tables...")
+
+                await conn.run_sync(Base.metadata.create_all)
+
+                # ensure config table exists
+                await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS config (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+                """))
+
+                await conn.execute(text("""
+                INSERT INTO config (key,value)
+                VALUES ('schema_version', :ver)
+                ON CONFLICT(key)
+                DO UPDATE SET value=:ver
+                """), {"ver": SCHEMA_VERSION})
+
+                logger.info("Database recreated successfully")
+
+            else:
+
+                logger.info("Database schema already up to date")
+
+                # Only create missing tables
+                await conn.run_sync(Base.metadata.create_all)
 
     except Exception as e:
 
@@ -64,7 +113,7 @@ async def lifespan(app: FastAPI):
 
 
 # --------------------------------------------------
-# FastAPI app (THIS FIXES YOUR ERROR)
+# FastAPI app
 # --------------------------------------------------
 
 app = FastAPI(
