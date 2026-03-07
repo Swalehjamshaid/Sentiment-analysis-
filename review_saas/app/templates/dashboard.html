@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ReviewSaaS - Strategic Dashboard</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <style>
     :root {
       --primary: #0d6efd;
@@ -15,7 +15,7 @@
       --card-shadow: 0 8px 24px rgba(0,0,0,0.08);
     }
     body {
-      background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+      background: linear-gradient(135deg, var(--light-bg) 0%, #e9ecef 100%);
       font-family: 'Segoe UI', system-ui, sans-serif;
       min-height: 100vh;
     }
@@ -44,6 +44,7 @@
       border-radius: 12px;
       border-left: 6px solid;
       transition: all 0.3s;
+      min-height: 110px;
     }
     .aspect-card:hover {
       transform: scale(1.05) translateY(-4px);
@@ -81,14 +82,9 @@
     .readonly-field {
       background-color: #f1f3f5 !important;
       cursor: not-allowed;
-      border-color: #dee2e6;
     }
-    .input-placeholder-glow {
-      animation: glow 1.8s infinite alternate;
-    }
-    @keyframes glow {
-      from { box-shadow: 0 0 0 0 rgba(13,110,253,0.4); }
-      to   { box-shadow: 0 0 0 8px rgba(13,110,253,0); }
+    .input-glow:focus {
+      box-shadow: 0 0 0 0.25rem rgba(13,110,253,0.25);
     }
   </style>
 </head>
@@ -109,16 +105,17 @@
 
 <div class="container py-5 px-3 px-md-4">
 
+  <!-- Company & Date Selection -->
   <div class="card shadow mb-5" data-section="filters">
     <div class="card-body p-4">
       <div class="row g-3 align-items-end">
         <div class="col-lg-4">
-          <label class="form-label fw-semibold small text-muted">Company</label>
-          <select class="form-select form-select-lg shadow-sm" id="companySelect"></select>
+          <label class="form-label fw-semibold small text-muted">Select Business</label>
+          <select class="form-select form-select-lg shadow-sm input-glow" id="companySelect"></select>
         </div>
         <div class="col-lg-2 d-grid">
           <button class="btn btn-primary btn-lg shadow" id="fetchBtn">
-            <i class="fas fa-sync-alt me-2"></i> Fetch Data
+            <i class="fas fa-sync-alt me-2"></i> Analyze Data
           </button>
         </div>
         <div class="col-lg-3">
@@ -133,11 +130,13 @@
     </div>
   </div>
 
-  <div id="loadingBox" class="alert alert-info spinner"><i class="fas fa-spinner fa-spin me-2"></i> Analyzing reviews...</div>
+  <!-- Alerts -->
+  <div id="loadingBox" class="alert alert-info spinner"><i class="fas fa-spinner fa-spin me-2"></i> Analyzing data...</div>
   <div id="successBox" class="alert alert-success success-msg"><i class="fas fa-check-circle me-2"></i> Dashboard updated</div>
   <div id="nodataBox" class="alert alert-warning nodata-msg"><i class="fas fa-exclamation-triangle me-2"></i> No data in selected range</div>
-  <div id="errorBox" class="alert alert-danger error-msg"><i class="fas fa-exclamation-circle me-2"></i> Error loading data</div>
+  <div id="errorBox" class="alert alert-danger error-msg"><i class="fas fa-exclamation-circle me-2"></i> Error loading data – check console (F12)</div>
 
+  <!-- KPIs (Avg Sentiment removed) -->
   <div class="row g-4 mb-5" data-section="kpis">
     <div class="col-md-4">
       <div class="kpi-card p-4 text-center">
@@ -153,12 +152,13 @@
     </div>
     <div class="col-md-4">
       <div class="kpi-card p-4 text-center">
-        <small class="text-muted d-block mb-1">New (24h)</small>
-        <h3 id="kpi-new" class="fw-bold mb-0 text-info">0</h3>
+        <small class="text-muted d-block mb-1">Complaint Rate</small>
+        <h3 id="kpi-complaint-rate" class="fw-bold mb-0 text-danger">0%</h3>
       </div>
     </div>
   </div>
 
+  <!-- Charts -->
   <div class="row g-4 mb-5" data-section="charts">
     <div class="col-lg-8">
       <div class="card shadow h-100">
@@ -184,6 +184,7 @@
     </div>
   </div>
 
+  <!-- Strategic Intelligence (flexible for future sections) -->
   <div class="row g-4 mb-5" data-section="insights">
     <div class="col-12">
       <h5 class="fw-bold text-dark border-bottom pb-3 mb-4"><i class="fas fa-brain me-2 text-primary"></i>Strategic Intelligence</h5>
@@ -191,7 +192,7 @@
     <div class="col-lg-6">
       <div class="card shadow h-100">
         <div class="card-body p-4">
-          <h6 class="fw-semibold mb-3"><i class="fas fa-layer-group me-2 text-success"></i>Departmental Sentiment</h6>
+          <h6 class="fw-semibold mb-3"><i class="fas fa-layer-group me-2 text-success"></i>Departmental Analysis</h6>
           <div class="row g-3" id="aspectsContainer"></div>
         </div>
       </div>
@@ -205,7 +206,7 @@
       </div>
       <div class="card shadow mb-4">
         <div class="card-body p-4">
-          <h6 class="fw-semibold mb-3"><i class="fas fa-tags me-2 text-info"></i>Mentioned Themes</h6>
+          <h6 class="fw-semibold mb-3"><i class="fas fa-tags me-2 text-info"></i>Top Themes</h6>
           <div class="mb-2"><small class="text-success fw-bold">Positives:</small> <div id="keywordsPositive" class="d-inline"></div></div>
           <div><small class="text-danger fw-bold">Pain Points:</small> <div id="keywordsNegative" class="d-inline"></div></div>
         </div>
@@ -219,6 +220,7 @@
     </div>
   </div>
 
+  <!-- Guest Feedback Feed -->
   <div class="row g-3" data-section="reviews">
     <div class="col-12">
       <div class="card shadow">
@@ -238,20 +240,21 @@
   </div>
 </div>
 
-<div class="modal fade" id="addCompanyModal" tabindex="-1">
+<!-- Add Company Modal -->
+<div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content border-0 shadow-lg rounded-4">
       <div class="modal-header bg-primary text-white rounded-top-4">
-        <h5 class="modal-title fw-bold">
-          <i class="fas fa-plus-circle me-2"></i> Add New Company via Google Maps
+        <h5 class="modal-title fw-bold" id="addCompanyModalLabel">
+          <i class="fas fa-plus-circle me-2"></i> Sync Business via Google Maps
         </h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body p-4">
         <div class="mb-4">
-          <label class="form-label fw-semibold">Search Business</label>
-          <input type="text" class="form-control form-control-lg shadow-sm input-placeholder-glow" id="placeSearch" placeholder="e.g. Pearl Continental Hotel Lahore">
-          <small class="text-muted mt-1 d-block">Start typing the business name – Google will suggest matches</small>
+          <label class="form-label fw-bold">Search Business Name</label>
+          <input type="text" class="form-control form-control-lg input-glow" id="placeSearch" placeholder="e.g. Pearl Continental Hotel Lahore">
+          <small class="text-muted mt-1 d-block">Type business name – Google will suggest matches</small>
         </div>
 
         <div id="detailsPreview" style="display:none;" class="border rounded-3 p-4 bg-white mt-4 shadow-sm">
@@ -261,7 +264,7 @@
             <input type="text" id="prev_name" class="form-control readonly-field" readonly>
           </div>
           <div class="mb-3">
-            <label class="small fw-medium text-muted">Address</label>
+            <label class="small fw-medium text-muted">Full Address</label>
             <input type="text" id="prev_address" class="form-control readonly-field" readonly>
           </div>
           <div class="row g-3">
@@ -293,7 +296,7 @@
       <div class="modal-footer bg-light rounded-bottom-4 px-4 py-3">
         <button type="button" class="btn btn-secondary px-4 py-2" data-bs-dismiss="modal">Cancel</button>
         <button type="button" class="btn btn-primary px-4 py-2 fw-bold" id="saveCompanyBtn" disabled>
-          <i class="fas fa-save me-2"></i> Add to Dashboard
+          <i class="fas fa-save me-2"></i> Add & Sync Reviews
         </button>
       </div>
     </div>
@@ -301,26 +304,24 @@
 </div>
 
 <script>
-// Google Maps / Places API Configuration
-const GOOGLE_API_KEY = "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc";
+// Your Google Places API Key
+const GOOGLE_PLACES_API_KEY = "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc";
 
+// ────────────────────────────────────────────────
+// DOM Elements
+// ────────────────────────────────────────────────
 const el = {
   companySelect: document.getElementById('companySelect'),
+  startDate: document.getElementById('startDate'),
+  endDate: document.getElementById('endDate'),
   fetchBtn: document.getElementById('fetchBtn'),
-  sortReviews: document.getElementById('sortReviews'),
-  loadingBox: document.getElementById('loadingBox'),
-  successBox: document.getElementById('successBox'),
-  nodataBox: document.getElementById('nodataBox'),
-  errorBox: document.getElementById('errorBox'),
-  reviewsList: document.getElementById('reviewsList'),
   kpiTotal: document.getElementById('kpi-total'),
   kpiRating: document.getElementById('kpi-rating'),
-  kpiNew: document.getElementById('kpi-new'),
+  kpiComplaintRate: document.getElementById('kpi-complaint-rate'),
   aspectsContainer: document.getElementById('aspectsContainer'),
-  complaintsStats: document.getElementById('complaintsStats'),
-  keywordsPositive: document.getElementById('keywordsPositive'),
-  keywordsNegative: document.getElementById('keywordsNegative'),
-  recommendationsList: document.getElementById('recommendationsList'),
+  recsList: document.getElementById('recommendationsList'),
+  posKeys: document.getElementById('keywordsPositive'),
+  negKeys: document.getElementById('keywordsNegative'),
   placeSearch: document.getElementById('placeSearch'),
   saveBtn: document.getElementById('saveCompanyBtn'),
   previewBox: document.getElementById('detailsPreview'),
@@ -338,215 +339,168 @@ let selectedPlace = null;
 let charts = {};
 let reviewsDataGlobal = [];
 
-// API Helpers
-const show = (id, v) => el[id] && (el[id].style.display = v ? 'block' : 'none');
-const qs = (o) => new URLSearchParams(o).toString();
-
-async function safeJsonFetch(url, fallback = {}) {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return fallback;
-    return await res.json();
-  } catch { return fallback; }
-}
-
-// Companies
-async function loadCompanies() {
-  const data = await safeJsonFetch('/api/companies/list', { companies: [] });
-  el.companySelect.innerHTML = data.companies?.length
-    ? data.companies.map(c => `<option value="${c.id}">${c.name}</option>`).join('')
-    : '<option>No companies found</option>';
-
-  const lastId = localStorage.getItem('lastCompanyId');
-  if (lastId && data.companies?.some(c => c.id == lastId)) {
-    el.companySelect.value = lastId;
-  }
-  currentCompanyId = el.companySelect.value;
-}
-
-// Data Fetching
-async function fetchDashboardData() {
-  if (!currentCompanyId) return;
-
-  show('loadingBox', true);
-  ['successBox','nodataBox','errorBox'].forEach(id => show(id, false));
-
-  const q = qs({
-    company_id: currentCompanyId,
-    start: document.getElementById('startDate').value,
-    end: document.getElementById('endDate').value
-  });
-
-  const [kpis, revS, ratD, sentS, revL, aspects, complaints, keywords, recs] = await Promise.all([
-    safeJsonFetch(`/api/kpis?${q}`),
-    safeJsonFetch(`/api/series/reviews?${q}`),
-    safeJsonFetch(`/api/ratings/distribution?${q}`),
-    safeJsonFetch(`/api/sentiment/series?${q}`),
-    safeJsonFetch(`/api/reviews/list?${q}`),
-    safeJsonFetch(`/api/aspects/avg?${q}`),
-    safeJsonFetch(`/api/complaints/stats?${q}`),
-    safeJsonFetch(`/api/keywords/top?${q}`),
-    safeJsonFetch(`/api/recommendations/simple?${q}`)
-  ]);
-
-  el.kpiTotal.textContent = kpis.total_reviews || 0;
-  el.kpiRating.textContent = (kpis.avg_rating || 0).toFixed(1);
-  el.kpiNew.textContent = revS.series?.at(-1)?.value || 0;
-
-  updateCharts(revS, ratD, sentS);
-  renderAspects(aspects.aspects);
-  renderComplaints(complaints);
-  renderKeywords(keywords);
-  renderRecommendations(recs.recommendations);
-  
-  reviewsDataGlobal = revL.items || [];
-  renderReviewsList();
-
-  show('loadingBox', false);
-  show('successBox', true);
-}
-
-// UI Renderers
-function updateCharts(revS, ratD, sentS) {
-  Object.values(charts).forEach(c => c?.destroy?.());
-  charts.rev = new Chart(document.getElementById('seriesReviews'), {
-    type: 'line', data: {
-      labels: revS.series?.map(x => x.date) || [],
-      datasets: [{ label: 'Reviews', data: revS.series?.map(x => x.value) || [], borderColor: '#0d6efd', tension: 0.3, fill: true }]
-    }
-  });
-  charts.dist = new Chart(document.getElementById('ratingsDist'), {
-    type: 'bar', data: {
-      labels: Object.keys(ratD.distribution || {}),
-      datasets: [{ label: 'Count', data: Object.values(ratD.distribution || {}), backgroundColor: '#ffc107' }]
-    }
-  });
-  charts.sent = new Chart(document.getElementById('sentSeries'), {
-    type: 'line', data: {
-      labels: sentS.series?.map(x => x.date) || [],
-      datasets: [{ label: 'Sentiment', data: sentS.series?.map(x => x.value) || [], borderColor: '#6f42c1', tension: 0.3 }]
-    }, options: { scales: { y: { min: -1, max: 1 } } }
-  });
-}
-
-function renderAspects(asp) {
-  el.aspectsContainer.innerHTML = '';
-  ['rooms','staff','cleanliness','value','location','food'].forEach(k => {
-    const v = Number(asp?.[k] || 0);
-    const c = v > 0.4 ? 'success' : v < 0.1 ? 'danger' : 'warning';
-    el.aspectsContainer.innerHTML += `
-      <div class="col-6 col-md-4">
-        <div class="card aspect-card border-${c} shadow-sm">
-          <div class="card-body text-center py-3">
-            <small class="text-uppercase text-muted d-block">${k}</small>
-            <h5 class="text-${c} fw-bold mb-0">${v.toFixed(2)}</h5>
-          </div>
-        </div>
-      </div>`;
-  });
-}
-
-function renderComplaints(c) {
-  el.complaintsStats.innerHTML = `
-    <div class="col-4 border-end"><small class="text-muted d-block">Complaint Rate</small><h5 class="${c.complaint_rate > 15 ? 'text-danger' : 'text-success'}">${c.complaint_rate}%</h5></div>
-    <div class="col-4 border-end"><small class="text-muted d-block">Complaints</small><h5>${c.complaint_count}</h5></div>
-    <div class="col-4"><small class="text-muted d-block">Praise</small><h5 class="text-success">${c.praise_count}</h5></div>
-  `;
-}
-
-function renderKeywords(k) {
-  el.keywordsPositive.innerHTML = k.positive_keywords?.map(w => `<span class="badge bg-success-subtle text-success badge-kw">${w}</span>`).join('') || 'None';
-  el.keywordsNegative.innerHTML = k.negative_keywords?.map(w => `<span class="badge bg-danger-subtle text-danger badge-kw">${w}</span>`).join('') || 'None';
-}
-
-function renderRecommendations(recs) {
-  el.recommendationsList.innerHTML = recs?.length 
-    ? recs.map(r => `<div class="recommendation-badge">${r}</div>`).join('')
-    : '<p class="text-muted small">Stable performance. Maintain current standards.</p>';
-}
-
-function renderReviewsList() {
-  const sort = el.sortReviews.value;
-  let items = [...reviewsDataGlobal];
-  if (sort === 'newest') items.sort((a,b) => new Date(b.review_time) - new Date(a.review_time));
-  if (sort === 'highest') items.sort((a,b) => b.rating - a.rating);
-  if (sort === 'lowest') items.sort((a,b) => a.rating - b.rating);
-
-  el.reviewsList.innerHTML = items.map(r => `
-    <div class="list-group-item border-bottom py-3">
-      <div class="d-flex justify-content-between small text-muted"><strong>${r.author_name}</strong><span>${r.review_time}</span></div>
-      <div class="text-warning my-1">${'★'.repeat(r.rating)}</div>
-      <p class="mb-0 small">${r.text || 'No comment.'}</p>
-    </div>`).join('');
-}
-
-// Google Places Integration
+// ────────────────────────────────────────────────
+// Google Places Logic
+// ────────────────────────────────────────────────
 function loadGoogleScript() {
   const script = document.createElement('script');
-  script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_API_KEY}&libraries=places&callback=initGooglePlaces`;
+  script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_PLACES_API_KEY}&libraries=places&callback=initGooglePlaces`;
   script.async = true;
+  script.onerror = () => {
+    console.error("Google Maps script failed to load");
+    alert("Google Maps could not load. Check your API key restrictions, billing, or console for errors.");
+  };
   document.head.appendChild(script);
 }
 
 window.initGooglePlaces = function() {
+  console.log("Google Places library loaded successfully");
   const autocomplete = new google.maps.places.Autocomplete(el.placeSearch, {
-    types: ['establishment'],
-    fields: ['place_id', 'name', 'formatted_address', 'rating', 'user_ratings_total', 'formatted_phone_number', 'website', 'types']
+    types: ['establishment', 'lodging', 'restaurant', 'hotel'],
+    fields: [
+      'place_id', 'name', 'formatted_address', 'rating', 'user_ratings_total',
+      'formatted_phone_number', 'website', 'types'
+    ]
   });
 
   autocomplete.addListener('place_changed', () => {
     const place = autocomplete.getPlace();
-    if (!place.place_id) return;
+    if (!place.place_id) {
+      console.warn("No valid place selected");
+      return;
+    }
+
+    console.log("Selected place data:", place);
 
     el.previewBox.style.display = 'block';
-    el.prevName.value = place.name || '';
-    el.prevAddress.value = place.formatted_address || '';
-    el.prevPhone.value = place.formatted_phone_number || '';
-    el.prevCategory.value = place.types?.join(', ') || '';
-    el.prevWebsite.value = place.website || '';
-    el.prevRating.value = place.rating || '0';
-    el.prevReviewCount.value = place.user_ratings_total || '0';
+    
+    el.prevName.value = place.name || 'Not available';
+    el.prevAddress.value = place.formatted_address || 'Not available';
+    el.prevPhone.value = place.formatted_phone_number || 'Not listed';
+    el.prevCategory.value = place.types?.join(', ') || 'Not specified';
+    el.prevWebsite.value = place.website || 'No website';
+    el.prevRating.value = place.rating ? `${place.rating} / 5` : 'No rating';
+    el.prevReviewCount.value = place.user_ratings_total ? `${place.user_ratings_total} reviews` : 'No reviews';
 
     selectedPlace = {
-      name: place.name,
+      name: place.name || '',
       place_id: place.place_id,
-      address: place.formatted_address,
-      phone: place.formatted_phone_number,
-      category: place.types?.[0] || 'Business',
-      website: place.website,
+      address: place.formatted_address || '',
+      phone: place.formatted_phone_number || '',
+      category: place.types?.join(', ') || '',
+      website: place.website || '',
       avg_rating: place.rating || 0,
       review_count: place.user_ratings_total || 0
     };
+
     el.saveBtn.disabled = false;
   });
 };
 
 el.saveBtn.onclick = async () => {
-  if (!selectedPlace) return;
+  if (!selectedPlace) {
+    alert("Please select a business from the suggestions first.");
+    return;
+  }
+
   el.saveBtn.disabled = true;
-  const res = await fetch('/companies/add', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(selectedPlace)
-  });
-  const data = await res.json();
-  if (data.success) {
-    location.reload();
-  } else {
-    alert(data.message);
+  el.saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Syncing...';
+
+  try {
+    const res = await fetch('/companies/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(selectedPlace)
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+      alert('Business synced successfully!');
+      location.reload(); // Refresh to show new company in dropdown
+    } else {
+      alert(data.message || 'Failed to sync business');
+    }
+  } catch (err) {
+    alert('Error syncing business. Check console for details.');
+    console.error(err);
+  } finally {
     el.saveBtn.disabled = false;
+    el.saveBtn.innerHTML = 'Add & Sync Reviews';
   }
 };
 
+// ────────────────────────────────────────────────
+// Dashboard Data Fetch
+// ────────────────────────────────────────────────
+async function fetchDashboardData() {
+  const cid = el.companySelect.value;
+  if (!cid) return;
+
+  document.getElementById('loadingBox').style.display = 'block';
+
+  const q = new URLSearchParams({ company_id: cid, start: el.startDate.value, end: el.endDate.value }).toString();
+
+  try {
+    const [kpis, aspects, complaints, keywords, recs] = await Promise.all([
+      fetch(`/api/kpis?${q}`).then(r => r.json()),
+      fetch(`/api/aspects/avg?${q}`).then(r => r.json()),
+      fetch(`/api/complaints/stats?${q}`).then(r => r.json()),
+      fetch(`/api/keywords/top?${q}`).then(r => r.json()),
+      fetch(`/api/recommendations/simple?${q}`).then(r => r.json())
+    ]);
+
+    el.kpiTotal.innerText = kpis.total_reviews || 0;
+    el.kpiRating.innerText = kpis.avg_rating?.toFixed(1) || '0.0';
+    el.kpiComplaintRate.innerText = (complaints.complaint_rate || 0) + '%';
+
+    el.aspectsContainer.innerHTML = '';
+    Object.entries(aspects.aspects || {}).forEach(([key, val]) => {
+      const color = val > 0.1 ? '#198754' : val < -0.1 ? '#dc3545' : '#ffc107';
+      el.aspectsContainer.innerHTML += `
+        <div class="col-4">
+          <div class="card p-3 text-center aspect-card" style="border-left-color:${color}">
+            <small class="text-uppercase text-muted" style="font-size:0.75rem">${key}</small>
+            <h5 class="fw-bold" style="color:${color}">${val.toFixed(2)}</h5>
+          </div>
+        </div>`;
+    });
+
+    el.posKeys.innerHTML = keywords.positive_keywords?.map(k => `<span class="badge bg-success-subtle text-success border border-success me-1">${k}</span>`).join('') || '<span class="badge bg-light text-muted">None</span>';
+    el.negKeys.innerHTML = keywords.negative_keywords?.map(k => `<span class="badge bg-danger-subtle text-danger border border-danger me-1">${k}</span>`).join('') || '<span class="badge bg-light text-muted">None</span>';
+
+    el.recsList.innerHTML = recs.recommendations?.map(r => `<div class="recommendation-badge">${r}</div>`).join('') || '<div class="text-muted small text-center py-3">No recommendations yet</div>';
+
+  } catch (err) {
+    console.error("Dashboard fetch error:", err);
+    document.getElementById('errorBox').style.display = 'block';
+  } finally {
+    document.getElementById('loadingBox').style.display = 'none';
+  }
+}
+
+// ────────────────────────────────────────────────
+// Initialization
+// ────────────────────────────────────────────────
 window.onload = async () => {
   loadGoogleScript();
+
+  // Load companies
+  const res = await fetch('/api/companies/list');
+  const data = await res.json();
+  el.companySelect.innerHTML = data.companies?.map(c => `<option value="${c.id}">${c.name}</option>`).join('') || '<option>No businesses found</option>';
+
+  // Default date range: last 30 days
   const end = new Date().toISOString().split('T')[0];
   const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  document.getElementById('startDate').value = start;
-  document.getElementById('endDate').value = end;
-  await loadCompanies();
-  if (currentCompanyId) fetchDashboardData();
+  el.startDate.value = start;
+  el.endDate.value = end;
+
+  // Auto-fetch if company selected
+  if (el.companySelect.value) fetchDashboardData();
 };
+
+el.fetchBtn.onclick = fetchDashboardData;
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
