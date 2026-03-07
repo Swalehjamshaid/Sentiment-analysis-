@@ -2,7 +2,7 @@ from __future__ import annotations
 from sqlalchemy import (
     Column, Integer, String, Float, Text, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint
 )
-from sqlalchemy.orm import declarative_base, relationship, synonym
+from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime
 
 # ---------------------------------------------------
@@ -11,7 +11,7 @@ from datetime import datetime
 Base = declarative_base()
 
 # Update this whenever schema changes
-SCHEMA_VERSION = "6.0.4-outscraper-full"
+SCHEMA_VERSION = "6.0.5-outscraper-full"
 
 # ---------------------------------------------------
 # Users
@@ -42,17 +42,17 @@ class Company(Base):
     id = Column(Integer, primary_key=True, index=True)
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
 
-    # Google Identifiers
+    # Basic info
     name = Column(String(255), nullable=False)
-    place_id = Column(String(512), unique=True, index=True)
-    google_id = Column(String(255))
+    address = Column(String(1000), nullable=True)  # Fixes AttributeError
 
-    # Use synonym to avoid SAWarning
-    google_place_id = synonym("place_id")
+    # Google Identifiers
+    google_place_id = Column(String(512), unique=True, index=True)  # used for API
+    internal_place_id = Column(String(255), nullable=True)          # optional internal ID
+    google_id = Column(String(255), nullable=True)
 
     # Location
     full_address = Column(String(1000))
-    address = Column(String(1000))  # Added to fix AttributeError
     city = Column(String(255))
     state = Column(String(255))
     postal_code = Column(String(50))
