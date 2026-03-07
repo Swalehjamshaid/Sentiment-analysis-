@@ -10,8 +10,8 @@ from datetime import datetime
 # ---------------------------------------------------
 Base = declarative_base()
 
-# Update this whenever schema changes
-SCHEMA_VERSION = "6.0.5-outscraper-full"
+# Bumped version to force a clean database recreation with new columns
+SCHEMA_VERSION = "6.0.6-outscraper-full"
 
 # ---------------------------------------------------
 # Users
@@ -27,14 +27,14 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
 
     email_verified = Column(Boolean, default=False)
-    profile_pic = Column(String(1000))
+    profile_pic = Column(String(1000), nullable=True)
     role = Column(String(50), default="editor")
 
     created_at = Column(DateTime, default=datetime.utcnow)
     companies = relationship("Company", back_populates="owner")
 
 # ---------------------------------------------------
-# Companies (Google Business / Outscraper Data)
+# Companies
 # ---------------------------------------------------
 class Company(Base):
     __tablename__ = "companies"
@@ -44,14 +44,14 @@ class Company(Base):
 
     # Basic info
     name = Column(String(255), nullable=False)
-    address = Column(String(1000), nullable=True)  # Fixes AttributeError
+    address = Column(String(1000), nullable=True)  # FIX: Prevents AttributeError
 
     # Google Identifiers
-    google_place_id = Column(String(512), unique=True, index=True)  # used for API
-    internal_place_id = Column(String(255), nullable=True)          # optional internal ID
+    google_place_id = Column(String(512), unique=True, index=True)
+    internal_place_id = Column(String(255), nullable=True) 
     google_id = Column(String(255), nullable=True)
 
-    # Location
+    # Location Details
     full_address = Column(String(1000))
     city = Column(String(255))
     state = Column(String(255))
@@ -65,35 +65,27 @@ class Company(Base):
     website = Column(String(512))
     email = Column(String(255))
 
-    # Categories
+    # Categories & Stats
     category = Column(String(255))
     sub_categories = Column(JSON)
     type = Column(JSON)
-
-    # Business info
     business_status = Column(String(50))
-    permanently_closed = Column(Boolean)
+    permanently_closed = Column(Boolean, default=False)
+    rating = Column(Float, default=0.0)
+    reviews_count = Column(Integer, default=0)
 
-    # Metrics
-    rating = Column(Float)
-    reviews_count = Column(Integer)
-
-    # Media
+    # Media & Hours
     photos = Column(JSON)
-
-    # Hours
     working_hours = Column(JSON)
     popular_times = Column(JSON)
-
-    # Attributes
     business_attributes = Column(JSON)
 
-    # Google URLs
+    # URLs
     google_maps_url = Column(String(1000))
     place_url = Column(String(1000))
 
     # Sync tracking
-    last_synced_at = Column(DateTime)
+    last_synced_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -103,7 +95,7 @@ class Company(Base):
     competitors = relationship("Competitor", back_populates="company", cascade="all, delete-orphan")
 
 # ---------------------------------------------------
-# Reviews (Outscraper Full Output)
+# Reviews
 # ---------------------------------------------------
 class Review(Base):
     __tablename__ = "reviews"
@@ -118,7 +110,7 @@ class Review(Base):
     google_review_id = Column(String(512), nullable=False, index=True)
     review_url = Column(String(1000))
 
-    # Reviewer
+    # Reviewer Information
     author_name = Column(String(255))
     author_id = Column(String(255))
     author_url = Column(String(1000))
@@ -132,20 +124,18 @@ class Review(Base):
     review_language = Column(String(50))
     google_review_time = Column(DateTime)
 
-    # Owner Response
+    # Response
     owner_answer = Column(Text)
     owner_answer_timestamp = Column(DateTime)
 
     # Metrics
     review_likes = Column(Integer, default=0)
     review_photos = Column(JSON)
+    is_local_guide = Column(Boolean, default=False)
 
-    # Metadata
-    is_local_guide = Column(Boolean)
-
-    # AI Processing Fields
+    # AI Processing (Crucial for Dashboard Fetching)
     sentiment_label = Column(String(50))
-    sentiment_score = Column(Float)
+    sentiment_score = Column(Float, default=0.0)
     keywords = Column(JSON)
     topic_tags = Column(JSON)
     spam_score = Column(Float)
@@ -173,11 +163,10 @@ class Competitor(Base):
     company = relationship("Company", back_populates="competitors")
 
 # ---------------------------------------------------
-# Notifications (for dashboard alerts)
+# Audit & Notifications
 # ---------------------------------------------------
 class Notification(Base):
     __tablename__ = "notifications"
-
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     title = Column(String(255))
@@ -185,12 +174,8 @@ class Notification(Base):
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# ---------------------------------------------------
-# Audit Logs
-# ---------------------------------------------------
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
     action = Column(String(255), nullable=False)
@@ -198,11 +183,7 @@ class AuditLog(Base):
     ip_address = Column(String(100))
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# ---------------------------------------------------
-# Config (schema version tracking)
-# ---------------------------------------------------
 class Config(Base):
     __tablename__ = "config"
-
     key = Column(String(255), primary_key=True)
     value = Column(String(255))
