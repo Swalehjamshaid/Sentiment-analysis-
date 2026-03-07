@@ -1,154 +1,142 @@
-# File: /app/core/models.py
+# File: /app/main.py
+
 from __future__ import annotations
-from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, Text, ForeignKey
-from sqlalchemy.orm import declarative_base, relationship
-from datetime import datetime
 
-# Track schema version → increment whenever models change
-SCHEMA_VERSION = "3.0.0"
+import logging
+import os
+from contextlib import asynccontextmanager
 
-Base = declarative_base()
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 
-# =======================
-# Core Tables
-# =======================
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.staticfiles import StaticFiles
+from starlette.templating import Jinja2Templates
 
-class User(Base):
-    __tablename__ = "users"
+from sqlalchemy.ext.asyncio import AsyncEngine
 
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(50), unique=True, nullable=False)
-    email = Column(String(100), unique=True, nullable=False)
-    hashed_password = Column(String(200), nullable=False)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+from app.core.config import settings
+from app.core.db import get_engine
+from app.core.models import Base, SCHEMA_VERSION
 
-    notifications = relationship("Notification", back_populates="user")
-    audit_logs = relationship("AuditLog", back_populates="user")
+# Import routers (no attribute changes)
+from app.routes import auth as auth_routes
+from app.routes import companies as companies_routes
+from app.routes import dashboard as dashboard_routes
+from app.routes import reviews as reviews_routes
+from app.routes import exports as exports_routes
 
-
-class Company(Base):
-    __tablename__ = "companies"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(200), nullable=False)
-    address = Column(String(300))
-    phone = Column(String(50))
-    website = Column(String(200))
-    google_place_id = Column(String(100), unique=True)
-    category = Column(String(100))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    reviews = relationship("Review", back_populates="company")
-    competitors = relationship("Competitor", back_populates="company")
+# Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-class Review(Base):
-    __tablename__ = "reviews"
+# --------------------------------------------------
+# Lifespan manager (database initialization)
+# --------------------------------------------------
 
-    id = Column(Integer, primary_key=True, index=True)
-    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"))
-    author_name = Column(String(200))
-    rating = Column(Float)
-    text = Column(Text)
-    time_created = Column(DateTime)
-    source = Column(String(50))  # Google, Outscraper, etc.
-    created_at = Column(DateTime, default=datetime.utcnow)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
 
-    company = relationship("Company", back_populates="reviews")
-    extras = relationship("ReviewExtra", back_populates="review")
+    try:
 
+        engine: AsyncEngine = get_engine()
 
-class Competitor(Base):
-    __tablename__ = "competitors"
+        logger.info("Starting application...")
 
-    id = Column(Integer, primary_key=True, index=True)
-    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"))
-    competitor_name = Column(String(200))
-    competitor_place_id = Column(String(100))
-    distance_km = Column(Float)
-    created_at = Column(DateTime, default=datetime.utcnow)
+        async with engine.begin() as conn:
 
-    company = relationship("Company", back_populates="competitors")
-    extras = relationship("CompetitorExtra", back_populates="competitor")
+            logger.info("Creating database tables if missing")
 
+            # This WILL NOT delete existing tables
+            await conn.run_sync(Base.metadata.create_all)
 
-class AuditLog(Base):
-    __tablename__ = "audit_logs"
+            logger.info("Database tables verified")
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
-    action = Column(String(200))
-    table_name = Column(String(100))
-    record_id = Column(Integer)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    except Exception as e:
 
-    user = relationship("User", back_populates="audit_logs")
+        logger.error(f"Database initialization failed: {e}", exc_info=True)
+
+    yield
+
+    logger.info("Application shutdown complete")
 
 
-class Config(Base):
-    __tablename__ = "config"
+# --------------------------------------------------
+# FastAPI app (THIS FIXES YOUR ERROR)
+# --------------------------------------------------
 
-    key = Column(String(50), primary_key=True)
-    value = Column(String(100))
-
-
-class Notification(Base):
-    __tablename__ = "notifications"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
-    title = Column(String(200))
-    message = Column(Text)
-    is_read = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    user = relationship("User", back_populates="notifications")
+app = FastAPI(
+    title=settings.APP_NAME,
+    debug=settings.DEBUG,
+    lifespan=lifespan
+)
 
 
-# =======================
-# Outscraper Output Tables
-# =======================
+# --------------------------------------------------
+# Middleware
+# --------------------------------------------------
 
-class PlaceDetails(Base):
-    __tablename__ = "place_details"
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    id = Column(Integer, primary_key=True)
-    place_id = Column(String(100), unique=True)
-    name = Column(String(200))
-    address = Column(String(300))
-    phone = Column(String(50))
-    website = Column(String(200))
-    rating = Column(Float)
-    total_reviews = Column(Integer)
-    category = Column(String(100))
-    latitude = Column(Float)
-    longitude = Column(Float)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-
-class ReviewExtra(Base):
-    __tablename__ = "review_extras"
-
-    id = Column(Integer, primary_key=True)
-    review_id = Column(Integer, ForeignKey("reviews.id", ondelete="CASCADE"))
-    sentiment = Column(String(50))  # Positive, Neutral, Negative
-    language = Column(String(20))
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    review = relationship("Review", back_populates="extras")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.SECRET_KEY,
+    session_cookie=settings.SESSION_COOKIE_NAME,
+    same_site=settings.SESSION_COOKIE_SAMESITE,
+    https_only=settings.SESSION_COOKIE_SECURE,
+)
 
 
-class CompetitorExtra(Base):
-    __tablename__ = "competitor_extras"
+# --------------------------------------------------
+# Static + Templates
+# --------------------------------------------------
 
-    id = Column(Integer, primary_key=True)
-    competitor_id = Column(Integer, ForeignKey("competitors.id", ondelete="CASCADE"))
-    category = Column(String(100))
-    rating = Column(Float)
-    total_reviews = Column(Integer)
-    created_at = Column(DateTime, default=datetime.utcnow)
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
-    competitor = relationship("Competitor", back_populates="extras")
+templates = Jinja2Templates(directory="app/templates")
+
+
+# --------------------------------------------------
+# Landing Page
+# --------------------------------------------------
+
+@app.get("/", response_class=HTMLResponse)
+async def landing(request: Request):
+
+    return templates.TemplateResponse(
+        "landing.html",
+        {
+            "request": request,
+            "title": settings.APP_NAME,
+            "settings": settings
+        }
+    )
+
+
+# --------------------------------------------------
+# Routers (no attributes removed)
+# --------------------------------------------------
+
+app.include_router(auth_routes.router)
+app.include_router(companies_routes.router)
+app.include_router(dashboard_routes.router)
+app.include_router(reviews_routes.router)
+app.include_router(exports_routes.router)
+
+
+# --------------------------------------------------
+# Health check
+# --------------------------------------------------
+
+@app.get("/health")
+async def health():
+
+    return {"status": "ok"}
