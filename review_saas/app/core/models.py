@@ -10,8 +10,8 @@ from datetime import datetime
 # ---------------------------------------------------
 Base = declarative_base()
 
-# Bumped version to force a clean database recreation with new columns
-SCHEMA_VERSION = "6.0.7-outscraper-full"
+# Bumped version to 6.0.8 to force a clean database recreation
+SCHEMA_VERSION = "6.0.8-outscraper-full"
 
 # ---------------------------------------------------
 # Users
@@ -115,7 +115,7 @@ class Review(Base):
     author_id = Column(String(255))
     author_url = Column(String(1000))
     
-    # NEW FIELDS: Fixes TypeError: 'profile_photo_url' is an invalid keyword argument
+    # FIX: Added profile_photo_url to prevent TypeError from Outscraper service
     profile_photo_url = Column(String(1000), nullable=True) 
     author_profile_photo = Column(String(1000), nullable=True) 
     
@@ -128,17 +128,18 @@ class Review(Base):
     review_language = Column(String(50))
     google_review_time = Column(DateTime)
 
-    # NEW FIELD: Fixes mapping for owner response in google_reviews.py
+    # Response / Reply Fields
     owner_answer = Column(Text)
+    # FIX: Added review_reply_text to match ingest_company_reviews logic
     review_reply_text = Column(Text, nullable=True) 
     owner_answer_timestamp = Column(DateTime)
 
-    # Metrics
+    # Metrics & Metadata
     review_likes = Column(Integer, default=0)
     review_photos = Column(JSON)
     is_local_guide = Column(Boolean, default=False)
 
-    # AI Processing
+    # AI Processing Fields (Required for charts)
     sentiment_label = Column(String(50))
     sentiment_score = Column(Float, default=0.0)
     keywords = Column(JSON)
@@ -149,11 +150,10 @@ class Review(Base):
     company = relationship("Company", back_populates="reviews")
 
 # ---------------------------------------------------
-# Competitors
+# Competitors, Notifications, Audit
 # ---------------------------------------------------
 class Competitor(Base):
     __tablename__ = "competitors"
-
     id = Column(Integer, primary_key=True)
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(255), nullable=False)
@@ -167,9 +167,6 @@ class Competitor(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     company = relationship("Company", back_populates="competitors")
 
-# ---------------------------------------------------
-# Notifications & Audit
-# ---------------------------------------------------
 class Notification(Base):
     __tablename__ = "notifications"
     id = Column(Integer, primary_key=True)
