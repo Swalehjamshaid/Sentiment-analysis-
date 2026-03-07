@@ -4,9 +4,8 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 
-# This line should now work after you add PYTHONPATH=/app in Railway Variables
+# Ensure these paths match your actual directory structure
 from app.db.session import get_db
-
 from app.models.review import Review
 from app.models.company import Company
 from app.services.google_reviews import (
@@ -46,6 +45,7 @@ async def ingest_reviews(
             exists = db.query(Review).filter(
                 Review.external_review_id == review_id
             ).first()
+
             if exists:
                 continue
 
@@ -70,6 +70,7 @@ async def ingest_reviews(
         }
 
     except Exception as e:
+        db.rollback() # Good practice to rollback on error
         raise HTTPException(status_code=500, detail=f"Failed to ingest reviews: {str(e)}")
 
 
@@ -143,6 +144,7 @@ async def fetch_place_details(place_id: str):
     try:
         data = await outscraper_service.fetch_reviews(place_id, limit=1)
         return {"status": "success", "place_id": place_id, "sample_review": data}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch place details: {str(e)}")
 
@@ -157,5 +159,10 @@ def review_stats(company_id: int, db: Session = Depends(get_db)):
     if total == 0:
         return {"total_reviews": 0, "avg_rating": 0}
 
-    avg_rating = sum(r.rating for r in reviews if r.rating) / total
+    # Added a small check for None ratings to prevent crashes
+    valid_ratings = [r.rating for r in reviews if r.rating is not None]
+    if not valid_ratings:
+        return {"total_reviews": total, "avg_rating": 0}
+        
+    avg_rating = sum(valid_ratings) / len(valid_ratings)
     return {"total_reviews": total, "avg_rating": round(avg_rating, 2)}
