@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Strategic Dashboard - ReviewSaaS</title>
+
   <!-- Bootstrap & Chart.js -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -18,15 +19,9 @@
     .recommendation-badge { font-size: 0.85rem; display:block; border-left:3px solid #0dcaf0; background:#f0f9ff; padding:8px; margin-bottom:8px; border-radius:4px; color:#055160; }
     .badge-kw { font-size:0.8rem; margin:2px; }
     .badge-topic { font-size:.7rem; margin-left:6px; }
-    .alert-chip { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; background:#fff; border:1px solid #e8ecef; border-left:4px solid #0dcaf0; border-radius:6px; margin:4px; font-size:0.85rem; }
-    .alert-chip.high { border-left-color:#dc3545; }
-    .alert-chip.medium { border-left-color:#fd7e14; }
-    .alert-chip.low { border-left-color:#198754; }
-    .kpi-card { min-height: 84px; }
-    .small-muted { font-size: .8rem; color: #6c757d; }
-    .urgent { background: #fff2f2; border-left: 4px solid #dc3545; }
     .neutral-chip { background:#f8f9fa; border:1px solid #e9ecef; padding:2px 6px; border-radius:4px; font-size:.75rem; color:#6c757d; }
-    .text-xxs { font-size: .72rem; }
+    .kpi-card { min-height: 84px; }
+    .urgent { background: #fff2f2; border-left: 4px solid #dc3545; }
   </style>
 </head>
 <body>
@@ -70,7 +65,7 @@
   <div id="nodataBox" class="alert alert-warning nodata-msg">No data found for this selection.</div>
   <div id="errorBox" class="alert alert-danger error-msg">Error communicating with backend.</div>
 
-  <!-- KPIs -->
+  <!-- KPIs (preserved) -->
   <div class="row g-3 mt-2">
     <div class="col-md-3"><div class="p-3 bg-white shadow-sm rounded text-center kpi-card">Total Reviews <h4 id="kpi-total" class="mb-0 fw-bold">0</h4></div></div>
     <div class="col-md-3"><div class="p-3 bg-white shadow-sm rounded text-center text-warning kpi-card">Avg Rating <h4 id="kpi-rating" class="mb-0 fw-bold">0.0</h4></div></div>
@@ -78,39 +73,7 @@
     <div class="col-md-3"><div class="p-3 bg-white shadow-sm rounded text-center text-info kpi-card">New (24h) <h4 id="kpi-new" class="mb-0 fw-bold">0</h4></div></div>
   </div>
 
-  <!-- Secondary KPI Row (non-breaking, helpful to “fill” attributes) -->
-  <div class="row g-3 mt-2">
-    <div class="col-md-3">
-      <div class="p-3 bg-white shadow-sm rounded text-center">
-        Health Score
-        <h4 id="kpi-health" class="mb-0 fw-bold">—</h4>
-        <div class="small-muted" id="kpi-verdict">—</div>
-      </div>
-    </div>
-    <div class="col-md-3">
-      <div class="p-3 bg-white shadow-sm rounded text-center">
-        Complaint Rate
-        <h4 id="kpi-complaint-rate" class="mb-0 fw-bold">0%</h4>
-        <div class="small-muted">Complaints / total</div>
-      </div>
-    </div>
-    <div class="col-md-3">
-      <div class="p-3 bg-white shadow-sm rounded text-center">
-        Praise
-        <h4 id="kpi-praise" class="mb-0 fw-bold">0</h4>
-        <div class="small-muted">Positive mentions</div>
-      </div>
-    </div>
-    <div class="col-md-3">
-      <div class="p-3 bg-white shadow-sm rounded text-center">
-        Window
-        <h6 class="mb-0 fw-bold"><span id="window-start">—</span> → <span id="window-end">—</span></h6>
-        <div class="small-muted">Selected period</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Charts -->
+  <!-- Charts (preserved) -->
   <div class="row g-3 mt-3">
     <div class="col-lg-8">
       <div class="card border-0 shadow-sm">
@@ -127,34 +90,16 @@
           <canvas id="ratingsDist" height="150"></canvas>
         </div>
       </div>
-      <div class="card border-0 shadow-sm mb-3">
+      <div class="card border-0 shadow-sm">
         <div class="card-body">
           <h6 class="text-muted fw-bold">Sentiment Trend</h6>
           <canvas id="sentSeries" height="150"></canvas>
         </div>
       </div>
-      <div class="card border-0 shadow-sm">
-        <div class="card-body">
-          <h6 class="text-muted fw-bold">Rating Trend</h6>
-          <canvas id="ratingSeries" height="150"></canvas>
-        </div>
-      </div>
     </div>
   </div>
 
-  <!-- Proactive Alerts -->
-  <div class="row g-3 mt-3">
-    <div class="col-12">
-      <div class="card border-0 shadow-sm">
-        <div class="card-body">
-          <h6 class="text-muted fw-bold">Proactive Alerts</h6>
-          <div id="alertsList"><span class="neutral-chip">No alerts.</span></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Strategic Intelligence -->
+  <!-- Strategic Intelligence (preserved) -->
   <div class="row g-3 mt-4">
     <div class="col-12"><h5 class="fw-bold text-dark border-bottom pb-2">Strategic Intelligence</h5></div>
 
@@ -165,8 +110,6 @@
           <div class="row g-3" id="aspectsContainer">
             <p class="text-center text-muted small py-4">Select a company to view departmental analysis</p>
           </div>
-          <hr>
-          <canvas id="aspectsRadar" height="140"></canvas>
         </div>
       </div>
     </div>
@@ -176,9 +119,6 @@
         <div class="card-body">
           <h6 class="text-muted fw-bold mb-3">Operational Overview</h6>
           <div id="complaintsStats" class="row text-center"></div>
-          <div class="mt-3">
-            <canvas id="operationalPie" height="130"></canvas>
-          </div>
         </div>
       </div>
 
@@ -186,9 +126,7 @@
         <div class="card-body">
           <h6 class="text-muted fw-bold mb-3">Mentioned Themes</h6>
           <div class="mb-2"><small class="text-success fw-bold">Positives:</small> <div id="keywordsPositive" class="d-inline"></div></div>
-          <div class="mb-2"><small class="text-danger fw-bold">Pain Points:</small> <div id="keywordsNegative" class="d-inline"></div></div>
-          <div class="mb-2"><small class="text-primary fw-bold">Top Bigrams:</small> <div id="keywordsBigrams" class="d-inline"></div></div>
-          <div><small class="text-warning fw-bold">Emerging (7d):</small> <div id="keywordsEmerging" class="d-inline"></div></div>
+          <div><small class="text-danger fw-bold">Pain Points:</small> <div id="keywordsNegative" class="d-inline"></div></div>
         </div>
       </div>
 
@@ -201,7 +139,7 @@
     </div>
   </div>
 
-  <!-- Guest Feedback Feed -->
+  <!-- Guest Feedback Feed (preserved) -->
   <div class="row g-3 mt-4">
     <div class="col-12">
       <div class="card border-0 shadow-sm">
@@ -219,22 +157,12 @@
       </div>
     </div>
   </div>
-
-  <!-- Urgent Issues -->
-  <div class="row g-3 mt-3">
-    <div class="col-12">
-      <div class="card border-0 shadow-sm">
-        <div class="card-body">
-          <h6 class="text-muted fw-bold mb-2">Urgent Issues (Auto-detected)</h6>
-          <div id="urgentIssuesList"><span class="neutral-chip">None.</span></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
 </div>
 
 <script>
+/* ------------------------------
+   DOM refs (preserve IDs)
+------------------------------ */
 const el = {
   companySelect: document.getElementById('companySelect'),
   fetchBtn: document.getElementById('fetchBtn'),
@@ -248,174 +176,139 @@ const el = {
   kpiRating: document.getElementById('kpi-rating'),
   kpiSent: document.getElementById('kpi-sent'),
   kpiNew: document.getElementById('kpi-new'),
-  kpiHealth: document.getElementById('kpi-health'),
-  kpiVerdict: document.getElementById('kpi-verdict'),
-  kpiComplaintRate: document.getElementById('kpi-complaint-rate'),
-  kpiPraise: document.getElementById('kpi-praise'),
-  windowStart: document.getElementById('window-start'),
-  windowEnd: document.getElementById('window-end'),
-  alertsList: document.getElementById('alertsList'),
-  urgentIssuesList: document.getElementById('urgentIssuesList'),
+  aspectsContainer: document.getElementById('aspectsContainer'),
+  complaintsStats: document.getElementById('complaintsStats'),
+  keywordsPositive: document.getElementById('keywordsPositive'),
+  keywordsNegative: document.getElementById('keywordsNegative'),
+  recommendationsList: document.getElementById('recommendationsList')
 };
+
 let currentCompanyId = null;
 let charts = {};
 let reviewsDataGlobal = [];
 let widenedOnce = false; // auto-widen guard
 
+/* ------------------------------
+   Helpers
+------------------------------ */
 const show = (id, v) => el[id] && (el[id].style.display = v ? 'block' : 'none');
 const qs = (o) => new URLSearchParams(Object.entries(o).filter(([_,v]) => v !== undefined && v !== null && v !== '')).toString();
 
 async function safeJsonFetch(url, fallback = {}) {
   try {
     const res = await fetch(url, { credentials: 'same-origin' });
-    if (!res.ok) {
-      console.warn('API non-200', url, res.status);
-      show('errorBox', true);
-      return fallback;
-    }
+    if (!res.ok) { show('errorBox', true); return fallback; }
     return await res.json();
-  } catch (e) {
-    console.error('API exception', url, e);
+  } catch {
     show('errorBox', true);
     return fallback;
   }
 }
+
+function destroyCharts(){ Object.values(charts).forEach(c=>c?.destroy?.()); charts = {}; }
+function ensureSeries(series){ return Array.isArray(series) && series.length ? series : [{date: new Date().toISOString().split('T')[0], value: 0}]; }
+function ensureDist(dist){ return (dist && Object.keys(dist).length) ? dist : {1:0,2:0,3:0,4:0,5:0}; }
 function renderStars(n=0){ const r = Math.round(n||0); return '★'.repeat(r) + '☆'.repeat(5-r); }
-function sentimentBadge(label){
-  const map = { positive:'success', neutral:'secondary', negative:'danger' };
-  return `<span class="badge bg-${map[label]||'secondary'} text-xxs text-uppercase">${label||'neutral'}</span>`;
+function addNote(sectionEl, msg){ if(!sectionEl) return; if(!sectionEl.querySelector('.neutral-chip')) sectionEl.insertAdjacentHTML('beforeend', `<div class="neutral-chip mt-2">${msg}</div>`); }
+
+function makeLine(ctx, labels, values, label, color, fill=false, yMin=null, yMax=null) {
+  return new Chart(ctx, { type:'line', data:{ labels, datasets:[{ label, data:values, borderColor:color, backgroundColor:color+'33', tension:.3, fill }]}, options:{ plugins:{ legend:{ display:false } }, scales:{ y:{ min:yMin, max:yMax } } }});
 }
-function ensureArray(arr, fallback=[{date: (new Date()).toISOString().slice(0,10), value: 0}]){
-  return (Array.isArray(arr) && arr.length) ? arr : fallback;
-}
-function ensureLabelsValues(series){
-  const s = ensureArray(series);
-  return { labels: s.map(x=>x.date), values: s.map(x=>x.value ?? 0) };
-}
-function ensureDist(dist){
-  return dist && Object.keys(dist).length ? dist : {1:0,2:0,3:0,4:0,5:0};
-}
-function destroyCharts(){ Object.values(charts).forEach(c => c?.destroy?.()); charts = {}; }
-function makeLine(ctx, labels, values, label, color, fill=false, yMin=null, yMax=null){
-  return new Chart(ctx, {
-    type:'line',
-    data:{ labels, datasets:[{ label, data: values, borderColor: color, backgroundColor: color+'33', tension:.3, fill }]},
-    options:{ plugins:{ legend:{ display:false } }, scales:{ y:{ min:yMin, max:yMax } } }
-  });
-}
-function makeBar(ctx, labels, values, color){
-  return new Chart(ctx, {
-    type:'bar',
-    data:{ labels, datasets:[{ label:'Count', data: values, backgroundColor: color }]},
-    options:{ plugins:{ legend:{ display:false } } }
-  });
-}
-function makeRadar(ctx, labels, values){
-  return new Chart(ctx, {
-    type:'radar',
-    data:{ labels, datasets:[{ label:'Aspects', data: values, backgroundColor:'rgba(13,110,253,0.1)', borderColor:'#0d6efd', pointBackgroundColor:'#0d6efd' }]},
-    options:{ plugins:{ legend:{ display:false } }, scales:{ r:{ suggestedMin:0, suggestedMax:1 } } }
-  });
-}
-function makeDoughnut(ctx, values, labels, colors){
-  return new Chart(ctx, {
-    type:'doughnut',
-    data:{ labels, datasets:[{ data: values, backgroundColor: colors, borderWidth:1 }]},
-    options:{ plugins:{ legend:{ position:'bottom' } } }
-  });
-}
-function renderAlerts(alerts=[]){
-  if(!alerts.length){ el.alertsList.innerHTML = '<span class="neutral-chip">No alerts.</span>'; return; }
-  el.alertsList.innerHTML = alerts.map(a => `
-    <div class="alert-chip ${a.severity||'low'}"><i class="fa-solid fa-bell"></i>
-      <span><strong>${(a.type||'alert').replace('_',' ')}</strong> — ${a.message||''}</span>
-    </div>`).join('');
-}
-function renderReviewsList(){
-  let items=[...reviewsDataGlobal];
-  const sort=el.sortReviews.value;
-  if(sort==='newest') items.sort((a,b)=>new Date(b.review_time)-new Date(a.review_time));
-  else if(sort==='highest') items.sort((a,b)=>(b.rating||0)-(a.rating||0));
-  else if(sort==='lowest') items.sort((a,b)=>(a.rating||0)-(b.rating||0));
-  el.reviewsList.innerHTML=items.length?items.map(r=>`
-    <div class="border-bottom py-3 ${r.is_urgent?'urgent':''}">
-      <div class="d-flex justify-content-between small text-muted">
-        <div class="d-flex align-items-center gap-2">
-          <strong>${r.author_name||'Anonymous'}</strong>
-          ${r.sentiment_label?sentimentBadge(r.sentiment_label):''}
-          ${r.is_urgent?'<span class="badge bg-danger text-xxs text-uppercase">urgent</span>':''}
-        </div>
-        <span>${r.review_time||''}</span>
-      </div>
-      <div class="text-warning my-1">${renderStars(r.rating)}</div>
-      <p class="mb-1 small text-dark">${r.text || '<span class="text-muted italic">No comment left.</span>'}</p>
-      ${(r.detected_topics&&r.detected_topics.length)?`<div class="mt-1">${r.detected_topics.map(t=>`<span class="badge bg-light text-dark border badge-topic">${t}</span>`).join('')}</div>`:''}
-    </div>
-  `).join(''):'<p class="text-muted text-center py-4">No reviews found.</p>';
+function makeBar(ctx, labels, values, color) {
+  return new Chart(ctx, { type:'bar', data:{ labels, datasets:[{ label:'Count', data:values, backgroundColor:color }]}, options:{ plugins:{ legend:{ display:false } } }});
 }
 
-async function loadCompanies(){
+/* ------------------------------
+   Load companies (always choose one)
+------------------------------ */
+async function loadCompanies() {
   const data = await safeJsonFetch('/api/companies/list', { companies: [] });
-  el.companySelect.innerHTML='';
-  if(!data.companies?.length){
-    const opt=document.createElement('option'); opt.value=''; opt.textContent='No companies found';
+  el.companySelect.innerHTML = '';
+  if (!data.companies?.length) {
+    const opt = document.createElement('option');
+    opt.value = ''; opt.textContent = 'No companies found';
     el.companySelect.appendChild(opt);
     currentCompanyId = null;
     show('nodataBox', true);
     return;
   }
-  data.companies.forEach(c => el.companySelect.appendChild(Object.assign(document.createElement('option'), { value: c.id, textContent: c.name })));
+  data.companies.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id; opt.textContent = c.name;
+    el.companySelect.appendChild(opt);
+  });
   const lastId = localStorage.getItem('lastCompanyId');
-  if(lastId && data.companies.some(c=>String(c.id)===String(lastId))) el.companySelect.value = lastId;
+  if (lastId && data.companies.some(c => String(c.id)===String(lastId))) {
+    el.companySelect.value = lastId;
+  }
   currentCompanyId = el.companySelect.value || data.companies[0].id;
-  if(!el.companySelect.value) el.companySelect.value = currentCompanyId;
-  el.companySelect.addEventListener('change', ()=>{ currentCompanyId = el.companySelect.value; localStorage.setItem('lastCompanyId', currentCompanyId); });
+  if (!el.companySelect.value) el.companySelect.value = currentCompanyId;
+  el.companySelect.addEventListener('change', () => {
+    currentCompanyId = el.companySelect.value;
+    localStorage.setItem('lastCompanyId', currentCompanyId);
+  });
 }
 
-async function fetchDashboardData(){
-  if(!currentCompanyId){ show('nodataBox', true); return; }
+/* ------------------------------
+   Render reviews feed (preserved)
+------------------------------ */
+function renderReviewsList() {
+  let items = [...reviewsDataGlobal];
+  const sort = el.sortReviews.value;
+  if (sort==='newest') items.sort((a,b)=>new Date(b.review_time)-new Date(a.review_time));
+  else if (sort==='highest') items.sort((a,b)=>(b.rating||0)-(a.rating||0));
+  else if (sort==='lowest') items.sort((a,b)=>(a.rating||0)-(b.rating||0));
+
+  el.reviewsList.innerHTML = items.length ? items.map(r=>`
+    <div class="border-bottom py-3 ${r.is_urgent?'urgent':''}">
+      <div class="d-flex justify-content-between small text-muted">
+        <strong>${r.author_name||'Anonymous'}</strong>
+        <span>${r.review_time||''}</span>
+      </div>
+      <div class="text-warning my-1">${renderStars(r.rating)}</div>
+      <p class="mb-0 small text-dark">${r.text||'<span class="text-muted italic">No comment left.</span>'}</p>
+    </div>
+  `).join('') : '<p class="text-muted text-center py-4">No reviews found.</p>';
+}
+
+/* ------------------------------
+   Fetch & Fill (guaranteed fill)
+------------------------------ */
+async function fetchDashboardData() {
+  if (!currentCompanyId) { show('nodataBox', true); return; }
   show('loadingBox', true); show('successBox', false); show('nodataBox', false); show('errorBox', false);
 
-  const params = { company_id: currentCompanyId, start: document.getElementById('startDate').value, end: document.getElementById('endDate').value };
+  const params = {
+    company_id: currentCompanyId,
+    start: document.getElementById('startDate').value,
+    end: document.getElementById('endDate').value
+  };
   const q = qs(params);
 
+  // Fetch (legacy endpoints kept so it works even if new ones aren’t deployed)
   const [
     kpis,
-    overview,
     revS,
     ratD,
     sentS,
-    ratSeries,
+    revL,
     aspects,
-    ops,
     complaints,
-    keywordsNew,
-    keywordsOld,
-    recsNew,
-    recsOld,
-    feedNew,
-    feedOld,
-    alerts
+    keywords,
+    recs
   ] = await Promise.all([
-    safeJsonFetch(`/api/kpis?${q}`, { total_reviews:0, avg_rating:0, avg_sentiment:0, new_reviews:0, window:{} }),
-    safeJsonFetch(`/api/series/overview?${q}`, { volume:[], rating:[], sentiment:[], window:{} }),
+    safeJsonFetch(`/api/kpis?${q}`, { total_reviews:0, avg_rating:0, avg_sentiment:0, new_reviews:0 }),
     safeJsonFetch(`/api/series/reviews?${q}`, { series:[] }),
     safeJsonFetch(`/api/ratings/distribution?${q}`, { distribution:{} }),
     safeJsonFetch(`/api/sentiment/series?${q}`, { series:[] }),
-    safeJsonFetch(`/api/series/ratings?${q}`, { series:[] }),
-    safeJsonFetch(`/api/aspects/avg?${q}`, { aspects:{} }),
-    safeJsonFetch(`/api/operational/overview?${q}`, null),
-    safeJsonFetch(`/api/complaints/stats?${q}`, null),
-    safeJsonFetch(`/api/keywords/themes?${q}`, null),
-    safeJsonFetch(`/api/keywords/top?${q}`, { positive_keywords:[], negative_keywords:[] }),
-    safeJsonFetch(`/api/ai/recommendations?${q}`, null),
-    safeJsonFetch(`/api/owner/executive-summary?${q}`, { final_verdict:'', top_action_item:'', business_health_score:0 }),
-    safeJsonFetch(`/api/reviews/feed?${q}`, null),
     safeJsonFetch(`/api/reviews/list?${q}`, { items:[] }),
-    safeJsonFetch(`/api/alerts?${q}`, { alerts: [] })
+    safeJsonFetch(`/api/aspects/avg?${q}`, { aspects:{} }),
+    safeJsonFetch(`/api/complaints/stats?${q}`, { complaint_rate:0,complaint_count:0,praise_count:0,total_reviews:0 }),
+    safeJsonFetch(`/api/keywords/top?${q}`, { positive_keywords:[], negative_keywords:[] }),
+    safeJsonFetch(`/api/owner/executive-summary?${q}`, { final_verdict:'—', top_action_item:'—', business_health_score:0 })
   ]);
 
-  // If the selected window yields zero and we haven't widened yet, auto-widen to a broad window once.
+  // If first attempt shows 0 reviews, auto-widen once to ensure visible fill
   if (!widenedOnce && (kpis.total_reviews ?? 0) === 0) {
     widenedOnce = true;
     document.getElementById('startDate').value = '2019-01-01';
@@ -428,56 +321,43 @@ async function fetchDashboardData(){
   el.kpiRating.textContent = (kpis.avg_rating ?? 0).toFixed(1);
   el.kpiSent.textContent = (kpis.avg_sentiment ?? 0).toFixed(3);
 
-  // New (24h): prefer last day's volume; fallback to backend new_reviews
-  const volSeries = (overview.volume?.length ? overview.volume : (revS.series || []));
-  const lastDayCount = volSeries.length ? (volSeries[volSeries.length-1].value || 0) : 0;
-  el.kpiNew.textContent = lastDayCount || (kpis.new_reviews ?? 0);
+  // New (24h): if backend didn’t supply, derive from last point of volume series
+  const volSeriesSafe = ensureSeries(revS.series);
+  const lastDayCount = volSeriesSafe[volSeriesSafe.length-1]?.value ?? 0;
+  el.kpiNew.textContent = (kpis.new_reviews ?? lastDayCount) || 0;
 
-  // Window display
-  const w = kpis.window || overview.window || {};
-  el.windowStart.textContent = w.start || params.start || '—';
-  el.windowEnd.textContent = w.end || params.end || '—';
-
-  // Health & verdict
-  const recs = recsNew || recsOld || {};
-  el.kpiHealth.textContent = ((recs.business_health_score ?? null) !== null) ? `${recs.business_health_score}%` : '—';
-  el.kpiVerdict.textContent = recs.verdict || recs.final_verdict || '—';
-
-  // Ops KPIs
-  const op = ops || complaints || { complaint_rate: 0, complaint_count: 0, praise_count: 0, total_reviews: 0, urgent_issues: [] };
-  el.kpiComplaintRate.textContent = ((op.complaint_rate ?? 0).toFixed(1)) + '%';
-  el.kpiPraise.textContent = op.praise_count ?? 0;
-
-  // Charts — always render with at least a zero point
+  // Charts (always render, with safe placeholders)
   destroyCharts();
 
   // Volume
-  const { labels: volLabels, values: volValues } = ensureLabelsValues(overview.volume?.length ? overview.volume : revS.series);
+  const volLabels = volSeriesSafe.map(x=>x.date);
+  const volValues = volSeriesSafe.map(x=>x.value ?? 0);
   charts.rev = makeLine(document.getElementById('seriesReviews'), volLabels, volValues, 'Volume', '#0d6efd', true);
 
   // Ratings distribution
   const dist = ensureDist(ratD.distribution);
   const distLabels = Object.keys(dist);
-  const distValues = Object.values(dist).map(v => +v || 0);
+  const distValues = Object.values(dist).map(v=>+v||0);
   charts.dist = makeBar(document.getElementById('ratingsDist'), distLabels, distValues, '#ffc107');
+  if (!distValues.some(v=>v>0)) addNote(document.getElementById('ratingsDist').parentElement, 'No ratings found in this window. Try widening the dates.');
 
   // Sentiment series
-  const { labels: senLabels, values: senValues } = ensureLabelsValues(overview.sentiment?.length ? overview.sentiment : sentS.series);
-  charts.sent = makeLine(document.getElementById('sentSeries'), senLabels, senValues, 'Sentiment', '#6610f2', false, -1, 1);
+  const sentSeriesSafe = ensureSeries(sentS.series);
+  charts.sent = makeLine(
+    document.getElementById('sentSeries'),
+    sentSeriesSafe.map(x=>x.date),
+    sentSeriesSafe.map(x=>x.value ?? 0),
+    'Sentiment', '#6610f2', false, -1, 1
+  );
 
-  // Rating series
-  const { labels: ratLabels, values: ratValues } = ensureLabelsValues(overview.rating?.length ? overview.rating : ratSeries.series);
-  charts.rating = makeLine(document.getElementById('ratingSeries'), ratLabels, ratValues, 'Rating', '#20c997');
-
-  // Aspects cards + radar (fill with zeros if missing)
-  const aspectsDiv = document.getElementById('aspectsContainer'); aspectsDiv.innerHTML = '';
+  // Aspects (6 cards, always filled with 0.00 if missing)
   const aspectKeys = ['rooms','staff','cleanliness','value','location','food'];
   const asp = aspects.aspects || {};
-  const filledAspects = Object.fromEntries(aspectKeys.map(k => [k, +(asp[k] ?? 0)]));
+  el.aspectsContainer.innerHTML = '';
   aspectKeys.forEach(key => {
-    const val = filledAspects[key];
+    const val = +(asp[key] ?? 0);
     const color = val > 0.6 ? 'success' : (val < 0.4 ? 'danger' : 'warning');
-    aspectsDiv.innerHTML += `
+    el.aspectsContainer.innerHTML += `
       <div class="col-6 col-md-4">
         <div class="card border-${color} aspect-card">
           <div class="card-body text-center p-2">
@@ -487,83 +367,57 @@ async function fetchDashboardData(){
         </div>
       </div>`;
   });
-  charts.aspectsRadar = makeRadar(document.getElementById('aspectsRadar'), aspectKeys, aspectKeys.map(k => filledAspects[k]));
 
-  // Operational stats (always filled)
-  const total = op.total_reviews || 0;
-  const complaintsCount = op.complaint_count || 0;
-  const praiseCount = op.praise_count || 0;
-  const other = Math.max(total - complaintsCount - praiseCount, 0);
-  document.getElementById('complaintsStats').innerHTML = `
-    <div class="col-4 border-end"><small class="text-muted d-block">Complaint Rate</small><h5 class="${(op.complaint_rate||0)>15?'text-danger':'text-success'} fw-bold">${(op.complaint_rate||0).toFixed(1)}%</h5></div>
+  // Operational Overview (always filled)
+  const total = complaints.total_reviews || 0;
+  const complaintsCount = complaints.complaint_count || 0;
+  const praiseCount = complaints.praise_count || 0;
+  const rate = (complaints.complaint_rate || 0).toFixed(1);
+  el.complaintsStats.innerHTML = `
+    <div class="col-4 border-end"><small class="text-muted d-block">Complaint Rate</small><h5 class="${(complaints.complaint_rate||0)>15?'text-danger':'text-success'} fw-bold">${rate}%</h5></div>
     <div class="col-4 border-end"><small class="text-muted d-block">Complaints</small><h5 class="fw-bold">${complaintsCount}</h5></div>
-    <div class="col-4"><small class="text-muted d-block">Praise</small><h5 class="text-success fw-bold">${praiseCount}</h5></div>`;
-  charts.operationalPie = makeDoughnut(
-    document.getElementById('operationalPie'),
-    [complaintsCount, praiseCount, other],
-    ['Complaints','Praise','Other'],
-    ['#dc3545','#198754','#adb5bd']
-  );
+    <div class="col-4"><small class="text-muted d-block">Praise</small><h5 class="text-success fw-bold">${praiseCount}</h5></div>
+  `;
+  if (total === 0) addNote(el.complaintsStats.parentElement, 'No operational events in this window. Try widening the dates.');
 
-  // Themes & keywords (always filled with badges, even if empty arrays)
-  const kw = keywordsNew || keywordsOld || { positive_keywords:[], negative_keywords:[], top_bigrams:[], emerging:[] };
-  const renderBadges = (arr, cls, border) => (arr||[]).map(k => `<span class="badge ${cls} ${border} badge-kw">${k}</span>`).join('') || '<span class="neutral-chip">No items</span>';
-  document.getElementById('keywordsPositive').innerHTML = renderBadges(kw.positive_keywords, 'bg-success-subtle text-success', 'border border-success');
-  document.getElementById('keywordsNegative').innerHTML = renderBadges(kw.negative_keywords, 'bg-danger-subtle text-danger', 'border border-danger');
-  document.getElementById('keywordsBigrams').innerHTML  = renderBadges(kw.top_bigrams,       'bg-primary-subtle text-primary', 'border border-primary');
-  document.getElementById('keywordsEmerging').innerHTML = renderBadges(kw.emerging,           'bg-warning-subtle text-warning', 'border border-warning');
+  // Themes & Keywords (always filled)
+  const pos = keywords.positive_keywords || [];
+  const neg = keywords.negative_keywords || [];
+  el.keywordsPositive.innerHTML = pos.length
+    ? pos.map(k=>`<span class="badge bg-success-subtle text-success border border-success badge-kw">${k}</span>`).join('')
+    : '<span class="neutral-chip">No items</span>';
+  el.keywordsNegative.innerHTML = neg.length
+    ? neg.map(k=>`<span class="badge bg-danger-subtle text-danger border border-danger badge-kw">${k}</span>`).join('')
+    : '<span class="neutral-chip">No items</span>';
 
   // Recommendations (always filled)
-  if (recsNew) {
-    const items = (recsNew.top_action_items || []);
-    document.getElementById('recommendationsList').innerHTML = `
-      <div class="recommendation-badge"><strong>Verdict:</strong> ${recsNew.verdict || '—'}</div>
-      ${items.length ? items.map(i=>`<div class="recommendation-badge">${i}</div>`).join('') : '<div class="recommendation-badge">No specific actions generated for this period.</div>'}
-      <div class="recommendation-badge">Business Health Score: ${recsNew.business_health_score ?? '—'}%</div>`;
-  } else {
-    document.getElementById('recommendationsList').innerHTML = `
-      <div class="recommendation-badge">${recsOld.final_verdict || '—'}</div>
-      <div class="recommendation-badge">${recsOld.top_action_item || '—'}</div>
-      <div class="recommendation-badge">Business Health Score: ${recsOld.business_health_score ?? 0}%</div>`;
-  }
+  el.recommendationsList.innerHTML = `
+    <div class="recommendation-badge">${recs.final_verdict || '—'}</div>
+    <div class="recommendation-badge">${recs.top_action_item || '—'}</div>
+    <div class="recommendation-badge">Business Health Score: ${recs.business_health_score ?? 0}%</div>
+  `;
 
-  // Alerts (always filled)
-  renderAlerts(alerts.alerts || []);
-
-  // Urgent issues (always filled)
-  const urgent = (ops && ops.urgent_issues) ? ops.urgent_issues : [];
-  el.urgentIssuesList.innerHTML = urgent.length ? urgent.map(u => `
-    <div class="border rounded p-2 mb-2 ${(u.urgent_reason?.low_rating || u.urgent_reason?.very_negative_sentiment || u.urgent_reason?.keyword_flag) ? 'urgent' : ''}">
-      <div class="d-flex justify-content-between small text-muted">
-        <div>
-          <strong>${u.author_name || 'Anonymous'}</strong>
-          ${sentimentBadge(u.sentiment_label || 'neutral')}
-          ${(u.urgent_reason?.keyword_flag) ? '<span class="badge bg-danger ms-1">keyword</span>' : ''}
-        </div>
-        <span>${u.review_time || ''}</span>
-      </div>
-      <div class="text-warning my-1">${renderStars(u.rating)}</div>
-      <div class="small">${(u.text || '').slice(0, 280)}${(u.text || '').length > 280 ? '…' : ''}</div>
-    </div>
-  `).join('') : '<span class="neutral-chip">No urgent issues flagged.</span>';
-
-  // Reviews feed (prefer annotated; fallback; always filled)
-  const feedItems = (feedNew && feedNew.items) ? feedNew.items : (feedOld.items || []);
-  reviewsDataGlobal = feedItems;
+  // Reviews feed (always filled)
+  reviewsDataGlobal = revL.items || [];
   renderReviewsList();
 
+  // Alerts UI banners
   show('loadingBox', false);
   show('successBox', true);
+  if ((kpis.total_reviews ?? 0) === 0) show('nodataBox', true); // still show banner if truly no data even after widen
 }
 
-document.getElementById('fetchBtn').addEventListener('click', fetchDashboardData);
-document.getElementById('sortReviews').addEventListener('change', renderReviewsList);
+/* ------------------------------
+   Wire up
+------------------------------ */
+el.fetchBtn.addEventListener('click', fetchDashboardData);
+el.sortReviews.addEventListener('change', renderReviewsList);
 
 window.addEventListener('load', async () => {
-  // Default to last 30 days; will auto-widen to 2019-01-01 if first fetch is empty
+  // Default to last 30 days; if no data found, we auto-widen once in fetchDashboardData()
   const end = new Date().toISOString().split('T')[0];
-  const dt = new Date(); dt.setMonth(dt.getMonth() - 1);
-  const start = dt.toISOString().split('T')[0];
+  const d = new Date(); d.setMonth(d.getMonth() - 1);
+  const start = d.toISOString().split('T')[0];
   document.getElementById('startDate').value = start;
   document.getElementById('endDate').value = end;
 
@@ -571,6 +425,7 @@ window.addEventListener('load', async () => {
   if (currentCompanyId) fetchDashboardData();
 });
 </script>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
