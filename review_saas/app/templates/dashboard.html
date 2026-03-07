@@ -3,478 +3,343 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dashboard - ReviewSaaS</title>
+  <title>Strategic Dashboard - ReviewSaaS</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
+    body { background-color: #f4f7f6; }
     .spinner { display: none; }
     .success-msg, .nodata-msg, .error-msg { display: none; }
-    #addCompanyModal .modal-dialog { max-width: 500px; }
-    .pac-container { z-index: 10000 !important; }
     .auto-field { background-color: #f8f9fa; pointer-events: none; }
-    .aspect-card { min-height: 140px; }
-    .recommendation-badge { font-size: 0.9rem; }
+    .aspect-card { transition: transform 0.2s; border-left: 5px solid; }
+    .aspect-card:hover { transform: translateY(-3px); }
+    .recommendation-item { border-left: 4px solid #0dcaf0; background: #f0f9ff; margin-bottom: 10px; padding: 10px; border-radius: 4px; }
+    .sentiment-badge { font-size: 0.75rem; padding: 3px 8px; border-radius: 12px; }
   </style>
 </head>
 <body>
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
   <div class="container-fluid">
-    <a class="navbar-brand" href="/">ReviewSaaS</a>
+    <a class="navbar-brand fw-bold" href="#">Review<span class="text-primary">SaaS</span></a>
     <div class="d-flex gap-2">
-      <a href="/companies" class="btn btn-outline-light btn-sm">Companies</a>
-      <a href="/logout" class="btn btn-warning btn-sm">Logout</a>
+      <a href="/logout" class="btn btn-outline-danger btn-sm">Logout</a>
     </div>
   </div>
 </nav>
 
 <div class="container py-4">
-  <!-- ── Existing controls ──────────────────────────────────────── -->
-  <div class="row g-3 align-items-end">
-    <div class="col-lg-4">
-      <label class="form-label">Company</label>
-      <div class="row g-2">
-        <div class="col-8">
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <div class="row g-3 align-items-end">
+        <div class="col-lg-3">
+          <label class="form-label fw-bold small">Select Business</label>
           <select class="form-select" id="companySelect"></select>
         </div>
-        <div class="col-4 d-grid">
-          <button class="btn btn-outline-secondary" id="switchCompanyBtn">Switch</button>
+        <div class="col-lg-3">
+          <label class="form-label fw-bold small">Date Range</label>
+          <div class="input-group">
+            <input type="date" class="form-control form-control-sm" id="startDate">
+            <input type="date" class="form-control form-control-sm" id="endDate">
+          </div>
+        </div>
+        <div class="col-lg-6 d-flex gap-2">
+          <button class="btn btn-primary flex-grow-1" id="fetchBtn">Analyze Performance</button>
+          <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">+ Add Business</button>
         </div>
       </div>
     </div>
-    <div class="col-lg-3 d-grid">
-      <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
-        + Add New Company
-      </button>
-    </div>
-    <div class="col-lg-5">
-      <div class="row g-2">
-        <div class="col">
-          <label class="form-label">Start Date</label>
-          <input type="date" class="form-control" id="startDate">
-        </div>
-        <div class="col">
-          <label class="form-label">End Date</label>
-          <input type="date" class="form-control" id="endDate">
-        </div>
+  </div>
+
+  <div class="alert alert-info spinner" id="loadingBox">
+    <div class="spinner-border spinner-border-sm me-2"></div>Analyzing data from Google...
+  </div>
+  <div class="alert alert-success success-msg" id="successBox">Analysis complete for selected period.</div>
+  <div class="alert alert-warning nodata-msg" id="nodataBox">No data synced for this range. Please fetch fresh data.</div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-3">
+      <div class="card shadow-sm text-center p-3">
+        <div class="text-muted small uppercase">Total Reviews</div>
+        <h3 id="kpi-total" class="fw-bold mb-0">0</h3>
       </div>
     </div>
-    <div class="col-lg-2 d-grid">
-      <button class="btn btn-primary" id="fetchBtn">Fetch Data</button>
+    <div class="col-md-3">
+      <div class="card shadow-sm text-center p-3">
+        <div class="text-muted small uppercase">Avg Rating</div>
+        <h3 id="kpi-rating" class="fw-bold mb-0 text-warning">0.0</h3>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card shadow-sm text-center p-3">
+        <div class="text-muted small uppercase">Sentiment Index</div>
+        <h3 id="kpi-sent" class="fw-bold mb-0 text-primary">0.000</h3>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card shadow-sm text-center p-3">
+        <div class="text-muted small uppercase">Complaint Rate</div>
+        <h3 id="kpi-complaint-rate" class="fw-bold mb-0 text-danger">0%</h3>
+      </div>
     </div>
   </div>
 
-  <div class="alert alert-info mt-3 spinner" id="loadingBox">Loading Data...</div>
-  <div class="alert alert-success mt-3 success-msg" id="successBox">Data fetched successfully.</div>
-  <div class="alert alert-warning mt-3 nodata-msg" id="nodataBox">No Data Found for selected date range.</div>
-  <div class="alert alert-danger mt-3 error-msg" id="errorBox">Error loading data. Check console (F12).</div>
-
-  <!-- ── Existing KPIs ──────────────────────────────────────────── -->
-  <div class="row g-3 mt-2">
-    <div class="col-md-3"><div class="p-3 bg-light border rounded">Total Reviews <h4 id="kpi-total" class="mb-0">0</h4></div></div>
-    <div class="col-md-3"><div class="p-3 bg-light border rounded">Avg Rating <h4 id="kpi-rating" class="mb-0">0.0</h4></div></div>
-    <div class="col-md-3"><div class="p-3 bg-light border rounded">Avg Sentiment <h4 id="kpi-sent" class="mb-0">0.000</h4></div></div>
-    <div class="col-md-3"><div class="p-3 bg-light border rounded">New (24h) <h4 id="kpi-new" class="mb-0">0</h4></div></div>
-  </div>
-
-  <!-- ── Existing Charts ────────────────────────────────────────── -->
-  <div class="row g-3 mt-1">
+  <div class="row g-4 mb-4">
     <div class="col-lg-8">
-      <div class="card">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-white fw-bold">Review Volume Trend</div>
         <div class="card-body">
-          <h6 class="text-muted">Reviews per day</h6>
-          <canvas id="seriesReviews" height="120"></canvas>
+          <canvas id="seriesReviews" height="200"></canvas>
         </div>
       </div>
     </div>
     <div class="col-lg-4">
-      <div class="card mb-3">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-white fw-bold">Sentiment Trend</div>
         <div class="card-body">
-          <h6 class="text-muted">Ratings distribution</h6>
-          <canvas id="ratingsDist" height="120"></canvas>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-body">
-          <h6 class="text-muted">Avg sentiment per day</h6>
-          <canvas id="sentSeries" height="120"></canvas>
+          <canvas id="sentSeries" height="200"></canvas>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- ── Existing Reviews List ──────────────────────────────────── -->
-  <div class="row g-3 mt-1">
-    <div class="col-12">
-      <div class="card">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center">
-            <h6 class="text-muted mb-0">Reviews</h6>
-            <select id="sortReviews" class="form-select form-select-sm" style="width: auto;">
-              <option value="newest" selected>Newest</option>
-              <option value="oldest">Oldest</option>
-              <option value="highest">Highest rating</option>
-              <option value="lowest">Lowest rating</option>
-            </select>
-          </div>
-          <div id="reviewsList" class="mt-3"></div>
+  <div class="row g-4">
+    <div class="col-lg-7">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-white d-flex justify-content-between">
+          <span class="fw-bold">Service Aspect Sentiment</span>
+          <span class="badge bg-light text-dark border">AI Classified</span>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── NEW: Decision Making Section ───────────────────────────── -->
-  <div class="row g-3 mt-4">
-    <div class="col-12">
-      <h5 class="mb-3 text-primary">Business Insights & Recommendations</h5>
-    </div>
-
-    <!-- Aspects -->
-    <div class="col-lg-6">
-      <div class="card h-100">
         <div class="card-body">
-          <h6 class="text-muted mb-3">Average Sentiment by Aspect</h6>
           <div class="row g-3" id="aspectsContainer">
-            <!-- Filled dynamically -->
+            <div class="col-12 text-center text-muted py-5">Select a company to see aspect performance</div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Complaints + Keywords + Recommendations -->
-    <div class="col-lg-6">
-      <div class="card mb-3">
-        <div class="card-body">
-          <h6 class="text-muted mb-3">Complaints & Praise Overview</h6>
-          <div id="complaintsStats"></div>
+    <div class="col-lg-5">
+      <div class="card shadow-sm mb-4">
+        <div class="card-header bg-info text-white fw-bold">AI Strategic Recommendations</div>
+        <div class="card-body" id="recommendationsList">
+          <p class="text-muted small">No recommendations yet.</p>
         </div>
       </div>
 
-      <div class="card mb-3">
+      <div class="card shadow-sm">
+        <div class="card-header bg-white fw-bold">Top Mentioned Themes</div>
         <div class="card-body">
-          <h6 class="text-muted mb-3">Top Keywords</h6>
-          <div class="d-flex flex-wrap gap-2" id="keywordsPositive"></div>
-          <div class="d-flex flex-wrap gap-2 mt-2" id="keywordsNegative"></div>
+          <div class="mb-3">
+            <label class="small text-success fw-bold d-block mb-1">Praise Areas:</label>
+            <div id="keywordsPositive" class="d-flex flex-wrap gap-2"></div>
+          </div>
+          <div>
+            <label class="small text-danger fw-bold d-block mb-1">Pain Points:</label>
+            <div id="keywordsNegative" class="d-flex flex-wrap gap-2"></div>
+          </div>
         </div>
       </div>
+    </div>
+  </div>
 
-      <div class="card">
-        <div class="card-body">
-          <h6 class="text-muted mb-3">Quick Recommendations</h6>
-          <div id="recommendationsList" class="small"></div>
-        </div>
-      </div>
+  <div class="card shadow-sm mt-4">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+      <span class="fw-bold">Recent Feedback Log</span>
+      <select id="sortReviews" class="form-select form-select-sm w-auto">
+        <option value="newest">Newest First</option>
+        <option value="highest">Highest Rating</option>
+        <option value="lowest">Lowest Rating</option>
+      </select>
+    </div>
+    <div class="card-body">
+      <div id="reviewsList"></div>
     </div>
   </div>
 </div>
 
-<!-- ── Existing Add Company Modal (unchanged) ───────────────────── -->
 <div class="modal fade" id="addCompanyModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-scrollable">
+  <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Add Company via Google Maps</h5>
+        <h5 class="modal-title">Sync New Business</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <div class="mb-3">
-          <label class="form-label fw-bold">Search Business Name</label>
-          <input type="text" class="form-control" id="placeSearch" placeholder="Search Place...">
-        </div>
-        <div id="detailsPreview" style="display:none;" class="border-top pt-3">
-          <div class="mb-2">
-            <label class="small text-muted">Full Address</label>
-            <input type="text" id="prev_address" class="form-control form-control-sm auto-field">
-          </div>
-          <div class="row mb-2">
-            <div class="col">
-              <label class="small text-muted">Phone</label>
-              <input type="text" id="prev_phone" class="form-control form-control-sm auto-field">
-            </div>
-            <div class="col">
-              <label class="small text-muted">Category</label>
-              <input type="text" id="prev_category" class="form-control form-control-sm auto-field">
-            </div>
-          </div>
-          <div class="mb-2">
-            <label class="small text-muted">Website</label>
-            <input type="text" id="prev_website" class="form-control form-control-sm auto-field">
-          </div>
+        <input type="text" class="form-control mb-3" id="placeSearch" placeholder="Search Google Maps...">
+        <div id="detailsPreview" class="p-3 bg-light rounded" style="display:none">
+          <p class="mb-1 small"><strong>Address:</strong> <span id="prev_address_text"></span></p>
+          <p class="mb-0 small"><strong>ID:</strong> <span id="prev_id_text"></span></p>
         </div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" id="saveCompanyBtn" disabled>Add to Dashboard</button>
+        <button class="btn btn-primary w-100" id="saveCompanyBtn" disabled>Add & Sync Reviews</button>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-// ── Existing variables & helpers (unchanged) ───────────────────────
+// Logic core
 const el = {
   companySelect: document.getElementById('companySelect'),
-  switchBtn: document.getElementById('switchCompanyBtn'),
   startDate: document.getElementById('startDate'),
   endDate: document.getElementById('endDate'),
   fetchBtn: document.getElementById('fetchBtn'),
-  sortReviews: document.getElementById('sortReviews'),
-  loadingBox: document.getElementById('loadingBox'),
-  successBox: document.getElementById('successBox'),
-  nodataBox: document.getElementById('nodataBox'),
-  errorBox: document.getElementById('errorBox'),
   reviewsList: document.getElementById('reviewsList'),
-  saveBtn: document.getElementById('saveCompanyBtn'),
-  placeSearch: document.getElementById('placeSearch'),
   kpiTotal: document.getElementById('kpi-total'),
   kpiRating: document.getElementById('kpi-rating'),
   kpiSent: document.getElementById('kpi-sent'),
-  kpiNew: document.getElementById('kpi-new'),
-  previewBox: document.getElementById('detailsPreview'),
-  prevAddress: document.getElementById('prev_address')
+  kpiComplaintRate: document.getElementById('kpi-complaint-rate'),
+  aspectsContainer: document.getElementById('aspectsContainer'),
+  recsList: document.getElementById('recommendationsList'),
+  posKeys: document.getElementById('keywordsPositive'),
+  negKeys: document.getElementById('keywordsNegative')
 };
 
 let currentCompanyId = null;
-let selectedPlace = null;
 let charts = {};
 let reviewsDataGlobal = [];
 
-const show = (id, v) => el[id].style.display = v ? 'block' : 'none';
-const qs = (o) => new URLSearchParams(o).toString();
-
-async function safeJsonFetch(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`API Failure: ${res.status}`);
-  return res.json();
-}
-
-// ── Existing functions (loadCompanies, renderReviewsList) unchanged ──
-async function loadCompanies() {
-  try {
-    const data = await safeJsonFetch('/api/companies/list');
-    el.companySelect.innerHTML = '';
-    if (!data.companies || data.companies.length === 0) {
-      el.companySelect.innerHTML = '<option value="">No companies found</option>';
-      return;
+const toggleUI = (loading) => {
+    document.getElementById('loadingBox').style.display = loading ? 'block' : 'none';
+    if(loading) {
+        ['successBox','nodataBox','errorBox'].forEach(id => document.getElementById(id).style.display = 'none');
     }
-    data.companies.forEach(c => {
-      const opt = document.createElement('option');
-      opt.value = c.id; opt.textContent = c.name;
-      el.companySelect.appendChild(opt);
-    });
-    const lastId = localStorage.getItem('lastCompanyId');
-    if (lastId && data.companies.some(c => c.id == lastId)) el.companySelect.value = lastId;
-    currentCompanyId = el.companySelect.value;
-  } catch (err) { el.companySelect.innerHTML = '<option value="">Error Loading</option>'; }
-}
+};
 
-function renderReviewsList() {
-  let items = [...reviewsDataGlobal];
-  const sort = el.sortReviews.value;
-  if(sort==='newest') items.sort((a,b)=>new Date(b.review_time)-new Date(a.review_time));
-  else if(sort==='oldest') items.sort((a,b)=>new Date(a.review_time)-new Date(b.review_time));
-  else if(sort==='highest') items.sort((a,b)=>b.rating-a.rating);
-  else if(sort==='lowest') items.sort((a,b)=>a.rating-b.rating);
-  el.reviewsList.innerHTML = items.length > 0 ? items.map(r => {
-    const stars = '★'.repeat(Math.round(r.rating)) + '☆'.repeat(5 - Math.round(r.rating));
-    return `<div class="border rounded p-2 mb-2">
-      <div class="d-flex justify-content-between small text-muted">
-        <span>${r.author_name || 'Anonymous'}</span>
-        <span>${r.review_time || ''}</span>
-      </div>
-      <div class="text-warning">${stars} <span class="text-dark">${(r.rating || 0).toFixed(1)}</span></div>
-      <div>${r.text || ''}</div>
-    </div>`;
-  }).join('') : '<p class="text-muted text-center">No reviews found.</p>';
-}
-
-// ── Updated fetch function: now includes new decision endpoints ─────
 async function fetchDashboardData() {
-  if (!currentCompanyId) return;
+    currentCompanyId = el.companySelect.value;
+    if (!currentCompanyId) return;
 
-  show('loadingBox', true);
-  ['successBox','nodataBox','errorBox'].forEach(id => show(id, false));
+    toggleUI(true);
+    const params = new URLSearchParams({ 
+        company_id: currentCompanyId, 
+        start: el.startDate.value, 
+        end: el.endDate.value 
+    }).toString();
 
-  const p = { company_id: currentCompanyId, start: el.startDate.value, end: el.endDate.value };
-  const query = qs(p);
+    try {
+        const [kpis, revSeries, ratDist, sentSeries, revList, aspects, complaints, keywords, recs] = await Promise.all([
+            fetch(`/api/kpis?${params}`).then(r => r.json()),
+            fetch(`/api/series/reviews?${params}`).then(r => r.json()),
+            fetch(`/api/ratings/distribution?${params}`).then(r => r.json()),
+            fetch(`/api/sentiment/series?${params}`).then(r => r.json()),
+            fetch(`/api/reviews/list?${params}`).then(r => r.json()),
+            fetch(`/api/aspects/avg?${params}`).then(r => r.json()),
+            fetch(`/api/complaints/stats?${params}`).then(r => r.json()),
+            fetch(`/api/keywords/top?${params}`).then(r => r.json()),
+            fetch(`/api/recommendations/simple?${params}`).then(r => r.json())
+        ]);
 
-  try {
-    const [
-      kpis, revS, ratD, sentS, revL,
-      aspects, complaints, keywords, recs
-    ] = await Promise.all([
-      safeJsonFetch(`/api/kpis?${query}`),
-      safeJsonFetch(`/api/series/reviews?${query}`),
-      safeJsonFetch(`/api/ratings/distribution?${query}`),
-      safeJsonFetch(`/api/sentiment/series?${query}`),
-      safeJsonFetch(`/api/reviews/list?${query}`),
-      // New endpoints
-      safeJsonFetch(`/api/aspects/avg?${query}`),
-      safeJsonFetch(`/api/complaints/stats?${query}`),
-      safeJsonFetch(`/api/keywords/top?${query}`),
-      safeJsonFetch(`/api/recommendations/simple?${query}`)
-    ]);
+        // Update KPIs
+        el.kpiTotal.innerText = kpis.total_reviews;
+        el.kpiRating.innerText = kpis.avg_rating.toFixed(1);
+        el.kpiSent.innerText = kpis.avg_sentiment.toFixed(3);
+        el.kpiComplaintRate.innerText = complaints.complaint_rate + '%';
 
-    // ── Existing KPI & Chart updates (unchanged) ───────────────────
-    el.kpiTotal.textContent = kpis.total_reviews ?? 0;
-    el.kpiRating.textContent = (kpis.avg_rating || 0).toFixed(2);
-    el.kpiSent.textContent   = (kpis.avg_sentiment || 0).toFixed(3);
-    el.kpiNew.textContent    = (revS.series?.length > 0) ? revS.series.at(-1).value : 0;
+        // Update Charts
+        updateCharts(revSeries, sentSeries);
 
-    Object.values(charts).forEach(c => c?.destroy?.());
+        // Update Aspects
+        renderAspects(aspects.aspects);
 
-    charts.rev = new Chart(document.getElementById('seriesReviews'), {
-      type: 'line',
-      data: { labels: revS.series?.map(x => x.date) || [], datasets: [{ label: 'Reviews', data: revS.series?.map(x => x.value) || [], borderColor: '#0d6efd', backgroundColor: 'rgba(13,110,253,0.1)', tension: 0.3, fill: true }] }
-    });
+        // Update Keywords
+        renderKeywords(keywords);
 
-    charts.dist = new Chart(document.getElementById('ratingsDist'), {
-      type: 'bar',
-      data: { labels: Object.keys(ratD.distribution || {}), datasets: [{ label: 'Rating Count', data: Object.values(ratD.distribution || {}), backgroundColor: '#ffc107' }] }
+        // Update Recommendations
+        renderRecommendations(recs.recommendations);
+
+        // Update Reviews List
+        reviewsDataGlobal = revList.items;
+        renderReviews();
+
+        toggleUI(false);
+        document.getElementById(kpis.total_reviews > 0 ? 'successBox' : 'nodataBox').style.display = 'block';
+
+    } catch (err) {
+        console.error(err);
+        toggleUI(false);
+        document.getElementById('errorBox').style.display = 'block';
+    }
+}
+
+function updateCharts(revSeries, sentSeries) {
+    Object.values(charts).forEach(c => c.destroy());
+
+    charts.vol = new Chart(document.getElementById('seriesReviews'), {
+        type: 'line',
+        data: {
+            labels: revSeries.series.map(s => s.date),
+            datasets: [{ label: 'Reviews', data: revSeries.series.map(s => s.value), borderColor: '#0d6efd', tension: 0.3 }]
+        }
     });
 
     charts.sent = new Chart(document.getElementById('sentSeries'), {
-      type: 'line',
-      data: { labels: sentS.series?.map(x => x.date) || [], datasets: [{ label: 'Sentiment', data: sentS.series?.map(x => x.value) || [], borderColor: '#6610f2', backgroundColor: 'rgba(102,16,242,0.1)', tension: 0.3, fill: true }] },
-      options: { scales: { y: { min: -1, max: 1 } } }
+        type: 'line',
+        data: {
+            labels: sentSeries.series.map(s => s.date),
+            datasets: [{ label: 'Sentiment', data: sentSeries.series.map(s => s.value), borderColor: '#6610f2', tension: 0.3 }]
+        },
+        options: { scales: { y: { min: -1, max: 1 } } }
     });
+}
 
-    reviewsDataGlobal = revL.items || [];
-    renderReviewsList();
-
-    // ── NEW: Render Aspects ───────────────────────────────────────
-    const aspectsDiv = document.getElementById('aspectsContainer');
-    aspectsDiv.innerHTML = '';
-    Object.entries(aspects.aspects || {}).forEach(([key, value]) => {
-      if (value === null || value === undefined) return;
-      const color = value > 0.2 ? 'success' : value < -0.1 ? 'danger' : 'warning';
-      aspectsDiv.innerHTML += `
-        <div class="col-6">
-          <div class="card border-${color} aspect-card">
-            <div class="card-body text-center">
-              <h6 class="text-capitalize mb-1">${key}</h6>
-              <h4 class="text-${color} mb-0">${value.toFixed(2)}</h4>
-              <small class="text-muted">sentiment</small>
+function renderAspects(data) {
+    el.aspectsContainer.innerHTML = '';
+    Object.entries(data).forEach(([key, val]) => {
+        if (val === null) return;
+        const color = val > 0.1 ? '#198754' : val < -0.1 ? '#dc3545' : '#ffc107';
+        el.aspectsContainer.innerHTML += `
+            <div class="col-md-4">
+                <div class="card aspect-card p-3 text-center" style="border-color: ${color}">
+                    <div class="small text-muted text-uppercase">${key}</div>
+                    <div class="h4 fw-bold mb-0" style="color: ${color}">${val.toFixed(2)}</div>
+                </div>
             </div>
-          </div>
-        </div>`;
+        `;
     });
-
-    // ── NEW: Complaints Stats ─────────────────────────────────────
-    document.getElementById('complaintsStats').innerHTML = `
-      <div class="d-flex justify-content-between mb-2">
-        <span>Complaint Rate:</span>
-        <strong class="${complaints.complaint_rate > 15 ? 'text-danger' : 'text-success'}">
-          ${complaints.complaint_rate}%
-        </strong>
-      </div>
-      <div class="d-flex justify-content-between mb-2">
-        <span>Complaints:</span>
-        <strong>${complaints.complaint_count} / ${complaints.total_reviews}</strong>
-      </div>
-      <div class="d-flex justify-content-between">
-        <span>Praise:</span>
-        <strong class="text-success">${complaints.praise_count}</strong>
-      </div>`;
-
-    // ── NEW: Keywords ─────────────────────────────────────────────
-    const posDiv = document.getElementById('keywordsPositive');
-    const negDiv = document.getElementById('keywordsNegative');
-    posDiv.innerHTML = '<small class="text-success fw-bold me-2">Positive:</small>';
-    negDiv.innerHTML = '<small class="text-danger fw-bold me-2">Negative:</small>';
-
-    (keywords.positive_keywords || []).forEach(w => {
-      posDiv.innerHTML += `<span class="badge bg-success-subtle text-success me-1">${w}</span>`;
-    });
-    (keywords.negative_keywords || []).forEach(w => {
-      negDiv.innerHTML += `<span class="badge bg-danger-subtle text-danger me-1">${w}</span>`;
-    });
-
-    // ── NEW: Recommendations ──────────────────────────────────────
-    const recList = document.getElementById('recommendationsList');
-    recList.innerHTML = (recs.recommendations || []).length > 0
-      ? recs.recommendations.map(r => `<div class="alert alert-info recommendation-badge py-1 px-2 mb-2">${r}</div>`).join('')
-      : '<p class="text-muted small">No specific recommendations at this time.</p>';
-
-    // ── Final UI feedback ─────────────────────────────────────────
-    show('loadingBox', false);
-    (kpis.total_reviews === 0) ? show('nodataBox', true) : show('successBox', true);
-
-  } catch (err) {
-    console.error(err);
-    show('loadingBox', false);
-    show('errorBox', true);
-  }
 }
 
-// ── Existing Google Places + Save logic (unchanged) ───────────────
-function loadGoogleScript() {
-  const s = document.createElement('script');
-  s.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initGooglePlaces";
-  s.async = true; s.defer = true;
-  document.head.appendChild(s);
+function renderKeywords(data) {
+    el.posKeys.innerHTML = data.positive_keywords.map(k => `<span class="badge bg-success-subtle text-success border border-success">${k}</span>`).join('');
+    el.negKeys.innerHTML = data.negative_keywords.map(k => `<span class="badge bg-danger-subtle text-danger border border-danger">${k}</span>`).join('');
 }
 
-window.initGooglePlaces = function() {
-  const autocomplete = new google.maps.places.Autocomplete(el.placeSearch, {
-    types: ["establishment"],
-    fields: ["place_id", "name", "formatted_address", "rating", "user_ratings_total"]
-  });
-  autocomplete.addListener("place_changed", () => {
-    const p = autocomplete.getPlace();
-    if (!p.place_id) return;
-    el.prevAddress.value = p.formatted_address || '';
-    document.getElementById('detailsPreview').style.display = 'block';
-    selectedPlace = {
-      name: p.name,
-      place_id: p.place_id,
-      address: p.formatted_address,
-      avg_rating: p.rating || 0,
-      review_count: p.user_ratings_total || 0
-    };
-    el.saveBtn.disabled = false;
-  });
-};
+function renderRecommendations(recs) {
+    el.recsList.innerHTML = recs.length ? recs.map(r => `<div class="recommendation-item small">${r}</div>`).join('') : '<p class="text-muted small">Maintain current service standards.</p>';
+}
 
-el.saveBtn.onclick = async () => {
-  if (!selectedPlace) return;
-  el.saveBtn.disabled = true;
-  try {
-    const res = await fetch('/companies/add', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(selectedPlace)
-    });
-    const d = await res.json();
-    if (d.success) {
-      alert("Company Added!");
-      await loadCompanies();
-      el.companySelect.value = d.company.id;
-      currentCompanyId = d.company.id;
-      await fetchDashboardData();
-      bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
-    } else { alert(d.message); }
-  } catch (err) { alert("Save failed"); }
-  finally { el.saveBtn.disabled = false; }
-};
+function renderReviews() {
+    el.reviewsList.innerHTML = reviewsDataGlobal.map(r => `
+        <div class="border-bottom py-3">
+            <div class="d-flex justify-content-between">
+                <strong>${r.author_name}</strong>
+                <span class="text-muted small">${r.review_time}</span>
+            </div>
+            <div class="text-warning small">${'★'.repeat(r.rating)}</div>
+            <p class="mb-0 small text-dark mt-1">${r.text}</p>
+        </div>
+    `).join('');
+}
 
-// ── Event listeners (unchanged) ───────────────────────────────────
-el.fetchBtn.onclick = fetchDashboardData;
-el.sortReviews.onchange = renderReviewsList;
-el.switchBtn.onclick = () => {
-  currentCompanyId = el.companySelect.value;
-  localStorage.setItem('lastCompanyId', currentCompanyId);
-  fetchDashboardData();
-};
-
+// Initial Load
 window.onload = async () => {
-  loadGoogleScript();
-  const end = new Date().toISOString().split('T')[0];
-  const start = new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().split('T')[0];
-  el.startDate.value = start; el.endDate.value = end;
-  await loadCompanies();
-  if (currentCompanyId) await fetchDashboardData();
+    // Set default dates (last 30 days)
+    const end = new Date().toISOString().split('T')[0];
+    const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    el.startDate.value = start; el.endDate.value = end;
+
+    // Load companies
+    const res = await fetch('/api/companies/list');
+    const data = await res.json();
+    el.companySelect.innerHTML = data.companies.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    
+    if (el.companySelect.value) fetchDashboardData();
 };
+
+el.fetchBtn.onclick = fetchDashboardData;
 </script>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
