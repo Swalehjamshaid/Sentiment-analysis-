@@ -4,20 +4,20 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 
+# Absolute imports from app package
 from app.db.session import get_db
 from app.models.review import Review
 from app.models.company import Company
-
 from app.services.google_reviews import (
     ingest_company_reviews,
     OutscraperReviewsService
 )
 
+# Initialize router
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
 # Initialize Outscraper service
 outscraper_service = OutscraperReviewsService()
-
 
 # ---------------------------------------------------------
 # Ingest reviews for a company from Google / Outscraper
@@ -32,25 +32,16 @@ async def ingest_reviews(
     """
     Fetch reviews from Outscraper and store them in the database
     """
-
     try:
-
         company = db.query(Company).filter(Company.id == company_id).first()
-
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
-        reviews_data = await outscraper_service.fetch_reviews(
-            place_id,
-            limit=limit
-        )
-
+        reviews_data = await outscraper_service.fetch_reviews(place_id, limit=limit)
         saved = 0
 
         for r in reviews_data:
-
             review_id = r.get("review_id")
-
             exists = db.query(Review).filter(
                 Review.external_review_id == review_id
             ).first()
@@ -67,7 +58,6 @@ async def ingest_reviews(
                 review_date=r.get("review_datetime_utc"),
                 sentiment=None
             )
-
             db.add(review)
             saved += 1
 
@@ -80,10 +70,7 @@ async def ingest_reviews(
         }
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to ingest reviews: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to ingest reviews: {str(e)}")
 
 
 # ---------------------------------------------------------
@@ -98,7 +85,6 @@ def get_reviews_feed(
     """
     Fetch latest reviews for dashboard
     """
-
     reviews = (
         db.query(Review)
         .filter(Review.company_id == company_id)
@@ -131,34 +117,19 @@ async def competitor_analysis(
     queries: List[str],
     limit: Optional[int] = Query(200),
 ) -> Dict[str, Any]:
-
     """
     Fetch reviews for competitor businesses
     """
-
     try:
-
         all_data: Dict[str, List[Dict[str, Any]]] = {}
-
         for q in queries:
-
-            reviews = await outscraper_service.fetch_reviews(
-                q,
-                limit=limit
-            )
-
+            reviews = await outscraper_service.fetch_reviews(q, limit=limit)
             all_data[q] = reviews
 
-        return {
-            "status": "success",
-            "competitors": all_data
-        }
+        return {"status": "success", "competitors": all_data}
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Competitor analysis failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Competitor analysis failed: {str(e)}")
 
 
 # ---------------------------------------------------------
@@ -166,55 +137,26 @@ async def competitor_analysis(
 # ---------------------------------------------------------
 @router.get("/place-details/{place_id}")
 async def fetch_place_details(place_id: str):
-
     """
     Fetch place details (sample review)
     """
-
     try:
-
-        data = await outscraper_service.fetch_reviews(
-            place_id,
-            limit=1
-        )
-
-        return {
-            "status": "success",
-            "place_id": place_id,
-            "sample_review": data
-        }
+        data = await outscraper_service.fetch_reviews(place_id, limit=1)
+        return {"status": "success", "place_id": place_id, "sample_review": data}
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch place details: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to fetch place details: {str(e)}")
 
 
 # ---------------------------------------------------------
 # Review statistics for dashboard
 # ---------------------------------------------------------
 @router.get("/stats/{company_id}")
-def review_stats(
-    company_id: int,
-    db: Session = Depends(get_db)
-):
-
-    reviews = db.query(Review).filter(
-        Review.company_id == company_id
-    ).all()
-
+def review_stats(company_id: int, db: Session = Depends(get_db)):
+    reviews = db.query(Review).filter(Review.company_id == company_id).all()
     total = len(reviews)
-
     if total == 0:
-        return {
-            "total_reviews": 0,
-            "avg_rating": 0
-        }
+        return {"total_reviews": 0, "avg_rating": 0}
 
     avg_rating = sum([r.rating for r in reviews if r.rating]) / total
-
-    return {
-        "total_reviews": total,
-        "avg_rating": round(avg_rating, 2)
-    }
+    return {"total_reviews": total, "avg_rating": round(avg_rating, 2)}
