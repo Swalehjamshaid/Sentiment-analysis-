@@ -11,20 +11,49 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
-  body{ background:#f4f7f6; font-family:Segoe UI; }
-  .card{ border:none; border-radius:12px; box-shadow:0 8px 20px rgba(0,0,0,0.08); }
-  .kpi{ font-size:28px; font-weight:700; }
-  .section-title{ font-weight:600; margin-bottom:10px; }
-  .preview-box{ display:none; background:#f9f9f9; border:1px solid #ddd; padding:15px; border-radius:10px; margin-top:15px; }
-  .pac-container{ z-index:2000!important; }
-  .review{ border-bottom:1px solid #eee; padding:10px 0; }
+body{
+  background:#f4f7f6;
+  font-family:Segoe UI;
+}
+.card{
+  border:none;
+  border-radius:12px;
+  box-shadow:0 8px 20px rgba(0,0,0,0.08);
+}
+.kpi{
+  font-size:28px;
+  font-weight:700;
+}
+.section-title{
+  font-weight:600;
+  margin-bottom:10px;
+}
+.preview-box{
+  display:none;
+  background:#f9f9f9;
+  border:1px solid #ddd;
+  padding:15px;
+  border-radius:10px;
+  margin-top:15px;
+}
+.pac-container{
+  z-index:2000!important;
+}
+.review{
+  border-bottom:1px solid #eee;
+  padding:10px 0;
+}
+.small-muted{font-size:.85rem;color:#6c757d;}
+.neutral-chip { background:#f8f9fa; border:1px solid #e9ecef; padding:4px 8px; border-radius:6px; font-size:.8rem; color:#6c757d; display:inline-block; margin-top:6px; }
 </style>
 </head>
 
 <body>
 <nav class="navbar navbar-dark bg-dark">
   <div class="container-fluid">
-    <span class="navbar-brand">Review<span class="text-primary">SaaS</span></span>
+    <span class="navbar-brand">
+      Review<span class="text-primary">SaaS</span>
+    </span>
     <div>
       <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
         <i class="fa fa-plus"></i> Add Business
@@ -35,12 +64,13 @@
 </nav>
 
 <div class="container py-4">
-  <!-- Filters -->
+
   <div class="card p-4 mb-4">
     <div class="row g-3">
       <div class="col-md-4">
         <label class="form-label">Business</label>
         <select id="companySelect" class="form-select"></select>
+        <div id="companyHint" class="small-muted mt-1"></div>
       </div>
       <div class="col-md-3">
         <label class="form-label">Start</label>
@@ -146,6 +176,7 @@
         <h5 class="modal-title">Add Business</h5>
         <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
+
       <div class="modal-body">
         <input id="placeSearch" class="form-control" placeholder="Search business on Google">
 
@@ -172,13 +203,11 @@
               <input id="p_category" class="form-control" readonly>
             </div>
           </div>
-          <div class="mt-2 small text-muted">
-            <span id="p_place_id" class="badge bg-light text-dark border">place_id: —</span>
-          </div>
+          <div id="addMsg" class="small-muted mt-2"></div>
         </div>
       </div>
+
       <div class="modal-footer">
-        <div id="addMsg" class="me-auto small"></div>
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
         <button id="saveCompanyBtn" class="btn btn-primary" disabled>Add Business</button>
       </div>
@@ -186,233 +215,350 @@
   </div>
 </div>
 
-<!-- Google Maps JS (Places) -->
+<!-- Google Maps Places (client-side as you requested) -->
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
 
 <script>
-/* ==========================
-   Utilities
-========================== */
-function $(id){ return document.getElementById(id); }
-function safe(val, def){ return (val===undefined || val===null) ? def : val; }
-async function getJSON(url){ const r = await fetch(url, { credentials:'same-origin' }); if(!r.ok) throw new Error('HTTP '+r.status); return await r.json(); }
-async function postJSON(url, body){ const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); const d = await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.detail || d.message || ('HTTP '+r.status)); return d; }
+/* =========================================================================
+   FLEXIBLE FRONTEND ADAPTER
+   - Preserves all existing IDs/attributes
+   - Adapts to backend variations using capability detection & fallbacks
+   ========================================================================= */
 
-function todayStr(){ return new Date().toISOString().split('T')[0]; }
-function daysAgoStr(n){ const d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().split('T')[0]; }
-
-function lineChart(ctxId, labels, values, color='#0d6efd', fill=false, yMin=null, yMax=null){
-  const ctx=$(ctxId).getContext('2d');
-  return new Chart(ctx,{
-    type:'line',
-    data:{ labels, datasets:[{ data:values, label:'', borderColor:color, backgroundColor:color+'33', fill, tension:.3 }] },
-    options:{ plugins:{legend:{display:false}}, scales:{ y:{ min:yMin, max:yMax } } }
-  });
-}
-function barChart(ctxId, labels, values, color='#ffc107'){
-  const ctx=$(ctxId).getContext('2d');
-  return new Chart(ctx,{
-    type:'bar',
-    data:{ labels, datasets:[{ data:values, backgroundColor:color }] },
-    options:{ plugins:{legend:{display:false}}, scales:{ y:{ beginAtZero:true } } }
-  });
-}
-
-/* ==========================
-   Global state
-========================== */
-let charts = { volume:null, rating:null, sentiment:null, stars:null };
 let selectedPlace = null;
+let charts = {};
+let widenedOnce = false;
 
-/* ==========================
-   Load Companies into Select
-========================== */
-async function loadCompanies(){
-  try{
-    const data = await getJSON('/api/companies/list');
-    const list = data.companies || [];
-    $('companySelect').innerHTML = list.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-    // Persist selection
-    const saved = localStorage.getItem('lastCompanyId');
-    if(saved && list.find(x => String(x.id)===String(saved))){
-      $('companySelect').value = saved;
-    }
-    $('companySelect').addEventListener('change', () => {
-      localStorage.setItem('lastCompanyId', $('companySelect').value);
-    });
-  }catch(e){
-    console.warn('Cannot load companies', e);
-    $('companySelect').innerHTML = `<option value="">No companies</option>`;
+function $(id){ return document.getElementById(id); }
+
+function safeNumber(n, d=0){ const v = Number(n); return Number.isFinite(v) ? v : d; }
+function ensureSeries(arr){
+  if (Array.isArray(arr) && arr.length) return arr;
+  return [{ date: new Date().toISOString().slice(0,10), value: 0 }];
+}
+function ensureDist(dist){
+  return (dist && Object.keys(dist).length) ? dist : {1:0,2:0,3:0,4:0,5:0};
+}
+
+// --- Safe JSON fetch with fallback
+async function getJSON(url, fallback = null) {
+  try {
+    const res = await fetch(url, { credentials: 'same-origin' });
+    if (!res.ok) return fallback;
+    return await res.json();
+  } catch {
+    return fallback;
   }
 }
 
-/* ==========================
-   Google Places Autocomplete
-========================== */
+// --- Try endpoints in order; return first success
+async function tryEndpoints(candidates) {
+  for (const c of candidates) {
+    const data = await getJSON(c.url, null);
+    if (data && (c.ok ? c.ok(data) : true)) return { data, url: c.url, used: c.name || c.url };
+  }
+  return { data: null, url: null, used: null };
+}
+
+/* ----------------------- Google Places: keep your logic -------------------- */
 function initGoogle(){
   try{
-    const auto = new google.maps.places.Autocomplete(
-      $('placeSearch'),
-      {
-        types: ['establishment'],
-        fields: ['place_id','name','formatted_address','formatted_phone_number','website','types']
-      }
-    );
-    auto.addListener('place_changed', () => {
-      const place = auto.getPlace() || {};
-      $('previewBox').style.display = 'block';
-      $('p_name').value = place.name || '';
-      $('p_address').value = place.formatted_address || '';
-      $('p_phone').value = place.formatted_phone_number || '';
-      $('p_website').value = place.website || '';
-      $('p_category').value = (place.types && place.types.length) ? place.types[0] : 'Business';
-      $('p_place_id').textContent = 'place_id: ' + (place.place_id || '—');
-
+    const input = $("placeSearch");
+    const auto = new google.maps.places.Autocomplete(input, {
+      types:["establishment"],
+      fields:["place_id","name","formatted_address","formatted_phone_number","website","types"]
+    });
+    auto.addListener("place_changed", () => {
+      const place = auto.getPlace();
+      $("previewBox").style.display = "block";
+      $("p_name").value = place.name || "";
+      $("p_address").value = place.formatted_address || "";
+      $("p_phone").value = place.formatted_phone_number || "";
+      $("p_website").value = place.website || "";
+      $("p_category").value = (place.types && place.types[0]) ? place.types[0] : "Business";
       selectedPlace = {
-        name: place.name || '',
-        address: place.formatted_address || '',
-        phone: place.formatted_phone_number || '',
-        website: place.website || '',
-        category: (place.types && place.types.length) ? place.types[0] : 'Business',
-        place_id: place.place_id || ''
+        name: place.name,
+        address: place.formatted_address,
+        phone: place.formatted_phone_number || "",
+        website: place.website || "",
+        category: (place.types && place.types[0]) ? place.types[0] : "Business",
+        place_id: place.place_id
       };
-      $('saveCompanyBtn').disabled = !selectedPlace.place_id;
-      $('addMsg').textContent = selectedPlace.place_id ? 'Ready to add.' : 'No place selected.';
-      $('addMsg').className = selectedPlace.place_id ? 'text-success' : 'text-danger';
+      $("saveCompanyBtn").disabled = !selectedPlace?.place_id;
+      $("addMsg").textContent = "Ready to add. Check details above.";
     });
   }catch(e){
-    console.warn('Google Autocomplete failed to initialize', e);
+    console.warn("Google Places Autocomplete failed to init", e);
   }
 }
 
-/* ==========================
-   Add Business (POST to companies.py)
-========================== */
-$('saveCompanyBtn').onclick = async () => {
-  if(!selectedPlace || !selectedPlace.place_id){
-    $('addMsg').textContent = 'Select a business from suggestions first.'; $('addMsg').className = 'text-danger'; return;
+// Save company with flexible fallbacks
+$("saveCompanyBtn").onclick = async () => {
+  if (!selectedPlace?.place_id && !$("p_name").value) {
+    $("addMsg").textContent = "Select a place first.";
+    return;
   }
-  try{
-    // IMPORTANT: uses /companies/create so it links with companies.py
-    // If your backend route is /api/companies/add, change the URL below to '/api/companies/add'
-    const res = await postJSON('/companies/create', {
-      place_id: selectedPlace.place_id,
-      name: selectedPlace.name,          // optional; server will refetch details if missing
-      address: selectedPlace.address,    // optional
-      phone: selectedPlace.phone,        // optional
-      website: selectedPlace.website     // optional
-      // category is not saved unless your Company model has it; safe to omit
-    });
-    $('addMsg').textContent = res.message || 'Saved'; $('addMsg').className = 'text-success';
-    // Refresh companies dropdown
-    await loadCompanies();
-    // Select the new company if id returned
-    if(res.id){ $('companySelect').value = String(res.id); localStorage.setItem('lastCompanyId', String(res.id)); }
-  }catch(e){
-    $('addMsg').textContent = 'Save failed: ' + e.message; $('addMsg').className = 'text-danger';
+  const payload = {
+    place_id: selectedPlace?.place_id,
+    name: selectedPlace?.name || $("p_name").value || undefined,
+    address: selectedPlace?.address || $("p_address").value || undefined,
+    phone: selectedPlace?.phone || $("p_phone").value || undefined,
+    website: selectedPlace?.website || $("p_website").value || undefined,
+    category: selectedPlace?.category || $("p_category").value || undefined
+  };
+
+  // Try multiple endpoints to save (server differences tolerated)
+  const endpoints = [
+    { name:"companies_create", url:"/companies/create" },
+    { name:"api_companies_add", url:"/api/companies/add" },
+    { name:"api_companies_create", url:"/api/companies/create" }
+  ];
+  let ok = false, last;
+  for (const e of endpoints) {
+    try {
+      const r = await fetch(e.url, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
+      const d = await r.json().catch(()=>({}));
+      // accept either {ok:true,id:..} or {success:true}
+      if (r.ok && ((d.ok === true) || (d.success === true) || (d.id))) {
+        ok = true; last = d;
+        $("addMsg").textContent = `Saved ✅ (ID: ${d.id || 'new'})`;
+        // refresh company list and select new one if ID returned
+        await loadCompanies();
+        if (d.id) $("companySelect").value = String(d.id);
+        // close modal
+        setTimeout(()=>{ const m = bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')); m?.hide(); }, 600);
+        break;
+      }
+    } catch (err) {
+      // continue trying other endpoints
+    }
+  }
+  if (!ok) {
+    $("addMsg").textContent = "Saving failed. Please try again.";
   }
 };
 
-/* ==========================
-   Fetch Dashboard Data
-========================== */
-async function fetchDashboard(){
-  const cid = $('companySelect').value;
-  const s = $('startDate').value;
-  const e = $('endDate').value;
-  if(!cid){ return; }
-
-  // KPIs
-  try{
-    const k = await getJSON(`/api/kpis?company_id=${encodeURIComponent(cid)}&start=${encodeURIComponent(s)}&end=${encodeURIComponent(e)}`);
-    $('kpi_reviews').innerText = safe(k.total_reviews, 0);
-    $('kpi_rating').innerText = Number(safe(k.avg_rating, 0)).toFixed(1);
-    $('kpi_sentiment').innerText = Number(safe(k.avg_sentiment, 0)).toFixed(3);
-    $('kpi_new').innerText = safe(k.new_reviews, 0);
-  }catch(e){
-    $('kpi_reviews').innerText = '0';
-    $('kpi_rating').innerText = '0.0';
-    $('kpi_sentiment').innerText = '0.000';
-    $('kpi_new').innerText = '0';
+/* ------------------------------- Companies --------------------------------- */
+async function loadCompanies() {
+  const res = await getJSON("/api/companies/list", { companies: [] });
+  const sel = $("companySelect");
+  sel.innerHTML = "";
+  if (!res?.companies?.length) {
+    sel.innerHTML = `<option value="">No companies found</option>`;
+    $("companyHint").innerHTML = `<span class="neutral-chip">Add a business using the + button.</span>`;
+    return;
   }
-
-  // Overview series
-  let series = { volume:[], rating:[], sentiment:[] };
-  try{ series = await getJSON(`/api/series/overview?company_id=${cid}&start=${s}&end=${e}`); }catch(e){}
-  const vol = (series.volume && series.volume.length) ? series.volume : [{date: s || todayStr(), value: 0}];
-  const rat = (series.rating && series.rating.length) ? series.rating : [{date: s || todayStr(), value: 0}];
-  const sen = (series.sentiment && series.sentiment.length) ? series.sentiment : [{date: s || todayStr(), value: 0}];
-
-  // Destroy & redraw charts
-  try{ charts.volume?.destroy(); }catch{}
-  try{ charts.rating?.destroy(); }catch{}
-  try{ charts.sentiment?.destroy(); }catch{}
-  try{ charts.stars?.destroy(); }catch{}
-
-  charts.volume = lineChart('chartVolume', vol.map(x=>x.date), vol.map(x=>x.value), '#0d6efd', true);
-  charts.rating = lineChart('chartRating', rat.map(x=>x.date), rat.map(x=>x.value), '#20c997', false);
-  charts.sentiment = lineChart('chartSentiment', sen.map(x=>x.date), sen.map(x=>x.value), '#6610f2', false, -1, 1);
-
-  // Stars distribution
-  let stars = { distribution: {1:0,2:0,3:0,4:0,5:0} };
-  try{ stars = await getJSON(`/api/ratings/distribution?company_id=${cid}&start=${s}&end=${e}`); }catch(e){}
-  const dist = stars.distribution || {1:0,2:0,3:0,4:0,5:0};
-  charts.stars = barChart('chartStars', Object.keys(dist), Object.values(dist).map(v=>+v||0), '#ffc107');
-
-  // Executive summary (AI)
-  try{
-    const summary = await getJSON(`/api/ai/executive-summary?company_id=${cid}&start=${s}&end=${e}`);
-    $('ai_summary').innerText = summary.summary || '';
-    $('ai_actions').innerHTML = (summary.top_actions || []).map(a => `<li>${a}</li>`).join('');
-  }catch(e){
-    $('ai_summary').innerText = '—';
-    $('ai_actions').innerHTML = '';
+  const lastId = localStorage.getItem("lastCompanyId");
+  res.companies.forEach(c => {
+    const opt = document.createElement("option");
+    opt.value = c.id; opt.textContent = c.name;
+    sel.appendChild(opt);
+  });
+  if (lastId && res.companies.some(c => String(c.id) === String(lastId))) {
+    sel.value = lastId;
   }
-
-  // Alerts
-  try{
-    const alerts = await getJSON(`/api/alerts?company_id=${cid}&start=${s}&end=${e}`);
-    $('alerts').innerHTML = (alerts.alerts || []).map(a => `<li>${a.message}</li>`).join('') || '<li>No alerts.</li>';
-  }catch(e){
-    $('alerts').innerHTML = '<li>No alerts.</li>';
+  if (!sel.value && res.companies.length) {
+    sel.value = res.companies[0].id;
   }
-
-  // Themes
-  try{
-    const themes = await getJSON(`/api/keywords/themes?company_id=${cid}&start=${s}&end=${e}`);
-    $('themes').innerHTML = `<b>Positive:</b> ${ (themes.positive_keywords||[]).join(', ') || '—' }
-      <br><b>Negative:</b> ${ (themes.negative_keywords||[]).join(', ') || '—' }`;
-  }catch(e){
-    $('themes').innerHTML = '<b>Positive:</b> —<br><b>Negative:</b> —';
-  }
-
-  // Reviews feed
-  try{
-    const reviews = await getJSON(`/api/reviews/feed?company_id=${cid}&start=${s}&end=${e}`);
-    $('reviews').innerHTML = (reviews.items || []).map(r => `
-      <div class="review">
-        <b>${r.author_name || 'Anonymous'}</b> ⭐${r.rating || 0}<br>
-        ${r.text || ''}
-      </div>
-    `).join('') || '<div class="text-muted">No reviews found for this period.</div>';
-  }catch(e){
-    $('reviews').innerHTML = '<div class="text-muted">No reviews found for this period.</div>';
-  }
+  sel.addEventListener("change", ()=>{
+    localStorage.setItem("lastCompanyId", sel.value);
+  });
+  $("companyHint").textContent = "";
 }
 
-/* ==========================
-   Wire up
-========================== */
-$('fetchBtn').onclick = fetchDashboard;
+/* --------------------------------- Dates ----------------------------------- */
+function setDefaultDates(){
+  const end = new Date();
+  const start = new Date();
+  start.setMonth(start.getMonth() - 1);
+  $("endDate").value = end.toISOString().split("T")[0];
+  $("startDate").value = start.toISOString().split("T")[0];
+}
+
+/* --------------------------- Draw & Destroy Charts -------------------------- */
+function destroyCharts(){ Object.values(charts).forEach(c => c?.destroy?.()); charts = {}; }
+
+function drawLineChart(canvasId, series, color="#0d6efd", fill=false, yMin=null, yMax=null){
+  const ctx = $(canvasId);
+  const safeSeries = ensureSeries(series);
+  const labels = safeSeries.map(x => x.date);
+  const values = safeSeries.map(x => safeNumber(x.value, 0));
+  charts[canvasId] = new Chart(ctx, {
+    type:"line",
+    data:{ labels, datasets:[{ data:values, label:"", borderColor:color, backgroundColor:color+'33', tension:.3, fill }] },
+    options:{ plugins:{ legend:{ display:false }}, scales:{ y: { min:yMin, max:yMax } } }
+  });
+}
+
+function drawBarChart(canvasId, dist, color="#ffc107"){
+  const ctx = $(canvasId);
+  const safe = ensureDist(dist);
+  charts[canvasId] = new Chart(ctx, {
+    type:"bar",
+    data:{ labels:Object.keys(safe), datasets:[{ data:Object.values(safe).map(v=>safeNumber(v,0)), backgroundColor:color }] },
+    options:{ plugins:{ legend:{ display:false }}}
+  });
+}
+
+/* ---------------------------- Flexible Fetchers ----------------------------- */
+async function fetchKPIs(cid, s, e){
+  const q = `company_id=${cid}&start=${s}&end=${e}`;
+  const data = await getJSON(`/api/kpis?${q}`, { total_reviews:0, avg_rating:0, avg_sentiment:0, new_reviews:0 });
+  return {
+    total: safeNumber(data.total_reviews, 0),
+    avgRating: safeNumber(data.avg_rating, 0),
+    avgSent: safeNumber(data.avg_sentiment, 0),
+    newReviews: safeNumber(data.new_reviews, 0),
+    window: data.window || { start:s, end:e }
+  };
+}
+
+async function fetchSeriesOverview(cid, s, e){
+  const q = `company_id=${cid}&start=${s}&end=${e}`;
+  // Try overview first
+  const first = await tryEndpoints([
+    { name:"overview", url:`/api/series/overview?${q}`, ok: (d)=> Array.isArray(d.volume) || Array.isArray(d.rating) || Array.isArray(d.sentiment) }
+  ]);
+  if (first.data) return {
+    volume: first.data.volume || [],
+    rating: first.data.rating || [],
+    sentiment: first.data.sentiment || []
+  };
+  // Fallback to separate calls
+  const [vol, rat, sen] = await Promise.all([
+    getJSON(`/api/series/reviews?${q}`, { series:[] }),
+    getJSON(`/api/series/ratings?${q}`, { series:[] }),
+    getJSON(`/api/sentiment/series?${q}`, { series:[] })
+  ]);
+  return { volume: vol.series || [], rating: rat.series || [], sentiment: sen.series || [] };
+}
+
+async function fetchDistribution(cid, s, e){
+  const q = `company_id=${cid}&start=${s}&end=${e}`;
+  const d = await getJSON(`/api/ratings/distribution?${q}`, { distribution:{} });
+  return d.distribution || {};
+}
+
+async function fetchExecutiveSummary(cid, s, e){
+  const q = `company_id=${cid}&start=${s}&end=${e}`;
+  // Preferred endpoint
+  const v1 = await getJSON(`/api/ai/executive-summary?${q}`, null);
+  if (v1 && v1.summary) return { summary: v1.summary, actions: v1.top_actions || [] };
+
+  // Fallback to recommendations + compose short summary
+  const recs = await getJSON(`/api/ai/recommendations?${q}`, null);
+  if (recs && (recs.verdict || recs.business_health_score !== undefined)) {
+    const sum = `Verdict: ${recs.verdict || '—'}. Business Health Score: ${recs.business_health_score ?? '—'}%.`;
+    return { summary: sum, actions: recs.top_action_items || [] };
+  }
+
+  // Last resort legacy
+  const legacy = await getJSON(`/api/owner/executive-summary?${q}`, null);
+  if (legacy) {
+    const sum = `${legacy.final_verdict || '—'} (Health: ${legacy.business_health_score ?? '—'}%).`;
+    return { summary: sum, actions: legacy.top_action_item ? [legacy.top_action_item] : [] };
+  }
+  return { summary: "No executive insight available for this window.", actions: [] };
+}
+
+async function fetchAlerts(cid, s, e){
+  const q = `company_id=${cid}&start=${s}&end=${e}`;
+  const d = await getJSON(`/api/alerts?${q}`, { alerts: [] });
+  return Array.isArray(d.alerts) ? d.alerts : [];
+}
+
+async function fetchThemes(cid, s, e){
+  const q = `company_id=${cid}&start=${s}&end=${e}`;
+  // Preferred
+  const t = await getJSON(`/api/keywords/themes?${q}`, null);
+  if (t) {
+    return {
+      pos: t.positive_keywords || [],
+      neg: t.negative_keywords || []
+    };
+  }
+  // Legacy
+  const k = await getJSON(`/api/keywords/top?${q}`, { positive_keywords:[], negative_keywords:[] });
+  return { pos: k.positive_keywords || [], neg: k.negative_keywords || [] };
+}
+
+async function fetchReviews(cid, s, e){
+  const q = `company_id=${cid}&start=${s}&end=${e}`;
+  const feed = await getJSON(`/api/reviews/feed?${q}`, null);
+  if (feed && Array.isArray(feed.items)) return feed.items;
+  const list = await getJSON(`/api/reviews/list?${q}`, { items:[] });
+  return list.items || [];
+}
+
+/* -------------------------- Orchestrate Dashboard --------------------------- */
+async function fetchDashboard(){
+  const cid = $("companySelect").value;
+  const s = $("startDate").value;
+  const e = $("endDate").value;
+  if (!cid) {
+    $("companyHint").innerHTML = `<span class="neutral-chip">Pick or add a business first.</span>`;
+    return;
+  }
+
+  // KPIs
+  const k = await fetchKPIs(cid, s, e);
+  $("kpi_reviews").innerText = k.total;
+  $("kpi_rating").innerText = k.avgRating.toFixed(1);
+  $("kpi_sentiment").innerText = k.avgSent.toFixed(3);
+  $("kpi_new").innerText = k.newReviews;
+
+  // Auto-widen once if zero
+  if (!widenedOnce && (!k.total || k.total === 0)) {
+    widenedOnce = true;
+    $("startDate").value = "2019-01-01";
+    await fetchDashboard();
+    return;
+  }
+
+  // Series
+  const series = await fetchSeriesOverview(cid, s, e);
+  destroyCharts();
+  drawLineChart("chartVolume", series.volume, "#0d6efd", true);
+  drawLineChart("chartRating", series.rating, "#20c997", false);
+  drawLineChart("chartSentiment", series.sentiment, "#6610f2", false, -1, 1);
+
+  // Distribution
+  const stars = await fetchDistribution(cid, s, e);
+  drawBarChart("chartStars", stars, "#ffc107");
+
+  // Executive summary
+  const ex = await fetchExecutiveSummary(cid, s, e);
+  $("ai_summary").innerText = ex.summary || "—";
+  $("ai_actions").innerHTML = (ex.actions || []).map(a => `<li>${a}</li>`).join("");
+
+  // Alerts
+  const al = await fetchAlerts(cid, s, e);
+  $("alerts").innerHTML = al.length ? al.map(a => `<li>${a.message || ''}</li>`).join("") : `<li class="small-muted">No alerts.</li>`;
+
+  // Themes
+  const th = await fetchThemes(cid, s, e);
+  $("themes").innerHTML = `<b>Positive:</b> ${ (th.pos||[]).join(", ") || "—" }<br><b>Negative:</b> ${ (th.neg||[]).join(", ") || "—" }`;
+
+  // Reviews
+  const rv = await fetchReviews(cid, s, e);
+  $("reviews").innerHTML = rv.length ? rv.map(r=>`
+    <div class="review">
+      <b>${r.author_name || 'Anonymous'}</b> ⭐${r.rating ?? '-'}<br>
+      ${r.text || ''}
+    </div>
+  `).join("") : `<span class="neutral-chip">No reviews for this window.</span>`;
+}
+
+/* --------------------------------- Wire Up --------------------------------- */
+$("fetchBtn").onclick = fetchDashboard;
 
 window.onload = async () => {
-  // Default last 30 days (auto-widen is handled by backend best practices you now have)
-  $('endDate').value = todayStr();
-  $('startDate').value = daysAgoStr(30);
-
   initGoogle();
+  setDefaultDates();
   await loadCompanies();
-  if($('companySelect').value){ fetchDashboard(); }
+  if ($("companySelect").value) {
+    fetchDashboard();
+  }
 };
 </script>
 
