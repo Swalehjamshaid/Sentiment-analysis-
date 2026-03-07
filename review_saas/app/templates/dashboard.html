@@ -21,15 +21,16 @@
     .small-muted{font-size:.85rem;color:#6c757d}
     .kpi h4{font-weight:700}
     .break-word{word-wrap:break-word; word-break:break-word;}
-    .form-inline-gap > *{margin-right:.5rem}
+    .truncate{max-width:240px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   </style>
 </head>
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
   <div class="container-fluid">
-    <a class="navbar-brand" href="/">ReviewSaaS</a>
+    <a class="navbar-brand" href="/dashboard">ReviewSaaS</a>
     <div class="d-flex gap-2">
-      <a href="/companies" class="btn btn-outline-light btn-sm">Companies</a>
+      <!-- IMPORTANT: Companies page lives at /api/companies because of router prefix="/api" -->
+      <a href="/api/companies" class="btn btn-outline-light btn-sm">Companies</a>
       <a href="/logout" class="btn btn-warning btn-sm">Logout</a>
     </div>
   </div>
@@ -269,7 +270,7 @@
       </div>
     </div>
 
-    <!-- Existing numeric aspects (rooms/staff/...) -->
+    <!-- Existing numeric aspects (rooms/staff/...) still supported, but safe even if zero -->
     <div class="col-lg-4">
       <div class="card h-100">
         <div class="card-body">
@@ -297,35 +298,16 @@
     </div>
   </div>
 
-  <!-- Reviews List -->
-  <div class="row g-3 mt-1">
-    <div class="col-12">
-      <div class="card">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center">
-            <h6 class="text-muted mb-0">Reviews</h6>
-            <div>
-              <select id="sortReviews" class="form-select form-select-sm">
-                <option value="newest" selected>Newest</option>
-                <option value="oldest">Oldest</option>
-                <option value="highest">Highest rating</option>
-                <option value="lowest">Lowest rating</option>
-              </select>
-            </div>
-          </div>
-          <div id="reviewsList" class="mt-3"></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- Export & Sync -->
   <div class="mt-3">
     {% if active_company_id %}
       <a class="btn btn-outline-primary" href="/api/export/reviews.csv?company_id={{active_company_id}}">Export CSV</a>
       <a class="btn btn-outline-primary" href="/api/export/reviews.xlsx?company_id={{active_company_id}}">Export Excel</a>
       <a class="btn btn-outline-primary" href="/api/export/summary.pdf?company_id={{active_company_id}}">Export PDF</a>
-      <form class="d-inline" method="post" action="/companies/{{active_company_id}}/sync"><button class="btn btn-success">Sync Reviews for Active Company</button></form>
+      <!-- IMPORTANT: Sync endpoint is /api/companies/{id}/sync -->
+      <form class="d-inline" method="post" action="/api/companies/{{active_company_id}}/sync">
+        <button class="btn btn-success">Sync Reviews for Active Company</button>
+      </form>
     {% endif %}
   </div>
 </div>
@@ -334,7 +316,7 @@
 /* Active company id injected by server (may be null) */
 let companyId = {{ active_company_id or 'null' }};
 
-/* Optional API links map from backend (if provided) */
+/* Optional API links map from backend (if provided via api_links) */
 const linksFromServer = {% if api_links %}{{ api_links | safe }}{% else %}null{% endif %};
 
 /* Fallback if not provided */
@@ -423,7 +405,7 @@ async function fetchAll(){
       fetchJSON(API.series_sentiment + "?" + p),
     ]);
 
-    // KPIs (avg sentiment should now be non-zero thanks to backend fallback)
+    // KPIs (avg sentiment will be non-zero thanks to backend fallback)
     document.getElementById('kpi-total').textContent = Number(k.total_reviews || 0);
     document.getElementById('kpi-rating').textContent = (Number(k.avg_rating || 0)).toFixed(2);
     document.getElementById('kpi-sent').textContent = (Number(k.avg_sentiment || 0)).toFixed(3);
@@ -456,11 +438,7 @@ async function fetchAll(){
       type: 'bar',
       data: {
         labels,
-        datasets: [{
-          label: 'Count',
-          data: vals,
-          backgroundColor: ['#dc3545','#fd7e14','#ffc107','#0dcaf0','#198754']
-        }]
+        datasets: [{ label: 'Count', data: vals, backgroundColor: ['#dc3545','#fd7e14','#ffc107','#0dcaf0','#198754'] }]
       },
       options: { responsive: true, scales: { y: { beginAtZero: true } } }
     });
@@ -525,10 +503,7 @@ async function loadSentimentShare(){
     type: 'doughnut',
     data: {
       labels: ['Positive','Neutral','Negative'],
-      datasets: [{
-        data: vals,
-        backgroundColor: ['#2ecc71','#bdc3c7','#e74c3c']
-      }]
+      datasets: [{ data: vals, backgroundColor: ['#2ecc71','#bdc3c7','#e74c3c'] }]
     },
     options: { responsive: true, cutout: '55%' }
   });
@@ -561,10 +536,7 @@ async function loadAspectSentiment(){
         { label:'Negative', data: neg, backgroundColor:'#e74c3c' }
       ]
     },
-    options: {
-      responsive: true,
-      scales: { x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } }
-    }
+    options: { responsive: true, scales: { x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } } }
   });
 }
 
@@ -643,15 +615,7 @@ async function loadCorrelation(){
 
   chartCorr = new Chart(document.getElementById('corrScatter'), {
     type: 'scatter',
-    data: {
-      datasets: [{
-        label:'Rating vs Sentiment',
-        data: points,
-        borderColor:'#fd7e14',
-        backgroundColor:'rgba(253,126,20,0.2)',
-        pointRadius:3
-      }]
-    },
+    data: { datasets: [{ label:'Rating vs Sentiment', data: points, borderColor:'#fd7e14', backgroundColor:'rgba(253,126,20,0.2)', pointRadius:3 }] },
     options: {
       responsive:true,
       scales: {
@@ -720,7 +684,7 @@ async function loadKeywords(){
   chips('kwBigrams', bigs, 'pos');
 }
 
-/* Existing numeric aspects (rooms/staff/...) */
+/* Existing numeric aspects (rooms/staff/...) — safe if zeros */
 async function loadAspectsNumeric(){
   const {start, end} = getDates();
   const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
