@@ -72,12 +72,11 @@
   <div id="nodataBox" class="alert alert-warning nodata-msg"><i class="fas fa-exclamation-triangle me-2"></i>No data in this range</div>
   <div id="errorBox" class="alert alert-danger error-msg"><i class="fas fa-exclamation-circle me-2"></i>Error loading data</div>
 
-  <!-- KPIs -->
+  <!-- KPIs (Avg Sentiment removed) -->
   <div class="row g-3">
-    <div class="col-md-3"><div class="kpi-card p-3 text-center"><small class="text-muted d-block">Total Reviews</small><h4 id="kpi-total" class="fw-bold mb-0">0</h4></div></div>
-    <div class="col-md-3"><div class="kpi-card p-3 text-center text-warning"><small class="text-muted d-block">Avg Rating</small><h4 id="kpi-rating" class="fw-bold mb-0">0.0</h4></div></div>
-    <div class="col-md-3"><div class="kpi-card p-3 text-center text-primary"><small class="text-muted d-block">Avg Sentiment</small><h4 id="kpi-sent" class="fw-bold mb-0">0.000</h4></div></div>
-    <div class="col-md-3"><div class="kpi-card p-3 text-center text-info"><small class="text-muted d-block">New (24h)</small><h4 id="kpi-new" class="fw-bold mb-0">0</h4></div></div>
+    <div class="col-md-4"><div class="kpi-card p-3 text-center"><small class="text-muted d-block">Total Reviews</small><h4 id="kpi-total" class="fw-bold mb-0">0</h4></div></div>
+    <div class="col-md-4"><div class="kpi-card p-3 text-center text-warning"><small class="text-muted d-block">Avg Rating</small><h4 id="kpi-rating" class="fw-bold mb-0">0.0</h4></div></div>
+    <div class="col-md-4"><div class="kpi-card p-3 text-center text-info"><small class="text-muted d-block">New (24h)</small><h4 id="kpi-new" class="fw-bold mb-0">0</h4></div></div>
   </div>
 
   <!-- Charts -->
@@ -160,7 +159,7 @@
   </div>
 </div>
 
-<!-- Add Company Modal (Enhanced with Google Places Auto-fill) -->
+<!-- Add Company Modal -->
 <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content border-0 shadow-lg rounded-4">
@@ -224,6 +223,9 @@
 </div>
 
 <script>
+// Your API Key (used for Google Places)
+const GOOGLE_PLACES_API_KEY = "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc";
+
 // ────────────────────────────────────────────────
 // DOM Elements & State
 // ────────────────────────────────────────────────
@@ -238,7 +240,6 @@ const el = {
   reviewsList: document.getElementById('reviewsList'),
   kpiTotal: document.getElementById('kpi-total'),
   kpiRating: document.getElementById('kpi-rating'),
-  kpiSent: document.getElementById('kpi-sent'),
   kpiNew: document.getElementById('kpi-new'),
   aspectsContainer: document.getElementById('aspectsContainer'),
   complaintsStats: document.getElementById('complaintsStats'),
@@ -282,7 +283,7 @@ async function safeJsonFetch(url, fallback = {}) {
 function destroyCharts() { Object.values(charts).forEach(c => c?.destroy?.()); charts = {}; }
 
 // ────────────────────────────────────────────────
-// Load Companies + Auto-select last used
+// Load Companies
 // ────────────────────────────────────────────────
 async function loadCompanies() {
   const data = await safeJsonFetch('/api/companies/list', { companies: [] });
@@ -322,7 +323,7 @@ function renderReviewsList() {
 }
 
 // ────────────────────────────────────────────────
-// Main Data Fetch
+// Main Data Fetch (Avg Sentiment removed)
 // ────────────────────────────────────────────────
 async function fetchDashboardData() {
   if (!currentCompanyId) return show('nodataBox', true);
@@ -360,7 +361,6 @@ async function fetchDashboardData() {
 
   el.kpiTotal.textContent = kpis?.total_reviews ?? 0;
   el.kpiRating.textContent = (kpis?.avg_rating ?? 0).toFixed(1);
-  el.kpiSent.textContent = (kpis?.avg_sentiment ?? 0).toFixed(3);
   el.kpiNew.textContent = revS?.series?.at(-1)?.value ?? 0;
 
   destroyCharts();
@@ -427,7 +427,7 @@ async function fetchDashboardData() {
 // ────────────────────────────────────────────────
 function loadGoogleScript() {
   const script = document.createElement('script');
-  script.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initGooglePlaces";
+  script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_PLACES_API_KEY}&libraries=places&callback=initGooglePlaces`;
   script.async = true;
   document.head.appendChild(script);
 }
@@ -437,7 +437,7 @@ window.initGooglePlaces = function() {
     types: ['establishment', 'lodging', 'restaurant', 'hotel'],
     fields: [
       'place_id', 'name', 'formatted_address', 'rating', 'user_ratings_total',
-      'formatted_phone_number', 'website', 'types', 'geometry'
+      'formatted_phone_number', 'website', 'types'
     ]
   });
 
@@ -450,7 +450,6 @@ window.initGooglePlaces = function() {
 
     el.previewBox.style.display = 'block';
     
-    // Auto-fill all fields
     el.prevName.value = place.name || 'Not available';
     el.prevAddress.value = place.formatted_address || 'Not available';
     el.prevPhone.value = place.formatted_phone_number || 'Not listed';
