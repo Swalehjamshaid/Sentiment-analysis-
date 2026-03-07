@@ -13,12 +13,13 @@ from sqlalchemy import select, func, desc, cast, Date, and_
 from starlette.templating import Jinja2Templates
 
 from app.core.db import get_session
-from app.core.models import Review, Company # Added Company for context
+from app.core.models import Review, Company
 from app.routes.companies import _require_user
 
 router = APIRouter(tags=["dashboard"])
 templates = Jinja2Templates(directory="app/templates")
 logger = logging.getLogger("app.dashboard")
+
 
 def parse_date(date_str: str | None) -> Optional[datetime.date]:
     if not date_str:
@@ -27,6 +28,7 @@ def parse_date(date_str: str | None) -> Optional[datetime.date]:
         return datetime.strptime(date_str, "%Y-%m-%d").date()
     except Exception:
         return None
+
 
 # ────────────────────────────────────────────────
 # Dashboard Page
@@ -41,6 +43,7 @@ async def get_dashboard(request: Request):
             {"request": request, "error": "Session expired."}
         )
     return templates.TemplateResponse("dashboard.html", {"request": request})
+
 
 # ────────────────────────────────────────────────
 # KPIs & Ratings
@@ -59,7 +62,7 @@ async def api_kpis(company_id: int, start: str | None = None, end: str | None = 
             stmt = stmt.where(cast(Review.google_review_time, Date) >= start_dt)
         if end_dt:
             stmt = stmt.where(cast(Review.google_review_time, Date) <= end_dt)
-        
+
         res = await session.execute(stmt)
         stats = res.first()
         return {
@@ -67,6 +70,7 @@ async def api_kpis(company_id: int, start: str | None = None, end: str | None = 
             "avg_rating": round(float(stats.avg_rating or 0.0), 2),
             "avg_sentiment": round(float(stats.avg_sent or 0.0), 3)
         }
+
 
 @router.get("/api/ratings/distribution")
 async def api_ratings_distribution(company_id: int, start: str | None = None, end: str | None = None):
@@ -83,6 +87,7 @@ async def api_ratings_distribution(company_id: int, start: str | None = None, en
         for row in res.all():
             dist[int(row[0])] = row[1]
         return {"distribution": dist}
+
 
 # ────────────────────────────────────────────────
 # Reviews & Sentiment Series
@@ -111,6 +116,7 @@ async def api_reviews_list(company_id: int, start: str | None = None, end: str |
             } for r in items]
         }
 
+
 @router.get("/api/series/reviews")
 async def api_series_reviews(company_id: int, start: str | None = None, end: str | None = None):
     start_dt, end_dt = parse_date(start), parse_date(end)
@@ -122,6 +128,7 @@ async def api_series_reviews(company_id: int, start: str | None = None, end: str
         stmt = stmt.group_by("date").order_by("date")
         res = await session.execute(stmt)
         return {"series": [{"date": str(r.date), "value": r.value} for r in res.all()]}
+
 
 @router.get("/api/sentiment/series")
 async def api_sentiment_series(company_id: int, start: str | None = None, end: str | None = None):
@@ -135,39 +142,43 @@ async def api_sentiment_series(company_id: int, start: str | None = None, end: s
         res = await session.execute(stmt)
         return {"series": [{"date": str(r.date), "value": round(float(r.value or 0), 3)} for r in res.all()]}
 
+
 # ────────────────────────────────────────────────
-# NEW: Executive Verdict & Decision Making
+# Executive Verdict & Decision Making
 # ────────────────────────────────────────────────
 
 @router.get("/api/owner/executive-summary")
 async def api_executive_summary(company_id: int):
-    """Provides the 'One Final Thing' conclusion for the business owner."""
     async with get_session() as session:
-        # Get core stats
+        # Core KPIs
         stats = await api_kpis(company_id)
         aspects = await api_aspects_average(company_id)
-        
+
         rating = stats["avg_rating"]
         sentiment = stats["avg_sentiment"]
-        
-        # Decision Logic for the Final Verdict
-        if sentiment < 0.1 and rating > 4.0:
-            verdict = "Critical Disconnect: Guests are giving high stars but expressing deep frustration in text. Immediate service audit required."
-        elif sentiment > 0.4 and rating < 4.0:
-            verdict = "Hidden Potential: Guests love the experience but are penalizing you on price or facilities. Review infrastructure."
-        elif rating < 3.5:
-            verdict = "Crisis Mode: Brand reputation is at risk. Prioritize staff training and immediate response to negative reviews."
-        else:
-            verdict = "Steady Growth: Maintain current quality. Look into loyalty programs to increase review volume."
 
-        # Find top pain point
+        # Advanced Decision Logic
+        if sentiment < 0.1 and rating > 4.0:
+            verdict = "Critical Disconnect: Guests give high stars but express frustration in text. Immediate audit required."
+        elif sentiment > 0.4 and rating < 4.0:
+            verdict = "Hidden Potential: Guests love experience but penalize price/facilities. Review infrastructure."
+        elif rating < 3.5:
+            verdict = "Crisis Mode: Brand reputation at risk. Prioritize staff training & negative review response."
+        else:
+            verdict = "Steady Growth: Maintain current quality. Increase loyalty programs & review volume."
+
+        # Weakest Aspect
         weakest_aspect = min(aspects["aspects"].items(), key=lambda x: x[1] if x[1] is not None else 1.0)
-        
+
+        # Predictive Health Score
+        health_score = round(((rating / 5) * 0.5 + (sentiment + 1)/2 * 0.5) * 100, 1)
+
         return {
             "final_verdict": verdict,
             "top_action_item": f"Address issues in {weakest_aspect[0].upper()} department immediately.",
-            "business_health_score": round(((rating/5) * 0.5 + (sentiment + 1)/2 * 0.5) * 100, 1)
+            "business_health_score": health_score
         }
+
 
 @router.get("/api/aspects/avg")
 async def api_aspects_average(company_id: int, start: str | None = None, end: str | None = None):
@@ -196,6 +207,7 @@ async def api_aspects_average(company_id: int, start: str | None = None, end: st
             }
         }
 
+
 @router.get("/api/complaints/stats")
 async def api_complaints_stats(company_id: int, start: str | None = None, end: str | None = None):
     start_dt, end_dt = parse_date(start), parse_date(end)
@@ -203,48 +215,51 @@ async def api_complaints_stats(company_id: int, start: str | None = None, end: s
         base = select(Review).where(Review.company_id == company_id)
         if start_dt: base = base.where(cast(Review.google_review_time, Date) >= start_dt)
         if end_dt: base = base.where(cast(Review.google_review_time, Date) <= end_dt)
-        
+
         res_total = await session.execute(select(func.count()).select_from(base.subquery()))
         total = res_total.scalar() or 0
-        
+
         res_comp = await session.execute(select(func.count()).select_from(base.subquery()).where(Review.is_complaint == True))
         complaints = res_comp.scalar() or 0
-        
+
         res_praise = await session.execute(select(func.count()).select_from(base.subquery()).where(Review.is_praise == True))
         praise = res_praise.scalar() or 0
-        
+
+        complaint_rate = round(complaints / total * 100, 1) if total > 0 else 0.0
+
         return {
             "total_reviews": total,
             "complaint_count": complaints,
-            "complaint_rate": round(complaints / total * 100, 1) if total > 0 else 0.0,
+            "complaint_rate": complaint_rate,
             "praise_count": praise
         }
+
 
 @router.get("/api/keywords/top")
 async def api_top_keywords(company_id: int, start: str | None = None, end: str | None = None, limit: int = Query(12, ge=5, le=30)):
     start_dt, end_dt = parse_date(start), parse_date(end)
-    from collections import Counter
-    import re
     async with get_session() as session:
         stmt = select(Review.text).where(Review.company_id == company_id)
         if start_dt: stmt = stmt.where(cast(Review.google_review_time, Date) >= start_dt)
         if end_dt: stmt = stmt.where(cast(Review.google_review_time, Date) <= end_dt)
         res = await session.execute(stmt)
         texts = [r[0] or "" for r in res.all() if r[0]]
-        if not texts: return {"positive_keywords": [], "negative_keywords": []}
-        
+        if not texts:
+            return {"positive_keywords": [], "negative_keywords": []}
+
+        # Clean & tokenize
         words = []
         for text in texts:
             cleaned = re.sub(r'[^a-zA-Z\s]', '', text.lower())
             words.extend(cleaned.split())
-        
+
         common = Counter(words).most_common(limit * 3)
         stop = {'the', 'and', 'to', 'a', 'i', 'in', 'is', 'it', 'of', 'for', 'on', 'was', 'with', 'at', 'this'}
         filtered = [(w, c) for w, c in common if w not in stop and len(w) > 3]
-        
+
         pos_indicators = {'great', 'excellent', 'good', 'friendly', 'clean', 'amazing', 'love', 'nice', 'comfortable'}
         neg_indicators = {'bad', 'poor', 'worst', 'slow', 'dirty', 'rude', 'problem', 'issue', 'disappointed'}
-        
+
         return {
             "positive_keywords": [w for w, _ in filtered if w in pos_indicators][:limit],
             "negative_keywords": [w for w, _ in filtered if w in neg_indicators][:limit]
