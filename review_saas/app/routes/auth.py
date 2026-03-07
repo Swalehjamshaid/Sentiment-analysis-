@@ -1,231 +1,217 @@
+# filename: review_saas/app/routes/auth.py
 from __future__ import annotations
+from fastapi import APIRouter, Request, Form, UploadFile, File, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.templating import Jinja2Templates
+from itsdangerous import URLSafeTimedSerializer, BadSignature
+from sqlalchemy import select
+import os
 
-from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    Float,
-    Text,
-    Boolean,
-    DateTime,
-    JSON,
-    ForeignKey,
-    UniqueConstraint
-)
-from sqlalchemy.orm import declarative_base, relationship
-from datetime import datetime
+from app.core.config import settings
+from app.core.db import get_session
+from app.core.models import User, AuditLog
+from app.core.security import hash_password, verify_password, validate_password_strength, create_access_token
+from app.core.mailer import send_email
+from app.core.rate_limit import check_rate_limit
 
-# ---------------------------------------------------
-# Base
-# ---------------------------------------------------
-Base = declarative_base()
+router = APIRouter(tags=['auth'])
+templates = Jinja2Templates(directory='app/templates')
 
-# Updated schema version to trigger DB recreation
-SCHEMA_VERSION = "6.0.2-outscraper-full"
-
-# ---------------------------------------------------
-# Users
-# ---------------------------------------------------
-class User(Base):
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
-    email = Column(String(255), unique=True, nullable=False, index=True)
-    hashed_password = Column(String(255), nullable=False)
-
-    # Added for auth.py registration and email verification
-    profile_pic = Column(String(1000), nullable=True)
-    role = Column(String(50), default='editor')
-    email_verified = Column(Boolean, default=False)
-
-    is_active = Column(Boolean, default=True)
-    is_admin = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    # Relationships
-    companies = relationship("Company", back_populates="owner")
-    audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan")
+s = URLSafeTimedSerializer(settings.SECRET_KEY)
 
 
-# ---------------------------------------------------
-# Companies (Google Business / Outscraper Data)
-# ---------------------------------------------------
-class Company(Base):
-    __tablename__ = "companies"
-
-    id = Column(Integer, primary_key=True, index=True)
-    owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
-
-    # Google Identifiers
-    name = Column(String(255), nullable=False)
-    place_id = Column(String(512), unique=True, index=True)
-    google_id = Column(String(255))
-
-    # Location
-    full_address = Column(String(1000))
-    city = Column(String(255))
-    state = Column(String(255))
-    postal_code = Column(String(50))
-    country = Column(String(100))
-    lat = Column(Float)
-    lng = Column(Float)
-
-    # Contact
-    phone = Column(String(255))
-    website = Column(String(512))
-    email = Column(String(255))
-
-    # Categories
-    category = Column(String(255))
-    sub_categories = Column(JSON)
-    type = Column(JSON)
-
-    # Business info
-    business_status = Column(String(50))
-    permanently_closed = Column(Boolean)
-
-    # Metrics
-    rating = Column(Float)
-    reviews_count = Column(Integer)
-
-    # Media
-    photos = Column(JSON)
-
-    # Hours
-    working_hours = Column(JSON)
-    popular_times = Column(JSON)
-
-    # Attributes
-    business_attributes = Column(JSON)
-
-    # Google URLs
-    google_maps_url = Column(String(1000))
-    place_url = Column(String(1000))
-
-    # Sync tracking
-    last_synced_at = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Relationships
-    owner = relationship("User", back_populates="companies")
-    reviews = relationship("Review", back_populates="company", cascade="all, delete-orphan")
-    competitors = relationship("Competitor", back_populates="company", cascade="all, delete-orphan")
+# -------------------------------
+# REGISTER
+# -------------------------------
+@router.get('/register', response_class=HTMLResponse)
+async def register_page(request: Request):
+    return templates.TemplateResponse('register.html', {"request": request, "title": "Register"})
 
 
-# ---------------------------------------------------
-# Reviews (Outscraper Full Output)
-# ---------------------------------------------------
-class Review(Base):
-    __tablename__ = "reviews"
-    __table_args__ = (UniqueConstraint("company_id", "google_review_id", name="_company_review_uc"),)
+@router.post('/register')
+async def register(
+    request: Request,
+    name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    profile_pic: UploadFile | None = File(None)
+):
+    # Rate limit check
+    check_rate_limit(request, f"reg:{request.client.host}")
 
-    id = Column(Integer, primary_key=True, index=True)
-    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    # Validate password
+    if not validate_password_strength(password):
+        raise HTTPException(status_code=400, detail='Weak password: must contain upper, lower, number, special char, min 8')
 
-    # Identifiers
-    google_review_id = Column(String(512), nullable=False, index=True)
-    review_url = Column(String(1000))
+    # Handle profile picture upload
+    pic_path = None
+    if profile_pic and profile_pic.filename:
+        upload_dir = 'app/static/uploads'
+        os.makedirs(upload_dir, exist_ok=True)
+        safe_name = email.replace('@', '_at_') + '_' + profile_pic.filename
+        dest = os.path.join(upload_dir, safe_name)
+        with open(dest, 'wb') as w:
+            w.write(await profile_pic.read())
+        pic_path = '/static/uploads/' + safe_name
 
-    # Reviewer
-    author_name = Column(String(255))
-    author_id = Column(String(255))
-    author_url = Column(String(1000))
-    author_profile_photo = Column(String(1000))
-    author_reviews_count = Column(Integer)
-    author_level = Column(Integer)
+    async with get_session() as session:
+        # Check if user exists
+        exists = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
+        if exists:
+            raise HTTPException(status_code=400, detail='Email already registered')
 
-    # Review Content
-    rating = Column(Integer)
-    text = Column(Text)
-    review_language = Column(String(50))
-    google_review_time = Column(DateTime)
+        # Create new user
+        u = User(
+            name=name,
+            email=email,
+            hashed_password=hash_password(password),
+            profile_pic=pic_path,
+            role='editor',
+            email_verified=False
+        )
+        session.add(u)
+        await session.commit()
+        await session.refresh(u)
 
-    # Owner Response
-    owner_answer = Column(Text)
-    owner_answer_timestamp = Column(DateTime)
+        # Audit log
+        session.add(AuditLog(user_id=u.id, action='register', meta={'email': email}))
+        await session.commit()
 
-    # Metrics
-    review_likes = Column(Integer, default=0)
-    review_photos = Column(JSON)
+    # Send verification email
+    token = s.dumps({"email": email})
+    verify_link = f"/verify-email?token={token}"
+    send_email(
+        email,
+        'Verify your email',
+        f'<p>Welcome {name}! Click to verify: <a href="{verify_link}">{verify_link}</a></p>'
+    )
+    if settings.DEBUG:
+        print('DEV verify link:', verify_link)
 
-    # Metadata
-    is_local_guide = Column(Boolean)
-
-    # AI Processing Fields
-    sentiment_label = Column(String(50))
-    sentiment_score = Column(Float)
-    keywords = Column(JSON)
-    topic_tags = Column(JSON)
-    spam_score = Column(Float)
-
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    company = relationship("Company", back_populates="reviews")
-
-
-# ---------------------------------------------------
-# Competitors
-# ---------------------------------------------------
-class Competitor(Base):
-    __tablename__ = "competitors"
-
-    id = Column(Integer, primary_key=True)
-    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
-
-    name = Column(String(255), nullable=False)
-    place_id = Column(String(512))
-    rating = Column(Float)
-    reviews_count = Column(Integer)
-    distance_km = Column(Float)
-    lat = Column(Float)
-    lng = Column(Float)
-    google_maps_url = Column(String(1000))
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    company = relationship("Company", back_populates="competitors")
+    return templates.TemplateResponse(
+        'verify_sent.html',
+        {"request": request, "title": "Verify Email", "verify_link": verify_link}
+    )
 
 
-# ---------------------------------------------------
-# Notifications
-# ---------------------------------------------------
-class Notification(Base):
-    __tablename__ = "notifications"
+# -------------------------------
+# VERIFY EMAIL
+# -------------------------------
+@router.get('/verify-email', response_class=HTMLResponse)
+async def verify_email(request: Request, token: str):
+    try:
+        data = s.loads(token, max_age=60 * 60 * 24)  # 24 hours
+    except BadSignature:
+        raise HTTPException(status_code=400, detail='Invalid or expired token')
 
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
-    title = Column(String(255))
-    message = Column(Text)
-    is_read = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    email = data.get('email')
+    async with get_session() as session:
+        user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail='User not found')
 
+        user.email_verified = True
+        session.add(AuditLog(user_id=user.id, action='verify_email', meta={'email': email}))
+        await session.commit()
 
-# ---------------------------------------------------
-# Audit Logs
-# ---------------------------------------------------
-class AuditLog(Base):
-    __tablename__ = "audit_logs"
-
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
-    action = Column(String(255), nullable=False)
-
-    # Added 'meta' JSON column to match auth.py usage
-    meta = Column(JSON, nullable=True)
-
-    ip_address = Column(String(100))
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    # Relationship
-    user = relationship("User", back_populates="audit_logs")
+    return templates.TemplateResponse('verified.html', {"request": request, "title": "Verified"})
 
 
-# ---------------------------------------------------
-# Config
-# ---------------------------------------------------
-class Config(Base):
-    __tablename__ = "config"
+# -------------------------------
+# LOGIN
+# -------------------------------
+@router.get('/login', response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse('login.html', {"request": request, "title": "Login"})
 
-    key = Column(String(255), primary_key=True)
-    value = Column(String(255))
+
+@router.post('/login')
+async def login(request: Request, email: str = Form(...), password: str = Form(...)):
+    check_rate_limit(request, f"login:{request.client.host}")
+
+    async with get_session() as session:
+        user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
+        if not user or not verify_password(password, user.hashed_password):
+            raise HTTPException(status_code=401, detail='Invalid credentials')
+
+        request.session['user_id'] = user.id
+        request.session['role'] = user.role
+        token = create_access_token(str(user.id), extra={"role": user.role})
+
+        session.add(AuditLog(user_id=user.id, action='login', meta={'email': email}))
+        await session.commit()
+
+    resp = RedirectResponse(url='/dashboard', status_code=302)
+    resp.set_cookie('access_token', token, httponly=True, samesite='lax')
+    return resp
+
+
+# -------------------------------
+# LOGOUT
+# -------------------------------
+@router.get('/logout')
+async def logout(request: Request):
+    uid = request.session.get('user_id')
+    request.session.clear()
+
+    async with get_session() as session:
+        session.add(AuditLog(user_id=uid, action='logout', meta={}))
+        await session.commit()
+
+    resp = RedirectResponse(url='/', status_code=302)
+    resp.delete_cookie('access_token')
+    return resp
+
+
+# -------------------------------
+# FORGOT PASSWORD
+# -------------------------------
+@router.get('/forgot', response_class=HTMLResponse)
+async def forgot_page(request: Request):
+    return templates.TemplateResponse('forgot.html', {"request": request, "title": "Forgot Password"})
+
+
+@router.post('/forgot')
+async def forgot(email: str = Form(...)):
+    token = s.dumps({"email": email})
+    reset_link = f"/reset?token={token}"
+
+    send_email(email, 'Reset password', f'<p>Click to reset: <a href="{reset_link}">{reset_link}</a></p>')
+    if settings.DEBUG:
+        print('DEV reset link:', reset_link)
+
+    return {"ok": True}
+
+
+# -------------------------------
+# RESET PASSWORD
+# -------------------------------
+@router.get('/reset', response_class=HTMLResponse)
+async def reset_page(request: Request, token: str):
+    return templates.TemplateResponse(
+        'reset.html',
+        {"request": request, "title": "Reset Password", "token": token}
+    )
+
+
+@router.post('/reset')
+async def reset(token: str = Form(...), password: str = Form(...)):
+    if not validate_password_strength(password):
+        raise HTTPException(status_code=400, detail='Weak password')
+
+    try:
+        data = s.loads(token, max_age=60 * 60 * 24)
+    except BadSignature:
+        raise HTTPException(status_code=400, detail='Invalid or expired token')
+
+    email = data.get('email')
+    async with get_session() as session:
+        user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail='User not found')
+
+        user.hashed_password = hash_password(password)
+        session.add(AuditLog(user_id=user.id, action='reset_password', meta={}))
+        await session.commit()
+
+    return {"ok": True}
