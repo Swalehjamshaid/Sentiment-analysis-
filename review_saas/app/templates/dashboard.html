@@ -8,22 +8,23 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
   <style>
-    body { background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); font-family: 'Segoe UI', system-ui, sans-serif; }
-    .navbar-brand { font-weight: 700; letter-spacing: -0.5px; }
-    .card { border: none; border-radius: 12px; overflow: hidden; transition: all 0.2s ease; }
-    .card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.08) !important; }
-    .kpi-card { border-radius: 10px; background: white; box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
-    .aspect-card { border-radius: 10px; border-left: 5px solid; transition: all 0.25s; }
-    .aspect-card:hover { transform: scale(1.03); }
-    .recommendation-badge { background: #e7f3ff; border-left: 4px solid #0d6efd; padding: 10px 14px; margin-bottom: 10px; border-radius: 8px; color: #0c4a6e; }
-    .badge-kw { font-size: 0.82rem; padding: 5px 10px; margin: 3px; border-radius: 20px; }
-    .neutral-chip { background: #f1f3f5; color: #495057; padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; }
-    .urgent { background: #fff5f5; border-left: 4px solid #dc3545; }
-    .spinner, .success-msg, .nodata-msg, .error-msg { display: none; border-radius: 8px; }
-    .pac-container { z-index: 1051 !important; }
-    .modal-header { background: linear-gradient(90deg, #0d6efd, #0b5ed7); }
-    .form-label { font-weight: 600; }
-    .readonly-field { background-color: #f8f9fa !important; cursor: not-allowed; }
+    body { background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+    .navbar-brand { font-weight: 800; letter-spacing: -1px; color: #fff !important; }
+    .card { border: none; border-radius: 16px; overflow: hidden; transition: all 0.25s ease; box-shadow: 0 6px 20px rgba(0,0,0,0.08); }
+    .card:hover { transform: translateY(-6px); box-shadow: 0 16px 32px rgba(0,0,0,0.12) !important; }
+    .kpi-card { border-radius: 12px; background: white; box-shadow: 0 4px 16px rgba(0,0,0,0.06); transition: all 0.2s; }
+    .kpi-card:hover { transform: scale(1.02); }
+    .aspect-card { border-radius: 12px; border-left: 6px solid; transition: all 0.3s; }
+    .aspect-card:hover { transform: scale(1.04) translateY(-4px); }
+    .recommendation-badge { background: linear-gradient(90deg, #e7f3ff, #d6ecff); border-left: 5px solid #0d6efd; padding: 12px 16px; margin-bottom: 12px; border-radius: 10px; color: #0c4a6e; box-shadow: 0 2px 8px rgba(13,110,253,0.1); }
+    .badge-kw { font-size: 0.85rem; padding: 6px 12px; margin: 4px; border-radius: 30px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    .neutral-chip { background: #f1f3f5; color: #495057; padding: 5px 12px; border-radius: 30px; font-size: 0.82rem; }
+    .urgent { background: linear-gradient(90deg, #fff5f5, #ffecec); border-left: 5px solid #dc3545; }
+    .alert { border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+    .pac-container { z-index: 1051 !important; box-shadow: 0 8px 24px rgba(0,0,0,0.15); border-radius: 12px; }
+    .modal-content { border-radius: 16px; border: none; box-shadow: 0 20px 40px rgba(0,0,0,0.2); }
+    .modal-header { border-radius: 16px 16px 0 0; background: linear-gradient(90deg, #0d6efd, #0b5ed7); }
+    .readonly-field { background-color: #f8f9fa !important; cursor: not-allowed; border-color: #dee2e6; }
   </style>
 </head>
 <body>
@@ -41,26 +42,28 @@
   </div>
 </nav>
 
-<div class="container py-4">
+<div class="container py-5">
 
   <!-- Company & Date Selection -->
-  <div class="card shadow mb-4">
-    <div class="card-body">
+  <div class="card shadow mb-5">
+    <div class="card-body p-4">
       <div class="row g-3 align-items-end">
         <div class="col-lg-4">
-          <label class="form-label fw-semibold small">Company</label>
-          <select class="form-select" id="companySelect"></select>
+          <label class="form-label fw-semibold small text-muted">Company</label>
+          <select class="form-select form-select-lg shadow-sm" id="companySelect"></select>
         </div>
         <div class="col-lg-2 d-grid">
-          <button class="btn btn-primary" id="fetchBtn"><i class="fas fa-sync-alt me-2"></i>Fetch Data</button>
+          <button class="btn btn-primary btn-lg shadow" id="fetchBtn">
+            <i class="fas fa-sync-alt me-2"></i> Fetch Data
+          </button>
         </div>
         <div class="col-lg-3">
-          <label class="form-label fw-semibold small">Start Date</label>
-          <input type="date" class="form-control" id="startDate">
+          <label class="form-label fw-semibold small text-muted">Start Date</label>
+          <input type="date" class="form-control form-control-lg shadow-sm" id="startDate">
         </div>
         <div class="col-lg-3">
-          <label class="form-label fw-semibold small">End Date</label>
-          <input type="date" class="form-control" id="endDate">
+          <label class="form-label fw-semibold small text-muted">End Date</label>
+          <input type="date" class="form-control form-control-lg shadow-sm" id="endDate">
         </div>
       </div>
     </div>
@@ -70,68 +73,85 @@
   <div id="loadingBox" class="alert alert-info spinner"><i class="fas fa-spinner fa-spin me-2"></i>Analyzing reviews...</div>
   <div id="successBox" class="alert alert-success success-msg"><i class="fas fa-check-circle me-2"></i>Dashboard updated</div>
   <div id="nodataBox" class="alert alert-warning nodata-msg"><i class="fas fa-exclamation-triangle me-2"></i>No data in this range</div>
-  <div id="errorBox" class="alert alert-danger error-msg"><i class="fas fa-exclamation-circle me-2"></i>Error loading data</div>
+  <div id="errorBox" class="alert alert-danger error-msg"><i class="fas fa-exclamation-circle me-2"></i>Error loading data – check console (F12)</div>
 
   <!-- KPIs (Avg Sentiment removed) -->
-  <div class="row g-3">
-    <div class="col-md-4"><div class="kpi-card p-3 text-center"><small class="text-muted d-block">Total Reviews</small><h4 id="kpi-total" class="fw-bold mb-0">0</h4></div></div>
-    <div class="col-md-4"><div class="kpi-card p-3 text-center text-warning"><small class="text-muted d-block">Avg Rating</small><h4 id="kpi-rating" class="fw-bold mb-0">0.0</h4></div></div>
-    <div class="col-md-4"><div class="kpi-card p-3 text-center text-info"><small class="text-muted d-block">New (24h)</small><h4 id="kpi-new" class="fw-bold mb-0">0</h4></div></div>
+  <div class="row g-4 mb-5">
+    <div class="col-md-4">
+      <div class="kpi-card p-4 text-center">
+        <small class="text-muted d-block mb-1">Total Reviews</small>
+        <h3 id="kpi-total" class="fw-bold mb-0 text-dark">0</h3>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="kpi-card p-4 text-center">
+        <small class="text-muted d-block mb-1">Avg Rating</small>
+        <h3 id="kpi-rating" class="fw-bold mb-0 text-warning">0.0</h3>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="kpi-card p-4 text-center">
+        <small class="text-muted d-block mb-1">New (24h)</small>
+        <h3 id="kpi-new" class="fw-bold mb-0 text-info">0</h3>
+      </div>
+    </div>
   </div>
 
   <!-- Charts -->
-  <div class="row g-3 mt-4">
+  <div class="row g-4 mb-5">
     <div class="col-lg-8">
-      <div class="card shadow">
-        <div class="card-body">
+      <div class="card shadow h-100">
+        <div class="card-body p-4">
           <h6 class="fw-semibold mb-3"><i class="fas fa-chart-line me-2 text-primary"></i>Review Volume Trend</h6>
-          <canvas id="seriesReviews" height="160"></canvas>
+          <canvas id="seriesReviews" height="180"></canvas>
         </div>
       </div>
     </div>
     <div class="col-lg-4">
-      <div class="card shadow mb-3">
-        <div class="card-body">
+      <div class="card shadow mb-4">
+        <div class="card-body p-4">
           <h6 class="fw-semibold mb-3"><i class="fas fa-chart-bar me-2 text-warning"></i>Ratings Distribution</h6>
-          <canvas id="ratingsDist" height="160"></canvas>
+          <canvas id="ratingsDist" height="180"></canvas>
         </div>
       </div>
       <div class="card shadow">
-        <div class="card-body">
+        <div class="card-body p-4">
           <h6 class="fw-semibold mb-3"><i class="fas fa-heart me-2 text-purple"></i>Sentiment Trend</h6>
-          <canvas id="sentSeries" height="160"></canvas>
+          <canvas id="sentSeries" height="180"></canvas>
         </div>
       </div>
     </div>
   </div>
 
   <!-- Strategic Intelligence -->
-  <div class="row g-3 mt-4">
-    <div class="col-12"><h5 class="fw-bold text-dark border-bottom pb-2"><i class="fas fa-brain me-2 text-primary"></i>Strategic Intelligence</h5></div>
+  <div class="row g-4 mb-5">
+    <div class="col-12">
+      <h5 class="fw-bold text-dark border-bottom pb-3 mb-4"><i class="fas fa-brain me-2 text-primary"></i>Strategic Intelligence</h5>
+    </div>
     <div class="col-lg-6">
       <div class="card shadow h-100">
-        <div class="card-body">
+        <div class="card-body p-4">
           <h6 class="fw-semibold mb-3"><i class="fas fa-layer-group me-2 text-success"></i>Departmental Sentiment</h6>
           <div class="row g-3" id="aspectsContainer"></div>
         </div>
       </div>
     </div>
     <div class="col-lg-6">
-      <div class="card shadow mb-3">
-        <div class="card-body">
+      <div class="card shadow mb-4">
+        <div class="card-body p-4">
           <h6 class="fw-semibold mb-3"><i class="fas fa-exclamation-triangle me-2 text-danger"></i>Operational Overview</h6>
           <div id="complaintsStats" class="row text-center g-2"></div>
         </div>
       </div>
-      <div class="card shadow mb-3">
-        <div class="card-body">
+      <div class="card shadow mb-4">
+        <div class="card-body p-4">
           <h6 class="fw-semibold mb-3"><i class="fas fa-tags me-2 text-info"></i>Mentioned Themes</h6>
           <div class="mb-2"><small class="text-success fw-bold">Positives:</small> <div id="keywordsPositive" class="d-inline"></div></div>
           <div><small class="text-danger fw-bold">Pain Points:</small> <div id="keywordsNegative" class="d-inline"></div></div>
         </div>
       </div>
-      <div class="card shadow bg-white">
-        <div class="card-body">
+      <div class="card shadow">
+        <div class="card-body p-4">
           <h6 class="fw-bold mb-3"><i class="fas fa-lightbulb text-warning me-2"></i>AI Recommendations</h6>
           <div id="recommendationsList"></div>
         </div>
@@ -140,18 +160,18 @@
   </div>
 
   <!-- Guest Feedback Feed -->
-  <div class="row g-3 mt-4">
+  <div class="row g-3">
     <div class="col-12">
       <div class="card shadow">
         <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
           <h6 class="mb-0 fw-bold"><i class="fas fa-comments me-2 text-secondary"></i>Guest Feedback Feed</h6>
-          <select id="sortReviews" class="form-select form-select-sm w-auto">
+          <select id="sortReviews" class="form-select form-select-sm w-auto shadow-sm">
             <option value="newest">Newest First</option>
             <option value="highest">Highest Rating</option>
             <option value="lowest">Lowest Rating</option>
           </select>
         </div>
-        <div class="card-body">
+        <div class="card-body p-4">
           <div id="reviewsList" class="list-group list-group-flush"></div>
         </div>
       </div>
@@ -172,12 +192,12 @@
       <div class="modal-body p-4">
         <div class="mb-4">
           <label class="form-label fw-semibold">Search Business</label>
-          <input type="text" class="form-control form-control-lg" id="placeSearch" placeholder="e.g. Pearl Continental Hotel Lahore">
+          <input type="text" class="form-control form-control-lg shadow-sm" id="placeSearch" placeholder="e.g. Pearl Continental Hotel Lahore">
           <small class="text-muted mt-1 d-block">Start typing the business name – it will auto-suggest from Google Maps</small>
         </div>
 
-        <div id="detailsPreview" style="display:none;" class="border rounded-3 p-3 bg-light mt-4">
-          <h6 class="fw-semibold mb-3 text-primary"><i class="fas fa-info-circle me-2"></i>Business Details (Auto-filled)</h6>
+        <div id="detailsPreview" style="display:none;" class="border rounded-3 p-4 bg-white mt-4 shadow-sm">
+          <h6 class="fw-semibold mb-3 text-primary"><i class="fas fa-info-circle me-2"></i>Business Details (Auto-filled from Google)</h6>
           <div class="mb-3">
             <label class="small fw-medium text-muted">Business Name</label>
             <input type="text" id="prev_name" class="form-control readonly-field" readonly>
@@ -213,8 +233,8 @@
         </div>
       </div>
       <div class="modal-footer bg-light rounded-bottom-4 px-4 py-3">
-        <button type="button" class="btn btn-secondary px-4" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary px-4 fw-bold" id="saveCompanyBtn" disabled>
+        <button type="button" class="btn btn-secondary px-4 py-2" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary px-4 py-2 fw-bold" id="saveCompanyBtn" disabled>
           <i class="fas fa-save me-2"></i> Add to Dashboard
         </button>
       </div>
@@ -223,7 +243,7 @@
 </div>
 
 <script>
-// Your API Key (used for Google Places)
+// Your Google Places API Key
 const GOOGLE_PLACES_API_KEY = "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc";
 
 // ────────────────────────────────────────────────
@@ -323,7 +343,7 @@ function renderReviewsList() {
 }
 
 // ────────────────────────────────────────────────
-// Main Data Fetch (Avg Sentiment removed)
+// Main Data Fetch
 // ────────────────────────────────────────────────
 async function fetchDashboardData() {
   if (!currentCompanyId) return show('nodataBox', true);
@@ -429,10 +449,15 @@ function loadGoogleScript() {
   const script = document.createElement('script');
   script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_PLACES_API_KEY}&libraries=places&callback=initGooglePlaces`;
   script.async = true;
+  script.onerror = () => {
+    console.error("Failed to load Google Maps script – check API key, network, or restrictions");
+    alert("Google Maps failed to load. Check your API key restrictions or console for errors.");
+  };
   document.head.appendChild(script);
 }
 
 window.initGooglePlaces = function() {
+  console.log("Google Places library loaded successfully");
   const autocomplete = new google.maps.places.Autocomplete(el.placeSearch, {
     types: ['establishment', 'lodging', 'restaurant', 'hotel'],
     fields: [
@@ -444,9 +469,11 @@ window.initGooglePlaces = function() {
   autocomplete.addListener('place_changed', () => {
     const place = autocomplete.getPlace();
     if (!place.place_id) {
-      alert("No place selected. Please choose a suggestion.");
+      alert("No valid place selected. Please choose from the suggestions.");
       return;
     }
+
+    console.log("Selected place:", place);
 
     el.previewBox.style.display = 'block';
     
