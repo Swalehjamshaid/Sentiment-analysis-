@@ -3,315 +3,599 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Executive Dashboard — ReviewSaaS</title>
+  <title>Dashboard — ReviewSaaS</title>
 
+  <!-- Bootstrap & Chart.js -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
 
   <style>
-    :root { --rs-primary: #0d6efd; --rs-dark: #1e293b; --rs-bg: #f8fafc; }
-    body { background-color: var(--rs-bg); font-family: 'Inter', system-ui, -apple-system, sans-serif; color: #334155; }
-    
-    /* UI Components */
-    .navbar { background-color: var(--rs-dark) !important; padding: 1rem 2rem; }
-    .card { border: none; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); transition: transform 0.2s; }
-    .kpi-card:hover { transform: translateY(-3px); }
-    
-    /* Search Bar Styling */
-    #placeSearch { max-width: 450px; border-radius: 8px; border: 1px solid #e2e8f0; }
-    
-    /* AI Insights Styling */
-    .ai-summary-box { background: #ffffff; border-left: 5px solid #6366f1; }
-    .ai-badge { background: linear-gradient(45deg, #6366f1, #a855f7); color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-uppercase: uppercase; }
-    
-    /* Status indicators */
-    .spinner-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 9999; justify-content: center; align-items: center; flex-direction: column; }
-    .star-rating { color: #facc15; letter-spacing: 1px; }
+    .spinner{display:none}
+    .success-msg,.nodata-msg{display:none}
+    .card h6 { margin-bottom: .5rem; }
+    canvas { background: #fff; border-radius: 6px; }
+    .chip{display:inline-block;padding:.2rem .5rem;border-radius:16px;margin:.15rem;font-size:.8rem}
+    .chip.pos{background:#eafaf1;color:#1e7e34;border:1px solid #bde5c8}
+    .chip.neg{background:#fdecea;color:#a71d2a;border:1px solid #f5c2c7}
+    .chip.emg{background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe}
+    .small-muted{font-size:.85rem;color:#6c757d}
+    .list-unstyled li+li{margin-top:.5rem}
+    .kpi h4{font-weight:700}
+    .break-word{word-wrap:break-word; word-break:break-word;}
   </style>
 </head>
 <body>
-
-<div class="spinner-overlay" id="globalLoader">
-    <div class="spinner-border text-primary mb-3" role="status"></div>
-    <span class="fw-bold text-dark">Processing Intelligence Engine...</span>
-</div>
-
-<nav class="navbar navbar-expand-lg navbar-dark shadow-sm">
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
   <div class="container-fluid">
-    <a class="navbar-brand fw-bold d-flex align-items-center" href="/dashboard">
-      <span class="me-2">🚀</span> ReviewSaaS
-    </a>
-    
-    <div class="d-flex flex-grow-1 mx-lg-5 justify-content-center">
-        <input id="placeSearch" type="text" class="form-control" placeholder="🔍 Add new company (Google Maps search)...">
-    </div>
-
+    <a class="navbar-brand" href="/">ReviewSaaS</a>
     <div class="d-flex gap-2">
-      <a href="/companies" class="btn btn-outline-light btn-sm px-3">Manage List</a>
-      <a href="/logout" class="btn btn-warning btn-sm px-3">Logout</a>
+      <a href="/companies" class="btn btn-outline-light btn-sm">Companies</a>
+      <a href="/logout" class="btn btn-warning btn-sm">Logout</a>
     </div>
   </div>
 </nav>
 
 <div class="container py-4">
-  
-  <div class="row mb-4">
-    <div class="col-12">
-      <div class="card ai-summary-box p-4">
-        <div class="d-flex justify-content-between align-items-start mb-3">
-            <div>
-                <span class="ai-badge mb-2 d-inline-block">AI Intelligence Report</span>
-                <h4 class="fw-bold text-dark" id="companyDisplayTitle">Select a Business to Begin</h4>
-            </div>
-            <div class="text-end">
-                <div class="text-muted small fw-bold mb-1">HEALTH SCORE</div>
-                <div class="h3 fw-bold text-primary" id="healthScoreDisplay">0%</div>
-            </div>
-        </div>
-        <p class="text-secondary mb-2" id="aiSummaryContent">The AI engine is ready. Please select a company from your database or add a new one using the search bar above to generate a sentiment analysis.</p>
-        <div id="aiRationaleList" class="small text-danger fw-semibold"></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="card p-4 mb-4">
-    <div class="row g-3 align-items-end">
-      <div class="col-lg-3">
-        <label class="form-label fw-bold small text-muted">ACTIVE COMPANY</label>
-        <select class="form-select bg-light border-0" id="companySelect" onchange="switchCompany(this.value)">
-          <option value="">-- Choose Company --</option>
-          {% for c in companies %}
-            <option value="{{c.id}}" {% if active_company_id == c.id %}selected{% endif %}>{{ c.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <div class="col-lg-6">
-        <div class="row g-2">
-          <div class="col">
-            <label class="form-label fw-bold small text-muted">START DATE</label>
-            <input type="date" class="form-control bg-light border-0" id="startDate">
-          </div>
-          <div class="col">
-            <label class="form-label fw-bold small text-muted">END DATE</label>
-            <input type="date" class="form-control bg-light border-0" id="endDate">
-          </div>
-        </div>
-      </div>
-
-      <div class="col-lg-3 d-grid">
-        <button class="btn btn-primary fw-bold py-2 shadow-sm" id="fetchBtn" onclick="fetchAll()">Update Dashboard</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="row g-3 mb-4">
-    <div class="col-md-3">
-      <div class="card kpi-card p-3 text-center border-bottom border-primary border-4">
-        <div class="text-muted small fw-bold">TOTAL REVIEWS</div>
-        <div class="h2 fw-bold mb-0" id="kpi-total">0</div>
-      </div>
-    </div>
-    <div class="col-md-3">
-      <div class="card kpi-card p-3 text-center border-bottom border-success border-4">
-        <div class="text-muted small fw-bold">AVG RATING</div>
-        <div class="h2 fw-bold text-success mb-0" id="kpi-rating">0.0</div>
-      </div>
-    </div>
-    <div class="col-md-3">
-      <div class="card kpi-card p-3 text-center border-bottom border-info border-4">
-        <div class="text-muted small fw-bold">SENTIMENT (NSS)</div>
-        <div class="h2 fw-bold text-info mb-0" id="kpi-sent">0.000</div>
-      </div>
-    </div>
-    <div class="col-md-3">
-      {% if active_company_id %}
-      <form method="post" action="/companies/{{active_company_id}}/sync">
-          <button class="btn btn-success w-100 h-100 py-3 fw-bold shadow-sm">SYNC LIVE DATA</button>
-      </form>
-      {% else %}
-      <button class="btn btn-secondary w-100 h-100 py-3 fw-bold disabled">SELECT COMPANY</button>
-      {% endif %}
-    </div>
-  </div>
-
-  <div class="row g-4 mb-4">
-    <div class="col-lg-8">
-      <div class="card p-4 h-100">
-        <h6 class="fw-bold text-muted mb-4">Trend: Review Volume</h6>
-        <canvas id="chartVolume"></canvas>
-      </div>
-    </div>
+  <!-- Top Controls -->
+  <div class="row g-3 align-items-end">
     <div class="col-lg-4">
-      <div class="card p-4 h-100">
-        <h6 class="fw-bold text-muted mb-4">Rating Distribution</h6>
-        <canvas id="chartDist"></canvas>
+      <label class="form-label">Company</label>
+      <form class="row g-2" method="get" action="/dashboard">
+        <div class="col-8">
+          <select class="form-select" name="company_id" id="companySelect">
+            {% for c in companies %}
+              <option value="{{c.id}}" {% if active_company_id==c.id %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-4 d-grid">
+          <button class="btn btn-outline-secondary">Switch</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="row g-2">
+        <div class="col">
+          <label class="form-label">Start Date</label>
+          <input type="date" class="form-control" id="startDate">
+        </div>
+        <div class="col">
+          <label class="form-label">End Date</label>
+          <input type="date" class="form-control" id="endDate">
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-2 d-grid">
+      <button class="btn btn-primary" id="fetchBtn">Update Dashboard</button>
+    </div>
+  </div>
+
+  <!-- Notices -->
+  <div class="alert alert-info mt-3 spinner" id="loadingBox">Loading…</div>
+  <div class="alert alert-success mt-3 success-msg" id="successBox">Dashboard updated successfully.</div>
+  <div class="alert alert-warning mt-3 nodata-msg" id="nodataBox">No Data Found for selected date range.</div>
+
+  <!-- KPI Row -->
+  <div class="row g-3 mt-2">
+    <div class="col-md-3">
+      <div class="p-3 bg-light border rounded text-center kpi">
+        TOTAL REVIEWS
+        <h4 id="kpi-total" class="mb-0">0</h4>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="p-3 bg-light border rounded text-center kpi">
+        AVG RATING
+        <h4 id="kpi-rating" class="mb-0">0.0</h4>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="p-3 bg-light border rounded text-center kpi">
+        AVG SENTIMENT
+        <h4 id="kpi-sent" class="mb-0">0.000</h4>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="p-3 bg-light border rounded text-center kpi">
+        NEW (7D)
+        <h4 id="kpi-new" class="mb-0">0</h4>
       </div>
     </div>
   </div>
 
-  <div class="card p-4 mb-5">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h6 class="fw-bold text-muted mb-0">Live Feedback Feed</h6>
-        <select id="sortReviews" class="form-select form-select-sm w-auto" onchange="loadReviews()">
-            <option value="newest">Newest First</option>
-            <option value="oldest">Oldest First</option>
-            <option value="highest">Highest Rated</option>
-            <option value="lowest">Lowest Rated</option>
-        </select>
+  <!-- Charts: Volume, Dist, Sentiment -->
+  <div class="row g-3 mt-1">
+    <div class="col-lg-8">
+      <div class="card">
+        <div class="card-body">
+          <h6 class="text-muted">Review Volume</h6>
+          <canvas id="seriesReviews" height="120"></canvas>
+        </div>
+      </div>
     </div>
-    <div id="reviewsList">
-        <div class="text-center py-4 text-muted small">No company selected or no data available in range.</div>
+
+    <div class="col-lg-4">
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="text-muted">Rating Distribution</h6>
+          <canvas id="ratingsDist" height="120"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+          <h6 class="text-muted">Sentiment Trend</h6>
+          <canvas id="sentSeries" height="120"></canvas>
+        </div>
+      </div>
     </div>
   </div>
 
+  <!-- Insights: Alerts, AI Summary, Recommendations -->
+  <div class="row g-3 mt-1">
+    <div class="col-lg-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center">
+            <h6 class="text-muted mb-0">Alerts</h6>
+            <span class="small-muted" id="alertsWindow"></span>
+          </div>
+          <ul id="alertsList" class="mt-2 list-unstyled"></ul>
+          <div id="alertsEmpty" class="small-muted">No alerts for this period.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-3">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="text-muted">AI Executive Summary</h6>
+          <div id="execSummary" class="small break-word"></div>
+          <div class="mt-2">
+            <div><strong>Conclusion:</strong> <span id="execConclusion">—</span></div>
+            <div class="small-muted" id="execRationale"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-3">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="text-muted">Top Action Items</h6>
+          <ol id="actionItems" class="mb-2"></ol>
+          <img id="miniPng" alt="Summary" class="img-fluid rounded border" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Keywords & Aspects -->
+  <div class="row g-3 mt-1">
+    <div class="col-lg-8">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="text-muted">Keywords</h6>
+          <div class="row">
+            <div class="col-md-4">
+              <div class="small-muted mb-1">Positive</div>
+              <div id="kwPositive"></div>
+            </div>
+            <div class="col-md-4">
+              <div class="small-muted mb-1">Negative</div>
+              <div id="kwNegative"></div>
+            </div>
+            <div class="col-md-4">
+              <div class="small-muted mb-1">Emerging</div>
+              <div id="kwEmerging"></div>
+            </div>
+          </div>
+          <hr>
+          <div class="small-muted mb-1">Top Bigrams</div>
+          <div id="kwBigrams"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="text-muted">Aspects</h6>
+          <canvas id="aspectsChart" height="180"></canvas>
+          <div class="mt-2 small-muted">Strengths: <span id="aspectsStrengths">—</span></div>
+          <div class="small-muted">Weaknesses: <span id="aspectsWeaknesses">—</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Operational: urgent issues -->
+  <div class="row g-3 mt-1">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center">
+            <h6 class="text-muted mb-0">Operational — Urgent Issues</h6>
+            <span class="small-muted" id="opsWindow"></span>
+          </div>
+          <div id="urgentIssues" class="mt-2"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reviews List -->
+  <div class="row g-3 mt-1">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center">
+            <h6 class="text-muted mb-0">Reviews</h6>
+            <div>
+              <select id="sortReviews" class="form-select form-select-sm">
+                <option value="newest" selected>Newest</option>
+                <option value="oldest">Oldest</option>
+                <option value="highest">Highest rating</option>
+                <option value="lowest">Lowest rating</option>
+              </select>
+            </div>
+          </div>
+          <div id="reviewsList" class="mt-3"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export & Sync -->
+  <div class="mt-3">
+    {% if active_company_id %}
+      <a class="btn btn-outline-primary" href="/api/export/reviews.csv?company_id={{active_company_id}}">Export CSV</a>
+      <a class="btn btn-outline-primary" href="/api/export/reviews.xlsx?company_id={{active_company_id}}">Export Excel</a>
+      <a class="btn btn-outline-primary" href="/api/export/summary.pdf?company_id={{active_company_id}}">Export PDF</a>
+      <form class="d-inline" method="post" action="/companies/{{active_company_id}}/sync">
+        <button class="btn btn-success">Sync Reviews for Active Company</button>
+      </form>
+    {% endif %}
+  </div>
 </div>
 
 <script>
-let activeCompanyId = {{ active_company_id or 'null' }};
-let activeCharts = {};
+/* Server-provided active company id (may be null) */
+let companyId = {{ active_company_id or 'null' }};
 
-// 1. Google Places Integration (Adding New Company)
-function initAutocomplete() {
-    const input = document.getElementById('placeSearch');
-    const autocomplete = new google.maps.places.Autocomplete(input);
-    
-    autocomplete.addListener('place_changed', async () => {
-        const place = autocomplete.getPlace();
-        if (!place.place_id) return;
-        
-        document.getElementById('globalLoader').style.display = 'flex';
-        
-        // Connects to your existing /companies POST route
-        const response = await fetch('/companies', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: place.name,
-                place_id: place.place_id,
-                address: place.formatted_address
-            })
-        });
-        
-        if (response.ok) {
-            window.location.reload(); 
-        } else {
-            alert("Error adding company. It may already exist.");
-            document.getElementById('globalLoader').style.display = 'none';
-        }
+/* Fallback: if companyId is null, pick the current selection in the dropdown */
+(function ensureCompanyId(){
+  if (!companyId) {
+    const sel = document.getElementById('companySelect');
+    if (sel && sel.value) companyId = Number(sel.value);
+  }
+})();
+
+/* Chart handles (for destroy before redraw) */
+let chartReviews = null;
+let chartDist = null;
+let chartSent = null;
+let chartAspects = null;
+
+/* Helpers */
+function qs(p){ return new URLSearchParams(p).toString(); }
+function setLoading(v){ document.getElementById('loadingBox').style.display = v ? 'block' : 'none'; }
+function showSuccess(v){ document.getElementById('successBox').style.display = v ? 'block' : 'none'; }
+function showNoData(v){ document.getElementById('nodataBox').style.display = v ? 'block' : 'none'; }
+
+function getDates(){
+  const s = document.getElementById('startDate').value;
+  const e = document.getElementById('endDate').value;
+  return { start: s || null, end: e || null };
+}
+
+async function fetchJSON(url){
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+  return res.json();
+}
+
+function chips(container, items, cls){
+  const el = document.getElementById(container);
+  el.innerHTML = '';
+  if (!items || items.length === 0){
+    el.innerHTML = '<span class="small-muted">—</span>';
+    return;
+  }
+  for (const t of items){
+    const chip = document.createElement('span');
+    chip.className = `chip ${cls}`;
+    chip.textContent = t;
+    el.appendChild(chip);
+  }
+}
+
+/* Main fetch */
+async function fetchAll(){
+  if (!companyId) {
+    console.warn('No active company id — cannot fetch data.');
+    showNoData(true);
+    return;
+  }
+
+  const {start, end} = getDates();
+  setLoading(true); showSuccess(false); showNoData(false);
+
+  const params = Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v]) => v));
+  const p = qs(params);
+
+  try {
+    // Core endpoints in parallel
+    const [k, r, d, s] = await Promise.all([
+      fetchJSON('/api/kpis?' + p),
+      fetchJSON('/api/series/reviews?' + p),
+      fetchJSON('/api/ratings/distribution?' + p),
+      fetchJSON('/api/sentiment/series?' + p),
+    ]);
+
+    // KPIs
+    document.getElementById('kpi-total').textContent = Number(k.total_reviews || 0);
+    document.getElementById('kpi-rating').textContent = (Number(k.avg_rating || 0)).toFixed(2);
+    document.getElementById('kpi-sent').textContent = (Number(k.avg_sentiment || 0)).toFixed(3);
+    document.getElementById('kpi-new').textContent = Number(k.new_reviews || 0);
+
+    // Destroy existing charts
+    if (chartReviews) chartReviews.destroy();
+    if (chartDist) chartDist.destroy();
+    if (chartSent) chartSent.destroy();
+
+    // Review Volume
+    chartReviews = new Chart(document.getElementById('seriesReviews'), {
+      type: 'line',
+      data: {
+        labels: (r.series || []).map(x => x.date),
+        datasets: [{
+          label: 'Reviews/day',
+          data: (r.series || []).map(x => x.value),
+          borderColor: '#0d6efd',
+          backgroundColor: 'rgba(13,110,253,0.1)',
+          tension: 0.3,
+          fill: true
+        }]
+      },
+      options: { responsive: true, scales: { y: { beginAtZero: true } } }
     });
-}
 
-// 2. Fetch Logic for Dashboard Data
-async function fetchAll() {
-    if (!activeCompanyId) return;
-    
-    document.getElementById('globalLoader').style.display = 'flex';
-    const s = document.getElementById('startDate').value;
-    const e = document.getElementById('endDate').value;
-    const params = new URLSearchParams({ company_id: activeCompanyId, start: s, end: e }).toString();
-
-    try {
-        // Parallel requests to dashboard.py endpoints
-        const [kpi, summary, vol, dist, reviews] = await Promise.all([
-            fetch(`/api/kpis?${params}`).then(r => r.json()),
-            fetch(`/api/v2/ai/executive-summary?${params}`).then(r => r.json()),
-            fetch(`/api/series/reviews?${params}`).then(r => r.json()),
-            fetch(`/api/ratings/distribution?${params}`).then(r => r.json()),
-            fetch(`/api/reviews/list?${params}`).then(r => r.json())
-        ]);
-
-        // Update KPIs
-        document.getElementById('kpi-total').innerText = kpi.total_reviews;
-        document.getElementById('kpi-rating').innerText = kpi.avg_rating.toFixed(1);
-        document.getElementById('kpi-sent').innerText = kpi.avg_sentiment.toFixed(3);
-        
-        // Update AI Intelligence section
-        document.getElementById('aiSummaryContent').innerText = summary.summary;
-        document.getElementById('healthScoreDisplay').innerText = Math.round(((kpi.avg_rating/5)*100)) + '%';
-        document.getElementById('aiRationaleList').innerText = summary.rationale.join(' • ');
-
-        // Visualizations
-        renderLineChart('chartVolume', vol.series, 'Review Count', '#0d6efd');
-        renderBarChart('chartDist', dist.distribution);
-        
-        // Populate Review Feed
-        renderReviewFeed(reviews.items);
-
-    } catch (err) {
-        console.error("Dashboard Sync Error:", err);
-    } finally {
-        document.getElementById('globalLoader').style.display = 'none';
-    }
-}
-
-function renderLineChart(id, data, label, color) {
-    if (activeCharts[id]) activeCharts[id].destroy();
-    const ctx = document.getElementById(id).getContext('2d');
-    activeCharts[id] = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: data.map(d => d.date),
-            datasets: [{ label: label, data: data.map(d => d.value), borderColor: color, fill: true, backgroundColor: color + '1A', tension: 0.4 }]
-        },
-        options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    // Rating Distribution
+    const labels = d.distribution ? Object.keys(d.distribution) : ['1','2','3','4','5'];
+    const vals = d.distribution ? Object.values(d.distribution) : [0,0,0,0,0];
+    chartDist = new Chart(document.getElementById('ratingsDist'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Count',
+          data: vals,
+          backgroundColor: ['#dc3545','#fd7e14','#ffc107','#0dcaf0','#198754']
+        }]
+      },
+      options: { responsive: true, scales: { y: { beginAtZero: true } } }
     });
-}
 
-function renderBarChart(id, distribution) {
-    if (activeCharts[id]) activeCharts[id].destroy();
-    const ctx = document.getElementById(id).getContext('2d');
-    activeCharts[id] = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: ['1★', '2★', '3★', '4★', '5★'],
-            datasets: [{ data: Object.values(distribution), backgroundColor: ['#ef4444', '#f97316', '#facc15', '#3b82f6', '#22c55e'], borderRadius: 6 }]
-        },
-        options: { plugins: { legend: { display: false } } }
+    // Sentiment Trend
+    chartSent = new Chart(document.getElementById('sentSeries'), {
+      type: 'line',
+      data: {
+        labels: (s.series || []).map(x => x.date),
+        datasets: [{
+          label: 'Avg Sentiment',
+          data: (s.series || []).map(x => x.value),
+          borderColor: '#6610f2',
+          backgroundColor: 'rgba(102,16,242,0.1)',
+          tension: 0.3,
+          fill: true
+        }]
+      },
+      options: { responsive: true, scales: { y: { min: -1, max: 1 } } }
     });
+
+    // Secondary panels (alerts, AI, keywords, aspects, ops, reviews)
+    await Promise.all([
+      loadAlerts(),
+      loadExecutiveAndActions(),
+      loadKeywords(),
+      loadAspects(),
+      loadOperational(),
+      loadReviews()
+    ]);
+
+    // summary PNG
+    document.getElementById('miniPng').src = '/api/v2/charts/summary.png?' + p;
+
+    showSuccess(true);
+    if ((k.total_reviews || 0) === 0) showNoData(true);
+  } catch (err){
+    console.error(err);
+    showNoData(true);
+  } finally {
+    setLoading(false);
+  }
 }
 
-function renderReviewFeed(items) {
-    const box = document.getElementById('reviewsList');
-    box.innerHTML = '';
-    if (!items || items.length === 0) {
-        box.innerHTML = '<div class="text-center py-4 text-muted small">No reviews found in this period.</div>';
-        return;
-    }
-    items.forEach(r => {
-        const stars = '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
-        box.innerHTML += `
-            <div class="border rounded p-3 mb-3 bg-light-subtle">
-                <div class="d-flex justify-content-between small text-muted mb-2">
-                    <span class="fw-bold text-dark">${r.author_name || 'Anonymous'}</span>
-                    <span>${r.review_time}</span>
-                </div>
-                <div class="mb-2"><span class="star-rating me-2">${stars}</span> <span class="badge bg-white border text-dark">${r.rating.toFixed(1)}</span></div>
-                <p class="mb-0 small text-secondary">${r.text || '<em>No review text provided.</em>'}</p>
-            </div>
-        `;
-    });
+/* Alerts */
+async function loadAlerts(){
+  const {start, end} = getDates();
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v]) => v)));
+  const out = await fetchJSON('/api/alerts?' + p);
+  document.getElementById('alertsWindow').textContent = `Window: ${out.window.start} → ${out.window.end}`;
+
+  const box = document.getElementById('alertsList');
+  const empty = document.getElementById('alertsEmpty');
+  box.innerHTML = '';
+  if (!out.alerts || out.alerts.length === 0){
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  for (const a of out.alerts){
+    const badge = a.severity === 'high' ? 'danger' : (a.severity === 'medium' ? 'warning' : 'secondary');
+    const li = `<li><span class="badge bg-${badge} me-2">${a.type.replace('_',' ')}</span>${a.message}</li>`;
+    box.insertAdjacentHTML('beforeend', li);
+  }
 }
 
-function switchCompany(id) {
-    if (!id) return;
-    activeCompanyId = id;
-    fetchAll();
+/* AI Executive + Actions */
+async function loadExecutiveAndActions(){
+  const {start, end} = getDates();
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v]) => v)));
+  const exec = await fetchJSON('/api/v2/ai/executive-summary?' + p);
+  const recs = await fetchJSON('/api/v2/ai/recommendations?' + p);
+
+  document.getElementById('execSummary').textContent = exec.summary || '—';
+  document.getElementById('execConclusion').textContent = exec.conclusion || '—';
+  const rationale = (exec.rationale || []).map(x => `• ${x}`).join('\n');
+  document.getElementById('execRationale').textContent = rationale || '';
+
+  const ol = document.getElementById('actionItems');
+  ol.innerHTML = '';
+  for (const a of (recs.top_action_items || [])){
+    const li = document.createElement('li');
+    li.className = 'break-word';
+    li.textContent = a;
+    ol.appendChild(li);
+  }
 }
 
-// 3. Auto-Initialize on Load
-window.onload = () => {
-    // Default to last 30 days
-    const end = new Date().toISOString().slice(0, 10);
-    const start = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    document.getElementById('startDate').value = start;
-    document.getElementById('endDate').value = end;
-    
-    initAutocomplete();
-    if (activeCompanyId) fetchAll();
-};
+/* Keywords */
+async function loadKeywords(){
+  const {start, end} = getDates();
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, limit: 15}).filter(([_,v]) => v)));
+  const out = await fetchJSON('/api/v2/keywords?' + p);
+
+  chips('kwPositive', (out.positive || []).map(x => x.term), 'pos');
+  chips('kwNegative', (out.negative || []).map(x => x.term), 'neg');
+  chips('kwEmerging', (out.emerging || []).map(x => x.term), 'emg');
+
+  const bigs = (out.bigrams || []).map(b => b.term + ' (' + b.freq + ')');
+  chips('kwBigrams', bigs, 'pos');
+}
+
+/* Aspects */
+async function loadAspects(){
+  const {start, end} = getDates();
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v]) => v)));
+  const a = await fetchJSON('/api/aspects/avg?' + p);
+
+  // Destroy previous
+  if (chartAspects) chartAspects.destroy();
+
+  const labels = ['rooms','staff','cleanliness','value','location','food'];
+  const values = labels.map(k => Number((a.aspects || {})[k] || 0));
+
+  chartAspects = new Chart(document.getElementById('aspectsChart'), {
+    type: 'bar',
+    data: {
+      labels: labels.map(s => s[0].toUpperCase()+s.slice(1)),
+      datasets: [{
+        label: 'Avg',
+        data: values,
+        backgroundColor: '#20c997'
+      }]
+    },
+    options: { responsive: true, scales: { y: { beginAtZero: true, max: 1 } } }
+  });
+
+  document.getElementById('aspectsStrengths').textContent = (a.strengths || []).join(', ') || '—';
+  document.getElementById('aspectsWeaknesses').textContent = (a.weaknesses || []).join(', ') || '—';
+}
+
+/* Operational overview (urgent issues) */
+async function loadOperational(){
+  const {start, end} = getDates();
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, limit_urgent: 8}).filter(([_,v]) => v)));
+  const op = await fetchJSON('/api/operational/overview?' + p);
+
+  document.getElementById('opsWindow').textContent =
+    `Total: ${op.total_reviews}, Complaints: ${op.complaint_count} (${op.complaint_rate}%)`;
+
+  const box = document.getElementById('urgentIssues');
+  box.innerHTML = '';
+
+  if (!op.urgent_issues || op.urgent_issues.length === 0){
+    box.innerHTML = '<div class="small-muted">No urgent issues flagged.</div>';
+    return;
+  }
+
+  for (const u of op.urgent_issues){
+    const stars = '★'.repeat(u.rating || 0) + '☆'.repeat(5 - (u.rating || 0));
+    const reason = [];
+    if (u.urgent_reason?.low_rating) reason.push('Low rating');
+    if (u.urgent_reason?.very_negative_sentiment) reason.push('Very negative sentiment');
+    if (u.urgent_reason?.keyword_flag) reason.push('Urgent keyword');
+    const html = `
+      <div class="border rounded p-2 mb-2">
+        <div class="d-flex justify-content-between small text-muted">
+          <span>${u.author_name || 'Anonymous'}</span>
+          <span>${u.review_time || ''}</span>
+        </div>
+        <div class="small">
+          <span class="me-2">${stars}</span>
+          <span>Sent: ${(u.sentiment_score ?? 0).toFixed(3)} (${u.sentiment_label})</span>
+        </div>
+        <div class="mt-1 break-word">${(u.text || '').slice(0, 1000)}</div>
+        <div class="mt-1"><span class="badge bg-danger">${reason.join(' • ')}</span></div>
+      </div>
+    `;
+    box.insertAdjacentHTML('beforeend', html);
+  }
+}
+
+/* Reviews list */
+async function loadReviews(){
+  const sort = document.getElementById('sortReviews').value;
+  const {start, end} = getDates();
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, sort}).filter(([_,v]) => v)));
+
+  const out = await fetchJSON('/api/reviews/list?' + p);
+
+  const box = document.getElementById('reviewsList');
+  box.innerHTML = '';
+
+  for (const r of (out.items || [])){
+    const rating = Number(r.rating || 0);
+    const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
+    const card = `
+      <div class="border rounded p-2 mb-2">
+        <div class="d-flex justify-content-between small text-muted">
+          <span>${r.author_name || 'Anonymous'}</span>
+          <span>${r.review_time || ''}</span>
+        </div>
+        <div>
+          <span class="me-2">${stars}</span>
+          <span>${rating.toFixed(1)}</span>
+        </div>
+        <div class="break-word">${(r.text || '').slice(0, 2000)}</div>
+      </div>
+    `;
+    box.insertAdjacentHTML('beforeend', card);
+  }
+
+  if (!out.items || out.items.length === 0){
+    box.innerHTML = '<div class="text-muted small">No reviews in this range.</div>';
+  }
+}
+
+/* Init */
+(function init(){
+  /* Default date window: last 30 days including today */
+  const today = new Date().toISOString().slice(0,10);
+  document.getElementById('endDate').value = today;
+  const start = new Date(Date.now() - 29*86400000).toISOString().slice(0,10);
+  document.getElementById('startDate').value = start;
+
+  document.getElementById('fetchBtn').addEventListener('click', fetchAll);
+  document.getElementById('sortReviews').addEventListener('change', loadReviews);
+
+  /* First load */
+  fetchAll();
+})();
 </script>
 </body>
 </html>
