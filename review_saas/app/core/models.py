@@ -2,7 +2,7 @@ from __future__ import annotations
 from sqlalchemy import (
     Column, Integer, String, Float, Text, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint
 )
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import declarative_base, relationship, synonym
 from datetime import datetime
 
 # ---------------------------------------------------
@@ -11,7 +11,7 @@ from datetime import datetime
 Base = declarative_base()
 
 # Update this whenever schema changes
-SCHEMA_VERSION = "6.0.3-outscraper-full"
+SCHEMA_VERSION = "6.0.4-outscraper-full"
 
 # ---------------------------------------------------
 # Users
@@ -26,9 +26,8 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
 
-    # New fields for auth
     email_verified = Column(Boolean, default=False)
-    profile_pic = Column(String(1000))  # path for uploaded profile picture
+    profile_pic = Column(String(1000))
     role = Column(String(50), default="editor")
 
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -48,11 +47,12 @@ class Company(Base):
     place_id = Column(String(512), unique=True, index=True)
     google_id = Column(String(255))
 
-    # Alias for backward compatibility
-    google_place_id = place_id
+    # Use synonym to avoid SAWarning
+    google_place_id = synonym("place_id")
 
     # Location
     full_address = Column(String(1000))
+    address = Column(String(1000))  # Added to fix AttributeError
     city = Column(String(255))
     state = Column(String(255))
     postal_code = Column(String(50))
