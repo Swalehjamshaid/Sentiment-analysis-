@@ -1,9 +1,11 @@
+# File: app/routes/reviews.py
+
 from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 
-# Changed to relative import (recommended when inside app/ package)
-from ..db.session import get_db
+# This line should now work after you add PYTHONPATH=/app in Railway Variables
+from app.db.session import get_db
 
 from app.models.review import Review
 from app.models.company import Company
@@ -155,5 +157,5 @@ def review_stats(company_id: int, db: Session = Depends(get_db)):
     if total == 0:
         return {"total_reviews": 0, "avg_rating": 0}
 
-    avg_rating = sum([r.rating for r in reviews if r.rating]) / total
+    avg_rating = sum(r.rating for r in reviews if r.rating) / total
     return {"total_reviews": total, "avg_rating": round(avg_rating, 2)}
