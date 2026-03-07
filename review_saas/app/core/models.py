@@ -1,17 +1,8 @@
-# filename: review_saas/app/core/models.py
+# filename: app/core/models.py
 from __future__ import annotations
 
 from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    Float,
-    Text,
-    Boolean,
-    DateTime,
-    JSON,
-    ForeignKey,
-    UniqueConstraint
+    Column, Integer, String, Float, Text, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint
 )
 from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime
@@ -21,9 +12,8 @@ from datetime import datetime
 # ---------------------------------------------------
 Base = declarative_base()
 
-# SCHEMA_VERSION triggers DB recreation when changed
-SCHEMA_VERSION = "6.0.1-outscraper-full"
-
+# Update this whenever schema changes
+SCHEMA_VERSION = "6.0.2-outscraper-full"
 
 # ---------------------------------------------------
 # Users
@@ -35,16 +25,16 @@ class User(Base):
     name = Column(String(255), nullable=False)
     email = Column(String(255), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
-    profile_pic = Column(String(1000))
-    role = Column(String(50), default='editor')
-    email_verified = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
+    
+    # New fields for auth
+    email_verified = Column(Boolean, default=False)
+    profile_pic = Column(String(1000))  # path for uploaded profile picture
+    role = Column(String(50), default="editor")
+    
     created_at = Column(DateTime, default=datetime.utcnow)
-
-    # Relationships
     companies = relationship("Company", back_populates="owner")
-
 
 # ---------------------------------------------------
 # Companies (Google Business / Outscraper Data)
@@ -111,7 +101,6 @@ class Company(Base):
     reviews = relationship("Review", back_populates="company", cascade="all, delete-orphan")
     competitors = relationship("Competitor", back_populates="company", cascade="all, delete-orphan")
 
-
 # ---------------------------------------------------
 # Reviews (Outscraper Full Output)
 # ---------------------------------------------------
@@ -161,9 +150,7 @@ class Review(Base):
     spam_score = Column(Float)
 
     created_at = Column(DateTime, default=datetime.utcnow)
-
     company = relationship("Company", back_populates="reviews")
-
 
 # ---------------------------------------------------
 # Competitors
@@ -173,7 +160,6 @@ class Competitor(Base):
 
     id = Column(Integer, primary_key=True)
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
-
     name = Column(String(255), nullable=False)
     place_id = Column(String(512))
     rating = Column(Float)
@@ -183,12 +169,10 @@ class Competitor(Base):
     lng = Column(Float)
     google_maps_url = Column(String(1000))
     created_at = Column(DateTime, default=datetime.utcnow)
-
     company = relationship("Company", back_populates="competitors")
 
-
 # ---------------------------------------------------
-# Notifications (dashboard alerts)
+# Notifications (for dashboard alerts)
 # ---------------------------------------------------
 class Notification(Base):
     __tablename__ = "notifications"
@@ -200,7 +184,6 @@ class Notification(Base):
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-
 # ---------------------------------------------------
 # Audit Logs
 # ---------------------------------------------------
@@ -210,10 +193,12 @@ class AuditLog(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
     action = Column(String(255), nullable=False)
-    meta = Column(JSON)  # <-- JSON for meta info like email/IP
+    
+    # ✅ Meta field for auth.py logging
+    meta = Column(JSON, default={})
+    
     ip_address = Column(String(100))
     created_at = Column(DateTime, default=datetime.utcnow)
-
 
 # ---------------------------------------------------
 # Config (schema version tracking)
