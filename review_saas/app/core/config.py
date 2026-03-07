@@ -1,3 +1,5 @@
+# filename: app/core/config.py
+
 import os
 from pydantic_settings import BaseSettings
 from typing import Optional
@@ -10,7 +12,6 @@ class Settings(BaseSettings):
     APP_BASE_URL: str = "https://sentiment-analysis-production-f96a.up.railway.app"
     
     # --- Scraping Settings ---
-    # This must match your .env variable exactly
     OUTSCAPTER_KEY: str 
     
     # --- Database Settings ---
@@ -43,6 +44,7 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USERNAME: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_EMAIL: Optional[str] = None  # <-- added to fix send_email issue
 
     class Config:
         case_sensitive = True
