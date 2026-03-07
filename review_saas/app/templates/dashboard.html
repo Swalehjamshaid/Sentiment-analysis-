@@ -21,6 +21,9 @@
     .urgent { background: #fff5f5; border-left: 4px solid #dc3545; }
     .spinner, .success-msg, .nodata-msg, .error-msg { display: none; border-radius: 8px; }
     .pac-container { z-index: 1051 !important; }
+    .modal-header { background: linear-gradient(90deg, #0d6efd, #0b5ed7); }
+    .form-label { font-weight: 600; }
+    .readonly-field { background-color: #f8f9fa !important; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -157,44 +160,63 @@
   </div>
 </div>
 
-<!-- Add Company Modal -->
-<div class="modal fade" id="addCompanyModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content border-0 shadow-lg">
-      <div class="modal-header bg-primary text-white">
-        <h5 class="modal-title"><i class="fas fa-plus-circle me-2"></i>Add New Company</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+<!-- Add Company Modal (Enhanced with Google Places Auto-fill) -->
+<div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content border-0 shadow-lg rounded-4">
+      <div class="modal-header bg-primary text-white rounded-top-4">
+        <h5 class="modal-title fw-bold" id="addCompanyModalLabel">
+          <i class="fas fa-plus-circle me-2"></i> Add New Company via Google Maps
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
-      <div class="modal-body">
-        <div class="mb-3">
-          <label class="form-label fw-semibold">Search Business on Google Maps</label>
-          <input type="text" class="form-control" id="placeSearch" placeholder="Type hotel / business name...">
+      <div class="modal-body p-4">
+        <div class="mb-4">
+          <label class="form-label fw-semibold">Search Business</label>
+          <input type="text" class="form-control form-control-lg" id="placeSearch" placeholder="e.g. Pearl Continental Hotel Lahore">
+          <small class="text-muted mt-1 d-block">Start typing the business name – it will auto-suggest from Google Maps</small>
         </div>
-        <div id="detailsPreview" style="display:none;" class="border-top pt-3">
+
+        <div id="detailsPreview" style="display:none;" class="border rounded-3 p-3 bg-light mt-4">
+          <h6 class="fw-semibold mb-3 text-primary"><i class="fas fa-info-circle me-2"></i>Business Details (Auto-filled)</h6>
           <div class="mb-3">
-            <label class="small text-muted">Address</label>
-            <input type="text" id="prev_address" class="form-control form-control-sm bg-light" readonly>
-          </div>
-          <div class="row mb-3">
-            <div class="col-6">
-              <label class="small text-muted">Phone</label>
-              <input type="text" id="prev_phone" class="form-control form-control-sm bg-light" readonly>
-            </div>
-            <div class="col-6">
-              <label class="small text-muted">Category</label>
-              <input type="text" id="prev_category" class="form-control form-control-sm bg-light" readonly>
-            </div>
+            <label class="small fw-medium text-muted">Business Name</label>
+            <input type="text" id="prev_name" class="form-control readonly-field" readonly>
           </div>
           <div class="mb-3">
-            <label class="small text-muted">Website</label>
-            <input type="text" id="prev_website" class="form-control form-control-sm bg-light" readonly>
+            <label class="small fw-medium text-muted">Address</label>
+            <input type="text" id="prev_address" class="form-control readonly-field" readonly>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="small fw-medium text-muted">Phone</label>
+              <input type="text" id="prev_phone" class="form-control readonly-field" readonly>
+            </div>
+            <div class="col-md-6">
+              <label class="small fw-medium text-muted">Category</label>
+              <input type="text" id="prev_category" class="form-control readonly-field" readonly>
+            </div>
+          </div>
+          <div class="mb-3 mt-3">
+            <label class="small fw-medium text-muted">Website</label>
+            <input type="text" id="prev_website" class="form-control readonly-field" readonly>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="small fw-medium text-muted">Google Rating</label>
+              <input type="text" id="prev_rating" class="form-control readonly-field" readonly>
+            </div>
+            <div class="col-md-6">
+              <label class="small fw-medium text-muted">Total Reviews</label>
+              <input type="text" id="prev_review_count" class="form-control readonly-field" readonly>
+            </div>
           </div>
         </div>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" id="saveCompanyBtn" disabled>
-          <i class="fas fa-save me-1"></i> Add to Dashboard
+      <div class="modal-footer bg-light rounded-bottom-4 px-4 py-3">
+        <button type="button" class="btn btn-secondary px-4" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary px-4 fw-bold" id="saveCompanyBtn" disabled>
+          <i class="fas fa-save me-2"></i> Add to Dashboard
         </button>
       </div>
     </div>
@@ -203,7 +225,7 @@
 
 <script>
 // ────────────────────────────────────────────────
-//  DOM Elements & State
+// DOM Elements & State
 // ────────────────────────────────────────────────
 const el = {
   companySelect: document.getElementById('companySelect'),
@@ -225,7 +247,14 @@ const el = {
   recommendationsList: document.getElementById('recommendationsList'),
   placeSearch: document.getElementById('placeSearch'),
   saveBtn: document.getElementById('saveCompanyBtn'),
-  previewBox: document.getElementById('detailsPreview')
+  previewBox: document.getElementById('detailsPreview'),
+  prevName: document.getElementById('prev_name'),
+  prevAddress: document.getElementById('prev_address'),
+  prevPhone: document.getElementById('prev_phone'),
+  prevCategory: document.getElementById('prev_category'),
+  prevWebsite: document.getElementById('prev_website'),
+  prevRating: document.getElementById('prev_rating'),
+  prevReviewCount: document.getElementById('prev_review_count')
 };
 
 let currentCompanyId = null;
@@ -235,7 +264,7 @@ let reviewsDataGlobal = [];
 let widenedOnce = false;
 
 // ────────────────────────────────────────────────
-//  Helpers
+// Helpers
 // ────────────────────────────────────────────────
 const show = (id, v) => el[id] && (el[id].style.display = v ? 'block' : 'none');
 const qs = (o) => new URLSearchParams(o).toString();
@@ -253,7 +282,7 @@ async function safeJsonFetch(url, fallback = {}) {
 function destroyCharts() { Object.values(charts).forEach(c => c?.destroy?.()); charts = {}; }
 
 // ────────────────────────────────────────────────
-//  Load Companies + Auto-select last used
+// Load Companies + Auto-select last used
 // ────────────────────────────────────────────────
 async function loadCompanies() {
   const data = await safeJsonFetch('/api/companies/list', { companies: [] });
@@ -271,7 +300,7 @@ async function loadCompanies() {
 }
 
 // ────────────────────────────────────────────────
-//  Render Reviews
+// Render Reviews
 // ────────────────────────────────────────────────
 function renderReviewsList() {
   let items = [...reviewsDataGlobal];
@@ -293,7 +322,7 @@ function renderReviewsList() {
 }
 
 // ────────────────────────────────────────────────
-//  Main Data Fetch
+// Main Data Fetch
 // ────────────────────────────────────────────────
 async function fetchDashboardData() {
   if (!currentCompanyId) return show('nodataBox', true);
@@ -323,20 +352,17 @@ async function fetchDashboardData() {
     safeJsonFetch(`/api/recommendations/simple?${q}`)
   ]);
 
-  // Auto-widen once if no data
   if (!widenedOnce && (kpis?.total_reviews ?? 0) === 0) {
     widenedOnce = true;
     document.getElementById('startDate').value = '2020-01-01';
     return fetchDashboardData();
   }
 
-  // KPIs
   el.kpiTotal.textContent = kpis?.total_reviews ?? 0;
   el.kpiRating.textContent = (kpis?.avg_rating ?? 0).toFixed(1);
-  el.kpiSent.textContent   = (kpis?.avg_sentiment ?? 0).toFixed(3);
-  el.kpiNew.textContent    = revS?.series?.at(-1)?.value ?? 0;
+  el.kpiSent.textContent = (kpis?.avg_sentiment ?? 0).toFixed(3);
+  el.kpiNew.textContent = revS?.series?.at(-1)?.value ?? 0;
 
-  // Charts
   destroyCharts();
 
   charts.rev = new Chart(document.getElementById('seriesReviews'), {
@@ -360,7 +386,6 @@ async function fetchDashboardData() {
     }, options: { scales: { y: { min: -1, max: 1 } } }
   });
 
-  // Aspects
   el.aspectsContainer.innerHTML = '';
   const asp = aspects?.aspects || {};
   ['rooms','staff','cleanliness','value','location','food'].forEach(k => {
@@ -377,23 +402,19 @@ async function fetchDashboardData() {
       </div>`;
   });
 
-  // Complaints
   el.complaintsStats.innerHTML = `
     <div class="col-4"><small class="text-muted">Complaint Rate</small><h5 class="${complaints?.complaint_rate > 15 ? 'text-danger' : 'text-success'}">${(complaints?.complaint_rate ?? 0).toFixed(1)}%</h5></div>
     <div class="col-4"><small class="text-muted">Complaints</small><h5>${complaints?.complaint_count ?? 0}</h5></div>
     <div class="col-4"><small class="text-muted">Praise</small><h5 class="text-success">${complaints?.praise_count ?? 0}</h5></div>
   `;
 
-  // Keywords
   el.keywordsPositive.innerHTML = (keywords?.positive_keywords || []).map(k => `<span class="badge bg-success-subtle text-success badge-kw">${k}</span>`).join('') || '<span class="neutral-chip">None</span>';
   el.keywordsNegative.innerHTML = (keywords?.negative_keywords || []).map(k => `<span class="badge bg-danger-subtle text-danger badge-kw">${k}</span>`).join('') || '<span class="neutral-chip">None</span>';
 
-  // Recommendations
   el.recommendationsList.innerHTML = (recs?.recommendations || []).length
     ? recs.recommendations.map(r => `<div class="recommendation-badge">${r}</div>`).join('')
     : '<div class="text-muted small text-center py-3">No recommendations available yet</div>';
 
-  // Reviews
   reviewsDataGlobal = revL?.items || [];
   renderReviewsList();
 
@@ -402,7 +423,7 @@ async function fetchDashboardData() {
 }
 
 // ────────────────────────────────────────────────
-//  Google Places Modal Logic
+// Google Places Auto-fill Logic
 // ────────────────────────────────────────────────
 function loadGoogleScript() {
   const script = document.createElement('script');
@@ -413,34 +434,54 @@ function loadGoogleScript() {
 
 window.initGooglePlaces = function() {
   const autocomplete = new google.maps.places.Autocomplete(el.placeSearch, {
-    types: ['establishment'],
-    fields: ['place_id', 'name', 'formatted_address', 'rating', 'user_ratings_total', 'formatted_phone_number', 'website', 'types']
+    types: ['establishment', 'lodging', 'restaurant', 'hotel'],
+    fields: [
+      'place_id', 'name', 'formatted_address', 'rating', 'user_ratings_total',
+      'formatted_phone_number', 'website', 'types', 'geometry'
+    ]
   });
 
   autocomplete.addListener('place_changed', () => {
     const place = autocomplete.getPlace();
-    if (!place.place_id) return;
+    if (!place.place_id) {
+      alert("No place selected. Please choose a suggestion.");
+      return;
+    }
 
     el.previewBox.style.display = 'block';
-    document.getElementById('prev_address').value = place.formatted_address || '';
-    document.getElementById('prev_phone').value = place.formatted_phone_number || '';
-    document.getElementById('prev_category').value = place.types?.join(', ') || '';
-    document.getElementById('prev_website').value = place.website || '';
+    
+    // Auto-fill all fields
+    el.prevName.value = place.name || 'Not available';
+    el.prevAddress.value = place.formatted_address || 'Not available';
+    el.prevPhone.value = place.formatted_phone_number || 'Not listed';
+    el.prevCategory.value = place.types?.join(', ') || 'Not specified';
+    el.prevWebsite.value = place.website || 'No website';
+    el.prevRating.value = place.rating ? `${place.rating} / 5` : 'No rating';
+    el.prevReviewCount.value = place.user_ratings_total ? `${place.user_ratings_total} reviews` : 'No reviews';
 
     selectedPlace = {
-      name: place.name,
+      name: place.name || '',
       place_id: place.place_id,
-      address: place.formatted_address,
+      address: place.formatted_address || '',
+      phone: place.formatted_phone_number || '',
+      category: place.types?.join(', ') || '',
+      website: place.website || '',
       avg_rating: place.rating || 0,
       review_count: place.user_ratings_total || 0
     };
+
     el.saveBtn.disabled = false;
   });
 };
 
 el.saveBtn.onclick = async () => {
-  if (!selectedPlace) return;
+  if (!selectedPlace) {
+    alert("Please select a business first.");
+    return;
+  }
+
   el.saveBtn.disabled = true;
+  el.saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Adding...';
 
   try {
     const res = await fetch('/companies/add', {
@@ -448,6 +489,7 @@ el.saveBtn.onclick = async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(selectedPlace)
     });
+
     const data = await res.json();
 
     if (data.success) {
@@ -461,15 +503,16 @@ el.saveBtn.onclick = async () => {
       alert(data.message || 'Failed to add company');
     }
   } catch (err) {
-    alert('Error adding company');
+    alert('Error adding company. Please try again.');
     console.error(err);
   } finally {
     el.saveBtn.disabled = false;
+    el.saveBtn.innerHTML = '<i class="fas fa-save me-1"></i> Add to Dashboard';
   }
 };
 
 // ────────────────────────────────────────────────
-//  Event Listeners
+// Event Listeners
 // ────────────────────────────────────────────────
 el.fetchBtn.onclick = fetchDashboardData;
 el.sortReviews.onchange = renderReviewsList;
@@ -480,7 +523,6 @@ window.onload = async () => {
   const start = new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().split('T')[0];
   document.getElementById('startDate').value = start;
   document.getElementById('endDate').value = end;
-
   await loadCompanies();
   if (currentCompanyId) fetchDashboardData();
 };
