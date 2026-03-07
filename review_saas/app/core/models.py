@@ -3,7 +3,7 @@ from sqlalchemy import (
     Column, Integer, String, Float, Text, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint
 )
 from sqlalchemy.orm import declarative_base, relationship
-from datetime import datetime
+from sqlalchemy.sql import func
 
 # ---------------------------------------------------
 # Base
@@ -11,7 +11,7 @@ from datetime import datetime
 Base = declarative_base()
 
 # Bumped version to 6.0.8 to force a clean database recreation
-SCHEMA_VERSION = "6.0.8-outscraper-full"
+SCHEMA_VERSION = "6.0.9-outscraper-full"
 
 # ---------------------------------------------------
 # Users
@@ -25,13 +25,12 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
-
     email_verified = Column(Boolean, default=False)
     profile_pic = Column(String(1000), nullable=True)
     role = Column(String(50), default="editor")
-
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     companies = relationship("Company", back_populates="owner")
+
 
 # ---------------------------------------------------
 # Companies
@@ -44,11 +43,11 @@ class Company(Base):
 
     # Basic info
     name = Column(String(255), nullable=False)
-    address = Column(String(1000), nullable=True) 
+    address = Column(String(1000), nullable=True)
 
     # Google Identifiers
     google_place_id = Column(String(512), unique=True, index=True)
-    internal_place_id = Column(String(255), nullable=True) 
+    internal_place_id = Column(String(255), nullable=True)
     google_id = Column(String(255), nullable=True)
 
     # Location Details
@@ -85,14 +84,15 @@ class Company(Base):
     place_url = Column(String(1000))
 
     # Sync tracking
-    last_synced_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_synced_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     owner = relationship("User", back_populates="companies")
     reviews = relationship("Review", back_populates="company", cascade="all, delete-orphan")
     competitors = relationship("Competitor", back_populates="company", cascade="all, delete-orphan")
+
 
 # ---------------------------------------------------
 # Reviews
@@ -114,11 +114,8 @@ class Review(Base):
     author_name = Column(String(255))
     author_id = Column(String(255))
     author_url = Column(String(1000))
-    
-    # FIX: Added profile_photo_url to prevent TypeError from Outscraper service
-    profile_photo_url = Column(String(1000), nullable=True) 
-    author_profile_photo = Column(String(1000), nullable=True) 
-    
+    profile_photo_url = Column(String(1000), nullable=True)
+    author_profile_photo = Column(String(1000), nullable=True)
     author_reviews_count = Column(Integer)
     author_level = Column(Integer)
 
@@ -126,31 +123,31 @@ class Review(Base):
     rating = Column(Integer)
     text = Column(Text)
     review_language = Column(String(50))
-    google_review_time = Column(DateTime)
+    google_review_time = Column(DateTime(timezone=True))
 
     # Response / Reply Fields
     owner_answer = Column(Text)
-    # FIX: Added review_reply_text to match ingest_company_reviews logic
-    review_reply_text = Column(Text, nullable=True) 
-    owner_answer_timestamp = Column(DateTime)
+    review_reply_text = Column(Text, nullable=True)
+    owner_answer_timestamp = Column(DateTime(timezone=True))
 
     # Metrics & Metadata
     review_likes = Column(Integer, default=0)
     review_photos = Column(JSON)
     is_local_guide = Column(Boolean, default=False)
 
-    # AI Processing Fields (Required for charts)
+    # AI Processing Fields
     sentiment_label = Column(String(50))
     sentiment_score = Column(Float, default=0.0)
     keywords = Column(JSON)
     topic_tags = Column(JSON)
     spam_score = Column(Float)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     company = relationship("Company", back_populates="reviews")
 
+
 # ---------------------------------------------------
-# Competitors, Notifications, Audit
+# Competitors
 # ---------------------------------------------------
 class Competitor(Base):
     __tablename__ = "competitors"
@@ -164,9 +161,13 @@ class Competitor(Base):
     lat = Column(Float)
     lng = Column(Float)
     google_maps_url = Column(String(1000))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     company = relationship("Company", back_populates="competitors")
 
+
+# ---------------------------------------------------
+# Notifications
+# ---------------------------------------------------
 class Notification(Base):
     __tablename__ = "notifications"
     id = Column(Integer, primary_key=True)
@@ -174,8 +175,12 @@ class Notification(Base):
     title = Column(String(255))
     message = Column(Text)
     is_read = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+
+# ---------------------------------------------------
+# Audit Logs
+# ---------------------------------------------------
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id = Column(Integer, primary_key=True)
@@ -183,8 +188,12 @@ class AuditLog(Base):
     action = Column(String(255), nullable=False)
     meta = Column(JSON, default={})
     ip_address = Column(String(100))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+
+# ---------------------------------------------------
+# Config
+# ---------------------------------------------------
 class Config(Base):
     __tablename__ = "config"
     key = Column(String(255), primary_key=True)
