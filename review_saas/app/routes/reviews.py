@@ -1,11 +1,10 @@
-# File: app/routes/reviews.py
-
 from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 
-# Absolute imports from app package
-from app.db.session import get_db
+# Changed to relative import (recommended when inside app/ package)
+from ..db.session import get_db
+
 from app.models.review import Review
 from app.models.company import Company
 from app.services.google_reviews import (
@@ -45,7 +44,6 @@ async def ingest_reviews(
             exists = db.query(Review).filter(
                 Review.external_review_id == review_id
             ).first()
-
             if exists:
                 continue
 
@@ -143,7 +141,6 @@ async def fetch_place_details(place_id: str):
     try:
         data = await outscraper_service.fetch_reviews(place_id, limit=1)
         return {"status": "success", "place_id": place_id, "sample_review": data}
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch place details: {str(e)}")
 
