@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import logging
-import math
 import re
-from collections import Counter, defaultdict
-from dataclasses import dataclass
+from collections import Counter
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy import Date, and_, cast, desc, func, select
+from sqlalchemy import Date, and_, case, cast, desc, func, select
 from starlette.templating import Jinja2Templates
 
 from app.core.db import get_session
@@ -31,7 +29,6 @@ DEFAULT_DAYS = 30
 NEW_REVIEW_DAYS = 7
 
 _STOPWORDS = {
-    # basic en stopwords
     "the", "and", "to", "a", "an", "in", "is", "it", "of", "for", "on", "was", "with", "at",
     "this", "that", "by", "be", "from", "as", "are", "were", "or", "we", "you", "they", "our",
     "your", "their", "but", "not", "so", "if", "too", "very", "can", "could", "would", "will",
@@ -69,12 +66,35 @@ def _range_or_default(start: Optional[str], end: Optional[str], default_days: in
     """Return (start_date, end_date) using provided YYYY-MM-DD or default last N days inclusive."""
     today = date.today()
     end_dt = _parse_date(end) or today
-    # inclusive window [start_dt, end_dt]
     start_dt = _parse_date(start) or (end_dt - timedelta(days=default_days - 1))
-    # ensure order
     if start_dt > end_dt:
         start_dt, end_dt = end_dt, start_dt
     return start_dt, end_dt
+
+
+def _date_col() -> any:
+    """
+    Use google_review_time; if model also has created_at, fallback with COALESCE so we don't drop rows
+    that lack google_review_time.
+    """
+    base = getattr(Review, "google_review_time", None)
+    created = getattr(Review, "created_at", None)
+    if base is not None and created is not None:
+        return cast(func.coalesce(Review.google_review_time, Review.created_at), Date)
+    # fallback to google_review_time only
+    return cast(Review.google_review_time, Date)
+
+
+def _rating_sent_fallback():
+    """Map star ratings to a sentiment proxy for rows missing sentiment_score."""
+    return case(
+        (Review.rating == 5, 0.8),
+        (Review.rating == 4, 0.4),
+        (Review.rating == 3, 0.0),
+        (Review.rating == 2, -0.4),
+        (Review.rating == 1, -0.8),
+        else_=0.0,
+    )
 
 
 def _sentiment_label(score: Optional[float]) -> str:
@@ -88,19 +108,15 @@ def _sentiment_label(score: Optional[float]) -> str:
 
 
 def _clean_tokens(text: str) -> List[str]:
-    # lowercase, remove non-letters, split
     cleaned = re.sub(r"[^a-zA-Z\s]", " ", text.lower())
-    tokens = [t for t in cleaned.split() if len(t) > 2 and t not in _STOPWORDS]
-    return tokens
+    return [t for t in cleaned.split() if len(t) > 2 and t not in _STOPWORDS]
 
 
 def _bigrams(tokens: List[str]) -> List[str]:
     return [f"{tokens[i]} {tokens[i+1]}" for i in range(len(tokens) - 1)]
 
 
-def _count_in_period(
-    items: List[str], start_dt: date, end_dt: date, timestamps: List[Optional[datetime]]
-) -> Counter:
+def _count_in_period(items: List[str], start_dt: date, end_dt: date, timestamps: List[Optional[datetime]]) -> Counter:
     c = Counter()
     for t, ts in zip(items, timestamps):
         if ts is None:
@@ -121,7 +137,9 @@ async def get_dashboard(request: Request):
     uid = _require_user(request)
     if not uid:
         return templates.TemplateResponse("login.html", {"request": request, "error": "Session expired."})
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    # IMPORTANT: render the file you actually have on disk.
+    # If your file is 'dashbord.html', use that name; otherwise switch to 'dashboard.html'.
+    return templates.TemplateResponse("dashbord.html", {"request": request})
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -129,46 +147,33 @@ async def get_dashboard(request: Request):
 # ──────────────────────────────────────────────────────────────────────────────
 
 @router.get("/api/kpis")
-async def api_kpis(
-    company_id: int,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-):
+async def api_kpis(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """
     High-level KPIs:
       - total_reviews (in window)
       - avg_rating
-      - avg_sentiment
+      - avg_sentiment (uses sentiment_score; falls back to rating-derived proxy if NULL)
       - new_reviews (last 7 days ending at end_dt)
     """
     start_dt, end_dt = _range_or_default(start, end)
 
     async with get_session() as session:
-        date_col = cast(Review.google_review_time, Date)
-        base = select(
-            func.count(Review.id),
-            func.avg(Review.rating),
-            func.avg(Review.sentiment_score),
-        ).where(
-            and_(
-                Review.company_id == company_id,
-                date_col >= start_dt,
-                date_col <= end_dt,
+        date_col = _date_col()
+        avg_sent_expr = func.avg(func.coalesce(Review.sentiment_score, _rating_sent_fallback()))
+        stmt = (
+            select(
+                func.count(Review.id),
+                func.avg(Review.rating),
+                avg_sent_expr,
             )
+            .where(and_(Review.company_id == company_id, date_col >= start_dt, date_col <= end_dt))
         )
-        res = await session.execute(base)
-        total, avg_rating, avg_sent = res.first() or (0, None, None)
+        total, avg_rating, avg_sent = (await session.execute(stmt)).first() or (0, None, None)
 
         # New reviews: last NEW_REVIEW_DAYS up to end_dt
         new_start = end_dt - timedelta(days=NEW_REVIEW_DAYS - 1)
         q_new = await session.execute(
-            select(func.count(Review.id)).where(
-                and_(
-                    Review.company_id == company_id,
-                    date_col >= new_start,
-                    date_col <= end_dt,
-                )
-            )
+            select(func.count(Review.id)).where(and_(Review.company_id == company_id, date_col >= new_start, date_col <= end_dt))
         )
         new_reviews = int(q_new.scalar() or 0)
 
@@ -182,15 +187,11 @@ async def api_kpis(
 
 
 @router.get("/api/ratings/distribution")
-async def api_ratings_distribution(
-    company_id: int,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-):
+async def api_ratings_distribution(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Histogram of rating 1..5 within window."""
     start_dt, end_dt = _range_or_default(start, end)
     async with get_session() as session:
-        date_col = cast(Review.google_review_time, Date)
+        date_col = _date_col()
         stmt = (
             select(Review.rating, func.count(Review.id))
             .where(and_(Review.company_id == company_id, date_col >= start_dt, date_col <= end_dt))
@@ -213,7 +214,7 @@ async def api_series_reviews(company_id: int, start: Optional[str] = None, end: 
     """Daily review volume."""
     start_dt, end_dt = _range_or_default(start, end)
     async with get_session() as session:
-        date_col = cast(Review.google_review_time, Date)
+        date_col = _date_col()
         stmt = (
             select(date_col.label("date"), func.count(Review.id).label("value"))
             .where(and_(Review.company_id == company_id, date_col >= start_dt, date_col <= end_dt))
@@ -230,7 +231,7 @@ async def api_series_ratings(company_id: int, start: Optional[str] = None, end: 
     """Daily average rating."""
     start_dt, end_dt = _range_or_default(start, end)
     async with get_session() as session:
-        date_col = cast(Review.google_review_time, Date)
+        date_col = _date_col()
         stmt = (
             select(date_col.label("date"), func.avg(Review.rating).label("value"))
             .where(and_(Review.company_id == company_id, date_col >= start_dt, date_col <= end_dt))
@@ -244,12 +245,13 @@ async def api_series_ratings(company_id: int, start: Optional[str] = None, end: 
 
 @router.get("/api/sentiment/series")
 async def api_sentiment_series(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
-    """Daily average sentiment score."""
+    """Daily average sentiment score (with fallback to rating-derived proxy for NULLs)."""
     start_dt, end_dt = _range_or_default(start, end)
     async with get_session() as session:
-        date_col = cast(Review.google_review_time, Date)
+        date_col = _date_col()
+        avg_sent_expr = func.avg(func.coalesce(Review.sentiment_score, _rating_sent_fallback()))
         stmt = (
-            select(date_col.label("date"), func.avg(Review.sentiment_score).label("value"))
+            select(date_col.label("date"), avg_sent_expr.label("value"))
             .where(and_(Review.company_id == company_id, date_col >= start_dt, date_col <= end_dt))
             .group_by("date")
             .order_by("date")
@@ -261,12 +263,7 @@ async def api_sentiment_series(company_id: int, start: Optional[str] = None, end
 
 @router.get("/api/series/overview")
 async def api_series_overview(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
-    """
-    Single call returning three series for fewer round-trips:
-      - volume (count)
-      - rating (avg)
-      - sentiment (avg)
-    """
+    """Return all three series in one call."""
     vol = await api_series_reviews(company_id, start, end)
     rat = await api_series_ratings(company_id, start, end)
     sen = await api_sentiment_series(company_id, start, end)
@@ -284,13 +281,10 @@ async def api_series_overview(company_id: int, start: Optional[str] = None, end:
 
 @router.get("/api/aspects/avg")
 async def api_aspects_average(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
-    """
-    Departmental aspects average values. Missing columns resolve to 0.0.
-    Adds rank and strengths/weaknesses classification.
-    """
+    """Departmental aspects average values."""
     start_dt, end_dt = _range_or_default(start, end)
     async with get_session() as session:
-        date_col = cast(Review.google_review_time, Date)
+        date_col = _date_col()
         stmt = (
             select(
                 func.avg(Review.aspect_rooms).label("rooms"),
@@ -312,13 +306,12 @@ async def api_aspects_average(company_id: int, start: Optional[str] = None, end:
             "food": round(float(row.food or 0.0), 3),
         }
 
-        # strength/weak classification
         vals = [v for v in aspects.values() if v > 0]
         global_avg = (sum(vals) / len(vals)) if vals else 0.0
         strengths = sorted([k for k, v in aspects.items() if v >= max(global_avg, 0.6)], key=lambda k: -aspects[k])
         weaknesses = sorted([k for k, v in aspects.items() if 0 < v < max(global_avg, 0.6)], key=lambda k: aspects[k])
-
         ranked = sorted(aspects.items(), key=lambda kv: -kv[1])
+
         return {
             "aspects": aspects,
             "ranked": ranked,
@@ -330,49 +323,34 @@ async def api_aspects_average(company_id: int, start: Optional[str] = None, end:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Operational Overview
+# Operational Overview + Legacy Shim
 # ──────────────────────────────────────────────────────────────────────────────
 
 @router.get("/api/operational/overview")
 async def api_operational_overview(company_id: int, start: Optional[str] = None, end: Optional[str] = None, limit_urgent: int = Query(10, ge=1, le=50)):
-    """
-    Operational overview:
-      - complaint_count, praise_count, complaint_rate, praise_rate
-      - urgent_issues (low rating/sentiment or urgent keywords)
-    """
+    """Operational overview with urgent issues."""
     start_dt, end_dt = _range_or_default(start, end)
     async with get_session() as session:
-        date_col = cast(Review.google_review_time, Date)
-        # Totals
+        date_col = _date_col()
         total = (await session.execute(
             select(func.count(Review.id)).where(and_(Review.company_id == company_id, date_col >= start_dt, date_col <= end_dt))
         )).scalar() or 0
 
         complaints = (await session.execute(
-            select(func.count(Review.id)).where(
-                and_(Review.company_id == company_id, date_col >= start_dt, date_col <= end_dt, Review.is_complaint == True)
-            )
+            select(func.count(Review.id)).where(and_(Review.company_id == company_id, date_col >= start_dt, date_col <= end_dt, Review.is_complaint == True))
         )).scalar() or 0
 
         praise = (await session.execute(
-            select(func.count(Review.id)).where(
-                and_(Review.company_id == company_id, date_col >= start_dt, date_col <= end_dt, Review.is_praise == True)
-            )
+            select(func.count(Review.id)).where(and_(Review.company_id == company_id, date_col >= start_dt, date_col <= end_dt, Review.is_praise == True))
         )).scalar() or 0
 
         complaint_rate = round((complaints / total) * 100, 1) if total else 0.0
         praise_rate = round((praise / total) * 100, 1) if total else 0.0
 
-        # Urgent issues list
         urgent_stmt = (
             select(
-                Review.id,
-                Review.author_name,
-                Review.rating,
-                Review.text,
-                Review.sentiment_score,
-                Review.google_review_time,
-                Review.profile_photo_url,
+                Review.id, Review.author_name, Review.rating, Review.text,
+                Review.sentiment_score, Review.google_review_time, Review.profile_photo_url
             )
             .where(and_(Review.company_id == company_id, date_col >= start_dt, date_col <= end_dt))
             .order_by(desc(Review.google_review_time))
@@ -420,43 +398,45 @@ async def api_operational_overview(company_id: int, start: Optional[str] = None,
         }
 
 
+@router.get("/api/complaints/stats")
+async def api_complaints_stats(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
+    """
+    Legacy endpoint shim for frontends that still call /api/complaints/stats.
+    Wraps /api/operational/overview to return the expected shape.
+    """
+    op = await api_operational_overview(company_id, start, end, limit_urgent=0)
+    return {
+        "total_reviews": op.get("total_reviews", 0),
+        "complaint_count": op.get("complaint_count", 0),
+        "complaint_rate": op.get("complaint_rate", 0.0),
+        "praise_count": op.get("praise_count", 0),
+        "praise_rate": op.get("praise_rate", 0.0),
+        "window": op.get("window"),
+    }
+
+
 # ──────────────────────────────────────────────────────────────────────────────
-# Themes & Keywords (with emerging topics)
+# Themes & Keywords
 # ──────────────────────────────────────────────────────────────────────────────
 
 @router.get("/api/keywords/themes")
-async def api_keywords_themes(
-    company_id: int,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-    limit: int = Query(12, ge=5, le=40),
-):
-    """
-    Extracts top unigrams & bigrams, splits into positive/negative themes,
-    and identifies emerging topics (last 7d vs previous 7d).
-    """
+async def api_keywords_themes(company_id: int, start: Optional[str] = None, end: Optional[str] = None, limit: int = Query(12, ge=5, le=40)):
+    """Top unigrams & bigrams + emerging topics (last 7d vs previous 7d)."""
     start_dt, end_dt = _range_or_default(start, end)
     prev7_end = end_dt - timedelta(days=NEW_REVIEW_DAYS)
     prev7_start = prev7_end - timedelta(days=NEW_REVIEW_DAYS - 1)
 
     async with get_session() as session:
-        date_col = cast(Review.google_review_time, Date)
-        stmt = (
+        date_col = _date_col()
+        rows = (await session.execute(
             select(Review.text, Review.sentiment_score, Review.google_review_time)
             .where(and_(Review.company_id == company_id, date_col >= start_dt, date_col <= end_dt))
             .order_by(desc(Review.google_review_time))
-            .limit(5000)  # sanity guard
-        )
-        rows = (await session.execute(stmt)).all()
+            .limit(5000)
+        )).all()
 
     if not rows:
-        return {
-            "positive_keywords": [],
-            "negative_keywords": [],
-            "top_bigrams": [],
-            "emerging": [],
-            "window": {"start": str(start_dt), "end": str(end_dt)},
-        }
+        return {"positive_keywords": [], "negative_keywords": [], "top_bigrams": [], "emerging": [], "window": {"start": str(start_dt), "end": str(end_dt)}}
 
     tokens_all: List[str] = []
     bigrams_all: List[str] = []
@@ -472,13 +452,19 @@ async def api_keywords_themes(
     unigram_counter = Counter(tokens_all)
     bigram_counter = Counter(bigrams_all)
 
-    # polarity split using hint dictionaries
     positives = [w for w, _ in unigram_counter.most_common(limit * 3) if w in _POSITIVE_HINTS]
     negatives = [w for w, _ in unigram_counter.most_common(limit * 3) if w in _NEGATIVE_HINTS]
     top_bigrams = [bg for bg, _ in bigram_counter.most_common(limit * 3) if all(t not in _STOPWORDS for t in bg.split())]
 
-    # emerging topics by delta between last7d vs prev7d (unigrams)
     last7_start = end_dt - timedelta(days=NEW_REVIEW_DAYS - 1)
+    def _count_in_period(items: List[str], s: date, e: date, stamps: List[Optional[datetime]]) -> Counter:
+        c = Counter()
+        for w, ts in zip(items, stamps):
+            if ts is None: continue
+            d = ts.date()
+            if s <= d <= e: c[w] += 1
+        return c
+
     last7_counts = _count_in_period(tokens_all, last7_start, end_dt, tokens_times)
     prev7_counts = _count_in_period(tokens_all, prev7_start, prev7_end, tokens_times)
     emerging_scores = []
@@ -500,15 +486,12 @@ async def api_keywords_themes(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# AI Recommendations (rules-based)
+# AI Recommendations + Executive Summary
 # ──────────────────────────────────────────────────────────────────────────────
 
 @router.get("/api/ai/recommendations")
 async def api_ai_recommendations(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
-    """
-    Generates clear, actionable recommendations based on KPIs, aspects and operational stats.
-    Deterministic rules, no external dependency.
-    """
+    """Actionable recommendations based on KPIs, aspects, ops."""
     kpis = await api_kpis(company_id, start, end)
     aspects = await api_aspects_average(company_id, start, end)
     ops = await api_operational_overview(company_id, start, end, limit_urgent=5)
@@ -521,35 +504,28 @@ async def api_ai_recommendations(company_id: int, start: Optional[str] = None, e
     weaknesses = aspects["weaknesses"]
 
     recs: List[str] = []
-
-    # Volume / Coverage
     if total < 30:
         recs.append("Increase review velocity: trigger post-visit SMS/email nudges and add QR prompts at checkout.")
     elif kpis["new_reviews"] < 5:
         recs.append("New reviews slowed this week. Run a small incentive campaign to boost fresh feedback.")
 
-    # Rating vs Sentiment signals
     if rating >= 4.2 and sentiment < 0.1:
         recs.append("Address text-level frustrations despite high stars: audit pricing transparency and staff communication.")
     if rating < 4.0 and sentiment >= 0.25:
         recs.append("Guests are positive in text but penalize stars—review pricing, expectations, and listing visuals.")
 
-    # Operational
     if complaint_rate >= 25.0:
         recs.append("Complaint rate is high: enable same-day outreach to negative reviewers and create a visible resolution flow.")
     if ops["urgent_issues"]:
         recs.append("Triage urgent issues flagged (safety/legal keywords or very negative sentiment) within 24 hours.")
 
-    # Aspects
     if weaknesses:
         recs.append(f"Prioritize weakest departments: {', '.join(w.upper() for w in weaknesses[:3])}—set 2-week improvement targets.")
     if strengths:
         recs.append(f"Amplify strengths ({', '.join(strengths[:2])}) in marketing copy and replies to build trust.")
 
-    # Governance
     recs.append("Establish a weekly review stand-up: review trends, respond to 100% negatives, and A/B test service fixes.")
 
-    # Health Score
     health_score = round(((rating / 5.0) * 0.5 + ((sentiment + 1.0) / 2.0) * 0.5) * 100, 1)
     verdict = "Steady Growth"
     if sentiment < 0.1 and rating > 4.0:
@@ -567,33 +543,62 @@ async def api_ai_recommendations(company_id: int, start: Optional[str] = None, e
     }
 
 
+@router.get("/api/ai/executive-summary")
+async def api_ai_executive_summary(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
+    """
+    Human-friendly executive summary that blends KPIs, aspects, operational stats,
+    alerts and themes into one narrative paragraph + highlights.
+    """
+    kpis = await api_kpis(company_id, start, end)
+    aspects = await api_aspects_average(company_id, start, end)
+    ops = await api_operational_overview(company_id, start, end, limit_urgent=5)
+    alerts = await api_alerts(company_id, start, end)
+    themes = await api_keywords_themes(company_id, start, end, limit=8)
+    recs = await api_ai_recommendations(company_id, start, end)
+
+    w = kpis["window"]
+    strengths = aspects.get("strengths", [])
+    weaknesses = aspects.get("weaknesses", [])
+    pos_kw = themes.get("positive_keywords", [])[:5]
+    neg_kw = themes.get("negative_keywords", [])[:5]
+
+    summary = (
+        f"From {w['start']} to {w['end']}, we analyzed {kpis['total_reviews']} reviews. "
+        f"Average rating is {kpis['avg_rating']:.1f} with average sentiment {kpis['avg_sentiment']:.3f}. "
+        f"New reviews in the latest week: {kpis['new_reviews']}. "
+        f"Operationally, complaint rate is {ops['complaint_rate']:.1f}% across {ops['total_reviews']} total reviews. "
+        f"Aspects suggest strengths in {', '.join(strengths[:2]) if strengths else 'no clear strengths'} "
+        f"and weaknesses in {', '.join(weaknesses[:2]) if weaknesses else 'no obvious gaps'}. "
+        f"Top positive themes: {', '.join(pos_kw) if pos_kw else '—'}; pain points: {', '.join(neg_kw) if neg_kw else '—'}. "
+        f"Overall verdict: {recs['verdict']}; Business Health Score: {recs['business_health_score']}."
+    )
+
+    highlights = []
+    for a in alerts.get("alerts", []):
+        highlights.append(f"{a.get('type','alert').replace('_',' ').title()}: {a.get('message','')}")
+
+    return {
+        "summary": summary,
+        "highlights": highlights[:6],
+        "top_actions": recs.get("top_action_items", []),
+        "window": w,
+    }
+
+
 # ──────────────────────────────────────────────────────────────────────────────
-# Recent Feedback Feed (annotated)
+# Recent Feedback Feed (annotated) + List
 # ──────────────────────────────────────────────────────────────────────────────
 
 @router.get("/api/reviews/feed")
-async def api_reviews_feed(
-    company_id: int,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-    limit: int = Query(50, ge=5, le=200),
-):
-    """
-    Recent reviews with annotations:
-      - sentiment_label, is_urgent, detected_topics (keywords present from hints)
-    """
+async def api_reviews_feed(company_id: int, start: Optional[str] = None, end: Optional[str] = None, limit: int = Query(50, ge=5, le=200)):
+    """Recent reviews with annotations."""
     start_dt, end_dt = _range_or_default(start, end)
     async with get_session() as session:
-        date_col = cast(Review.google_review_time, Date)
+        date_col = _date_col()
         stmt = (
             select(
-                Review.id,
-                Review.author_name,
-                Review.rating,
-                Review.sentiment_score,
-                Review.text,
-                Review.google_review_time,
-                Review.profile_photo_url,
+                Review.id, Review.author_name, Review.rating, Review.sentiment_score, Review.text,
+                Review.google_review_time, Review.profile_photo_url
             )
             .where(and_(Review.company_id == company_id, date_col >= start_dt, date_col <= end_dt))
             .order_by(desc(Review.google_review_time))
@@ -628,21 +633,14 @@ async def api_reviews_feed(
     return {"items": items, "window": {"start": str(start_dt), "end": str(end_dt)}}
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Existing reviews list (kept, minor polish)
-# ──────────────────────────────────────────────────────────────────────────────
-
 @router.get("/api/reviews/list")
 async def api_reviews_list(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     start_dt, end_dt = _range_or_default(start, end)
     async with get_session() as session:
-        date_col = cast(Review.google_review_time, Date)
-        stmt = (
-            select(Review)
-            .where(and_(Review.company_id == company_id, date_col >= start_dt, date_col <= end_dt))
-            .order_by(desc(Review.google_review_time))
+        date_col = _date_col()
+        res = await session.execute(
+            select(Review).where(and_(Review.company_id == company_id, date_col >= start_dt, date_col <= end_dt)).order_by(desc(Review.google_review_time))
         )
-        res = await session.execute(stmt)
         items = res.scalars().all()
         return {
             "items": [{
@@ -658,25 +656,22 @@ async def api_reviews_list(company_id: int, start: Optional[str] = None, end: Op
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Predictive Alerts (lightweight, trend-based)
+# Predictive Alerts
 # ──────────────────────────────────────────────────────────────────────────────
 
 @router.get("/api/alerts")
 async def api_alerts(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """
-    Trend-based alerts using two-window comparisons (last7 vs prev7, last14 vs prev14).
-    Emits: volume_drop, rating_dip, sentiment_dip, complaint_spike, review_drought.
+    Trend-based alerts using two-window comparisons (last7 vs prev7).
     """
     start_dt, end_dt = _range_or_default(start, end)
     last7_start = end_dt - timedelta(days=NEW_REVIEW_DAYS - 1)
     prev7_end = last7_start - timedelta(days=1)
     prev7_start = prev7_end - timedelta(days=NEW_REVIEW_DAYS - 1)
 
-    # KPIs and operational
     kpis = await api_kpis(company_id, start, end)
     ops = await api_operational_overview(company_id, start, end, limit_urgent=5)
 
-    # Volume series
     vol = await api_series_reviews(company_id, start, end)
     vol_map = {s["date"]: s["value"] for s in vol["series"]}
 
@@ -687,15 +682,9 @@ async def api_alerts(company_id: int, start: Optional[str] = None, end: Optional
     prev7 = _sum_in(prev7_start, prev7_end)
 
     alerts = []
-    # Volume drop
     if prev7 >= 8 and last7 <= prev7 * 0.6:
-        alerts.append({
-            "type": "volume_drop",
-            "severity": "high",
-            "message": f"Review volume down {round(100 - (last7 / max(prev7,1))*100)}% vs prior week.",
-        })
+        alerts.append({"type": "volume_drop", "severity": "high", "message": f"Review volume down {round(100 - (last7 / max(prev7,1))*100)}% vs prior week."})
 
-    # Rating & sentiment dips
     rat_series = await api_series_ratings(company_id, start, end)
     sen_series = await api_sentiment_series(company_id, start, end)
 
@@ -706,30 +695,16 @@ async def api_alerts(company_id: int, start: Optional[str] = None, end: Optional
     rating_last7 = _avg_in(rat_series["series"], last7_start, end_dt)
     rating_prev7 = _avg_in(rat_series["series"], prev7_start, prev7_end)
     if rating_prev7 > 0 and rating_last7 <= rating_prev7 - 0.3:
-        alerts.append({
-            "type": "rating_dip",
-            "severity": "medium",
-            "message": f"Avg rating dropped {round(rating_prev7 - rating_last7, 2)} vs prior week.",
-        })
+        alerts.append({"type": "rating_dip", "severity": "medium", "message": f"Avg rating dropped {round(rating_prev7 - rating_last7, 2)} vs prior week."})
 
     sentiment_last7 = _avg_in(sen_series["series"], last7_start, end_dt)
     sentiment_prev7 = _avg_in(sen_series["series"], prev7_start, prev7_end)
     if sentiment_prev7 > 0 and sentiment_last7 <= sentiment_prev7 - 0.1:
-        alerts.append({
-            "type": "sentiment_dip",
-            "severity": "medium",
-            "message": f"Avg sentiment dropped {round(sentiment_prev7 - sentiment_last7, 3)} vs prior week.",
-        })
+        alerts.append({"type": "sentiment_dip", "severity": "medium", "message": f"Avg sentiment dropped {round(sentiment_prev7 - sentiment_last7, 3)} vs prior week."})
 
-    # Complaint spike
     if ops["complaint_rate"] >= 30.0 and kpis["total_reviews"] >= 20:
-        alerts.append({
-            "type": "complaint_spike",
-            "severity": "high",
-            "message": "Complaint rate exceeded 30% this period. Immediate triage recommended.",
-        })
+        alerts.append({"type": "complaint_spike", "severity": "high", "message": "Complaint rate exceeded 30% this period. Immediate triage recommended."})
 
-    # Review drought
     if kpis["new_reviews"] == 0:
         alerts.append({"type": "review_drought", "severity": "low", "message": "No new reviews in the last 7 days."})
 
@@ -744,36 +719,4 @@ async def api_alerts(company_id: int, start: Optional[str] = None, end: Optional
             "sentiment_prev7": sentiment_prev7,
         },
         "window": {"start": str(start_dt), "end": str(end_dt)},
-    }
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Executive Summary (refined)
-# ──────────────────────────────────────────────────────────────────────────────
-
-@router.get("/api/owner/executive-summary")
-async def api_executive_summary(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
-    """Condensed verdict + primary action from weaknesses."""
-    stats = await api_kpis(company_id, start, end)
-    aspects = await api_aspects_average(company_id, start, end)
-    rating = stats["avg_rating"]
-    sentiment = stats["avg_sentiment"]
-
-    if sentiment < 0.1 and rating > 4.0:
-        verdict = "Critical Disconnect: High stars, but text expresses friction. Audit pricing and communication."
-    elif sentiment > 0.4 and rating < 4.0:
-        verdict = "Hidden Potential: Text positivity is high—review pricing/expectations to lift stars."
-    elif rating < 3.5:
-        verdict = "Crisis Mode: Escalate training and response playbook immediately."
-    else:
-        verdict = "Steady Growth: Maintain quality; scale loyalty and review prompts."
-
-    weakest = aspects["weaknesses"][0] if aspects["weaknesses"] else None
-    health_score = round(((rating / 5) * 0.5 + (sentiment + 1) / 2 * 0.5) * 100, 1)
-
-    return {
-        "final_verdict": verdict,
-        "top_action_item": f"Address issues in {weakest.upper()} department immediately." if weakest else "Maintain current operational cadence.",
-        "business_health_score": health_score,
-        "window": stats["window"],
     }
