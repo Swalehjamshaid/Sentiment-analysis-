@@ -3,49 +3,114 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Strategic Dashboard - ReviewSaaS</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <title>ReviewSaaS - Strategic Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
   <style>
-    body { background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
-    .navbar-brand { font-weight: 800; letter-spacing: -1px; color: #fff !important; }
-    .card { border: none; border-radius: 16px; overflow: hidden; transition: all 0.25s ease; box-shadow: 0 6px 20px rgba(0,0,0,0.08); }
-    .card:hover { transform: translateY(-6px); box-shadow: 0 16px 32px rgba(0,0,0,0.12) !important; }
-    .kpi-card { border-radius: 12px; background: white; box-shadow: 0 4px 16px rgba(0,0,0,0.06); transition: all 0.2s; }
-    .kpi-card:hover { transform: scale(1.02); }
-    .aspect-card { border-radius: 12px; border-left: 6px solid; transition: all 0.3s; }
-    .aspect-card:hover { transform: scale(1.04) translateY(-4px); }
-    .recommendation-badge { background: linear-gradient(90deg, #e7f3ff, #d6ecff); border-left: 5px solid #0d6efd; padding: 12px 16px; margin-bottom: 12px; border-radius: 10px; color: #0c4a6e; box-shadow: 0 2px 8px rgba(13,110,253,0.1); }
-    .badge-kw { font-size: 0.85rem; padding: 6px 12px; margin: 4px; border-radius: 30px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
-    .neutral-chip { background: #f1f3f5; color: #495057; padding: 5px 12px; border-radius: 30px; font-size: 0.82rem; }
-    .urgent { background: linear-gradient(90deg, #fff5f5, #ffecec); border-left: 5px solid #dc3545; }
-    .alert { border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
-    .pac-container { z-index: 1051 !important; box-shadow: 0 8px 24px rgba(0,0,0,0.15); border-radius: 12px; }
-    .modal-content { border-radius: 16px; border: none; box-shadow: 0 20px 40px rgba(0,0,0,0.2); }
-    .modal-header { border-radius: 16px 16px 0 0; background: linear-gradient(90deg, #0d6efd, #0b5ed7); }
-    .readonly-field { background-color: #f8f9fa !important; cursor: not-allowed; border-color: #dee2e6; }
+    :root {
+      --primary: #0d6efd;
+      --primary-dark: #0b5ed7;
+      --light-bg: #f8f9fa;
+      --card-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    }
+    body {
+      background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+    }
+    .navbar-brand {
+      font-weight: 800;
+      letter-spacing: -0.8px;
+    }
+    .card {
+      border: none;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: var(--card-shadow);
+      transition: all 0.25s ease;
+    }
+    .card:hover {
+      transform: translateY(-6px);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.12);
+    }
+    .kpi-card {
+      border-radius: 14px;
+      background: white;
+      transition: transform 0.2s;
+    }
+    .kpi-card:hover { transform: scale(1.03); }
+    .aspect-card {
+      border-radius: 12px;
+      border-left: 6px solid;
+      transition: all 0.3s;
+    }
+    .aspect-card:hover {
+      transform: scale(1.05) translateY(-4px);
+    }
+    .recommendation-badge {
+      background: linear-gradient(90deg, #e7f3ff, #d6ecff);
+      border-left: 5px solid var(--primary);
+      padding: 12px 16px;
+      margin-bottom: 12px;
+      border-radius: 10px;
+      color: #0c4a6e;
+      box-shadow: 0 2px 8px rgba(13,110,253,0.1);
+    }
+    .badge-kw {
+      font-size: 0.85rem;
+      padding: 6px 12px;
+      margin: 4px;
+      border-radius: 30px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    .pac-container {
+      z-index: 1051 !important;
+      border-radius: 12px;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.15);
+    }
+    .modal-content {
+      border-radius: 16px;
+      border: none;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.25);
+    }
+    .modal-header {
+      border-radius: 16px 16px 0 0;
+      background: linear-gradient(90deg, var(--primary), var(--primary-dark));
+    }
+    .readonly-field {
+      background-color: #f1f3f5 !important;
+      cursor: not-allowed;
+      border-color: #dee2e6;
+    }
+    .input-placeholder-glow {
+      animation: glow 1.8s infinite alternate;
+    }
+    @keyframes glow {
+      from { box-shadow: 0 0 0 0 rgba(13,110,253,0.4); }
+      to   { box-shadow: 0 0 0 8px rgba(13,110,253,0); }
+    }
   </style>
 </head>
 <body>
 
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow">
-  <div class="container-fluid">
+  <div class="container-fluid px-4">
     <a class="navbar-brand" href="/">Review<span class="text-primary">SaaS</span></a>
     <div class="d-flex gap-3 align-items-center">
-      <button class="btn btn-outline-light btn-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+      <button class="btn btn-outline-light btn-sm px-3" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
         <i class="fas fa-plus me-1"></i> Add Company
       </button>
-      <a href="/companies" class="btn btn-outline-light btn-sm">Companies</a>
-      <a href="/logout" class="btn btn-warning btn-sm">Logout</a>
+      <a href="/companies" class="btn btn-outline-light btn-sm px-3">Companies</a>
+      <a href="/logout" class="btn btn-warning btn-sm px-3">Logout</a>
     </div>
   </div>
 </nav>
 
-<div class="container py-5">
+<div class="container py-5 px-3 px-md-4">
 
   <!-- Company & Date Selection -->
-  <div class="card shadow mb-5">
+  <div class="card shadow mb-5" data-section="filters">
     <div class="card-body p-4">
       <div class="row g-3 align-items-end">
         <div class="col-lg-4">
@@ -70,13 +135,13 @@
   </div>
 
   <!-- Alerts -->
-  <div id="loadingBox" class="alert alert-info spinner"><i class="fas fa-spinner fa-spin me-2"></i>Analyzing reviews...</div>
-  <div id="successBox" class="alert alert-success success-msg"><i class="fas fa-check-circle me-2"></i>Dashboard updated</div>
-  <div id="nodataBox" class="alert alert-warning nodata-msg"><i class="fas fa-exclamation-triangle me-2"></i>No data in this range</div>
-  <div id="errorBox" class="alert alert-danger error-msg"><i class="fas fa-exclamation-circle me-2"></i>Error loading data – check console (F12)</div>
+  <div id="loadingBox" class="alert alert-info spinner"><i class="fas fa-spinner fa-spin me-2"></i> Analyzing reviews...</div>
+  <div id="successBox" class="alert alert-success success-msg"><i class="fas fa-check-circle me-2"></i> Dashboard updated</div>
+  <div id="nodataBox" class="alert alert-warning nodata-msg"><i class="fas fa-exclamation-triangle me-2"></i> No data in selected range</div>
+  <div id="errorBox" class="alert alert-danger error-msg"><i class="fas fa-exclamation-circle me-2"></i> Error loading data – check console (F12)</div>
 
   <!-- KPIs (Avg Sentiment removed) -->
-  <div class="row g-4 mb-5">
+  <div class="row g-4 mb-5" data-section="kpis">
     <div class="col-md-4">
       <div class="kpi-card p-4 text-center">
         <small class="text-muted d-block mb-1">Total Reviews</small>
@@ -85,7 +150,7 @@
     </div>
     <div class="col-md-4">
       <div class="kpi-card p-4 text-center">
-        <small class="text-muted d-block mb-1">Avg Rating</small>
+        <small class="text-muted d-block mb-1">Average Rating</small>
         <h3 id="kpi-rating" class="fw-bold mb-0 text-warning">0.0</h3>
       </div>
     </div>
@@ -98,7 +163,7 @@
   </div>
 
   <!-- Charts -->
-  <div class="row g-4 mb-5">
+  <div class="row g-4 mb-5" data-section="charts">
     <div class="col-lg-8">
       <div class="card shadow h-100">
         <div class="card-body p-4">
@@ -123,8 +188,8 @@
     </div>
   </div>
 
-  <!-- Strategic Intelligence -->
-  <div class="row g-4 mb-5">
+  <!-- Strategic Intelligence (flexible grid for future additions) -->
+  <div class="row g-4 mb-5" data-section="insights">
     <div class="col-12">
       <h5 class="fw-bold text-dark border-bottom pb-3 mb-4"><i class="fas fa-brain me-2 text-primary"></i>Strategic Intelligence</h5>
     </div>
@@ -160,7 +225,7 @@
   </div>
 
   <!-- Guest Feedback Feed -->
-  <div class="row g-3">
+  <div class="row g-3" data-section="reviews">
     <div class="col-12">
       <div class="card shadow">
         <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
@@ -192,8 +257,8 @@
       <div class="modal-body p-4">
         <div class="mb-4">
           <label class="form-label fw-semibold">Search Business</label>
-          <input type="text" class="form-control form-control-lg shadow-sm" id="placeSearch" placeholder="e.g. Pearl Continental Hotel Lahore">
-          <small class="text-muted mt-1 d-block">Start typing the business name – it will auto-suggest from Google Maps</small>
+          <input type="text" class="form-control form-control-lg shadow-sm input-placeholder-glow" id="placeSearch" placeholder="e.g. Pearl Continental Hotel Lahore">
+          <small class="text-muted mt-1 d-block">Start typing the business name – Google will suggest matches</small>
         </div>
 
         <div id="detailsPreview" style="display:none;" class="border rounded-3 p-4 bg-white mt-4 shadow-sm">
@@ -450,8 +515,8 @@ function loadGoogleScript() {
   script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_PLACES_API_KEY}&libraries=places&callback=initGooglePlaces`;
   script.async = true;
   script.onerror = () => {
-    console.error("Failed to load Google Maps script – check API key, network, or restrictions");
-    alert("Google Maps failed to load. Check your API key restrictions or console for errors.");
+    console.error("Failed to load Google Maps JavaScript API");
+    alert("Google Maps failed to load.\n\nPossible reasons:\n1. API key restricted (check Google Cloud Console)\n2. Places API not enabled\n3. No billing account linked\n\nOpen F12 → Console for detailed error.");
   };
   document.head.appendChild(script);
 }
@@ -473,7 +538,7 @@ window.initGooglePlaces = function() {
       return;
     }
 
-    console.log("Selected place:", place);
+    console.log("Selected Google Place:", place);
 
     el.previewBox.style.display = 'block';
     
@@ -502,7 +567,7 @@ window.initGooglePlaces = function() {
 
 el.saveBtn.onclick = async () => {
   if (!selectedPlace) {
-    alert("Please select a business first.");
+    alert("Please select a business from the suggestions first.");
     return;
   }
 
