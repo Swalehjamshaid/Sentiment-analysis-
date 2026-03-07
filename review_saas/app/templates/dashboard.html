@@ -10,13 +10,13 @@
     .spinner { display: none; }
     .success-msg, .nodata-msg, .error-msg { display: none; }
     #addCompanyModal .modal-dialog { max-width: 500px; }
-    /* Fix: Ensures Google results appear above the Bootstrap Modal */
     .pac-container { z-index: 10000 !important; }
     .auto-field { background-color: #f8f9fa; pointer-events: none; }
+    .aspect-card { min-height: 140px; }
+    .recommendation-badge { font-size: 0.9rem; }
   </style>
 </head>
 <body>
-
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
   <div class="container-fluid">
     <a class="navbar-brand" href="/">ReviewSaaS</a>
@@ -28,6 +28,7 @@
 </nav>
 
 <div class="container py-4">
+  <!-- ── Existing controls ──────────────────────────────────────── -->
   <div class="row g-3 align-items-end">
     <div class="col-lg-4">
       <label class="form-label">Company</label>
@@ -67,6 +68,7 @@
   <div class="alert alert-warning mt-3 nodata-msg" id="nodataBox">No Data Found for selected date range.</div>
   <div class="alert alert-danger mt-3 error-msg" id="errorBox">Error loading data. Check console (F12).</div>
 
+  <!-- ── Existing KPIs ──────────────────────────────────────────── -->
   <div class="row g-3 mt-2">
     <div class="col-md-3"><div class="p-3 bg-light border rounded">Total Reviews <h4 id="kpi-total" class="mb-0">0</h4></div></div>
     <div class="col-md-3"><div class="p-3 bg-light border rounded">Avg Rating <h4 id="kpi-rating" class="mb-0">0.0</h4></div></div>
@@ -74,6 +76,7 @@
     <div class="col-md-3"><div class="p-3 bg-light border rounded">New (24h) <h4 id="kpi-new" class="mb-0">0</h4></div></div>
   </div>
 
+  <!-- ── Existing Charts ────────────────────────────────────────── -->
   <div class="row g-3 mt-1">
     <div class="col-lg-8">
       <div class="card">
@@ -99,6 +102,7 @@
     </div>
   </div>
 
+  <!-- ── Existing Reviews List ──────────────────────────────────── -->
   <div class="row g-3 mt-1">
     <div class="col-12">
       <div class="card">
@@ -117,8 +121,53 @@
       </div>
     </div>
   </div>
+
+  <!-- ── NEW: Decision Making Section ───────────────────────────── -->
+  <div class="row g-3 mt-4">
+    <div class="col-12">
+      <h5 class="mb-3 text-primary">Business Insights & Recommendations</h5>
+    </div>
+
+    <!-- Aspects -->
+    <div class="col-lg-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="text-muted mb-3">Average Sentiment by Aspect</h6>
+          <div class="row g-3" id="aspectsContainer">
+            <!-- Filled dynamically -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Complaints + Keywords + Recommendations -->
+    <div class="col-lg-6">
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="text-muted mb-3">Complaints & Praise Overview</h6>
+          <div id="complaintsStats"></div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="text-muted mb-3">Top Keywords</h6>
+          <div class="d-flex flex-wrap gap-2" id="keywordsPositive"></div>
+          <div class="d-flex flex-wrap gap-2 mt-2" id="keywordsNegative"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+          <h6 class="text-muted mb-3">Quick Recommendations</h6>
+          <div id="recommendationsList" class="small"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
+<!-- ── Existing Add Company Modal (unchanged) ───────────────────── -->
 <div class="modal fade" id="addCompanyModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
@@ -161,6 +210,7 @@
 </div>
 
 <script>
+// ── Existing variables & helpers (unchanged) ───────────────────────
 const el = {
   companySelect: document.getElementById('companySelect'),
   switchBtn: document.getElementById('switchCompanyBtn'),
@@ -193,10 +243,11 @@ const qs = (o) => new URLSearchParams(o).toString();
 
 async function safeJsonFetch(url) {
   const res = await fetch(url);
-  if (!res.ok) throw new Error("API Failure");
+  if (!res.ok) throw new Error(`API Failure: ${res.status}`);
   return res.json();
 }
 
+// ── Existing functions (loadCompanies, renderReviewsList) unchanged ──
 async function loadCompanies() {
   try {
     const data = await safeJsonFetch('/api/companies/list');
@@ -223,7 +274,6 @@ function renderReviewsList() {
   else if(sort==='oldest') items.sort((a,b)=>new Date(a.review_time)-new Date(b.review_time));
   else if(sort==='highest') items.sort((a,b)=>b.rating-a.rating);
   else if(sort==='lowest') items.sort((a,b)=>a.rating-b.rating);
-
   el.reviewsList.innerHTML = items.length > 0 ? items.map(r => {
     const stars = '★'.repeat(Math.round(r.rating)) + '☆'.repeat(5 - Math.round(r.rating));
     return `<div class="border rounded p-2 mb-2">
@@ -237,33 +287,51 @@ function renderReviewsList() {
   }).join('') : '<p class="text-muted text-center">No reviews found.</p>';
 }
 
+// ── Updated fetch function: now includes new decision endpoints ─────
 async function fetchDashboardData() {
   if (!currentCompanyId) return;
-  show('loadingBox', true); ['successBox','nodataBox','errorBox'].forEach(id => show(id, false));
+
+  show('loadingBox', true);
+  ['successBox','nodataBox','errorBox'].forEach(id => show(id, false));
+
   const p = { company_id: currentCompanyId, start: el.startDate.value, end: el.endDate.value };
+  const query = qs(p);
+
   try {
-    const [kpis, revS, ratD, sentS, revL] = await Promise.all([
-      safeJsonFetch(`/api/kpis?${qs(p)}`),
-      safeJsonFetch(`/api/series/reviews?${qs(p)}`),
-      safeJsonFetch(`/api/ratings/distribution?${qs(p)}`),
-      safeJsonFetch(`/api/sentiment/series?${qs(p)}`),
-      safeJsonFetch(`/api/reviews/list?${qs(p)}`)
+    const [
+      kpis, revS, ratD, sentS, revL,
+      aspects, complaints, keywords, recs
+    ] = await Promise.all([
+      safeJsonFetch(`/api/kpis?${query}`),
+      safeJsonFetch(`/api/series/reviews?${query}`),
+      safeJsonFetch(`/api/ratings/distribution?${query}`),
+      safeJsonFetch(`/api/sentiment/series?${query}`),
+      safeJsonFetch(`/api/reviews/list?${query}`),
+      // New endpoints
+      safeJsonFetch(`/api/aspects/avg?${query}`),
+      safeJsonFetch(`/api/complaints/stats?${query}`),
+      safeJsonFetch(`/api/keywords/top?${query}`),
+      safeJsonFetch(`/api/recommendations/simple?${query}`)
     ]);
 
+    // ── Existing KPI & Chart updates (unchanged) ───────────────────
     el.kpiTotal.textContent = kpis.total_reviews ?? 0;
     el.kpiRating.textContent = (kpis.avg_rating || 0).toFixed(2);
-    el.kpiSent.textContent = (kpis.avg_sentiment || 0).toFixed(3);
-    el.kpiNew.textContent = (revS.series?.length > 0) ? revS.series.at(-1).value : 0;
+    el.kpiSent.textContent   = (kpis.avg_sentiment || 0).toFixed(3);
+    el.kpiNew.textContent    = (revS.series?.length > 0) ? revS.series.at(-1).value : 0;
 
     Object.values(charts).forEach(c => c?.destroy?.());
+
     charts.rev = new Chart(document.getElementById('seriesReviews'), {
-      type: 'line', 
+      type: 'line',
       data: { labels: revS.series?.map(x => x.date) || [], datasets: [{ label: 'Reviews', data: revS.series?.map(x => x.value) || [], borderColor: '#0d6efd', backgroundColor: 'rgba(13,110,253,0.1)', tension: 0.3, fill: true }] }
     });
+
     charts.dist = new Chart(document.getElementById('ratingsDist'), {
       type: 'bar',
       data: { labels: Object.keys(ratD.distribution || {}), datasets: [{ label: 'Rating Count', data: Object.values(ratD.distribution || {}), backgroundColor: '#ffc107' }] }
     });
+
     charts.sent = new Chart(document.getElementById('sentSeries'), {
       type: 'line',
       data: { labels: sentS.series?.map(x => x.date) || [], datasets: [{ label: 'Sentiment', data: sentS.series?.map(x => x.value) || [], borderColor: '#6610f2', backgroundColor: 'rgba(102,16,242,0.1)', tension: 0.3, fill: true }] },
@@ -272,14 +340,75 @@ async function fetchDashboardData() {
 
     reviewsDataGlobal = revL.items || [];
     renderReviewsList();
+
+    // ── NEW: Render Aspects ───────────────────────────────────────
+    const aspectsDiv = document.getElementById('aspectsContainer');
+    aspectsDiv.innerHTML = '';
+    Object.entries(aspects.aspects || {}).forEach(([key, value]) => {
+      if (value === null || value === undefined) return;
+      const color = value > 0.2 ? 'success' : value < -0.1 ? 'danger' : 'warning';
+      aspectsDiv.innerHTML += `
+        <div class="col-6">
+          <div class="card border-${color} aspect-card">
+            <div class="card-body text-center">
+              <h6 class="text-capitalize mb-1">${key}</h6>
+              <h4 class="text-${color} mb-0">${value.toFixed(2)}</h4>
+              <small class="text-muted">sentiment</small>
+            </div>
+          </div>
+        </div>`;
+    });
+
+    // ── NEW: Complaints Stats ─────────────────────────────────────
+    document.getElementById('complaintsStats').innerHTML = `
+      <div class="d-flex justify-content-between mb-2">
+        <span>Complaint Rate:</span>
+        <strong class="${complaints.complaint_rate > 15 ? 'text-danger' : 'text-success'}">
+          ${complaints.complaint_rate}%
+        </strong>
+      </div>
+      <div class="d-flex justify-content-between mb-2">
+        <span>Complaints:</span>
+        <strong>${complaints.complaint_count} / ${complaints.total_reviews}</strong>
+      </div>
+      <div class="d-flex justify-content-between">
+        <span>Praise:</span>
+        <strong class="text-success">${complaints.praise_count}</strong>
+      </div>`;
+
+    // ── NEW: Keywords ─────────────────────────────────────────────
+    const posDiv = document.getElementById('keywordsPositive');
+    const negDiv = document.getElementById('keywordsNegative');
+    posDiv.innerHTML = '<small class="text-success fw-bold me-2">Positive:</small>';
+    negDiv.innerHTML = '<small class="text-danger fw-bold me-2">Negative:</small>';
+
+    (keywords.positive_keywords || []).forEach(w => {
+      posDiv.innerHTML += `<span class="badge bg-success-subtle text-success me-1">${w}</span>`;
+    });
+    (keywords.negative_keywords || []).forEach(w => {
+      negDiv.innerHTML += `<span class="badge bg-danger-subtle text-danger me-1">${w}</span>`;
+    });
+
+    // ── NEW: Recommendations ──────────────────────────────────────
+    const recList = document.getElementById('recommendationsList');
+    recList.innerHTML = (recs.recommendations || []).length > 0
+      ? recs.recommendations.map(r => `<div class="alert alert-info recommendation-badge py-1 px-2 mb-2">${r}</div>`).join('')
+      : '<p class="text-muted small">No specific recommendations at this time.</p>';
+
+    // ── Final UI feedback ─────────────────────────────────────────
     show('loadingBox', false);
     (kpis.total_reviews === 0) ? show('nodataBox', true) : show('successBox', true);
-  } catch (err) { show('loadingBox', false); show('errorBox', true); }
+
+  } catch (err) {
+    console.error(err);
+    show('loadingBox', false);
+    show('errorBox', true);
+  }
 }
 
+// ── Existing Google Places + Save logic (unchanged) ───────────────
 function loadGoogleScript() {
   const s = document.createElement('script');
-  // REPLACE YOUR_API_KEY
   s.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyCZ2a7vc0r9k3U7IFAMRQnYgmZwdx5RYjg&libraries=places&callback=initGooglePlaces";
   s.async = true; s.defer = true;
   document.head.appendChild(s);
@@ -318,8 +447,7 @@ el.saveBtn.onclick = async () => {
     const d = await res.json();
     if (d.success) {
       alert("Company Added!");
-      // CRITICAL: Re-fetch list from database immediately
-      await loadCompanies(); 
+      await loadCompanies();
       el.companySelect.value = d.company.id;
       currentCompanyId = d.company.id;
       await fetchDashboardData();
@@ -329,6 +457,7 @@ el.saveBtn.onclick = async () => {
   finally { el.saveBtn.disabled = false; }
 };
 
+// ── Event listeners (unchanged) ───────────────────────────────────
 el.fetchBtn.onclick = fetchDashboardData;
 el.sortReviews.onchange = renderReviewsList;
 el.switchBtn.onclick = () => {
@@ -346,7 +475,6 @@ window.onload = async () => {
   if (currentCompanyId) await fetchDashboardData();
 };
 </script>
-
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
