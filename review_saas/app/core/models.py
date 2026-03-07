@@ -35,6 +35,8 @@ class User(Base):
     
     created_at = Column(DateTime, default=datetime.utcnow)
     companies = relationship("Company", back_populates="owner")
+    notifications = relationship("Notification", backref="user")
+    audit_logs = relationship("AuditLog", backref="user")
 
 # ---------------------------------------------------
 # Companies (Google Business / Outscraper Data)
@@ -51,6 +53,7 @@ class Company(Base):
     google_id = Column(String(255))
 
     # Location
+    address = Column(String(1000))  # <-- added for routes reference
     full_address = Column(String(1000))
     city = Column(String(255))
     state = Column(String(255))
@@ -194,7 +197,7 @@ class AuditLog(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
     action = Column(String(255), nullable=False)
     
-    # ✅ Meta field for auth.py logging
+    # Meta field for auth.py logging
     meta = Column(JSON, default={})
     
     ip_address = Column(String(100))
