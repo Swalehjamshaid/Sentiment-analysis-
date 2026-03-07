@@ -11,7 +11,7 @@ from datetime import datetime
 Base = declarative_base()
 
 # Bumped version to force a clean database recreation with new columns
-SCHEMA_VERSION = "6.0.6-outscraper-full"
+SCHEMA_VERSION = "6.0.7-outscraper-full"
 
 # ---------------------------------------------------
 # Users
@@ -44,7 +44,7 @@ class Company(Base):
 
     # Basic info
     name = Column(String(255), nullable=False)
-    address = Column(String(1000), nullable=True)  # FIX: Prevents AttributeError
+    address = Column(String(1000), nullable=True) 
 
     # Google Identifiers
     google_place_id = Column(String(512), unique=True, index=True)
@@ -114,7 +114,11 @@ class Review(Base):
     author_name = Column(String(255))
     author_id = Column(String(255))
     author_url = Column(String(1000))
-    author_profile_photo = Column(String(1000))
+    
+    # NEW FIELDS: Fixes TypeError: 'profile_photo_url' is an invalid keyword argument
+    profile_photo_url = Column(String(1000), nullable=True) 
+    author_profile_photo = Column(String(1000), nullable=True) 
+    
     author_reviews_count = Column(Integer)
     author_level = Column(Integer)
 
@@ -124,8 +128,9 @@ class Review(Base):
     review_language = Column(String(50))
     google_review_time = Column(DateTime)
 
-    # Response
+    # NEW FIELD: Fixes mapping for owner response in google_reviews.py
     owner_answer = Column(Text)
+    review_reply_text = Column(Text, nullable=True) 
     owner_answer_timestamp = Column(DateTime)
 
     # Metrics
@@ -133,7 +138,7 @@ class Review(Base):
     review_photos = Column(JSON)
     is_local_guide = Column(Boolean, default=False)
 
-    # AI Processing (Crucial for Dashboard Fetching)
+    # AI Processing
     sentiment_label = Column(String(50))
     sentiment_score = Column(Float, default=0.0)
     keywords = Column(JSON)
@@ -163,7 +168,7 @@ class Competitor(Base):
     company = relationship("Company", back_populates="competitors")
 
 # ---------------------------------------------------
-# Audit & Notifications
+# Notifications & Audit
 # ---------------------------------------------------
 class Notification(Base):
     __tablename__ = "notifications"
