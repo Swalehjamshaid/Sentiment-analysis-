@@ -19,392 +19,231 @@ body{
   border:none;
   border-radius:12px;
   box-shadow:0 8px 20px rgba(0,0,0,0.08);
-  margin-bottom:20px;
+  margin-bottom: 20px;
 }
 .kpi{
   font-size:28px;
   font-weight:700;
-  color:#2c3e50;
+  color: #2c3e50;
 }
 .section-title{
   font-weight:600;
   margin-bottom:10px;
-  color:#34495e;
+  color: #34495e;
+}
+.status-badge { 
+  font-size: 0.75rem; 
+  padding: 6px 14px; 
+  border-radius: 20px; 
+  font-weight: bold; 
 }
 .review{
   border-bottom:1px solid #eee;
   padding:15px 0;
 }
 .small-muted{font-size:.85rem;color:#6c757d;}
-.urgent-item{border-left:4px solid #dc3545;padding-left:10px;background:#fff5f5;}
+.urgent-item { border-left: 4px solid #dc3545; padding-left: 10px; background: #fff5f5; }
 </style>
 </head>
 
 <body>
 
 <nav class="navbar navbar-dark bg-dark">
-<div class="container-fluid">
-<span class="navbar-brand">
-Review<span class="text-primary">SaaS</span>
-</span>
-
-<div>
-<button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
-<i class="fa fa-plus"></i> Add Business
-</button>
-
-<a href="/logout" class="btn btn-warning btn-sm">Logout</a>
-</div>
-</div>
+  <div class="container-fluid">
+    <span class="navbar-brand">
+      Review<span class="text-primary">SaaS</span> 
+      <small class="text-muted" style="font-size: 0.65rem;">v2.0</small>
+    </span>
+    <div>
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+        <i class="fa fa-plus"></i> Add Business
+      </button>
+      <a href="/logout" class="btn btn-warning btn-sm">Logout</a>
+    </div>
+  </div>
 </nav>
-
 
 <div class="container py-4">
 
 <!-- FILTER BAR -->
-
 <div class="card p-4">
-<div class="row g-3 align-items-end">
+  <div class="row g-3 align-items-end">
+    <div class="col-md-4">
+      <label class="form-label fw-bold">Active Business</label>
+      <select id="companySelect" class="form-select"></select>
+      <div id="companyHint" class="small-muted mt-1"></div>
+    </div>
 
-<div class="col-md-4">
-<label class="form-label fw-bold">Active Business</label>
-<select id="companySelect" class="form-select"></select>
+    <div class="col-md-3">
+      <label class="form-label fw-bold">Start Date</label>
+      <input id="startDate" type="date" class="form-control">
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label fw-bold">End Date</label>
+      <input id="endDate" type="date" class="form-control">
+    </div>
+
+    <div class="col-md-2 d-grid">
+      <button id="fetchBtn" class="btn btn-primary fw-bold">Update Dashboard</button>
+    </div>
+  </div>
 </div>
 
-<div class="col-md-3">
-<label class="form-label fw-bold">Start Date</label>
-<input id="startDate" type="date" class="form-control">
-</div>
-
-<div class="col-md-3">
-<label class="form-label fw-bold">End Date</label>
-<input id="endDate" type="date" class="form-control">
-</div>
-
-<div class="col-md-2 d-grid">
-<button id="fetchBtn" class="btn btn-primary fw-bold">Update Dashboard</button>
-</div>
-
-</div>
-</div>
-
-
-<!-- EXISTING KPIs -->
-
+<!-- KPI BAR -->
 <div class="row g-3 mb-2">
-
-<div class="col-md-3">
-<div class="card p-3 text-center">
-<div class="small-muted text-uppercase fw-bold">Total Reviews</div>
-<div id="kpi_reviews" class="kpi">0</div>
+  <div class="col-md-3">
+    <div class="card p-3 text-center">
+      <div class="small-muted text-uppercase fw-bold">Total Reviews</div>
+      <div id="kpi_reviews" class="kpi">0</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card p-3 text-center">
+      <div class="small-muted text-uppercase fw-bold">Avg Rating</div>
+      <div id="kpi_rating" class="kpi">0</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card p-3 text-center">
+      <div class="small-muted text-uppercase fw-bold">Net Sentiment</div>
+      <div id="kpi_sentiment" class="kpi">0</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card p-3 text-center">
+      <div class="small-muted text-uppercase fw-bold">Business Health</div>
+      <div id="kpi_health" class="kpi">0</div>
+    </div>
+  </div>
 </div>
-</div>
-
-<div class="col-md-3">
-<div class="card p-3 text-center">
-<div class="small-muted text-uppercase fw-bold">Avg Rating</div>
-<div id="kpi_rating" class="kpi">0</div>
-</div>
-</div>
-
-<div class="col-md-3">
-<div class="card p-3 text-center">
-<div class="small-muted text-uppercase fw-bold">Avg Sentiment</div>
-<div id="kpi_sentiment" class="kpi">0</div>
-</div>
-</div>
-
-<div class="col-md-3">
-<div class="card p-3 text-center">
-<div class="small-muted text-uppercase fw-bold">New (7d)</div>
-<div id="kpi_new" class="kpi">0</div>
-</div>
-</div>
-
-</div>
-
-
-<!-- NEW AI KPIs -->
-
-<div class="row g-3 mb-3">
-
-<div class="col-md-3">
-<div class="card p-3 text-center">
-<div class="small-muted text-uppercase fw-bold">Customer Satisfaction Index</div>
-<div id="kpi_csi" class="kpi">0</div>
-</div>
-</div>
-
-<div class="col-md-3">
-<div class="card p-3 text-center">
-<div class="small-muted text-uppercase fw-bold">Net Sentiment</div>
-<div id="kpi_nss" class="kpi">0</div>
-</div>
-</div>
-
-<div class="col-md-3">
-<div class="card p-3 text-center">
-<div class="small-muted text-uppercase fw-bold">Business Health</div>
-<div id="kpi_health" class="kpi">0</div>
-</div>
-</div>
-
-<div class="col-md-3">
-<div class="card p-3 text-center">
-<div class="small-muted text-uppercase fw-bold">Churn Risk</div>
-<div id="kpi_churn" class="kpi">0%</div>
-</div>
-</div>
-
-</div>
-
 
 <!-- CHARTS -->
-
 <div class="row g-3">
+  <div class="col-md-6">
+    <div class="card p-3">
+      <div class="section-title">Emotion Heatmap</div>
+      <canvas id="chartEmotions"></canvas>
+    </div>
+  </div>
 
-<div class="col-md-6">
-<div class="card p-3">
-<div class="section-title">Review Volume</div>
-<canvas id="chartVolume"></canvas>
-</div>
-</div>
+  <div class="col-md-6">
+    <div class="card p-3">
+      <div class="section-title">Sentiment Trend</div>
+      <canvas id="chartSentimentTrend"></canvas>
+    </div>
+  </div>
 
-<div class="col-md-6">
-<div class="card p-3">
-<div class="section-title">Rating Trend</div>
-<canvas id="chartRating"></canvas>
-</div>
-</div>
-
-<div class="col-md-6">
-<div class="card p-3">
-<div class="section-title">Sentiment Trend</div>
-<canvas id="chartSentiment"></canvas>
-</div>
-</div>
-
-<div class="col-md-6">
-<div class="card p-3">
-<div class="section-title">Rating Distribution</div>
-<canvas id="chartStars"></canvas>
-</div>
-</div>
+  <div class="col-md-6">
+    <div class="card p-3">
+      <div class="section-title">Detected Topics</div>
+      <ul id="topics_list"></ul>
+    </div>
+  </div>
 
 </div>
 
-
-<!-- NEW ANALYTICS -->
-
-<div class="row g-3 mt-2">
-
-<div class="col-md-6">
-<div class="card p-3">
-<div class="section-title">Emotion Heatmap</div>
-<canvas id="chartEmotion"></canvas>
-</div>
-</div>
-
-<div class="col-md-6">
-<div class="card p-3">
-<div class="section-title">Topic Modeling</div>
-<div id="topics"></div>
-</div>
-</div>
-
-</div>
-
-
-<!-- AI SUMMARY -->
-
+<!-- AI EXECUTIVE SUMMARY -->
 <div class="row mt-3">
+  <div class="col-lg-8">
+    <div class="card p-4">
+      <h5><i class="fa fa-robot text-primary"></i> AI Executive Summary</h5>
+      <div id="conclusion_box"></div>
+      <p id="ai_summary" class="mt-2"></p>
+      <h6 class="fw-bold mt-3">Priority Actions:</h6>
+      <ul id="ai_actions"></ul>
+    </div>
+  </div>
 
-<div class="col-lg-8">
-
-<div class="card p-4">
-
-<h5>
-<i class="fa fa-robot text-primary"></i> AI Executive Summary
-</h5>
-
-<p id="ai_summary"></p>
-
-<h6 class="fw-bold mt-3">Priority Actions:</h6>
-<ul id="ai_actions"></ul>
-
-<h6 class="fw-bold mt-3">AI Recommendations</h6>
-<ul id="ai_recommendations"></ul>
-
+  <div class="col-lg-4">
+    <div class="card p-4 h-100">
+      <h5><i class="fa fa-bell text-danger"></i> System Alerts</h5>
+      <ul id="alerts" class="ps-3"></ul>
+    </div>
+  </div>
 </div>
 
-</div>
+</div> <!-- container end -->
 
-
-<div class="col-lg-4">
-
-<div class="card p-4 h-100">
-
-<h5><i class="fa fa-bell text-danger"></i> System Alerts</h5>
-
-<ul id="alerts"></ul>
-
-</div>
-
-</div>
-
-</div>
-
-
-<!-- REVIEWS -->
-
-<div class="row mt-2">
-
-<div class="col-md-4">
-
-<div class="card p-4">
-<h5>Customer Themes</h5>
-<div id="themes"></div>
-</div>
-
-</div>
-
-<div class="col-md-8">
-
-<div class="card p-4">
-
-<h5>Intelligence Feed</h5>
-
-<div id="reviews"></div>
-
-</div>
-
-</div>
-
-</div>
-
-</div>
-
-
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-
-let charts={}
-
-const $=(id)=>document.getElementById(id)
-
-const safeNum=(n,d=0)=>isNaN(parseFloat(n))?d:parseFloat(n)
-
+let charts = {};
+const $ = (id) => document.getElementById(id);
+const safeNum = (n,d=0) => isNaN(parseFloat(n)) ? d : parseFloat(n);
 
 async function loadCompanies(){
-
-const res=await fetch(`/api/companies/list`)
-const data=await res.json()
-
-$("companySelect").innerHTML=
-data.companies.map(c=>`<option value="${c.id}">${c.name}</option>`).join("")
-
+    const res = await fetch('/api/companies/list');
+    const data = await res.json();
+    $('companySelect').innerHTML = data.companies.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
 }
-
-
-async function fetchDeepAnalytics(cid){
-
-const res=await fetch(`/analytics/deep/${cid}`)
-
-if(!res.ok)return
-
-const data=await res.json()
-
-$("kpi_csi").innerText=data.metrics.customer_satisfaction_index
-$("kpi_nss").innerText=data.metrics.net_sentiment_score
-$("kpi_health").innerText=data.metrics.business_health_score
-$("kpi_churn").innerText=data.metrics.churn_risk+"%"
-
-charts.emotion?.destroy()
-
-charts.emotion=new Chart($("chartEmotion"),{
-type:'bar',
-data:{
-labels:Object.keys(data.emotion_heatmap),
-datasets:[{data:Object.values(data.emotion_heatmap)}]
-}
-})
-
-$("topics").innerHTML=data.topics.map(t=>
-`<div class="badge bg-primary me-1">${t.join(", ")}</div>`
-).join("")
-
-$("ai_recommendations").innerHTML=data.recommendations.map(r=>`<li>${r}</li>`).join("")
-
-}
-
 
 async function fetchDashboard(){
+    const company_id = $('companySelect').value || 1;
+    const res = await fetch(`/analytics/deep/${company_id}`);
+    const data = await res.json();
 
-const cid=$("companySelect").value
-const s=$("startDate").value
-const e=$("endDate").value
+    // KPIs
+    $('kpi_reviews').innerText = data.total_reviews;
+    $('kpi_rating').innerText = safeNum(data.average_rating).toFixed(1);
+    $('kpi_sentiment').innerText = safeNum(data.metrics.net_sentiment_score).toFixed(2);
+    $('kpi_health').innerText = safeNum(data.metrics.business_health_score).toFixed(2);
 
-const params=`company_id=${cid}&start=${s}&end=${e}`
+    // AI Summary
+    $('ai_summary').innerText = data.executive_summary;
+    $('ai_actions').innerHTML = (data.recommendations || []).map(a=>`<li>${a}</li>`).join('');
 
+    // Alerts
+    const alertsBox = $('alerts');
+    alertsBox.innerHTML = '';
+    if(data.metrics.complaint_rate>20) alertsBox.innerHTML += `<li>High complaint rate: ${data.metrics.complaint_rate}%</li>`;
+    if(data.metrics.churn_risk>10) alertsBox.innerHTML += `<li>Churn risk detected: ${data.metrics.churn_risk}%</li>`;
+    if(alertsBox.innerHTML==='') alertsBox.innerHTML=`<li class="text-muted">No active alerts</li>`;
 
-const kpi=await(await fetch(`/api/kpis?${params}`)).json()
+    // Topics
+    $('topics_list').innerHTML = (data.topics || []).map(t=>`<li>${t.join(", ")}</li>`).join('');
 
-$("kpi_reviews").innerText=kpi.total_reviews
-$("kpi_rating").innerText=safeNum(kpi.avg_rating).toFixed(1)
-$("kpi_sentiment").innerText=safeNum(kpi.avg_sentiment).toFixed(3)
-$("kpi_new").innerText=kpi.new_reviews
+    // Emotion Heatmap
+    const emotions = Object.entries(data.emotion_heatmap || {});
+    const ctxEm = $('chartEmotions').getContext('2d');
+    if(charts.emotions) charts.emotions.destroy();
+    charts.emotions = new Chart(ctxEm,{
+        type:'bar',
+        data:{
+            labels: emotions.map(e=>e[0]),
+            datasets:[{
+                label:'Emotion Count',
+                data: emotions.map(e=>e[1]),
+                backgroundColor:'#0d6efd'
+            }]
+        }
+    });
 
-
-const summary=await(await fetch(`/api/ai/executive-summary?${params}`)).json()
-
-$("ai_summary").innerText=summary.summary||""
-
-$("ai_actions").innerHTML=(summary.top_actions||[]).map(a=>`<li>${a}</li>`).join("")
-
-
-const alerts=await(await fetch(`/api/alerts?${params}`)).json()
-
-$("alerts").innerHTML=alerts.alerts.map(a=>`<li>${a.message}</li>`).join("")
-
-
-const themes=await(await fetch(`/api/keywords/themes?${params}`)).json()
-
-$("themes").innerHTML=
-`<div><b>Positive:</b> ${themes.positive_keywords?.join(", ")}</div>
-<div><b>Negative:</b> ${themes.negative_keywords?.join(", ")}</div>`
-
-
-const feed=await(await fetch(`/api/reviews/feed?${params}`)).json()
-
-$("reviews").innerHTML=feed.items.map(r=>`
-<div class="review ${r.is_urgent?"urgent-item":""}">
-<strong>${r.author_name}</strong>
-<span class="text-warning">${"★".repeat(parseInt(r.rating||0))}</span>
-<p>${r.text}</p>
-</div>`).join("")
-
-
-fetchDeepAnalytics(cid)
-
+    // Sentiment Trend
+    const trend = Object.entries(data.trend || {});
+    const ctxTrend = $('chartSentimentTrend').getContext('2d');
+    if(charts.trend) charts.trend.destroy();
+    charts.trend = new Chart(ctxTrend,{
+        type:'line',
+        data:{
+            labels: trend.map(e=>e[0]),
+            datasets:[{
+                label:'Avg Rating',
+                data: trend.map(e=>e[1]),
+                borderColor:'#198754',
+                fill:false,
+                tension:0.4
+            }]
+        },
+        options:{scales:{y:{min:0,max:5}}}
+    });
 }
 
-
-window.onload=async()=>{
-
-await loadCompanies()
-
-const end=new Date()
-const start=new Date()
-
-start.setDate(start.getDate()-30)
-
-$("endDate").value=end.toISOString().split("T")[0]
-$("startDate").value=start.toISOString().split("T")[0]
-
-if($("companySelect").value)fetchDashboard()
-
-}
-
-$("fetchBtn").onclick=fetchDashboard
+// Initialize dashboard
+window.onload = async () => {
+    await loadCompanies();
+    if($('companySelect').value) fetchDashboard();
+};
+$('fetchBtn').onclick = fetchDashboard;
 
 </script>
 
