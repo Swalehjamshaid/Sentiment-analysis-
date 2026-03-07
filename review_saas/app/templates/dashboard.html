@@ -19,9 +19,9 @@
     .chip.neg{background:#fdecea;color:#a71d2a;border:1px solid #f5c2c7}
     .chip.emg{background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe}
     .small-muted{font-size:.85rem;color:#6c757d}
-    .list-unstyled li+li{margin-top:.5rem}
     .kpi h4{font-weight:700}
     .break-word{word-wrap:break-word; word-break:break-word;}
+    .form-inline-gap > *{margin-right:.5rem}
   </style>
 </head>
 <body>
@@ -88,7 +88,7 @@
     <div class="col-md-3">
       <div class="p-3 bg-light border rounded text-center kpi">
         AVG RATING
-        <h4 id="kpi-rating" class="mb-0">0.0</h4>
+        <h4 id="kpi-rating" class="mb-0">0.00</h4>
       </div>
     </div>
     <div class="col-md-3">
@@ -105,12 +105,12 @@
     </div>
   </div>
 
-  <!-- Charts: Volume, Dist, Sentiment -->
+  <!-- Existing daily charts -->
   <div class="row g-3 mt-1">
     <div class="col-lg-8">
       <div class="card">
         <div class="card-body">
-          <h6 class="text-muted">Review Volume</h6>
+          <h6 class="text-muted">Review Volume (Daily)</h6>
           <canvas id="seriesReviews" height="120"></canvas>
         </div>
       </div>
@@ -126,14 +126,84 @@
 
       <div class="card">
         <div class="card-body">
-          <h6 class="text-muted">Sentiment Trend</h6>
+          <h6 class="text-muted">Sentiment Trend (Daily)</h6>
           <canvas id="sentSeries" height="120"></canvas>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Insights: Alerts, AI Summary, Recommendations -->
+  <!-- NEW: Sentiment Share + Aspect Sentiment + Trends -->
+  <div class="row g-3 mt-1">
+    <div class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="text-muted">Overall Sentiment Share</h6>
+          <canvas id="sentShare" height="180"></canvas>
+          <div class="small-muted mt-1" id="sentShareInfo"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="text-muted">Aspect-Based Sentiment (Stacked)</h6>
+          <canvas id="aspectsStacked" height="180"></canvas>
+          <div class="small-muted mt-1">Aspects: Service, Product Quality, Pricing, Delivery</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center">
+            <h6 class="text-muted mb-0">Trend Over Time</h6>
+            <select id="trendFreq" class="form-select form-select-sm" style="width:auto">
+              <option value="week" selected>Weekly</option>
+              <option value="month">Monthly</option>
+              <option value="day">Daily</option>
+            </select>
+          </div>
+          <canvas id="trendSeries" height="180"></canvas>
+          <div class="small-muted mt-1">Shows avg sentiment & avg rating by period.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NEW: Volume vs Sentiment + Correlation -->
+  <div class="row g-3 mt-1">
+    <div class="col-lg-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center">
+            <h6 class="text-muted mb-0">Volume vs Sentiment</h6>
+            <select id="vvsFreq" class="form-select form-select-sm" style="width:auto">
+              <option value="week" selected>Weekly</option>
+              <option value="month">Monthly</option>
+              <option value="day">Daily</option>
+            </select>
+          </div>
+          <canvas id="volVsSent" height="200"></canvas>
+          <div class="small-muted mt-1">Bar = review count, Line = avg sentiment.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="text-muted">Rating vs Sentiment (Scatter)</h6>
+          <canvas id="corrScatter" height="200"></canvas>
+          <div class="small-muted mt-1">Checks consistency between star ratings and text sentiment.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Alerts, AI Executive Summary, Recommendations -->
   <div class="row g-3 mt-1">
     <div class="col-lg-6">
       <div class="card h-100">
@@ -172,7 +242,7 @@
     </div>
   </div>
 
-  <!-- Keywords & Aspects -->
+  <!-- Keywords -->
   <div class="row g-3 mt-1">
     <div class="col-lg-8">
       <div class="card h-100">
@@ -199,10 +269,11 @@
       </div>
     </div>
 
+    <!-- Existing numeric aspects (rooms/staff/...) -->
     <div class="col-lg-4">
       <div class="card h-100">
         <div class="card-body">
-          <h6 class="text-muted">Aspects</h6>
+          <h6 class="text-muted">Aspects (Numeric Fields)</h6>
           <canvas id="aspectsChart" height="180"></canvas>
           <div class="mt-2 small-muted">Strengths: <span id="aspectsStrengths">—</span></div>
           <div class="small-muted">Weaknesses: <span id="aspectsWeaknesses">—</span></div>
@@ -254,18 +325,42 @@
       <a class="btn btn-outline-primary" href="/api/export/reviews.csv?company_id={{active_company_id}}">Export CSV</a>
       <a class="btn btn-outline-primary" href="/api/export/reviews.xlsx?company_id={{active_company_id}}">Export Excel</a>
       <a class="btn btn-outline-primary" href="/api/export/summary.pdf?company_id={{active_company_id}}">Export PDF</a>
-      <form class="d-inline" method="post" action="/companies/{{active_company_id}}/sync">
-        <button class="btn btn-success">Sync Reviews for Active Company</button>
-      </form>
+      <form class="d-inline" method="post" action="/companies/{{active_company_id}}/sync"><button class="btn btn-success">Sync Reviews for Active Company</button></form>
     {% endif %}
   </div>
 </div>
 
 <script>
-/* Server-provided active company id (may be null) */
+/* Active company id injected by server (may be null) */
 let companyId = {{ active_company_id or 'null' }};
 
-/* Fallback: if companyId is null, pick the current selection in the dropdown */
+/* Optional API links map from backend (if provided) */
+const linksFromServer = {% if api_links %}{{ api_links | safe }}{% else %}null{% endif %};
+
+/* Fallback if not provided */
+const API = linksFromServer || {
+  kpis: "/api/kpis",
+  ratings_distribution: "/api/ratings/distribution",
+  sentiment_share: "/api/sentiment/share",
+  series_reviews: "/api/series/reviews",
+  series_ratings: "/api/series/ratings",
+  series_sentiment: "/api/sentiment/series",
+  trends: "/api/trends",
+  volume_vs_sentiment: "/api/volume-vs-sentiment",
+  correlation_rating_sentiment: "/api/correlation/rating-sentiment",
+  aspects_sentiment: "/api/aspects/sentiment",
+  aspects_avg: "/api/aspects/avg",
+  alerts: "/api/alerts",
+  operational: "/api/operational/overview",
+  reviews_list: "/api/reviews/list",
+  v2_keywords: "/api/v2/keywords",
+  v2_sentiment_summary: "/api/v2/sentiment/summary",
+  v2_exec_summary: "/api/v2/ai/executive-summary",
+  v2_recommendations: "/api/v2/ai/recommendations",
+  v2_summary_png: "/api/v2/charts/summary.png",
+};
+
+/* If companyId missing, pick the dropdown value */
 (function ensureCompanyId(){
   if (!companyId) {
     const sel = document.getElementById('companySelect');
@@ -273,30 +368,26 @@ let companyId = {{ active_company_id or 'null' }};
   }
 })();
 
-/* Chart handles (for destroy before redraw) */
-let chartReviews = null;
-let chartDist = null;
-let chartSent = null;
-let chartAspects = null;
+/* Chart handles (destroy before redraw) */
+let chartReviews = null, chartDist = null, chartSent = null;
+let chartAspectsNumeric = null, chartSentShare = null, chartAspectsStacked = null;
+let chartTrend = null, chartVolVsSent = null, chartCorr = null;
 
 /* Helpers */
 function qs(p){ return new URLSearchParams(p).toString(); }
 function setLoading(v){ document.getElementById('loadingBox').style.display = v ? 'block' : 'none'; }
 function showSuccess(v){ document.getElementById('successBox').style.display = v ? 'block' : 'none'; }
 function showNoData(v){ document.getElementById('nodataBox').style.display = v ? 'block' : 'none'; }
-
 function getDates(){
   const s = document.getElementById('startDate').value;
   const e = document.getElementById('endDate').value;
   return { start: s || null, end: e || null };
 }
-
 async function fetchJSON(url){
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res.json();
 }
-
 function chips(container, items, cls){
   const el = document.getElementById(container);
   el.innerHTML = '';
@@ -312,41 +403,36 @@ function chips(container, items, cls){
   }
 }
 
-/* Main fetch */
+/* MAIN LOAD */
 async function fetchAll(){
   if (!companyId) {
-    console.warn('No active company id — cannot fetch data.');
     showNoData(true);
     return;
   }
-
   const {start, end} = getDates();
   setLoading(true); showSuccess(false); showNoData(false);
 
-  const params = Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v]) => v));
-  const p = qs(params);
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
 
   try {
-    // Core endpoints in parallel
+    // Core KPIs + daily series
     const [k, r, d, s] = await Promise.all([
-      fetchJSON('/api/kpis?' + p),
-      fetchJSON('/api/series/reviews?' + p),
-      fetchJSON('/api/ratings/distribution?' + p),
-      fetchJSON('/api/sentiment/series?' + p),
+      fetchJSON(API.kpis + "?" + p),
+      fetchJSON(API.series_reviews + "?" + p),
+      fetchJSON(API.ratings_distribution + "?" + p),
+      fetchJSON(API.series_sentiment + "?" + p),
     ]);
 
-    // KPIs
+    // KPIs (avg sentiment should now be non-zero thanks to backend fallback)
     document.getElementById('kpi-total').textContent = Number(k.total_reviews || 0);
     document.getElementById('kpi-rating').textContent = (Number(k.avg_rating || 0)).toFixed(2);
     document.getElementById('kpi-sent').textContent = (Number(k.avg_sentiment || 0)).toFixed(3);
     document.getElementById('kpi-new').textContent = Number(k.new_reviews || 0);
 
     // Destroy existing charts
-    if (chartReviews) chartReviews.destroy();
-    if (chartDist) chartDist.destroy();
-    if (chartSent) chartSent.destroy();
+    [chartReviews, chartDist, chartSent].forEach(c => c && c.destroy());
 
-    // Review Volume
+    // Review Volume (daily)
     chartReviews = new Chart(document.getElementById('seriesReviews'), {
       type: 'line',
       data: {
@@ -379,7 +465,7 @@ async function fetchAll(){
       options: { responsive: true, scales: { y: { beginAtZero: true } } }
     });
 
-    // Sentiment Trend
+    // Sentiment Trend (daily)
     chartSent = new Chart(document.getElementById('sentSeries'), {
       type: 'line',
       data: {
@@ -396,18 +482,23 @@ async function fetchAll(){
       options: { responsive: true, scales: { y: { min: -1, max: 1 } } }
     });
 
-    // Secondary panels (alerts, AI, keywords, aspects, ops, reviews)
+    // Secondary panels
     await Promise.all([
+      loadSentimentShare(),
+      loadAspectSentiment(),
+      loadTrends(),               // default freq from selector
+      loadVolumeVsSentiment(),    // default freq from selector
+      loadCorrelation(),
       loadAlerts(),
       loadExecutiveAndActions(),
       loadKeywords(),
-      loadAspects(),
+      loadAspectsNumeric(),
       loadOperational(),
       loadReviews()
     ]);
 
-    // summary PNG
-    document.getElementById('miniPng').src = '/api/v2/charts/summary.png?' + p;
+    // Summary PNG
+    document.getElementById('miniPng').src = API.v2_summary_png + "?" + p;
 
     showSuccess(true);
     if ((k.total_reviews || 0) === 0) showNoData(true);
@@ -419,11 +510,163 @@ async function fetchAll(){
   }
 }
 
+/* NEW: Overall Sentiment Share (pie/donut) */
+async function loadSentimentShare(){
+  const {start, end} = getDates();
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
+  const out = await fetchJSON(API.sentiment_share + "?" + p);
+
+  if (chartSentShare) chartSentShare.destroy();
+
+  const counts = out.counts || {positive:0, neutral:0, negative:0};
+  const vals = [counts.positive||0, counts.neutral||0, counts.negative||0];
+
+  chartSentShare = new Chart(document.getElementById('sentShare'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Positive','Neutral','Negative'],
+      datasets: [{
+        data: vals,
+        backgroundColor: ['#2ecc71','#bdc3c7','#e74c3c']
+      }]
+    },
+    options: { responsive: true, cutout: '55%' }
+  });
+
+  document.getElementById('sentShareInfo').textContent =
+    `Total: ${out.total || 0} (Window ${out.window?.start || ''} → ${out.window?.end || ''})`;
+}
+
+/* NEW: Aspect-Based Sentiment (stacked bars) */
+async function loadAspectSentiment(){
+  const {start, end} = getDates();
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
+  const out = await fetchJSON(API.aspects_sentiment + "?" + p);
+
+  if (chartAspectsStacked) chartAspectsStacked.destroy();
+
+  const aspects = out.aspects || [];
+  const labels = aspects.map(a => a.aspect);
+  const pos = aspects.map(a => a.positive || 0);
+  const neu = aspects.map(a => a.neutral || 0);
+  const neg = aspects.map(a => a.negative || 0);
+
+  chartAspectsStacked = new Chart(document.getElementById('aspectsStacked'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label:'Positive', data: pos, backgroundColor:'#2ecc71' },
+        { label:'Neutral', data: neu, backgroundColor:'#bdc3c7' },
+        { label:'Negative', data: neg, backgroundColor:'#e74c3c' }
+      ]
+    },
+    options: {
+      responsive: true,
+      scales: { x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } }
+    }
+  });
+}
+
+/* NEW: Trend Over Time (sentiment + rating) */
+async function loadTrends(){
+  const freq = document.getElementById('trendFreq').value || 'week';
+  const {start, end} = getDates();
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, freq}).filter(([_,v])=>v)));
+  const out = await fetchJSON(API.trends + "?" + p);
+
+  if (chartTrend) chartTrend.destroy();
+
+  const labels = (out.series || []).map(x => x.period);
+  const sVals = (out.series || []).map(x => x.avg_sentiment);
+  const rVals = (out.series || []).map(x => x.avg_rating);
+
+  chartTrend = new Chart(document.getElementById('trendSeries'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label:'Avg Sentiment', data:sVals, yAxisID:'y', borderColor:'#6f42c1', backgroundColor:'rgba(111,66,193,0.1)', tension:0.3, fill:true },
+        { label:'Avg Rating', data:rVals, yAxisID:'y1', borderColor:'#0dcaf0', backgroundColor:'rgba(13,202,240,0.1)', tension:0.3, fill:true }
+      ]
+    },
+    options: {
+      responsive:true,
+      scales: {
+        y: { position:'left', min:-1, max:1 },
+        y1: { position:'right', min:0, max:5, grid:{ drawOnChartArea:false } }
+      }
+    }
+  });
+}
+
+/* NEW: Volume vs Sentiment (dual-axis) */
+async function loadVolumeVsSentiment(){
+  const freq = document.getElementById('vvsFreq').value || 'week';
+  const {start, end} = getDates();
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, freq}).filter(([_,v])=>v)));
+  const out = await fetchJSON(API.volume_vs_sentiment + "?" + p);
+
+  if (chartVolVsSent) chartVolVsSent.destroy();
+
+  const labels = (out.series || []).map(x => x.period);
+  const counts = (out.series || []).map(x => x.count);
+  const sVals = (out.series || []).map(x => x.avg_sentiment);
+
+  chartVolVsSent = new Chart(document.getElementById('volVsSent'), {
+    data: {
+      labels,
+      datasets: [
+        { type:'bar', label:'Reviews', data:counts, yAxisID:'y', backgroundColor:'#0d6efd' },
+        { type:'line', label:'Avg Sentiment', data:sVals, yAxisID:'y1', borderColor:'#198754', tension:0.3 }
+      ]
+    },
+    options: {
+      responsive:true,
+      scales: {
+        y: { beginAtZero:true, position:'left' },
+        y1: { min:-1, max:1, position:'right', grid:{ drawOnChartArea:false } }
+      }
+    }
+  });
+}
+
+/* NEW: Rating vs Sentiment Correlation (scatter) */
+async function loadCorrelation(){
+  const {start, end} = getDates();
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
+  const out = await fetchJSON(API.correlation_rating_sentiment + "?" + p);
+
+  if (chartCorr) chartCorr.destroy();
+
+  const points = (out.points || []).map(pt => ({x: pt.rating, y: pt.sentiment}));
+
+  chartCorr = new Chart(document.getElementById('corrScatter'), {
+    type: 'scatter',
+    data: {
+      datasets: [{
+        label:'Rating vs Sentiment',
+        data: points,
+        borderColor:'#fd7e14',
+        backgroundColor:'rgba(253,126,20,0.2)',
+        pointRadius:3
+      }]
+    },
+    options: {
+      responsive:true,
+      scales: {
+        x: { min:0, max:5, title:{ display:true, text:'Rating (1-5)' } },
+        y: { min:-1, max:1, title:{ display:true, text:'Sentiment (-1..1)' } }
+      }
+    }
+  });
+}
+
 /* Alerts */
 async function loadAlerts(){
   const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v]) => v)));
-  const out = await fetchJSON('/api/alerts?' + p);
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
+  const out = await fetchJSON(API.alerts + "?" + p);
   document.getElementById('alertsWindow').textContent = `Window: ${out.window.start} → ${out.window.end}`;
 
   const box = document.getElementById('alertsList');
@@ -444,9 +687,9 @@ async function loadAlerts(){
 /* AI Executive + Actions */
 async function loadExecutiveAndActions(){
   const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v]) => v)));
-  const exec = await fetchJSON('/api/v2/ai/executive-summary?' + p);
-  const recs = await fetchJSON('/api/v2/ai/recommendations?' + p);
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
+  const exec = await fetchJSON(API.v2_exec_summary + "?" + p);
+  const recs = await fetchJSON(API.v2_recommendations + "?" + p);
 
   document.getElementById('execSummary').textContent = exec.summary || '—';
   document.getElementById('execConclusion').textContent = exec.conclusion || '—';
@@ -466,8 +709,8 @@ async function loadExecutiveAndActions(){
 /* Keywords */
 async function loadKeywords(){
   const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, limit: 15}).filter(([_,v]) => v)));
-  const out = await fetchJSON('/api/v2/keywords?' + p);
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, limit: 15}).filter(([_,v])=>v)));
+  const out = await fetchJSON(API.v2_keywords + "?" + p);
 
   chips('kwPositive', (out.positive || []).map(x => x.term), 'pos');
   chips('kwNegative', (out.negative || []).map(x => x.term), 'neg');
@@ -477,27 +720,22 @@ async function loadKeywords(){
   chips('kwBigrams', bigs, 'pos');
 }
 
-/* Aspects */
-async function loadAspects(){
+/* Existing numeric aspects (rooms/staff/...) */
+async function loadAspectsNumeric(){
   const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v]) => v)));
-  const a = await fetchJSON('/api/aspects/avg?' + p);
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
+  const a = await fetchJSON(API.aspects_avg + "?" + p);
 
-  // Destroy previous
-  if (chartAspects) chartAspects.destroy();
+  if (chartAspectsNumeric) chartAspectsNumeric.destroy();
 
   const labels = ['rooms','staff','cleanliness','value','location','food'];
   const values = labels.map(k => Number((a.aspects || {})[k] || 0));
 
-  chartAspects = new Chart(document.getElementById('aspectsChart'), {
+  chartAspectsNumeric = new Chart(document.getElementById('aspectsChart'), {
     type: 'bar',
     data: {
       labels: labels.map(s => s[0].toUpperCase()+s.slice(1)),
-      datasets: [{
-        label: 'Avg',
-        data: values,
-        backgroundColor: '#20c997'
-      }]
+      datasets: [{ label: 'Avg', data: values, backgroundColor: '#20c997' }]
     },
     options: { responsive: true, scales: { y: { beginAtZero: true, max: 1 } } }
   });
@@ -509,8 +747,8 @@ async function loadAspects(){
 /* Operational overview (urgent issues) */
 async function loadOperational(){
   const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, limit_urgent: 8}).filter(([_,v]) => v)));
-  const op = await fetchJSON('/api/operational/overview?' + p);
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, limit_urgent: 8}).filter(([_,v])=>v)));
+  const op = await fetchJSON(API.operational + "?" + p);
 
   document.getElementById('opsWindow').textContent =
     `Total: ${op.total_reviews}, Complaints: ${op.complaint_count} (${op.complaint_rate}%)`;
@@ -524,7 +762,8 @@ async function loadOperational(){
   }
 
   for (const u of op.urgent_issues){
-    const stars = '★'.repeat(u.rating || 0) + '☆'.repeat(5 - (u.rating || 0));
+    const rating = Number(u.rating || 0);
+    const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
     const reason = [];
     if (u.urgent_reason?.low_rating) reason.push('Low rating');
     if (u.urgent_reason?.very_negative_sentiment) reason.push('Very negative sentiment');
@@ -551,9 +790,8 @@ async function loadOperational(){
 async function loadReviews(){
   const sort = document.getElementById('sortReviews').value;
   const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, sort}).filter(([_,v]) => v)));
-
-  const out = await fetchJSON('/api/reviews/list?' + p);
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, sort}).filter(([_,v])=>v)));
+  const out = await fetchJSON(API.reviews_list + "?" + p);
 
   const box = document.getElementById('reviewsList');
   box.innerHTML = '';
@@ -584,16 +822,17 @@ async function loadReviews(){
 
 /* Init */
 (function init(){
-  /* Default date window: last 30 days including today */
+  // Default to last 30 days (inclusive)
   const today = new Date().toISOString().slice(0,10);
   document.getElementById('endDate').value = today;
   const start = new Date(Date.now() - 29*86400000).toISOString().slice(0,10);
   document.getElementById('startDate').value = start;
 
   document.getElementById('fetchBtn').addEventListener('click', fetchAll);
+  document.getElementById('trendFreq').addEventListener('change', loadTrends);
+  document.getElementById('vvsFreq').addEventListener('change', loadVolumeVsSentiment);
   document.getElementById('sortReviews').addEventListener('change', loadReviews);
 
-  /* First load */
   fetchAll();
 })();
 </script>
