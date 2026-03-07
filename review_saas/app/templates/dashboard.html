@@ -5,166 +5,179 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dashboard — ReviewSaaS</title>
 
-  <!-- Bootstrap & Chart.js -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
   <style>
-    .spinner{display:none}
-    .success-msg,.nodata-msg{display:none}
-    .card h6 { margin-bottom: .5rem; }
-    canvas { background: #fff; border-radius: 6px; }
+    :root { --rs-primary: #0d6efd; --rs-bg: #f8f9fa; }
+    body { background-color: var(--rs-bg); font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    .spinner { display: none; }
+    .success-msg, .nodata-msg { display: none; }
+    
+    .card { border: none; box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075); border-radius: 10px; }
+    .kpi-card { transition: transform 0.2s; }
+    .kpi-card:hover { transform: translateY(-3px); }
+    
+    .review-item { border-left: 4px solid #dee2e6; transition: border-color 0.2s; }
+    .review-item:hover { border-left-color: var(--rs-primary); background-color: #fff; }
+    
+    .star-rating { color: #ffc107; letter-spacing: 1px; }
+    canvas { max-height: 250px; }
+    
+    .btn-sync { transition: all 0.3s; }
+    .btn-sync:active { transform: scale(0.98); }
   </style>
 </head>
 <body>
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-  <div class="container-fluid">
-    <a class="navbar-brand" href="/">ReviewSaaS</a>
-    <div class="d-flex gap-2">
-      <a href="/companies" class="btn btn-outline-light btn-sm">Companies</a>
-      <a href="/logout" class="btn btn-warning btn-sm">Logout</a>
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
+  <div class="container-fluid px-4">
+    <a class="navbar-brand fw-bold" href="/">ReviewSaaS</a>
+    <div class="d-flex gap-3">
+      <a href="/companies" class="btn btn-outline-light btn-sm px-3">Companies</a>
+      <a href="/logout" class="btn btn-warning btn-sm px-3">Logout</a>
     </div>
   </div>
 </nav>
 
 <div class="container py-4">
-  <!-- Top Controls -->
-  <div class="row g-3 align-items-end">
-    <div class="col-lg-4">
-      <label class="form-label">Company</label>
-      <form class="row g-2" method="get" action="/dashboard">
-        <div class="col-8">
+  <div class="card p-4 mb-4">
+    <div class="row g-3 align-items-end">
+      <div class="col-lg-3">
+        <label class="form-label fw-semibold small text-uppercase text-muted">Active Company</label>
+        <form class="input-group" method="get" action="/dashboard">
           <select class="form-select" name="company_id" id="companySelect">
             {% for c in companies %}
-              <option value="{{c.id}}" {% if active_company_id==c.id %}selected{% endif %}>{{ c.name }}</option>
+              <option value="{{c.id}}" {% if active_company_id == c.id %}selected{% endif %}>{{ c.name }}</option>
             {% endfor %}
           </select>
-        </div>
-        <div class="col-4 d-grid">
           <button class="btn btn-outline-secondary">Switch</button>
-        </div>
-      </form>
-    </div>
+        </form>
+      </div>
 
-    <div class="col-lg-6">
-      <div class="row g-2">
-        <div class="col">
-          <label class="form-label">Start Date</label>
-          <input type="date" class="form-control" id="startDate">
-        </div>
-        <div class="col">
-          <label class="form-label">End Date</label>
-          <input type="date" class="form-control" id="endDate">
+      <div class="col-lg-6">
+        <div class="row g-2">
+          <div class="col">
+            <label class="form-label fw-semibold small text-uppercase text-muted">Start Date</label>
+            <input type="date" class="form-control" id="startDate">
+          </div>
+          <div class="col">
+            <label class="form-label fw-semibold small text-uppercase text-muted">End Date</label>
+            <input type="date" class="form-control" id="endDate">
+          </div>
         </div>
       </div>
-    </div>
 
-    <div class="col-lg-2 d-grid">
-      <button class="btn btn-primary" id="fetchBtn">Update Dashboard</button>
+      <div class="col-lg-3 d-grid">
+        <button class="btn btn-primary fw-bold py-2" id="fetchBtn">
+          <span class="spinner-border spinner-border-sm me-2" id="btnSpinner" role="status" aria-hidden="true" style="display:none;"></span>
+          Update Dashboard
+        </button>
+      </div>
     </div>
   </div>
 
-  <!-- Notices -->
-  <div class="alert alert-info mt-3 spinner" id="loadingBox">Loading…</div>
-  <div class="alert alert-success mt-3 success-msg" id="successBox">Dashboard updated successfully.</div>
-  <div class="alert alert-warning mt-3 nodata-msg" id="nodataBox">No Data Found for selected date range.</div>
+  <div class="alert alert-info border-0 shadow-sm spinner" id="loadingBox">
+    <div class="d-flex align-items-center">
+      <div class="spinner-border spinner-border-sm me-3"></div>
+      <strong>Fetching latest analytics...</strong>
+    </div>
+  </div>
+  <div class="alert alert-success border-0 shadow-sm success-msg" id="successBox">Dashboard updated.</div>
+  <div class="alert alert-warning border-0 shadow-sm nodata-msg" id="nodataBox">No data found for the selected period.</div>
 
-  <!-- KPI Row -->
   <div class="row g-3 mt-2">
     <div class="col-md-3">
-      <div class="p-3 bg-light border rounded text-center">
-        TOTAL REVIEWS
-        <h4 id="kpi-total" class="mb-0">0</h4>
+      <div class="card kpi-card p-3 bg-white border-start border-primary border-4">
+        <div class="text-muted small fw-bold text-uppercase">Total Reviews</div>
+        <h3 id="kpi-total" class="mb-0 fw-bold text-primary">0</h3>
       </div>
     </div>
     <div class="col-md-3">
-      <div class="p-3 bg-light border rounded text-center">
-        AVG RATING
-        <h4 id="kpi-rating" class="mb-0">0.0</h4>
+      <div class="card kpi-card p-3 bg-white border-start border-success border-4">
+        <div class="text-muted small fw-bold text-uppercase">Avg Rating</div>
+        <h3 id="kpi-rating" class="mb-0 fw-bold text-success">0.0</h3>
       </div>
     </div>
     <div class="col-md-3">
-      <div class="p-3 bg-light border rounded text-center">
-        AVG SENTIMENT
-        <h4 id="kpi-sent" class="mb-0">0.000</h4>
+      <div class="card kpi-card p-3 bg-white border-start border-info border-4">
+        <div class="text-muted small fw-bold text-uppercase">Sentiment Score</div>
+        <h3 id="kpi-sent" class="mb-0 fw-bold text-info">0.000</h3>
       </div>
     </div>
     <div class="col-md-3">
-      <div class="p-3 bg-light border rounded text-center">
-        NEW (7D)
-        <h4 id="kpi-new" class="mb-0">0</h4>
+      <div class="card kpi-card p-3 bg-white border-start border-warning border-4">
+        <div class="text-muted small fw-bold text-uppercase">New (7 Days)</div>
+        <h3 id="kpi-new" class="mb-0 fw-bold text-warning">0</h3>
       </div>
     </div>
   </div>
 
-  <!-- Charts -->
-  <div class="row g-3 mt-1">
+  <div class="row g-4 mt-1">
     <div class="col-lg-8">
-      <div class="card">
+      <div class="card h-100">
         <div class="card-body">
-          <h6 class="text-muted">Review Volume</h6>
-          <canvas id="seriesReviews" height="120"></canvas>
+          <h6 class="fw-bold mb-3">Review Volume Trends</h6>
+          <canvas id="seriesReviews"></canvas>
         </div>
       </div>
     </div>
 
     <div class="col-lg-4">
-      <div class="card mb-3">
+      <div class="card mb-4">
         <div class="card-body">
-          <h6 class="text-muted">Rating Distribution</h6>
-          <canvas id="ratingsDist" height="120"></canvas>
+          <h6 class="fw-bold mb-3">Rating Distribution</h6>
+          <canvas id="ratingsDist"></canvas>
         </div>
       </div>
-
       <div class="card">
         <div class="card-body">
-          <h6 class="text-muted">Sentiment Trend</h6>
-          <canvas id="sentSeries" height="120"></canvas>
+          <h6 class="fw-bold mb-3">Sentiment over Time</h6>
+          <canvas id="sentSeries"></canvas>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Reviews List -->
-  <div class="row g-3 mt-3">
+  <div class="row g-4 mt-2">
     <div class="col-12">
       <div class="card">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center">
-            <h6 class="text-muted mb-0">Reviews</h6>
-            <div>
-              <select id="sortReviews" class="form-select form-select-sm">
-                <option value="newest" selected>Newest</option>
-                <option value="oldest">Oldest</option>
-                <option value="highest">Highest rating</option>
-                <option value="lowest">Lowest rating</option>
-              </select>
-            </div>
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center border-0">
+          <h6 class="mb-0 fw-bold">Recent Reviews Feed</h6>
+          <div class="d-flex align-items-center gap-2">
+            <span class="small text-muted">Sort:</span>
+            <select id="sortReviews" class="form-select form-select-sm" style="width: auto;">
+              <option value="newest" selected>Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="highest">Highest Rating</option>
+              <option value="lowest">Lowest Rating</option>
+            </select>
           </div>
-          <div id="reviewsList" class="mt-3"></div>
+        </div>
+        <div class="card-body pt-0">
+          <div id="reviewsList" class="mt-2"></div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Export & Sync -->
-  <div class="mt-3">
+  <div class="mt-4 pb-5 d-flex flex-wrap gap-2">
     {% if active_company_id %}
-      <a class="btn btn-outline-primary" href="/api/export/reviews.csv?company_id={{active_company_id}}">Export CSV</a>
-      <a class="btn btn-outline-primary" href="/api/export/reviews.xlsx?company_id={{active_company_id}}">Export Excel</a>
-      <a class="btn btn-outline-primary" href="/api/export/summary.pdf?company_id={{active_company_id}}">Export PDF</a>
+      <div class="btn-group shadow-sm">
+        <a class="btn btn-white border bg-white" href="/api/export/reviews.csv?company_id={{active_company_id}}">CSV</a>
+        <a class="btn btn-white border bg-white" href="/api/export/reviews.xlsx?company_id={{active_company_id}}">Excel</a>
+        <a class="btn btn-white border bg-white" href="/api/export/summary.pdf?company_id={{active_company_id}}">PDF</a>
+      </div>
       <form class="d-inline" method="post" action="/companies/{{active_company_id}}/sync">
-        <button class="btn btn-success">Sync Reviews for Active Company</button>
+        <button class="btn btn-success px-4 shadow-sm btn-sync">Sync Live Reviews</button>
       </form>
     {% endif %}
   </div>
 </div>
 
 <script>
-/* Server-provided active company id (may be null if backend didn't pass it) */
 let companyId = {{ active_company_id or 'null' }};
 
-/* Fallback: if companyId is null, pick the current selection in the dropdown */
 (function ensureCompanyId(){
   if (!companyId) {
     const sel = document.getElementById('companySelect');
@@ -172,28 +185,28 @@ let companyId = {{ active_company_id or 'null' }};
   }
 })();
 
-let chartReviews = null;
-let chartDist = null;
-let chartSent = null;
+let chartReviews = null, chartDist = null, chartSent = null;
 
-/* Helpers */
 function qs(p){ return new URLSearchParams(p).toString(); }
-function setLoading(v){ document.getElementById('loadingBox').style.display = v ? 'block' : 'none'; }
-function showSuccess(v){ document.getElementById('successBox').style.display = v ? 'block' : 'none'; }
+function setLoading(v){ 
+    document.getElementById('loadingBox').style.display = v ? 'block' : 'none'; 
+    document.getElementById('btnSpinner').style.display = v ? 'inline-block' : 'none';
+}
+function showSuccess(v){ 
+    document.getElementById('successBox').style.display = v ? 'block' : 'none'; 
+    if(v) setTimeout(() => document.getElementById('successBox').style.display = 'none', 3000);
+}
 function showNoData(v){ document.getElementById('nodataBox').style.display = v ? 'block' : 'none'; }
 
 function getDates(){
-  const s = document.getElementById('startDate').value;
-  const e = document.getElementById('endDate').value;
-  return { start: s || null, end: e || null };
+  return { 
+    start: document.getElementById('startDate').value || null, 
+    end: document.getElementById('endDate').value || null 
+  };
 }
 
 async function fetchAll(){
-  if (!companyId) {
-    console.warn('No active company id — cannot fetch data.');
-    showNoData(true);
-    return;
-  }
+  if (!companyId) { showNoData(true); return; }
 
   const {start, end} = getDates();
   setLoading(true); showSuccess(false); showNoData(false);
@@ -201,88 +214,81 @@ async function fetchAll(){
   const params = Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v]) => v));
   const p = qs(params);
 
-  /* Fetch data */
-  const [kRes, rRes, dRes, sRes] = await Promise.all([
-    fetch('/api/kpis?' + p),
-    fetch('/api/series/reviews?' + p),
-    fetch('/api/ratings/distribution?' + p),
-    fetch('/api/sentiment/series?' + p),
-  ]);
+  try {
+    const [kRes, rRes, dRes, sRes] = await Promise.all([
+      fetch('/api/kpis?' + p), fetch('/api/series/reviews?' + p),
+      fetch('/api/ratings/distribution?' + p), fetch('/api/sentiment/series?' + p),
+    ]);
 
-  const k = await kRes.json();
-  const r = await rRes.json();
-  const d = await dRes.json();
-  const s = await sRes.json();
+    const k = await kRes.json();
+    const r = await rRes.json();
+    const d = await dRes.json();
+    const s = await sRes.json();
 
-  /* KPIs — always render numeric values */
-  document.getElementById('kpi-total').textContent = Number(k.total_reviews || 0);
-  document.getElementById('kpi-rating').textContent = (Number(k.avg_rating || 0)).toFixed(2);
-  document.getElementById('kpi-sent').textContent = (Number(k.avg_sentiment || 0)).toFixed(3);
-  document.getElementById('kpi-new').textContent = Number(k.new_reviews || 0);
+    document.getElementById('kpi-total').textContent = k.total_reviews || 0;
+    document.getElementById('kpi-rating').textContent = (k.avg_rating || 0).toFixed(1);
+    document.getElementById('kpi-sent').textContent = (k.avg_sentiment || 0).toFixed(3);
+    document.getElementById('kpi-new').textContent = k.new_reviews || 0;
 
-  /* Destroy existing charts before re-draw to prevent overlays/blank state */
-  if (chartReviews) chartReviews.destroy();
-  if (chartDist) chartDist.destroy();
-  if (chartSent) chartSent.destroy();
+    if (chartReviews) chartReviews.destroy();
+    if (chartDist) chartDist.destroy();
+    if (chartSent) chartSent.destroy();
 
-  /* Review Volume */
-  chartReviews = new Chart(document.getElementById('seriesReviews'), {
-    type: 'line',
-    data: {
-      labels: (r.series || []).map(x => x.date),
-      datasets: [{
-        label: 'Reviews/day',
-        data: (r.series || []).map(x => x.value),
-        borderColor: '#0d6efd',
-        backgroundColor: 'rgba(13,110,253,0.1)',
-        tension: 0.3,
-        fill: true
-      }]
-    },
-    options: { responsive: true, scales: { y: { beginAtZero: true } } }
-  });
+    // Chart: Review Volume
+    chartReviews = new Chart(document.getElementById('seriesReviews'), {
+      type: 'line',
+      data: {
+        labels: (r.series || []).map(x => x.date),
+        datasets: [{
+          label: 'Reviews',
+          data: (r.series || []).map(x => x.value),
+          borderColor: '#0d6efd',
+          backgroundColor: 'rgba(13,110,253,0.05)',
+          fill: true, tension: 0.4
+        }]
+      },
+      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
 
-  /* Rating Distribution */
-  const labels = d.distribution ? Object.keys(d.distribution) : ['1','2','3','4','5'];
-  const vals = d.distribution ? Object.values(d.distribution) : [0,0,0,0,0];
-  chartDist = new Chart(document.getElementById('ratingsDist'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Count',
-        data: vals,
-        backgroundColor: ['#dc3545','#fd7e14','#ffc107','#0dcaf0','#198754']
-      }]
-    },
-    options: { responsive: true, scales: { y: { beginAtZero: true } } }
-  });
+    // Chart: Ratings Distribution
+    const labels = d.distribution ? Object.keys(d.distribution) : ['1','2','3','4','5'];
+    const vals = d.distribution ? Object.values(d.distribution) : [0,0,0,0,0];
+    chartDist = new Chart(document.getElementById('ratingsDist'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          data: vals,
+          backgroundColor: ['#ef4444','#f97316','#facc15','#22c55e','#15803d'],
+          borderRadius: 4
+        }]
+      },
+      options: { plugins: { legend: { display: false } } }
+    });
 
-  /* Sentiment Trend */
-  chartSent = new Chart(document.getElementById('sentSeries'), {
-    type: 'line',
-    data: {
-      labels: (s.series || []).map(x => x.date),
-      datasets: [{
-        label: 'Avg Sentiment',
-        data: (s.series || []).map(x => x.value),
-        borderColor: '#6610f2',
-        backgroundColor: 'rgba(102,16,242,0.1)',
-        tension: 0.3,
-        fill: true
-      }]
-    },
-    options: {
-      responsive: true,
-      scales: { y: { min: -1, max: 1 } }
-    }
-  });
+    // Chart: Sentiment Trend
+    chartSent = new Chart(document.getElementById('sentSeries'), {
+      type: 'line',
+      data: {
+        labels: (s.series || []).map(x => x.date),
+        datasets: [{
+          label: 'Sentiment',
+          data: (s.series || []).map(x => x.value),
+          borderColor: '#8b5cf6',
+          tension: 0.4
+        }]
+      },
+      options: { plugins: { legend: { display: false } }, scales: { y: { min: -1, max: 1 } } }
+    });
 
-  /* Reviews list */
-  await loadReviews();
-
-  setLoading(false); showSuccess(true);
-  if ((k.total_reviews || 0) === 0) showNoData(true);
+    await loadReviews();
+    showSuccess(true);
+    if ((k.total_reviews || 0) === 0) showNoData(true);
+  } catch (e) {
+    console.error(e);
+  } finally {
+    setLoading(false);
+  }
 }
 
 async function loadReviews(){
@@ -292,37 +298,35 @@ async function loadReviews(){
   const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, sort}).filter(([_,v]) => v)));
 
   const out = await (await fetch('/api/reviews/list?' + p)).json();
-
   const box = document.getElementById('reviewsList');
   box.innerHTML = '';
 
   for (const r of (out.items || [])){
     const rating = Number(r.rating || 0);
     const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
-    const card = `
-      <div class="border rounded p-2 mb-2">
-        <div class="d-flex justify-content-between small text-muted">
-          <span>${r.author_name || 'Anonymous'}</span>
-          <span>${r.review_time || ''}</span>
+    const item = `
+      <div class="review-item bg-light p-3 rounded mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="fw-bold text-dark">${r.author_name || 'Anonymous'}</span>
+          <span class="small text-muted">${r.review_time || ''}</span>
         </div>
-        <div>
-          <span class="me-2">${stars}</span>
-          <span>${rating.toFixed(1)}</span>
+        <div class="mb-2">
+          <span class="star-rating me-2">${stars}</span>
+          <span class="badge bg-white text-dark border">${rating.toFixed(1)}</span>
         </div>
-        <div>${(r.text || '').slice(0, 2000)}</div>
+        <p class="mb-0 text-secondary small" style="line-height: 1.5;">${r.text || 'No review content provided.'}</p>
       </div>
     `;
-    box.insertAdjacentHTML('beforeend', card);
+    box.insertAdjacentHTML('beforeend', item);
   }
 
   if (!out.items || out.items.length === 0){
-    box.innerHTML = '<div class="text-muted small">No reviews in this range.</div>';
+    box.innerHTML = '<div class="text-center p-4 text-muted small">No reviews found for this criteria.</div>';
   }
 }
 
 /* Init */
 (function init(){
-  /* Default date window: last 30 days including today */
   const today = new Date().toISOString().slice(0,10);
   document.getElementById('endDate').value = today;
   const start = new Date(Date.now() - 29*86400000).toISOString().slice(0,10);
@@ -331,7 +335,6 @@ async function loadReviews(){
   document.getElementById('fetchBtn').addEventListener('click', fetchAll);
   document.getElementById('sortReviews').addEventListener('change', loadReviews);
 
-  /* First load */
   fetchAll();
 })();
 </script>
