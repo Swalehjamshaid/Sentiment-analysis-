@@ -1,6 +1,4 @@
-# filename: app/core/models.py
 from __future__ import annotations
-
 from sqlalchemy import (
     Column, Integer, String, Float, Text, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint
 )
@@ -13,7 +11,7 @@ from datetime import datetime
 Base = declarative_base()
 
 # Update this whenever schema changes
-SCHEMA_VERSION = "6.0.2-outscraper-full"
+SCHEMA_VERSION = "6.0.3-outscraper-full"
 
 # ---------------------------------------------------
 # Users
@@ -27,16 +25,14 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
-    
+
     # New fields for auth
     email_verified = Column(Boolean, default=False)
     profile_pic = Column(String(1000))  # path for uploaded profile picture
     role = Column(String(50), default="editor")
-    
+
     created_at = Column(DateTime, default=datetime.utcnow)
     companies = relationship("Company", back_populates="owner")
-    notifications = relationship("Notification", backref="user")
-    audit_logs = relationship("AuditLog", backref="user")
 
 # ---------------------------------------------------
 # Companies (Google Business / Outscraper Data)
@@ -52,8 +48,10 @@ class Company(Base):
     place_id = Column(String(512), unique=True, index=True)
     google_id = Column(String(255))
 
+    # Alias for backward compatibility
+    google_place_id = place_id
+
     # Location
-    address = Column(String(1000))  # <-- added for routes reference
     full_address = Column(String(1000))
     city = Column(String(255))
     state = Column(String(255))
@@ -196,10 +194,7 @@ class AuditLog(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
     action = Column(String(255), nullable=False)
-    
-    # Meta field for auth.py logging
     meta = Column(JSON, default={})
-    
     ip_address = Column(String(100))
     created_at = Column(DateTime, default=datetime.utcnow)
 
