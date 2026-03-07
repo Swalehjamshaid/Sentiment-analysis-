@@ -1,3 +1,4 @@
+# filename: review_saas/app/core/models.py
 from __future__ import annotations
 
 from sqlalchemy import (
@@ -20,8 +21,9 @@ from datetime import datetime
 # ---------------------------------------------------
 Base = declarative_base()
 
-# Updated schema version to trigger DB recreation
+# SCHEMA_VERSION triggers DB recreation when changed
 SCHEMA_VERSION = "6.0.1-outscraper-full"
+
 
 # ---------------------------------------------------
 # Users
@@ -33,19 +35,16 @@ class User(Base):
     name = Column(String(255), nullable=False)
     email = Column(String(255), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
-
-    # Added for auth.py registration
-    profile_pic = Column(String(1000), nullable=True)
-
-    # Added role to match auth.py ('editor', 'admin', etc.)
+    profile_pic = Column(String(1000))
     role = Column(String(50), default='editor')
-
+    email_verified = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
     companies = relationship("Company", back_populates="owner")
+
 
 # ---------------------------------------------------
 # Companies (Google Business / Outscraper Data)
@@ -112,12 +111,15 @@ class Company(Base):
     reviews = relationship("Review", back_populates="company", cascade="all, delete-orphan")
     competitors = relationship("Competitor", back_populates="company", cascade="all, delete-orphan")
 
+
 # ---------------------------------------------------
 # Reviews (Outscraper Full Output)
 # ---------------------------------------------------
 class Review(Base):
     __tablename__ = "reviews"
-    __table_args__ = (UniqueConstraint("company_id", "google_review_id", name="_company_review_uc"),)
+    __table_args__ = (
+        UniqueConstraint("company_id", "google_review_id", name="_company_review_uc"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
@@ -162,6 +164,7 @@ class Review(Base):
 
     company = relationship("Company", back_populates="reviews")
 
+
 # ---------------------------------------------------
 # Competitors
 # ---------------------------------------------------
@@ -183,8 +186,9 @@ class Competitor(Base):
 
     company = relationship("Company", back_populates="competitors")
 
+
 # ---------------------------------------------------
-# Notifications
+# Notifications (dashboard alerts)
 # ---------------------------------------------------
 class Notification(Base):
     __tablename__ = "notifications"
@@ -196,6 +200,7 @@ class Notification(Base):
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
 # ---------------------------------------------------
 # Audit Logs
 # ---------------------------------------------------
@@ -205,12 +210,13 @@ class AuditLog(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
     action = Column(String(255), nullable=False)
-    details = Column(JSON)
+    meta = Column(JSON)  # <-- JSON for meta info like email/IP
     ip_address = Column(String(100))
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
 # ---------------------------------------------------
-# Config
+# Config (schema version tracking)
 # ---------------------------------------------------
 class Config(Base):
     __tablename__ = "config"
