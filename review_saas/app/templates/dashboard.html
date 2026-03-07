@@ -244,7 +244,7 @@
   </div>
 </div>
 
-<!-- Add Company Modal with Google Places Integration -->
+<!-- Add Company Modal with Google Places API -->
 <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content border-0 shadow-lg rounded-4">
@@ -308,8 +308,9 @@
 </div>
 
 <script>
-// Your Google Places API Key
+// Google API Keys (embedded directly)
 const GOOGLE_PLACES_API_KEY = "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc";
+const GOOGLE_MAPS_API_KEY   = "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc";
 
 // ────────────────────────────────────────────────
 // DOM Elements
@@ -344,21 +345,22 @@ let charts = {};
 let reviewsDataGlobal = [];
 
 // ────────────────────────────────────────────────
-// Google Places Integration
+// Load Google Maps + Places API
 // ────────────────────────────────────────────────
 function loadGoogleScript() {
   const script = document.createElement('script');
   script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_PLACES_API_KEY}&libraries=places&callback=initGooglePlaces`;
   script.async = true;
   script.onerror = () => {
-    console.error("Failed to load Google Maps script");
-    alert("Google Places could not load. Check console (F12) for details.");
+    console.error("Failed to load Google Maps JavaScript API");
+    alert("Google Places could not load.\n\nPossible reasons:\n1. API key restricted to wrong domains\n2. Places API not enabled\n3. Billing not linked\n\nCheck console (F12) for details.");
   };
   document.head.appendChild(script);
 }
 
 window.initGooglePlaces = function() {
-  console.log("Google Places library loaded successfully");
+  console.log("Google Places API loaded successfully");
+  
   const autocomplete = new google.maps.places.Autocomplete(el.placeSearch, {
     types: ['establishment', 'lodging', 'restaurant', 'hotel'],
     fields: [
@@ -374,7 +376,7 @@ window.initGooglePlaces = function() {
       return;
     }
 
-    console.log("Google Place selected:", place);
+    console.log("Selected Google Place:", place);
 
     el.previewBox.style.display = 'block';
     
@@ -435,7 +437,7 @@ el.saveBtn.onclick = async () => {
 };
 
 // ────────────────────────────────────────────────
-// Dashboard Data Fetch
+// Dashboard Data Fetch (safe fallbacks)
 // ────────────────────────────────────────────────
 async function fetchDashboardData() {
   const cid = el.companySelect.value;
