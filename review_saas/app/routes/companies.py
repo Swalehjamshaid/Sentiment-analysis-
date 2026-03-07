@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["companies"])
 templates = Jinja2Templates(directory="app/templates")
 
+
 # ---------------------------------------------------------
 # Helper: Authentication
 # ---------------------------------------------------------
@@ -50,7 +51,6 @@ class AddCompanyRequest(BaseModel):
     name: str
     place_id: str
     address: str | None = None
-    google_data: dict | None = None
 
 
 # ---------------------------------------------------------
@@ -196,11 +196,11 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
                 status_code=400,
             )
 
+        # Create new company
         new_company = Company(
             name=data.name,
             google_place_id=data.place_id,
             address=data.address,
-            google_data=data.google_data or {},
             owner_id=uid,
         )
 
@@ -218,13 +218,11 @@ async def add_new_company(request: Request, data: AddCompanyRequest, bg_tasks: B
         await session.commit()
         await session.refresh(new_company)
 
-        # ----------------------------
-        # Background review ingestion (FIXED)
-        # ----------------------------
+        # Background review ingestion
         bg_tasks.add_task(
             ingest_company_reviews,
-            new_company.google_place_id,  # <-- corrected
-            new_company.id,               # <-- corrected
+            new_company.google_place_id,
+            new_company.id,
         )
 
         companies = await _get_companies_data(session, uid)
@@ -258,13 +256,10 @@ async def company_sync(company_id: int, request: Request, bg_tasks: BackgroundTa
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
-        # ----------------------------
-        # Background review ingestion (FIXED)
-        # ----------------------------
         bg_tasks.add_task(
             ingest_company_reviews,
-            company.google_place_id,  # <-- corrected
-            company.id,               # <-- corrected
+            company.google_place_id,
+            company.id,
         )
 
         session.add(
