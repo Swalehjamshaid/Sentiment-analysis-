@@ -6,6 +6,9 @@
   <title>Strategic Dashboard - ReviewSaaS</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- Font Awesome for icons used in existing markup -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+
   <style>
     body { background-color: #f4f7f6; }
     .spinner, .success-msg, .nodata-msg, .error-msg { display: none; }
@@ -13,6 +16,18 @@
     .aspect-card:hover { transform: translateY(-3px); }
     .recommendation-badge { font-size: 0.85rem; display:block; border-left:3px solid #0dcaf0; background:#f0f9ff; padding:8px; margin-bottom:8px; border-radius:4px; color:#055160; }
     .badge-kw { font-size:0.8rem; margin:2px; }
+    .badge-topic { font-size:0.7rem; margin-left:6px; }
+    .alert-chip { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; background:#fff; border:1px solid #e8ecef; border-left:4px solid #0dcaf0; border-radius:6px; margin:4px; font-size:0.85rem; }
+    .alert-chip.high { border-left-color:#dc3545; }
+    .alert-chip.medium { border-left-color:#fd7e14; }
+    .alert-chip.low { border-left-color:#198754; }
+    .section-title { font-weight:700; color:#212529; border-bottom:1px solid #e8ecef; padding-bottom:.5rem; margin-bottom:1rem; }
+    .kpi-card { min-height: 84px; }
+    .small-muted { font-size: .8rem; color: #6c757d; }
+    .urgent { background: #fff2f2; border-left: 4px solid #dc3545; }
+    .neutral-chip { background:#f8f9fa; border:1px solid #e9ecef; padding:2px 6px; border-radius:4px; font-size:.75rem; color:#6c757d; }
+    .text-xxs { font-size: .72rem; }
+    .chart-box { position:relative; }
   </style>
 </head>
 <body>
@@ -56,12 +71,44 @@
   <div id="nodataBox" class="alert alert-warning nodata-msg">No data found for this selection.</div>
   <div id="errorBox" class="alert alert-danger error-msg">Error communicating with backend.</div>
 
-  <!-- KPIs -->
+  <!-- KPI Row (Preserved) -->
   <div class="row g-3 mt-2">
-    <div class="col-md-3"><div class="p-3 bg-white shadow-sm rounded text-center">Total Reviews <h4 id="kpi-total" class="mb-0 fw-bold">0</h4></div></div>
-    <div class="col-md-3"><div class="p-3 bg-white shadow-sm rounded text-center text-warning">Avg Rating <h4 id="kpi-rating" class="mb-0 fw-bold">0.0</h4></div></div>
-    <div class="col-md-3"><div class="p-3 bg-white shadow-sm rounded text-center text-primary">Avg Sentiment <h4 id="kpi-sent" class="mb-0 fw-bold">0.000</h4></div></div>
-    <div class="col-md-3"><div class="p-3 bg-white shadow-sm rounded text-center text-info">New (24h) <h4 id="kpi-new" class="mb-0 fw-bold">0</h4></div></div>
+    <div class="col-md-3"><div class="p-3 bg-white shadow-sm rounded text-center kpi-card">Total Reviews <h4 id="kpi-total" class="mb-0 fw-bold">0</h4></div></div>
+    <div class="col-md-3"><div class="p-3 bg-white shadow-sm rounded text-center text-warning kpi-card">Avg Rating <h4 id="kpi-rating" class="mb-0 fw-bold">0.0</h4></div></div>
+    <div class="col-md-3"><div class="p-3 bg-white shadow-sm rounded text-center text-primary kpi-card">Avg Sentiment <h4 id="kpi-sent" class="mb-0 fw-bold">0.000</h4></div></div>
+    <div class="col-md-3"><div class="p-3 bg-white shadow-sm rounded text-center text-info kpi-card">New (24h) <h4 id="kpi-new" class="mb-0 fw-bold">0</h4></div></div>
+  </div>
+
+  <!-- Secondary KPI Row (New, non-breaking) -->
+  <div class="row g-3 mt-2">
+    <div class="col-md-3">
+      <div class="p-3 bg-white shadow-sm rounded text-center">
+        Health Score
+        <h4 id="kpi-health" class="mb-0 fw-bold">—</h4>
+        <div class="small-muted" id="kpi-verdict">—</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="p-3 bg-white shadow-sm rounded text-center">
+        Complaint Rate
+        <h4 id="kpi-complaint-rate" class="mb-0 fw-bold">—</h4>
+        <div class="small-muted">Complaints / total</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="p-3 bg-white shadow-sm rounded text-center">
+        Praise
+        <h4 id="kpi-praise" class="mb-0 fw-bold">—</h4>
+        <div class="small-muted">Positive mentions</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="p-3 bg-white shadow-sm rounded text-center">
+        Window
+        <h6 class="mb-0 fw-bold"><span id="window-start">—</span> → <span id="window-end">—</span></h6>
+        <div class="small-muted">Selected period</div>
+      </div>
+    </div>
   </div>
 
   <!-- Charts -->
@@ -70,7 +117,9 @@
       <div class="card border-0 shadow-sm">
         <div class="card-body">
           <h6 class="text-muted fw-bold">Review Volume Trend</h6>
-          <canvas id="seriesReviews" height="150"></canvas>
+          <div class="chart-box">
+            <canvas id="seriesReviews" height="150"></canvas>
+          </div>
         </div>
       </div>
     </div>
@@ -81,10 +130,28 @@
           <canvas id="ratingsDist" height="150"></canvas>
         </div>
       </div>
-      <div class="card border-0 shadow-sm">
+      <div class="card border-0 shadow-sm mb-3">
         <div class="card-body">
           <h6 class="text-muted fw-bold">Sentiment Trend</h6>
           <canvas id="sentSeries" height="150"></canvas>
+        </div>
+      </div>
+      <div class="card border-0 shadow-sm">
+        <div class="card-body">
+          <h6 class="text-muted fw-bold">Rating Trend</h6>
+          <canvas id="ratingSeries" height="150"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Alerts (Predictive) -->
+  <div class="row g-3 mt-3">
+    <div class="col-12">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body">
+          <h6 class="text-muted fw-bold">Proactive Alerts</h6>
+          <div id="alertsList"></div>
         </div>
       </div>
     </div>
@@ -101,6 +168,10 @@
           <div class="row g-3" id="aspectsContainer">
             <p class="text-center text-muted small py-4">Select a company to view departmental analysis</p>
           </div>
+          <hr>
+          <div class="chart-box">
+            <canvas id="aspectsRadar" height="140"></canvas>
+          </div>
         </div>
       </div>
     </div>
@@ -109,7 +180,10 @@
       <div class="card border-0 shadow-sm mb-3">
         <div class="card-body">
           <h6 class="text-muted fw-bold mb-3">Operational Overview</h6>
-          <div id="complaintsStats" class="row text-center"></div>
+          <div class="row text-center" id="complaintsStats"></div>
+          <div class="mt-3 chart-box">
+            <canvas id="operationalPie" height="130"></canvas>
+          </div>
         </div>
       </div>
 
@@ -117,7 +191,9 @@
         <div class="card-body">
           <h6 class="text-muted fw-bold mb-3">Mentioned Themes</h6>
           <div class="mb-2"><small class="text-success fw-bold">Positives:</small> <div id="keywordsPositive" class="d-inline"></div></div>
-          <div><small class="text-danger fw-bold">Pain Points:</small> <div id="keywordsNegative" class="d-inline"></div></div>
+          <div class="mb-2"><small class="text-danger fw-bold">Pain Points:</small> <div id="keywordsNegative" class="d-inline"></div></div>
+          <div class="mb-2"><small class="text-primary fw-bold">Top Bigrams:</small> <div id="keywordsBigrams" class="d-inline"></div></div>
+          <div><small class="text-warning fw-bold">Emerging (7d):</small> <div id="keywordsEmerging" class="d-inline"></div></div>
         </div>
       </div>
 
@@ -148,6 +224,19 @@
       </div>
     </div>
   </div>
+
+  <!-- Urgent Issues (Top) -->
+  <div class="row g-3 mt-3">
+    <div class="col-12">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body">
+          <h6 class="text-muted fw-bold mb-2">Urgent Issues (Auto-detected)</h6>
+          <div id="urgentIssuesList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -163,7 +252,15 @@ const el = {
   kpiTotal: document.getElementById('kpi-total'),
   kpiRating: document.getElementById('kpi-rating'),
   kpiSent: document.getElementById('kpi-sent'),
-  kpiNew: document.getElementById('kpi-new')
+  kpiNew: document.getElementById('kpi-new'),
+  kpiHealth: document.getElementById('kpi-health'),
+  kpiVerdict: document.getElementById('kpi-verdict'),
+  kpiComplaintRate: document.getElementById('kpi-complaint-rate'),
+  kpiPraise: document.getElementById('kpi-praise'),
+  windowStart: document.getElementById('window-start'),
+  windowEnd: document.getElementById('window-end'),
+  alertsList: document.getElementById('alertsList'),
+  urgentIssuesList: document.getElementById('urgentIssuesList'),
 };
 
 let currentCompanyId = null;
@@ -171,93 +268,307 @@ let charts = {};
 let reviewsDataGlobal = [];
 
 const show = (id, v) => el[id] && (el[id].style.display = v ? 'block' : 'none');
-const qs = (o) => new URLSearchParams(o).toString();
-async function safeJsonFetch(url,fallback={}){try{const res=await fetch(url);if(!res.ok)return fallback;return await res.json()}catch{return fallback;}}
+const qs = (o) => new URLSearchParams(Object.entries(o).filter(([_,v]) => v)).toString();
+async function safeJsonFetch(url, fallback = {}) { try { const res = await fetch(url); if (!res.ok) return fallback; return await res.json(); } catch { return fallback; } }
 
-async function loadCompanies() {
-  const data = await safeJsonFetch('/api/companies/list',{companies:[]});
-  el.companySelect.innerHTML='';
-  data.companies.forEach(c=>el.companySelect.appendChild(Object.assign(document.createElement('option'),{value:c.id,textContent:c.name})));
-  const lastId=localStorage.getItem('lastCompanyId'); if(lastId && data.companies.some(c=>c.id==lastId)) el.companySelect.value=lastId;
-  currentCompanyId = el.companySelect.value;
+function renderStars(n=0) { const r = Math.round(n||0); return '★'.repeat(r) + '☆'.repeat(5-r); }
+function sentimentBadge(label) {
+  const map = { positive: 'success', neutral: 'secondary', negative: 'danger' };
+  const cls = map[label] || 'secondary';
+  return `<span class="badge bg-${cls} text-xxs text-uppercase">${label}</span>`;
 }
 
-function renderReviewsList(){
-  let items=[...reviewsDataGlobal];
-  const sort=el.sortReviews.value;
-  if(sort==='newest') items.sort((a,b)=>new Date(b.review_time)-new Date(a.review_time));
-  else if(sort==='highest') items.sort((a,b)=>b.rating-a.rating);
-  else if(sort==='lowest') items.sort((a,b)=>a.rating-b.rating);
-  el.reviewsList.innerHTML=items.length?items.map(r=>`
-    <div class="border-bottom py-3">
+async function loadCompanies() {
+  const data = await safeJsonFetch('/api/companies/list', { companies: [] });
+  el.companySelect.innerHTML = '';
+  data.companies.forEach(c => el.companySelect.appendChild(Object.assign(document.createElement('option'), { value: c.id, textContent: c.name })));
+  const lastId = localStorage.getItem('lastCompanyId'); if (lastId && data.companies.some(c => c.id==lastId)) el.companySelect.value = lastId;
+  currentCompanyId = el.companySelect.value;
+  el.companySelect.addEventListener('change', () => {
+    currentCompanyId = el.companySelect.value;
+    localStorage.setItem('lastCompanyId', currentCompanyId);
+  });
+}
+
+function destroyCharts() { Object.values(charts).forEach(c => c?.destroy?.()); charts = {}; }
+
+function renderReviewsList() {
+  let items = [...reviewsDataGlobal];
+  const sort = el.sortReviews.value;
+  if (sort === 'newest') items.sort((a,b) => new Date(b.review_time) - new Date(a.review_time));
+  else if (sort === 'highest') items.sort((a,b) => (b.rating||0) - (a.rating||0));
+  else if (sort === 'lowest') items.sort((a,b) => (a.rating||0) - (b.rating||0));
+  el.reviewsList.innerHTML = items.length ? items.map(r => `
+    <div class="border-bottom py-3 ${r.is_urgent ? 'urgent' : ''}">
       <div class="d-flex justify-content-between small text-muted">
-        <strong>${r.author_name||'Anonymous'}</strong>
-        <span>${r.review_time||''}</span>
+        <div class="d-flex align-items-center gap-2">
+          <strong>${r.author_name || 'Anonymous'}</strong>
+          ${(r.sentiment_label ? sentimentBadge(r.sentiment_label) : '')}
+          ${r.is_urgent ? '<span class="badge bg-danger text-xxs text-uppercase">urgent</span>' : ''}
+        </div>
+        <span>${r.review_time || ''}</span>
       </div>
-      <div class="text-warning my-1">${'★'.repeat(Math.round(r.rating||0))}${'☆'.repeat(5-Math.round(r.rating||0))}</div>
-      <p class="mb-0 small text-dark">${r.text||'<span class="text-muted italic">No comment left.</span>'}</p>
-    </div>`).join(''):'<p class="text-muted text-center py-4">No reviews found.</p>';
+      <div class="text-warning my-1">${renderStars(r.rating)}</div>
+      <p class="mb-1 small text-dark">${r.text || '<span class="text-muted italic">No comment left.</span>'}</p>
+      ${(r.detected_topics && r.detected_topics.length) ? `<div class="mt-1">${r.detected_topics.map(t => `<span class="badge bg-light text-dark border badge-topic">${t}</span>`).join('')}</div>` : ''}
+    </div>
+  `).join('') : '<p class="text-muted text-center py-4">No reviews found.</p>';
+}
+
+function renderAlerts(alerts=[]) {
+  if (!alerts || !alerts.length) { el.alertsList.innerHTML = '<span class="neutral-chip">No alerts in this period.</span>'; return; }
+  el.alertsList.innerHTML = alerts.map(a => `
+    <div class="alert-chip ${a.severity || 'low'}">
+      <i class="fa-solid fa-bell"></i>
+      <span><strong>${(a.type || 'alert').replace('_',' ')}</strong> — ${a.message || ''}</span>
+    </div>
+  `).join('');
+}
+
+function makeLine(ctx, labels, values, label, color, fill=false, yMin=null, yMax=null) {
+  return new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [{ label, data: values, borderColor: color, backgroundColor: color + '33', tension: .3, fill }] },
+    options: { plugins: { legend: { display: false } }, scales: { y: { min: yMin, max: yMax } } }
+  });
+}
+
+function makeBar(ctx, labels, values, color) {
+  return new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'Count', data: values, backgroundColor: color }] },
+    options: { plugins: { legend: { display: false } } }
+  });
+}
+
+function makeRadar(ctx, labels, values) {
+  return new Chart(ctx, {
+    type: 'radar',
+    data: { labels, datasets: [{ label: 'Aspects', data: values, backgroundColor: 'rgba(13,110,253,0.1)', borderColor: '#0d6efd', pointBackgroundColor: '#0d6efd' }] },
+    options: { plugins: { legend: { display: false } }, scales: { r: { suggestedMin: 0, suggestedMax: 1 } } }
+  });
+}
+
+function makeDoughnut(ctx, values, labels, colors) {
+  return new Chart(ctx, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 1 }] },
+    options: { plugins: { legend: { position: 'bottom' } } }
+  });
 }
 
 async function fetchDashboardData() {
-  if(!currentCompanyId) return;
-  show('loadingBox',true); show('successBox',false); show('nodataBox',false); show('errorBox',false);
-  const p={company_id:currentCompanyId,start:el.startDate.value,end:el.endDate.value},q=qs(p);
-  const [kpis,revS,ratD,sentS,revL,aspects,complaints,keywords,recs] = await Promise.all([
-    safeJsonFetch(`/api/kpis?${q}`,{total_reviews:0,avg_rating:0,avg_sentiment:0}),
-    safeJsonFetch(`/api/series/reviews?${q}`,{series:[]}),
-    safeJsonFetch(`/api/ratings/distribution?${q}`,{distribution:{}}),
-    safeJsonFetch(`/api/sentiment/series?${q}`,{series:[]}),
-    safeJsonFetch(`/api/reviews/list?${q}`,{items:[]}),
-    safeJsonFetch(`/api/aspects/avg?${q}`,{aspects:{}}),
-    safeJsonFetch(`/api/complaints/stats?${q}`,{complaint_rate:0,complaint_count:0,praise_count:0,total_reviews:0}),
-    safeJsonFetch(`/api/keywords/top?${q}`,{positive_keywords:[],negative_keywords:[]}),
-    safeJsonFetch(`/api/owner/executive-summary?${q}`,{final_verdict:'',top_action_item:'',business_health_score:0})
+  if (!currentCompanyId) return;
+  show('loadingBox', true); show('successBox', false); show('nodataBox', false); show('errorBox', false);
+
+  const p = { company_id: currentCompanyId, start: document.getElementById('startDate').value, end: document.getElementById('endDate').value };
+  const q = qs(p);
+
+  // Prefer new endpoints; gracefully fallback to legacy
+  const [
+    kpis,
+    overview,      // new
+    revS,          // legacy (volume)
+    ratD,
+    sentS,         // legacy
+    ratSeries,     // new
+    aspects,
+    ops,           // new
+    complaints,    // legacy fallback
+    keywordsNew,   // new
+    keywordsOld,   // legacy fallback
+    recsNew,       // new
+    recsOld,       // legacy fallback
+    feedNew,       // new
+    feedOld,       // legacy
+    alerts         // new
+  ] = await Promise.all([
+    safeJsonFetch(`/api/kpis?${q}`, { total_reviews:0, avg_rating:0, avg_sentiment:0, new_reviews:0, window:{} }),
+    safeJsonFetch(`/api/series/overview?${q}`, { volume:[], rating:[], sentiment:[] }),
+    safeJsonFetch(`/api/series/reviews?${q}`, { series:[] }),
+    safeJsonFetch(`/api/ratings/distribution?${q}`, { distribution:{} }),
+    safeJsonFetch(`/api/sentiment/series?${q}`, { series:[] }),
+    safeJsonFetch(`/api/series/ratings?${q}`, { series:[] }),
+    safeJsonFetch(`/api/aspects/avg?${q}`, { aspects:{} }),
+    safeJsonFetch(`/api/operational/overview?${q}`, null),
+    safeJsonFetch(`/api/complaints/stats?${q}`, null),
+    safeJsonFetch(`/api/keywords/themes?${q}`, null),
+    safeJsonFetch(`/api/keywords/top?${q}`, { positive_keywords:[], negative_keywords:[] }),
+    safeJsonFetch(`/api/ai/recommendations?${q}`, null),
+    safeJsonFetch(`/api/owner/executive-summary?${q}`, { final_verdict:'', top_action_item:'', business_health_score:0 }),
+    safeJsonFetch(`/api/reviews/feed?${q}`, null),
+    safeJsonFetch(`/api/reviews/list?${q}`, { items:[] }),
+    safeJsonFetch(`/api/alerts?${q}`, { alerts: [] })
   ]);
 
-  el.kpiTotal.textContent=kpis.total_reviews;
-  el.kpiRating.textContent=(kpis.avg_rating||0).toFixed(1);
-  el.kpiSent.textContent=(kpis.avg_sentiment||0).toFixed(3);
-  el.kpiNew.textContent=revS.series?.length?revS.series.at(-1)?.value||0:0;
+  // KPIs
+  el.kpiTotal.textContent = kpis.total_reviews ?? 0;
+  el.kpiRating.textContent = (kpis.avg_rating ?? 0).toFixed(1);
+  el.kpiSent.textContent = (kpis.avg_sentiment ?? 0).toFixed(3);
+  // Use backend new metric if present; fallback to last day's volume
+  const volSeries = (overview.volume?.length ? overview.volume : (revS.series || []));
+  const lastDayCount = volSeries.length ? (volSeries[volSeries.length-1].value || 0) : 0;
+  el.kpiNew.textContent = (kpis.new_reviews ?? lastDayCount) || 0;
 
-  Object.values(charts).forEach(c=>c?.destroy?.());
-  charts.rev=new Chart(document.getElementById('seriesReviews'),{type:'line',data:{labels:revS.series.map(x=>x.date),datasets:[{label:'Volume',data:revS.series.map(x=>x.value),borderColor:'#0d6efd',backgroundColor:'rgba(13,110,253,0.1)',tension:0.3,fill:true}]},options:{plugins:{legend:{display:false}}}});
-  charts.dist=new Chart(document.getElementById('ratingsDist'),{type:'bar',data:{labels:Object.keys(ratD.distribution),datasets:[{label:'Count',data:Object.values(ratD.distribution),backgroundColor:'#ffc107'}]},options:{plugins:{legend:{display:false}}}});
-  charts.sent=new Chart(document.getElementById('sentSeries'),{type:'line',data:{labels:sentS.series.map(x=>x.date),datasets:[{label:'Sentiment',data:sentS.series.map(x=>x.value),borderColor:'#6610f2',tension:0.3}]},options:{plugins:{legend:{display:false}},scales:{y:{min:-1,max:1}}}});
+  // Window display
+  const w = kpis.window || overview.window || {};
+  el.windowStart.textContent = w.start || p.start || '—';
+  el.windowEnd.textContent = w.end || p.end || '—';
 
-  reviewsDataGlobal=revL.items; renderReviewsList();
+  // Health / Verdict
+  const recs = recsNew || recsOld || {};
+  const verdict = recs.verdict || recs.final_verdict || '—';
+  const health = recs.business_health_score ?? null;
+  el.kpiVerdict.textContent = verdict;
+  el.kpiHealth.textContent = (health !== null && health !== undefined) ? `${health}%` : '—';
 
-  const aspectsDiv=document.getElementById('aspectsContainer'); aspectsDiv.innerHTML='';
-  Object.entries(aspects.aspects).forEach(([key,val])=>{if(val===null) return; const color=val>0.1?'success':val<-0.1?'danger':'warning'; aspectsDiv.innerHTML+=`<div class="col-4"><div class="card border-${color} aspect-card"><div class="card-body text-center p-2"><small class="text-capitalize text-muted">${key}</small><h5 class="text-${color} mb-0 fw-bold">${val.toFixed(2)}</h5></div></div></div>`});
+  // Operational KPIs
+  const op = ops || complaints || { complaint_rate: 0, complaint_count: 0, praise_count: 0, total_reviews: 0, urgent_issues: [] };
+  el.kpiComplaintRate.textContent = (op.complaint_rate ?? 0).toFixed(1) + '%';
+  el.kpiPraise.textContent = op.praise_count ?? 0;
 
-  document.getElementById('complaintsStats').innerHTML=`
-    <div class="col-4 border-end"><small class="text-muted d-block">Complaint Rate</small><h5 class="${complaints.complaint_rate>15?'text-danger':'text-success'} fw-bold">${complaints.complaint_rate}%</h5></div>
-    <div class="col-4 border-end"><small class="text-muted d-block">Complaints</small><h5 class="fw-bold">${complaints.complaint_count}</h5></div>
-    <div class="col-4"><small class="text-muted d-block">Praise</small><h5 class="text-success fw-bold">${complaints.praise_count}</h5></div>
-  `;
+  // Charts
+  destroyCharts();
+  // Volume
+  const volLabels = (overview.volume?.length ? overview.volume : (revS.series||[])).map(x => x.date);
+  const volValues = (overview.volume?.length ? overview.volume : (revS.series||[])).map(x => x.value);
+  charts.rev = makeLine(document.getElementById('seriesReviews'), volLabels, volValues, 'Volume', '#0d6efd', true);
 
-  document.getElementById('keywordsPositive').innerHTML=(keywords.positive_keywords||[]).map(k=>`<span class="badge bg-success-subtle text-success border border-success badge-kw">${k}</span>`).join('');
-  document.getElementById('keywordsNegative').innerHTML=(keywords.negative_keywords||[]).map(k=>`<span class="badge bg-danger-subtle text-danger border border-danger badge-kw">${k}</span>`).join('');
+  // Ratings distribution
+  const distLabels = Object.keys(ratD.distribution || {1:0,2:0,3:0,4:0,5:0});
+  const distValues = Object.values(ratD.distribution || {1:0,2:0,3:0,4:0,5:0});
+  charts.dist = makeBar(document.getElementById('ratingsDist'), distLabels, distValues, '#ffc107');
 
-  document.getElementById('recommendationsList').innerHTML=`
-    <div class="recommendation-badge">${recs.final_verdict}</div>
-    <div class="recommendation-badge">${recs.top_action_item}</div>
-    <div class="recommendation-badge">Business Health Score: ${recs.business_health_score}%</div>
-  `;
+  // Sentiment series
+  const senSeries = (overview.sentiment?.length ? overview.sentiment : (sentS.series||[]));
+  charts.sent = makeLine(
+    document.getElementById('sentSeries'),
+    senSeries.map(x => x.date),
+    senSeries.map(x => x.value),
+    'Sentiment', '#6610f2', false, -1, 1
+  );
 
-  show('loadingBox',false);
-  kpis.total_reviews>0?show('successBox',true):show('nodataBox',true);
+  // Rating series
+  const ratingSeries = (overview.rating?.length ? overview.rating : (ratSeries.series||[]));
+  charts.rating = makeLine(
+    document.getElementById('ratingSeries'),
+    ratingSeries.map(x => x.date),
+    ratingSeries.map(x => x.value),
+    'Rating', '#20c997'
+  );
+
+  // Aspects: cards + radar
+  const aspectsDiv = document.getElementById('aspectsContainer'); aspectsDiv.innerHTML = '';
+  const aspectEntries = Object.entries(aspects.aspects || {});
+  if (aspectEntries.length) {
+    aspectEntries.forEach(([key, val]) => {
+      if (val === null || val === undefined) return;
+      const color = val > 0.6 ? 'success' : (val < 0.4 ? 'danger' : 'warning');
+      aspectsDiv.innerHTML += `
+        <div class="col-6 col-md-4">
+          <div class="card border-${color} aspect-card">
+            <div class="card-body text-center p-2">
+              <small class="text-capitalize text-muted">${key}</small>
+              <h5 class="text-${color} mb-0 fw-bold">${(+val).toFixed(2)}</h5>
+            </div>
+          </div>
+        </div>`;
+    });
+    charts.aspectsRadar = makeRadar(
+      document.getElementById('aspectsRadar'),
+      aspectEntries.map(([k]) => k),
+      aspectEntries.map(([_, v]) => +v || 0)
+    );
+  } else {
+    aspectsDiv.innerHTML = '<p class="text-center text-muted small py-4">No aspect data available.</p>';
+  }
+
+  // Operational donut + quick stats
+  const total = op.total_reviews || 0;
+  const complaintsCount = op.complaint_count || 0;
+  const praiseCount = op.praise_count || 0;
+  const other = Math.max(total - complaintsCount - praiseCount, 0);
+  document.getElementById('complaintsStats').innerHTML = `
+    <div class="col-4 border-end"><small class="text-muted d-block">Complaint Rate</small><h5 class="${(op.complaint_rate||0) > 15 ? 'text-danger' : 'text-success'} fw-bold">${(op.complaint_rate||0).toFixed(1)}%</h5></div>
+    <div class="col-4 border-end"><small class="text-muted d-block">Complaints</small><h5 class="fw-bold">${complaintsCount}</h5></div>
+    <div class="col-4"><small class="text-muted d-block">Praise</small><h5 class="text-success fw-bold">${praiseCount}</h5></div>`;
+  charts.operationalPie = makeDoughnut(
+    document.getElementById('operationalPie'),
+    [complaintsCount, praiseCount, other],
+    ['Complaints', 'Praise', 'Other'],
+    ['#dc3545', '#198754', '#adb5bd']
+  );
+
+  // Themes & Keywords
+  const kw = keywordsNew || keywordsOld || { positive_keywords:[], negative_keywords:[], top_bigrams:[], emerging:[] };
+  document.getElementById('keywordsPositive').innerHTML = (kw.positive_keywords || []).map(k =>
+    `<span class="badge bg-success-subtle text-success border border-success badge-kw">${k}</span>`
+  ).join('');
+  document.getElementById('keywordsNegative').innerHTML = (kw.negative_keywords || []).map(k =>
+    `<span class="badge bg-danger-subtle text-danger border border-danger badge-kw">${k}</span>`
+  ).join('');
+  document.getElementById('keywordsBigrams').innerHTML = (kw.top_bigrams || []).map(k =>
+    `<span class="badge bg-primary-subtle text-primary border border-primary badge-kw">${k}</span>`
+  ).join('');
+  document.getElementById('keywordsEmerging').innerHTML = (kw.emerging || []).map(k =>
+    `<span class="badge bg-warning-subtle text-warning border border-warning badge-kw">${k}</span>`
+  ).join('');
+
+  // Recommendations
+  if (recsNew) {
+    const items = (recsNew.top_action_items || []).map(i => `<div class="recommendation-badge">${i}</div>`).join('');
+    document.getElementById('recommendationsList').innerHTML = `
+      <div class="recommendation-badge"><strong>Verdict:</strong> ${recsNew.verdict || '—'}</div>
+      ${items || ''}
+      <div class="recommendation-badge">Business Health Score: ${recsNew.business_health_score ?? '—'}%</div>
+    `;
+  } else {
+    document.getElementById('recommendationsList').innerHTML = `
+      <div class="recommendation-badge">${recsOld.final_verdict || ''}</div>
+      <div class="recommendation-badge">${recsOld.top_action_item || ''}</div>
+      <div class="recommendation-badge">Business Health Score: ${recsOld.business_health_score ?? 0}%</div>
+    `;
+  }
+
+  // Alerts
+  renderAlerts(alerts.alerts || []);
+
+  // Urgent issues (from operational overview if available)
+  const urgent = (ops && ops.urgent_issues) ? ops.urgent_issues : [];
+  el.urgentIssuesList.innerHTML = urgent.length ? urgent.map(u => `
+    <div class="border rounded p-2 mb-2 ${ (u.urgent_reason?.low_rating || u.urgent_reason?.very_negative_sentiment || u.urgent_reason?.keyword_flag) ? 'urgent' : ''}">
+      <div class="d-flex justify-content-between small text-muted">
+        <div>
+          <strong>${u.author_name || 'Anonymous'}</strong>
+          ${sentimentBadge(u.sentiment_label || 'neutral')}
+          ${(u.urgent_reason?.keyword_flag) ? '<span class="badge bg-danger ms-1">keyword</span>' : ''}
+        </div>
+        <span>${u.review_time || ''}</span>
+      </div>
+      <div class="text-warning my-1">${renderStars(u.rating)}</div>
+      <div class="small">${(u.text || '').slice(0, 280)}${(u.text || '').length > 280 ? '…' : ''}</div>
+    </div>
+  `).join('') : '<span class="neutral-chip">No urgent issues flagged.</span>';
+
+  // Reviews feed (prefer annotated feed; fallback to plain list)
+  const feedItems = (feedNew && feedNew.items) ? feedNew.items : (feedOld.items || []);
+  reviewsDataGlobal = feedItems;
+  renderReviewsList();
+
+  show('loadingBox', false);
+  (kpis.total_reviews > 0 || volValues.some(v => v > 0)) ? show('successBox', true) : show('nodataBox', true);
 }
 
-el.fetchBtn.addEventListener('click',fetchDashboardData);
-el.sortReviews.addEventListener('change',renderReviewsList);
+document.getElementById('fetchBtn').addEventListener('click', fetchDashboardData);
+document.getElementById('sortReviews').addEventListener('change', renderReviewsList);
 
-window.addEventListener('load',async()=>{
-  const end=new Date().toISOString().split('T')[0];
-  const start=new Date(new Date().setMonth(new Date().getMonth()-1)).toISOString().split('T')[0];
-  document.getElementById('startDate').value=start; document.getElementById('endDate').value=end;
+window.addEventListener('load', async () => {
+  const end = new Date().toISOString().split('T')[0];
+  const dt = new Date(); dt.setMonth(dt.getMonth() - 1);
+  const start = dt.toISOString().split('T')[0];
+  document.getElementById('startDate').value = start; document.getElementById('endDate').value = end;
   await loadCompanies();
-  if(currentCompanyId) fetchDashboardData();
+  if (currentCompanyId) fetchDashboardData();
 });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
