@@ -1,28 +1,26 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Strategic Dashboard - ReviewSaaS</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strategic Dashboard - ReviewSaaS</title>
 
-  <!-- Bootstrap & Chart.js -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <!-- Font Awesome (for existing lightbulb icon) -->
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+<!-- Bootstrap & Chart.js -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
 
-  <style>
-    body { background-color: #f4f7f6; }
-    .spinner, .success-msg, .nodata-msg, .error-msg { display: none; }
-    .aspect-card { min-height: 120px; transition: transform 0.2s; border-left: 5px solid; }
-    .aspect-card:hover { transform: translateY(-3px); }
-    .recommendation-badge { font-size: 0.85rem; display:block; border-left:3px solid #0dcaf0; background:#f0f9ff; padding:8px; margin-bottom:8px; border-radius:4px; color:#055160; }
-    .badge-kw { font-size:0.8rem; margin:2px; }
-    .badge-topic { font-size:.7rem; margin-left:6px; }
-    .neutral-chip { background:#f8f9fa; border:1px solid #e9ecef; padding:2px 6px; border-radius:4px; font-size:.75rem; color:#6c757d; }
-    .kpi-card { min-height: 84px; }
-    .urgent { background: #fff2f2; border-left: 4px solid #dc3545; }
-  </style>
+<style>
+  body { background-color: #f4f7f6; }
+  .spinner, .success-msg, .nodata-msg, .error-msg { display: none; }
+  .aspect-card { min-height: 120px; transition: transform 0.2s; border-left: 5px solid; }
+  .aspect-card:hover { transform: translateY(-3px); }
+  .recommendation-badge { font-size: 0.85rem; display:block; border-left:3px solid #0dcaf0; background:#f0f9ff; padding:8px; margin-bottom:8px; border-radius:4px; color:#055160; }
+  .badge-kw { font-size:0.8rem; margin:2px; }
+  .neutral-chip { background:#f8f9fa; border:1px solid #e9ecef; padding:2px 6px; border-radius:4px; font-size:.75rem; color:#6c757d; }
+  .kpi-card { min-height: 84px; }
+  .urgent { background: #fff2f2; border-left: 4px solid #dc3545; }
+</style>
 </head>
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
@@ -30,6 +28,7 @@
     <a class="navbar-brand fw-bold" href="/">Review<span class="text-primary">SaaS</span></a>
     <div class="d-flex gap-2">
       <a href="/companies" class="btn btn-outline-light btn-sm">Companies</a>
+      <button class="btn btn-success btn-sm" id="addCompanyBtn">Add Company</button>
       <a href="/logout" class="btn btn-warning btn-sm">Logout</a>
     </div>
   </div>
@@ -65,7 +64,7 @@
   <div id="nodataBox" class="alert alert-warning nodata-msg">No data found for this selection.</div>
   <div id="errorBox" class="alert alert-danger error-msg">Error communicating with backend.</div>
 
-  <!-- KPIs (preserved) -->
+  <!-- KPIs -->
   <div class="row g-3 mt-2">
     <div class="col-md-3"><div class="p-3 bg-white shadow-sm rounded text-center kpi-card">Total Reviews <h4 id="kpi-total" class="mb-0 fw-bold">0</h4></div></div>
     <div class="col-md-3"><div class="p-3 bg-white shadow-sm rounded text-center text-warning kpi-card">Avg Rating <h4 id="kpi-rating" class="mb-0 fw-bold">0.0</h4></div></div>
@@ -73,7 +72,7 @@
     <div class="col-md-3"><div class="p-3 bg-white shadow-sm rounded text-center text-info kpi-card">New (24h) <h4 id="kpi-new" class="mb-0 fw-bold">0</h4></div></div>
   </div>
 
-  <!-- Charts (preserved) -->
+  <!-- Charts -->
   <div class="row g-3 mt-3">
     <div class="col-lg-8">
       <div class="card border-0 shadow-sm">
@@ -99,10 +98,9 @@
     </div>
   </div>
 
-  <!-- Strategic Intelligence (preserved) -->
+  <!-- Strategic Intelligence -->
   <div class="row g-3 mt-4">
     <div class="col-12"><h5 class="fw-bold text-dark border-bottom pb-2">Strategic Intelligence</h5></div>
-
     <div class="col-lg-6">
       <div class="card border-0 shadow-sm h-100">
         <div class="card-body">
@@ -113,7 +111,6 @@
         </div>
       </div>
     </div>
-
     <div class="col-lg-6">
       <div class="card border-0 shadow-sm mb-3">
         <div class="card-body">
@@ -121,7 +118,6 @@
           <div id="complaintsStats" class="row text-center"></div>
         </div>
       </div>
-
       <div class="card border-0 shadow-sm mb-3">
         <div class="card-body">
           <h6 class="text-muted fw-bold mb-3">Mentioned Themes</h6>
@@ -129,7 +125,6 @@
           <div><small class="text-danger fw-bold">Pain Points:</small> <div id="keywordsNegative" class="d-inline"></div></div>
         </div>
       </div>
-
       <div class="card border-0 shadow-sm bg-light">
         <div class="card-body">
           <h6 class="text-dark fw-bold mb-3"><i class="fas fa-lightbulb text-warning"></i> AI Recommendations</h6>
@@ -139,7 +134,7 @@
     </div>
   </div>
 
-  <!-- Guest Feedback Feed (preserved) -->
+  <!-- Guest Feedback Feed -->
   <div class="row g-3 mt-4">
     <div class="col-12">
       <div class="card border-0 shadow-sm">
@@ -159,9 +154,37 @@
   </div>
 </div>
 
+<!-- Add Company Modal -->
+<div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addCompanyLabel">Add Company via Google API</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="addCompanyForm">
+          <div class="mb-3">
+            <label class="form-label">Company Name</label>
+            <input type="text" class="form-control" id="newCompanyName" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Google Place ID</label>
+            <input type="text" class="form-control" id="newCompanyPlaceId" required>
+          </div>
+          <button type="submit" class="btn btn-success">Add Company</button>
+        </form>
+        <div class="alert alert-success mt-2 d-none" id="addSuccessMsg">Company added successfully.</div>
+        <div class="alert alert-danger mt-2 d-none" id="addErrorMsg">Failed to add company.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 /* ------------------------------
-   DOM refs (preserve IDs)
+   DOM refs
 ------------------------------ */
 const el = {
   companySelect: document.getElementById('companySelect'),
@@ -219,30 +242,26 @@ function makeBar(ctx, labels, values, color) {
 }
 
 /* ------------------------------
-   Load companies (always choose one)
+   Load companies
 ------------------------------ */
 async function loadCompanies() {
   const data = await safeJsonFetch('/api/companies/list', { companies: [] });
   el.companySelect.innerHTML = '';
   if (!data.companies?.length) {
-    const opt = document.createElement('option');
-    opt.value = ''; opt.textContent = 'No companies found';
+    const opt = document.createElement('option'); opt.value=''; opt.textContent='No companies found';
     el.companySelect.appendChild(opt);
     currentCompanyId = null;
     show('nodataBox', true);
     return;
   }
   data.companies.forEach(c => {
-    const opt = document.createElement('option');
-    opt.value = c.id; opt.textContent = c.name;
+    const opt = document.createElement('option'); opt.value=c.id; opt.textContent=c.name;
     el.companySelect.appendChild(opt);
   });
   const lastId = localStorage.getItem('lastCompanyId');
-  if (lastId && data.companies.some(c => String(c.id)===String(lastId))) {
-    el.companySelect.value = lastId;
-  }
+  if (lastId && data.companies.some(c => String(c.id)===String(lastId))) el.companySelect.value=lastId;
   currentCompanyId = el.companySelect.value || data.companies[0].id;
-  if (!el.companySelect.value) el.companySelect.value = currentCompanyId;
+  if (!el.companySelect.value) el.companySelect.value=currentCompanyId;
   el.companySelect.addEventListener('change', () => {
     currentCompanyId = el.companySelect.value;
     localStorage.setItem('lastCompanyId', currentCompanyId);
@@ -250,7 +269,7 @@ async function loadCompanies() {
 }
 
 /* ------------------------------
-   Render reviews feed (preserved)
+   Render reviews feed
 ------------------------------ */
 function renderReviewsList() {
   let items = [...reviewsDataGlobal];
@@ -258,7 +277,6 @@ function renderReviewsList() {
   if (sort==='newest') items.sort((a,b)=>new Date(b.review_time)-new Date(a.review_time));
   else if (sort==='highest') items.sort((a,b)=>(b.rating||0)-(a.rating||0));
   else if (sort==='lowest') items.sort((a,b)=>(a.rating||0)-(b.rating||0));
-
   el.reviewsList.innerHTML = items.length ? items.map(r=>`
     <div class="border-bottom py-3 ${r.is_urgent?'urgent':''}">
       <div class="d-flex justify-content-between small text-muted">
@@ -272,7 +290,7 @@ function renderReviewsList() {
 }
 
 /* ------------------------------
-   Fetch & Fill (guaranteed fill)
+   Fetch dashboard data
 ------------------------------ */
 async function fetchDashboardData() {
   if (!currentCompanyId) { show('nodataBox', true); return; }
@@ -285,18 +303,7 @@ async function fetchDashboardData() {
   };
   const q = qs(params);
 
-  // Fetch (legacy endpoints kept so it works even if new ones aren’t deployed)
-  const [
-    kpis,
-    revS,
-    ratD,
-    sentS,
-    revL,
-    aspects,
-    complaints,
-    keywords,
-    recs
-  ] = await Promise.all([
+  const [kpis, revS, ratD, sentS, revL, aspects, complaints, keywords, recs] = await Promise.all([
     safeJsonFetch(`/api/kpis?${q}`, { total_reviews:0, avg_rating:0, avg_sentiment:0, new_reviews:0 }),
     safeJsonFetch(`/api/series/reviews?${q}`, { series:[] }),
     safeJsonFetch(`/api/ratings/distribution?${q}`, { distribution:{} }),
@@ -308,124 +315,90 @@ async function fetchDashboardData() {
     safeJsonFetch(`/api/owner/executive-summary?${q}`, { final_verdict:'—', top_action_item:'—', business_health_score:0 })
   ]);
 
-  // If first attempt shows 0 reviews, auto-widen once to ensure visible fill
-  if (!widenedOnce && (kpis.total_reviews ?? 0) === 0) {
-    widenedOnce = true;
-    document.getElementById('startDate').value = '2019-01-01';
-    await fetchDashboardData();
-    return;
-  }
-
-  // KPIs (always filled)
+  // KPIs
   el.kpiTotal.textContent = kpis.total_reviews ?? 0;
   el.kpiRating.textContent = (kpis.avg_rating ?? 0).toFixed(1);
   el.kpiSent.textContent = (kpis.avg_sentiment ?? 0).toFixed(3);
+  el.kpiNew.textContent = kpis.new_reviews ?? 0;
 
-  // New (24h): if backend didn’t supply, derive from last point of volume series
-  const volSeriesSafe = ensureSeries(revS.series);
-  const lastDayCount = volSeriesSafe[volSeriesSafe.length-1]?.value ?? 0;
-  el.kpiNew.textContent = (kpis.new_reviews ?? lastDayCount) || 0;
-
-  // Charts (always render, with safe placeholders)
+  // Charts
   destroyCharts();
+  charts.seriesReviews = makeLine(document.getElementById('seriesReviews'), ensureSeries(revS.series).map(s=>s.date), ensureSeries(revS.series).map(s=>s.value), 'Reviews', '#0d6efd');
+  charts.ratingsDist = makeBar(document.getElementById('ratingsDist'), Object.keys(ensureDist(ratD.distribution)), Object.values(ensureDist(ratD.distribution)), '#ffc107');
+  charts.sentSeries = makeLine(document.getElementById('sentSeries'), ensureSeries(sentS.series).map(s=>s.date), ensureSeries(sentS.series).map(s=>s.value), 'Sentiment', '#0dcaf0');
 
-  // Volume
-  const volLabels = volSeriesSafe.map(x=>x.date);
-  const volValues = volSeriesSafe.map(x=>x.value ?? 0);
-  charts.rev = makeLine(document.getElementById('seriesReviews'), volLabels, volValues, 'Volume', '#0d6efd', true);
-
-  // Ratings distribution
-  const dist = ensureDist(ratD.distribution);
-  const distLabels = Object.keys(dist);
-  const distValues = Object.values(dist).map(v=>+v||0);
-  charts.dist = makeBar(document.getElementById('ratingsDist'), distLabels, distValues, '#ffc107');
-  if (!distValues.some(v=>v>0)) addNote(document.getElementById('ratingsDist').parentElement, 'No ratings found in this window. Try widening the dates.');
-
-  // Sentiment series
-  const sentSeriesSafe = ensureSeries(sentS.series);
-  charts.sent = makeLine(
-    document.getElementById('sentSeries'),
-    sentSeriesSafe.map(x=>x.date),
-    sentSeriesSafe.map(x=>x.value ?? 0),
-    'Sentiment', '#6610f2', false, -1, 1
-  );
-
-  // Aspects (6 cards, always filled with 0.00 if missing)
-  const aspectKeys = ['rooms','staff','cleanliness','value','location','food'];
-  const asp = aspects.aspects || {};
-  el.aspectsContainer.innerHTML = '';
-  aspectKeys.forEach(key => {
-    const val = +(asp[key] ?? 0);
-    const color = val > 0.6 ? 'success' : (val < 0.4 ? 'danger' : 'warning');
-    el.aspectsContainer.innerHTML += `
-      <div class="col-6 col-md-4">
-        <div class="card border-${color} aspect-card">
-          <div class="card-body text-center p-2">
-            <small class="text-capitalize text-muted">${key}</small>
-            <h5 class="text-${color} mb-0 fw-bold">${val.toFixed(2)}</h5>
-          </div>
-        </div>
-      </div>`;
-  });
-
-  // Operational Overview (always filled)
-  const total = complaints.total_reviews || 0;
-  const complaintsCount = complaints.complaint_count || 0;
-  const praiseCount = complaints.praise_count || 0;
-  const rate = (complaints.complaint_rate || 0).toFixed(1);
-  el.complaintsStats.innerHTML = `
-    <div class="col-4 border-end"><small class="text-muted d-block">Complaint Rate</small><h5 class="${(complaints.complaint_rate||0)>15?'text-danger':'text-success'} fw-bold">${rate}%</h5></div>
-    <div class="col-4 border-end"><small class="text-muted d-block">Complaints</small><h5 class="fw-bold">${complaintsCount}</h5></div>
-    <div class="col-4"><small class="text-muted d-block">Praise</small><h5 class="text-success fw-bold">${praiseCount}</h5></div>
-  `;
-  if (total === 0) addNote(el.complaintsStats.parentElement, 'No operational events in this window. Try widening the dates.');
-
-  // Themes & Keywords (always filled)
-  const pos = keywords.positive_keywords || [];
-  const neg = keywords.negative_keywords || [];
-  el.keywordsPositive.innerHTML = pos.length
-    ? pos.map(k=>`<span class="badge bg-success-subtle text-success border border-success badge-kw">${k}</span>`).join('')
-    : '<span class="neutral-chip">No items</span>';
-  el.keywordsNegative.innerHTML = neg.length
-    ? neg.map(k=>`<span class="badge bg-danger-subtle text-danger border border-danger badge-kw">${k}</span>`).join('')
-    : '<span class="neutral-chip">No items</span>';
-
-  // Recommendations (always filled)
-  el.recommendationsList.innerHTML = `
-    <div class="recommendation-badge">${recs.final_verdict || '—'}</div>
-    <div class="recommendation-badge">${recs.top_action_item || '—'}</div>
-    <div class="recommendation-badge">Business Health Score: ${recs.business_health_score ?? 0}%</div>
-  `;
-
-  // Reviews feed (always filled)
+  // Reviews
   reviewsDataGlobal = revL.items || [];
   renderReviewsList();
 
-  // Alerts UI banners
+  // Aspects
+  const ac = el.aspectsContainer;
+  ac.innerHTML = '';
+  if (aspects?.aspects && Object.keys(aspects.aspects).length) {
+    Object.entries(aspects.aspects).forEach(([dept, val])=>{
+      const score = (val||0).toFixed(2);
+      ac.insertAdjacentHTML('beforeend', `<div class="col-6"><div class="p-2 aspect-card shadow-sm" style="border-color:${val>=0.5?'#198754':'#dc3545'};"><strong>${dept}</strong><br/>Score: ${score}</div></div>`);
+    });
+  } else addNote(ac,'No aspects data available');
+
+  // Complaints
+  const cs = el.complaintsStats; cs.innerHTML='';
+  if (complaints) {
+    cs.innerHTML = `
+      <div class="col"><small class="text-muted">Complaint Rate</small><div>${(complaints.complaint_rate*100||0).toFixed(2)}%</div></div>
+      <div class="col"><small class="text-muted">Complaints</small><div>${complaints.complaint_count||0}</div></div>
+      <div class="col"><small class="text-muted">Praises</small><div>${complaints.praise_count||0}</div></div>
+      <div class="col"><small class="text-muted">Total Reviews</small><div>${complaints.total_reviews||0}</div></div>
+    `;
+  }
+
+  // Keywords
+  el.keywordsPositive.innerHTML = keywords.positive_keywords?.map(k=>`<span class="badge bg-success badge-kw">${k}</span>`).join('')||'—';
+  el.keywordsNegative.innerHTML = keywords.negative_keywords?.map(k=>`<span class="badge bg-danger badge-kw">${k}</span>`).join('')||'—';
+
+  // Recommendations
+  el.recommendationsList.innerHTML = recs?.top_action_item ? `<div class="recommendation-badge">${recs.top_action_item}</div>` : '<p class="text-muted small">No recommendations.</p>';
+
   show('loadingBox', false);
   show('successBox', true);
-  if ((kpis.total_reviews ?? 0) === 0) show('nodataBox', true); // still show banner if truly no data even after widen
 }
 
 /* ------------------------------
-   Wire up
+   Add Company Modal
+------------------------------ */
+const addModal = new bootstrap.Modal(document.getElementById('addCompanyModal'));
+document.getElementById('addCompanyBtn').addEventListener('click', ()=> addModal.show());
+
+document.getElementById('addCompanyForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const name = document.getElementById('newCompanyName').value.trim();
+  const placeId = document.getElementById('newCompanyPlaceId').value.trim();
+  if(!name||!placeId) return;
+
+  const res = await safeJsonFetch('/api/companies/add', {success:false});
+  if(res.success) {
+    document.getElementById('addSuccessMsg').classList.remove('d-none');
+    document.getElementById('addErrorMsg').classList.add('d-none');
+    addModal.hide();
+    await loadCompanies();
+  } else {
+    document.getElementById('addErrorMsg').classList.remove('d-none');
+    document.getElementById('addSuccessMsg').classList.add('d-none');
+  }
+});
+
+/* ------------------------------
+   Event Listeners
 ------------------------------ */
 el.fetchBtn.addEventListener('click', fetchDashboardData);
 el.sortReviews.addEventListener('change', renderReviewsList);
 
-window.addEventListener('load', async () => {
-  // Default to last 30 days; if no data found, we auto-widen once in fetchDashboardData()
-  const end = new Date().toISOString().split('T')[0];
-  const d = new Date(); d.setMonth(d.getMonth() - 1);
-  const start = d.toISOString().split('T')[0];
-  document.getElementById('startDate').value = start;
-  document.getElementById('endDate').value = end;
-
+/* ------------------------------
+   Init
+------------------------------ */
+(async function init() {
   await loadCompanies();
-  if (currentCompanyId) fetchDashboardData();
-});
+})();
 </script>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
