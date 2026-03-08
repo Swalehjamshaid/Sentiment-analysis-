@@ -1,7 +1,6 @@
-# filename: review_saas/app/core/models.py
 from __future__ import annotations
 
-from datetime import datetime  # ← FIXED: added this import
+from datetime import datetime
 from sqlalchemy import (
     Column,
     Integer,
@@ -22,8 +21,8 @@ from sqlalchemy.sql import func
 # ---------------------------------------------------
 Base = declarative_base()
 
-# Bumped version to 7.0.3 to include is_praise + comprehensive Outscraper fields
-SCHEMA_VERSION = "11.0.3-full-outscraper-ready"
+# Bumped version to ensure Railway triggers a schema rebuild
+SCHEMA_VERSION = "11.0.4-full-outscraper-persistence-ready"
 
 # ---------------------------------------------------
 # Users
@@ -107,7 +106,7 @@ class Company(Base):
     competitors = relationship("Competitor", back_populates="company", cascade="all, delete-orphan")
 
 # ---------------------------------------------------
-# Reviews (enhanced with comprehensive Outscraper/Google fields)
+# Reviews (Includes fix for persistence)
 # ---------------------------------------------------
 class Review(Base):
     __tablename__ = "reviews"
@@ -122,7 +121,7 @@ class Review(Base):
     google_review_id: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
     review_url: Mapped[str | None] = mapped_column(String(1000))
 
-    # Reviewer Information (Outscraper/Google enriched)
+    # Reviewer Information
     author_name: Mapped[str | None] = mapped_column(String(255))
     author_id: Mapped[str | None] = mapped_column(String(255))
     author_url: Mapped[str | None] = mapped_column(String(1000))
@@ -130,40 +129,40 @@ class Review(Base):
     author_profile_photo: Mapped[str | None] = mapped_column(String(1000))
     author_reviews_count: Mapped[int | None] = mapped_column(Integer)
     author_level: Mapped[int | None] = mapped_column(Integer)
-    author_location: Mapped[str | None] = mapped_column(String(255))  # e.g. "Lahore, Pakistan"
-    author_contributions: Mapped[int | None] = mapped_column(Integer)  # total reviews/photos
+    author_location: Mapped[str | None] = mapped_column(String(255))
+    author_contributions: Mapped[int | None] = mapped_column(Integer)
 
     # Review Content
     rating: Mapped[int | None] = mapped_column(Integer)
     text: Mapped[str | None] = mapped_column(Text)
     review_language: Mapped[str | None] = mapped_column(String(50))
     google_review_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    
+    # 🚀 REFINED: Added for competitor fetching/persistence
+    competitor_name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    source_platform: Mapped[str | None] = mapped_column(String(100), default="Google")
 
     # Response / Reply Fields
     owner_answer: Mapped[str | None] = mapped_column(Text)
     owner_answer_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     review_reply_text: Mapped[str | None] = mapped_column(Text)
 
-    # Media & Attachments
-    review_photos: Mapped[list | None] = mapped_column(JSON)  # list of photo URLs
-    review_videos: Mapped[list | None] = mapped_column(JSON)  # list of video URLs
+    # Media
+    review_photos: Mapped[list | None] = mapped_column(JSON)
+    review_videos: Mapped[list | None] = mapped_column(JSON)
 
-    # Metrics & Engagement
+    # AI & Metrics
     review_likes: Mapped[int] = mapped_column(Integer, default=0)
     is_local_guide: Mapped[bool] = mapped_column(Boolean, default=False)
-
-    # AI & Classification Fields
-    sentiment_label: Mapped[str | None] = mapped_column(String(50))  # positive/neutral/negative
+    sentiment_label: Mapped[str | None] = mapped_column(String(50))
     sentiment_score: Mapped[float] = mapped_column(Float, default=0.0)
     keywords: Mapped[list | None] = mapped_column(JSON)
     topic_tags: Mapped[list | None] = mapped_column(JSON)
     spam_score: Mapped[float | None] = mapped_column(Float)
-
-    # Complaint/Praise Flags
     is_complaint: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_praise: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
-    # Aspect-based Scores (expanded for more coverage)
+    # Aspect Scores
     aspect_rooms: Mapped[float | None] = mapped_column(Float)
     aspect_staff: Mapped[float | None] = mapped_column(Float)
     aspect_location: Mapped[float | None] = mapped_column(Float)
@@ -175,7 +174,7 @@ class Review(Base):
     aspect_price: Mapped[float | None] = mapped_column(Float)
     aspect_atmosphere: Mapped[float | None] = mapped_column(Float)
 
-    # Sync & Tracking
+    # Sync Tracking
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -206,38 +205,27 @@ class Competitor(Base):
     company = relationship("Company", back_populates="competitors")
 
 # ---------------------------------------------------
-# Notifications
+# Notifications & Logs
 # ---------------------------------------------------
 class Notification(Base):
     __tablename__ = "notifications"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
-
     title: Mapped[str] = mapped_column(String(255))
     message: Mapped[str] = mapped_column(Text)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-# ---------------------------------------------------
-# Audit Logs
-# ---------------------------------------------------
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
-
     action: Mapped[str] = mapped_column(String(255), nullable=False)
     meta: Mapped[dict] = mapped_column(JSON, default={})
     ip_address: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-# ---------------------------------------------------
-# Config (global settings)
-# ---------------------------------------------------
 class Config(Base):
     __tablename__ = "config"
-
     key: Mapped[str] = mapped_column(String(255), primary_key=True)
     value: Mapped[str | None] = mapped_column(String(1000), nullable=True)
