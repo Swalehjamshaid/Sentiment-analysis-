@@ -12,23 +12,22 @@ from app.services.google_reviews import ingest_company_reviews
 
 logger = logging.getLogger(__name__)
 
-# Router with prefix="/api" — matches the log path
 router = APIRouter(prefix="/api", tags=["companies"])
 
 templates = Jinja2Templates(directory="app/templates")
 
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 # Helper: Authentication
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 def _require_user(request: Request) -> int | None:
     user_id = request.session.get("user_id")
     if not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return user_id
 
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 # Safe Google Maps Client
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 def _get_gmaps_client():
     if not settings.GOOGLE_PLACES_API_KEY:
         raise HTTPException(
@@ -37,9 +36,9 @@ def _get_gmaps_client():
         )
     return googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
 
-# ---------------------------------------------------------
-# Helper: Get companies with stats
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
+# Helper: Get companies with aggregated stats
+# ─────────────────────────────────────────────────────────────
 async def _get_companies_data(session, uid: int):
     stmt = (
         select(
@@ -68,9 +67,9 @@ async def _get_companies_data(session, uid: int):
         for r in res.all()
     ]
 
-# ---------------------------------------------------------
-# UI: Companies page (override prefix for clean URL)
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
+# UI: Companies page
+# ─────────────────────────────────────────────────────────────
 @router.get("/companies", response_class=HTMLResponse, include_in_schema=False)
 async def companies_page(
     request: Request,
@@ -105,9 +104,9 @@ async def companies_page(
         },
     )
 
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 # API: List companies
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 @router.get("/companies/list")
 async def list_companies(request: Request):
     uid = _require_user(request)
@@ -115,9 +114,9 @@ async def list_companies(request: Request):
         data = await _get_companies_data(session, uid)
     return {"success": True, "companies": data}
 
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 # API: Search Google Places
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 @router.get("/google/places/search")
 async def search_google_places(q: str = Query(..., min_length=3)):
     try:
@@ -136,16 +135,16 @@ async def search_google_places(q: str = Query(..., min_length=3)):
         logger.error(f"Google Places search failed: {e}", exc_info=True)
         return {"success": False, "message": str(e)}
 
-# ---------------------------------------------------------
-# API: Add new company — FIXED: now accepts form data (matches dashboard.html form)
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
+# API: Add new company (now accepts form data correctly)
+# ─────────────────────────────────────────────────────────────
 @router.post("/companies")
 async def add_new_company(
+    bg_tasks: BackgroundTasks,
     request: Request,
     name: str = Form(...),
     google_place_id: str = Form(...),
     address: str | None = Form(None),
-    bg_tasks: BackgroundTasks
 ):
     uid = _require_user(request)
     async with get_session() as session:
@@ -207,9 +206,9 @@ async def add_new_company(
         "message": "Company added successfully. Review sync started in background."
     }
 
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 # API: Sync reviews for existing company
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 @router.post("/companies/{company_id}/sync")
 async def company_sync(
     company_id: int,
@@ -245,9 +244,9 @@ async def company_sync(
         "companies": companies
     }
 
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 # DELETE: Remove company
-# ---------------------------------------------------------
+# ─────────────────────────────────────────────────────────────
 @router.post("/companies/{company_id}/delete")
 async def company_delete(request: Request, company_id: int):
     uid = _require_user(request)
