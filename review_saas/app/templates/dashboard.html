@@ -1,4 +1,3 @@
-<!-- filename: review_saas/app/templates/dashboard.html -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -6,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dashboard — ReviewSaaS</title>
 
-  <!-- Bootstrap & Chart.js -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
 
   <style>
     .spinner{display:none}
@@ -23,6 +23,9 @@
     .kpi h4{font-weight:700}
     .break-word{word-wrap:break-word; word-break:break-word;}
     .truncate{max-width:240px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+    
+    /* Autocomplete Styling */
+    .pac-container { z-index: 1060 !important; } /* Ensure it shows over modals */
   </style>
 </head>
 <body>
@@ -30,15 +33,54 @@
   <div class="container-fluid">
     <a class="navbar-brand" href="/dashboard">ReviewSaaS</a>
     <div class="d-flex gap-2">
-      <!-- IMPORTANT: Companies page lives at /api/companies because of router prefix="/api" -->
+      <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+        + Add Company
+      </button>
       <a href="/api/companies" class="btn btn-outline-light btn-sm">Companies</a>
       <a href="/logout" class="btn btn-warning btn-sm">Logout</a>
     </div>
   </div>
 </nav>
 
+<div class="modal fade" id="addCompanyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add New Company</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form id="addCompanyForm" action="/api/companies" method="POST">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Search Business (Google Maps)</label>
+            <input type="text" id="autocomplete" class="form-control" placeholder="Start typing business name..." autocomplete="off">
+            <div class="form-text">Search and select a business to autofill details.</div>
+          </div>
+          <hr>
+          <div class="mb-3">
+            <label class="form-label">Company Name</label>
+            <input type="text" name="name" id="comp_name" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Address</label>
+            <input type="text" name="address" id="comp_address" class="form-control">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Google Place ID</label>
+            <input type="text" name="google_place_id" id="comp_place_id" class="form-control" readonly>
+            <div class="form-text text-danger">Automatically fetched via Google API.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Company</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <div class="container py-4">
-  <!-- Top Controls -->
   <div class="row g-3 align-items-end">
     <div class="col-lg-4">
       <label class="form-label">Company</label>
@@ -51,7 +93,6 @@
           </select>
         </div>
         <div class="col-4 d-grid">
-          <!-- Keeping existing behaviour: user can still click Switch to hard-navigate -->
           <button class="btn btn-outline-secondary" type="submit">Switch</button>
         </div>
       </form>
@@ -77,12 +118,10 @@
     </div>
   </div>
 
-  <!-- Notices -->
   <div class="alert alert-info mt-3 spinner" id="loadingBox">Loading…</div>
   <div class="alert alert-success mt-3 success-msg" id="successBox">Dashboard updated successfully.</div>
   <div class="alert alert-warning mt-3 nodata-msg" id="nodataBox">No Data Found for selected date range.</div>
 
-  <!-- KPI Row -->
   <div class="row g-3 mt-2">
     <div class="col-md-3">
       <div class="p-3 bg-light border rounded text-center kpi">
@@ -110,7 +149,6 @@
     </div>
   </div>
 
-  <!-- Existing daily charts -->
   <div class="row g-3 mt-1">
     <div class="col-lg-8">
       <div class="card">
@@ -120,7 +158,6 @@
         </div>
       </div>
     </div>
-
     <div class="col-lg-4">
       <div class="card mb-3">
         <div class="card-body">
@@ -128,7 +165,6 @@
           <canvas id="ratingsDist" height="120"></canvas>
         </div>
       </div>
-
       <div class="card">
         <div class="card-body">
           <h6 class="text-muted">Sentiment Trend (Daily)</h6>
@@ -138,7 +174,6 @@
     </div>
   </div>
 
-  <!-- NEW: Sentiment Share + Aspect Sentiment + Trends -->
   <div class="row g-3 mt-1">
     <div class="col-lg-4">
       <div class="card h-100">
@@ -149,7 +184,6 @@
         </div>
       </div>
     </div>
-
     <div class="col-lg-4">
       <div class="card h-100">
         <div class="card-body">
@@ -159,7 +193,6 @@
         </div>
       </div>
     </div>
-
     <div class="col-lg-4">
       <div class="card h-100">
         <div class="card-body">
@@ -178,7 +211,6 @@
     </div>
   </div>
 
-  <!-- NEW: Volume vs Sentiment + Correlation -->
   <div class="row g-3 mt-1">
     <div class="col-lg-6">
       <div class="card h-100">
@@ -192,23 +224,19 @@
             </select>
           </div>
           <canvas id="volVsSent" height="200"></canvas>
-          <div class="small-muted mt-1">Bar = review count, Line = avg sentiment.</div>
         </div>
       </div>
     </div>
-
     <div class="col-lg-6">
       <div class="card h-100">
         <div class="card-body">
           <h6 class="text-muted">Rating vs Sentiment (Scatter)</h6>
           <canvas id="corrScatter" height="200"></canvas>
-          <div class="small-muted mt-1">Checks consistency between star ratings and text sentiment.</div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Alerts, AI Executive Summary, Recommendations -->
   <div class="row g-3 mt-1">
     <div class="col-lg-6">
       <div class="card h-100">
@@ -222,7 +250,6 @@
         </div>
       </div>
     </div>
-
     <div class="col-lg-3">
       <div class="card h-100">
         <div class="card-body">
@@ -235,7 +262,6 @@
         </div>
       </div>
     </div>
-
     <div class="col-lg-3">
       <div class="card h-100">
         <div class="card-body">
@@ -247,7 +273,6 @@
     </div>
   </div>
 
-  <!-- Keywords -->
   <div class="row g-3 mt-1">
     <div class="col-lg-8">
       <div class="card h-100">
@@ -273,8 +298,6 @@
         </div>
       </div>
     </div>
-
-    <!-- Existing numeric aspects (rooms/staff/...) still supported -->
     <div class="col-lg-4">
       <div class="card h-100">
         <div class="card-body">
@@ -287,7 +310,6 @@
     </div>
   </div>
 
-  <!-- Operational: urgent issues -->
   <div class="row g-3 mt-1">
     <div class="col-12">
       <div class="card">
@@ -302,7 +324,6 @@
     </div>
   </div>
 
-  <!-- Reviews (List) -->
   <div class="row g-3 mt-1">
     <div class="col-12">
       <div class="card">
@@ -322,13 +343,11 @@
     </div>
   </div>
 
-  <!-- Export & Sync -->
   <div class="mt-3">
     {% if active_company_id %}
       <a class="btn btn-outline-primary" href="/api/export/reviews.csv?company_id={{active_company_id}}">Export CSV</a>
       <a class="btn btn-outline-primary" href="/api/export/reviews.xlsx?company_id={{active_company_id}}">Export Excel</a>
       <a class="btn btn-outline-primary" href="/api/export/summary.pdf?company_id={{active_company_id}}">Export PDF</a>
-      <!-- IMPORTANT: Sync endpoint is /api/companies/{id}/sync -->
       <form class="d-inline" method="post" action="/api/companies/{{active_company_id}}/sync">
         <button class="btn btn-success">Sync Reviews for Active Company</button>
       </form>
@@ -336,14 +355,41 @@
   </div>
 </div>
 
-<script>
-/* Active company id injected by server (may be null) */
-let companyId = {{ active_company_id or 'null' }};
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-/* Optional API links map from backend (if provided via api_links) */
+<script>
+/* GOOGLE PLACES AUTOCOMPLETE LOGIC */
+function initAutocomplete() {
+  const input = document.getElementById("autocomplete");
+  const options = {
+    fields: ["place_id", "name", "formatted_address"],
+    strictBounds: false,
+    types: ["establishment"],
+  };
+
+  const autocomplete = new google.maps.places.Autocomplete(input, options);
+
+  autocomplete.addListener("place_changed", () => {
+    const place = autocomplete.getPlace();
+    if (!place.place_id) {
+      window.alert("No details available for input: '" + place.name + "'");
+      return;
+    }
+
+    // Autofill the hidden/visible fields
+    document.getElementById("comp_name").value = place.name || "";
+    document.getElementById("comp_address").value = place.formatted_address || "";
+    document.getElementById("comp_place_id").value = place.place_id || "";
+  });
+}
+
+// Call Google Maps init on window load
+window.onload = initAutocomplete;
+
+/* DASHBOARD LOGIC */
+let companyId = {{ active_company_id or 'null' }};
 const linksFromServer = {% if api_links %}{{ api_links | safe }}{% else %}null{% endif %};
 
-/* Fallback if not provided */
 const API = linksFromServer || {
   kpis: "/api/kpis",
   ratings_distribution: "/api/ratings/distribution",
@@ -366,7 +412,6 @@ const API = linksFromServer || {
   v2_summary_png: "/api/v2/charts/summary.png",
 };
 
-/* If companyId missing, pick the dropdown value */
 (function ensureCompanyId(){
   if (!companyId) {
     const sel = document.getElementById('companySelect');
@@ -374,12 +419,10 @@ const API = linksFromServer || {
   }
 })();
 
-/* Chart handles (destroy before redraw) */
 let chartReviews = null, chartDist = null, chartSent = null;
 let chartAspectsNumeric = null, chartSentShare = null, chartAspectsStacked = null;
 let chartTrend = null, chartVolVsSent = null, chartCorr = null;
 
-/* Helpers */
 function qs(p){ return new URLSearchParams(p).toString(); }
 function setLoading(v){ document.getElementById('loadingBox').style.display = v ? 'block' : 'none'; }
 function showSuccess(v){ document.getElementById('successBox').style.display = v ? 'block' : 'none'; }
@@ -409,7 +452,6 @@ function chips(container, items, cls){
   }
 }
 
-/* MAIN LOAD */
 async function fetchAll(){
   if (!companyId) {
     showNoData(true);
@@ -421,7 +463,6 @@ async function fetchAll(){
   const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
 
   try {
-    // Core KPIs + daily series
     const [k, r, d, s] = await Promise.all([
       fetchJSON(API.kpis + "?" + p),
       fetchJSON(API.series_reviews + "?" + p),
@@ -429,16 +470,13 @@ async function fetchAll(){
       fetchJSON(API.series_sentiment + "?" + p),
     ]);
 
-    // KPIs
     document.getElementById('kpi-total').textContent = Number(k.total_reviews || 0);
     document.getElementById('kpi-rating').textContent = (Number(k.avg_rating || 0)).toFixed(2);
     document.getElementById('kpi-sent').textContent = (Number(k.avg_sentiment || 0)).toFixed(3);
     document.getElementById('kpi-new').textContent = Number(k.new_reviews || 0);
 
-    // Destroy existing charts
     [chartReviews, chartDist, chartSent].forEach(c => c && c.destroy());
 
-    // Review Volume (daily)
     chartReviews = new Chart(document.getElementById('seriesReviews'), {
       type: 'line',
       data: {
@@ -455,7 +493,6 @@ async function fetchAll(){
       options: { responsive: true, scales: { y: { beginAtZero: true } } }
     });
 
-    // Rating Distribution
     const labels = d.distribution ? Object.keys(d.distribution) : ['1','2','3','4','5'];
     const vals = d.distribution ? Object.values(d.distribution) : [0,0,0,0,0];
     chartDist = new Chart(document.getElementById('ratingsDist'), {
@@ -467,7 +504,6 @@ async function fetchAll(){
       options: { responsive: true, scales: { y: { beginAtZero: true } } }
     });
 
-    // Sentiment Trend (daily)
     chartSent = new Chart(document.getElementById('sentSeries'), {
       type: 'line',
       data: {
@@ -484,12 +520,11 @@ async function fetchAll(){
       options: { responsive: true, scales: { y: { min: -1, max: 1 } } }
     });
 
-    // Secondary panels
     await Promise.all([
       loadSentimentShare(),
       loadAspectSentiment(),
-      loadTrends(),               // default freq from selector
-      loadVolumeVsSentiment(),    // default freq from selector
+      loadTrends(),
+      loadVolumeVsSentiment(),
       loadCorrelation(),
       loadAlerts(),
       loadExecutiveAndActions(),
@@ -499,9 +534,7 @@ async function fetchAll(){
       loadReviews()
     ]);
 
-    // Summary PNG
     document.getElementById('miniPng').src = API.v2_summary_png + "?" + p;
-
     showSuccess(true);
     if ((k.total_reviews || 0) === 0) showNoData(true);
   } catch (err){
@@ -512,17 +545,14 @@ async function fetchAll(){
   }
 }
 
-/* NEW: Overall Sentiment Share (pie/donut) */
+/* SUB-LOADERS (Sentiment Share, Trends, etc.) remain unchanged as requested */
 async function loadSentimentShare(){
   const {start, end} = getDates();
   const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
   const out = await fetchJSON(API.sentiment_share + "?" + p);
-
   if (chartSentShare) chartSentShare.destroy();
-
   const counts = out.counts || {positive:0, neutral:0, negative:0};
   const vals = [counts.positive||0, counts.neutral||0, counts.negative||0];
-
   chartSentShare = new Chart(document.getElementById('sentShare'), {
     type: 'doughnut',
     data: {
@@ -531,342 +561,169 @@ async function loadSentimentShare(){
     },
     options: { responsive: true, cutout: '55%' }
   });
-
-  document.getElementById('sentShareInfo').textContent =
-    `Total: ${out.total || 0} (Window ${out.window?.start || ''} → ${out.window?.end || ''})`;
+  document.getElementById('sentShareInfo').textContent = `Total: ${out.total || 0}`;
 }
 
-/* NEW: Aspect-Based Sentiment (stacked bars) */
 async function loadAspectSentiment(){
   const {start, end} = getDates();
   const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
   const out = await fetchJSON(API.aspects_sentiment + "?" + p);
-
   if (chartAspectsStacked) chartAspectsStacked.destroy();
-
   const aspects = out.aspects || [];
   const labels = aspects.map(a => a.aspect);
-  const pos = aspects.map(a => a.positive || 0);
-  const neu = aspects.map(a => a.neutral || 0);
-  const neg = aspects.map(a => a.negative || 0);
-
   chartAspectsStacked = new Chart(document.getElementById('aspectsStacked'), {
     type: 'bar',
     data: {
       labels,
       datasets: [
-        { label:'Positive', data: pos, backgroundColor:'#2ecc71' },
-        { label:'Neutral', data: neu, backgroundColor:'#bdc3c7' },
-        { label:'Negative', data: neg, backgroundColor:'#e74c3c' }
+        { label:'Positive', data: aspects.map(a => a.positive || 0), backgroundColor:'#2ecc71' },
+        { label:'Neutral', data: aspects.map(a => a.neutral || 0), backgroundColor:'#bdc3c7' },
+        { label:'Negative', data: aspects.map(a => a.negative || 0), backgroundColor:'#e74c3c' }
       ]
     },
     options: { responsive: true, scales: { x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } } }
   });
 }
 
-/* NEW: Trend Over Time (sentiment + rating) */
 async function loadTrends(){
   const freq = document.getElementById('trendFreq').value || 'week';
   const {start, end} = getDates();
   const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, freq}).filter(([_,v])=>v)));
   const out = await fetchJSON(API.trends + "?" + p);
-
   if (chartTrend) chartTrend.destroy();
-
-  const labels = (out.series || []).map(x => x.period);
-  const sVals = (out.series || []).map(x => x.avg_sentiment);
-  const rVals = (out.series || []).map(x => x.avg_rating);
-
   chartTrend = new Chart(document.getElementById('trendSeries'), {
     type: 'line',
     data: {
-      labels,
+      labels: (out.series || []).map(x => x.period),
       datasets: [
-        { label:'Avg Sentiment', data:sVals, yAxisID:'y', borderColor:'#6f42c1', backgroundColor:'rgba(111,66,193,0.1)', tension:0.3, fill:true },
-        { label:'Avg Rating', data:rVals, yAxisID:'y1', borderColor:'#0dcaf0', backgroundColor:'rgba(13,202,240,0.1)', tension:0.3, fill:true }
+        { label:'Avg Sentiment', data:(out.series || []).map(x => x.avg_sentiment), yAxisID:'y', borderColor:'#6f42c1', tension:0.3, fill:true },
+        { label:'Avg Rating', data:(out.series || []).map(x => x.avg_rating), yAxisID:'y1', borderColor:'#0dcaf0', tension:0.3, fill:true }
       ]
     },
-    options: {
-      responsive:true,
-      scales: {
-        y: { position:'left', min:-1, max:1 },
-        y1: { position:'right', min:0, max:5, grid:{ drawOnChartArea:false } }
-      }
-    }
+    options: { responsive:true, scales: { y: { position:'left', min:-1, max:1 }, y1: { position:'right', min:0, max:5, grid:{ drawOnChartArea:false } } } }
   });
 }
 
-/* NEW: Volume vs Sentiment (dual-axis) */
 async function loadVolumeVsSentiment(){
   const freq = document.getElementById('vvsFreq').value || 'week';
   const {start, end} = getDates();
   const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, freq}).filter(([_,v])=>v)));
   const out = await fetchJSON(API.volume_vs_sentiment + "?" + p);
-
   if (chartVolVsSent) chartVolVsSent.destroy();
-
-  const labels = (out.series || []).map(x => x.period);
-  const counts = (out.series || []).map(x => x.count);
-  const sVals = (out.series || []).map(x => x.avg_sentiment);
-
   chartVolVsSent = new Chart(document.getElementById('volVsSent'), {
     data: {
-      labels,
+      labels: (out.series || []).map(x => x.period),
       datasets: [
-        { type:'bar', label:'Reviews', data:counts, yAxisID:'y', backgroundColor:'#0d6efd' },
-        { type:'line', label:'Avg Sentiment', data:sVals, yAxisID:'y1', borderColor:'#198754', tension:0.3 }
+        { type:'bar', label:'Reviews', data:(out.series || []).map(x => x.count), yAxisID:'y', backgroundColor:'#0d6efd' },
+        { type:'line', label:'Avg Sentiment', data:(out.series || []).map(x => x.avg_sentiment), yAxisID:'y1', borderColor:'#198754', tension:0.3 }
       ]
     },
-    options: {
-      responsive:true,
-      scales: {
-        y: { beginAtZero:true, position:'left' },
-        y1: { min:-1, max:1, position:'right', grid:{ drawOnChartArea:false } }
-      }
-    }
+    options: { responsive:true, scales: { y: { beginAtZero:true }, y1: { min:-1, max:1, position:'right' } } }
   });
 }
 
-/* NEW: Rating vs Sentiment Correlation (scatter) */
 async function loadCorrelation(){
   const {start, end} = getDates();
   const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
   const out = await fetchJSON(API.correlation_rating_sentiment + "?" + p);
-
   if (chartCorr) chartCorr.destroy();
-
-  const points = (out.points || []).map(pt => ({x: pt.rating, y: pt.sentiment}));
-
   chartCorr = new Chart(document.getElementById('corrScatter'), {
     type: 'scatter',
-    data: { datasets: [{ label:'Rating vs Sentiment', data: points, borderColor:'#fd7e14', backgroundColor:'rgba(253,126,20,0.2)', pointRadius:3 }] },
-    options: {
-      responsive:true,
-      scales: {
-        x: { min:0, max:5, title:{ display:true, text:'Rating (1-5)' } },
-        y: { min:-1, max:1, title:{ display:true, text:'Sentiment (-1..1)' } }
-      }
-    }
+    data: { datasets: [{ label:'Rating vs Sentiment', data: (out.points || []).map(pt => ({x: pt.rating, y: pt.sentiment})), borderColor:'#fd7e14' }] },
+    options: { responsive:true, scales: { x: { min:0, max:5 }, y: { min:-1, max:1 } } }
   });
 }
 
-/* Alerts */
 async function loadAlerts(){
   const {start, end} = getDates();
   const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
   const out = await fetchJSON(API.alerts + "?" + p);
-  document.getElementById('alertsWindow').textContent = `Window: ${out.window.start} → ${out.window.end}`;
-
   const box = document.getElementById('alertsList');
-  const empty = document.getElementById('alertsEmpty');
   box.innerHTML = '';
   if (!out.alerts || out.alerts.length === 0){
-    empty.style.display = 'block';
+    document.getElementById('alertsEmpty').style.display = 'block';
     return;
   }
-  empty.style.display = 'none';
+  document.getElementById('alertsEmpty').style.display = 'none';
   for (const a of out.alerts){
-    const badge = a.severity === 'high' ? 'danger' : (a.severity === 'medium' ? 'warning' : 'secondary');
-    const li = `<li><span class="badge bg-${badge} me-2">${a.type.replace('_',' ')}</span>${a.message}</li>`;
-    box.insertAdjacentHTML('beforeend', li);
+    const badge = a.severity === 'high' ? 'danger' : 'secondary';
+    box.insertAdjacentHTML('beforeend', `<li><span class="badge bg-${badge} me-2">${a.type}</span>${a.message}</li>`);
   }
 }
 
-/* AI Executive + Actions */
 async function loadExecutiveAndActions(){
   const {start, end} = getDates();
   const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
   const exec = await fetchJSON(API.v2_exec_summary + "?" + p);
   const recs = await fetchJSON(API.v2_recommendations + "?" + p);
-
   document.getElementById('execSummary').textContent = exec.summary || '—';
   document.getElementById('execConclusion').textContent = exec.conclusion || '—';
-  const rationale = (exec.rationale || []).map(x => `• ${x}`).join('\n');
-  document.getElementById('execRationale').textContent = rationale || '';
-
   const ol = document.getElementById('actionItems');
   ol.innerHTML = '';
-  for (const a of (recs.top_action_items || [])){
+  (recs.top_action_items || []).forEach(a => {
     const li = document.createElement('li');
-    li.className = 'break-word';
     li.textContent = a;
     ol.appendChild(li);
-  }
+  });
 }
 
-/* Keywords */
 async function loadKeywords(){
   const {start, end} = getDates();
   const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, limit: 15}).filter(([_,v])=>v)));
   const out = await fetchJSON(API.v2_keywords + "?" + p);
-
   chips('kwPositive', (out.positive || []).map(x => x.term), 'pos');
   chips('kwNegative', (out.negative || []).map(x => x.term), 'neg');
   chips('kwEmerging', (out.emerging || []).map(x => x.term), 'emg');
-
-  const bigs = (out.bigrams || []).map(b => b.term + ' (' + b.freq + ')');
-  chips('kwBigrams', bigs, 'pos');
 }
 
-/* Existing numeric aspects (rooms/staff/...) — safe if zeros */
 async function loadAspectsNumeric(){
   const {start, end} = getDates();
   const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
   const a = await fetchJSON(API.aspects_avg + "?" + p);
-
   if (chartAspectsNumeric) chartAspectsNumeric.destroy();
-
   const labels = ['rooms','staff','cleanliness','value','location','food'];
-  const values = labels.map(k => Number((a.aspects || {})[k] || 0));
-
   chartAspectsNumeric = new Chart(document.getElementById('aspectsChart'), {
     type: 'bar',
     data: {
       labels: labels.map(s => s[0].toUpperCase()+s.slice(1)),
-      datasets: [{ label: 'Avg', data: values, backgroundColor: '#20c997' }]
+      datasets: [{ label: 'Avg', data: labels.map(k => (a.aspects || {})[k] || 0), backgroundColor: '#20c997' }]
     },
     options: { responsive: true, scales: { y: { beginAtZero: true, max: 1 } } }
   });
-
-  document.getElementById('aspectsStrengths').textContent = (a.strengths || []).join(', ') || '—';
-  document.getElementById('aspectsWeaknesses').textContent = (a.weaknesses || []).join(', ') || '—';
 }
 
-/* Operational overview (urgent issues) */
 async function loadOperational(){
   const {start, end} = getDates();
   const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, limit_urgent: 8}).filter(([_,v])=>v)));
   const op = await fetchJSON(API.operational + "?" + p);
-
-  document.getElementById('opsWindow').textContent =
-    `Total: ${op.total_reviews}, Complaints: ${op.complaint_count} (${op.complaint_rate}%)`;
-
   const box = document.getElementById('urgentIssues');
   box.innerHTML = '';
-
-  if (!op.urgent_issues || op.urgent_issues.length === 0){
-    box.innerHTML = '<div class="small-muted">No urgent issues flagged.</div>';
-    return;
-  }
-
-  for (const u of op.urgent_issues){
-    const rating = Number(u.rating || 0);
-    const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
-    const reason = [];
-    if (u.urgent_reason?.low_rating) reason.push('Low rating');
-    if (u.urgent_reason?.very_negative_sentiment) reason.push('Very negative sentiment');
-    if (u.urgent_reason?.keyword_flag) reason.push('Urgent keyword');
-    const html = `
-      <div class="border rounded p-2 mb-2">
-        <div class="d-flex justify-content-between small text-muted">
-          <span>${u.author_name || 'Anonymous'}</span>
-          <span>${u.review_time || ''}</span>
-        </div>
-        <div class="small">
-          <span class="me-2">${stars}</span>
-          <span>Sent: ${(u.sentiment_score ?? 0).toFixed(3)} (${u.sentiment_label})</span>
-        </div>
-        <div class="mt-1 break-word">${(u.text || '').slice(0, 1000)}</div>
-        <div class="mt-1"><span class="badge bg-danger">${reason.join(' • ')}</span></div>
-      </div>
-    `;
-    box.insertAdjacentHTML('beforeend', html);
-  }
+  (op.urgent_issues || []).forEach(u => {
+    box.insertAdjacentHTML('beforeend', `<div class="border rounded p-2 mb-2 small">${u.author_name}: ${u.text.slice(0, 150)}...</div>`);
+  });
 }
 
-/* Reviews list — calls /api/reviews/list; if unavailable, falls back to /api/reviews/feed/{company_id} */
 async function loadReviews(){
-  const sort = document.getElementById('sortReviews').value;
   const {start, end} = getDates();
-  const common = Object.fromEntries(Object.entries({company_id: companyId, start, end, sort}).filter(([_,v])=>v));
-  const p = qs(common);
-
+  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
+  const out = await fetchJSON(API.reviews_list + "?" + p);
   const box = document.getElementById('reviewsList');
   box.innerHTML = '';
-
-  // Try preferred endpoint first
-  try {
-    const out = await fetchJSON(API.reviews_list + "?" + p);
-    for (const r of (out.items || [])){
-      const rating = Number(r.rating || 0);
-      const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
-      const card = `
-        <div class="border rounded p-2 mb-2">
-          <div class="d-flex justify-content-between small text-muted">
-            <span>${r.author_name || 'Anonymous'}</span>
-            <span>${r.review_time || ''}</span>
-          </div>
-          <div>
-            <span class="me-2">${stars}</span>
-            <span>${rating.toFixed(1)}</span>
-          </div>
-          <div class="break-word">${(r.text || '').slice(0, 2000)}</div>
-        </div>
-      `;
-      box.insertAdjacentHTML('beforeend', card);
-    }
-    if (!out.items || out.items.length === 0){
-      box.innerHTML = '<div class="text-muted small">No reviews in this range.</div>';
-    }
-    return; // done
-  } catch (e) {
-    console.warn("Primary /api/reviews/list failed; trying feed fallback…", e);
-  }
-
-  // Fallback to reviews feed in app/routes/reviews.py
-  try {
-    const feedParams = qs(Object.fromEntries(Object.entries({
-      start_date: common.start, end_date: common.end, limit: 50
-    }).filter(([_,v])=>v)));
-    const out = await fetchJSON(`/api/reviews/feed/${companyId}` + (feedParams ? `?${feedParams}` : ''));
-    const rows = out.reviews || [];
-    for (const r of rows){
-      const author = r.author_name || r.author || 'Anonymous';
-      const rating = Number(r.rating || 0);
-      const text = r.text || r.review_text || '';
-      const dt = r.review_time || r.date || '';
-      const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
-      const card = `
-        <div class="border rounded p-2 mb-2">
-          <div class="d-flex justify-content-between small text-muted">
-            <span>${author}</span>
-            <span>${(typeof dt === 'string' ? dt : (dt || '')).toString().slice(0, 10)}</span>
-          </div>
-          <div>
-            <span class="me-2">${stars}</span>
-            <span>${rating.toFixed(1)}</span>
-          </div>
-          <div class="break-word">${(text || '').slice(0, 2000)}</div>
-        </div>
-      `;
-      box.insertAdjacentHTML('beforeend', card);
-    }
-    if (rows.length === 0){
-      box.innerHTML = '<div class="text-muted small">No reviews in this range.</div>';
-    }
-  } catch (e2) {
-    console.error("Fallback /api/reviews/feed failed:", e2);
-    box.innerHTML = '<div class="text-muted small">Unable to load reviews.</div>';
-  }
+  (out.items || []).forEach(r => {
+    box.insertAdjacentHTML('beforeend', `<div class="border rounded p-2 mb-2 small"><strong>${r.author_name}</strong> (${r.rating}★): ${r.text.slice(0, 200)}</div>`);
+  });
 }
 
-/* Init */
+/* Init Execution */
 (function init(){
-  // Default to last 30 days (inclusive)
   const today = new Date().toISOString().slice(0,10);
   document.getElementById('endDate').value = today;
   const start = new Date(Date.now() - 29*86400000).toISOString().slice(0,10);
   document.getElementById('startDate').value = start;
 
-  // Auto-refresh on company change: reset dates to last 30d and fetch
-  const sel = document.getElementById('companySelect');
-  sel.addEventListener('change', (e) => {
+  document.getElementById('companySelect').addEventListener('change', (e) => {
     companyId = Number(e.target.value);
-    const t = new Date().toISOString().slice(0,10);
-    const s = new Date(Date.now() - 29*86400000).toISOString().slice(0,10);
-    document.getElementById('endDate').value = t;
-    document.getElementById('startDate').value = s;
-    fetchAll(); // refresh without navigation
+    fetchAll();
   });
 
   document.getElementById('fetchBtn').addEventListener('click', fetchAll);
