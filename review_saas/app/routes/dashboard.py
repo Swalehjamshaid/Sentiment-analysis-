@@ -7,7 +7,7 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple, Any
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, Response, JSONResponse
@@ -91,7 +91,7 @@ def _range_or_default(start: Optional[str], end: Optional[str], default_days: in
         start_dt, end_dt = end_dt, start_dt
     return start_dt, end_dt
 
-def _date_col() -> any:
+def _date_col() -> Any:
     """DATE version for WHERE filters."""
     base = getattr(Review, "google_review_time", None)
     created = getattr(Review, "created_at", None)
@@ -99,7 +99,7 @@ def _date_col() -> any:
         return cast(func.coalesce(Review.google_review_time, Review.created_at), Date)
     return cast(Review.google_review_time, Date)
 
-def _ts_col() -> any:
+def _ts_col() -> Any:
     """TIMESTAMP version for date_trunc/group-by."""
     base = getattr(Review, "google_review_time", None)
     created = getattr(Review, "created_at", None)
@@ -107,33 +107,9 @@ def _ts_col() -> any:
         return func.coalesce(Review.google_review_time, Review.created_at)
     return Review.google_review_time
 
-async def _min_date_for_company(company_id: int) -> Optional[date]:
-    """Earliest available review date for the company."""
-    async with get_session() as session:
-        dc = _date_col()
-        q = await session.execute(select(func.min(dc)).where(Review.company_id == company_id))
-        d = q.scalar()
-    if isinstance(d, datetime):
-        return d.date()
-    return d
-
-async def _auto_range_full_history(company_id: int, start: Optional[str], end: Optional[str]) -> Tuple[date, date]:
-    """
-    If UI does not pass both start & end, use full history:
-      start = earliest available review date for the company
-      end   = today
-    Otherwise, respect provided dates.
-    """
-    if start or end:
-        return _range_or_default(start, end)
-    mn = await _min_date_for_company(company_id)
-    today = date.today()
-    if mn is None:
-        # No data yet → default to last DEFAULT_DAYS to keep shape
-        return _range_or_default(None, None)
-    if mn > today:
-        mn = today
-    return mn, today
+# NOTE: New helper → default to LAST 30 DAYS unless start/end provided.
+async def _auto_range_last30(company_id: int, start: Optional[str], end: Optional[str]) -> Tuple[date, date]:
+    return _range_or_default(start, end, default_days=DEFAULT_DAYS)
 
 def _rating_sent_fallback():
     """Robust fallback: cast rating to int to support string ratings and map to proxy sentiment."""
@@ -412,7 +388,7 @@ async def api_kpis(company_id: int, start: Optional[str] = None, end: Optional[s
       - avg_sentiment (stored OR rating-proxy; treats 0.0 as NULL)
       - new_reviews (last 7 days ending at end_dt)
     """
-    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
+    start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
         avg_sent_expr = func.avg(
@@ -446,7 +422,7 @@ async def api_kpis(company_id: int, start: Optional[str] = None, end: Optional[s
 @router.get("/api/ratings/distribution")
 async def api_ratings_distribution(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Histogram of rating 1..5 within window."""
-    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
+    start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
         stmt = (
@@ -467,7 +443,7 @@ async def api_ratings_distribution(company_id: int, start: Optional[str] = None,
 @router.get("/api/sentiment/share")
 async def api_sentiment_share(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Counts of positive / neutral / negative (uses rating fallback; treats 0.0 as NULL)."""
-    s, e = await _auto_range_full_history(company_id, start, end)
+    s, e = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         dc = _date_col()
         s_expr, pos, neu, neg, total = _sentiment_bucket_expr()
@@ -489,7 +465,7 @@ async def api_sentiment_share(company_id: int, start: Optional[str] = None, end:
 @router.get("/api/series/reviews")
 async def api_series_reviews(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Daily review volume."""
-    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
+    start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
         stmt = (
@@ -505,7 +481,7 @@ async def api_series_reviews(company_id: int, start: Optional[str] = None, end: 
 @router.get("/api/series/ratings")
 async def api_series_ratings(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Daily average rating."""
-    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
+    start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
         stmt = (
@@ -521,7 +497,7 @@ async def api_series_ratings(company_id: int, start: Optional[str] = None, end: 
 @router.get("/api/sentiment/series")
 async def api_sentiment_series(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Daily average sentiment score (stored or rating-derived; treats 0.0 as NULL)."""
-    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
+    start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
         avg_sent_expr = func.avg(
@@ -555,7 +531,7 @@ async def api_aspects_sentiment(company_id: int, start: Optional[str] = None, en
     Buckets per aspect: positive / neutral / negative + avg sentiment.
     (Uses Negation Logic inside _safe_sentiment for text-derived scores.)
     """
-    s, e = await _auto_range_full_history(company_id, start, end)
+    s, e = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         dc = _date_col()
         rows = (await session.execute(
@@ -599,7 +575,7 @@ async def api_aspects_sentiment(company_id: int, start: Optional[str] = None, en
 @router.get("/api/aspects/avg")
 async def api_aspects_average(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Departmental numeric aspects average values (existing fields)."""
-    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
+    start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
         stmt = (
@@ -635,7 +611,7 @@ async def api_aspects_average(company_id: int, start: Optional[str] = None, end:
 @router.get("/api/trends")
 async def api_trends(company_id: int, start: Optional[str] = None, end: Optional[str] = None, freq: str = Query("week", regex="^(day|week|month)$")):
     """Average sentiment & rating per period (day|week|month)."""
-    s, e = await _auto_range_full_history(company_id, start, end)
+    s, e = await _auto_range_last30(company_id, start, end)
     bucket = "day" if freq == "day" else ("week" if freq == "week" else "month")
     async with get_session() as session:
         ts = _ts_col()
@@ -663,7 +639,7 @@ async def api_trends(company_id: int, start: Optional[str] = None, end: Optional
 @router.get("/api/volume-vs-sentiment")
 async def api_volume_vs_sentiment(company_id: int, start: Optional[str] = None, end: Optional[str] = None, freq: str = Query("week", regex="^(day|week|month)$")):
     """Bucketed review count and avg sentiment per period for dual-axis chart."""
-    s, e = await _auto_range_full_history(company_id, start, end)
+    s, e = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         ts = _ts_col()
         period = func.date_trunc(freq, ts).label("period")
@@ -692,14 +668,14 @@ async def api_volume_vs_sentiment(company_id: int, start: Optional[str] = None, 
 @router.get("/api/correlation/rating-sentiment")
 async def api_correlation_rating_sentiment(company_id: int, start: Optional[str] = None, end: Optional[str] = None, limit: int = Query(5000, ge=100, le=50000)):
     """Scatter points: (rating, sentiment, date). Uses rating-proxy when stored sentiment is missing/0."""
-    s, e = await _auto_range_full_history(company_id, start, end)
+    s, e = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         dc = _date_col()
         rows = (await session.execute(
             select(Review.text, Review.sentiment_score, Review.rating, Review.google_review_time)
             .where(and_(Review.company_id == company_id, dc >= s, dc <= e))
             .order_by(desc(Review.google_review_time))
-            .limit(limit)
+            .limit(5000 if limit is None else limit)
         )).all()
 
     items = []
@@ -721,7 +697,7 @@ async def api_correlation_rating_sentiment(company_id: int, start: Optional[str]
 @router.get("/api/operational/overview")
 async def api_operational_overview(company_id: int, start: Optional[str] = None, end: Optional[str] = None, limit_urgent: int = Query(10, ge=1, le=50)):
     """Operational overview with urgent issues."""
-    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
+    start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
         total = (await session.execute(
@@ -788,7 +764,7 @@ async def api_operational_overview(company_id: int, start: Optional[str] = None,
 @router.get("/api/alerts")
 async def api_alerts(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Trend-based alerts using two-window comparisons (last7 vs prev7)."""
-    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
+    start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     last7_start = end_dt - timedelta(days=NEW_REVIEW_DAYS - 1)
     prev7_end = last7_start - timedelta(days=1)
     prev7_start = prev7_end - timedelta(days=NEW_REVIEW_DAYS - 1)
@@ -849,7 +825,7 @@ async def api_alerts(company_id: int, start: Optional[str] = None, end: Optional
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/api/v2/sentiment/summary")
 async def sentiment_summary_v2(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
-    s, e = await _auto_range_full_history(company_id, start, end)
+    s, e = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         dc = _date_col()
         rows = (await session.execute(
@@ -902,7 +878,7 @@ async def sentiment_summary_v2(company_id: int, start: Optional[str] = None, end
 
 @router.get("/api/v2/keywords")
 async def keywords_v2(company_id: int, start: Optional[str] = None, end: Optional[str] = None, limit: int = Query(20, ge=5, le=50)):
-    s, e = await _auto_range_full_history(company_id, start, end)
+    s, e = await _auto_range_last30(company_id, start, end)
     l7s = e - timedelta(days=NEW_REVIEW_DAYS - 1)
     p7e = l7s - timedelta(days=1)
     p7s = p7e - timedelta(days=NEW_REVIEW_DAYS - 1)
@@ -1007,7 +983,7 @@ async def recommendations_v2(company_id: int, start: Optional[str] = None, end: 
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/api/reviews/list")
 async def api_reviews_list(company_id: int, start: Optional[str] = None, end: Optional[str] = None, sort: Optional[str] = Query("newest", regex="^(newest|oldest|highest|lowest)$")):
-    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
+    start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     date_col = _date_col()
     if sort == "oldest":
         order = [date_col.asc()]
@@ -1111,7 +1087,7 @@ async def _aspect_trend_calc(company_id: int, s: date, e: date) -> Dict[str, Dic
             select(Review.text, Review.sentiment_score, Review.rating, Review.google_review_time)
             .where(and_(Review.company_id == company_id, dc >= prev_s, dc <= e))
             .order_by(desc(Review.google_review_time))
-            .limit(50000) # Increased limit to handle full history analytics
+            .limit(50000)  # full calculation buffer
         )).all()
 
     # Accumulators
@@ -1163,7 +1139,7 @@ async def api_operational_aspect_trend(company_id: int, start: Optional[str] = N
     Non-breaking additive endpoint:
     Returns avg sentiment per aspect for current window vs previous equal-length window.
     """
-    s, e = await _auto_range_full_history(company_id, start, end)
+    s, e = await _auto_range_last30(company_id, start, end)
     metrics = await _aspect_trend_calc(company_id, s, e)
 
     # Identify the most negative delta
@@ -1182,7 +1158,7 @@ async def api_alerts_high_severity_email(company_id: int, company_name: Optional
     Creates a High-Severity alert email if any operational aspect has a negative delta vs previous period.
     Returns subject + body (text & HTML) and the metrics. Does not send email.
     """
-    s, e = await _auto_range_full_history(company_id, start, end)
+    s, e = await _auto_range_last30(company_id, start, end)
     metrics = await _aspect_trend_calc(company_id, s, e)
 
     # Find worst aspect
