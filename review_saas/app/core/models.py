@@ -10,8 +10,8 @@ from sqlalchemy.sql import func
 # ---------------------------------------------------
 Base = declarative_base()
 
-# Bumped version to 7.0.0 to force database recreation with new columns
-SCHEMA_VERSION = "7.0.0"
+# Bumped version to 7.0.2 to include aspect_staff and aspect_food
+SCHEMA_VERSION = "7.0.2-full-aspects"
 
 # ---------------------------------------------------
 # Users
@@ -29,6 +29,8 @@ class User(Base):
     profile_pic = Column(String(1000), nullable=True)
     role = Column(String(50), default="editor")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
     companies = relationship("Company", back_populates="owner")
 
 
@@ -142,16 +144,22 @@ class Review(Base):
     topic_tags = Column(JSON)
     spam_score = Column(Float)
 
-    # --- NEW COLUMNS ADDED TO FIX DASHBOARD ERRORS ---
+    # Dashboard Requirement Fields
     is_complaint = Column(Boolean, default=False, index=True)
+    
+    # Aspect-based Sentiment Scores (Used by api_aspects_average)
     aspect_rooms = Column(Float, nullable=True)
-    aspect_service = Column(Float, nullable=True)
+    aspect_staff = Column(Float, nullable=True)
     aspect_location = Column(Float, nullable=True)
     aspect_value = Column(Float, nullable=True)
     aspect_cleanliness = Column(Float, nullable=True)
-    # -------------------------------------------------
+    aspect_food = Column(Float, nullable=True)
+    aspect_service = Column(Float, nullable=True)
+    aspect_amenities = Column(Float, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
     company = relationship("Company", back_populates="reviews")
 
 
@@ -171,6 +179,8 @@ class Competitor(Base):
     lng = Column(Float)
     google_maps_url = Column(String(1000))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
     company = relationship("Company", back_populates="competitors")
 
 
