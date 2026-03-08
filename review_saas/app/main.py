@@ -1,5 +1,4 @@
 # File: /app/main.py
-
 from __future__ import annotations
 
 import logging
@@ -28,13 +27,42 @@ from app.routes import dashboard as dashboard_routes
 from app.routes import reviews as reviews_routes
 from app.routes import exports as exports_routes
 
+# NEW: typing + httpx for external API client (optional; stub below doesn't need httpx)
+from typing import Any, Dict, List, Optional
+
 # Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# (NEW) External Reviews Client Wiring
+#   - The dashboard routes expect app.state.google_reviews_client
+#   - It must implement: get_reviews(place_id: str, limit: int, offset: int) -> {"reviews": [...]}
+#   - Replace DummyReviewsClient with your real Outscraper/Google client when ready.
+# ──────────────────────────────────────────────────────────────────────────────
+class DummyReviewsClient:
+    """
+    Minimal interface-compatible client.
+    Replace this with your actual Outscraper/Google client implementation.
+
+    Required method:
+        get_reviews(place_id: str, limit: int, offset: int) -> dict
+            Returns {"reviews": [ { ... } ]}
+    """
+    def __init__(self, api_key: Optional[str] = None):
+        self.api_key = api_key or os.getenv("OUTSCRAPER_API_KEY") or os.getenv("GOOGLE_REVIEWS_API_KEY")
+
+    def get_reviews(self, place_id: str, limit: int, offset: int) -> Dict[str, List[Dict[str, Any]]]:
+        # TODO: Replace stub with a real call.
+        # This stub returns an empty page so your system behaves but fetches 0 rows.
+        # Once you plug a real client, the date-wise ingest will populate the DB correctly.
+        logger.warning("DummyReviewsClient in use: returning empty page (place_id=%s, limit=%s, offset=%s)", place_id, limit, offset)
+        return {"reviews": []}
+
+
 # --------------------------------------------------
-# Lifespan manager (database initialization)
+# Lifespan manager (database initialization + client attach)
 # --------------------------------------------------
 
 @asynccontextmanager
@@ -102,6 +130,22 @@ async def lifespan(app: FastAPI):
 
                 # Only create missing tables
                 await conn.run_sync(Base.metadata.create_all)
+
+        # ─────────────────────────────────────────
+        # (NEW) Attach external reviews client
+        # ─────────────────────────────────────────
+        # Prefer a real client if you have one; fall back to DummyReviewsClient
+        # Env hints (set any of these in Railway/Env):
+        #   OUTSCRAPER_API_KEY, GOOGLE_REVIEWS_API_KEY
+        # If you have a concrete class, import and instantiate here:
+        #
+        # from app.services.google_api_client import GoogleReviewsClient
+        # app.state.google_reviews_client = GoogleReviewsClient(api_key=os.getenv("OUTSCRAPER_API_KEY"))
+        #
+        # For now we attach a dummy (returns empty pages); replace it with real client to fetch data.
+        if not hasattr(app.state, "google_reviews_client") or app.state.google_reviews_client is None:
+            app.state.google_reviews_client = DummyReviewsClient()
+            logger.info("google_reviews_client attached to app.state (class=%s)", app.state.google_reviews_client.__class__.__name__)
 
     except Exception as e:
 
