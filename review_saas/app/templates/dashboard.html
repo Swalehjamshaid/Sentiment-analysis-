@@ -1,3 +1,4 @@
+<!-- filename: review_saas/app/templates/dashboard.html -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -41,7 +42,7 @@
   <div class="row g-3 align-items-end">
     <div class="col-lg-4">
       <label class="form-label">Company</label>
-      <form class="row g-2" method="get" action="/dashboard">
+      <form class="row g-2" method="get" action="/dashboard" id="companyForm">
         <div class="col-8">
           <select class="form-select" name="company_id" id="companySelect">
             {% for c in companies %}
@@ -50,9 +51,11 @@
           </select>
         </div>
         <div class="col-4 d-grid">
-          <button class="btn btn-outline-secondary">Switch</button>
+          <!-- Keeping existing behaviour: user can still click Switch to hard-navigate -->
+          <button class="btn btn-outline-secondary" type="submit">Switch</button>
         </div>
       </form>
+      <div class="small-muted mt-1">Changing the company will auto-load the last 30 days.</div>
     </div>
 
     <div class="col-lg-6">
@@ -66,6 +69,7 @@
           <input type="date" class="form-control" id="endDate">
         </div>
       </div>
+      <div class="small-muted mt-1">If left blank, backend defaults to the last 30 days.</div>
     </div>
 
     <div class="col-lg-2 d-grid">
@@ -168,7 +172,7 @@
             </select>
           </div>
           <canvas id="trendSeries" height="180"></canvas>
-          <div class="small-muted mt-1">Shows avg sentiment & avg rating by period.</div>
+          <div class="small-muted mt-1">Shows avg sentiment &amp; avg rating by period.</div>
         </div>
       </div>
     </div>
@@ -270,7 +274,7 @@
       </div>
     </div>
 
-    <!-- Existing numeric aspects (rooms/staff/...) still supported, but safe even if zero -->
+    <!-- Existing numeric aspects (rooms/staff/...) still supported -->
     <div class="col-lg-4">
       <div class="card h-100">
         <div class="card-body">
@@ -293,6 +297,26 @@
             <span class="small-muted" id="opsWindow"></span>
           </div>
           <div id="urgentIssues" class="mt-2"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reviews (List) -->
+  <div class="row g-3 mt-1">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center">
+            <h6 class="text-muted mb-0">Reviews</h6>
+            <select id="sortReviews" class="form-select form-select-sm" style="width:auto">
+              <option value="newest" selected>Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="highest">Highest rating</option>
+              <option value="lowest">Lowest rating</option>
+            </select>
+          </div>
+          <div id="reviewsList" class="mt-2"></div>
         </div>
       </div>
     </div>
@@ -405,7 +429,7 @@ async function fetchAll(){
       fetchJSON(API.series_sentiment + "?" + p),
     ]);
 
-    // KPIs (avg sentiment will be non-zero thanks to backend fallback)
+    // KPIs
     document.getElementById('kpi-total').textContent = Number(k.total_reviews || 0);
     document.getElementById('kpi-rating').textContent = (Number(k.avg_rating || 0)).toFixed(2);
     document.getElementById('kpi-sent').textContent = (Number(k.avg_sentiment || 0)).toFixed(3);
@@ -750,37 +774,79 @@ async function loadOperational(){
   }
 }
 
-/* Reviews list */
+/* Reviews list — calls /api/reviews/list; if unavailable, falls back to /api/reviews/feed/{company_id} */
 async function loadReviews(){
   const sort = document.getElementById('sortReviews').value;
   const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, sort}).filter(([_,v])=>v)));
-  const out = await fetchJSON(API.reviews_list + "?" + p);
+  const common = Object.fromEntries(Object.entries({company_id: companyId, start, end, sort}).filter(([_,v])=>v));
+  const p = qs(common);
 
   const box = document.getElementById('reviewsList');
   box.innerHTML = '';
 
-  for (const r of (out.items || [])){
-    const rating = Number(r.rating || 0);
-    const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
-    const card = `
-      <div class="border rounded p-2 mb-2">
-        <div class="d-flex justify-content-between small text-muted">
-          <span>${r.author_name || 'Anonymous'}</span>
-          <span>${r.review_time || ''}</span>
+  // Try preferred endpoint first
+  try {
+    const out = await fetchJSON(API.reviews_list + "?" + p);
+    for (const r of (out.items || [])){
+      const rating = Number(r.rating || 0);
+      const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
+      const card = `
+        <div class="border rounded p-2 mb-2">
+          <div class="d-flex justify-content-between small text-muted">
+            <span>${r.author_name || 'Anonymous'}</span>
+            <span>${r.review_time || ''}</span>
+          </div>
+          <div>
+            <span class="me-2">${stars}</span>
+            <span>${rating.toFixed(1)}</span>
+          </div>
+          <div class="break-word">${(r.text || '').slice(0, 2000)}</div>
         </div>
-        <div>
-          <span class="me-2">${stars}</span>
-          <span>${rating.toFixed(1)}</span>
-        </div>
-        <div class="break-word">${(r.text || '').slice(0, 2000)}</div>
-      </div>
-    `;
-    box.insertAdjacentHTML('beforeend', card);
+      `;
+      box.insertAdjacentHTML('beforeend', card);
+    }
+    if (!out.items || out.items.length === 0){
+      box.innerHTML = '<div class="text-muted small">No reviews in this range.</div>';
+    }
+    return; // done
+  } catch (e) {
+    console.warn("Primary /api/reviews/list failed; trying feed fallback…", e);
   }
 
-  if (!out.items || out.items.length === 0){
-    box.innerHTML = '<div class="text-muted small">No reviews in this range.</div>';
+  // Fallback to reviews feed in app/routes/reviews.py
+  try {
+    const feedParams = qs(Object.fromEntries(Object.entries({
+      start_date: common.start, end_date: common.end, limit: 50
+    }).filter(([_,v])=>v)));
+    const out = await fetchJSON(`/api/reviews/feed/${companyId}` + (feedParams ? `?${feedParams}` : ''));
+    const rows = out.reviews || [];
+    for (const r of rows){
+      const author = r.author_name || r.author || 'Anonymous';
+      const rating = Number(r.rating || 0);
+      const text = r.text || r.review_text || '';
+      const dt = r.review_time || r.date || '';
+      const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
+      const card = `
+        <div class="border rounded p-2 mb-2">
+          <div class="d-flex justify-content-between small text-muted">
+            <span>${author}</span>
+            <span>${(typeof dt === 'string' ? dt : (dt || '')).toString().slice(0, 10)}</span>
+          </div>
+          <div>
+            <span class="me-2">${stars}</span>
+            <span>${rating.toFixed(1)}</span>
+          </div>
+          <div class="break-word">${(text || '').slice(0, 2000)}</div>
+        </div>
+      `;
+      box.insertAdjacentHTML('beforeend', card);
+    }
+    if (rows.length === 0){
+      box.innerHTML = '<div class="text-muted small">No reviews in this range.</div>';
+    }
+  } catch (e2) {
+    console.error("Fallback /api/reviews/feed failed:", e2);
+    box.innerHTML = '<div class="text-muted small">Unable to load reviews.</div>';
   }
 }
 
@@ -791,6 +857,17 @@ async function loadReviews(){
   document.getElementById('endDate').value = today;
   const start = new Date(Date.now() - 29*86400000).toISOString().slice(0,10);
   document.getElementById('startDate').value = start;
+
+  // Auto-refresh on company change: reset dates to last 30d and fetch
+  const sel = document.getElementById('companySelect');
+  sel.addEventListener('change', (e) => {
+    companyId = Number(e.target.value);
+    const t = new Date().toISOString().slice(0,10);
+    const s = new Date(Date.now() - 29*86400000).toISOString().slice(0,10);
+    document.getElementById('endDate').value = t;
+    document.getElementById('startDate').value = s;
+    fetchAll(); // refresh without navigation
+  });
 
   document.getElementById('fetchBtn').addEventListener('click', fetchAll);
   document.getElementById('trendFreq').addEventListener('change', loadTrends);
