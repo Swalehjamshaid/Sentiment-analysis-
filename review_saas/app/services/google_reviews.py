@@ -14,10 +14,15 @@ class OutscraperReviewsService:
     Service to fetch Google Maps reviews via Outscraper API.
     Bypasses the official Google 5-review limit by scraping the Maps frontend.
     """
+
     def __init__(self):
-        # FIXED: Correct config variable name
-        self.api_key = settings.OUTSCRAPER_KEY
-        # Outscraper V2 endpoint (UNCHANGED)
+        # FIX: Support both possible environment variable names
+        self.api_key = getattr(settings, "OUTSCRAPER_KEY", None) or getattr(settings, "OUTSCAPTER_KEY", None)
+
+        if not self.api_key:
+            raise ValueError("Outscraper API key not configured. Set OUTSCRAPER_KEY or OUTSCAPTER_KEY.")
+
+        # Outscraper endpoint (unchanged)
         self.base_url = "https://api.app.outscraper.com/maps/reviews-v2"
 
     async def fetch_reviews(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
@@ -25,6 +30,7 @@ class OutscraperReviewsService:
         Fetches up to `limit` reviews for a given business (Place ID, Name, or URL).
         """
         headers = {"X-API-KEY": self.api_key}
+
         params = {
             "query": query,
             "reviewsLimit": limit,
@@ -36,6 +42,7 @@ class OutscraperReviewsService:
         async with httpx.AsyncClient(timeout=180.0) as client:
             try:
                 logger.info(f"Initiating Outscraper Sync for: {query} (Limit: {limit})")
+
                 response = await client.get(self.base_url, headers=headers, params=params)
 
                 if response.status_code != 200:
@@ -44,10 +51,12 @@ class OutscraperReviewsService:
 
                 data = response.json()
                 results = data.get("data", [])
+
                 all_mapped_reviews = []
 
                 for result in results:
                     reviews_list = result.get("reviews_data", [])
+
                     for rev in reviews_list:
                         all_mapped_reviews.append({
                             "reviewId": rev.get("review_id"),
@@ -64,6 +73,7 @@ class OutscraperReviewsService:
                         })
 
                 logger.info(f"Successfully fetched {len(all_mapped_reviews)} reviews from Outscraper.")
+
                 return all_mapped_reviews
 
             except Exception as e:
@@ -71,13 +81,13 @@ class OutscraperReviewsService:
                 return []
 
 
-# Singleton instance (UNCHANGED)
+# Singleton instance (unchanged)
 outscraper_service = OutscraperReviewsService()
 
 
 async def ingest_company_reviews(place_id: str, company_id: int):
     """
-    Orchestrates the fetch from Outscraper and persists unique records to Postgres.
+    Fetch reviews and store unique ones in the database.
     """
 
     reviews_data = await outscraper_service.fetch_reviews(place_id, limit=100)
@@ -90,6 +100,7 @@ async def ingest_company_reviews(place_id: str, company_id: int):
             exists_stmt = select(Review).where(
                 Review.google_review_id == rd["reviewId"]
             )
+
             exists_result = await session.execute(exists_stmt)
 
             if exists_result.scalar_one_or_none():
@@ -128,5 +139,5 @@ async def ingest_company_reviews(place_id: str, company_id: int):
 
 
 async def fetch_place_details(place_id: str):
-    """Placeholder function to maintain compatibility with dashboard route imports."""
+    """Placeholder to maintain compatibility with dashboard route imports."""
     return {"name": "Business Location"}
