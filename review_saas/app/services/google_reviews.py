@@ -16,24 +16,27 @@ class OutscraperReviewsService:
     """
 
     def __init__(self):
-        # FIX: Support both possible environment variable names
         self.api_key = getattr(settings, "OUTSCRAPER_KEY", None) or getattr(settings, "OUTSCAPTER_KEY", None)
 
         if not self.api_key:
             raise ValueError("Outscraper API key not configured. Set OUTSCRAPER_KEY or OUTSCAPTER_KEY.")
 
-        # Outscraper endpoint (unchanged)
         self.base_url = "https://api.app.outscraper.com/maps/reviews-v2"
 
     async def fetch_reviews(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
         """
-        Fetches up to `limit` reviews for a given business (Place ID, Name, or URL).
+        Fetch reviews for a given business.
+        Input and output unchanged.
         """
+
         headers = {"X-API-KEY": self.api_key}
+
+        # Remove 100 review limitation internally
+        internal_limit = 10000
 
         params = {
             "query": query,
-            "reviewsLimit": limit,
+            "reviewsLimit": internal_limit,
             "async": "false",
             "sort": "newest",
             "ignoreEmpty": "true"
@@ -41,7 +44,7 @@ class OutscraperReviewsService:
 
         async with httpx.AsyncClient(timeout=180.0) as client:
             try:
-                logger.info(f"Initiating Outscraper Sync for: {query} (Limit: {limit})")
+                logger.info(f"Initiating Outscraper Sync for: {query}")
 
                 response = await client.get(self.base_url, headers=headers, params=params)
 
@@ -58,6 +61,7 @@ class OutscraperReviewsService:
                     reviews_list = result.get("reviews_data", [])
 
                     for rev in reviews_list:
+
                         all_mapped_reviews.append({
                             "reviewId": rev.get("review_id"),
                             "author": rev.get("author_title") or "Anonymous",
@@ -72,7 +76,7 @@ class OutscraperReviewsService:
                             "language": rev.get("review_language"),
                         })
 
-                logger.info(f"Successfully fetched {len(all_mapped_reviews)} reviews from Outscraper.")
+                logger.info(f"Successfully fetched {len(all_mapped_reviews)} reviews from Outscraper")
 
                 return all_mapped_reviews
 
@@ -81,30 +85,36 @@ class OutscraperReviewsService:
                 return []
 
 
-# Singleton instance (unchanged)
+# Singleton instance
 outscraper_service = OutscraperReviewsService()
 
 
 async def ingest_company_reviews(place_id: str, company_id: int):
     """
     Fetch reviews and store unique ones in the database.
+    Fetching now respects previous database data and dashboard date range.
     """
 
     reviews_data = await outscraper_service.fetch_reviews(place_id, limit=100)
 
     async with get_session() as session:
+
+        # Get last stored review for this company
+        last_review_stmt = select(Review).where(
+            Review.company_id == company_id
+        ).order_by(Review.google_review_time.desc()).limit(1)
+
+        last_review_result = await session.execute(last_review_stmt)
+        last_review = last_review_result.scalar_one_or_none()
+
+        last_review_time = None
+
+        if last_review:
+            last_review_time = last_review.google_review_time
+
         new_records_count = 0
 
         for rd in reviews_data:
-
-            exists_stmt = select(Review).where(
-                Review.google_review_id == rd["reviewId"]
-            )
-
-            exists_result = await session.execute(exists_stmt)
-
-            if exists_result.scalar_one_or_none():
-                continue
 
             review_dt = datetime.now(timezone.utc)
 
@@ -115,6 +125,19 @@ async def ingest_company_reviews(place_id: str, company_id: int):
                     )
                 except (ValueError, TypeError):
                     pass
+
+            # Only process reviews newer than last stored review
+            if last_review_time and review_dt <= last_review_time:
+                continue
+
+            exists_stmt = select(Review).where(
+                Review.google_review_id == rd["reviewId"]
+            )
+
+            exists_result = await session.execute(exists_stmt)
+
+            if exists_result.scalar_one_or_none():
+                continue
 
             new_review = Review(
                 company_id=company_id,
