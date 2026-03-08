@@ -18,7 +18,6 @@ router = APIRouter(prefix="/api", tags=["companies"])
 
 templates = Jinja2Templates(directory="app/templates")
 
-
 # ---------------------------------------------------------
 # Helper: Authentication
 # ---------------------------------------------------------
@@ -27,7 +26,6 @@ def _require_user(request: Request) -> int | None:
     if not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return user_id
-
 
 # ---------------------------------------------------------
 # Safe Google Maps Client
@@ -40,7 +38,6 @@ def _get_gmaps_client():
         )
     return googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
 
-
 # ---------------------------------------------------------
 # Pydantic Models
 # ---------------------------------------------------------
@@ -49,12 +46,10 @@ class PlaceSearchResult(BaseModel):
     name: str
     formatted_address: str | None = None
 
-
 class AddCompanyRequest(BaseModel):
     name: str
     place_id: str
     address: str | None = None
-
 
 # ---------------------------------------------------------
 # Helper: Get companies with stats
@@ -86,7 +81,6 @@ async def _get_companies_data(session, uid: int):
         }
         for r in res.all()
     ]
-
 
 # ---------------------------------------------------------
 # UI: Companies page (override prefix for clean URL)
@@ -125,7 +119,6 @@ async def companies_page(
         },
     )
 
-
 # ---------------------------------------------------------
 # API: List companies
 # ---------------------------------------------------------
@@ -135,7 +128,6 @@ async def list_companies(request: Request):
     async with get_session() as session:
         data = await _get_companies_data(session, uid)
     return {"success": True, "companies": data}
-
 
 # ---------------------------------------------------------
 # API: Search Google Places
@@ -158,11 +150,10 @@ async def search_google_places(q: str = Query(..., min_length=3)):
         logger.error(f"Google Places search failed: {e}", exc_info=True)
         return {"success": False, "message": str(e)}
 
-
 # ---------------------------------------------------------
-# API: Add new company — FIXED endpoint
+# API: Add new company — FIXED: path changed to /companies (matches form action)
 # ---------------------------------------------------------
-@router.post("/companies/add")
+@router.post("/companies")   # ← CHANGED FROM "/companies/add"
 async def add_new_company(
     request: Request,
     data: AddCompanyRequest,
@@ -228,7 +219,6 @@ async def add_new_company(
         "message": "Company added successfully. Review sync started in background."
     }
 
-
 # ---------------------------------------------------------
 # API: Sync reviews for existing company
 # ---------------------------------------------------------
@@ -266,7 +256,6 @@ async def company_sync(
         "message": "Review sync triggered successfully",
         "companies": companies
     }
-
 
 # ---------------------------------------------------------
 # DELETE: Remove company
