@@ -63,7 +63,7 @@ class CompanyReviews:
 
 class OutscraperReviewsService:
     """Fetch reviews from Outscraper or Google API"""
-    PAGE_SIZE = 100  # Increased for faster full fetch (adjust based on API limits)
+    PAGE_SIZE = 100  # Larger page size for efficiency (adjust based on API limits)
 
     def __init__(self, api_client):
         self.client = api_client
@@ -73,11 +73,12 @@ class OutscraperReviewsService:
         place_id: str,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-        max_reviews: Optional[int] = None  # Optional hard cap (default None = unlimited)
+        max_reviews: Optional[int] = None  # Optional hard cap, default None = unlimited
     ) -> List[ReviewData]:
         """
-        Fetch ALL reviews within the given date range.
-        No artificial limit unless max_reviews is explicitly set.
+        Fetch **all** reviews within the given date range from the frontend.
+        Pagination continues until no more reviews are returned.
+        Date filtering is strict — only reviews inside [start_date, end_date] are kept.
         """
         all_reviews = []
         offset = 0
@@ -94,16 +95,17 @@ class OutscraperReviewsService:
 
             page_reviews = response.get("reviews", [])
             if not page_reviews:
-                logger.info("No more reviews returned. Fetch complete.")
+                logger.info(f"No more reviews returned. Fetch complete after {page} pages.")
                 break
 
+            added_this_page = 0
             for r in page_reviews:
                 try:
                     review_time = datetime.fromtimestamp(r.get("time", datetime.now().timestamp()))
                 except (TypeError, ValueError):
                     review_time = datetime.now()  # fallback
 
-                # Strict date filtering from frontend
+                # Strict date range filter from frontend
                 if start_date and review_time < start_date:
                     continue
                 if end_date and review_time > end_date:
@@ -119,18 +121,19 @@ class OutscraperReviewsService:
                     helpful_votes=r.get("helpful_votes", 0),
                     source_platform=r.get("platform", "Google"),
                     competitor_name=r.get("competitor_name"),
-                    additional_fields=r  # Keep everything else
+                    additional_fields=r  # Preserve all extra fields
                 )
                 all_reviews.append(review)
+                added_this_page += 1
 
-            logger.info(f"Page {page}: added {len(page_reviews)} reviews (total so far: {len(all_reviews)})")
+            logger.info(f"Page {page}: processed {len(page_reviews)} reviews, kept {added_this_page} in range (total: {len(all_reviews)})")
 
             offset += self.PAGE_SIZE
             page += 1
 
-            # Optional hard cap (only if explicitly requested)
+            # Optional hard cap (only if frontend or caller explicitly sets it)
             if max_reviews and len(all_reviews) >= max_reviews:
-                logger.info(f"Reached requested max_reviews limit ({max_reviews})")
+                logger.info(f"Reached explicit max_reviews limit ({max_reviews})")
                 break
 
         return all_reviews
@@ -142,17 +145,17 @@ def ingest_company_reviews(
     api_client,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
-    max_reviews: Optional[int] = None  # Default None = fetch everything
+    max_reviews: Optional[int] = None  # Default None = fetch everything in range
 ) -> CompanyReviews:
     """
-    Fetch and store reviews for a company, respecting frontend date range.
-    No limit unless max_reviews is explicitly passed.
+    Fetch and store **all** reviews for a company within the frontend-provided date range.
+    No artificial limit unless max_reviews is explicitly passed.
     """
     service = OutscraperReviewsService(api_client)
 
     logger.info(
-        f"Starting full review fetch for company {company_id} "
-        f"(place_id: {place_id}), range: {start_date or 'any'} → {end_date or 'any'}"
+        f"Starting comprehensive review fetch for company {company_id} "
+        f"(place_id: {place_id}), date range: {start_date or 'any start'} → {end_date or 'any end'}"
     )
 
     reviews_data = service.fetch_reviews(
@@ -168,7 +171,7 @@ def ingest_company_reviews(
         company_reviews.add_review(review)
 
     count = len(company_reviews.reviews)
-    logger.info(f"Completed: Fetched {count} reviews for company {company_id} (place_id: {place_id})")
+    logger.info(f"Fetch completed: {count} reviews in range for company {company_id} (place_id: {place_id})")
 
     if count > 0:
         logger.info(f"Rating Summary: {company_reviews.rating_summary()}")
