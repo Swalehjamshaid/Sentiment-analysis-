@@ -11,7 +11,7 @@ from sqlalchemy.sql import func
 Base = declarative_base()
 
 # Bumped version to 6.0.8 to force a clean database recreation
-SCHEMA_VERSION = "6.0.10
+SCHEMA_VERSION = "6.0.10"
 
 # ---------------------------------------------------
 # Users
