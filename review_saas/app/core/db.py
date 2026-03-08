@@ -3,7 +3,6 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 import os
-
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.exc import SQLAlchemyError
@@ -26,21 +25,21 @@ def _normalize_async_url(raw_url: str) -> str:
     """
     if not raw_url or not raw_url.strip():
         return 'sqlite+aiosqlite:///./app.db'
-    
+   
     v = raw_url.strip().strip('"').strip("'")
-    
+   
     if v.startswith('postgres://'):
         v = v.replace('postgres://', 'postgresql://', 1)
     if v.startswith('postgresql://'):
         v = v.replace('postgresql://', 'postgresql+asyncpg://', 1)
-    
+   
     try:
         url = make_url(v)
         if url.drivername in ('postgresql', 'postgres'):
             v = str(url.set(drivername='postgresql+asyncpg'))
     except Exception as exc:
         raise ValueError(f'Invalid DATABASE_URL provided: {raw_url}') from exc
-        
+       
     return v
 
 def get_database_url() -> str:
@@ -89,23 +88,30 @@ async def get_session() -> AsyncIterator[AsyncSession]:
             await session.close()
 
 # --------------------
-# DATABASE RESET
+# SAFE DATABASE INIT (FIXED: no more auto-drop!)
 # --------------------
-async def reset_database():
+async def init_database():
     """
-    DEV ONLY: Drops all tables and recreates them fresh.
-    This ensures any change in models.py wipes old data.
+    Safe initialization: creates missing tables only.
+    Does NOT drop existing tables or data.
+    Logs schema version for awareness.
     """
+    from app.core.models import SCHEMA_VERSION  # Import here to avoid circular import
+
     engine = get_engine()
     async with engine.begin() as conn:
         try:
-            print("🔥 Dropping all tables...")
-            await conn.run_sync(Base.metadata.drop_all)
-            print("✨ Creating fresh tables...")
+            # Safe: create tables if they don't exist
             await conn.run_sync(Base.metadata.create_all)
-            print("✅ Database reset complete")
+            print("✅ Database tables ensured (safe create - no data loss)")
+            
+            # Optional: check schema version (warn only, no action)
+            # You can query a config table for current version if you add one later
+            print(f"Schema version in code: {SCHEMA_VERSION}")
+            # If you want auto-migration later → switch to Alembic
         except SQLAlchemyError as e:
-            print(f"⚠ Error resetting database: {e}")
+            print(f"⚠ Error initializing database: {e}")
+            raise
 
 # --------------------
 # SESSION FACTORY FOR BACKGROUND TASKS
