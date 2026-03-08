@@ -10,8 +10,8 @@ from sqlalchemy.sql import func
 # ---------------------------------------------------
 Base = declarative_base()
 
-# Bumped version to 6.0.8 to force a clean database recreation
-SCHEMA_VERSION = "6.0.10"
+# Bumped version to 7.0.0 to force database recreation with new columns
+SCHEMA_VERSION = "7.0.0"
 
 # ---------------------------------------------------
 # Users
@@ -141,6 +141,15 @@ class Review(Base):
     keywords = Column(JSON)
     topic_tags = Column(JSON)
     spam_score = Column(Float)
+
+    # --- NEW COLUMNS ADDED TO FIX DASHBOARD ERRORS ---
+    is_complaint = Column(Boolean, default=False, index=True)
+    aspect_rooms = Column(Float, nullable=True)
+    aspect_service = Column(Float, nullable=True)
+    aspect_location = Column(Float, nullable=True)
+    aspect_value = Column(Float, nullable=True)
+    aspect_cleanliness = Column(Float, nullable=True)
+    # -------------------------------------------------
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     company = relationship("Company", back_populates="reviews")
