@@ -1,7 +1,18 @@
+# filename: review_saas/app/core/models.py
 from __future__ import annotations
+
 from datetime import datetime  # ← FIXED: added this import
 from sqlalchemy import (
-    Column, Integer, String, Float, Text, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint
+    Column,
+    Integer,
+    String,
+    Float,
+    Text,
+    Boolean,
+    DateTime,
+    JSON,
+    ForeignKey,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import declarative_base, relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -19,6 +30,7 @@ SCHEMA_VERSION = "7.0.3-full-outscraper-ready"
 # ---------------------------------------------------
 class User(Base):
     __tablename__ = "users"
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
@@ -38,6 +50,7 @@ class User(Base):
 # ---------------------------------------------------
 class Company(Base):
     __tablename__ = "companies"
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     owner_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
 
@@ -118,7 +131,7 @@ class Review(Base):
     author_reviews_count: Mapped[int | None] = mapped_column(Integer)
     author_level: Mapped[int | None] = mapped_column(Integer)
     author_location: Mapped[str | None] = mapped_column(String(255))  # e.g. "Lahore, Pakistan"
-    author_contributions: Mapped[int | None] = mapped_column(Integer)  # e.g. total reviews/photos
+    author_contributions: Mapped[int | None] = mapped_column(Integer)  # total reviews/photos
 
     # Review Content
     rating: Mapped[int | None] = mapped_column(Integer)
@@ -146,7 +159,7 @@ class Review(Base):
     topic_tags: Mapped[list | None] = mapped_column(JSON)
     spam_score: Mapped[float | None] = mapped_column(Float)
 
-    # Complaint/Praise Flags (fixes your crash)
+    # Complaint/Praise Flags
     is_complaint: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_praise: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
@@ -174,6 +187,7 @@ class Review(Base):
 # ---------------------------------------------------
 class Competitor(Base):
     __tablename__ = "competitors"
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
 
@@ -196,6 +210,7 @@ class Competitor(Base):
 # ---------------------------------------------------
 class Notification(Base):
     __tablename__ = "notifications"
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
 
@@ -209,6 +224,7 @@ class Notification(Base):
 # ---------------------------------------------------
 class AuditLog(Base):
     __tablename__ = "audit_logs"
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
 
@@ -222,5 +238,6 @@ class AuditLog(Base):
 # ---------------------------------------------------
 class Config(Base):
     __tablename__ = "config"
+
     key: Mapped[str] = mapped_column(String(255), primary_key=True)
     value: Mapped[str | None] = mapped_column(String(1000), nullable=True)
