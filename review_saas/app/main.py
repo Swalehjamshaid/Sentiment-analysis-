@@ -1,4 +1,3 @@
-# filename: /app/main.py
 from __future__ import annotations
 
 import logging
@@ -47,12 +46,6 @@ class OutscraperClient:
         self.http = httpx.Client(timeout=30)
 
     def get_reviews(self, place_id: str, limit: int, offset: int) -> Dict[str, List[Dict[str, Any]]]:
-        """
-        Expected return shape:
-        {
-            "reviews": [{...}, {...}]
-        }
-        """
         try:
             params = {
                 "query": place_id,
@@ -69,10 +62,6 @@ class OutscraperClient:
 
             data = response.json()
 
-            # Outscraper returns:
-            # [
-            #    { "data": { "reviews_data": [ {...}, {...} ] } }
-            # ]
             if isinstance(data, list) and len(data) > 0:
                 reviews = data[0].get("data", {}).get("reviews_data", [])
                 return {"reviews": reviews}
@@ -147,13 +136,20 @@ async def lifespan(app: FastAPI):
         # ───────────────────────────────────────────────
         # Attach REAL Outscraper / Google client
         # ───────────────────────────────────────────────
-        api_key = os.getenv("OUTSCRAPER_API_KEY") or os.getenv("GOOGLE_REVIEWS_API_KEY")
+        # FIX: Check multiple possible variable names from settings and env
+        api_key = (
+            getattr(settings, "OUTSCRAPER_API_KEY", None) or 
+            getattr(settings, "OUTSCAPTER_KEY", None) or 
+            os.getenv("OUTSCRAPER_API_KEY") or 
+            os.getenv("OUTSCAPTER_KEY") or 
+            os.getenv("GOOGLE_REVIEWS_API_KEY")
+        )
 
-        if api_key:
-            logger.info("Initializing OutscraperClient...")
+        if api_key and "PASTE" not in api_key:
+            logger.info("✅ Valid API Key found. Initializing OutscraperClient...")
             app.state.google_reviews_client = OutscraperClient(api_key=api_key)
         else:
-            logger.warning("⚠ No external review API key found. Using DummyReviewsClient.")
+            logger.warning("⚠ No valid external review API key found. Using DummyReviewsClient.")
             app.state.google_reviews_client = DummyReviewsClient()
 
     except Exception as e:
