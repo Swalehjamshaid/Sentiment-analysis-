@@ -38,7 +38,7 @@ _STOPWORDS = {
     "your", "their", "but", "so", "if", "too", "very", "can", "could", "would", "will",
     "has", "have", "had", "do", "did", "does", "just", "also", "than", "then", "there", "here",
     "about", "into", "out", "over", "under", "between", "after", "before", "during", "more", "most",
-    "less", "least", "again", "ever", "always", "some", "any", "much", "many", "few", "lot", "lots"
+    "less", "least", "again", "ever", "never", "always", "some", "any", "much", "many", "few", "lot", "lots"
 }
 _POSITIVE_HINTS = {
     "great", "excellent", "good", "friendly", "clean", "amazing", "love", "nice", "comfortable",
@@ -441,7 +441,7 @@ async def api_kpis(company_id: int, start: Optional[str] = None, end: Optional[s
             "avg_rating": round(float(avg_rating or 0.0), 2),
             "avg_sentiment": round(float(avg_sent or 0.0), 3),
             "new_reviews": new_reviews,
-        })
+        }
 
 @router.get("/api/ratings/distribution")
 async def api_ratings_distribution(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
@@ -755,7 +755,7 @@ async def api_operational_overview(company_id: int, start: Optional[str] = None,
             is_urgent = (
                 (r.rating is not None and r.rating <= 2) or
                 (s_val <= -0.5) or
-                has_urgent_kw
+                (has_urgent_kw)
             )
             if is_urgent:
                 urgent_items.append({
@@ -1111,7 +1111,7 @@ async def _aspect_trend_calc(company_id: int, s: date, e: date) -> Dict[str, Dic
             select(Review.text, Review.sentiment_score, Review.rating, Review.google_review_time)
             .where(and_(Review.company_id == company_id, dc >= prev_s, dc <= e))
             .order_by(desc(Review.google_review_time))
-            .limit(30000)
+            .limit(50000) # Increased limit to handle full history analytics
         )).all()
 
     # Accumulators
@@ -1200,7 +1200,7 @@ async def api_alerts_high_severity_email(company_id: int, company_name: Optional
             select(Review.text, Review.google_review_time)
             .where(and_(Review.company_id == company_id, dc >= s, dc <= e))
             .order_by(desc(Review.google_review_time))
-            .limit(15000)
+            .limit(50000)
         )).all()
 
     aspect_texts = []
