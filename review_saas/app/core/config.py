@@ -1,5 +1,3 @@
-# filename: app/core/config.py
-
 import os
 from pydantic_settings import BaseSettings
 from typing import Optional
@@ -12,7 +10,10 @@ class Settings(BaseSettings):
     APP_BASE_URL: str = "https://sentiment-analysis-production-f96a.up.railway.app"
     
     # --- Scraping Settings ---
-    OUTSCAPTER_KEY: str 
+    # Fixed Typo: Using OUTSCRAPER_API_KEY as the primary variable
+    OUTSCRAPER_API_KEY: Optional[str] = None 
+    # Keeping the old one as an optional fallback so it doesn't crash if already set in Railway
+    OUTSCAPTER_KEY: Optional[str] = None 
     
     # --- Database Settings ---
     DATABASE_URL: str
@@ -26,7 +27,7 @@ class Settings(BaseSettings):
     
     # --- Rate Limiting Settings ---
     RATE_LIMIT_WINDOW_SEC: int = 60
-    RATE_LIMIT_REQUESTS: int = 5 
+    RATE_LIMIT_REQUESTS: int = 100 # Increased for production usability 
 
     # --- Session & Cookie Settings ---
     SESSION_COOKIE_NAME: str = "session"
@@ -44,7 +45,7 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USERNAME: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
-    SMTP_FROM_EMAIL: Optional[str] = None  # <-- added to fix send_email issue
+    SMTP_FROM_EMAIL: Optional[str] = None
 
     class Config:
         case_sensitive = True
