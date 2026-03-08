@@ -1,11 +1,10 @@
 from __future__ import annotations
 import logging
 import googlemaps
-from fastapi import APIRouter, Request, BackgroundTasks, Query, HTTPException
+from fastapi import APIRouter, Request, BackgroundTasks, Query, HTTPException, Form
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
 from sqlalchemy import select, delete, or_, func, desc
-from pydantic import BaseModel, ValidationError
 from app.core.db import get_session
 from app.core.models import Company, AuditLog, User, Review
 from app.core.config import settings
@@ -37,19 +36,6 @@ def _get_gmaps_client():
             detail="Google Places API key is not configured in settings."
         )
     return googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
-
-# ---------------------------------------------------------
-# Pydantic Models
-# ---------------------------------------------------------
-class PlaceSearchResult(BaseModel):
-    place_id: str
-    name: str
-    formatted_address: str | None = None
-
-class AddCompanyRequest(BaseModel):
-    name: str
-    place_id: str
-    address: str | None = None
 
 # ---------------------------------------------------------
 # Helper: Get companies with stats
@@ -138,11 +124,11 @@ async def search_google_places(q: str = Query(..., min_length=3)):
         gmaps_client = _get_gmaps_client()
         result = gmaps_client.places(query=q)
         places = [
-            PlaceSearchResult(
-                place_id=p["place_id"],
-                name=p["name"],
-                formatted_address=p.get("formatted_address"),
-            )
+            {
+                "place_id": p["place_id"],
+                "name": p["name"],
+                "formatted_address": p.get("formatted_address"),
+            }
             for p in result.get("results", [])
         ]
         return {"success": True, "results": places}
@@ -151,12 +137,14 @@ async def search_google_places(q: str = Query(..., min_length=3)):
         return {"success": False, "message": str(e)}
 
 # ---------------------------------------------------------
-# API: Add new company — FIXED: path changed to /companies (matches form action)
+# API: Add new company — FIXED: now accepts form data (matches dashboard.html form)
 # ---------------------------------------------------------
-@router.post("/companies")   # ← CHANGED FROM "/companies/add"
+@router.post("/companies")
 async def add_new_company(
     request: Request,
-    data: AddCompanyRequest,
+    name: str = Form(...),
+    google_place_id: str = Form(...),
+    address: str | None = Form(None),
     bg_tasks: BackgroundTasks
 ):
     uid = _require_user(request)
@@ -164,7 +152,7 @@ async def add_new_company(
         # Check duplicate
         existing = await session.execute(
             select(Company).where(
-                Company.google_place_id == data.place_id,
+                Company.google_place_id == google_place_id,
                 Company.owner_id == uid,
             )
         )
@@ -176,9 +164,9 @@ async def add_new_company(
 
         # Create company
         new_company = Company(
-            name=data.name.strip(),
-            google_place_id=data.place_id,
-            address=data.address.strip() if data.address else None,
+            name=name.strip(),
+            google_place_id=google_place_id,
+            address=address.strip() if address else None,
             owner_id=uid,
         )
         session.add(new_company)
@@ -189,7 +177,7 @@ async def add_new_company(
             AuditLog(
                 user_id=uid,
                 action="company_add_google",
-                meta={"company_id": new_company.id, "place_id": data.place_id},
+                meta={"company_id": new_company.id, "place_id": google_place_id},
             )
         )
 
