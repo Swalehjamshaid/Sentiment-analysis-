@@ -136,7 +136,7 @@ async def search_google_places(q: str = Query(..., min_length=3)):
         return {"success": False, "message": str(e)}
 
 # ─────────────────────────────────────────────────────────────
-# API: Add new company (now accepts form data correctly)
+# API: Add new company
 # ─────────────────────────────────────────────────────────────
 @router.post("/companies")
 async def add_new_company(
@@ -147,6 +147,10 @@ async def add_new_company(
     address: str | None = Form(None),
 ):
     uid = _require_user(request)
+    
+    # Pre-fetch GMaps client to pass to background task
+    gmaps_client = _get_gmaps_client()
+
     async with get_session() as session:
         # Check duplicate
         existing = await session.execute(
@@ -169,7 +173,7 @@ async def add_new_company(
             owner_id=uid,
         )
         session.add(new_company)
-        await session.flush()  # get ID
+        await session.flush()
 
         # Audit log
         session.add(
@@ -183,14 +187,14 @@ async def add_new_company(
         await session.commit()
         await session.refresh(new_company)
 
-        # Background sync
+        # FIXED: Added gmaps_client as the first argument
         bg_tasks.add_task(
             ingest_company_reviews,
+            gmaps_client,
             place_id=new_company.google_place_id,
             company_id=new_company.id
         )
 
-        # Return updated list
         companies = await _get_companies_data(session, uid)
 
     logger.info(f"Company added: {new_company.name} (ID: {new_company.id}) by user {uid}")
@@ -203,7 +207,7 @@ async def add_new_company(
             "place_id": new_company.google_place_id
         },
         "companies": companies,
-        "message": "Company added successfully. Review sync started in background."
+        "message": "Company added successfully. Review sync started."
     }
 
 # ─────────────────────────────────────────────────────────────
@@ -216,13 +220,19 @@ async def company_sync(
     bg_tasks: BackgroundTasks
 ):
     uid = _require_user(request)
+    
+    # Pre-fetch GMaps client to pass to background task
+    gmaps_client = _get_gmaps_client()
+
     async with get_session() as session:
         company = await session.get(Company, company_id)
         if not company or company.owner_id != uid:
             raise HTTPException(404, "Company not found or not owned by you")
 
+        # FIXED: Added gmaps_client as the first argument
         bg_tasks.add_task(
             ingest_company_reviews,
+            gmaps_client,
             place_id=company.google_place_id,
             company_id=company.id
         )
