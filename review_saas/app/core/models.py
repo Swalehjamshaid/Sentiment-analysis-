@@ -22,7 +22,7 @@ from sqlalchemy.sql import func
 Base = declarative_base()
 
 # Bumped version to ensure Railway triggers a schema rebuild
-SCHEMA_VERSION = "11.0.4-full-outscraper-persistence-ready"
+SCHEMA_VERSION = "15.0.4-full-outscraper-persistence-ready"
 
 # ---------------------------------------------------
 # Users
