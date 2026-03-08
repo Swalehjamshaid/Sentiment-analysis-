@@ -6,7 +6,7 @@ import math
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, time
 from typing import Dict, Iterable, List, Optional, Tuple, Any
 
 from fastapi import APIRouter, Query, Request, HTTPException
@@ -18,20 +18,19 @@ from app.core.db import get_session
 from app.core.models import Company, Review
 from app.routes.companies import _require_user
 
-# ───────── NEW: integrate services/google_reviews.py ─────────
-# Uses your service layer to fetch reviews from Google/Outscraper.
+# NEW: integrate single-entity and competitor batch ingestion
 try:
     from app.services.google_reviews import (
         ingest_company_reviews,
+        ingest_multi_company_reviews,
         ReviewData as SvcReviewData,
         CompanyReviews as SvcCompanyReviews,
     )
 except Exception as _svc_imp_err:
-    # We will handle missing import at runtime (501 from endpoints).
     ingest_company_reviews = None
+    ingest_multi_company_reviews = None
     SvcReviewData = None
     SvcCompanyReviews = None
-# ─────────────────────────────────────────────────────────────
 
 router = APIRouter(tags=["dashboard"])  # legacy + v2 endpoints live here as well
 templates = Jinja2Templates(directory="app/templates")
@@ -353,7 +352,7 @@ async def get_dashboard(request: Request, company_id: Optional[int] = Query(None
         "alert_email": "/api/alerts/high-severity-email",
         # NEW: external fetch + sync
         "external_reviews_fetch": "/api/external/google-reviews/fetch",
-        "sync_reviews": "/api/companies/{company_id}/sync",  # alias supported
+        "sync_reviews": "/api/companies/{company_id}/sync",
     }
 
     return templates.TemplateResponse(
@@ -1297,17 +1296,14 @@ async def api_alerts_high_severity_email(company_id: int, company_name: Optional
     }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# NEW (Additive): Integrate services/google_reviews.py
-#   - POST /api/external/google-reviews/fetch  (no DB writes)
-#   - POST /api/companies/{company_id}/sync-reviews (persist)
-#   - Alias: POST /api/companies/{company_id}/sync
+# NEW (Additive): Reviews fetch/sync integration (single + competitors)
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _get_reviews_api_client(request: Request):
     """
     Resolve a pre-initialized API client placed at app.state.google_reviews_client
     during application startup. The client must implement:
-        get_reviews(place_id: str, limit: int, offset: int) -> dict
+        get_reviews(place_id: str, limit: int, offset: int, **kwargs) -> dict
     returning {"reviews": [...]}
     """
     client = getattr(request.app.state, "google_reviews_client", None)
@@ -1315,140 +1311,197 @@ def _get_reviews_api_client(request: Request):
         raise HTTPException(status_code=501, detail="Reviews API client not configured (app.state.google_reviews_client)")
     return client
 
-def _parse_dt_loose(s: Optional[str]) -> Optional[datetime]:
+def _normalize_window(start_s: Optional[str], end_s: Optional[str]) -> tuple[Optional[datetime], Optional[datetime]]:
     """
-    Accepts 'YYYY-MM-DD' or ISO8601. Returns datetime (naive).
+    Accepts 'YYYY-MM-DD' or ISO. Returns (start_dt, end_dt) inclusive.
+    If only date provided, start -> 00:00:00, end -> 23:59:59.999999
     """
-    if not s:
-        return None
-    try:
-        if len(s) == 10:
-            # Date only
-            return datetime.strptime(s, "%Y-%m-%d")
-        return datetime.fromisoformat(s)
-    except Exception:
-        return None
+    def _parse(s: Optional[str]) -> Optional[datetime]:
+        if not s:
+            return None
+        try:
+            if len(s) == 10:
+                return datetime.strptime(s, "%Y-%m-%d")
+            return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    s = _parse(start_s)
+    e = _parse(end_s)
+
+    if s and s.tzinfo:
+        s = s.replace(tzinfo=None)
+    if e and e.tzinfo:
+        e = e.replace(tzinfo=None)
+
+    if s:
+        s = datetime.combine(s.date(), time.min)
+    if e:
+        e = datetime.combine(e.date(), time.max)
+
+    return s, e
 
 def _set_if_has(obj: Any, attr: str, value: Any):
     if hasattr(obj, attr):
         setattr(obj, attr, value)
 
+# ---------- External fetch (no persistence); single or competitors batch ----------
 @router.post("/api/external/google-reviews/fetch")
 async def api_external_google_reviews_fetch(request: Request):
     """
-    Runs the external fetch via services/google_reviews (no persistence).
-    Expects JSON:
-      {
-        "place_id": "...",              # required
-        "company_id": 123,              # optional - echoed back
-        "start": "YYYY-MM-DD",          # optional
-        "end": "YYYY-MM-DD",            # optional
-        "max_reviews": 500              # optional
-      }
+    Runs external fetch via services/google_reviews (no DB writes).
+
+    Accepts either:
+      { "place_id": "..." , "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "max_reviews": 1000, ... }
+    OR:
+      { "entities": [ "pid1", {"place_id":"pid2","name":"Competitor A"} , ... ],
+        "start": "...", "end": "...", "max_reviews_per_entity": 500, ... }
+
+    Any extra keys are passed through to the underlying client.get_reviews(...).
     """
     if ingest_company_reviews is None:
         raise HTTPException(status_code=501, detail="google_reviews service not available")
 
     body = await request.json()
-    place_id = body.get("place_id")
-    if not place_id:
-        raise HTTPException(status_code=400, detail="place_id is required")
-    company_id = body.get("company_id")
-    start_dt = _parse_dt_loose(body.get("start"))
-    end_dt = _parse_dt_loose(body.get("end"))
-    max_reviews = body.get("max_reviews")
-
     client = _get_reviews_api_client(request)
-    result = ingest_company_reviews(
-        place_id=place_id,
-        company_id=str(company_id) if company_id is not None else "unknown",
-        api_client=client,
-        start_date=start_dt,
-        end_date=end_dt,
-        max_reviews=max_reviews
-    )
 
-    def _cast_review(r: SvcReviewData):
+    # Split generic args
+    place_id = body.get("place_id")
+    entities = body.get("entities")
+    start_dt, end_dt = _normalize_window(body.get("start"), body.get("end"))
+
+    # Pass-through optional caps and vendor kwargs
+    max_reviews = body.get("max_reviews")
+    max_reviews_per_entity = body.get("max_reviews_per_entity")
+    vendor_kwargs = {k: v for k, v in body.items() if k not in {"place_id", "entities", "start", "end", "max_reviews", "max_reviews_per_entity"}}
+
+    if place_id and not entities:
+        # Single entity, no DB write
+        result = ingest_company_reviews(
+            place_id=place_id,
+            company_id="external",
+            api_client=client,
+            start_date=start_dt,
+            end_date=end_dt,
+            max_reviews=max_reviews,
+            **vendor_kwargs,
+        )
+        def _cast_review(r: SvcReviewData):
+            return {
+                "review_id": r.review_id,
+                "author_name": r.author_name,
+                "rating": r.rating,
+                "text": r.text,
+                "time_created": r.time_created.isoformat(),
+                "sentiment": r.sentiment,
+                "review_title": r.review_title,
+                "helpful_votes": r.helpful_votes,
+                "source_platform": r.source_platform,
+                "competitor_name": r.competitor_name,
+                "additional_fields": r.additional_fields,
+            }
         return {
-            "review_id": r.review_id,
-            "author_name": r.author_name,
-            "rating": r.rating,
-            "text": r.text,
-            "time_created": r.time_created.isoformat(),
-            "sentiment": r.sentiment,
-            "review_title": r.review_title,
-            "helpful_votes": r.helpful_votes,
-            "source_platform": r.source_platform,
-            "competitor_name": r.competitor_name,
-            "additional_fields": r.additional_fields,
+            "place_id": place_id,
+            "count": len(result.reviews),
+            "rating_summary": result.rating_summary(),
+            "rating_distribution": result.rating_distribution(),
+            "reviews": [_cast_review(r) for r in result.reviews],
         }
 
-    return {
-        "company_id": company_id,
-        "place_id": place_id,
-        "count": len(result.reviews),
-        "rating_summary": result.rating_summary(),
-        "rating_distribution": result.rating_distribution(),
-        "reviews": [_cast_review(r) for r in result.reviews],
-    }
+    if entities:
+        # Batch (primary + competitors), no DB write
+        batch = ingest_multi_company_reviews(
+            primary_company_id="external",
+            entities=entities,
+            api_client=client,
+            start_date=start_dt,
+            end_date=end_dt,
+            max_reviews_per_entity=max_reviews_per_entity,
+            **vendor_kwargs,
+        )
+        out = {}
+        for pid, bucket in batch.items():
+            out[pid] = {
+                "count": len(bucket.reviews),
+                "rating_summary": bucket.rating_summary(),
+                "rating_distribution": bucket.rating_distribution(),
+                "sample": [{
+                    "review_id": r.review_id,
+                    "author_name": r.author_name,
+                    "rating": r.rating,
+                    "text": (r.text or "")[:1000],
+                    "time_created": r.time_created.isoformat(),
+                    "competitor_name": r.competitor_name,
+                } for r in bucket.reviews[:50]]
+            }
+        return {"entities": out}
 
+    raise HTTPException(status_code=400, detail="Provide either 'place_id' or 'entities'.")
+
+# ---------- Sync & persist; single or competitors batch ----------
 @router.post("/api/companies/{company_id}/sync-reviews")
 async def api_companies_sync_reviews(company_id: int, request: Request):
     """
     Fetch reviews via services/google_reviews and persist into Review.
-    Upsert strategy: skip insert if (company_id, author_name, google_review_time) already exists.
-    Expects JSON:
-      {
-        "place_id": "...",            # required
-        "start": "YYYY-MM-DD",        # optional
-        "end": "YYYY-MM-DD",          # optional
-        "max_reviews": 1000           # optional
-      }
+
+    Accepts either:
+      Single:
+        { "place_id": "...", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "max_reviews": 1000, ... }
+      Batch:
+        { "entities": [ "pid1", {"place_id":"pid2","name":"Competitor A"} , ... ],
+          "start": "...", "end": "...", "max_reviews_per_entity": 500, ... }
+
+    De-duplication:
+      - If model has google_review_id: dedupe by google_review_id (and optionally google_place_id/company_id).
+      - Else fallback to (company_id, author_name, google_review_time).
     """
     if ingest_company_reviews is None:
         raise HTTPException(status_code=501, detail="google_reviews service not available")
 
     data = await request.json()
-    place_id = data.get("place_id")
-    if not place_id:
-        raise HTTPException(status_code=400, detail="place_id is required")
-
-    start_dt = _parse_dt_loose(data.get("start"))
-    end_dt = _parse_dt_loose(data.get("end"))
-    max_reviews = data.get("max_reviews")
-
     client = _get_reviews_api_client(request)
-    fetched = ingest_company_reviews(
-        place_id=place_id,
-        company_id=str(company_id),
-        api_client=client,
-        start_date=start_dt,
-        end_date=end_dt,
-        max_reviews=max_reviews
-    )
 
-    inserted = 0
-    skipped = 0
-    errors = 0
+    place_id = data.get("place_id")
+    entities = data.get("entities")
+    start_dt, end_dt = _normalize_window(data.get("start"), data.get("end"))
+    vendor_kwargs = {k: v for k, v in data.items() if k not in {"place_id", "entities", "start", "end", "max_reviews", "max_reviews_per_entity"}}
+
+    inserted_total = 0
+    skipped_total = 0
+    errors_total = 0
 
     async with get_session() as session:
-        for r in fetched.reviews:
+        async def _persist_review(pid: str, r: SvcReviewData):
+            nonlocal inserted_total, skipped_total, errors_total
             try:
-                # Duplicate guard: (company_id, author_name, google_review_time)
-                exists = await session.execute(
-                    select(Review.id).where(
-                        and_(
-                            Review.company_id == company_id,
-                            Review.author_name == (r.author_name or ""),
-                            Review.google_review_time == r.time_created
+                # Dedup strategy
+                if hasattr(Review, "google_review_id") and r.review_id:
+                    exists = await session.execute(
+                        select(Review.id).where(
+                            and_(
+                                Review.company_id == company_id,
+                                Review.google_review_id == str(r.review_id)
+                            )
                         )
                     )
-                )
-                if exists.scalar():
-                    skipped += 1
-                    continue
+                    if exists.scalar():
+                        skipped_total += 1
+                        return
+                else:
+                    exists = await session.execute(
+                        select(Review.id).where(
+                            and_(
+                                Review.company_id == company_id,
+                                Review.author_name == (r.author_name or ""),
+                                Review.google_review_time == r.time_created
+                            )
+                        )
+                    )
+                    if exists.scalar():
+                        skipped_total += 1
+                        return
 
-                row = Review()  # ORM instance
+                row = Review()
                 _set_if_has(row, "company_id", company_id)
                 _set_if_has(row, "author_name", r.author_name or "Anonymous")
                 _set_if_has(row, "rating", float(r.rating) if r.rating is not None else None)
@@ -1457,20 +1510,53 @@ async def api_companies_sync_reviews(company_id: int, request: Request):
 
                 # Optional fields if present in the model
                 _set_if_has(row, "google_review_id", r.review_id)
-                _set_if_has(row, "google_place_id", place_id)
+                _set_if_has(row, "google_place_id", pid)
                 _set_if_has(row, "source_platform", r.source_platform or "Google")
                 _set_if_has(row, "review_title", r.review_title)
                 _set_if_has(row, "helpful_votes", r.helpful_votes)
+                _set_if_has(row, "competitor_name", r.competitor_name)
 
                 # Compute and store sentiment_score (negation-aware)
                 computed_sent = _safe_sentiment(r.text or "", int(round(r.rating)) if r.rating is not None else None)
                 _set_if_has(row, "sentiment_score", float(computed_sent))
 
                 session.add(row)
-                inserted += 1
+                inserted_total += 1
             except Exception as ex:
                 logger.exception("Failed to persist fetched review: %s", ex)
-                errors += 1
+                errors_total += 1
+
+        if place_id and not entities:
+            max_reviews = data.get("max_reviews")
+            result = ingest_company_reviews(
+                place_id=place_id,
+                company_id=str(company_id),
+                api_client=client,
+                start_date=start_dt,
+                end_date=end_dt,
+                max_reviews=max_reviews,
+                **vendor_kwargs,
+            )
+            for r in result.reviews:
+                await _persist_review(place_id, r)
+
+        elif entities:
+            max_per = data.get("max_reviews_per_entity")
+            batch = ingest_multi_company_reviews(
+                primary_company_id=str(company_id),
+                entities=entities,
+                api_client=client,
+                start_date=start_dt,
+                end_date=end_dt,
+                max_reviews_per_entity=max_per,
+                **vendor_kwargs,
+            )
+            for pid, bucket in batch.items():
+                for r in bucket.reviews:
+                    await _persist_review(pid, r)
+
+        else:
+            raise HTTPException(status_code=400, detail="Provide either 'place_id' or 'entities'.")
 
         try:
             await session.commit()
@@ -1481,10 +1567,10 @@ async def api_companies_sync_reviews(company_id: int, request: Request):
     return {
         "company_id": company_id,
         "place_id": place_id,
-        "fetched": len(fetched.reviews),
-        "inserted": inserted,
-        "skipped": skipped,
-        "errors": errors,
+        "entities": entities if entities else None,
+        "inserted": inserted_total,
+        "skipped": skipped_total,
+        "errors": errors_total,
         "start": start_dt.isoformat() if start_dt else None,
         "end": end_dt.isoformat() if end_dt else None,
     }
