@@ -15,9 +15,9 @@ class OutscraperReviewsService:
     Bypasses the official Google 5-review limit by scraping the Maps frontend.
     """
     def __init__(self):
-        # Matches the variable defined in your app/core/config.py
-        self.api_key = settings.OUTSCAPTER_KEY
-        # Outscraper V2 endpoint is the most stable for large datasets
+        # FIXED: Correct config variable name
+        self.api_key = settings.OUTSCRAPER_KEY
+        # Outscraper V2 endpoint (UNCHANGED)
         self.base_url = "https://api.app.outscraper.com/maps/reviews-v2"
 
     async def fetch_reviews(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
@@ -27,7 +27,7 @@ class OutscraperReviewsService:
         headers = {"X-API-KEY": self.api_key}
         params = {
             "query": query,
-            "reviewsLimit": limit,  # Key parameter to break the 5-review limit
+            "reviewsLimit": limit,
             "async": "false",
             "sort": "newest",
             "ignoreEmpty": "true"
@@ -37,7 +37,7 @@ class OutscraperReviewsService:
             try:
                 logger.info(f"Initiating Outscraper Sync for: {query} (Limit: {limit})")
                 response = await client.get(self.base_url, headers=headers, params=params)
-                
+
                 if response.status_code != 200:
                     logger.error(f"Outscraper API Error {response.status_code}: {response.text}")
                     return []
@@ -46,7 +46,6 @@ class OutscraperReviewsService:
                 results = data.get("data", [])
                 all_mapped_reviews = []
 
-                # Outscraper returns a list of results (one per query submitted)
                 for result in results:
                     reviews_list = result.get("reviews_data", [])
                     for rev in reviews_list:
@@ -66,39 +65,46 @@ class OutscraperReviewsService:
 
                 logger.info(f"Successfully fetched {len(all_mapped_reviews)} reviews from Outscraper.")
                 return all_mapped_reviews
+
             except Exception as e:
                 logger.error(f"Failed to communicate with Outscraper: {e}")
                 return []
 
-# Singleton instance for application-wide use
+
+# Singleton instance (UNCHANGED)
 outscraper_service = OutscraperReviewsService()
+
 
 async def ingest_company_reviews(place_id: str, company_id: int):
     """
     Orchestrates the fetch from Outscraper and persists unique records to Postgres.
     """
-    # Setting limit to 100 to pull a substantial initial dataset
+
     reviews_data = await outscraper_service.fetch_reviews(place_id, limit=100)
-    
+
     async with get_session() as session:
         new_records_count = 0
+
         for rd in reviews_data:
-            # Prevent Duplicates: Check if this specific Google Review ID already exists
-            exists_stmt = select(Review).where(Review.google_review_id == rd["reviewId"])
+
+            exists_stmt = select(Review).where(
+                Review.google_review_id == rd["reviewId"]
+            )
             exists_result = await session.execute(exists_stmt)
+
             if exists_result.scalar_one_or_none():
                 continue
 
-            # Safely parse review timestamp
             review_dt = datetime.now(timezone.utc)
+
             if rd["time_str"]:
                 try:
-                    # Outscraper provides UTC ISO format
-                    review_dt = datetime.fromisoformat(rd["time_str"].replace("Z", "+00:00"))
+                    review_dt = datetime.fromisoformat(
+                        rd["time_str"].replace("Z", "+00:00")
+                    )
                 except (ValueError, TypeError):
                     pass
 
-            # Create Review object aligned with your models.py
             new_review = Review(
                 company_id=company_id,
                 google_review_id=rd["reviewId"],
@@ -110,11 +116,16 @@ async def ingest_company_reviews(place_id: str, company_id: int):
                 google_review_time=review_dt,
                 review_reply_text=rd.get("response_text")
             )
+
             session.add(new_review)
             new_records_count += 1
-        
+
         await session.commit()
-        logger.info(f"Database sync complete. Added {new_records_count} new reviews for company_id: {company_id}.")
+
+        logger.info(
+            f"Database sync complete. Added {new_records_count} new reviews for company_id: {company_id}."
+        )
+
 
 async def fetch_place_details(place_id: str):
     """Placeholder function to maintain compatibility with dashboard route imports."""
