@@ -1,4 +1,5 @@
 from __future__ import annotations
+from datetime import datetime  # ← FIXED: added this import
 from sqlalchemy import (
     Column, Integer, String, Float, Text, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint
 )
