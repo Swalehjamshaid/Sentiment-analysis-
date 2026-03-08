@@ -2,7 +2,7 @@ from __future__ import annotations
 from sqlalchemy import (
     Column, Integer, String, Float, Text, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint
 )
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import declarative_base, relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
 
 # ---------------------------------------------------
@@ -10,94 +10,90 @@ from sqlalchemy.sql import func
 # ---------------------------------------------------
 Base = declarative_base()
 
-# Bumped version to 7.0.2 to include aspect_staff and aspect_food
-SCHEMA_VERSION = "7.0.2-full-aspects"
+# Bumped version to 7.0.3 to include is_praise + comprehensive Outscraper fields
+SCHEMA_VERSION = "7.0.3-full-outscraper-ready"
 
 # ---------------------------------------------------
 # Users
 # ---------------------------------------------------
 class User(Base):
     __tablename__ = "users"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    profile_pic: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    role: Mapped[str] = mapped_column(String(50), default="editor")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
-    email = Column(String(255), unique=True, nullable=False, index=True)
-    hashed_password = Column(String(255), nullable=False)
-    is_active = Column(Boolean, default=True)
-    is_admin = Column(Boolean, default=False)
-    email_verified = Column(Boolean, default=False)
-    profile_pic = Column(String(1000), nullable=True)
-    role = Column(String(50), default="editor")
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
     # Relationships
     companies = relationship("Company", back_populates="owner")
-
 
 # ---------------------------------------------------
 # Companies
 # ---------------------------------------------------
 class Company(Base):
     __tablename__ = "companies"
-
-    id = Column(Integer, primary_key=True, index=True)
-    owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    owner_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
 
     # Basic info
-    name = Column(String(255), nullable=False)
-    address = Column(String(1000), nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    address: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
     # Google Identifiers
-    google_place_id = Column(String(512), unique=True, index=True)
-    internal_place_id = Column(String(255), nullable=True)
-    google_id = Column(String(255), nullable=True)
+    google_place_id: Mapped[str | None] = mapped_column(String(512), unique=True, index=True)
+    internal_place_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    google_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Location Details
-    full_address = Column(String(1000))
-    city = Column(String(255))
-    state = Column(String(255))
-    postal_code = Column(String(50))
-    country = Column(String(100))
-    lat = Column(Float)
-    lng = Column(Float)
+    full_address: Mapped[str | None] = mapped_column(String(1000))
+    city: Mapped[str | None] = mapped_column(String(255))
+    state: Mapped[str | None] = mapped_column(String(255))
+    postal_code: Mapped[str | None] = mapped_column(String(50))
+    country: Mapped[str | None] = mapped_column(String(100))
+    lat: Mapped[float | None] = mapped_column(Float)
+    lng: Mapped[float | None] = mapped_column(Float)
 
     # Contact
-    phone = Column(String(255))
-    website = Column(String(512))
-    email = Column(String(255))
+    phone: Mapped[str | None] = mapped_column(String(255))
+    website: Mapped[str | None] = mapped_column(String(512))
+    email: Mapped[str | None] = mapped_column(String(255))
 
     # Categories & Stats
-    category = Column(String(255))
-    sub_categories = Column(JSON)
-    type = Column(JSON)
-    business_status = Column(String(50))
-    permanently_closed = Column(Boolean, default=False)
-    rating = Column(Float, default=0.0)
-    reviews_count = Column(Integer, default=0)
+    category: Mapped[str | None] = mapped_column(String(255))
+    sub_categories: Mapped[list | None] = mapped_column(JSON)
+    type: Mapped[list | None] = mapped_column(JSON)
+    business_status: Mapped[str | None] = mapped_column(String(50))
+    permanently_closed: Mapped[bool] = mapped_column(Boolean, default=False)
+    rating: Mapped[float] = mapped_column(Float, default=0.0)
+    reviews_count: Mapped[int] = mapped_column(Integer, default=0)
 
     # Media & Hours
-    photos = Column(JSON)
-    working_hours = Column(JSON)
-    popular_times = Column(JSON)
-    business_attributes = Column(JSON)
+    photos: Mapped[list | None] = mapped_column(JSON)
+    working_hours: Mapped[dict | None] = mapped_column(JSON)
+    popular_times: Mapped[dict | None] = mapped_column(JSON)
+    business_attributes: Mapped[dict | None] = mapped_column(JSON)
 
     # URLs
-    google_maps_url = Column(String(1000))
-    place_url = Column(String(1000))
+    google_maps_url: Mapped[str | None] = mapped_column(String(1000))
+    place_url: Mapped[str | None] = mapped_column(String(1000))
 
     # Sync tracking
-    last_synced_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     owner = relationship("User", back_populates="companies")
     reviews = relationship("Review", back_populates="company", cascade="all, delete-orphan")
     competitors = relationship("Competitor", back_populates="company", cascade="all, delete-orphan")
 
-
 # ---------------------------------------------------
-# Reviews
+# Reviews (enhanced with comprehensive Outscraper/Google fields)
 # ---------------------------------------------------
 class Review(Base):
     __tablename__ = "reviews"
@@ -105,115 +101,125 @@ class Review(Base):
         UniqueConstraint("company_id", "google_review_id", name="_company_review_uc"),
     )
 
-    id = Column(Integer, primary_key=True, index=True)
-    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    company_id: Mapped[int] = mapped_column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
 
     # Identifiers
-    google_review_id = Column(String(512), nullable=False, index=True)
-    review_url = Column(String(1000))
+    google_review_id: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
+    review_url: Mapped[str | None] = mapped_column(String(1000))
 
-    # Reviewer Information
-    author_name = Column(String(255))
-    author_id = Column(String(255))
-    author_url = Column(String(1000))
-    profile_photo_url = Column(String(1000), nullable=True)
-    author_profile_photo = Column(String(1000), nullable=True)
-    author_reviews_count = Column(Integer)
-    author_level = Column(Integer)
+    # Reviewer Information (Outscraper/Google enriched)
+    author_name: Mapped[str | None] = mapped_column(String(255))
+    author_id: Mapped[str | None] = mapped_column(String(255))
+    author_url: Mapped[str | None] = mapped_column(String(1000))
+    profile_photo_url: Mapped[str | None] = mapped_column(String(1000))
+    author_profile_photo: Mapped[str | None] = mapped_column(String(1000))
+    author_reviews_count: Mapped[int | None] = mapped_column(Integer)
+    author_level: Mapped[int | None] = mapped_column(Integer)
+    author_location: Mapped[str | None] = mapped_column(String(255))  # e.g. "Lahore, Pakistan"
+    author_contributions: Mapped[int | None] = mapped_column(Integer)  # e.g. total reviews/photos
 
     # Review Content
-    rating = Column(Integer)
-    text = Column(Text)
-    review_language = Column(String(50))
-    google_review_time = Column(DateTime(timezone=True))
+    rating: Mapped[int | None] = mapped_column(Integer)
+    text: Mapped[str | None] = mapped_column(Text)
+    review_language: Mapped[str | None] = mapped_column(String(50))
+    google_review_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Response / Reply Fields
-    owner_answer = Column(Text)
-    review_reply_text = Column(Text, nullable=True)
-    owner_answer_timestamp = Column(DateTime(timezone=True))
+    owner_answer: Mapped[str | None] = mapped_column(Text)
+    owner_answer_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_reply_text: Mapped[str | None] = mapped_column(Text)
 
-    # Metrics & Metadata
-    review_likes = Column(Integer, default=0)
-    review_photos = Column(JSON)
-    is_local_guide = Column(Boolean, default=False)
+    # Media & Attachments
+    review_photos: Mapped[list | None] = mapped_column(JSON)  # list of photo URLs
+    review_videos: Mapped[list | None] = mapped_column(JSON)  # list of video URLs
 
-    # AI Processing Fields
-    sentiment_label = Column(String(50))
-    sentiment_score = Column(Float, default=0.0)
-    keywords = Column(JSON)
-    topic_tags = Column(JSON)
-    spam_score = Column(Float)
+    # Metrics & Engagement
+    review_likes: Mapped[int] = mapped_column(Integer, default=0)
+    is_local_guide: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    # Dashboard Requirement Fields
-    is_complaint = Column(Boolean, default=False, index=True)
-    
-    # Aspect-based Sentiment Scores (Used by api_aspects_average)
-    aspect_rooms = Column(Float, nullable=True)
-    aspect_staff = Column(Float, nullable=True)
-    aspect_location = Column(Float, nullable=True)
-    aspect_value = Column(Float, nullable=True)
-    aspect_cleanliness = Column(Float, nullable=True)
-    aspect_food = Column(Float, nullable=True)
-    aspect_service = Column(Float, nullable=True)
-    aspect_amenities = Column(Float, nullable=True)
+    # AI & Classification Fields
+    sentiment_label: Mapped[str | None] = mapped_column(String(50))  # positive/neutral/negative
+    sentiment_score: Mapped[float] = mapped_column(Float, default=0.0)
+    keywords: Mapped[list | None] = mapped_column(JSON)
+    topic_tags: Mapped[list | None] = mapped_column(JSON)
+    spam_score: Mapped[float | None] = mapped_column(Float)
 
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+    # Complaint/Praise Flags (fixes your crash)
+    is_complaint: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    is_praise: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+
+    # Aspect-based Scores (expanded for more coverage)
+    aspect_rooms: Mapped[float | None] = mapped_column(Float)
+    aspect_staff: Mapped[float | None] = mapped_column(Float)
+    aspect_location: Mapped[float | None] = mapped_column(Float)
+    aspect_value: Mapped[float | None] = mapped_column(Float)
+    aspect_cleanliness: Mapped[float | None] = mapped_column(Float)
+    aspect_food: Mapped[float | None] = mapped_column(Float)
+    aspect_service: Mapped[float | None] = mapped_column(Float)
+    aspect_amenities: Mapped[float | None] = mapped_column(Float)
+    aspect_price: Mapped[float | None] = mapped_column(Float)
+    aspect_atmosphere: Mapped[float | None] = mapped_column(Float)
+
+    # Sync & Tracking
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
     # Relationships
-    company = relationship("Company", back_populates="reviews")
-
+    company: Mapped["Company"] = relationship("Company", back_populates="reviews")
 
 # ---------------------------------------------------
 # Competitors
 # ---------------------------------------------------
 class Competitor(Base):
     __tablename__ = "competitors"
-    id = Column(Integer, primary_key=True)
-    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
-    name = Column(String(255), nullable=False)
-    place_id = Column(String(512))
-    rating = Column(Float)
-    reviews_count = Column(Integer)
-    distance_km = Column(Float)
-    lat = Column(Float)
-    lng = Column(Float)
-    google_maps_url = Column(String(1000))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    place_id: Mapped[str | None] = mapped_column(String(512))
+    rating: Mapped[float | None] = mapped_column(Float)
+    reviews_count: Mapped[int | None] = mapped_column(Integer)
+    distance_km: Mapped[float | None] = mapped_column(Float)
+    lat: Mapped[float | None] = mapped_column(Float)
+    lng: Mapped[float | None] = mapped_column(Float)
+    google_maps_url: Mapped[str | None] = mapped_column(String(1000))
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
     # Relationships
     company = relationship("Company", back_populates="competitors")
-
 
 # ---------------------------------------------------
 # Notifications
 # ---------------------------------------------------
 class Notification(Base):
     __tablename__ = "notifications"
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
-    title = Column(String(255))
-    message = Column(Text)
-    is_read = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
 
+    title: Mapped[str] = mapped_column(String(255))
+    message: Mapped[str] = mapped_column(Text)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 # ---------------------------------------------------
 # Audit Logs
 # ---------------------------------------------------
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
-    action = Column(String(255), nullable=False)
-    meta = Column(JSON, default={})
-    ip_address = Column(String(100))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
 
+    action: Mapped[str] = mapped_column(String(255), nullable=False)
+    meta: Mapped[dict] = mapped_column(JSON, default={})
+    ip_address: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 # ---------------------------------------------------
-# Config
+# Config (global settings)
 # ---------------------------------------------------
 class Config(Base):
     __tablename__ = "config"
-    key = Column(String(255), primary_key=True)
-    value = Column(String(255))
+    key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    value: Mapped[str | None] = mapped_column(String(1000), nullable=True)
