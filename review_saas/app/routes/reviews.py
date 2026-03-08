@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from typing import List, Optional, Dict, Any
 from collections import Counter
 from datetime import datetime
@@ -11,20 +11,21 @@ from app.core.db import get_session
 from app.core.models import Review, Company
 from app.services.google_reviews import OutscraperReviewsService, ReviewData
 
+
 # ---------------------------------------------------------
-# Mock API client for testing (replace with real API client)
+# Mock API client (Replace with real Outscraper client)
 # ---------------------------------------------------------
 class MockClient:
+
     def get_reviews(self, place_id, limit, offset):
-        # Return sample data for testing
         return {
             "reviews": [
                 {
                     "review_id": f"rev_{offset+i}",
                     "author_name": f"Author {i}",
-                    "rating": 4 + i % 2,
-                    "text": f"This is sample review {i}",
-                    "time": 1700000000 + i * 1000,
+                    "rating": 3 + (i % 3),
+                    "text": f"Sample review {i}",
+                    "time": 1700000000 + (i * 2000),
                     "title": f"Title {i}",
                     "helpful_votes": i % 3,
                     "platform": "Google",
@@ -33,113 +34,154 @@ class MockClient:
             ]
         }
 
-# Initialize API client and Outscraper service
-api_client = MockClient()  # Replace with real API client, e.g., OutscraperAPIClient(api_key="YOUR_KEY")
+
+# ---------------------------------------------------------
+# Initialize services
+# ---------------------------------------------------------
+api_client = MockClient()
 outscraper_service = OutscraperReviewsService(api_client)
 
-# Initialize router
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
+
 # ---------------------------------------------------------
-# Ingest reviews for a company
+# Ingest Reviews Based on Date Range
 # ---------------------------------------------------------
-@router.post("/ingest/{place_id}/{company_id}")
+@router.post("/ingest")
 async def ingest_reviews(
-    place_id: str,
-    company_id: int,
-    limit: Optional[int] = Query(500, description="Max number of reviews"),
-    db: AsyncSession = Depends(get_session)
+        place_id: str,
+        company_id: int,
+        competitor_place_ids: Optional[List[str]] = Query(None),
+        start_date: Optional[str] = Query(None),
+        end_date: Optional[str] = Query(None),
+        limit: int = Query(500),
+        db: AsyncSession = Depends(get_session)
 ):
+    """
+    Fetch reviews from Outscraper and store them in DB
+    based on the date range provided by frontend.
+    """
+
     try:
-        # Get company from DB
+
+        # Validate company
         result = await db.execute(select(Company).filter(Company.id == company_id))
         company = result.scalars().first()
+
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
-        # Fetch reviews from Outscraper service
-        reviews_data: List[ReviewData] = await outscraper_service.fetch_reviews(place_id, max_reviews=limit)
-        saved = 0
+        start_dt = datetime.fromisoformat(start_date) if start_date else None
+        end_dt = datetime.fromisoformat(end_date) if end_date else None
 
-        for r in reviews_data:
-            review_id = r.review_id
+        places = [place_id]
 
-            # Check if review already exists
-            exist_check = await db.execute(
-                select(Review).filter(Review.external_review_id == review_id)
+        if competitor_place_ids:
+            places.extend(competitor_place_ids)
+
+        total_saved = 0
+        total_fetched = 0
+
+        for place in places:
+
+            reviews_data: List[ReviewData] = await outscraper_service.fetch_reviews(
+                place,
+                max_reviews=limit
             )
-            if exist_check.scalars().first():
-                continue
 
-            review = Review(
-                company_id=company_id,
-                external_review_id=review_id,
-                author=r.author_name,
-                rating=r.rating,
-                review_text=r.text,
-                review_date=r.time_created,
-                sentiment=None,
-                competitor_name=r.competitor_name
-            )
-            db.add(review)
-            saved += 1
+            total_fetched += len(reviews_data)
+
+            for r in reviews_data:
+
+                review_date = r.time_created
+
+                # Filter based on date range
+                if start_dt and review_date < start_dt:
+                    continue
+
+                if end_dt and review_date > end_dt:
+                    continue
+
+                review_id = r.review_id
+
+                exist = await db.execute(
+                    select(Review).filter(
+                        Review.external_review_id == review_id
+                    )
+                )
+
+                if exist.scalars().first():
+                    continue
+
+                review = Review(
+                    company_id=company_id,
+                    external_review_id=review_id,
+                    author=r.author_name,
+                    rating=r.rating,
+                    review_text=r.text,
+                    review_date=review_date,
+                    sentiment=None,
+                    competitor_name=r.competitor_name
+                )
+
+                db.add(review)
+                total_saved += 1
 
         await db.commit()
 
         return {
             "status": "success",
-            "reviews_fetched": len(reviews_data),
-            "reviews_saved": saved
+            "reviews_fetched": total_fetched,
+            "reviews_saved": total_saved,
+            "date_range": {
+                "start_date": start_date,
+                "end_date": end_date
+            }
         }
 
     except Exception as e:
+
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to ingest reviews: {str(e)}")
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to ingest reviews: {str(e)}"
+        )
+
 
 # ---------------------------------------------------------
-# Review statistics including rating distribution and AI summary
-# ---------------------------------------------------------
-@router.get("/stats/{company_id}")
-async def review_stats(company_id: int, db: AsyncSession = Depends(get_session)):
-    result = await db.execute(select(Review).filter(Review.company_id == company_id))
-    reviews: List[Review] = result.scalars().all()
-
-    total = len(reviews)
-    if total == 0:
-        return {"total_reviews": 0, "avg_rating": 0, "rating_distribution": {}, "ai_summary": ""}
-
-    valid_ratings = [r.rating for r in reviews if r.rating is not None]
-    avg_rating = sum(valid_ratings) / len(valid_ratings) if valid_ratings else 0
-
-    # Rating distribution
-    rating_counts = Counter(r.rating for r in reviews if r.rating is not None)
-    rating_distribution = {i: rating_counts.get(i, 0) for i in range(1, 6)}
-
-    # AI summary placeholder (replace with real AI summary logic)
-    ai_summary = f"Total reviews: {total}, Avg rating: {avg_rating:.2f}, Max rating: {max(valid_ratings) if valid_ratings else 0}, Min rating: {min(valid_ratings) if valid_ratings else 0}"
-
-    return {
-        "total_reviews": total,
-        "avg_rating": round(avg_rating, 2),
-        "rating_distribution": rating_distribution,
-        "ai_summary": ai_summary
-    }
-
-# ---------------------------------------------------------
-# Dashboard feed with competitor info
+# Review Feed for Dashboard
 # ---------------------------------------------------------
 @router.get("/feed/{company_id}")
 async def get_reviews_feed(
-    company_id: int, 
-    limit: int = 20, 
-    db: AsyncSession = Depends(get_session)
+        company_id: int,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: int = 20,
+        db: AsyncSession = Depends(get_session)
 ):
-    result = await db.execute(
-        select(Review)
-        .filter(Review.company_id == company_id)
-        .order_by(Review.review_date.desc())
-        .limit(limit)
-    )
+    """
+    Returns filtered reviews for the dashboard.
+    """
+
+    query = select(Review).filter(Review.company_id == company_id)
+
+    if start_date:
+        query = query.filter(
+            Review.review_date >= datetime.fromisoformat(start_date)
+        )
+
+    if end_date:
+        query = query.filter(
+            Review.review_date <= datetime.fromisoformat(end_date)
+        )
+
+    query = query.order_by(
+        Review.review_date.desc()
+    ).limit(limit)
+
+    result = await db.execute(query)
+
     reviews = result.scalars().all()
 
     return {
@@ -156,4 +198,63 @@ async def get_reviews_feed(
             }
             for r in reviews
         ]
+    }
+
+
+# ---------------------------------------------------------
+# Competitor Analytics API
+# ---------------------------------------------------------
+@router.get("/competitors/{company_id}")
+async def competitor_stats(
+        company_id: int,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        db: AsyncSession = Depends(get_session)
+):
+    """
+    Returns competitor review counts and ratings.
+    """
+
+    query = select(Review).filter(
+        Review.company_id == company_id,
+        Review.competitor_name != None
+    )
+
+    if start_date:
+        query = query.filter(
+            Review.review_date >= datetime.fromisoformat(start_date)
+        )
+
+    if end_date:
+        query = query.filter(
+            Review.review_date <= datetime.fromisoformat(end_date)
+        )
+
+    result = await db.execute(query)
+
+    reviews = result.scalars().all()
+
+    competitor_counts = Counter(
+        r.competitor_name for r in reviews if r.competitor_name
+    )
+
+    competitor_ratings: Dict[str, List[int]] = {}
+
+    for r in reviews:
+
+        if r.competitor_name:
+
+            competitor_ratings.setdefault(
+                r.competitor_name,
+                []
+            ).append(r.rating)
+
+    competitor_avg = {
+        name: round(sum(vals) / len(vals), 2)
+        for name, vals in competitor_ratings.items()
+    }
+
+    return {
+        "competitor_review_count": competitor_counts,
+        "competitor_avg_rating": competitor_avg
     }
