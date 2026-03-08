@@ -10,9 +10,9 @@ class Settings(BaseSettings):
     APP_BASE_URL: str = "https://sentiment-analysis-production-f96a.up.railway.app"
     
     # --- Scraping Settings ---
-    # Fixed Typo: Using OUTSCRAPER_API_KEY as the primary variable
+    # Fixed Typo: Using OUTSCRAPER_API_KEY as the primary standard
     OUTSCRAPER_API_KEY: Optional[str] = None 
-    # Keeping the old one as an optional fallback so it doesn't crash if already set in Railway
+    # Fallback to the typo version so existing Railway variables don't break
     OUTSCAPTER_KEY: Optional[str] = None 
     
     # --- Database Settings ---
