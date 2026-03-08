@@ -1,10 +1,13 @@
+# filename: app/routes/companies.py
 from __future__ import annotations
+
 import logging
 import googlemaps
 from fastapi import APIRouter, Request, BackgroundTasks, Query, HTTPException, Form
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
 from sqlalchemy import select, delete, or_, func, desc
+
 from app.core.db import get_session
 from app.core.models import Company, AuditLog, User, Review
 from app.core.config import settings
@@ -13,7 +16,6 @@ from app.services.google_reviews import ingest_company_reviews
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["companies"])
-
 templates = Jinja2Templates(directory="app/templates")
 
 # ─────────────────────────────────────────────────────────────
@@ -26,15 +28,25 @@ def _require_user(request: Request) -> int | None:
     return user_id
 
 # ─────────────────────────────────────────────────────────────
-# Safe Google Maps Client
+# Safe Google Maps Client (for Places search only)
 # ─────────────────────────────────────────────────────────────
 def _get_gmaps_client():
     if not settings.GOOGLE_PLACES_API_KEY:
         raise HTTPException(
             status_code=500,
-            detail="Google Places API key is not configured in settings."
+            detail="Google Places API key is not configured in settings.",
         )
     return googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
+
+# Reviews client (for Outscraper/Google Reviews ingestion)
+def _get_reviews_client(request: Request):
+    client = getattr(request.app.state, "google_reviews_client", None)
+    if client is None:
+        raise HTTPException(
+            status_code=501,
+            detail="Reviews API client not configured (app.state.google_reviews_client)",
+        )
+    return client
 
 # ─────────────────────────────────────────────────────────────
 # Helper: Get companies with aggregated stats
@@ -75,7 +87,7 @@ async def companies_page(
     request: Request,
     q: str | None = None,
     page: int = 1,
-    size: int = 10
+    size: int = 10,
 ):
     uid = _require_user(request)
     async with get_session() as session:
@@ -84,7 +96,7 @@ async def companies_page(
             stmt = stmt.where(
                 or_(
                     Company.name.ilike(f"%{q}%"),
-                    Company.address.ilike(f"%{q}%")
+                    Company.address.ilike(f"%{q}%"),
                 )
             )
         result = await session.execute(stmt)
@@ -147,9 +159,6 @@ async def add_new_company(
     address: str | None = Form(None),
 ):
     uid = _require_user(request)
-    
-    # Pre-fetch GMaps client to pass to background task
-    gmaps_client = _get_gmaps_client()
 
     async with get_session() as session:
         # Check duplicate
@@ -162,7 +171,7 @@ async def add_new_company(
         if existing.scalar_one_or_none():
             return JSONResponse(
                 {"success": False, "message": "This place is already added for your account"},
-                status_code=400
+                status_code=400,
             )
 
         # Create company
@@ -187,27 +196,29 @@ async def add_new_company(
         await session.commit()
         await session.refresh(new_company)
 
-        # FIXED: Added gmaps_client as the first argument
+        # Kick off background sync via Outscraper/Google reviews client
+        reviews_client = _get_reviews_client(request)
         bg_tasks.add_task(
             ingest_company_reviews,
-            gmaps_client,
             place_id=new_company.google_place_id,
-            company_id=new_company.id
+            company_id=str(new_company.id),
+            api_client=reviews_client,  # <-- correct client
+            # Optionally: start_date=None, end_date=None, max_reviews=None
         )
 
         companies = await _get_companies_data(session, uid)
 
-    logger.info(f"Company added: {new_company.name} (ID: {new_company.id}) by user {uid}")
+    logger.info("Company added: %s (ID: %s) by user %s", new_company.name, new_company.id, uid)
 
     return {
         "success": True,
         "company": {
             "id": new_company.id,
             "name": new_company.name,
-            "place_id": new_company.google_place_id
+            "place_id": new_company.google_place_id,
         },
         "companies": companies,
-        "message": "Company added successfully. Review sync started."
+        "message": "Company added successfully. Review sync started.",
     }
 
 # ─────────────────────────────────────────────────────────────
@@ -217,24 +228,22 @@ async def add_new_company(
 async def company_sync(
     company_id: int,
     request: Request,
-    bg_tasks: BackgroundTasks
+    bg_tasks: BackgroundTasks,
 ):
     uid = _require_user(request)
-    
-    # Pre-fetch GMaps client to pass to background task
-    gmaps_client = _get_gmaps_client()
 
     async with get_session() as session:
         company = await session.get(Company, company_id)
         if not company or company.owner_id != uid:
             raise HTTPException(404, "Company not found or not owned by you")
 
-        # FIXED: Added gmaps_client as the first argument
+        reviews_client = _get_reviews_client(request)
         bg_tasks.add_task(
             ingest_company_reviews,
-            gmaps_client,
             place_id=company.google_place_id,
-            company_id=company.id
+            company_id=str(company.id),
+            api_client=reviews_client,
+            # Optionally: start_date=None, end_date=None, max_reviews=None
         )
 
         session.add(
@@ -248,11 +257,7 @@ async def company_sync(
 
         companies = await _get_companies_data(session, uid)
 
-    return {
-        "success": True,
-        "message": "Review sync triggered successfully",
-        "companies": companies
-    }
+    return {"success": True, "message": "Review sync triggered successfully", "companies": companies}
 
 # ─────────────────────────────────────────────────────────────
 # DELETE: Remove company
@@ -263,7 +268,7 @@ async def company_delete(request: Request, company_id: int):
     async with get_session() as session:
         stmt = delete(Company).where(
             Company.id == company_id,
-            Company.owner_id == uid
+            Company.owner_id == uid,
         )
         result = await session.execute(stmt)
         if result.rowcount == 0:
