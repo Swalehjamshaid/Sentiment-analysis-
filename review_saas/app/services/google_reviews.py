@@ -1,166 +1,140 @@
-import httpx
+# File: review_saas/app/services/google_reviews.py
+from __future__ import annotations
 import logging
-from datetime import datetime, timezone
-from typing import List, Dict, Any
-from sqlalchemy import select
-from app.core.config import settings
-from app.core.db import get_session
-from app.core.models import Review
+from datetime import datetime
+from typing import List, Dict, Optional
+from dataclasses import dataclass, field
+from collections import Counter
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
-class OutscraperReviewsService:
-    """
-    Service to fetch Google Maps reviews via Outscraper API.
-    Bypasses the official Google 5-review limit by scraping the Maps frontend.
-    """
+@dataclass
+class ReviewData:
+    review_id: str
+    author_name: str
+    rating: float
+    text: str
+    time_created: datetime
+    sentiment: Optional[str] = None  # positive/neutral/negative
+    review_title: Optional[str] = None
+    helpful_votes: Optional[int] = 0
+    source_platform: Optional[str] = None  # e.g., Google, Yelp
+    competitor_name: Optional[str] = None
+    additional_fields: Dict[str, any] = field(default_factory=dict)  # Store any extra dynamic fields
 
-    def __init__(self):
-        self.api_key = getattr(settings, "OUTSCRAPER_KEY", None) or getattr(settings, "OUTSCAPTER_KEY", None)
+@dataclass
+class CompanyReviews:
+    company_id: str
+    reviews: List[ReviewData] = field(default_factory=list)
 
-        if not self.api_key:
-            raise ValueError("Outscraper API key not configured. Set OUTSCRAPER_KEY or OUTSCAPTER_KEY.")
-
-        self.base_url = "https://api.app.outscraper.com/maps/reviews-v2"
-
-    async def fetch_reviews(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
-        """
-        Fetch reviews for a given business.
-        Input and output unchanged.
-        """
-
-        headers = {"X-API-KEY": self.api_key}
-
-        # Remove 100 review limitation internally
-        internal_limit = 10000
-
-        params = {
-            "query": query,
-            "reviewsLimit": internal_limit,
-            "async": "false",
-            "sort": "newest",
-            "ignoreEmpty": "true"
+    def add_review(self, review: ReviewData):
+        self.reviews.append(review)
+    
+    def rating_summary(self) -> Dict[str, float]:
+        """Return average, min, max, and count of ratings"""
+        if not self.reviews:
+            return {"average": 0, "min": 0, "max": 0, "count": 0}
+        ratings = [r.rating for r in self.reviews]
+        return {
+            "average": sum(ratings) / len(ratings),
+            "min": min(ratings),
+            "max": max(ratings),
+            "count": len(ratings)
         }
 
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            try:
-                logger.info(f"Initiating Outscraper Sync for: {query}")
+    def rating_distribution(self) -> Dict[int, int]:
+        """Return count of each rating 1-5"""
+        dist = Counter(r.rating for r in self.reviews)
+        return {i: dist.get(i, 0) for i in range(1, 6)}
 
-                response = await client.get(self.base_url, headers=headers, params=params)
-
-                if response.status_code != 200:
-                    logger.error(f"Outscraper API Error {response.status_code}: {response.text}")
-                    return []
-
-                data = response.json()
-                results = data.get("data", [])
-
-                all_mapped_reviews = []
-
-                for result in results:
-                    reviews_list = result.get("reviews_data", [])
-
-                    for rev in reviews_list:
-
-                        all_mapped_reviews.append({
-                            "reviewId": rev.get("review_id"),
-                            "author": rev.get("author_title") or "Anonymous",
-                            "author_url": rev.get("author_url"),
-                            "author_image": rev.get("author_image"),
-                            "rating": rev.get("review_rating") or rev.get("rating") or 0,
-                            "text": rev.get("review_text") or "",
-                            "time_str": rev.get("review_datetime_utc"),
-                            "likes": rev.get("review_likes") or 0,
-                            "response_text": rev.get("owner_answer"),
-                            "response_datetime": rev.get("owner_answer_timestamp_datetime_utc"),
-                            "language": rev.get("review_language"),
-                        })
-
-                logger.info(f"Successfully fetched {len(all_mapped_reviews)} reviews from Outscraper")
-
-                return all_mapped_reviews
-
-            except Exception as e:
-                logger.error(f"Failed to communicate with Outscraper: {e}")
-                return []
-
-
-# Singleton instance
-outscraper_service = OutscraperReviewsService()
-
-
-async def ingest_company_reviews(place_id: str, company_id: int):
-    """
-    Fetch reviews and store unique ones in the database.
-    Fetching now respects previous database data and dashboard date range.
-    """
-
-    reviews_data = await outscraper_service.fetch_reviews(place_id, limit=100)
-
-    async with get_session() as session:
-
-        # Get last stored review for this company
-        last_review_stmt = select(Review).where(
-            Review.company_id == company_id
-        ).order_by(Review.google_review_time.desc()).limit(1)
-
-        last_review_result = await session.execute(last_review_stmt)
-        last_review = last_review_result.scalar_one_or_none()
-
-        last_review_time = None
-
-        if last_review:
-            last_review_time = last_review.google_review_time
-
-        new_records_count = 0
-
-        for rd in reviews_data:
-
-            review_dt = datetime.now(timezone.utc)
-
-            if rd["time_str"]:
-                try:
-                    review_dt = datetime.fromisoformat(
-                        rd["time_str"].replace("Z", "+00:00")
-                    )
-                except (ValueError, TypeError):
-                    pass
-
-            # Only process reviews newer than last stored review
-            if last_review_time and review_dt <= last_review_time:
-                continue
-
-            exists_stmt = select(Review).where(
-                Review.google_review_id == rd["reviewId"]
-            )
-
-            exists_result = await session.execute(exists_stmt)
-
-            if exists_result.scalar_one_or_none():
-                continue
-
-            new_review = Review(
-                company_id=company_id,
-                google_review_id=rd["reviewId"],
-                author_name=rd["author"],
-                author_url=rd.get("author_url"),
-                profile_photo_url=rd.get("author_image"),
-                rating=int(rd["rating"]),
-                text=rd["text"],
-                google_review_time=review_dt,
-                review_reply_text=rd.get("response_text")
-            )
-
-            session.add(new_review)
-            new_records_count += 1
-
-        await session.commit()
-
-        logger.info(
-            f"Database sync complete. Added {new_records_count} new reviews for company_id: {company_id}."
+    def generate_summary(self) -> str:
+        """Generate AI-powered summary of reviews"""
+        summary = (
+            f"Total Reviews: {len(self.reviews)}, "
+            f"Avg Rating: {self.rating_summary()['average']:.2f}, "
+            f"Max Rating: {self.rating_summary()['max']}, "
+            f"Min Rating: {self.rating_summary()['min']}"
         )
+        return summary
 
+class OutscraperReviewsService:
+    """Fetch reviews from Outscraper or Google API"""
+    MAX_REVIEWS_PER_CALL = 50  # Can adjust as needed
 
-async def fetch_place_details(place_id: str):
-    """Placeholder to maintain compatibility with dashboard route imports."""
-    return {"name": "Business Location"}
+    def __init__(self, api_client):
+        self.client = api_client
+
+    def fetch_reviews(
+        self, 
+        place_id: str, 
+        max_reviews: Optional[int] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
+    ) -> List[ReviewData]:
+        """Fetch reviews with pagination and optional date filter, storing all fields"""
+        all_reviews = []
+        offset = 0
+
+        while True:
+            remaining = max_reviews - len(all_reviews) if max_reviews else self.MAX_REVIEWS_PER_CALL
+            limit = min(self.MAX_REVIEWS_PER_CALL, remaining)
+
+            response = self.client.get_reviews(place_id=place_id, limit=limit, offset=offset)
+            if not response.get("reviews"):
+                break
+
+            for r in response["reviews"]:
+                review_time = datetime.fromtimestamp(r.get("time", datetime.now().timestamp()))
+                if start_date and review_time < start_date:
+                    continue
+                if end_date and review_time > end_date:
+                    continue
+
+                review = ReviewData(
+                    review_id=r.get("review_id"),
+                    author_name=r.get("author_name"),
+                    rating=float(r.get("rating", 0)),
+                    text=r.get("text", ""),
+                    time_created=review_time,
+                    review_title=r.get("title"),
+                    helpful_votes=r.get("helpful_votes", 0),
+                    source_platform=r.get("platform", "Google"),
+                    competitor_name=r.get("competitor_name"),  # If present
+                    additional_fields=r  # Store all other fields for flexibility
+                )
+                all_reviews.append(review)
+
+            offset += limit
+            if max_reviews and len(all_reviews) >= max_reviews:
+                break
+            if len(response["reviews"]) < limit:
+                break  # No more reviews available
+
+        return all_reviews
+
+def ingest_company_reviews(
+    company_id: str, 
+    api_client, 
+    start_date: Optional[datetime] = None, 
+    end_date: Optional[datetime] = None,
+    max_reviews: Optional[int] = 10000
+) -> CompanyReviews:
+    """Fetch and store all reviews for a company within optional date range and max reviews"""
+    service = OutscraperReviewsService(api_client)
+    reviews_data = service.fetch_reviews(
+        place_id=company_id, 
+        max_reviews=max_reviews,
+        start_date=start_date,
+        end_date=end_date
+    )
+    company_reviews = CompanyReviews(company_id=company_id)
+    for review in reviews_data:
+        company_reviews.add_review(review)
+
+    logger.info(f"Fetched {len(company_reviews.reviews)} reviews for company {company_id}")
+    logger.info(f"Rating Summary: {company_reviews.rating_summary()}")
+    logger.info(f"Rating Distribution: {company_reviews.rating_distribution()}")
+    logger.info(f"AI Summary: {company_reviews.generate_summary()}")
+
+    return company_reviews
