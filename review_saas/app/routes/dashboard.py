@@ -27,13 +27,18 @@ logger = logging.getLogger("app.dashboard")
 # ──────────────────────────────────────────────────────────────────────────────
 DEFAULT_DAYS = 30
 NEW_REVIEW_DAYS = 7
+
+# Rating → sentiment proxy (consistent for every site)
+_RATING_PROXY = {5: 0.8, 4: 0.4, 3: 0.0, 2: -0.4, 1: -0.8}
+
 _STOPWORDS = {
+    # NOTE: keep "not" and "never" OUT of stopwords to enable Negation Logic
     "the", "and", "to", "a", "an", "in", "is", "it", "of", "for", "on", "was", "with", "at",
     "this", "that", "by", "be", "from", "as", "are", "were", "or", "we", "you", "they", "our",
-    "your", "their", "but", "not", "so", "if", "too", "very", "can", "could", "would", "will",
+    "your", "their", "but", "so", "if", "too", "very", "can", "could", "would", "will",
     "has", "have", "had", "do", "did", "does", "just", "also", "than", "then", "there", "here",
     "about", "into", "out", "over", "under", "between", "after", "before", "during", "more", "most",
-    "less", "least", "again", "ever", "never", "always", "some", "any", "much", "many", "few", "lot", "lots"
+    "less", "least", "again", "ever", "always", "some", "any", "much", "many", "few", "lot", "lots"
 }
 _POSITIVE_HINTS = {
     "great", "excellent", "good", "friendly", "clean", "amazing", "love", "nice", "comfortable",
@@ -52,12 +57,20 @@ _URGENT_TERMS = {
     "hazard", "poison", "sick", "food poisoning", "expired", "broken glass", "fire", "electrical"
 }
 
-# Aspect keyword dictionaries (point #3)
+# Aspect keyword dictionaries (existing data for /api/aspects/sentiment)
 _ASPECT_LEX = {
     "Service": {"service", "staff", "waiter", "host", "attendant", "attentive", "rude", "polite", "friendly", "unprofessional", "helpful"},
     "Product Quality": {"quality", "taste", "fresh", "stale", "clean", "hygiene", "delicious", "burnt", "undercooked", "spoiled"},
     "Pricing": {"price", "pricing", "expensive", "cheap", "affordable", "overpriced", "value", "cost"},
     "Delivery": {"delivery", "deliver", "delivered", "takeaway", "pickup", "late", "delay", "on time", "fast", "quick"},
+}
+
+# Canonicalized map for operational aspect trend endpoint (non‑breaking, new)
+_ASPECT_TREND_CANON = {
+    "Service": _ASPECT_LEX["Service"],
+    "Product": _ASPECT_LEX["Product Quality"],  # map 'Product' → existing 'Product Quality' lex
+    "Pricing": _ASPECT_LEX["Pricing"],
+    "Delivery": _ASPECT_LEX["Delivery"],
 }
 
 # --- Basic parsing helpers ----------------------------------------------------
@@ -94,15 +107,43 @@ def _ts_col() -> any:
         return func.coalesce(Review.google_review_time, Review.created_at)
     return Review.google_review_time
 
+async def _min_date_for_company(company_id: int) -> Optional[date]:
+    """Earliest available review date for the company."""
+    async with get_session() as session:
+        dc = _date_col()
+        q = await session.execute(select(func.min(dc)).where(Review.company_id == company_id))
+        d = q.scalar()
+    if isinstance(d, datetime):
+        return d.date()
+    return d
+
+async def _auto_range_full_history(company_id: int, start: Optional[str], end: Optional[str]) -> Tuple[date, date]:
+    """
+    If UI does not pass both start & end, use full history:
+      start = earliest available review date for the company
+      end   = today
+    Otherwise, respect provided dates.
+    """
+    if start or end:
+        return _range_or_default(start, end)
+    mn = await _min_date_for_company(company_id)
+    today = date.today()
+    if mn is None:
+        # No data yet → default to last DEFAULT_DAYS to keep shape
+        return _range_or_default(None, None)
+    if mn > today:
+        mn = today
+    return mn, today
+
 def _rating_sent_fallback():
     """Robust fallback: cast rating to int to support string ratings and map to proxy sentiment."""
     r_int = cast(Review.rating, Integer)
     return case(
-        (r_int == 5, 0.8),
-        (r_int == 4, 0.4),
-        (r_int == 3, 0.0),
-        (r_int == 2, -0.4),
-        (r_int == 1, -0.8),
+        (r_int == 5, _RATING_PROXY[5]),
+        (r_int == 4, _RATING_PROXY[4]),
+        (r_int == 3, _RATING_PROXY[3]),
+        (r_int == 2, _RATING_PROXY[2]),
+        (r_int == 1, _RATING_PROXY[1]),
         else_=0.0,
     )
 
@@ -132,6 +173,9 @@ def _sentiment_label(score: Optional[float]) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 TOKEN_RE = re.compile(r"[a-zA-Z]+")
 
+# Negation words (for flipping nearby positive hints)
+_NEGATORS = {"not", "never", "no", "hardly", "barely", "scarcely", "without", "lack", "lacking"}
+
 @dataclass
 class KeywordScore:
     term: str
@@ -159,8 +203,19 @@ _LEXICON = {**_LEX_POS, **_LEX_NEG}
 def _tokenize(text: str) -> List[str]:
     if not text:
         return []
-    tokens = [t.lower() for t in TOKEN_RE.findall(text)]
-    return [t for t in tokens if len(t) > 2 and t not in _STOPWORDS]
+    toks = [t.lower() for t in TOKEN_RE.findall(text)]
+    out = []
+    for t in toks:
+        if len(t) <= 2:
+            continue
+        # keep negators even if they would otherwise be removed
+        if t in _NEGATORS:
+            out.append(t)
+            continue
+        if t in _STOPWORDS:
+            continue
+        out.append(t)
+    return out
 
 def _bigrams2(tokens: List[str]) -> List[str]:
     return [f"{tokens[i]} {tokens[i+1]}" for i in range(len(tokens)-1)]
@@ -168,21 +223,34 @@ def _bigrams2(tokens: List[str]) -> List[str]:
 def _clamp(x: float, lo: float, hi: float) -> float:
     return float(max(lo, min(hi, x)))
 
-def _lexicon_sentiment(tokens: List[str]) -> float:
+def _lexicon_sentiment_with_negation(tokens: List[str]) -> float:
+    """
+    Sum lexicon scores, but flip positive terms if preceded by a negator
+    within a small lookback window (up to 3 tokens).
+    """
     if not tokens:
         return 0.0
     score = 0.0
-    for t in tokens:
-        score += _LEXICON.get(t, 0)
-    norm = score / max(1.0, math.sqrt(len(tokens)))
+    n = len(tokens)
+    for i, t in enumerate(tokens):
+        base = _LEXICON.get(t, 0)
+        if base > 0:
+            # Check if a negator appears in a small window BEFORE this token
+            j0 = max(0, i - 3)
+            if any(tokens[j] in _NEGATORS for j in range(j0, i)):
+                base = -abs(base)  # flip polarity for positive hints
+        # (We avoid flipping negative words—requirement is to flip positives.)
+        score += base
+    # normalize and clamp
+    norm = score / max(1.0, math.sqrt(n))
     return _clamp(norm / 5.0, -1.0, 1.0)
 
 def _safe_sentiment(text: str, rating: Optional[int] = None, fallback_weight: float = 0.35) -> float:
     toks = _tokenize(text or "")
-    lex = _lexicon_sentiment(toks)
+    lex = _lexicon_sentiment_with_negation(toks)
     if rating is None:
         return lex
-    rate_proxy = {5: 0.8, 4: 0.4, 3: 0.0, 2: -0.4, 1: -0.8}.get(int(rating), 0.0)
+    rate_proxy = _RATING_PROXY.get(int(rating), 0.0)
     return _clamp((1 - fallback_weight) * lex + fallback_weight * rate_proxy, -1.0, 1.0)
 
 def _label_from_score(score: float) -> str:
@@ -289,6 +357,9 @@ async def get_dashboard(request: Request, company_id: Optional[int] = Query(None
         "v2_exec_summary": "/api/v2/ai/executive-summary",
         "v2_recommendations": "/api/v2/ai/recommendations",
         "v2_summary_png": "/api/v2/charts/summary.png",
+        # New (additive)
+        "aspect_trend": "/api/operational/aspect-trend",
+        "alert_email": "/api/alerts/high-severity-email",
     }
 
     return templates.TemplateResponse(
@@ -324,6 +395,9 @@ async def dashboard_links():
         "v2_exec_summary": "/api/v2/ai/executive-summary",
         "v2_recommendations": "/api/v2/ai/recommendations",
         "v2_summary_png": "/api/v2/charts/summary.png",
+        # New
+        "aspect_trend": "/api/operational/aspect-trend",
+        "alert_email": "/api/alerts/high-severity-email",
     })
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -338,7 +412,7 @@ async def api_kpis(company_id: int, start: Optional[str] = None, end: Optional[s
       - avg_sentiment (stored OR rating-proxy; treats 0.0 as NULL)
       - new_reviews (last 7 days ending at end_dt)
     """
-    start_dt, end_dt = _range_or_default(start, end)
+    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
         avg_sent_expr = func.avg(
@@ -367,12 +441,12 @@ async def api_kpis(company_id: int, start: Optional[str] = None, end: Optional[s
             "avg_rating": round(float(avg_rating or 0.0), 2),
             "avg_sentiment": round(float(avg_sent or 0.0), 3),
             "new_reviews": new_reviews,
-        }
+        })
 
 @router.get("/api/ratings/distribution")
 async def api_ratings_distribution(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Histogram of rating 1..5 within window."""
-    start_dt, end_dt = _range_or_default(start, end)
+    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
         stmt = (
@@ -393,7 +467,7 @@ async def api_ratings_distribution(company_id: int, start: Optional[str] = None,
 @router.get("/api/sentiment/share")
 async def api_sentiment_share(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Counts of positive / neutral / negative (uses rating fallback; treats 0.0 as NULL)."""
-    s, e = _range_or_default(start, end)
+    s, e = await _auto_range_full_history(company_id, start, end)
     async with get_session() as session:
         dc = _date_col()
         s_expr, pos, neu, neg, total = _sentiment_bucket_expr()
@@ -415,7 +489,7 @@ async def api_sentiment_share(company_id: int, start: Optional[str] = None, end:
 @router.get("/api/series/reviews")
 async def api_series_reviews(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Daily review volume."""
-    start_dt, end_dt = _range_or_default(start, end)
+    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
         stmt = (
@@ -431,7 +505,7 @@ async def api_series_reviews(company_id: int, start: Optional[str] = None, end: 
 @router.get("/api/series/ratings")
 async def api_series_ratings(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Daily average rating."""
-    start_dt, end_dt = _range_or_default(start, end)
+    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
         stmt = (
@@ -447,7 +521,7 @@ async def api_series_ratings(company_id: int, start: Optional[str] = None, end: 
 @router.get("/api/sentiment/series")
 async def api_sentiment_series(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Daily average sentiment score (stored or rating-derived; treats 0.0 as NULL)."""
-    start_dt, end_dt = _range_or_default(start, end)
+    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
         avg_sent_expr = func.avg(
@@ -479,8 +553,9 @@ async def api_aspects_sentiment(company_id: int, start: Optional[str] = None, en
     """
     Keyword-based aspect sentiment: Service, Product Quality, Pricing, Delivery.
     Buckets per aspect: positive / neutral / negative + avg sentiment.
+    (Uses Negation Logic inside _safe_sentiment for text-derived scores.)
     """
-    s, e = _range_or_default(start, end)
+    s, e = await _auto_range_full_history(company_id, start, end)
     async with get_session() as session:
         dc = _date_col()
         rows = (await session.execute(
@@ -524,7 +599,7 @@ async def api_aspects_sentiment(company_id: int, start: Optional[str] = None, en
 @router.get("/api/aspects/avg")
 async def api_aspects_average(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Departmental numeric aspects average values (existing fields)."""
-    start_dt, end_dt = _range_or_default(start, end)
+    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
         stmt = (
@@ -560,7 +635,7 @@ async def api_aspects_average(company_id: int, start: Optional[str] = None, end:
 @router.get("/api/trends")
 async def api_trends(company_id: int, start: Optional[str] = None, end: Optional[str] = None, freq: str = Query("week", regex="^(day|week|month)$")):
     """Average sentiment & rating per period (day|week|month)."""
-    s, e = _range_or_default(start, end)
+    s, e = await _auto_range_full_history(company_id, start, end)
     bucket = "day" if freq == "day" else ("week" if freq == "week" else "month")
     async with get_session() as session:
         ts = _ts_col()
@@ -588,7 +663,7 @@ async def api_trends(company_id: int, start: Optional[str] = None, end: Optional
 @router.get("/api/volume-vs-sentiment")
 async def api_volume_vs_sentiment(company_id: int, start: Optional[str] = None, end: Optional[str] = None, freq: str = Query("week", regex="^(day|week|month)$")):
     """Bucketed review count and avg sentiment per period for dual-axis chart."""
-    s, e = _range_or_default(start, end)
+    s, e = await _auto_range_full_history(company_id, start, end)
     async with get_session() as session:
         ts = _ts_col()
         period = func.date_trunc(freq, ts).label("period")
@@ -617,7 +692,7 @@ async def api_volume_vs_sentiment(company_id: int, start: Optional[str] = None, 
 @router.get("/api/correlation/rating-sentiment")
 async def api_correlation_rating_sentiment(company_id: int, start: Optional[str] = None, end: Optional[str] = None, limit: int = Query(5000, ge=100, le=50000)):
     """Scatter points: (rating, sentiment, date). Uses rating-proxy when stored sentiment is missing/0."""
-    s, e = _range_or_default(start, end)
+    s, e = await _auto_range_full_history(company_id, start, end)
     async with get_session() as session:
         dc = _date_col()
         rows = (await session.execute(
@@ -629,11 +704,12 @@ async def api_correlation_rating_sentiment(company_id: int, start: Optional[str]
 
     items = []
     for text, ss, rating, ts in rows:
-        if rating is None:
+        if rating is None and (ss is None or abs(float(ss)) < 1e-9) and not text:
             continue
+        # Use safe sentiment with negation for points
         score = float(ss) if (ss is not None and abs(float(ss)) >= 1e-9) else _safe_sentiment(text or "", rating)
         items.append({
-            "rating": float(rating),
+            "rating": float(rating) if rating is not None else None,
             "sentiment": round(float(score), 3),
             "date": ts.strftime("%Y-%m-%d") if isinstance(ts, datetime) else (str(ts) if ts else "")
         })
@@ -645,7 +721,7 @@ async def api_correlation_rating_sentiment(company_id: int, start: Optional[str]
 @router.get("/api/operational/overview")
 async def api_operational_overview(company_id: int, start: Optional[str] = None, end: Optional[str] = None, limit_urgent: int = Query(10, ge=1, le=50)):
     """Operational overview with urgent issues."""
-    start_dt, end_dt = _range_or_default(start, end)
+    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
         total = (await session.execute(
@@ -672,11 +748,13 @@ async def api_operational_overview(company_id: int, start: Optional[str] = None,
         urgent_items = []
         for r in urgent_rows:
             text = r.text or ""
-            s_label = _sentiment_label(r.sentiment_score)
+            # Recompute sentiment with negation-aware safe sentiment
+            s_val = float(r.sentiment_score) if (r.sentiment_score is not None and abs(float(r.sentiment_score)) >= 1e-9) else _safe_sentiment(text, r.rating)
+            s_label = _sentiment_label(s_val)
             has_urgent_kw = any(term in text.lower() for term in _URGENT_TERMS)
             is_urgent = (
                 (r.rating is not None and r.rating <= 2) or
-                (r.sentiment_score is not None and r.sentiment_score <= -0.5) or
+                (s_val <= -0.5) or
                 has_urgent_kw
             )
             if is_urgent:
@@ -684,14 +762,14 @@ async def api_operational_overview(company_id: int, start: Optional[str] = None,
                     "review_id": r.id,
                     "author_name": r.author_name or "Anonymous",
                     "rating": r.rating,
-                    "sentiment_score": round(float(r.sentiment_score or 0.0), 3),
+                    "sentiment_score": round(float(s_val or 0.0), 3),
                     "sentiment_label": s_label,
                     "review_time": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "",
                     "text": text[:1200],
                     "profile_photo_url": r.profile_photo_url or "",
                     "urgent_reason": {
                         "low_rating": bool(r.rating is not None and r.rating <= 2),
-                        "very_negative_sentiment": bool(r.sentiment_score is not None and r.sentiment_score <= -0.5),
+                        "very_negative_sentiment": bool(s_val <= -0.5),
                         "keyword_flag": bool(has_urgent_kw),
                     },
                 })
@@ -710,7 +788,7 @@ async def api_operational_overview(company_id: int, start: Optional[str] = None,
 @router.get("/api/alerts")
 async def api_alerts(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Trend-based alerts using two-window comparisons (last7 vs prev7)."""
-    start_dt, end_dt = _range_or_default(start, end)
+    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
     last7_start = end_dt - timedelta(days=NEW_REVIEW_DAYS - 1)
     prev7_end = last7_start - timedelta(days=1)
     prev7_start = prev7_end - timedelta(days=NEW_REVIEW_DAYS - 1)
@@ -771,7 +849,7 @@ async def api_alerts(company_id: int, start: Optional[str] = None, end: Optional
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/api/v2/sentiment/summary")
 async def sentiment_summary_v2(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
-    s, e = _range_or_default(start, end)
+    s, e = await _auto_range_full_history(company_id, start, end)
     async with get_session() as session:
         dc = _date_col()
         rows = (await session.execute(
@@ -796,7 +874,6 @@ async def sentiment_summary_v2(company_id: int, start: Optional[str] = None, end
     fallback = 0
 
     for text, ss, rating, _ts in rows:
-        # Treat 0.0 like "not computed"
         if ss is None or abs(float(ss)) < 1e-9:
             score = _safe_sentiment(text or "", rating)
             fallback += 1
@@ -825,7 +902,7 @@ async def sentiment_summary_v2(company_id: int, start: Optional[str] = None, end
 
 @router.get("/api/v2/keywords")
 async def keywords_v2(company_id: int, start: Optional[str] = None, end: Optional[str] = None, limit: int = Query(20, ge=5, le=50)):
-    s, e = _range_or_default(start, end)
+    s, e = await _auto_range_full_history(company_id, start, end)
     l7s = e - timedelta(days=NEW_REVIEW_DAYS - 1)
     p7e = l7s - timedelta(days=1)
     p7s = p7e - timedelta(days=NEW_REVIEW_DAYS - 1)
@@ -930,7 +1007,7 @@ async def recommendations_v2(company_id: int, start: Optional[str] = None, end: 
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/api/reviews/list")
 async def api_reviews_list(company_id: int, start: Optional[str] = None, end: Optional[str] = None, sort: Optional[str] = Query("newest", regex="^(newest|oldest|highest|lowest)$")):
-    start_dt, end_dt = _range_or_default(start, end)
+    start_dt, end_dt = await _auto_range_full_history(company_id, start, end)
     date_col = _date_col()
     if sort == "oldest":
         order = [date_col.asc()]
@@ -947,11 +1024,12 @@ async def api_reviews_list(company_id: int, start: Optional[str] = None, end: Op
             .order_by(*order)
         )
         items = res.scalars().all()
+    # Keep attribute names the same; recompute sentiment with negation for visibility
     return {"items": [{
         "author_name": r.author_name or "Anonymous",
         "rating": r.rating,
         "text": r.text or "",
-        "sentiment_score": round(float(r.sentiment_score or 0.0), 3),
+        "sentiment_score": round(float((r.sentiment_score if (r.sentiment_score is not None and abs(float(r.sentiment_score)) >= 1e-9) else _safe_sentiment(r.text or "", r.rating)) or 0.0), 3),
         "review_time": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "",
         "profile_photo_url": r.profile_photo_url or "",
     } for r in items], "window": {"start": str(start_dt), "end": str(end_dt)}}
@@ -1011,3 +1089,178 @@ async def summary_png_v2(company_id: int, start: Optional[str] = None, end: Opti
     plt.close(fig)
     buf.seek(0)
     return Response(content=buf.read(), media_type="image/png")
+
+# ──────────────────────────────────────────────────────────────────────────────
+# NEW (Additive): Aspect Trend vs Previous Period + High-Severity Email
+# ──────────────────────────────────────────────────────────────────────────────
+def _window_length_days(s: date, e: date) -> int:
+    return (e - s).days + 1
+
+async def _aspect_trend_calc(company_id: int, s: date, e: date) -> Dict[str, Dict[str, float]]:
+    """
+    Compute avg sentiment per canonical aspect (Service/Product/Pricing/Delivery)
+    for current window (s..e) and previous equal-length window.
+    """
+    days = _window_length_days(s, e)
+    prev_e = s - timedelta(days=1)
+    prev_s = prev_e - timedelta(days=days - 1)
+
+    async with get_session() as session:
+        dc = _date_col()
+        rows = (await session.execute(
+            select(Review.text, Review.sentiment_score, Review.rating, Review.google_review_time)
+            .where(and_(Review.company_id == company_id, dc >= prev_s, dc <= e))
+            .order_by(desc(Review.google_review_time))
+            .limit(30000)
+        )).all()
+
+    # Accumulators
+    cur_sum = defaultdict(float); cur_n = defaultdict(int)
+    prev_sum = defaultdict(float); prev_n = defaultdict(int)
+
+    for text, ss, rating, ts in rows:
+        if not text or not ts:
+            continue
+        t_low = text.lower()
+        d = ts.date()
+        score = float(ss) if (ss is not None and abs(float(ss)) >= 1e-9) else _safe_sentiment(text, rating)
+        for aspect, kws in _ASPECT_TREND_CANON.items():
+            if any(kw in t_low for kw in kws):
+                if s <= d <= e:
+                    cur_sum[aspect] += score; cur_n[aspect] += 1
+                elif prev_s <= d <= prev_e:
+                    prev_sum[aspect] += score; prev_n[aspect] += 1
+
+    out: Dict[str, Dict[str, float]] = {}
+    for a in _ASPECT_TREND_CANON.keys():
+        cur_avg = (cur_sum[a] / cur_n[a]) if cur_n[a] else 0.0
+        prev_avg = (prev_sum[a] / prev_n[a]) if prev_n[a] else 0.0
+        out[a] = {
+            "current_avg": round(cur_avg, 3),
+            "previous_avg": round(prev_avg, 3),
+            "delta": round(cur_avg - prev_avg, 3),
+            "current_n": int(cur_n[a]),
+            "previous_n": int(prev_n[a]),
+        }
+    return out
+
+def _top_aspect_root_causes(texts: List[str], limit: int = 8) -> List[str]:
+    """
+    Extract top negative drivers for an aspect: frequency-weighted negative terms.
+    """
+    counts = Counter()
+    for tx in texts:
+        toks = _tokenize(tx or "")
+        for t in toks:
+            val = _LEX_NEG.get(t)
+            if val is not None:
+                counts[t] += 1
+    return [t for (t, _) in counts.most_common(limit)]
+
+@router.get("/api/operational/aspect-trend")
+async def api_operational_aspect_trend(company_id: int, start: Optional[str] = None, end: Optional[str] = None):
+    """
+    Non-breaking additive endpoint:
+    Returns avg sentiment per aspect for current window vs previous equal-length window.
+    """
+    s, e = await _auto_range_full_history(company_id, start, end)
+    metrics = await _aspect_trend_calc(company_id, s, e)
+
+    # Identify the most negative delta
+    worst_aspect = None
+    worst_delta = 0.0
+    for a, m in metrics.items():
+        if worst_aspect is None or m["delta"] < worst_delta:
+            worst_aspect = a
+            worst_delta = m["delta"]
+
+    return {"window": {"start": str(s), "end": str(e)}, "metrics": metrics, "worst_aspect": worst_aspect, "delta": worst_delta}
+
+@router.get("/api/alerts/high-severity-email")
+async def api_alerts_high_severity_email(company_id: int, company_name: Optional[str] = None, start: Optional[str] = None, end: Optional[str] = None):
+    """
+    Creates a High-Severity alert email if any operational aspect has a negative delta vs previous period.
+    Returns subject + body (text & HTML) and the metrics. Does not send email.
+    """
+    s, e = await _auto_range_full_history(company_id, start, end)
+    metrics = await _aspect_trend_calc(company_id, s, e)
+
+    # Find worst aspect
+    worst_aspect = None
+    worst_delta = 0.0
+    for a, m in metrics.items():
+        if worst_aspect is None or m["delta"] < worst_delta:
+            worst_aspect = a
+            worst_delta = m["delta"]
+
+    # Collect root-cause terms for the worst aspect during current window
+    async with get_session() as session:
+        dc = _date_col()
+        rows = (await session.execute(
+            select(Review.text, Review.google_review_time)
+            .where(and_(Review.company_id == company_id, dc >= s, dc <= e))
+            .order_by(desc(Review.google_review_time))
+            .limit(15000)
+        )).all()
+
+    aspect_texts = []
+    for text, ts in rows:
+        if not text:
+            continue
+        if any(kw in text.lower() for kw in _ASPECT_TREND_CANON.get(worst_aspect, set())):
+            aspect_texts.append(text)
+    root_causes = _top_aspect_root_causes(aspect_texts, limit=8)
+
+    # Compose email
+    comp = company_name or "Company"
+    cur_avg = metrics.get(worst_aspect, {}).get("current_avg", 0.0)
+    prev_avg = metrics.get(worst_aspect, {}).get("previous_avg", 0.0)
+    delta = metrics.get(worst_aspect, {}).get("delta", 0.0)
+    n_cur = metrics.get(worst_aspect, {}).get("current_n", 0)
+    n_prev = metrics.get(worst_aspect, {}).get("previous_n", 0)
+
+    subject = f"[HIGH] {comp}: {worst_aspect} sentiment down ({delta:.3f}) vs prior period"
+    body_text = (
+        f"Team,\n\n"
+        f"High-severity alert for {comp}.\n"
+        f"Operational aspect trending down: {worst_aspect}\n"
+        f"Window: {s} → {e}\n"
+        f"Current avg sentiment: {cur_avg:.3f} (n={n_cur})\n"
+        f"Previous avg sentiment: {prev_avg:.3f} (n={n_prev})\n"
+        f"Delta: {delta:.3f}\n\n"
+        f"Likely root causes (top negatives): {', '.join(root_causes) if root_causes else '—'}\n\n"
+        f"Actions:\n"
+        f" • Owner to triage top 3 drivers within 24 hours\n"
+        f" • Implement fast fixes and update SOPs where applicable\n"
+        f" • Monitor next 7 days in the dashboard\n\n"
+        f"- Auto-generated by ReviewSaaS"
+    )
+    body_html = (
+        f"<p>Team,</p>"
+        f"<p><strong>High-severity alert for {comp}.</strong></p>"
+        f"<p><strong>Aspect trending down:</strong> {worst_aspect}<br/>"
+        f"<strong>Window:</strong> {s} → {e}<br/>"
+        f"<strong>Current avg sentiment:</strong> {cur_avg:.3f} (n={n_cur})<br/>"
+        f"<strong>Previous avg sentiment:</strong> {prev_avg:.3f} (n={n_prev})<br/>"
+        f"<strong>Delta:</strong> {delta:.3f}</p>"
+        f"<p><strong>Likely root causes (top negatives):</strong> {', '.join(root_causes) if root_causes else '—'}</p>"
+        f"<p><strong>Actions:</strong></p>"
+        f"<ul>"
+        f"<li>Owner to triage top 3 drivers within 24 hours</li>"
+        f"<li>Implement fast fixes and update SOPs where applicable</li>"
+        f"<li>Monitor next 7 days in the dashboard</li>"
+        f"</ul>"
+        f"<p>— Auto-generated by ReviewSaaS</p>"
+    )
+
+    severity = "high" if (worst_delta < -0.05 and metrics.get(worst_aspect, {}).get("current_n", 0) >= 10) else "medium"
+
+    return {
+        "severity": severity,
+        "window": {"start": str(s), "end": str(e)},
+        "aspect": worst_aspect,
+        "metrics": metrics,
+        "subject": subject,
+        "body_text": body_text,
+        "body_html": body_html
+    }
