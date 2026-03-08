@@ -23,7 +23,7 @@ from sqlalchemy.sql import func
 Base = declarative_base()
 
 # Bumped version to 7.0.3 to include is_praise + comprehensive Outscraper fields
-SCHEMA_VERSION = "7.0.3-full-outscraper-ready"
+SCHEMA_VERSION = "11.0.3-full-outscraper-ready"
 
 # ---------------------------------------------------
 # Users
