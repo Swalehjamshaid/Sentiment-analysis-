@@ -43,7 +43,6 @@
     .chart-wrap { height: 280px; }
     .chart-wrap-sm { height: 220px; }
     .text-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
-    .loading-placeholder { min-height: 120px; display: flex; align-items: center; justify-content: center; color: var(--bs-secondary-color); }
     .kw-badge { border:1px solid var(--bs-border-color); border-radius: 999px; padding: .25rem .5rem; margin: .125rem; display:inline-block; font-size:.8rem; }
     .kw-pos { background:rgba(22,163,74,.08); }
     .kw-neg { background:rgba(220,38,38,.08); }
@@ -280,7 +279,7 @@
               <label for="placeSearch" class="form-label">Search</label>
               <div class="input-group">
                 <input id="placeSearch" type="text" class="form-control" placeholder="Type business name, e.g., 'Starbucks Gulberg'">
-                <button id="btnServerSearch" class="btn btn-outline-secondary">Search</button>
+                <button id="btnServerSearch" class="btn btn-outline-secondary" type="button">Search</button>
               </div>
               <div class="small text-secondary mt-1">If Google Maps SDK is available, Autocomplete will fill fields automatically.</div>
             </div>
@@ -316,10 +315,10 @@
               </div>
             </div>
             <div class="d-flex gap-2 mt-3">
-              <button id="btnCreateCompany" class="btn btn-primary">
+              <button id="btnCreateCompany" class="btn btn-primary" type="button">
                 <i class="bi bi-plus-lg me-1"></i> Create Company
               </button>
-              <button id="btnClearPlace" class="btn btn-outline-secondary">
+              <button id="btnClearPlace" class="btn btn-outline-secondary" type="button">
                 <i class="bi bi-eraser me-1"></i> Clear
               </button>
               <div id="placeMsg" class="ms-auto small text-secondary"></div>
@@ -330,7 +329,7 @@
       <div class="col-12 col-xl-6">
         <div class="card h-100">
           <div class="card-header fw-semibold"><i class="bi bi-map me-2"></i> Map Preview</div>
-        <div class="card-body">
+          <div class="card-body">
             <div id="map"></div>
             <div id="mapHint" class="small text-secondary mt-2">Select a place to preview its location (if Google Maps SDK loaded).</div>
             <ul id="detailsList" class="list-unstyled mt-3 mb-0"></ul>
@@ -431,7 +430,6 @@
         $('#kpiNewReviews').textContent = fmt.format(data.new_reviews ?? 0);
         $('#kpiAvgRating').textContent = (data.avg_rating ?? 0).toFixed(2);
         $('#kpiAvgSentiment').textContent = (data.avg_sentiment ?? 0).toFixed(3);
-        // (Optional) deltas can be derived comparing windows; leaving neutral here
         setDelta($('#kpiTotalReviewsDelta'), 0);
         setDelta($('#kpiNewReviewsDelta'), 0);
       } catch (e) {
@@ -617,7 +615,7 @@
         // Synthesize short exec summary
         const total = sum.total ?? 0;
         const avgR  = (sum.avg_rating ?? 0).toFixed(2);
-        const avgS  = (sum.avg_sentiment ?? 0).toFixed(3);
+        the avgS  = (sum.avg_sentiment ?? 0).toFixed(3);
         const share = sum.share || {positive:0, neutral:0, negative:0};
         const topPos = (kw.positive || []).slice(0, 3).map(x => x.term);
         const topNeg = (kw.negative || []).slice(0, 3).map(x => x.term);
@@ -722,7 +720,6 @@
         gmap.setZoom(16);
         gmarker.setPosition(loc);
 
-        // Show structured details list
         $('#detailsList').innerHTML = `
           <li><strong>Name:</strong> ${sanitize(place.name || '')}</li>
           <li><strong>Address:</strong> ${sanitize(place.formatted_address || '')}</li>
@@ -839,25 +836,21 @@
         $('#placeSearch').value = '';
         $$('#placeName, #placeRating, #placeAddress, #placeId, #placePhone, #placeWebsite, #placeUrl').forEach(i => i.value = '');
         $('#serverResults').innerHTML = '';
-        if (gmarker) gmarker.setPosition(null);
+        if (window.gmarker) window.gmarker.setPosition(null);
         $('#placeMsg').textContent = '';
       };
       $('#btnServerSearch').onclick = serverSearchPlaces;
 
-      // Use Autocomplete if SDK is present
-      setTimeout(() => {
-        useAutocompleteIfAvailable();
-      }, 0);
+      // Use Autocomplete if SDK is present (maps script is optional)
+      setTimeout(() => { useAutocompleteIfAvailable(); }, 0);
 
       refreshAll();
     });
   </script>
 
-  <!--
-    Google Maps SDK (optional):
-    If you have the key available, you can replace YOUR_GOOGLE_MAPS_API_KEY below
-    (or render it via Jinja: {{ settings.GOOGLE_PLACES_API_KEY }} if you pass `settings` into the template context)
+  <!-- Optional: Google Maps SDK (only if you have a key to render client-side Autocomplete/Map)
+       If you want to pass your key via Jinja, add it in get_dashboard context and replace below.
+       <script src="https://maps.googleapis.com/maps/api/js?key={{ settings.GOOGLE_PLACES_API_KEY }}&libraries=places&v=weekly" async defer></script>
   -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&libraries=places&v=weekly" async defer></script>
 </body>
 </html>
