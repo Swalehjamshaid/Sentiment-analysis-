@@ -1,383 +1,634 @@
-<!DOCTYPE html>
-<html lang="en">
+<!-- filename: templates/dashbord.html -->
+<!doctype html>
+<html lang="en" data-color-scheme="light">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ReviewSaaS | AI Operations Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        [x-cloak] { display: none !important; }
-        .chart-container { position: relative; height: 300px; width: 100%; }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
-    </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard — ReviewSaaS</title>
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+
+  <!-- Icons (for small UI touches) -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    :root {
+      --card-bg: #ffffff;
+      --body-bg: #f5f6f8;
+      --text-color: #111827;
+      --muted-text: #6b7280;
+      --border-color: #e5e7eb;
+      --accent: #0d6efd;
+    }
+    html[data-color-scheme="dark"] {
+      --card-bg: #111318;
+      --body-bg: #0b0d12;
+      --text-color: #e5e7eb;
+      --muted-text: #9ca3af;
+      --border-color: #1f2937;
+      --accent: #60a5fa;
+    }
+    body {
+      background: var(--body-bg);
+      color: var(--text-color);
+    }
+    .navbar, .offcanvas, .dropdown-menu {
+      background: var(--card-bg) !important;
+      color: var(--text-color) !important;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    }
+    .text-muted { color: var(--muted-text) !important; }
+    .form-control, .form-select, .list-group-item {
+      background: var(--card-bg);
+      color: var(--text-color);
+      border-color: var(--border-color);
+    }
+    .list-group-item { border-color: var(--border-color); }
+    .btn-accent {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+    }
+    .btn-accent:hover { filter: brightness(1.05); }
+    .kpi-value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .kpi-label {
+      font-size: 0.9rem;
+      color: var(--muted-text);
+    }
+    .toggle {
+      cursor: pointer;
+    }
+
+    /* Autocomplete dropdown */
+    .autocomplete-menu {
+      position: absolute;
+      z-index: 1055;
+      width: 100%;
+      max-height: 260px;
+      overflow-y: auto;
+      border: 1px solid var(--border-color);
+      border-radius: 0.5rem;
+      background: var(--card-bg);
+      display: none;
+    }
+    .autocomplete-item {
+      padding: .5rem .75rem;
+      border-bottom: 1px solid var(--border-color);
+      cursor: pointer;
+    }
+    .autocomplete-item:last-child { border-bottom: none; }
+    .autocomplete-item:hover { background: rgba(13,110,253,0.08); }
+
+    .chart-card {
+      min-height: 380px;
+      display: flex;
+      flex-direction: column;
+    }
+    .chart-wrap { position: relative; flex: 1; }
+  </style>
 </head>
-<body class="bg-[#f8fafc] font-sans text-slate-900" x-data="reviewSaaS()">
+<body>
+  <!-- Top Nav -->
+  <nav class="navbar navbar-expand-lg sticky-top">
+    <div class="container-fluid">
+      <a class="navbar-brand fw-bold" href="/dashboard">
+        <i class="bi bi-graph-up-arrow me-2"></i>ReviewSaaS
+      </a>
+      <div class="d-flex align-items-center gap-2 ms-auto">
+        <button id="themeToggle" class="btn btn-outline-secondary btn-sm toggle" title="Toggle dark/light">
+          <i class="bi bi-moon-stars"></i>
+        </button>
+        <a class="btn btn-outline-primary btn-sm" href="/logout">
+          <i class="bi bi-box-arrow-right me-1"></i>Logout
+        </a>
+      </div>
+    </div>
+  </nav>
 
-    <div class="flex h-screen overflow-hidden">
-        <aside class="w-72 bg-slate-900 text-white hidden lg:flex flex-col shadow-xl">
-            <div class="p-8 border-b border-slate-800">
-                <div class="flex items-center gap-3">
-                    <div class="bg-blue-600 p-2 rounded-lg">
-                        <i class="fas fa-layer-group text-xl"></i>
-                    </div>
-                    <span class="text-xl font-bold tracking-tight">ReviewSaaS <span class="text-blue-500">AI</span></span>
-                </div>
+  <main class="container my-4">
+    <!-- KPI Row -->
+    <div class="row g-3">
+      <div class="col-12 col-md-6 col-lg-3">
+        <div class="card p-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="kpi-label">Total Reviews</div>
+              <div id="kpi_total_reviews" class="kpi-value">—</div>
             </div>
-            
-            <nav class="flex-1 p-6 space-y-2">
-                <div class="text-slate-500 text-xs font-bold uppercase tracking-wider mb-4 px-3">Main Menu</div>
-                <a href="/dashboard" class="flex items-center gap-3 p-3 rounded-xl bg-blue-600/10 text-blue-400 border border-blue-600/20">
-                    <i class="fas fa-chart-line w-5"></i> Dashboard
-                </a>
-                <a href="/api/companies" class="flex items-center gap-3 p-3 rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-building w-5"></i> My Companies
-                </a>
-            </nav>
-
-            <div class="p-6 border-t border-slate-800">
-                <div class="bg-slate-800/50 rounded-2xl p-4 mb-4">
-                    <p class="text-[10px] text-slate-500 font-bold uppercase mb-1">Session User</p>
-                    <p class="text-sm font-semibold truncate" x-text="userEmail"></p>
-                </div>
-                <form action="/logout" method="post">
-                    <button type="submit" class="w-full flex items-center gap-3 p-3 text-slate-400 hover:text-red-400 transition">
-                        <i class="fas fa-power-off w-5"></i> Sign Out
-                    </button>
-                </form>
+            <div class="text-primary fs-3"><i class="bi bi-chat-dots"></i></div>
+          </div>
+          <div class="text-muted small mt-2" id="kpi_total_reviews_delta"></div>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-lg-3">
+        <div class="card p-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="kpi-label">New Reviews</div>
+              <div id="kpi_new_reviews" class="kpi-value">—</div>
             </div>
-        </aside>
-
-        <main class="flex-1 flex flex-col overflow-hidden">
-            <header class="bg-white border-b border-slate-200 px-8 py-5 flex justify-between items-center z-30 shadow-sm">
-                <div class="flex items-center gap-6">
-                    <div>
-                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Property Insight</label>
-                        <select 
-                            class="bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-xl focus:ring-2 focus:ring-blue-500 outline-none p-2.5 min-w-[260px] font-bold"
-                            x-model="companyId"
-                            @change="refreshDashboard()"
-                        >
-                            {% for c in companies %}
-                            <option value="{{ c.id }}" {% if c.id == active_company_id %}selected{% endif %}>{{ c.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                </div>
-
-                <div class="flex items-center gap-4">
-                    <button @click="triggerSync()" :disabled="loading" class="bg-slate-900 text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-800 transition flex items-center gap-2 shadow-lg disabled:opacity-50">
-                        <i class="fas fa-rotate" :class="loading ? 'animate-spin' : ''"></i>
-                        <span x-text="loading ? 'Processing...' : 'Sync Google Data'"></span>
-                    </button>
-                </div>
-            </header>
-
-            <div class="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
-                
-                <div class="space-y-3" x-show="alerts.length > 0" x-cloak>
-                    <template x-for="alert in alerts">
-                        <div :class="alert.severity === 'high' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-700'" 
-                             class="p-4 rounded-2xl border flex items-center justify-between">
-                            <div class="flex items-center gap-3">
-                                <i class="fas fa-circle-exclamation"></i>
-                                <span class="text-sm font-bold" x-text="alert.message"></span>
-                            </div>
-                            <span class="text-[10px] font-black uppercase tracking-tighter bg-white/50 px-2 py-1 rounded" x-text="alert.type"></span>
-                        </div>
-                    </template>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition">
-                        <div class="bg-blue-50 w-10 h-10 rounded-xl flex items-center justify-center text-blue-600 mb-4">
-                            <i class="fas fa-comments"></i>
-                        </div>
-                        <p class="text-slate-500 text-xs font-bold uppercase tracking-widest">Reviews</p>
-                        <h3 class="text-3xl font-black mt-1" x-text="kpis.total_reviews">0</h3>
-                        <p class="text-xs font-bold mt-2 text-blue-600" x-show="kpis.new_reviews > 0">
-                            +<span x-text="kpis.new_reviews"></span> new this week
-                        </p>
-                    </div>
-
-                    <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition">
-                        <div class="bg-amber-50 w-10 h-10 rounded-xl flex items-center justify-center text-amber-600 mb-4">
-                            <i class="fas fa-star"></i>
-                        </div>
-                        <p class="text-slate-500 text-xs font-bold uppercase tracking-widest">Avg Rating</p>
-                        <h3 class="text-3xl font-black mt-1" x-text="kpis.avg_rating">0.0</h3>
-                        <div class="flex gap-0.5 mt-2">
-                            <template x-for="i in 5">
-                                <i class="fas fa-star text-[10px]" :class="i <= Math.round(kpis.avg_rating) ? 'text-amber-400' : 'text-slate-200'"></i>
-                            </template>
-                        </div>
-                    </div>
-
-                    <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition">
-                        <div class="bg-emerald-50 w-10 h-10 rounded-xl flex items-center justify-center text-emerald-600 mb-4">
-                            <i class="fas fa-face-smile"></i>
-                        </div>
-                        <p class="text-slate-500 text-xs font-bold uppercase tracking-widest">Sentiment</p>
-                        <h3 class="text-3xl font-black mt-1" x-text="(kpis.avg_sentiment * 100).toFixed(0) + '%'">0%</h3>
-                        <div class="w-full bg-slate-100 h-1.5 rounded-full mt-4 overflow-hidden">
-                            <div class="h-full bg-emerald-500 transition-all duration-1000" :style="`width: ${ (kpis.avg_sentiment + 1) * 50 }%` font-size: 0px;"></div>
-                        </div>
-                    </div>
-
-                    <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition">
-                        <div class="bg-indigo-50 w-10 h-10 rounded-xl flex items-center justify-center text-indigo-600 mb-4">
-                            <i class="fas fa-calendar-check"></i>
-                        </div>
-                        <p class="text-slate-500 text-xs font-bold uppercase tracking-widest">Period</p>
-                        <h3 class="text-lg font-bold mt-2 text-slate-700">Last 30 Days</h3>
-                        <p class="text-[10px] font-bold text-slate-400 uppercase mt-1" x-text="kpis.window?.start ? `${kpis.window.start} - ${kpis.window.end}` : 'Loading dates...'"></p>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    <div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
-                        <h4 class="font-black text-slate-800 mb-6">Performance Trends</h4>
-                        <div class="chart-container">
-                            <canvas id="trendChart"></canvas>
-                        </div>
-                    </div>
-                    <div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
-                        <h4 class="font-black text-slate-800 mb-6">Sentiment Breakdown</h4>
-                        <div class="chart-container">
-                            <canvas id="shareChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
-                    <div class="p-8 border-b border-slate-50 flex justify-between items-center bg-white">
-                        <h4 class="font-black text-lg text-slate-800">Intelligence Feed</h4>
-                        <select class="text-xs font-bold border-slate-200 bg-slate-50 rounded-xl p-2 outline-none" 
-                                x-model="reviewSort" @change="fetchReviews()">
-                            <option value="newest">Newest First</option>
-                            <option value="highest">Highest Rating</option>
-                            <option value="lowest">Lowest Rating</option>
-                        </select>
-                    </div>
-                    
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left">
-                            <thead class="bg-slate-50/50">
-                                <tr class="text-[10px] font-black uppercase text-slate-400 tracking-widest border-b border-slate-100">
-                                    <th class="px-8 py-4">Customer</th>
-                                    <th class="px-8 py-4">Rating</th>
-                                    <th class="px-8 py-4 w-2/5">Feedback</th>
-                                    <th class="px-8 py-4">Date</th>
-                                    <th class="px-8 py-4 text-right">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-50">
-                                <template x-for="rev in reviews" :key="rev.author_name + rev.review_time">
-                                    <tr class="hover:bg-slate-50/80 transition-colors group">
-                                        <td class="px-8 py-6">
-                                            <div class="flex items-center gap-3">
-                                                <img :src="rev.profile_photo_url || `https://ui-avatars.com/api/?name=${rev.author_name}&background=random`" 
-                                                     class="w-10 h-10 rounded-2xl border-2 border-white shadow-sm">
-                                                <span class="font-bold text-slate-800 text-sm" x-text="rev.author_name"></span>
-                                            </div>
-                                        </td>
-                                        <td class="px-8 py-6">
-                                            <div class="flex gap-0.5 text-[10px]">
-                                                <template x-for="i in 5">
-                                                    <i class="fas fa-star" :class="i <= rev.rating ? 'text-amber-400' : 'text-slate-200'"></i>
-                                                </template>
-                                            </div>
-                                        </td>
-                                        <td class="px-8 py-6">
-                                            <p class="text-sm text-slate-600 font-medium leading-relaxed line-clamp-2" x-text="rev.text"></p>
-                                        </td>
-                                        <td class="px-8 py-6 text-xs font-bold text-slate-400" x-text="rev.review_time"></td>
-                                        <td class="px-8 py-6 text-right">
-                                            <button class="bg-white border border-slate-200 px-4 py-2 rounded-xl text-[10px] font-black uppercase text-slate-600 hover:bg-slate-900 hover:text-white transition">
-                                                AI Reply
-                                            </button>
-                                        </td>
-                                    </tr>
-                                </template>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div x-show="reviews.length === 0" class="p-12 text-center text-slate-400 font-bold" x-cloak>
-                        No reviews found for the selected period.
-                    </div>
-                </div>
+            <div class="text-success fs-3"><i class="bi bi-stars"></i></div>
+          </div>
+          <div class="text-muted small mt-2" id="kpi_new_reviews_delta"></div>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-lg-3">
+        <div class="card p-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="kpi-label">Avg Rating</div>
+              <div id="kpi_avg_rating" class="kpi-value">—</div>
             </div>
-        </main>
+            <div class="text-warning fs-3"><i class="bi bi-star-half"></i></div>
+          </div>
+          <div class="text-muted small mt-2" id="kpi_avg_rating_delta"></div>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-lg-3">
+        <div class="card p-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="kpi-label">Response Rate</div>
+              <div id="kpi_response_rate" class="kpi-value">—</div>
+            </div>
+            <div class="text-info fs-3"><i class="bi bi-reply-all"></i></div>
+          </div>
+          <div class="text-muted small mt-2" id="kpi_response_rate_delta"></div>
+        </div>
+      </div>
     </div>
 
-    <script>
-        function reviewSaaS() {
-            return {
-                companyId: "{{ active_company_id or '' }}",
-                userEmail: "{{ user.email or 'Admin User' }}",
-                loading: false,
-                kpis: { total_reviews: 0, avg_rating: 0, avg_sentiment: 0, new_reviews: 0, window: {} },
-                reviews: [],
-                alerts: [],
-                reviewSort: 'newest',
-                charts: {},
+    <!-- Charts Row -->
+    <div class="row g-3 mt-1">
+      <div class="col-12 col-lg-8">
+        <div class="card chart-card p-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Reviews Trend</h5>
+            <div>
+              <select id="trend_range" class="form-select form-select-sm" style="width:auto;display:inline-block;">
+                <option value="7">Last 7 days</option>
+                <option value="14" selected>Last 14 days</option>
+                <option value="30">Last 30 days</option>
+              </select>
+            </div>
+          </div>
+          <div class="chart-wrap mt-3">
+            <canvas id="chart_trend"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-lg-4">
+        <div class="card chart-card p-3">
+          <h5>Category Mix</h5>
+          <div class="chart-wrap mt-3">
+            <canvas id="chart_mix"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
 
-                async init() {
-                    if (this.companyId) {
-                        await this.refreshDashboard();
-                    }
-                },
+    <!-- Company Add + Activity -->
+    <div class="row g-3 mt-1">
+      <div class="col-12 col-lg-6">
+        <div class="card p-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Add Company (via Google Places)</h5>
+          </div>
+          <div class="mt-3 position-relative">
+            <label class="form-label">Search</label>
+            <input id="company_search" type="text" class="form-control" placeholder="Type business name or address..." autocomplete="off" />
+            <div id="autocomplete_menu" class="autocomplete-menu"></div>
+            <div id="search_help" class="form-text">Country bias: <code>pk</code>. Adjust in code if needed.</div>
+          </div>
 
-                async refreshDashboard() {
-                    this.loading = true;
-                    try {
-                        // All calls mapped to correct prefixes
-                        await Promise.all([
-                            this.fetchKPIs(),
-                            this.fetchSeries(),
-                            this.fetchReviews(),
-                            this.fetchAlerts(),
-                            this.fetchSentimentShare()
-                        ]);
-                    } catch (err) {
-                        console.error("Dashboard Load Error:", err);
-                    } finally {
-                        this.loading = false;
-                    }
-                },
+          <form id="company_form" class="mt-3">
+            <div class="row g-2">
+              <div class="col-md-6">
+                <label class="form-label">Name</label>
+                <input id="c_name" class="form-control" required />
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Place ID</label>
+                <input id="c_place_id" class="form-control" readonly />
+              </div>
+              <div class="col-md-12">
+                <label class="form-label">Address</label>
+                <input id="c_address" class="form-control" />
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Phone</label>
+                <input id="c_phone" class="form-control" />
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Website</label>
+                <input id="c_website" class="form-control" />
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Rating</label>
+                <input id="c_rating" class="form-control" />
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Reviews Count</label>
+                <input id="c_reviews" class="form-control" />
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Latitude</label>
+                <input id="c_lat" class="form-control" />
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Longitude</label>
+                <input id="c_lng" class="form-control" />
+              </div>
+            </div>
+            <div class="mt-3 d-flex gap-2">
+              <button type="submit" class="btn btn-accent">
+                <i class="bi bi-plus-circle me-1"></i> Create
+              </button>
+              <button type="button" id="reset_form" class="btn btn-outline-secondary">Reset</button>
+            </div>
+            <div id="company_status" class="form-text mt-2"></div>
+          </form>
+        </div>
+      </div>
 
-                // From app/routes/dashboard.py
-                async fetchKPIs() {
-                    const res = await fetch(`/api/kpis?company_id=${this.companyId}`);
-                    this.kpis = await res.json();
-                },
+      <div class="col-12 col-lg-6">
+        <div class="card p-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Recent Activity</h5>
+            <a class="btn btn-sm btn-outline-secondary" href="/api/export/activity.xlsx" target="_blank">
+              <i class="bi bi-download me-1"></i>Export Excel
+            </a>
+          </div>
+          <ul id="activity_list" class="list-group list-group-flush mt-2"></ul>
+          <div class="text-center">
+            <a class="btn btn-link mt-2" href="/api/activity?limit=100" target="_blank">View raw</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
 
-                // From app/routes/dashboard.py
-                async fetchAlerts() {
-                    const res = await fetch(`/api/alerts?company_id=${this.companyId}`);
-                    const data = await res.json();
-                    this.alerts = data.alerts || [];
-                },
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-                // From app/routes/reviews.py (uses /api/reviews prefix)
-                async fetchReviews() {
-                    const res = await fetch(`/api/reviews/list?company_id=${this.companyId}&sort=${this.reviewSort}&limit=12`);
-                    const data = await res.json();
-                    this.reviews = data.items || [];
-                },
+  <script>
+    // --------------------------
+    // Theme (dark / light)
+    // --------------------------
+    const rootEl = document.documentElement;
+    const THEME_KEY = "rs_theme";
+    function applyTheme(theme) {
+      rootEl.setAttribute("data-color-scheme", theme);
+      // Chart.js theme sync
+      if (window._charts) {
+        window._charts.forEach(ch => {
+          if (!ch) return;
+          ch.options.scales.x.ticks.color = getComputedStyle(document.documentElement).getPropertyValue('--text-color');
+          ch.options.scales.y.ticks.color = getComputedStyle(document.documentElement).getPropertyValue('--text-color');
+          ch.options.plugins.legend.labels.color = getComputedStyle(document.documentElement).getPropertyValue('--text-color');
+          ch.update();
+        });
+      }
+    }
+    function initTheme() {
+      const saved = localStorage.getItem(THEME_KEY) || "light";
+      applyTheme(saved);
+    }
+    function toggleTheme() {
+      const current = rootEl.getAttribute("data-color-scheme") || "light";
+      const next = current === "light" ? "dark" : "light";
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+    }
+    document.getElementById("themeToggle").addEventListener("click", toggleTheme);
+    initTheme();
 
-                // From app/routes/dashboard.py
-                async fetchSeries() {
-                    const res = await fetch(`/api/series/overview?company_id=${this.companyId}`);
-                    const data = await res.json();
-                    this.renderTrendChart(data);
-                },
+    // --------------------------
+    // Utilities
+    // --------------------------
+    async function httpGetJSON(url) {
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) {
+        let msg = await res.text();
+        try { const j = JSON.parse(msg); msg = j.detail ? JSON.stringify(j.detail) : JSON.stringify(j); } catch {}
+        throw new Error(`GET ${url} failed: ${res.status} ${msg}`);
+      }
+      return await res.json();
+    }
+    async function httpPostJSON(url, payload) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        let msg = await res.text();
+        try { const j = JSON.parse(msg); msg = j.detail ? JSON.stringify(j.detail) : JSON.stringify(j); } catch {}
+        throw new Error(`POST ${url} failed: ${res.status} ${msg}`);
+      }
+      return await res.json();
+    }
+    function fmtPct(v, digits=1) { return (v*100).toFixed(digits) + "%"; }
+    function $(id) { return document.getElementById(id); }
 
-                // From app/routes/dashboard.py
-                async fetchSentimentShare() {
-                    const res = await fetch(`/api/sentiment/share?company_id=${this.companyId}`);
-                    const data = await res.json();
-                    this.renderShareChart(data.counts);
-                },
+    // --------------------------
+    // KPIs
+    // --------------------------
+    async function loadKPIs() {
+      try {
+        const data = await httpGetJSON("/api/kpis");
+        // expected fields (adjust if your backend differs):
+        // total_reviews, new_reviews, avg_rating, response_rate
+        // deltas (optional): total_reviews_delta, new_reviews_delta, avg_rating_delta, response_rate_delta
+        $("kpi_total_reviews").textContent = data.total_reviews ?? "—";
+        $("kpi_new_reviews").textContent   = data.new_reviews ?? "—";
+        $("kpi_avg_rating").textContent    = (data.avg_rating ?? "—");
+        $("kpi_response_rate").textContent = data.response_rate != null ? fmtPct(data.response_rate) : "—";
 
-                // From app/routes/companies.py (uses /api prefix)
-                async triggerSync() {
-                    this.loading = true;
-                    try {
-                        const res = await fetch(`/api/companies/${this.companyId}/sync`, { 
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' }
-                        });
-                        
-                        if (res.status === 401) {
-                            window.location.href = "/login";
-                            return;
-                        }
+        $("kpi_total_reviews_delta").textContent = data.total_reviews_delta != null ? `Δ ${data.total_reviews_delta}` : "";
+        $("kpi_new_reviews_delta").textContent   = data.new_reviews_delta != null ? `Δ ${data.new_reviews_delta}` : "";
+        $("kpi_avg_rating_delta").textContent    = data.avg_rating_delta != null ? `Δ ${data.avg_rating_delta}` : "";
+        $("kpi_response_rate_delta").textContent = data.response_rate_delta != null ? `Δ ${fmtPct(data.response_rate_delta)}` : "";
+      } catch (e) {
+        console.error(e);
+      }
+    }
 
-                        const data = await res.json();
-                        if (data.success) {
-                            // Give Outscraper task time to commit records
-                            setTimeout(() => this.refreshDashboard(), 3500);
-                        }
-                    } catch (e) {
-                        console.error("Sync trigger failed:", e);
-                    } finally {
-                        this.loading = false;
-                    }
-                },
+    // --------------------------
+    // Charts
+    // --------------------------
+    window._charts = [];
 
-                renderTrendChart(data) {
-                    const ctx = document.getElementById('trendChart').getContext('2d');
-                    if (this.charts.trend) this.charts.trend.destroy();
-                    
-                    this.charts.trend = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: data.volume.map(v => v.date),
-                            datasets: [
-                                {
-                                    label: 'Volume',
-                                    data: data.volume.map(v => v.value),
-                                    borderColor: '#3b82f6',
-                                    borderWidth: 3,
-                                    pointRadius: 0,
-                                    fill: true,
-                                    backgroundColor: 'rgba(59, 130, 246, 0.05)',
-                                    tension: 0.4
-                                },
-                                {
-                                    label: 'Rating',
-                                    data: data.rating.map(r => r.value),
-                                    borderColor: '#fbbf24',
-                                    borderWidth: 3,
-                                    pointRadius: 0,
-                                    yAxisID: 'y1',
-                                    tension: 0.4
-                                }
-                            ]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: { legend: { display: false } },
-                            scales: {
-                                x: { grid: { display: false }, ticks: { font: { weight: 'bold', size: 10 } } },
-                                y: { grid: { color: '#f1f5f9' }, ticks: { font: { weight: 'bold' } } },
-                                y1: { position: 'right', min: 1, max: 5, grid: { display: false }, ticks: { display: false } }
-                            }
-                        }
-                    });
-                },
+    function chartColors() {
+      const styles = getComputedStyle(document.documentElement);
+      const text = styles.getPropertyValue('--text-color').trim() || '#111827';
+      const grid = styles.getPropertyValue('--border-color').trim() || '#e5e7eb';
+      return { text, grid };
+    }
 
-                renderShareChart(counts) {
-                    const ctx = document.getElementById('shareChart').getContext('2d');
-                    if (this.charts.share) this.charts.share.destroy();
+    let chartTrend = null;
+    async function loadTrend(days=14) {
+      try {
+        const data = await httpGetJSON(`/api/orders/series?days=${days}`);
+        const labels = data.labels || data.dates || [];
+        const series = data.series || data.values || [];
+        const { text, grid } = chartColors();
 
-                    this.charts.share = new Chart(ctx, {
-                        type: 'doughnut',
-                        data: {
-                            labels: ['Positive', 'Neutral', 'Negative'],
-                            datasets: [{
-                                data: [counts.positive, counts.neutral, counts.negative],
-                                backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
-                                borderWidth: 0
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            cutout: '75%',
-                            plugins: {
-                                legend: { position: 'bottom', labels: { usePointStyle: true, font: { weight: 'bold' } } }
-                            }
-                        }
-                    });
-                }
+        if (chartTrend) chartTrend.destroy();
+        chartTrend = new Chart(document.getElementById("chart_trend"), {
+          type: "line",
+          data: {
+            labels,
+            datasets: [{
+              label: "Reviews",
+              data: series,
+              borderColor: "#0d6efd",
+              backgroundColor: "rgba(13,110,253,0.15)",
+              fill: true,
+              tension: 0.35,
+              pointRadius: 2
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: { grid: { color: grid }, ticks: { color: text }},
+              y: { grid: { color: grid }, ticks: { color: text }}
+            },
+            plugins: {
+              legend: { labels: { color: text }},
+              tooltip: { mode: "index", intersect: false }
             }
+          }
+        });
+        window._charts[0] = chartTrend;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    let chartMix = null;
+    async function loadCategoryMix() {
+      try {
+        const data = await httpGetJSON("/api/category-mix");
+        // Expect something like: { labels: ["Positive","Neutral","Negative"], values: [60,25,15] }
+        const labels = data.labels || [];
+        const values = data.values || [];
+        const { text } = chartColors();
+
+        if (chartMix) chartMix.destroy();
+        chartMix = new Chart(document.getElementById("chart_mix"), {
+          type: "doughnut",
+          data: {
+            labels,
+            datasets: [{
+              data: values,
+              backgroundColor: ["#22c55e","#94a3b8","#ef4444"],
+              borderWidth: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: "bottom", labels: { color: text } }
+            },
+            cutout: "60%"
+          }
+        });
+        window._charts[1] = chartMix;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // --------------------------
+    // Activity Feed
+    // --------------------------
+    async function loadActivity(limit=20) {
+      try {
+        const data = await httpGetJSON(`/api/activity?limit=${limit}`);
+        const list = $("activity_list");
+        list.innerHTML = "";
+        (data.items || data || []).forEach(item => {
+          const li = document.createElement("li");
+          li.className = "list-group-item d-flex justify-content-between align-items-start";
+          const title = item.title || item.event || "Event";
+          const detail = item.detail || item.description || "";
+          const ts = item.timestamp || item.ts || "";
+          li.innerHTML = `
+            <div class="ms-2 me-auto">
+              <div class="fw-semibold">${title}</div>
+              <div class="small text-muted">${detail}</div>
+            </div>
+            <span class="badge text-bg-secondary rounded-pill">${ts}</span>
+          `;
+          list.appendChild(li);
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // --------------------------
+    // Google Places (via backend)
+    // --------------------------
+    const acInput   = $("company_search");
+    const acMenu    = $("autocomplete_menu");
+    const statusEl  = $("company_status");
+
+    let acTimer = null;
+    let acSessionToken = null; // optional; can be generated client-side to link calls
+
+    function showMenu(show) {
+      acMenu.style.display = show ? "block" : "none";
+    }
+
+    function renderPredictions(predictions) {
+      acMenu.innerHTML = "";
+      if (!predictions || predictions.length === 0) {
+        showMenu(false);
+        return;
+      }
+      predictions.forEach(p => {
+        const div = document.createElement("div");
+        div.className = "autocomplete-item";
+        div.innerHTML = `<strong>${p.structured_formatting?.main_text || p.description}</strong><br/>
+                         <span class="text-muted small">${p.structured_formatting?.secondary_text || ""}</span>`;
+        div.addEventListener("click", () => onPredictionSelect(p));
+        acMenu.appendChild(div);
+      });
+      showMenu(true);
+    }
+
+    async function onPredictionSelect(pred) {
+      showMenu(false);
+      acInput.value = pred.description || pred.structured_formatting?.main_text || "";
+      // Fetch place details
+      try {
+        statusEl.textContent = "Fetching place details…";
+        const fields = "place_id,name,formatted_address,geometry,international_phone_number,website,rating,user_ratings_total";
+        const url = `/google/place-details?place_id=${encodeURIComponent(pred.place_id)}&fields=${encodeURIComponent(fields)}${acSessionToken ? `&sessiontoken=${encodeURIComponent(acSessionToken)}` : ""}`;
+        const data = await httpGetJSON(url);
+        const r = data.result || {};
+        // Fill form
+        $("c_name").value     = r.name || "";
+        $("c_place_id").value = r.place_id || pred.place_id || "";
+        $("c_address").value  = r.formatted_address || "";
+        $("c_phone").value    = r.international_phone_number || "";
+        $("c_website").value  = r.website || "";
+        $("c_rating").value   = (r.rating != null ? r.rating : "");
+        $("c_reviews").value  = (r.user_ratings_total != null ? r.user_ratings_total : "");
+        const loc = r.geometry?.location || {};
+        $("c_lat").value = (loc.lat != null ? loc.lat : "");
+        $("c_lng").value = (loc.lng != null ? loc.lng : "");
+        statusEl.textContent = "Place details loaded.";
+      } catch (e) {
+        console.error(e);
+        statusEl.textContent = `Error: ${e.message}`;
+      }
+    }
+
+    async function fetchAutocomplete(q) {
+      const params = new URLSearchParams({
+        input: q,
+        components: "country:pk"
+      });
+      if (acSessionToken) params.set("sessiontoken", acSessionToken);
+      const url = `/google/autocomplete?${params.toString()}`;
+      const data = await httpGetJSON(url);
+      return data.predictions || [];
+    }
+
+    acInput.addEventListener("input", () => {
+      const q = acInput.value.trim();
+      if (acTimer) clearTimeout(acTimer);
+      if (!q) { showMenu(false); return; }
+      acTimer = setTimeout(async () => {
+        try {
+          const preds = await fetchAutocomplete(q);
+          renderPredictions(preds);
+        } catch (e) {
+          console.error(e);
+          statusEl.textContent = `Autocomplete error: ${e.message}`;
         }
-    </script>
+      }, 200);
+    });
+
+    document.addEventListener("click", (e) => {
+      if (!acMenu.contains(e.target) && e.target !== acInput) showMenu(false);
+    });
+
+    // --------------------------
+    // Company Form Submit
+    // --------------------------
+    $("company_form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        name: $("c_name").value.trim(),
+        place_id: $("c_place_id").value.trim(),
+        address: $("c_address").value.trim(),
+        phone: $("c_phone").value.trim(),
+        website: $("c_website").value.trim(),
+        rating: Number($("c_rating").value || 0),
+        reviews: Number($("c_reviews").value || 0),
+        lat: Number($("c_lat").value || 0),
+        lng: Number($("c_lng").value || 0),
+      };
+      try {
+        statusEl.textContent = "Creating company…";
+        // Adjust the endpoint if your backend differs
+        const res = await httpPostJSON("/companies/create", payload);
+        statusEl.textContent = "Company created successfully.";
+      } catch (e2) {
+        console.error(e2);
+        statusEl.textContent = `Create failed: ${e2.message}`;
+      }
+    });
+
+    $("reset_form").addEventListener("click", () => {
+      document.getElementById("company_form").reset();
+      $("c_place_id").value = "";
+      $("company_status").textContent = "";
+      $("company_search").value = "";
+      showMenu(false);
+    });
+
+    // --------------------------
+    // Init
+    // --------------------------
+    async function initDashboard() {
+      await Promise.all([
+        loadKPIs(),
+        loadTrend(14),
+        loadCategoryMix(),
+        loadActivity(20)
+      ]);
+      $("trend_range").addEventListener("change", (e) => loadTrend(Number(e.target.value)));
+      // Optional: ping Google health
+      try {
+        await httpGetJSON("/google/health");
+      } catch (e) {
+        console.warn("Google health failed:", e.message);
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", initDashboard);
+  </script>
 </body>
 </html>
