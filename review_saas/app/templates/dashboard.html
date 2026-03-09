@@ -1,889 +1,144 @@
-<!-- filename: app/templates/dashboard.html -->
-<!DOCTYPE html>
-<html lang="en" data-bs-theme="light">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ReviewSaaS • Dashboard</title>
+# filename: review_saas/app/routes/dashboard.py
+from __future__ import annotations
 
-  <!-- Bootstrap + Icons -->
-  <link
-    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
-    rel="stylesheet"
-    integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
-    crossorigin="anonymous"
-  />
-  <link
-    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
-    rel="stylesheet"
-  />
+import logging
+import math
+import re
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-  <!-- Chart.js -->
-  <script
-    src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
-    integrity="sha384-5Q+Uve4Zc0Q0t3Z9bE1E1mCwP+4b2d2q6zRFGhS9+2JtG0c7Jm8vS4d2i3doz0KZ"
-    crossorigin="anonymous"
-  ></script>
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+from sqlalchemy import Date, Integer, and_, case, cast, desc, func, literal, select
+from starlette.templating import Jinja2Templates
 
-  <style>
-    header.navbar {
-      backdrop-filter: saturate(1.2) blur(6px);
-      background-color: color-mix(in srgb, var(--bs-body-bg) 85%, transparent);
-      border-bottom: 1px solid var(--bs-border-color);
-    }
-    .kpi-card .kpi-title { font-size: .9rem; color: var(--bs-secondary-color); }
-    .kpi-card .kpi-value { font-size: 1.6rem; font-weight: 700; }
-    .kpi-delta.up { color: #16a34a; }
-    .kpi-delta.down { color: #dc2626; }
-    .activity-item { border-bottom: 1px dashed var(--bs-border-color); padding-bottom:.75rem; margin-bottom:.75rem; }
-    .badge-sentiment.positive { background:#16a34a; }
-    .badge-sentiment.neutral { background:#64748b; }
-    .badge-sentiment.negative { background:#dc2626; }
-    #map { width:100%; height:240px; border-radius:.5rem; border:1px solid var(--bs-border-color); }
-    .chart-wrap { height: 280px; }
-    .chart-wrap-sm { height: 220px; }
-    .text-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
-    .kw-badge { border:1px solid var(--bs-border-color); border-radius: 999px; padding: .25rem .5rem; margin: .125rem; display:inline-block; font-size:.8rem; }
-    .kw-pos { background:rgba(22,163,74,.08); }
-    .kw-neg { background:rgba(220,38,38,.08); }
-    .kw-em { background:rgba(13,110,253,.08); }
-  </style>
-</head>
-<body>
-  {% set _user = user if user is defined else None %}
-  {% set _companies = companies if companies is defined and companies else [] %}
-  {% set _active_company_id = active_company_id if active_company_id is defined else ( _companies[0].id if _companies else None ) %}
+from app.core.db import get_session
+from app.core.models import Company, Review
+from app.routes.companies import _require_user
 
-  <header class="navbar navbar-expand-lg sticky-top">
-    <div class="container-fluid">
-      <a href="/dashboard" class="navbar-brand">
-        <i class="bi bi-bar-chart-line me-2"></i> ReviewSaaS
-      </a>
-      <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
-        <!-- Company selection -->
-        <div class="input-group input-group-sm">
-          <span class="input-group-text"><i class="bi bi-buildings"></i></span>
-          <select id="companySelect" class="form-select form-select-sm" {% if not _companies %}disabled{% endif %}>
-            {% if _companies %}
-              {% for c in _companies %}
-                <option value="{{ c.id }}" {% if c.id == _active_company_id %}selected{% endif %}>
-                  {{ c.name }}
-                </option>
-              {% endfor %}
-            {% else %}
-              <option value="">No companies yet</option>
-            {% endif %}
-          </select>
-        </div>
+router = APIRouter(tags=["dashboard"])
+templates = Jinja2Templates(directory="app/templates")
+logger = logging.getLogger("app.dashboard")
 
-        <!-- Date range -->
-        <div class="input-group input-group-sm">
-          <span class="input-group-text"><i class="bi bi-calendar3"></i></span>
-          <input id="startDate" type="date" class="form-control" />
-          <input id="endDate" type="date" class="form-control" />
-          <button id="btnApplyRange" class="btn btn-outline-secondary" type="button">Apply</button>
-        </div>
+# ──────────────────────────────────────────────────────────────────────────────
+# NLP & Sentiment Logic (Negation Aware)
+# ──────────────────────────────────────────────────────────────────────────────
+_RATING_PROXY = {5: 0.8, 4: 0.4, 3: 0.0, 2: -0.4, 1: -0.8}
+_NEGATORS = {"not", "never", "no", "hardly", "barely", "scarcely", "without", "lack"}
+_TOKEN_RE = re.compile(r"[a-zA-Z]+")
 
-        <!-- Sync -->
-        <button id="btnSync" class="btn btn-outline-primary btn-sm" title="Trigger background review sync" type="button" {% if not _active_company_id %}disabled{% endif %}>
-          <i class="bi bi-arrow-repeat me-1"></i> Sync
-        </button>
+_LEXICON = {
+    "great": 4, "excellent": 5, "good": 3, "friendly": 3, "clean": 2, "amazing": 4,
+    "bad": -3, "poor": -3, "worst": -5, "slow": -2, "dirty": -3, "rude": -4, "issue": -2
+}
 
-        <!-- Theme -->
-        <button id="themeToggle" class="btn btn-outline-secondary btn-sm" title="Toggle theme" type="button">
-          <i class="bi bi-moon-stars" id="themeIcon"></i>
-        </button>
+def _tokenize(text: str) -> List[str]:
+    if not text: return []
+    toks = [t.lower() for t in _TOKEN_RE.findall(text)]
+    return [t for t in toks if len(t) > 2]
 
-        <!-- Companies / Logout -->
-        <a class="btn btn-outline-secondary btn-sm" href="/api/companies" title="Companies">
-          <i class="bi bi-people"></i>
-        </a>
-        <form method="post" action="/logout" class="d-inline">
-          <button class="btn btn-outline-secondary btn-sm" type="submit" title="Logout">
-            <i class="bi bi-box-arrow-right"></i>
-          </button>
-        </form>
-      </div>
-    </div>
-  </header>
+def _safe_sentiment(text: str, rating: Optional[int] = None) -> float:
+    tokens = _tokenize(text or "")
+    score = 0.0
+    for i, t in enumerate(tokens):
+        base = _LEXICON.get(t, 0)
+        if base > 0 and any(tokens[j] in _NEGATORS for j in range(max(0, i-3), i)):
+            base = -abs(base)
+        score += base
+    norm = score / max(1.0, math.sqrt(len(tokens) or 1))
+    lex = float(max(-1.0, min(1.0, norm / 5.0)))
+    if rating is None: return lex
+    proxy = _RATING_PROXY.get(int(rating), 0.0)
+    return float(max(-1.0, min(1.0, 0.65 * lex + 0.35 * proxy)))
 
-  <input type="hidden" id="activeCompanyId" value="{{ _active_company_id or '' }}" />
+# ──────────────────────────────────────────────────────────────────────────────
+# Routes
+# ──────────────────────────────────────────────────────────────────────────────
 
-  <main class="container my-4">
-    <!-- KPI Cards -->
-    <section class="row g-3 mb-3">
-      <div class="col-12 col-sm-6 col-xl-3">
-        <div class="card kpi-card h-100">
-          <div class="card-body">
-            <div class="kpi-title">Total Reviews</div>
-            <div class="d-flex align-items-baseline gap-2">
-              <div id="kpiTotalReviews" class="kpi-value">—</div>
-              <small id="kpiTotalReviewsDelta" class="kpi-delta"></small>
-            </div>
-            <div class="small text-secondary">In selected window</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-sm-6 col-xl-3">
-        <div class="card kpi-card h-100">
-          <div class="card-body">
-            <div class="kpi-title">New (Last 7d)</div>
-            <div class="d-flex align-items-baseline gap-2">
-              <div id="kpiNewReviews" class="kpi-value">—</div>
-              <small id="kpiNewReviewsDelta" class="kpi-delta"></small>
-            </div>
-            <div class="small text-secondary">Ending at end date</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-sm-6 col-xl-3">
-        <div class="card kpi-card h-100">
-          <div class="card-body">
-            <div class="kpi-title">Avg Rating</div>
-            <div class="d-flex align-items-baseline gap-2">
-              <div id="kpiAvgRating" class="kpi-value">—</div>
-              <small id="kpiAvgRatingDelta" class="kpi-delta"></small>
-            </div>
-            <div class="small text-secondary">Weighted</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-sm-6 col-xl-3">
-        <div class="card kpi-card h-100">
-          <div class="card-body">
-            <div class="kpi-title">Avg Sentiment</div>
-            <div class="d-flex align-items-baseline gap-2">
-              <div id="kpiAvgSentiment" class="kpi-value">—</div>
-              <small id="kpiAvgSentimentDelta" class="kpi-delta"></small>
-            </div>
-            <div class="small text-secondary">Stored or rating‑proxy</div>
-          </div>
-        </div>
-      </div>
-    </section>
+@router.get("/dashboard", response_class=HTMLResponse)
+async def get_dashboard(request: Request, company_id: Optional[int] = Query(None)):
+    uid = _require_user(request)
+    
+    async with get_session() as session:
+        result = await session.execute(select(Company).order_by(Company.name))
+        companies = result.scalars().all()
+    
+    # CRITICAL SAFETY CHECK: Handle empty database
+    active_company_id = None
+    if company_id:
+        active_company_id = int(company_id)
+    elif companies:
+        active_company_id = companies[0].id
 
-    <!-- Main Charts -->
-    <section class="row g-3">
-      <div class="col-12 col-xl-6">
-        <div class="card h-100">
-          <div class="card-header fw-semibold"><i class="bi bi-activity me-2"></i> Volume • Rating • Sentiment</div>
-          <div class="card-body chart-wrap">
-            <canvas id="overviewChart"></canvas>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-xl-3">
-        <div class="card h-100">
-          <div class="card-header fw-semibold"><i class="bi bi-pie-chart me-2"></i> Sentiment Share</div>
-          <div class="card-body chart-wrap-sm">
-            <canvas id="sentPie"></canvas>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-xl-3">
-        <div class="card h-100">
-          <div class="card-header fw-semibold"><i class="bi bi-bar-chart me-2"></i> Ratings Histogram</div>
-          <div class="card-body chart-wrap-sm">
-            <canvas id="ratingsHist"></canvas>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Aspect Sentiment -->
-    <section class="row g-3 mt-1">
-      <div class="col-12">
-        <div class="card">
-          <div class="card-header fw-semibold">
-            <i class="bi bi-diagram-3 me-2"></i> Aspect Sentiment (Service, Product, Pricing, Delivery)
-          </div>
-          <div class="card-body chart-wrap">
-            <canvas id="aspectsStacked"></canvas>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Urgent Issues + Alerts -->
-    <section class="row g-3 mt-1">
-      <div class="col-12 col-xl-6">
-        <div class="card h-100">
-          <div class="card-header fw-semibold"><i class="bi bi-shield-exclamation me-2"></i> Urgent Issues</div>
-          <div class="card-body overflow-auto" style="max-height: 400px;" id="urgentList">
-            <div class="text-secondary">Loading…</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-xl-6">
-        <div class="card h-100">
-          <div class="card-header fw-semibold"><i class="bi bi-bell me-2"></i> Alerts</div>
-          <div class="card-body" id="alertsList">
-            <div class="text-secondary">Loading…</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Executive Summary (client-side from v2 APIs) -->
-    <section class="row g-3 mt-1">
-      <div class="col-12 col-xl-8">
-        <div class="card h-100">
-          <div class="card-header fw-semibold"><i class="bi bi-clipboard2-data me-2"></i> Executive Summary</div>
-          <div class="card-body">
-            <div id="execSummary" class="mb-2 text-secondary">Loading…</div>
-            <ul id="execRationale" class="small mb-0"></ul>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-xl-4">
-        <div class="card h-100">
-          <div class="card-header fw-semibold"><i class="bi bi-lightbulb me-2"></i> Keywords</div>
-          <div class="card-body">
-            <div class="mb-2 fw-semibold">Top Positive</div>
-            <div id="kwPositive" class="mb-3"></div>
-            <div class="mb-2 fw-semibold">Top Negative</div>
-            <div id="kwNegative" class="mb-3"></div>
-            <div class="mb-2 fw-semibold">Emerging (Δ 7d)</div>
-            <div id="kwEmerging" class="mb-0"></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Recent Reviews -->
-    <section class="row g-3 mt-1">
-      <div class="col-12">
-        <div class="card">
-          <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-chat-text me-2"></i> Recent Reviews</span>
-            <div>
-              <select id="reviewsSort" class="form-select form-select-sm d-inline-block w-auto">
-                <option value="newest" selected>Newest</option>
-                <option value="oldest">Oldest</option>
-                <option value="highest">Highest rating</option>
-                <option value="lowest">Lowest rating</option>
-              </select>
-            </div>
-          </div>
-          <div class="card-body overflow-auto" style="max-height: 600px;" id="reviewsFeed">
-            <div class="text-secondary">Loading…</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Add Company + Map/Search -->
-    <section class="row g-3 mt-1">
-      <div class="col-12 col-xl-6">
-        <div class="card h-100">
-          <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-geo-alt me-2"></i> Add Company (Google Places)</span>
-            <small class="text-secondary">Autocomplete if Maps SDK present; otherwise server search</small>
-          </div>
-          <div class="card-body">
-            <div class="mb-3">
-              <label for="placeSearch" class="form-label">Search</label>
-              <div class="input-group">
-                <input id="placeSearch" type="text" class="form-control" placeholder="Type business name, e.g., 'Starbucks Gulberg'">
-                <button id="btnServerSearch" class="btn btn-outline-secondary" type="button">Search</button>
-              </div>
-              <div class="small text-secondary mt-1">If Google Maps SDK is available, Autocomplete will fill fields automatically.</div>
-            </div>
-            <div id="serverResults" class="mb-3"></div>
-            <div class="row g-2">
-              <div class="col-md-8">
-                <label class="form-label">Place Name</label>
-                <input id="placeName" class="form-control" readonly />
-              </div>
-              <div class="col-md-4">
-                <label class="form-label">Rating</label>
-                <input id="placeRating" class="form-control" readonly />
-              </div>
-              <div class="col-12">
-                <label class="form-label">Address</label>
-                <input id="placeAddress" class="form-control" readonly />
-              </div>
-              <div class="col-md-6">
-                <label class="form-label">Place ID</label>
-                <input id="placeId" class="form-control text-mono" readonly />
-              </div>
-              <div class="col-md-6">
-                <label class="form-label">Phone</label>
-                <input id="placePhone" class="form-control" readonly />
-              </div>
-              <div class="col-md-6">
-                <label class="form-label">Website</label>
-                <input id="placeWebsite" class="form-control" readonly />
-              </div>
-              <div class="col-md-6">
-                <label class="form-label">Google Maps URL</label>
-                <input id="placeUrl" class="form-control" readonly />
-              </div>
-            </div>
-            <div class="d-flex gap-2 mt-3">
-              <button id="btnCreateCompany" class="btn btn-primary" type="button">
-                <i class="bi bi-plus-lg me-1"></i> Create Company
-              </button>
-              <button id="btnClearPlace" class="btn btn-outline-secondary" type="button">
-                <i class="bi bi-eraser me-1"></i> Clear
-              </button>
-              <div id="placeMsg" class="ms-auto small text-secondary"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-xl-6">
-        <div class="card h-100">
-          <div class="card-header fw-semibold"><i class="bi bi-map me-2"></i> Map Preview</div>
-          <div class="card-body">
-            <div id="map"></div>
-            <div id="mapHint" class="small text-secondary mt-2">Select a place to preview its location (if Google Maps SDK loaded).</div>
-            <ul id="detailsList" class="list-unstyled mt-3 mb-0"></ul>
-          </div>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <footer class="container my-4 small text-secondary d-flex justify-content-between">
-    <span>© <span id="year"></span> ReviewSaaS</span>
-    <span>
-      <a href="/reports">Reports</a>
-      <span class="mx-1">•</span>
-      <a href="/admin">Admin</a>
-    </span>
-  </footer>
-
-  <!-- Bootstrap Bundle -->
-  <script
-    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
-    integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
-    crossorigin="anonymous"
-  ></script>
-
-  <script>
-    // Theme Toggle
-    (function initTheme() {
-      const html = document.documentElement;
-      const saved = localStorage.getItem('theme');
-      if (saved) html.setAttribute('data-bs-theme', saved);
-      const icon = document.getElementById('themeIcon');
-      const applyIcon = () => {
-        icon.className = (html.getAttribute('data-bs-theme') === 'dark') ? 'bi bi-brightness-high' : 'bi bi-moon-stars';
-      };
-      applyIcon();
-      const toggle = document.getElementById('themeToggle');
-      if (toggle) {
-        toggle.addEventListener('click', () => {
-          const next = html.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
-          html.setAttribute('data-bs-theme', next);
-          localStorage.setItem('theme', next);
-          applyIcon();
-          if (window._charts) window._charts.forEach(c => c.update('none'));
-        });
-      }
-    })();
-
-    // Utility Helpers
-    const $ = (s) => document.querySelector(s);
-    const $$ = (s) => document.querySelectorAll(s);
-    const fmt = new Intl.NumberFormat();
-    function params() {
-      const companySelect = $('#companySelect');
-      const company_id = companySelect && !companySelect.disabled ? companySelect.value : ($('#activeCompanyId')?.value || '');
-      const start = $('#startDate')?.value || '';
-      const end = $('#endDate')?.value || '';
-      return { company_id, start, end };
-    }
-    function qstr(obj) {
-      return Object.entries(obj)
-        .filter(([,v]) => v !== undefined && v !== null && v !== '')
-        .map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-        .join('&');
-    }
-    function setDelta(el, delta) {
-      if (!el) return;
-      if (typeof delta !== 'number' || Number.isNaN(delta)) { el.textContent = '—'; el.className='kpi-delta'; return; }
-      if (delta > 0) { el.textContent = `▲ ${delta.toFixed(2)}%`; el.className='kpi-delta up'; }
-      else if (delta < 0) { el.textContent = `▼ ${Math.abs(delta).toFixed(2)}%`; el.className='kpi-delta down'; }
-      else { el.textContent = '—'; el.className='kpi-delta'; }
-    }
-    function sanitize(s) {
-      const d = document.createElement('div');
-      d.textContent = s ?? '';
-      return d.innerHTML;
-    }
-    function stars(n) {
-      const v = Number(n || 0);
-      return '★'.repeat(Math.max(0, Math.min(5, Math.round(v))));
-    }
-
-    // Chart Management
-    window._charts = [];
-    let overviewChart, sentPie, ratingsHist, aspectsStacked;
-    const destroyChart = (c) => {
-      if (c && typeof c.destroy === 'function') {
-        c.destroy();
-        const i = window._charts.indexOf(c);
-        if (i >= 0) window._charts.splice(i, 1);
-      }
-    };
-
-    // Load KPIs
-    async function loadKpis() {
-      const elTotal = $('#kpiTotalReviews');
-      try {
-        const qs = qstr(params());
-        const r = await fetch(`/api/kpis?${qs}`);
-        if (!r.ok) throw new Error('KPI fetch failed');
-        const data = await r.json();
-        (elTotal || {}).textContent = fmt.format(data.total_reviews ?? 0);
-        const elNew = $('#kpiNewReviews');
-        if (elNew) elNew.textContent = fmt.format(data.new_reviews ?? 0);
-        const elAR = $('#kpiAvgRating');
-        if (elAR) elAR.textContent = (data.avg_rating ?? 0).toFixed(2);
-        const elAS = $('#kpiAvgSentiment');
-        if (elAS) elAS.textContent = (data.avg_sentiment ?? 0).toFixed(3);
-        setDelta($('#kpiTotalReviewsDelta'), 0);
-        setDelta($('#kpiNewReviewsDelta'), 0);
-      } catch (e) {
-        console.error("KPI Error:", e);
-        if (elTotal) elTotal.textContent = '—';
-      }
-    }
-
-    // Volume/Rating/Sentiment Chart
-    async function loadOverview() {
-      try {
-        const qs = qstr(params());
-        const res = await fetch(`/api/series/overview?${qs}`);
-        if (!res.ok) throw new Error('Overview fetch failed');
-        const data = await res.json();
-        const labels = (data.volume || []).map(d => d.date);
-        const vol = (data.volume || []).map(d => d.value ?? 0);
-        const rat = (data.rating || []).map(d => d.value ?? 0);
-        const sen = (data.sentiment || []).map(d => d.value ?? 0);
-        const ctx = $('#overviewChart');
-        if (!ctx) return;
-        destroyChart(overviewChart);
-        overviewChart = new Chart(ctx, {
-          type: 'line',
-          data: {
-            labels,
-            datasets: [
-              { label: 'Volume', data: vol, borderColor:'#0d6efd', backgroundColor:'rgba(13,110,253,.15)', yAxisID:'y1', tension:.3, fill:true, pointRadius:2 },
-              { label: 'Avg Rating', data: rat, borderColor:'#20c997', backgroundColor:'rgba(32,201,151,.15)', yAxisID:'y2', tension:.3, fill:false, pointRadius:2 },
-              { label: 'Avg Sentiment', data: sen, borderColor:'#fd7e14', backgroundColor:'rgba(253,126,20,.15)', yAxisID:'y3', tension:.3, fill:false, pointRadius:2 },
-            ]
-          },
-          options: {
-            responsive:true, maintainAspectRatio:false, interaction:{ mode:'index', intersect:false },
-            scales: {
-              y1: { type:'linear', position:'left', beginAtZero:true, title:{display:true, text:'Count'} },
-              y2: { type:'linear', position:'right', beginAtZero:true, title:{display:true, text:'Rating'}, grid:{ drawOnChartArea:false }, min:0, max:5 },
-              y3: { type:'linear', position:'right', beginAtZero:true, title:{display:true, text:'Sentiment'}, grid:{ drawOnChartArea:false }, min:-1, max:1 }
+    # Must provide ALL keys used in dashboard.html to avoid Jinja2 errors
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "companies": companies or [],
+            "active_company_id": active_company_id,
+            "api_links": {
+                "kpis": "/api/kpis",
+                "series_overview": "/api/series/overview",
+                "sentiment_share": "/api/sentiment/share",
+                "ratings_distribution": "/api/ratings/distribution",
+                "aspects_sentiment": "/api/aspects/sentiment",
+                "operational_overview": "/api/operational/overview",
+                "alerts": "/api/alerts",
+                "v2_keywords": "/api/v2/keywords",
+                "reviews_list": "/api/reviews/list"
             }
-          }
-        });
-        window._charts.push(overviewChart);
-      } catch (e) { console.error("Overview Chart Error:", e); }
-    }
+        },
+    )
 
-    // Sentiment Share
-    async function loadSentimentShare() {
-      try {
-        const qs = qstr(params());
-        const res = await fetch(`/api/sentiment/share?${qs}`);
-        const data = await res.json();
-        const pos = data.counts?.positive ?? 0;
-        const neu = data.counts?.neutral ?? 0;
-        const neg = data.counts?.negative ?? 0;
-        const ctx = $('#sentPie');
-        if (!ctx) return;
-        destroyChart(sentPie);
-        sentPie = new Chart(ctx, {
-          type: 'doughnut',
-          data: { labels: ['Positive','Neutral','Negative'], datasets: [{ data: [pos,neu,neg], backgroundColor:['#2ecc71','#95a5a6','#e74c3c'], borderWidth:0 }] },
-          options: { responsive:true, plugins:{ legend:{ position:'bottom' } }, cutout:'60%' }
-        });
-        window._charts.push(sentPie);
-      } catch(e){ console.error("Pie Chart Error:", e); }
-    }
-
-    // Ratings Histogram
-    async function loadRatingsDistribution() {
-      try {
-        const qs = qstr(params());
-        const res = await fetch(`/api/ratings/distribution?${qs}`);
-        const data = await res.json();
-        const labels = ['1','2','3','4','5'];
-        const vals = [1,2,3,4,5].map(i => data.distribution?.[i] ?? 0);
-        const ctx = $('#ratingsHist');
-        if (!ctx) return;
-        destroyChart(ratingsHist);
-        ratingsHist = new Chart(ctx, {
-          type: 'bar',
-          data: { labels, datasets: [{ label:'Count', data: vals, backgroundColor:'#0dcaf0' }] },
-          options: { responsive:true, scales:{ y:{ beginAtZero:true } } }
-        });
-        window._charts.push(ratingsHist);
-      } catch(e){ console.error("Histogram Error:", e); }
-    }
-
-    // Aspect Sentiment Stacked
-    async function loadAspectsStacked() {
-      try {
-        const qs = qstr(params());
-        const res = await fetch(`/api/aspects/sentiment?${qs}`);
-        const data = await res.json();
-        const labels = (data.aspects || []).map(a => a.aspect);
-        const pos = (data.aspects || []).map(a => a.positive || 0);
-        const neu = (data.aspects || []).map(a => a.neutral || 0);
-        const neg = (data.aspects || []).map(a => a.negative || 0);
-        const ctx = $('#aspectsStacked');
-        if (!ctx) return;
-        destroyChart(aspectsStacked);
-        aspectsStacked = new Chart(ctx, {
-          type: 'bar',
-          data: {
-            labels,
-            datasets: [
-              { label:'Positive', data: pos, backgroundColor:'#2ecc71', stack: 's' },
-              { label:'Neutral', data: neu, backgroundColor:'#95a5a6', stack: 's' },
-              { label:'Negative', data: neg, backgroundColor:'#e74c3c', stack: 's' },
-            ]
-          },
-          options: { responsive:true, maintainAspectRatio:false, scales: { x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } } }
-        });
-        window._charts.push(aspectsStacked);
-      } catch (e) { console.error("Aspects Error:", e); }
-    }
-
-    // Urgent Issues
-    async function loadOperational() {
-      const el = $('#urgentList');
-      if (!el) return;
-      el.innerHTML = '<div class="text-secondary text-center p-4">Loading…</div>';
-      try {
-        const qs = qstr(params());
-        const res = await fetch(`/api/operational/overview?${qs}`);
-        const data = await res.json();
-        const issues = data.urgent_issues || [];
-        if (!issues.length) {
-          el.innerHTML = '<div class="text-secondary p-4">No urgent issues found.</div>';
-          return;
+@router.get("/api/kpis")
+async def api_kpis(request: Request, company_id: int):
+    _require_user(request)
+    async with get_session() as session:
+        # Simple AVG sentiment using score or rating proxy
+        avg_sent_expr = func.avg(func.coalesce(func.nullif(Review.sentiment_score, 0.0), 
+            case((Review.rating == 5, 0.8), (Review.rating == 4, 0.4), (Review.rating == 1, -0.8), else_=0.0)))
+        
+        stmt = select(func.count(Review.id), func.avg(Review.rating), avg_sent_expr).where(Review.company_id == company_id)
+        res = (await session.execute(stmt)).first()
+        
+        return {
+            "total_reviews": int(res[0] or 0),
+            "avg_rating": round(float(res[1] or 0), 2),
+            "avg_sentiment": round(float(res[2] or 0), 3),
+            "new_reviews": 0 # Logic for last 7 days can be added here
         }
-        el.innerHTML = issues.map(it => `
-          <div class="activity-item">
-            <div class="d-flex justify-content-between align-items-start">
-              <div>
-                <span class="badge badge-sentiment ${sanitize(it.sentiment_label || 'neutral')} me-2">${sanitize(it.sentiment_label || 'neutral')}</span>
-                <strong>${sanitize(it.author_name || 'Anonymous')}</strong> — ${sanitize((it.text || '').substring(0, 200))}...
-                <div class="mt-1 small text-warning">${stars(it.rating)}</div>
-              </div>
-              <small class="text-secondary ms-2">${sanitize(it.review_time || '')}</small>
-            </div>
-          </div>
-        `).join('');
-      } catch(e) {
-        console.error(e);
-        el.innerHTML = '<div class="text-danger">Error loading urgent list.</div>';
-      }
-    }
 
-    // Alerts
-    async function loadAlerts() {
-      const el = $('#alertsList');
-      if (!el) return;
-      try {
-        const qs = qstr(params());
-        const res = await fetch(`/api/alerts?${qs}`);
-        const data = await res.json();
-        const items = data.alerts || [];
-        if (!items.length) {
-          el.innerHTML = '<div class="text-secondary">No active alerts.</div>';
-          return;
-        }
-        el.innerHTML = `<ul class="list-group list-group-flush">${items.map(a => `
-          <li class="list-group-item bg-transparent">
-            <span class="badge ${a.severity==='high'?'text-bg-danger':'text-bg-warning'} me-2">${sanitize(a.severity || '')}</span> ${sanitize(a.message || '')}
-          </li>
-        `).join('')}</ul>`;
-      } catch(e){ console.error(e); el.innerHTML = '<div class="text-danger">Error loading alerts.</div>'; }
-    }
+@router.get("/api/series/overview")
+async def api_series_overview(request: Request, company_id: int):
+    _require_user(request)
+    return {"volume": [], "rating": [], "sentiment": []} # Fallback for empty charts
 
-    // Executive Summary (client-side synthesis from v2 APIs)
-    async function loadExecutive() {
-      const summaryEl = $('#execSummary');
-      const rationaleEl = $('#execRationale');
-      const kwPosEl = $('#kwPositive');
-      const kwNegEl = $('#kwNegative');
-      const kwEmEl  = $('#kwEmerging');
-      if (!summaryEl || !rationaleEl || !kwPosEl || !kwNegEl || !kwEmEl) return;
+@router.get("/api/reviews/list")
+async def api_reviews_list(request: Request, company_id: int):
+    _require_user(request)
+    async with get_session() as session:
+        stmt = select(Review).where(Review.company_id == company_id).order_by(desc(Review.google_review_time)).limit(50)
+        rows = (await session.execute(stmt)).scalars().all()
+        return {"items": [{"author_name": r.author_name, "rating": r.rating, "text": r.text, "review_time": str(r.google_review_time)[:10]} for r in rows]}
 
-      try {
-        const qs = qstr(params());
-        const [sumRes, kwRes] = await Promise.all([
-          fetch(`/api/v2/sentiment/summary?${qs}`),
-          fetch(`/api/v2/keywords?${qs}`)
-        ]);
+# Placeholder endpoints to prevent 404s from Dashboard JavaScript
+@router.get("/api/sentiment/share")
+async def api_sentiment_share(): return {"counts": {"positive": 0, "neutral": 0, "negative": 0}}
 
-        const sum = await sumRes.json();
-        const kw  = await kwRes.json();
+@router.get("/api/ratings/distribution")
+async def api_ratings_dist(): return {"distribution": {i: 0 for i in range(1, 6)}}
 
-        // Keywords
-        const badge = (t, cls, extra='') => `<span class="kw-badge ${cls}" title="${sanitize(extra)}">${sanitize(t)}</span>`;
-        kwPosEl.innerHTML = (kw.positive || []).slice(0, 12).map(x => badge(`${x.term} (${x.freq})`, 'kw-pos', `avg:${x.avg_sent}, Δ:${x.delta}`)).join(' ');
-        kwNegEl.innerHTML = (kw.negative || []).slice(0, 12).map(x => badge(`${x.term} (${x.freq})`, 'kw-neg', `avg:${x.avg_sent}, Δ:${x.delta}`)).join(' ');
-        kwEmEl.innerHTML  = (kw.emerging || []).slice(0, 12).map(x => badge(`${x.term} (+${x.delta})`, 'kw-em')).join(' ');
+@router.get("/api/aspects/sentiment")
+async def api_aspects(): return {"aspects": []}
 
-        // Summary text
-        const total = sum.total ?? 0;
-        const avgR  = (sum.avg_rating ?? 0).toFixed(2);
-        const avgS  = (sum.avg_sentiment ?? 0).toFixed(3);
-        const share = sum.share || {positive:0, neutral:0, negative:0};
-        const topPos = (kw.positive || []).slice(0, 3).map(x => x.term);
-        const topNeg = (kw.negative || []).slice(0, 3).map(x => x.term);
+@router.get("/api/operational/overview")
+async def api_ops(): return {"urgent_issues": []}
 
-        summaryEl.classList.remove('text-secondary');
-        summaryEl.innerHTML = `
-          In the selected window, we analyzed <strong>${fmt.format(total)}</strong> reviews.
-          Average rating is <strong>${avgR}</strong> and average sentiment is <strong>${avgS}</strong>.
-          Sentiment share: <span class="text-success">Positive ${fmt.format(share.positive || 0)}</span>,
-          <span class="text-muted">Neutral ${fmt.format(share.neutral || 0)}</span>,
-          <span class="text-danger">Negative ${fmt.format(share.negative || 0)}</span>.
-        `.trim();
+@router.get("/api/alerts")
+async def api_alerts(): return {"alerts": []}
 
-        const bullets = [];
-        if (topPos.length) bullets.push(`Customers praise: ${topPos.map(sanitize).join(', ')}.`);
-        if (topNeg.length) bullets.push(`Top issues: ${topNeg.map(sanitize).join(', ')}.`);
-        if ((kw.emerging || []).length) bullets.push(`Emerging topics show increased mentions: ${(kw.emerging || []).slice(0,3).map(x => sanitize(x.term)).join(', ')}.`);
-        rationaleEl.innerHTML = bullets.map(x => `<li>${x}</li>`).join('');
-
-      } catch (e) {
-        console.error(e);
-        summaryEl.textContent = 'Summary unavailable.';
-        rationaleEl.innerHTML = '';
-        kwPosEl.innerHTML = kwNegEl.innerHTML = kwEmEl.innerHTML = '';
-      }
-    }
-
-    // Recent Reviews
-    async function loadReviews() {
-      const feed = $('#reviewsFeed');
-      if (!feed) return;
-      try {
-        const p = params();
-        const sort = $('#reviewsSort')?.value || 'newest';
-        const qs = qstr({ ...p, sort });
-        const res = await fetch(`/api/reviews/list?${qs}`);
-        const data = await res.json();
-        const items = data.items || [];
-        if (!items.length) {
-          feed.innerHTML = '<div class="text-secondary p-4">No reviews available.</div>';
-          return;
-        }
-        feed.innerHTML = items.map(r => `
-          <div class="activity-item">
-            <div class="d-flex justify-content-between">
-              <div>
-                <strong>${sanitize(r.author_name || 'Anonymous')}</strong>
-                <span class="text-warning ms-2">${stars(r.rating)}</span>
-                <p class="mt-1 mb-0">${sanitize(r.text || '')}</p>
-              </div>
-              <small class="text-secondary">${sanitize(r.review_time || '')}</small>
-            </div>
-          </div>
-        `).join('');
-      } catch(e){ console.error(e); feed.innerHTML = '<div class="text-danger">Failed to load reviews.</div>'; }
-    }
-
-    // Trigger Sync
-    async function triggerSync() {
-      const { company_id } = params();
-      if (!company_id) return alert('Please select a company first.');
-      const btn = $('#btnSync'); if (btn) btn.disabled = true;
-      try {
-        const res = await fetch(`/api/companies/${encodeURIComponent(company_id)}/sync`, { method: 'POST' });
-        if (!res.ok) throw new Error('Sync failed');
-        alert('Sync triggered. Refreshing data in 3 seconds...');
-        setTimeout(refreshAll, 3000);
-      } catch(e){ alert('Sync failed: ' + e.message); }
-      finally { if (btn) btn.disabled = false; }
-    }
-
-    // Google Places: Autocomplete (if SDK loaded) + Map; else server search fallback
-    let gmap, gmarker, autocomplete;
-    function useAutocompleteIfAvailable() {
-      if (!(window.google && google.maps && google.maps.places)) return false;
-      const mapEl = $('#map');
-      if (!mapEl) return false;
-      gmap = new google.maps.Map(mapEl, { center: { lat: 33.6844, lng: 73.0479 }, zoom: 12 });
-      gmarker = new google.maps.Marker({ map: gmap });
-
-      const input = $('#placeSearch');
-      if (!input) return true;
-      autocomplete = new google.maps.places.Autocomplete(input, {
-        fields: ['place_id', 'name', 'formatted_address', 'geometry', 'rating', 'website', 'url', 'formatted_phone_number'],
-        types: ['establishment']
-      });
-
-      autocomplete.addListener('place_changed', () => {
-        const place = autocomplete.getPlace();
-        if (!place || !place.geometry) return;
-
-        const setV = (sel, val) => { const el = $(sel); if (el) el.value = val || ''; };
-        setV('#placeName', place.name);
-        setV('#placeRating', place.rating);
-        setV('#placeAddress', place.formatted_address);
-        setV('#placeId', place.place_id);
-        setV('#placePhone', place.formatted_phone_number);
-        setV('#placeWebsite', place.website);
-        setV('#placeUrl', place.url);
-
-        const loc = place.geometry.location;
-        gmap.setCenter(loc);
-        gmap.setZoom(16);
-        if (gmarker) gmarker.setPosition(loc);
-
-        const details = $('#detailsList');
-        if (details) {
-          details.innerHTML = `
-            <li><strong>Name:</strong> ${sanitize(place.name || '')}</li>
-            <li><strong>Address:</strong> ${sanitize(place.formatted_address || '')}</li>
-            <li><strong>Place ID:</strong> <span class="text-mono">${sanitize(place.place_id || '')}</span></li>
-            <li><strong>Rating:</strong> ${sanitize(place.rating || '')}</li>
-          `;
-        }
-      });
-      return true;
-    }
-
-    // Server Search fallback
-    async function serverSearchPlaces() {
-      const inp = $('#placeSearch'); const out = $('#serverResults');
-      if (!inp || !out) return;
-      const q = (inp.value || '').trim();
-      out.innerHTML = '';
-      if (!q || q.length < 3) {
-        out.innerHTML = '<div class="text-secondary">Type at least 3 characters.</div>';
-        return;
-      }
-      try {
-        const res = await fetch(`/api/google/places/search?q=${encodeURIComponent(q)}`);
-        const data = await res.json();
-        if (!data.success) throw new Error(data.message || 'Search failed');
-        const results = data.results || [];
-        if (!results.length) {
-          out.innerHTML = '<div class="text-secondary">No results.</div>';
-          return;
-        }
-        out.innerHTML = `
-          <div class="list-group">
-            ${results.map(r => `
-              <button type="button" class="list-group-item list-group-item-action"
-                data-place-id="${sanitize(r.place_id)}"
-                data-name="${sanitize(r.name)}"
-                data-addr="${sanitize(r.formatted_address || '')}">
-                <i class="bi bi-geo-alt me-1"></i> ${sanitize(r.name)} <span class="text-secondary">— ${sanitize(r.formatted_address || '')}</span>
-              </button>
-            `).join('')}
-          </div>
-        `;
-        out.querySelectorAll('button[data-place-id]').forEach(btn => {
-          btn.addEventListener('click', () => {
-            const setV = (sel, val) => { const el = $(sel); if (el) el.value = val || ''; };
-            setV('#placeName', btn.dataset.name || '');
-            setV('#placeAddress', btn.dataset.addr || '');
-            setV('#placeId', btn.dataset.placeId || '');
-            setV('#placeRating', ''); setV('#placePhone',''); setV('#placeWebsite',''); setV('#placeUrl','');
-            const msg = $('#placeMsg'); if (msg) msg.textContent = 'Place selected from server search.';
-          });
-        });
-      } catch (e) {
-        console.error(e);
-        out.innerHTML = '<div class="text-danger">Search failed.</div>';
-      }
-    }
-
-    // Create Company
-    async function createCompany() {
-      const name = $('#placeName')?.value.trim();
-      const pid  = $('#placeId')?.value.trim();
-      if (!name || !pid) return alert('Please select a valid place first.');
-
-      const fd = new FormData();
-      fd.append('name', name);
-      fd.append('google_place_id', pid);
-      const addr = $('#placeAddress')?.value || '';
-      fd.append('address', addr.trim());
-
-      try {
-        const res = await fetch('/api/companies', { method: 'POST', body: fd });
-        const data = await res.json();
-        if (data.success) {
-          alert('Company added successfully! Refreshing...');
-          location.reload();
-        } else {
-          alert(data.message || 'Failed to add company.');
-        }
-      } catch(e) {
-        alert('Submission failed: ' + e.message);
-      }
-    }
-
-    // Full Refresh
-    async function refreshAll() {
-      await Promise.allSettled([
-        loadKpis(),
-        loadOverview(),
-        loadSentimentShare(),
-        loadRatingsDistribution(),
-        loadAspectsStacked(),
-        loadOperational(),
-        loadAlerts(),
-        loadExecutive(),
-        loadReviews()
-      ]);
-    }
-
-    // Init
-    document.addEventListener('DOMContentLoaded', () => {
-      const yearEl = $('#year');
-      if (yearEl) yearEl.textContent = new Date().getFullYear().toString();
-
-      // Date defaults: last 30 days
-      const today = new Date();
-      const past = new Date(today); past.setDate(today.getDate() - 29);
-      const endEl = $('#endDate'); const startEl = $('#startDate');
-      if (endEl) endEl.value = today.toISOString().split('T')[0];
-      if (startEl) startEl.value = past.toISOString().split('T')[0];
-
-      // Events (guarded)
-      const sel = $('#companySelect'); if (sel) sel.onchange = refreshAll;
-      const btnApply = $('#btnApplyRange'); if (btnApply) btnApply.onclick = refreshAll;
-      const sortSel = $('#reviewsSort'); if (sortSel) sortSel.onchange = loadReviews;
-      const syncBtn = $('#btnSync'); if (syncBtn) syncBtn.onclick = triggerSync;
-      const createBtn = $('#btnCreateCompany'); if (createBtn) createBtn.onclick = createCompany;
-      const clearBtn = $('#btnClearPlace'); if (clearBtn) clearBtn.onclick = () => {
-        ['#placeSearch','#placeName','#placeRating','#placeAddress','#placeId','#placePhone','#placeWebsite','#placeUrl']
-          .forEach(s => { const el = $(s); if (el) el.value = ''; });
-        const sr = $('#serverResults'); if (sr) sr.innerHTML = '';
-        if (window.gmarker && typeof window.gmarker.setPosition === 'function') window.gmarker.setPosition(null);
-        const pm = $('#placeMsg'); if (pm) pm.textContent = '';
-      };
-      const serverSearchBtn = $('#btnServerSearch'); if (serverSearchBtn) serverSearchBtn.onclick = serverSearchPlaces;
-
-      // Use Autocomplete if SDK is present (script optional)
-      try { useAutocompleteIfAvailable(); } catch(_) {}
-
-      refreshAll();
-    });
-  </script>
-
-  <!-- Optional: Google Maps SDK (only if you have a key; otherwise server search works)
-       If passing settings via Jinja context, you can do:
-       <script src="https://maps.googleapis.com/maps/api/js?key={{ settings.GOOGLE_PLACES_API_KEY }}&libraries=places&v=weekly" async defer></script>
-  -->
-</body>
-</html>
+@router.get("/api/v2/keywords")
+async def api_keywords(): return {"positive":[], "negative":[], "emerging":[], "bigrams":[]}
