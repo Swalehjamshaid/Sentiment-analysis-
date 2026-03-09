@@ -27,6 +27,7 @@ def _normalize_window(start_date: Optional[str], end_date: Optional[str]) -> Tup
     """
     Accepts YYYY-MM-DD or ISO8601 strings and returns (start_dt, end_dt) inclusive.
     If only date is provided, expands start->00:00:00 and end->23:59:59.999999.
+    If BOTH are missing/blank, defaults to the last 30 days (inclusive).
     """
     def _parse(s: Optional[str]) -> Optional[datetime]:
         if not s:
@@ -42,6 +43,11 @@ def _normalize_window(start_date: Optional[str], end_date: Optional[str]) -> Tup
 
     s = _parse(start_date)
     e = _parse(end_date)
+
+    # Default to last 30 days when both empty
+    if not s and not e:
+        e = datetime.combine(date.today(), datetime.max.time())
+        s = e - timedelta(days=DEFAULT_DAYS - 1)
 
     # If user provided one side only, fill the other
     if s and not e:
@@ -73,6 +79,91 @@ def _reviews_client(request: Request):
     if client is None:
         raise HTTPException(status_code=501, detail="Reviews API client not configured (app.state.google_reviews_client)")
     return client
+
+def _resolve_date_col():
+    """
+    Resolve the best available datetime column for date filtering and ordering.
+    Prefers: google_review_time -> review_date -> created_at -> id (fallback).
+    """
+    if hasattr(Review, "google_review_time"):
+        return getattr(Review, "google_review_time")
+    if hasattr(Review, "review_date"):
+        return getattr(Review, "review_date")
+    if hasattr(Review, "created_at"):
+        return getattr(Review, "created_at")
+    # Fall back to id ordering when no time-like column exists
+    return getattr(Review, "id")
+
+# ---------------------------------------------------------
+# NEW: Front-end integration — /api/reviews/list
+# ---------------------------------------------------------
+@router.get("/list")
+async def list_reviews(
+    company_id: int = Query(..., description="Company ID"),
+    start: Optional[str] = Query(None, description="YYYY-MM-DD (optional)"),
+    end: Optional[str] = Query(None, description="YYYY-MM-DD (optional)"),
+    sort: Optional[str] = Query("newest", regex="^(newest|oldest|highest|lowest)$"),
+    limit: int = Query(200, ge=10, le=2000),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Returns the Recent Reviews feed your dashboard expects.
+    - Query params: company_id, start, end, sort (newest|oldest|highest|lowest)
+    - Defaults to last 30 days if start/end not provided.
+    - Output keys: author_name, rating, text, review_time, profile_photo_url
+    """
+    s, e = _normalize_window(start, end)
+    date_col = _resolve_date_col()
+
+    # Sorting
+    if sort == "oldest":
+        order_by = [date_col.asc()]
+    elif sort == "highest":
+        # rating DESC, then date desc
+        order_by = [getattr(Review, "rating").desc(), date_col.desc()] if hasattr(Review, "rating") else [date_col.desc()]
+    elif sort == "lowest":
+        # rating ASC, then date desc
+        order_by = [getattr(Review, "rating").asc(), date_col.desc()] if hasattr(Review, "rating") else [date_col.desc()]
+    else:
+        order_by = [date_col.desc()]
+
+    q = select(Review).where(Review.company_id == company_id)
+    if s:
+        q = q.where(date_col >= s)
+    if e:
+        q = q.where(date_col <= e)
+    q = q.order_by(*order_by).limit(limit)
+
+    result = await db.execute(q)
+    rows = result.scalars().all()
+
+    def _fmt_date(dt_obj) -> str:
+        if not dt_obj:
+            return ""
+        try:
+            # Normalize to YYYY-MM-DD for the UI
+            if isinstance(dt_obj, datetime):
+                return dt_obj.strftime("%Y-%m-%d")
+            return str(dt_obj)[:10]
+        except Exception:
+            return str(dt_obj)
+
+    items = []
+    for r in rows:
+        author_name = getattr(r, "author_name", None) or getattr(r, "author", None) or "Anonymous"
+        text = getattr(r, "text", None) or getattr(r, "review_text", None) or ""
+        dt_obj = getattr(r, "google_review_time", None) or getattr(r, "review_date", None) or getattr(r, "created_at", None)
+        rating = getattr(r, "rating", None)
+
+        items.append({
+            "author_name": author_name,
+            "rating": rating,
+            "text": text,
+            "review_time": _fmt_date(dt_obj),
+            "profile_photo_url": getattr(r, "profile_photo_url", None) or "",
+        })
+
+    return {"items": items}
 
 # ---------------------------------------------------------
 # Ingest Reviews Based on Date Range (defaults to last 30d)
@@ -168,7 +259,7 @@ async def ingest_reviews(
                 _set_if_has(model, "platform", r.source_platform or "Google")
                 _set_if_has(model, "source_platform", r.source_platform or "Google")
                 _set_if_has(model, "competitor_name", r.competitor_name)
-                _set_if_has(model, "profile_photo_url", r.additional_fields.get("profile_photo_url"))
+                _set_if_has(model, "profile_photo_url", r.additional_fields.get("profile_photo_url") if r.additional_fields else None)
 
                 db.add(model)
                 total_saved += 1
@@ -191,7 +282,7 @@ async def ingest_reviews(
         raise HTTPException(status_code=500, detail=f"Failed to ingest reviews: {str(e)}")
 
 # ---------------------------------------------------------
-# Review Feed for Dashboard (defaults to last 30d)
+# Review Feed for Dashboard (legacy; kept for compatibility)
 # ---------------------------------------------------------
 @router.get("/feed/{company_id}")
 async def get_reviews_feed(
@@ -202,7 +293,7 @@ async def get_reviews_feed(
     db: AsyncSession = Depends(get_session),
 ):
     """
-    Returns filtered reviews for the dashboard.
+    Returns filtered reviews (legacy). Your new front-end uses /api/reviews/list.
     - Defaults to last 30 days when dates are not provided.
     - Returns dual-naming variants for compatibility.
     """
