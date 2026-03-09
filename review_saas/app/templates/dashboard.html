@@ -1,1067 +1,726 @@
-<!-- filename: review_saas/app/templates/dashboard.html -->
-<!doctype html>
-<html lang="en">
+<!-- filename: templates/dashbord.html -->
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dashboard — ReviewSaaS</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard • Reviews & Operations</title>
 
-  <!-- Bootstrap & Chart.js -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Bootstrap 5 -->
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+    integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
+    crossorigin="anonymous"
+  />
+
+  <!-- Icons (Bootstrap Icons) -->
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
+    rel="stylesheet"
+  />
+
+  <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
+  <!-- Page Styles -->
   <style>
-    .spinner{display:none}
-    .success-msg,.nodata-msg{display:none}
-    .card h6 { margin-bottom: .5rem; }
-    canvas { background: #fff; border-radius: 6px; }
-    .chip{display:inline-block;padding:.2rem .5rem;border-radius:16px;margin:.15rem;font-size:.8rem}
-    .chip.pos{background:#eafaf1;color:#1e7e34;border:1px solid #bde5c8}
-    .chip.neg{background:#fdecea;color:#a71d2a;border:1px solid #f5c2c7}
-    .chip.emg{background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe}
-    .small-muted{font-size:.85rem;color:#6c757d}
-    .kpi h4{font-weight:700}
-    .break-word{word-wrap:break-word; word-break:break-word;}
-    .truncate{max-width:240px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-    pre.small { background:#f8f9fa; padding:.5rem .75rem; border:1px solid #e9ecef; border-radius:.375rem; max-height:260px; overflow:auto;}
+    :root {
+      --card-gap: 1rem;
+    }
+    body {
+      min-height: 100vh;
+      background: var(--bs-body-bg);
+      color: var(--bs-body-color);
+    }
+    header.navbar {
+      backdrop-filter: saturate(1.2) blur(6px);
+      background-color: color-mix(in srgb, var(--bs-body-bg) 85%, transparent);
+      border-bottom: 1px solid var(--bs-border-color);
+    }
+    .kpi-card .kpi-title {
+      font-size: 0.9rem;
+      color: var(--bs-secondary-color);
+      margin-bottom: 0.25rem;
+    }
+    .kpi-card .kpi-value {
+      font-size: 1.6rem;
+      font-weight: 700;
+    }
+    .kpi-delta.up {
+      color: #16a34a; /* green-600 */
+    }
+    .kpi-delta.down {
+      color: #dc2626; /* red-600 */
+    }
+    .card {
+      border: 1px solid var(--bs-border-color);
+    }
+    .form-hint {
+      font-size: 0.85rem;
+      color: var(--bs-secondary-color);
+    }
+    .activity-item {
+      border-bottom: 1px dashed var(--bs-border-color);
+      padding-bottom: .75rem;
+      margin-bottom: .75rem;
+    }
+    .activity-item:last-child {
+      border-bottom: 0;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+    /* Map container */
+    #map {
+      width: 100%;
+      height: 220px;
+      border-radius: .5rem;
+      border: 1px solid var(--bs-border-color);
+    }
+    .badge-sentiment.positive { background-color: #16a34a; }
+    .badge-sentiment.neutral { background-color: #64748b; }
+    .badge-sentiment.negative { background-color: #dc2626; }
   </style>
 </head>
 <body>
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-  <div class="container-fluid">
-    <a class="navbar-brand" href="/dashboard">ReviewSaaS</a>
-    <div class="d-flex gap-2">
-      <!-- IMPORTANT: Companies page lives at /api/companies because of router prefix="/api" -->
-      <a href="/api/companies" class="btn btn-outline-light btn-sm">Companies</a>
-
-      <!-- NEW: Quick actions -->
-      <button class="btn btn-success btn-sm" id="btnSync">Sync (Date Range)</button>
-      <button class="btn btn-outline-info btn-sm" id="btnPreview">Preview Fetch</button>
-      <button class="btn btn-outline-light btn-sm" data-bs-toggle="modal" data-bs-target="#competitorsModal">Competitors</button>
-
-      <a href="/logout" class="btn btn-warning btn-sm">Logout</a>
+  <!-- Top Navbar -->
+  <header class="navbar navbar-expand-lg sticky-top">
+    <div class="container-fluid">
+      <a class="navbar-brand fw-bold" href="/dashboard">
+        <i class="bi bi-bar-chart-line me-2"></i> ReviewSaaS Dashboard
+      </a>
+      <div class="d-flex align-items-center gap-2 ms-auto">
+        <!-- Theme Toggle -->
+        <button id="themeToggle" class="btn btn-outline-secondary btn-sm" title="Toggle theme">
+          <i class="bi bi-moon-stars" id="themeIcon"></i>
+        </button>
+        <a class="btn btn-outline-primary btn-sm" href="/logout">
+          <i class="bi bi-box-arrow-right me-1"></i> Logout
+        </a>
+      </div>
     </div>
-  </div>
-</nav>
+  </header>
 
-<!-- =================== Competitors Modal =================== -->
-<div class="modal fade" id="competitorsModal" tabindex="-1" aria-labelledby="competitorsModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content">
-      <form id="competitorsForm">
-        <div class="modal-header">
-          <h5 class="modal-title" id="competitorsModalLabel">Sync Competitors (Date Range)</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-
-        <div class="modal-body">
-          <div class="alert alert-info small">
-            Paste competitor Place IDs (one per line). Optional format: <code>PLACE_ID | Display Name</code>
-          </div>
-          <div class="row g-3">
-            <div class="col-md-6">
-              <label class="form-label">Start Date</label>
-              <input type="date" class="form-control" id="cmpStart">
+  <!-- Main -->
+  <main class="container my-4">
+    <!-- KPI Row -->
+    <section class="row g-3 mb-4">
+      <div class="col-12 col-md-6 col-xl-3">
+        <div class="card kpi-card h-100">
+          <div class="card-body">
+            <div class="kpi-title">Total Reviews</div>
+            <div class="d-flex align-items-baseline gap-2">
+              <div id="kpiTotalReviews" class="kpi-value">—</div>
+              <small id="kpiTotalReviewsDelta" class="kpi-delta"></small>
             </div>
-            <div class="col-md-6">
-              <label class="form-label">End Date</label>
-              <input type="date" class="form-control" id="cmpEnd">
+            <div class="form-hint">All-time cumulative</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-md-6 col-xl-3">
+        <div class="card kpi-card h-100">
+          <div class="card-body">
+            <div class="kpi-title">New Reviews (Period)</div>
+            <div class="d-flex align-items-baseline gap-2">
+              <div id="kpiNewReviews" class="kpi-value">—</div>
+              <small id="kpiNewReviewsDelta" class="kpi-delta"></small>
             </div>
-            <div class="col-12">
-              <label class="form-label">Competitors (one per line)</label>
-              <textarea id="cmpList" class="form-control" rows="6" placeholder="ChIJxxxxxxx | Competitor A&#10;ChIJyyyyyyy | Competitor B"></textarea>
-              <div class="form-text">You can also include the primary place_id if you wish to re-sync it here too.</div>
+            <div class="form-hint">Selected date range</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-md-6 col-xl-3">
+        <div class="card kpi-card h-100">
+          <div class="card-body">
+            <div class="kpi-title">Avg. Rating</div>
+            <div class="d-flex align-items-baseline gap-2">
+              <div id="kpiAvgRating" class="kpi-value">—</div>
+              <small id="kpiAvgRatingDelta" class="kpi-delta"></small>
             </div>
-          </div>
-
-          <div class="alert d-none mt-3" id="cmpStatus"></div>
-          <pre class="small d-none mt-2" id="cmpOutput"></pre>
-        </div>
-
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-          <button type="submit" class="btn btn-primary" id="cmpSubmit">Sync All</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-<!-- =================== /Competitors Modal =================== -->
-
-<div class="container py-4">
-  <!-- Top Controls -->
-  <div class="row g-3 align-items-end">
-    <div class="col-lg-4">
-      <label class="form-label">Company</label>
-      <form class="row g-2" method="get" action="/dashboard" id="companyForm">
-        <div class="col-8">
-          <select class="form-select" name="company_id" id="companySelect">
-            {% for c in companies %}
-              <!-- NEW: data-place-id for direct sync calls -->
-              <option
-                value="{{c.id}}"
-                data-place-id="{{ c.place_id or '' }}"
-                {% if active_company_id==c.id %}selected{% endif %}
-              >{{ c.name }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="col-4 d-grid">
-          <!-- Keeping existing behaviour: user can still click Switch to hard-navigate -->
-          <button class="btn btn-outline-secondary" type="submit">Switch</button>
-        </div>
-      </form>
-      <div class="small-muted mt-1">Changing the company will auto-load the last 30 days.</div>
-    </div>
-
-    <div class="col-lg-6">
-      <div class="row g-2">
-        <div class="col">
-          <label class="form-label">Start Date</label>
-          <input type="date" class="form-control" id="startDate">
-        </div>
-        <div class="col">
-          <label class="form-label">End Date</label>
-          <input type="date" class="form-control" id="endDate">
-        </div>
-      </div>
-      <div class="small-muted mt-1">If left blank, backend defaults to the last 30 days.</div>
-    </div>
-
-    <div class="col-lg-2 d-grid">
-      <button class="btn btn-primary" id="fetchBtn">Update Dashboard</button>
-    </div>
-  </div>
-
-  <!-- Notices -->
-  <div class="alert alert-info mt-3 spinner" id="loadingBox">Loading…</div>
-  <div class="alert alert-success mt-3 success-msg" id="successBox">Dashboard updated successfully.</div>
-  <div class="alert alert-warning mt-3 nodata-msg" id="nodataBox">No Data Found for selected date range.</div>
-
-  <!-- KPI Row -->
-  <div class="row g-3 mt-2">
-    <div class="col-md-3">
-      <div class="p-3 bg-light border rounded text-center kpi">
-        TOTAL REVIEWS
-        <h4 id="kpi-total" class="mb-0">0</h4>
-      </div>
-    </div>
-    <div class="col-md-3">
-      <div class="p-3 bg-light border rounded text-center kpi">
-        AVG RATING
-        <h4 id="kpi-rating" class="mb-0">0.00</h4>
-      </div>
-    </div>
-    <div class="col-md-3">
-      <div class="p-3 bg-light border rounded text-center kpi">
-        AVG SENTIMENT
-        <h4 id="kpi-sent" class="mb-0">0.000</h4>
-      </div>
-    </div>
-    <div class="col-md-3">
-      <div class="p-3 bg-light border rounded text-center kpi">
-        NEW (7D)
-        <h4 id="kpi-new" class="mb-0">0</h4>
-      </div>
-    </div>
-  </div>
-
-  <!-- Existing daily charts -->
-  <div class="row g-3 mt-1">
-    <div class="col-lg-8">
-      <div class="card">
-        <div class="card-body">
-          <h6 class="text-muted">Review Volume (Daily)</h6>
-          <canvas id="seriesReviews" height="120"></canvas>
-        </div>
-      </div>
-    </div>
-
-    <div class="col-lg-4">
-      <div class="card mb-3">
-        <div class="card-body">
-          <h6 class="text-muted">Rating Distribution</h6>
-          <canvas id="ratingsDist" height="120"></canvas>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-body">
-          <h6 class="text-muted">Sentiment Trend (Daily)</h6>
-          <canvas id="sentSeries" height="120"></canvas>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- NEW: Sentiment Share + Aspect Sentiment + Trends -->
-  <div class="row g-3 mt-1">
-    <div class="col-lg-4">
-      <div class="card h-100">
-        <div class="card-body">
-          <h6 class="text-muted">Overall Sentiment Share</h6>
-          <canvas id="sentShare" height="180"></canvas>
-          <div class="small-muted mt-1" id="sentShareInfo"></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="col-lg-4">
-      <div class="card h-100">
-        <div class="card-body">
-          <h6 class="text-muted">Aspect-Based Sentiment (Stacked)</h6>
-          <canvas id="aspectsStacked" height="180"></canvas>
-          <div class="small-muted mt-1">Aspects: Service, Product Quality, Pricing, Delivery</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="col-lg-4">
-      <div class="card h-100">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center">
-            <h6 class="text-muted mb-0">Trend Over Time</h6>
-            <select id="trendFreq" class="form-select form-select-sm" style="width:auto">
-              <option value="week" selected>Weekly</option>
-              <option value="month">Monthly</option>
-              <option value="day">Daily</option>
-            </select>
-          </div>
-          <canvas id="trendSeries" height="180"></canvas>
-          <div class="small-muted mt-1">Shows avg sentiment &amp; avg rating by period.</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- NEW: Volume vs Sentiment + Correlation -->
-  <div class="row g-3 mt-1">
-    <div class="col-lg-6">
-      <div class="card h-100">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center">
-            <h6 class="text-muted mb-0">Volume vs Sentiment</h6>
-            <select id="vvsFreq" class="form-select form-select-sm" style="width:auto">
-              <option value="week" selected>Weekly</option>
-              <option value="month">Monthly</option>
-              <option value="day">Daily</option>
-            </select>
-          </div>
-          <canvas id="volVsSent" height="200"></canvas>
-          <div class="small-muted mt-1">Bar = review count, Line = avg sentiment.</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="col-lg-6">
-      <div class="card h-100">
-        <div class="card-body">
-          <h6 class="text-muted">Rating vs Sentiment (Scatter)</h6>
-          <canvas id="corrScatter" height="200"></canvas>
-          <div class="small-muted mt-1">Checks consistency between star ratings and text sentiment.</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Alerts, AI Executive Summary, Recommendations -->
-  <div class="row g-3 mt-1">
-    <div class="col-lg-6">
-      <div class="card h-100">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center">
-            <h6 class="text-muted mb-0">Alerts</h6>
-            <span class="small-muted" id="alertsWindow"></span>
-          </div>
-          <ul id="alertsList" class="mt-2 list-unstyled"></ul>
-          <div id="alertsEmpty" class="small-muted">No alerts for this period.</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="col-lg-3">
-      <div class="card h-100">
-        <div class="card-body">
-          <h6 class="text-muted">AI Executive Summary</h6>
-          <div id="execSummary" class="small break-word"></div>
-          <div class="mt-2">
-            <div><strong>Conclusion:</strong> <span id="execConclusion">—</span></div>
-            <div class="small-muted" id="execRationale"></div>
+            <div class="form-hint">Weighted mean</div>
           </div>
         </div>
       </div>
-    </div>
 
-    <div class="col-lg-3">
-      <div class="card h-100">
-        <div class="card-body">
-          <h6 class="text-muted">Top Action Items</h6>
-          <ol id="actionItems" class="mb-2"></ol>
-          <img id="miniPng" alt="Summary" class="img-fluid rounded border" />
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Keywords -->
-  <div class="row g-3 mt-1">
-    <div class="col-lg-8">
-      <div class="card h-100">
-        <div class="card-body">
-          <h6 class="text-muted">Keywords</h6>
-          <div class="row">
-            <div class="col-md-4">
-              <div class="small-muted mb-1">Positive</div>
-              <div id="kwPositive"></div>
+      <div class="col-12 col-md-6 col-xl-3">
+        <div class="card kpi-card h-100">
+          <div class="card-body">
+            <div class="kpi-title">Response Rate</div>
+            <div class="d-flex align-items-baseline gap-2">
+              <div id="kpiResponseRate" class="kpi-value">—</div>
+              <small id="kpiResponseRateDelta" class="kpi-delta"></small>
             </div>
-            <div class="col-md-4">
-              <div class="small-muted mb-1">Negative</div>
-              <div id="kwNegative"></div>
-            </div>
-            <div class="col-md-4">
-              <div class="small-muted mb-1">Emerging</div>
-              <div id="kwEmerging"></div>
+            <div class="form-hint">Owner replies coverage</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Charts Row -->
+    <section class="row g-3">
+      <div class="col-12 col-xl-8">
+        <div class="card h-100">
+          <div class="card-header d-flex align-items-center justify-content-between">
+            <span class="fw-semibold"><i class="bi bi-graph-up-arrow me-2"></i> Orders / Reviews Over Time</span>
+            <div>
+              <select id="seriesDays" class="form-select form-select-sm w-auto d-inline-block">
+                <option value="7">7 days</option>
+                <option value="14" selected>14 days</option>
+                <option value="30">30 days</option>
+                <option value="90">90 days</option>
+              </select>
             </div>
           </div>
-          <hr>
-          <div class="small-muted mb-1">Top Bigrams</div>
-          <div id="kwBigrams"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Existing numeric aspects (rooms/staff/...) still supported -->
-    <div class="col-lg-4">
-      <div class="card h-100">
-        <div class="card-body">
-          <h6 class="text-muted">Aspects (Numeric Fields)</h6>
-          <canvas id="aspectsChart" height="180"></canvas>
-          <div class="mt-2 small-muted">Strengths: <span id="aspectsStrengths">—</span></div>
-          <div class="small-muted">Weaknesses: <span id="aspectsWeaknesses">—</span></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Operational: urgent issues -->
-  <div class="row g-3 mt-1">
-    <div class="col-12">
-      <div class="card">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center">
-            <h6 class="text-muted mb-0">Operational — Urgent Issues</h6>
-            <span class="small-muted" id="opsWindow"></span>
+          <div class="card-body">
+            <canvas id="seriesChart" height="120"></canvas>
           </div>
-          <div id="urgentIssues" class="mt-2"></div>
         </div>
       </div>
-    </div>
-  </div>
-
-  <!-- Reviews (List) -->
-  <div class="row g-3 mt-1">
-    <div class="col-12">
-      <div class="card">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center">
-            <h6 class="text-muted mb-0">Reviews</h6>
-            <select id="sortReviews" class="form-select form-select-sm" style="width:auto">
-              <option value="newest" selected>Newest</option>
-              <option value="oldest">Oldest</option>
-              <option value="highest">Highest rating</option>
-              <option value="lowest">Lowest rating</option>
-            </select>
+      <div class="col-12 col-xl-4">
+        <div class="card h-100">
+          <div class="card-header fw-semibold">
+            <i class="bi bi-pie-chart me-2"></i> Category Mix
           </div>
-          <div id="reviewsList" class="mt-2"></div>
+          <div class="card-body">
+            <canvas id="categoryChart" height="180"></canvas>
+          </div>
         </div>
       </div>
+    </section>
+
+    <!-- Google Places + Map + Add Company -->
+    <section class="row g-3 mt-3">
+      <div class="col-12 col-xl-6">
+        <div class="card h-100">
+          <div class="card-header fw-semibold d-flex align-items-center justify-content-between">
+            <span><i class="bi bi-geo-alt me-2"></i> Add Company via Google Places</span>
+            <span class="form-hint">Autocomplete + autofill</span>
+          </div>
+          <div class="card-body">
+            <div class="mb-3">
+              <label for="placeSearch" class="form-label">Search Company</label>
+              <input id="placeSearch" type="text" class="form-control" placeholder="Type a company, e.g., 'Starbucks Gulberg'">
+              <div class="form-hint mt-1">Start typing and pick a result from Google Places.</div>
+            </div>
+
+            <div class="row g-2">
+              <div class="col-md-8">
+                <label class="form-label">Place Name</label>
+                <input id="placeName" type="text" class="form-control" placeholder="—" readonly />
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Rating</label>
+                <input id="placeRating" type="text" class="form-control" placeholder="—" readonly />
+              </div>
+              <div class="col-12">
+                <label class="form-label">Address</label>
+                <input id="placeAddress" type="text" class="form-control" placeholder="—" readonly />
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Place ID</label>
+                <input id="placeId" type="text" class="form-control" placeholder="—" readonly />
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Phone</label>
+                <input id="placePhone" type="text" class="form-control" placeholder="—" readonly />
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Website</label>
+                <input id="placeWebsite" type="text" class="form-control" placeholder="—" readonly />
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Google Maps URL</label>
+                <input id="placeUrl" type="text" class="form-control" placeholder="—" readonly />
+              </div>
+            </div>
+
+            <div class="d-flex gap-2 mt-3">
+              <button id="btnCreateCompany" class="btn btn-primary">
+                <i class="bi bi-plus-lg me-1"></i> Create Company
+              </button>
+              <button id="btnClearPlace" class="btn btn-outline-secondary">
+                <i class="bi bi-eraser me-1"></i> Clear
+              </button>
+              <div id="placeMsg" class="ms-auto small text-secondary"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-xl-6">
+        <div class="card h-100">
+          <div class="card-header fw-semibold">
+            <i class="bi bi-map me-2"></i> Map Preview & Details
+          </div>
+          <div class="card-body">
+            <div id="map"></div>
+            <div class="mt-2 small text-secondary" id="mapHint">
+              Select a place to preview its location. Drag to explore.
+            </div>
+            <ul class="list-unstyled mt-3 mb-0" id="detailsList">
+              <!-- Filled when a place is selected -->
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Activity Feed -->
+    <section class="row g-3 mt-3">
+      <div class="col-12">
+        <div class="card">
+          <div class="card-header fw-semibold d-flex align-items-center justify-content-between">
+            <span><i class="bi bi-activity me-2"></i> Recent Feedback & Activity</span>
+            <div>
+              <select id="activityLimit" class="form-select form-select-sm w-auto d-inline-block">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+              </select>
+              <button id="btnRefreshActivity" class="btn btn-outline-secondary btn-sm ms-2">
+                <i class="bi bi-arrow-clockwise"></i>
+              </button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="activityFeed"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="container my-4 small text-secondary">
+    <div class="d-flex justify-content-between">
+      <span>© <span id="year"></span> ReviewSaaS</span>
+      <span>
+        <a href="/reports" class="link-secondary me-3">Reports</a>
+        <a href="/admin" class="link-secondary">Admin</a>
+      </span>
     </div>
-  </div>
+  </footer>
 
-  <!-- Export & Sync -->
-  <div class="mt-3">
-    {% if active_company_id %}
-      <a class="btn btn-outline-primary" href="/api/export/reviews.csv?company_id={{active_company_id}}">Export CSV</a>
-      <a class="btn btn-outline-primary" href="/api/export/reviews.xlsx?company_id={{active_company_id}}">Export Excel</a>
-      <a class="btn btn-outline-primary" href="/api/export/summary.pdf?company_id={{active_company_id}}">Export PDF</a>
-      <!-- IMPORTANT: Sync endpoint is /api/companies/{id}/sync -->
-      <form class="d-inline" method="post" action="/api/companies/{{active_company_id}}/sync">
-        <button class="btn btn-success">Sync Reviews for Active Company</button>
-      </form>
-    {% endif %}
-  </div>
-</div>
+  <!-- Bootstrap JS -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
+    crossorigin="anonymous"
+  ></script>
 
-<script>
-/* Active company id injected by server (may be null) */
-let companyId = {{ active_company_id or 'null' }};
+  <!-- Google Maps JavaScript API (Places library) -->
+  <!-- Replace {{ google_maps_api_key }} with your templated variable or server-side injection -->
+  <script
+    src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&v=weekly&callback=onGoogleMapsReady"
+    async
+    defer
+  ></script>
 
-/* Optional API links map from backend (if provided via api_links) */
-const linksFromServer = {% if api_links %}{{ api_links | safe }}{% else %}null{% endif %};
+  <script>
+    // -------------------------------
+    // Theme: Dark/Light toggle
+    // -------------------------------
+    (function initTheme() {
+      const stored = localStorage.getItem('theme');
+      const html = document.documentElement;
+      if (stored === 'dark' || stored === 'light') {
+        html.setAttribute('data-bs-theme', stored);
+      }
+      const icon = document.getElementById('themeIcon');
+      const applyIcon = () => {
+        const isDark = html.getAttribute('data-bs-theme') === 'dark';
+        icon.className = isDark ? 'bi bi-brightness-high' : 'bi bi-moon-stars';
+      };
+      applyIcon();
 
-/* Fallback if not provided */
-const API = linksFromServer || {
-  kpis: "/api/kpis",
-  ratings_distribution: "/api/ratings/distribution",
-  sentiment_share: "/api/sentiment/share",
-  series_reviews: "/api/series/reviews",
-  series_ratings: "/api/series/ratings",
-  series_sentiment: "/api/sentiment/series",
-  trends: "/api/trends",
-  volume_vs_sentiment: "/api/volume-vs-sentiment",
-  correlation_rating_sentiment: "/api/correlation/rating-sentiment",
-  aspects_sentiment: "/api/aspects/sentiment",
-  aspects_avg: "/api/aspects/avg",
-  alerts: "/api/alerts",
-  operational: "/api/operational/overview",
-  reviews_list: "/api/reviews/list",
-  v2_keywords: "/api/v2/keywords",
-  v2_sentiment_summary: "/api/v2/sentiment/summary",
-  v2_exec_summary: "/api/v2/ai/executive-summary",
-  v2_recommendations: "/api/v2/ai/recommendations",
-  v2_summary_png: "/api/v2/charts/summary.png",
-  external_reviews_fetch: "/api/external/google-reviews/fetch",
-  companies_sync: (id) => `/api/companies/${id}/sync`,
-  companies_sync_all: (id) => `/api/companies/${id}/sync-all` // optional: if you add this endpoint later
-};
+      document.getElementById('themeToggle').addEventListener('click', () => {
+        const isDark = html.getAttribute('data-bs-theme') === 'dark';
+        const next = isDark ? 'light' : 'dark';
+        html.setAttribute('data-bs-theme', next);
+        localStorage.setItem('theme', next);
+        applyIcon();
+        // Re-render charts to adapt to theme
+        if (window.seriesChart) window.seriesChart.update('none');
+        if (window.categoryChart) window.categoryChart.update('none');
+      });
+    })();
 
-/* If companyId missing, pick the dropdown value */
-(function ensureCompanyId(){
-  if (!companyId) {
-    const sel = document.getElementById('companySelect');
-    if (sel && sel.value) companyId = Number(sel.value);
-  }
-})();
+    // -------------------------------
+    // Utilities
+    // -------------------------------
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => document.querySelectorAll(sel);
+    const fmt = new Intl.NumberFormat();
 
-/* Chart handles (destroy before redraw) */
-let chartReviews = null, chartDist = null, chartSent = null;
-let chartAspectsNumeric = null, chartSentShare = null, chartAspectsStacked = null;
-let chartTrend = null, chartVolVsSent = null, chartCorr = null;
-
-/* Helpers */
-function qs(p){ return new URLSearchParams(p).toString(); }
-function setLoading(v){ document.getElementById('loadingBox').style.display = v ? 'block' : 'none'; }
-function showSuccess(v){ document.getElementById('successBox').style.display = v ? 'block' : 'none'; }
-function showNoData(v){ document.getElementById('nodataBox').style.display = v ? 'block' : 'none'; }
-function getDates(){
-  const s = document.getElementById('startDate').value;
-  const e = document.getElementById('endDate').value;
-  return { start: s || null, end: e || null };
-}
-async function fetchJSON(url){
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  return res.json();
-}
-async function postJSON(url, bodyObj){
-  const res = await fetch(url, {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify(bodyObj || {})
-  });
-  const text = await res.text();
-  let json = null;
-  try { json = JSON.parse(text); } catch(_){}
-  if (!res.ok) throw new Error(json?.detail || text || `HTTP ${res.status}`);
-  return json;
-}
-function chips(container, items, cls){
-  const el = document.getElementById(container);
-  el.innerHTML = '';
-  if (!items || items.length === 0){
-    el.innerHTML = '<span class="small-muted">—</span>';
-    return;
-  }
-  for (const t of items){
-    const chip = document.createElement('span');
-    chip.className = `chip ${cls}`;
-    chip.textContent = t;
-    el.appendChild(chip);
-  }
-}
-function getActivePlaceId(){
-  const sel = document.getElementById('companySelect');
-  if (!sel) return null;
-  const opt = sel.selectedOptions && sel.selectedOptions[0];
-  return opt ? (opt.getAttribute('data-place-id') || null) : null;
-}
-
-/* ===================== NEW: Sync / Preview / Competitors ===================== */
-async function syncActiveCompany(){
-  if (!companyId) return alert('No active company selected.');
-  const placeId = getActivePlaceId();
-  if (!placeId) return alert('Active company is missing place_id. Please edit the company to store a Google Place ID.');
-  const {start, end} = getDates();
-  try{
-    const out = await postJSON(API.companies_sync(companyId), { place_id: placeId, start, end });
-    console.log('Sync result:', out);
-    showSuccess(true);
-    // Refresh dashboard right away
-    await fetchAll();
-  }catch(err){
-    console.error(err);
-    alert('Sync failed: ' + err.message);
-  }
-}
-
-async function previewFetch(){
-  const placeId = getActivePlaceId();
-  if (!placeId) return alert('Active company is missing place_id.');
-  const {start, end} = getDates();
-  try{
-    const out = await postJSON(API.external_reviews_fetch, { place_id: placeId, company_id: companyId, start, end, max_reviews: 300 });
-    const summary = `Fetched ${out.count} reviews for place_id=${out.place_id}. Avg rating=${(out.rating_summary?.average||0).toFixed(2)}.`;
-    alert(summary);
-    console.log('Preview fetch:', out);
-  }catch(err){
-    console.error(err);
-    alert('Preview failed: ' + err.message);
-  }
-}
-
-// Parse competitor textarea lines into entities: [{place_id, name?}, ...]
-function parseCompetitorsText(txt){
-  const lines = (txt || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-  const entities = [];
-  for (const line of lines){
-    // Support "PLACE | Name" or just "PLACE"
-    const [pidRaw, nameRaw] = line.split('|').map(s => (s || '').trim());
-    const place_id = pidRaw || '';
-    const name = nameRaw || null;
-    if (!place_id) continue;
-    entities.push({ place_id, name });
-  }
-  return entities;
-}
-
-async function syncCompetitors(){
-  // If you later add /api/companies/{id}/sync-all on backend, call it once.
-  // For now (works today), call /sync once per entity (primary included if user pasted it).
-  const status = document.getElementById('cmpStatus');
-  const output = document.getElementById('cmpOutput');
-  status.className = 'alert alert-info'; status.textContent = 'Starting batch sync…'; status.classList.remove('d-none');
-  output.classList.add('d-none'); output.textContent = '';
-
-  const start = document.getElementById('cmpStart').value || null;
-  const end = document.getElementById('cmpEnd').value || null;
-  const entities = parseCompetitorsText(document.getElementById('cmpList').value);
-
-  if (!entities.length){
-    status.className = 'alert alert-warning'; status.textContent = 'No competitor Place IDs provided.'; return;
-  }
-
-  // Include current active company's place_id if user forgot and wants it too
-  const activePid = getActivePlaceId();
-  if (activePid && !entities.some(e => e.place_id === activePid)){
-    entities.unshift({ place_id: activePid, name: 'Primary' });
-  }
-
-  const results = [];
-  for (const ent of entities){
-    try{
-      const res = await postJSON(API.companies_sync(companyId), { place_id: ent.place_id, start, end });
-      results.push({ place_id: ent.place_id, name: ent.name || null, ok: true, inserted: res.inserted, skipped: res.skipped, fetched: res.fetched, errors: res.errors });
-      status.className = 'alert alert-success'; status.textContent = `Synced ${ent.name || ent.place_id}`;
-    }catch(err){
-      console.error('Sync error for', ent, err);
-      results.push({ place_id: ent.place_id, name: ent.name || null, ok: false, error: err.message });
-      status.className = 'alert alert-danger'; status.textContent = `Failed: ${ent.name || ent.place_id} → ${err.message}`;
-    }
-  }
-
-  output.classList.remove('d-none');
-  output.textContent = JSON.stringify(results, null, 2);
-
-  // Refresh dashboard at the end
-  await fetchAll();
-}
-/* ===================== /NEW ===================== */
-
-/* MAIN LOAD */
-async function fetchAll(){
-  if (!companyId) {
-    showNoData(true);
-    return;
-  }
-  const {start, end} = getDates();
-  setLoading(true); showSuccess(false); showNoData(false);
-
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
-
-  try {
-    // Core KPIs + daily series
-    const [k, r, d, s] = await Promise.all([
-      fetchJSON(API.kpis + "?" + p),
-      fetchJSON(API.series_reviews + "?" + p),
-      fetchJSON(API.ratings_distribution + "?" + p),
-      fetchJSON(API.series_sentiment + "?" + p),
-    ]);
-
-    // KPIs
-    document.getElementById('kpi-total').textContent = Number(k.total_reviews || 0);
-    document.getElementById('kpi-rating').textContent = (Number(k.avg_rating || 0)).toFixed(2);
-    document.getElementById('kpi-sent').textContent = (Number(k.avg_sentiment || 0)).toFixed(3);
-    document.getElementById('kpi-new').textContent = Number(k.new_reviews || 0);
-
-    // Destroy existing charts
-    [chartReviews, chartDist, chartSent].forEach(c => c && c.destroy());
-
-    // Review Volume (daily)
-    chartReviews = new Chart(document.getElementById('seriesReviews'), {
-      type: 'line',
-      data: {
-        labels: (r.series || []).map(x => x.date),
-        datasets: [{
-          label: 'Reviews/day',
-          data: (r.series || []).map(x => x.value),
-          borderColor: '#0d6efd',
-          backgroundColor: 'rgba(13,110,253,0.1)',
-          tension: 0.3,
-          fill: true
-        }]
-      },
-      options: { responsive: true, scales: { y: { beginAtZero: true } } }
-    });
-
-    // Rating Distribution
-    const labels = d.distribution ? Object.keys(d.distribution) : ['1','2','3','4','5'];
-    const vals = d.distribution ? Object.values(d.distribution) : [0,0,0,0,0];
-    chartDist = new Chart(document.getElementById('ratingsDist'), {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: [{ label: 'Count', data: vals, backgroundColor: ['#dc3545','#fd7e14','#ffc107','#0dcaf0','#198754'] }]
-      },
-      options: { responsive: true, scales: { y: { beginAtZero: true } } }
-    });
-
-    // Sentiment Trend (daily)
-    chartSent = new Chart(document.getElementById('sentSeries'), {
-      type: 'line',
-      data: {
-        labels: (s.series || []).map(x => x.date),
-        datasets: [{
-          label: 'Avg Sentiment',
-          data: (s.series || []).map(x => x.value),
-          borderColor: '#6610f2',
-          backgroundColor: 'rgba(102,16,242,0.1)',
-          tension: 0.3,
-          fill: true
-        }]
-      },
-      options: { responsive: true, scales: { y: { min: -1, max: 1 } } }
-    });
-
-    // Secondary panels
-    await Promise.all([
-      loadSentimentShare(),
-      loadAspectSentiment(),
-      loadTrends(),               // default freq from selector
-      loadVolumeVsSentiment(),    // default freq from selector
-      loadCorrelation(),
-      loadAlerts(),
-      loadExecutiveAndActions(),
-      loadKeywords(),
-      loadAspectsNumeric(),
-      loadOperational(),
-      loadReviews()
-    ]);
-
-    // Summary PNG
-    document.getElementById('miniPng').src = API.v2_summary_png + "?" + p;
-
-    showSuccess(true);
-    if ((k.total_reviews || 0) === 0) showNoData(true);
-  } catch (err){
-    console.error(err);
-    showNoData(true);
-  } finally {
-    setLoading(false);
-  }
-}
-
-/* NEW: Overall Sentiment Share (pie/donut) */
-async function loadSentimentShare(){
-  const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
-  const out = await fetchJSON(API.sentiment_share + "?" + p);
-
-  if (chartSentShare) chartSentShare.destroy();
-
-  const counts = out.counts || {positive:0, neutral:0, negative:0};
-  const vals = [counts.positive||0, counts.neutral||0, counts.negative||0];
-
-  chartSentShare = new Chart(document.getElementById('sentShare'), {
-    type: 'doughnut',
-    data: {
-      labels: ['Positive','Neutral','Negative'],
-      datasets: [{ data: vals, backgroundColor: ['#2ecc71','#bdc3c7','#e74c3c'] }]
-    },
-    options: { responsive: true, cutout: '55%' }
-  });
-
-  document.getElementById('sentShareInfo').textContent =
-    `Total: ${out.total || 0} (Window ${out.window?.start || ''} → ${out.window?.end || ''})`;
-}
-
-/* NEW: Aspect-Based Sentiment (stacked bars) */
-async function loadAspectSentiment(){
-  const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
-  const out = await fetchJSON(API.aspects_sentiment + "?" + p);
-
-  if (chartAspectsStacked) chartAspectsStacked.destroy();
-
-  const aspects = out.aspects || [];
-  const labels = aspects.map(a => a.aspect);
-  const pos = aspects.map(a => a.positive || 0);
-  const neu = aspects.map(a => a.neutral || 0);
-  const neg = aspects.map(a => a.negative || 0);
-
-  chartAspectsStacked = new Chart(document.getElementById('aspectsStacked'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        { label:'Positive', data: pos, backgroundColor:'#2ecc71' },
-        { label:'Neutral', data: neu, backgroundColor:'#bdc3c7' },
-        { label:'Negative', data: neg, backgroundColor:'#e74c3c' }
-      ]
-    },
-    options: { responsive: true, scales: { x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } } }
-  });
-}
-
-/* NEW: Trend Over Time (sentiment + rating) */
-async function loadTrends(){
-  const freq = document.getElementById('trendFreq').value || 'week';
-  const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, freq}).filter(([_,v])=>v)));
-  const out = await fetchJSON(API.trends + "?" + p);
-
-  if (chartTrend) chartTrend.destroy();
-
-  const labels = (out.series || []).map(x => x.period);
-  const sVals = (out.series || []).map(x => x.avg_sentiment);
-  const rVals = (out.series || []).map(x => x.avg_rating);
-
-  chartTrend = new Chart(document.getElementById('trendSeries'), {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        { label:'Avg Sentiment', data:sVals, yAxisID:'y', borderColor:'#6f42c1', backgroundColor:'rgba(111,66,193,0.1)', tension:0.3, fill:true },
-        { label:'Avg Rating', data:rVals, yAxisID:'y1', borderColor:'#0dcaf0', backgroundColor:'rgba(13,202,240,0.1)', tension:0.3, fill:true }
-      ]
-    },
-    options: {
-      responsive:true,
-      scales: {
-        y: { position:'left', min:-1, max:1 },
-        y1: { position:'right', min:0, max:5, grid:{ drawOnChartArea:false } }
+    function setKpiDelta(el, delta) {
+      if (el) {
+        if (delta > 0) {
+          el.textContent = `▲ ${delta.toFixed(2)}%`;
+          el.classList.remove('down');
+          el.classList.add('up');
+        } else if (delta < 0) {
+          el.textContent = `▼ ${Math.abs(delta).toFixed(2)}%`;
+          el.classList.remove('up');
+          el.classList.add('down');
+        } else {
+          el.textContent = `—`;
+          el.classList.remove('up', 'down');
+        }
       }
     }
-  });
-}
 
-/* NEW: Volume vs Sentiment (dual-axis) */
-async function loadVolumeVsSentiment(){
-  const freq = document.getElementById('vvsFreq').value || 'week';
-  const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, freq}).filter(([_,v])=>v)));
-  const out = await fetchJSON(API.volume_vs_sentiment + "?" + p);
+    function handleFetchError(err, targetEl) {
+      console.error(err);
+      if (targetEl) targetEl.textContent = 'Failed to load';
+    }
 
-  if (chartVolVsSent) chartVolVsSent.destroy();
+    // -------------------------------
+    // Charts
+    // -------------------------------
+    let seriesChart, categoryChart;
 
-  const labels = (out.series || []).map(x => x.period);
-  const counts = (out.series || []).map(x => x.count);
-  const sVals = (out.series || []).map(x => x.avg_sentiment);
+    async function loadKpis() {
+      try {
+        const res = await fetch('/api/kpis');
+        const data = await res.json();
+        // Expected keys based on your latest backend: total_reviews, new_reviews, avg_rating, response_rate, and deltas
+        $('#kpiTotalReviews').textContent = fmt.format(data.total_reviews ?? 0);
+        $('#kpiNewReviews').textContent = fmt.format(data.new_reviews ?? 0);
+        $('#kpiAvgRating').textContent = (data.avg_rating ?? 0).toFixed(2);
+        $('#kpiResponseRate').textContent = `${(data.response_rate ?? 0).toFixed(1)}%`;
 
-  chartVolVsSent = new Chart(document.getElementById('volVsSent'), {
-    data: {
-      labels,
-      datasets: [
-        { type:'bar', label:'Reviews', data:counts, yAxisID:'y', backgroundColor:'#0d6efd' },
-        { type:'line', label:'Avg Sentiment', data:sVals, yAxisID:'y1', borderColor:'#198754', tension:0.3 }
-      ]
-    },
-    options: {
-      responsive:true,
-      scales: {
-        y: { beginAtZero:true, position:'left' },
-        y1: { min:-1, max:1, position:'right', grid:{ drawOnChartArea:false } }
+        setKpiDelta($('#kpiTotalReviewsDelta'), data.total_reviews_delta ?? 0);
+        setKpiDelta($('#kpiNewReviewsDelta'), data.new_reviews_delta ?? 0);
+        setKpiDelta($('#kpiAvgRatingDelta'), data.avg_rating_delta ?? 0);
+        setKpiDelta($('#kpiResponseRateDelta'), data.response_rate_delta ?? 0);
+      } catch (err) {
+        handleFetchError(err);
       }
     }
-  });
-}
 
-/* NEW: Rating vs Sentiment Correlation (scatter) */
-async function loadCorrelation(){
-  const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
-  const out = await fetchJSON(API.correlation_rating_sentiment + "?" + p);
+    async function loadSeries(days = 14) {
+      try {
+        const res = await fetch(`/api/orders/series?days=${encodeURIComponent(days)}`);
+        const data = await res.json();
+        const labels = data.map(d => d.date);
+        const orders = data.map(d => d.orders ?? d.count ?? 0);
+        const reviews = data.map(d => d.reviews ?? 0);
 
-  if (chartCorr) chartCorr.destroy();
-
-  const points = (out.points || []).map(pt => ({x: pt.rating, y: pt.sentiment}));
-
-  chartCorr = new Chart(document.getElementById('corrScatter'), {
-    type: 'scatter',
-    data: { datasets: [{ label:'Rating vs Sentiment', data: points, borderColor:'#fd7e14', backgroundColor:'rgba(253,126,20,0.2)', pointRadius:3 }] },
-    options: {
-      responsive:true,
-      scales: {
-        x: { min:0, max:5, title:{ display:true, text:'Rating (1-5)' } },
-        y: { min:-1, max:1, title:{ display:true, text:'Sentiment (-1..1)' } }
+        const ctx = document.getElementById('seriesChart').getContext('2d');
+        if (seriesChart) seriesChart.destroy();
+        seriesChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: 'Orders',
+                data: orders,
+                borderColor: '#0d6efd',
+                backgroundColor: 'rgba(13,110,253,.15)',
+                tension: .3,
+                fill: true,
+                pointRadius: 2
+              },
+              {
+                label: 'Reviews',
+                data: reviews,
+                borderColor: '#20c997',
+                backgroundColor: 'rgba(32,201,151,.15)',
+                tension: .3,
+                fill: true,
+                pointRadius: 2
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { display: true },
+              tooltip: { enabled: true }
+            },
+            scales: {
+              x: { grid: { display: false } },
+              y: { beginAtZero: true }
+            }
+          }
+        });
+      } catch (err) {
+        handleFetchError(err, document.getElementById('seriesChart'));
       }
     }
-  });
-}
 
-/* Alerts */
-async function loadAlerts(){
-  const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
-  const out = await fetchJSON(API.alerts + "?" + p);
-  document.getElementById('alertsWindow').textContent = `Window: ${out.window.start} → ${out.window.end}`;
+    async function loadCategoryMix() {
+      try {
+        const res = await fetch('/api/category-mix');
+        const data = await res.json();
+        const labels = data.map(d => d.category ?? d.name ?? '—');
+        const values = data.map(d => d.value ?? d.count ?? 0);
 
-  const box = document.getElementById('alertsList');
-  const empty = document.getElementById('alertsEmpty');
-  box.innerHTML = '';
-  if (!out.alerts || out.alerts.length === 0){
-    empty.style.display = 'block';
-    return;
-  }
-  empty.style.display = 'none';
-  for (const a of out.alerts){
-    const badge = a.severity === 'high' ? 'danger' : (a.severity === 'medium' ? 'warning' : 'secondary');
-    const li = `<li><span class="badge bg-${badge} me-2">${a.type.replace('_',' ')}</span>${a.message}</li>`;
-    box.insertAdjacentHTML('beforeend', li);
-  }
-}
+        const colors = [
+          '#0d6efd','#6610f2','#6f42c1','#d63384','#dc3545','#fd7e14',
+          '#ffc107','#198754','#20c997','#0dcaf0','#6c757d'
+        ];
 
-/* AI Executive + Actions */
-async function loadExecutiveAndActions(){
-  const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
-  const exec = await fetchJSON(API.v2_exec_summary + "?" + p);
-  const recs = await fetchJSON(API.v2_recommendations + "?" + p);
-
-  document.getElementById('execSummary').textContent = exec.summary || '—';
-  document.getElementById('execConclusion').textContent = exec.conclusion || '—';
-  const rationale = (exec.rationale || []).map(x => `• ${x}`).join('\n');
-  document.getElementById('execRationale').textContent = rationale || '';
-
-  const ol = document.getElementById('actionItems');
-  ol.innerHTML = '';
-  for (const a of (recs.top_action_items || [])){
-    const li = document.createElement('li');
-    li.className = 'break-word';
-    li.textContent = a;
-    ol.appendChild(li);
-  }
-}
-
-/* Keywords */
-async function loadKeywords(){
-  const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, limit: 15}).filter(([_,v])=>v)));
-  const out = await fetchJSON(API.v2_keywords + "?" + p);
-
-  chips('kwPositive', (out.positive || []).map(x => x.term), 'pos');
-  chips('kwNegative', (out.negative || []).map(x => x.term), 'neg');
-  chips('kwEmerging', (out.emerging || []).map(x => x.term), 'emg');
-
-  const bigs = (out.bigrams || []).map(b => b.term + ' (' + b.freq + ')');
-  chips('kwBigrams', bigs, 'pos');
-}
-
-/* Existing numeric aspects (rooms/staff/...) — safe if zeros */
-async function loadAspectsNumeric(){
-  const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end}).filter(([_,v])=>v)));
-  const a = await fetchJSON(API.aspects_avg + "?" + p);
-
-  if (chartAspectsNumeric) chartAspectsNumeric.destroy();
-
-  const labels = ['rooms','staff','cleanliness','value','location','food'];
-  const values = labels.map(k => Number((a.aspects || {})[k] || 0));
-
-  chartAspectsNumeric = new Chart(document.getElementById('aspectsChart'), {
-    type: 'bar',
-    data: {
-      labels: labels.map(s => s[0].toUpperCase()+s.slice(1)),
-      datasets: [{ label: 'Avg', data: values, backgroundColor: '#20c997' }]
-    },
-    options: { responsive: true, scales: { y: { beginAtZero: true, max: 1 } } }
-  });
-
-  document.getElementById('aspectsStrengths').textContent = (a.strengths || []).join(', ') || '—';
-  document.getElementById('aspectsWeaknesses').textContent = (a.weaknesses || []).join(', ') || '—';
-}
-
-/* Operational overview (urgent issues) */
-async function loadOperational(){
-  const {start, end} = getDates();
-  const p = qs(Object.fromEntries(Object.entries({company_id: companyId, start, end, limit_urgent: 8}).filter(([_,v])=>v)));
-  const op = await fetchJSON(API.operational + "?" + p);
-
-  document.getElementById('opsWindow').textContent =
-    `Total: ${op.total_reviews}, Complaints: ${op.complaint_count} (${op.complaint_rate}%)`;
-
-  const box = document.getElementById('urgentIssues');
-  box.innerHTML = '';
-
-  if (!op.urgent_issues || op.urgent_issues.length === 0){
-    box.innerHTML = '<div class="small-muted">No urgent issues flagged.</div>';
-    return;
-  }
-
-  for (const u of op.urgent_issues){
-    const rating = Number(u.rating || 0);
-    const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
-    const reason = [];
-    if (u.urgent_reason?.low_rating) reason.push('Low rating');
-    if (u.urgent_reason?.very_negative_sentiment) reason.push('Very negative sentiment');
-    if (u.urgent_reason?.keyword_flag) reason.push('Urgent keyword');
-    const html = `
-      <div class="border rounded p-2 mb-2">
-        <div class="d-flex justify-content-between small text-muted">
-          <span>${u.author_name || 'Anonymous'}</span>
-          <span>${u.review_time || ''}</span>
-        </div>
-        <div class="small">
-          <span class="me-2">${stars}</span>
-          <span>Sent: ${(u.sentiment_score ?? 0).toFixed(3)} (${u.sentiment_label})</span>
-        </div>
-        <div class="mt-1 break-word">${(u.text || '').slice(0, 1000)}</div>
-        <div class="mt-1"><span class="badge bg-danger">${reason.join(' • ')}</span></div>
-      </div>
-    `;
-    box.insertAdjacentHTML('beforeend', html);
-  }
-}
-
-/* Reviews list — calls /api/reviews/list; if unavailable, falls back to /api/reviews/feed/{company_id} */
-async function loadReviews(){
-  const sort = document.getElementById('sortReviews').value;
-  const {start, end} = getDates();
-  const common = Object.fromEntries(Object.entries({company_id: companyId, start, end, sort}).filter(([_,v])=>v));
-  const p = qs(common);
-
-  const box = document.getElementById('reviewsList');
-  box.innerHTML = '';
-
-  // Try preferred endpoint first
-  try {
-    const out = await fetchJSON(API.reviews_list + "?" + p);
-    for (const r of (out.items || [])){
-      const rating = Number(r.rating || 0);
-      const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
-      const card = `
-        <div class="border rounded p-2 mb-2">
-          <div class="d-flex justify-content-between small text-muted">
-            <span>${r.author_name || 'Anonymous'}</span>
-            <span>${r.review_time || ''}</span>
-          </div>
-          <div>
-            <span class="me-2">${stars}</span>
-            <span>${rating.toFixed(1)}</span>
-          </div>
-          <div class="break-word">${(r.text || '').slice(0, 2000)}</div>
-        </div>
-      `;
-      box.insertAdjacentHTML('beforeend', card);
+        const ctx = document.getElementById('categoryChart').getContext('2d');
+        if (categoryChart) categoryChart.destroy();
+        categoryChart = new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels,
+            datasets: [{
+              data: values,
+              backgroundColor: labels.map((_, i) => colors[i % colors.length]),
+              borderWidth: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: { position: 'bottom' }
+            },
+            cutout: '60%'
+          }
+        });
+      } catch (err) {
+        handleFetchError(err, document.getElementById('categoryChart'));
+      }
     }
-    if (!out.items || out.items.length === 0){
-      box.innerHTML = '<div class="text-muted small">No reviews in this range.</div>';
+
+    // -------------------------------
+    // Activity Feed
+    // -------------------------------
+    async function loadActivity(limit = 50) {
+      const feed = document.getElementById('activityFeed');
+      feed.innerHTML = '<div class="text-secondary">Loading…</div>';
+      try {
+        const res = await fetch(`/api/activity?limit=${encodeURIComponent(limit)}`);
+        const data = await res.json();
+        if (!Array.isArray(data) || data.length === 0) {
+          feed.innerHTML = '<div class="text-secondary">No recent activity.</div>';
+          return;
+        }
+        const fragment = document.createDocumentFragment();
+        data.forEach(item => {
+          const div = document.createElement('div');
+          div.className = 'activity-item';
+          const dt = new Date(item.created_at ?? item.date ?? Date.now()).toLocaleString();
+          const rating = item.rating != null ? ` • <span class="text-warning"><i class="bi bi-star-fill"></i> ${item.rating}</span>` : '';
+          const sent = item.sentiment ?? 'neutral';
+          const badgeClass = sent === 'positive' ? 'positive' : (sent === 'negative' ? 'negative' : 'neutral');
+          const reviewer = item.author_name ? `<strong>${item.author_name}</strong>` : 'Someone';
+
+          div.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <span class="badge badge-sentiment ${badgeClass} me-2">${sent}</span>
+                ${reviewer} said: ${item.snippet ?? item.text ?? '(no text)'}
+                ${rating}
+              </div>
+              <small class="text-secondary ms-2">${dt}</small>
+            </div>
+          `;
+          fragment.appendChild(div);
+        });
+        feed.innerHTML = '';
+        feed.appendChild(fragment);
+      } catch (err) {
+        handleFetchError(err, feed);
+      }
     }
-    return; // done
-  } catch (e) {
-    console.warn("Primary /api/reviews/list failed; trying feed fallback…", e);
-  }
 
-  // Fallback: if you still have /api/reviews/feed/{companyId}
-  try {
-    const feedParams = qs(Object.fromEntries(Object.entries({
-      start_date: common.start, end_date: common.end, limit: 50
-    }).filter(([_,v])=>v)));
-    const out = await fetchJSON(`/api/reviews/feed/${companyId}` + (feedParams ? `?${feedParams}` : ''));
-    const rows = out.reviews || [];
-    for (const r of rows){
-      const author = r.author_name || r.author || 'Anonymous';
-      const rating = Number(r.rating || 0);
-      const text = r.text || r.review_text || '';
-      const dt = r.review_time || r.date || '';
-      const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
-      const card = `
-        <div class="border rounded p-2 mb-2">
-          <div class="d-flex justify-content-between small text-muted">
-            <span>${author}</span>
-            <span>${(typeof dt === 'string' ? dt : (dt || '')).toString().slice(0, 10)}</span>
-          </div>
-          <div>
-            <span class="me-2">${stars}</span>
-            <span>${rating.toFixed(1)}</span>
-          </div>
-          <div class="break-word">${(text || '').slice(0, 2000)}</div>
-        </div>
-      `;
-      box.insertAdjacentHTML('beforeend', card);
+    // -------------------------------
+    // Google Maps & Places Autocomplete
+    // -------------------------------
+    let map, marker, autocomplete, placesService, selectedPlace;
+
+    function onGoogleMapsReady() {
+      try {
+        // Initialize basic map centered broadly; it will recenter on place selection
+        map = new google.maps.Map(document.getElementById('map'), {
+          center: { lat: 31.5204, lng: 74.3587 }, // Lahore default; adjust as needed
+          zoom: 12,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false
+        });
+
+        marker = new google.maps.Marker({
+          map,
+          draggable: false
+        });
+
+        const input = document.getElementById('placeSearch');
+        autocomplete = new google.maps.places.Autocomplete(input, {
+          fields: ['place_id','name','formatted_address','geometry','rating','formatted_phone_number','international_phone_number','website','url'],
+          types: ['establishment']
+        });
+
+        // Use a PlacesService tied to the map (for detailsByPlaceId where needed)
+        placesService = new google.maps.places.PlacesService(map);
+
+        autocomplete.addListener('place_changed', onPlaceChanged);
+      } catch (err) {
+        console.error('Google Maps init failed:', err);
+        document.getElementById('mapHint').textContent = 'Google Maps failed to load.';
+      }
     }
-    if (rows.length === 0){
-      box.innerHTML = '<div class="text-muted small">No reviews in this range.</div>';
+
+    function onPlaceChanged() {
+      const place = autocomplete.getPlace();
+      if (!place || !place.place_id) {
+        return;
+      }
+      selectedPlace = place;
+      fillPlaceFields(place);
+      updateMap(place);
+      renderDetailsList(place);
+
+      // Fetch detailed fields (phone, intl phone) if not included
+      if (!place.formatted_phone_number || !place.website) {
+        placesService.getDetails(
+          { placeId: place.place_id, fields: ['formatted_phone_number','international_phone_number','website','url','rating'] },
+          (details, status) => {
+            if (status === google.maps.places.PlacesServiceStatus.OK && details) {
+              selectedPlace = { ...selectedPlace, ...details };
+              fillPlaceFields(selectedPlace);
+              renderDetailsList(selectedPlace);
+            }
+          }
+        );
+      }
     }
-  } catch (e2) {
-    console.error("Fallback /api/reviews/feed failed:", e2);
-    box.innerHTML = '<div class="text-muted small">Unable to load reviews.</div>';
-  }
-}
 
-/* Init */
-(function init(){
-  // Default to last 30 days (inclusive)
-  const today = new Date().toISOString().slice(0,10);
-  document.getElementById('endDate').value = today;
-  const start = new Date(Date.now() - 29*86400000).toISOString().slice(0,10);
-  document.getElementById('startDate').value = start;
+    function fillPlaceFields(p) {
+      $('#placeName').value = p.name ?? '';
+      $('#placeRating').value = (p.rating ?? '').toString();
+      $('#placeAddress').value = p.formatted_address ?? '';
+      $('#placeId').value = p.place_id ?? '';
+      $('#placePhone').value = p.formatted_phone_number ?? p.international_phone_number ?? '';
+      $('#placeWebsite').value = p.website ?? '';
+      $('#placeUrl').value = p.url ?? '';
+    }
 
-  // Populate competitors modal default with the same dates
-  document.getElementById('cmpEnd').value = today;
-  document.getElementById('cmpStart').value = start;
+    function updateMap(p) {
+      if (p.geometry && p.geometry.location) {
+        const loc = p.geometry.location;
+        const latLng = { lat: loc.lat(), lng: loc.lng() };
+        map.setCenter(latLng);
+        map.setZoom(16);
+        marker.setPosition(latLng);
+        marker.setTitle(p.name ?? '');
+      }
+    }
 
-  // Auto-refresh on company change: reset dates to last 30d and fetch
-  const sel = document.getElementById('companySelect');
-  sel.addEventListener('change', (e) => {
-    companyId = Number(e.target.value);
-    const t = new Date().toISOString().slice(0,10);
-    const s = new Date(Date.now() - 29*86400000).toISOString().slice(0,10);
-    document.getElementById('endDate').value = t;
-    document.getElementById('startDate').value = s;
-    // also copy to modal defaults
-    document.getElementById('cmpEnd').value = t;
-    document.getElementById('cmpStart').value = s;
-    fetchAll(); // refresh without navigation
-  });
+    function renderDetailsList(p) {
+      const list = $('#detailsList');
+      list.innerHTML = '';
+      const items = [
+        ['Name', p.name],
+        ['Address', p.formatted_address],
+        ['Rating', p.rating],
+        ['Place ID', p.place_id],
+        ['Phone', p.formatted_phone_number || p.international_phone_number],
+        ['Website', p.website],
+        ['Maps URL', p.url]
+      ];
+      items.forEach(([k, v]) => {
+        if (!v) return;
+        const li = document.createElement('li');
+        li.className = 'mb-1';
+        const val = (k === 'Website' || k === 'Maps URL') ? `<a href="${v}" target="_blank" rel="noopener">${v}</a>` : v;
+        li.innerHTML = `<strong>${k}:</strong> <span class="text-secondary">${val}</span>`;
+        list.appendChild(li);
+      });
+    }
 
-  // Wire quick actions
-  document.getElementById('btnSync').addEventListener('click', syncActiveCompany);
-  document.getElementById('btnPreview').addEventListener('click', previewFetch);
-  document.getElementById('competitorsForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    await syncCompetitors();
-  });
+    function clearPlace() {
+      $('#placeSearch').value = '';
+      ['#placeName','#placeRating','#placeAddress','#placeId','#placePhone','#placeWebsite','#placeUrl'].forEach(sel => {
+        $(sel).value = '';
+      });
+      $('#placeMsg').textContent = '';
+      $('#detailsList').innerHTML = '';
+      if (marker) marker.setPosition(null);
+      if (map) {
+        map.setCenter({ lat: 31.5204, lng: 74.3587 });
+        map.setZoom(12);
+      }
+    }
 
-  document.getElementById('fetchBtn').addEventListener('click', fetchAll);
-  document.getElementById('trendFreq').addEventListener('change', loadTrends);
-  document.getElementById('vvsFreq').addEventListener('change', loadVolumeVsSentiment);
-  document.getElementById('sortReviews').addEventListener('change', loadReviews);
+    // -------------------------------
+    // Create Company (POST /companies/create)
+    // -------------------------------
+    async function createCompanyFromPlace() {
+      const place_id = $('#placeId').value.trim();
+      const name = $('#placeName').value.trim();
+      if (!place_id || !name) {
+        $('#placeMsg').textContent = 'Please select a valid place first.';
+        return;
+      }
+      const payload = {
+        place_id,
+        name,
+        address: $('#placeAddress').value.trim(),
+        phone: $('#placePhone').value.trim(),
+        website: $('#placeWebsite').value.trim(),
+        maps_url: $('#placeUrl').value.trim(),
+        rating: parseFloat($('#placeRating').value) || null
+      };
+      $('#placeMsg').textContent = 'Creating…';
+      try {
+        const res = await fetch('/companies/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(txt || `HTTP ${res.status}`);
+        }
+        const data = await res.json().catch(() => ({}));
+        $('#placeMsg').textContent = 'Company created successfully.';
+        // Optionally refresh KPIs/activity after creation
+        loadKpis();
+        loadActivity(parseInt($('#activityLimit').value, 10));
+      } catch (err) {
+        console.error(err);
+        $('#placeMsg').textContent = 'Failed to create company.';
+      }
+    }
 
-  fetchAll();
-})();
-</script>
+    // -------------------------------
+    // Events & Initial Load
+    // -------------------------------
+    document.addEventListener('DOMContentLoaded', () => {
+      // Footer year
+      document.getElementById('year').textContent = new Date().getFullYear();
 
-<!-- Bootstrap JS (for modal) -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+      // Initial loads
+      loadKpis();
+      loadSeries(parseInt($('#seriesDays').value, 10));
+      loadCategoryMix();
+      loadActivity(parseInt($('#activityLimit').value, 10));
+
+      // Handlers
+      $('#seriesDays').addEventListener('change', (e) => {
+        loadSeries(parseInt(e.target.value, 10));
+      });
+
+      $('#activityLimit').addEventListener('change', (e) => {
+        loadActivity(parseInt(e.target.value, 10));
+      });
+      $('#btnRefreshActivity').addEventListener('click', () => {
+        loadActivity(parseInt($('#activityLimit').value, 10));
+      });
+
+      $('#btnCreateCompany').addEventListener('click', createCompanyFromPlace);
+      $('#btnClearPlace').addEventListener('click', clearPlace);
+    });
+  </script>
 </body>
 </html>
