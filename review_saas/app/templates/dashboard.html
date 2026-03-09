@@ -77,16 +77,16 @@
           <span class="input-group-text"><i class="bi bi-calendar3"></i></span>
           <input id="startDate" type="date" class="form-control" />
           <input id="endDate" type="date" class="form-control" />
-          <button id="btnApplyRange" class="btn btn-outline-secondary">Apply</button>
+          <button id="btnApplyRange" class="btn btn-outline-secondary" type="button">Apply</button>
         </div>
 
         <!-- Sync -->
-        <button id="btnSync" class="btn btn-outline-primary btn-sm" title="Trigger background review sync">
+        <button id="btnSync" class="btn btn-outline-primary btn-sm" title="Trigger background review sync" type="button">
           <i class="bi bi-arrow-repeat me-1"></i> Sync
         </button>
 
         <!-- Theme -->
-        <button id="themeToggle" class="btn btn-outline-secondary btn-sm" title="Toggle theme">
+        <button id="themeToggle" class="btn btn-outline-secondary btn-sm" title="Toggle theme" type="button">
           <i class="bi bi-moon-stars" id="themeIcon"></i>
         </button>
 
@@ -615,7 +615,7 @@
         // Synthesize short exec summary
         const total = sum.total ?? 0;
         const avgR  = (sum.avg_rating ?? 0).toFixed(2);
-        the avgS  = (sum.avg_sentiment ?? 0).toFixed(3);
+        const avgS  = (sum.avg_sentiment ?? 0).toFixed(3);
         const share = sum.share || {positive:0, neutral:0, negative:0};
         const topPos = (kw.positive || []).slice(0, 3).map(x => x.term);
         const topNeg = (kw.negative || []).slice(0, 3).map(x => x.term);
@@ -784,7 +784,7 @@
       const fd = new FormData();
       fd.append('name', name);
       fd.append('google_place_id', pid);
-      fd.append('address', $('#placeAddress').value.trim());
+      fd.append('address', ($('#placeAddress').value || '').trim());
 
       try {
         const res = await fetch('/api/companies', { method: 'POST', body: fd });
@@ -817,29 +817,45 @@
 
     // Init
     document.addEventListener('DOMContentLoaded', () => {
-      $('#year').textContent = new Date().getFullYear();
+      const yearEl = document.getElementById('year');
+      if (yearEl) yearEl.textContent = new Date().getFullYear().toString();
 
       // Date defaults: last 30 days
       const today = new Date();
       const past = new Date(today);
       past.setDate(today.getDate() - 29);
-      $('#endDate').value = today.toISOString().split('T')[0];
-      $('#startDate').value = past.toISOString().split('T')[0];
+      const endEl = document.getElementById('endDate');
+      const startEl = document.getElementById('startDate');
+      if (endEl) endEl.value = today.toISOString().split('T')[0];
+      if (startEl) startEl.value = past.toISOString().split('T')[0];
 
       // Events
-      $('#companySelect').onchange = refreshAll;
-      $('#btnApplyRange').onclick = refreshAll;
-      $('#reviewsSort').onchange = loadReviews;
-      $('#btnSync').onclick = triggerSync;
-      $('#btnCreateCompany').onclick = createCompany;
-      $('#btnClearPlace').onclick = () => {
-        $('#placeSearch').value = '';
-        $$('#placeName, #placeRating, #placeAddress, #placeId, #placePhone, #placeWebsite, #placeUrl').forEach(i => i.value = '');
-        $('#serverResults').innerHTML = '';
+      const companySelect = document.getElementById('companySelect');
+      if (companySelect) companySelect.onchange = refreshAll;
+
+      const btnApplyRange = document.getElementById('btnApplyRange');
+      if (btnApplyRange) btnApplyRange.onclick = refreshAll;
+
+      const reviewsSort = document.getElementById('reviewsSort');
+      if (reviewsSort) reviewsSort.onchange = loadReviews;
+
+      const btnSync = document.getElementById('btnSync');
+      if (btnSync) btnSync.onclick = triggerSync;
+
+      const btnCreateCompany = document.getElementById('btnCreateCompany');
+      if (btnCreateCompany) btnCreateCompany.onclick = createCompany;
+
+      const btnClearPlace = document.getElementById('btnClearPlace');
+      if (btnClearPlace) btnClearPlace.onclick = () => {
+        const ids = ['placeSearch','placeName','placeRating','placeAddress','placeId','placePhone','placeWebsite','placeUrl'];
+        ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        const sr = document.getElementById('serverResults'); if (sr) sr.innerHTML = '';
         if (window.gmarker) window.gmarker.setPosition(null);
-        $('#placeMsg').textContent = '';
+        const pm = document.getElementById('placeMsg'); if (pm) pm.textContent = '';
       };
-      $('#btnServerSearch').onclick = serverSearchPlaces;
+
+      const btnServerSearch = document.getElementById('btnServerSearch');
+      if (btnServerSearch) btnServerSearch.onclick = serverSearchPlaces;
 
       // Use Autocomplete if SDK is present (maps script is optional)
       setTimeout(() => { useAutocompleteIfAvailable(); }, 0);
@@ -849,8 +865,8 @@
   </script>
 
   <!-- Optional: Google Maps SDK (only if you have a key to render client-side Autocomplete/Map)
-       If you want to pass your key via Jinja, add it in get_dashboard context and replace below.
-       <script src="https://maps.googleapis.com/maps/api/js?key={{ settings.GOOGLE_PLACES_API_KEY }}&libraries=places&v=weekly" async defer></script>
+       If you want to pass your key via Jinja, add it in get_dashboard context and use:
+       <script src="https://maps.googleapis.com/maps/api/js?key={{ settings.GOOGLE_PLACES_API_KEY }}&libraries=places&v=weekly"></script>
   -->
 </body>
 </html>
