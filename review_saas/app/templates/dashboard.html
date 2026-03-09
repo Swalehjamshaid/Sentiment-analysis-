@@ -1,215 +1,689 @@
-<!DOCTYPE html>
+<!-- Filename: templates/dashbord.html -->
+<!doctype html>
 <html lang="en" data-bs-theme="light">
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ReviewSaaS • Dashboard</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" />
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <style>
-        header.navbar { backdrop-filter: saturate(1.2) blur(6px); background-color: rgba(var(--bs-body-bg-rgb), 0.85); border-bottom: 1px solid var(--bs-border-color); }
-        .kpi-card .kpi-title { font-size: .85rem; color: var(--bs-secondary-color); font-weight: 600; text-transform: uppercase; }
-        .kpi-card .kpi-value { font-size: 1.8rem; font-weight: 800; color: #0d6efd; }
-        .badge-sentiment { padding: 4px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; }
-        .badge-positive { background: #16a34a; color: white; }
-        .badge-neutral { background: #64748b; color: white; }
-        .badge-negative { background: #dc2626; color: white; }
-        .kw-badge { border:1px solid var(--bs-border-color); border-radius: 999px; padding: .25rem .5rem; margin: .125rem; display:inline-block; font-size:.8rem; background: rgba(13, 110, 253, 0.05); }
-        .chart-wrap { height: 300px; }
-        .activity-item { border-bottom: 1px dashed var(--bs-border-color); padding: 10px 0; }
-    </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard · Reviews & Sentiment Intelligence</title>
+  <meta name="description" content="Operational dashboard for reviews, sentiment, and trends." />
+  <link rel="icon" href="/static/favicon.ico" />
+
+  <!-- Bootstrap 5.3 (CDN) -->
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+    integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+    crossorigin="anonymous"
+  />
+  <!-- Bootstrap Icons -->
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
+  />
+
+  <!-- Chart.js 4.x -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    /* --- Page-specific enhancements --- */
+    body {
+      background: var(--bs-body-bg);
+    }
+    .navbar-brand b {
+      letter-spacing: 0.2px;
+    }
+    .card {
+      border-radius: 14px;
+    }
+    .kpi {
+      min-height: 120px;
+    }
+    .kpi .delta-up   { color: #12b886; }
+    .kpi .delta-down { color: #fa5252; }
+    .skeleton {
+      display: inline-block;
+      height: 1em;
+      width: 100%;
+      background: linear-gradient(90deg, rgba(0,0,0,0.05) 25%, rgba(0,0,0,0.12) 37%, rgba(0,0,0,0.05) 63%);
+      animation: shimmer 1.4s infinite;
+      background-size: 400% 100%;
+      border-radius: 6px;
+    }
+    @keyframes shimmer {
+      0% { background-position: 100% 0; }
+      100% { background-position: 0 0; }
+    }
+    .badge-soft {
+      background-color: rgba(var(--bs-primary-rgb), .1);
+      color: var(--bs-primary);
+    }
+    .table thead th {
+      white-space: nowrap;
+    }
+    .chart-container {
+      position: relative;
+      height: 320px;
+    }
+    .sticky-actions {
+      position: sticky;
+      top: .5rem;
+      z-index: 2;
+    }
+  </style>
 </head>
 <body>
-    <header class="navbar navbar-expand-lg sticky-top">
-        <div class="container-fluid">
-            <a href="/dashboard" class="navbar-brand fw-bold text-primary"><i class="bi bi-bar-chart-fill me-2"></i> ReviewSaaS</a>
-            <div class="d-flex align-items-center gap-2">
-                <select id="companySelect" class="form-select form-select-sm" style="width: 200px;">
-                    {% if companies %}
-                        {% for c in companies %}
-                            <option value="{{ c.id }}" {% if c.id == active_company_id %}selected{% endif %}>{{ c.name }}</option>
-                        {% endfor %}
-                    {% else %}
-                        <option value="">No businesses found</option>
-                    {% endif %}
-                </select>
-                <input id="startDate" type="date" class="form-control form-control-sm" style="width: 140px;" />
-                <input id="endDate" type="date" class="form-control form-control-sm" style="width: 140px;" />
-                <button id="btnRefresh" class="btn btn-primary btn-sm">Apply</button>
-            </div>
-        </div>
-    </header>
+  <!-- Navbar -->
+  <nav class="navbar navbar-expand-lg border-bottom" aria-label="Main navigation">
+    <div class="container-fluid">
+      <a class="navbar-brand d-flex align-items-center gap-2" href="/dashboard" aria-label="Dashboard home">
+        <i class="bi bi-graph-up-arrow"></i>
+        <b>Review Intelligence</b>
+      </a>
+      <div class="d-flex align-items-center gap-2 ms-auto">
+        <!-- Theme Toggle -->
+        <button id="themeToggle" class="btn btn-sm btn-outline-secondary" type="button" aria-pressed="false" aria-label="Toggle theme">
+          <i class="bi bi-moon-stars" id="themeIcon"></i>
+          <span class="ms-1 d-none d-md-inline">Theme</span>
+        </button>
+        <a class="btn btn-sm btn-primary" href="/logout">
+          <i class="bi bi-box-arrow-right"></i> <span class="d-none d-md-inline">Logout</span>
+        </a>
+      </div>
+    </div>
+  </nav>
 
-    <main class="container my-4">
-        <div class="row g-3 mb-4">
-            <div class="col-md-3">
-                <div class="card kpi-card shadow-sm border-0">
-                    <div class="card-body">
-                        <div class="kpi-title">Total Reviews</div>
-                        <div id="kpiTotalReviews" class="kpi-value">—</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card kpi-card shadow-sm border-0">
-                    <div class="card-body">
-                        <div class="kpi-title">Avg Rating</div>
-                        <div id="kpiAvgRating" class="kpi-value">—</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card kpi-card shadow-sm border-0">
-                    <div class="card-body">
-                        <div class="kpi-title">Avg Sentiment</div>
-                        <div id="kpiAvgSentiment" class="kpi-value">—</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card kpi-card shadow-sm border-0">
-                    <div class="card-body">
-                        <div class="kpi-title">New (7d)</div>
-                        <div id="kpiNewReviews" class="kpi-value">—</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="row g-3 mb-4">
-            <div class="col-xl-8">
-                <div class="card shadow-sm border-0 h-100">
-                    <div class="card-header bg-white fw-bold">Sentiment & Volume Trend</div>
-                    <div class="card-body chart-wrap">
-                        <canvas id="overviewChart"></canvas>
-                    </div>
-                </div>
-            </div>
-            <div class="col-xl-4">
-                <div class="card shadow-sm border-0 h-100">
-                    <div class="card-header bg-white fw-bold">Sentiment Distribution</div>
-                    <div class="card-body d-flex align-items-center">
-                        <canvas id="sentPie"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
-
+  <!-- Main Content -->
+  <main class="container-fluid py-4">
+    <!-- Top Row: KPIs + Create Company -->
+    <div class="row g-3 align-items-stretch">
+      <!-- KPIs -->
+      <div class="col-12 col-lg-9">
         <div class="row g-3">
-            <div class="col-lg-4">
-                <div class="card shadow-sm border-0">
-                    <div class="card-header bg-white fw-bold">Top Keywords</div>
-                    <div class="card-body">
-                        <h6 class="small fw-bold text-success">Positive</h6>
-                        <div id="kwPositive" class="mb-3"></div>
-                        <h6 class="small fw-bold text-danger">Negative</h6>
-                        <div id="kwNegative" class="mb-3"></div>
-                    </div>
+          <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card kpi h-100">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                  <div>
+                    <div class="text-secondary small">Total Reviews</div>
+                    <div id="kpiTotal" class="h3 mb-0 skeleton" style="width: 80%"></div>
+                  </div>
+                  <i class="bi bi-chat-quote fs-2 text-primary" aria-hidden="true"></i>
                 </div>
-            </div>
-            <div class="col-lg-8">
-                <div class="card shadow-sm border-0">
-                    <div class="card-header bg-white fw-bold d-flex justify-content-between">
-                        <span>Recent Reviews</span>
-                    </div>
-                    <div class="card-body overflow-auto" style="max-height: 400px;" id="reviewsFeed">
-                        <div class="text-center py-5 text-muted">Select a company to view reviews.</div>
-                    </div>
+                <div class="small mt-2">
+                  <span class="text-secondary">vs. last period:</span>
+                  <span id="kpiTotalDelta" class="fw-semibold"></span>
                 </div>
+              </div>
             </div>
+          </div>
+
+          <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card kpi h-100">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                  <div>
+                    <div class="text-secondary small">Avg. Rating</div>
+                    <div id="kpiRating" class="h3 mb-0 skeleton" style="width: 60%"></div>
+                  </div>
+                  <i class="bi bi-star-half fs-2 text-warning" aria-hidden="true"></i>
+                </div>
+                <div class="small mt-2">
+                  <span class="text-secondary">vs. last period:</span>
+                  <span id="kpiRatingDelta" class="fw-semibold"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card kpi h-100">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                  <div>
+                    <div class="text-secondary small">New Reviews</div>
+                    <div id="kpiNew" class="h3 mb-0 skeleton" style="width: 70%"></div>
+                  </div>
+                  <i class="bi bi-plus-circle fs-2 text-success" aria-hidden="true"></i>
+                </div>
+                <div class="small mt-2">
+                  <span class="text-secondary">7-day trend:</span>
+                  <span id="kpiNewDelta" class="fw-semibold"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 col-sm-6 col-xl-3">
+            <div class="card kpi h-100">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                  <div>
+                    <div class="text-secondary small">Sentiment</div>
+                    <div id="kpiSentiment" class="h3 mb-0 skeleton" style="width: 50%"></div>
+                  </div>
+                  <i class="bi bi-emoji-smile fs-2 text-info" aria-hidden="true"></i>
+                </div>
+                <div class="small mt-2">
+                  <span class="text-secondary">Pos / Neu / Neg</span>:
+                  <span id="kpiSentimentSplit" class="fw-semibold"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div> <!-- /row -->
+      </div>
+
+      <!-- Create Company (Google Places Autocomplete) -->
+      <div class="col-12 col-lg-3">
+        <div class="card h-100">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <h6 class="card-title mb-2">Add Company</h6>
+              <span class="badge badge-soft">Google Places</span>
+            </div>
+            <p class="text-secondary small mb-3">
+              Search a company by name; details will autofill from Google Places.
+            </p>
+            <form id="companyForm" class="needs-validation" novalidate>
+              <div class="mb-2">
+                <label for="placeSearch" class="form-label small">Company Name</label>
+                <input type="text" id="placeSearch" class="form-control" placeholder="Type to search…" autocomplete="off" required />
+                <div class="invalid-feedback">Please pick a company from suggestions.</div>
+              </div>
+              <div class="mb-2">
+                <label for="companyAddress" class="form-label small">Address</label>
+                <input type="text" id="companyAddress" class="form-control" placeholder="Autofilled" readonly />
+              </div>
+              <div class="mb-2">
+                <label for="companyPhone" class="form-label small">Phone</label>
+                <input type="text" id="companyPhone" class="form-control" placeholder="Autofilled" readonly />
+              </div>
+              <div class="mb-3">
+                <label for="companyWebsite" class="form-label small">Website</label>
+                <input type="url" id="companyWebsite" class="form-control" placeholder="Autofilled" readonly />
+              </div>
+
+              <input type="hidden" id="placeId" />
+              <div class="d-grid">
+                <button class="btn btn-primary" type="submit">
+                  <i class="bi bi-building-add"></i> Create
+                </button>
+              </div>
+              <div id="companyFormMsg" class="form-text mt-2"></div>
+            </form>
+          </div>
         </div>
-    </main>
+      </div>
+    </div> <!-- /Top Row -->
 
-    <script>
-        const $ = (s) => document.querySelector(s);
-        let overviewChart = null, sentPie = null;
+    <!-- Charts Row -->
+    <div class="row g-3 mt-1">
+      <div class="col-12 col-xl-6">
+        <div class="card h-100">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center">
+              <h6 class="card-title mb-0">Orders / Reviews Over Time</h6>
+              <div class="text-secondary small">Last 14 days</div>
+            </div>
+            <div class="chart-container mt-3">
+              <canvas id="ordersChart" role="img" aria-label="Line chart of orders/reviews over time"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
 
-        // Fetch query parameters
-        function getQS() {
-            const cid = $('#companySelect').value;
-            if (!cid) return null;
-            return `company_id=${cid}&start=${$('#startDate').value}&end=${$('#endDate').value}`;
-        }
+      <div class="col-12 col-xl-6">
+        <div class="card h-100">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center">
+              <h6 class="card-title mb-0">Category Mix</h6>
+              <div class="text-secondary small">Share by category</div>
+            </div>
+            <div class="chart-container mt-3">
+              <canvas id="categoryChart" role="img" aria-label="Donut chart of category mix"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
-        async function refresh() {
-            const qs = getQS();
-            if (!qs) return;
+    <!-- Bottom Row: Recent Feedback + Activity -->
+    <div class="row g-3 mt-1">
+      <div class="col-12 col-xl-5">
+        <div class="card h-100">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center">
+              <h6 class="card-title mb-0">Recent Feedback</h6>
+              <span class="text-secondary small">Last 10</span>
+            </div>
+            <div id="recentFeed" class="mt-3">
+              <!-- Filled by JS -->
+              <div class="skeleton" style="height: 1.2rem; width: 100%; margin-bottom: .5rem;"></div>
+              <div class="skeleton" style="height: 1.2rem; width: 90%; margin-bottom: .5rem;"></div>
+              <div class="skeleton" style="height: 1.2rem; width: 95%;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-            // 1. Load KPIs
-            fetch(`/api/kpis?${qs}`).then(r => r.json()).then(data => {
-                $('#kpiTotalReviews').textContent = data.total_reviews;
-                $('#kpiAvgRating').textContent = data.avg_rating;
-                $('#kpiAvgSentiment').textContent = data.avg_sentiment;
-                $('#kpiNewReviews').textContent = data.new_reviews;
-            });
+      <div class="col-12 col-xl-7">
+        <div class="card h-100">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center">
+              <h6 class="card-title mb-0">Activity</h6>
+              <div class="sticky-actions">
+                <a class="btn btn-sm btn-outline-secondary" href="/api/export/activity.csv">
+                  <i class="bi bi-filetype-csv"></i> CSV
+                </a>
+                <a class="btn btn-sm btn-outline-secondary" href="/api/export/activity.xlsx">
+                  <i class="bi bi-filetype-xlsx"></i> XLSX
+                </a>
+              </div>
+            </div>
 
-            // 2. Load Charts (Series Overview)
-            fetch(`/api/series/overview?${qs}`).then(r => r.json()).then(data => {
-                if (overviewChart) overviewChart.destroy();
-                overviewChart = new Chart($('#overviewChart'), {
-                    type: 'line',
-                    data: {
-                        labels: data.volume.map(d => d.date),
-                        datasets: [
-                            { label: 'Reviews', data: data.volume.map(d => d.value), borderColor: '#0d6efd', tension: 0.3 },
-                            { label: 'Sentiment', data: data.sentiment.map(d => d.value), borderColor: '#fd7e14', tension: 0.3 }
-                        ]
-                    },
-                    options: { responsive: true, maintainAspectRatio: false }
-                });
-            });
+            <div class="table-responsive mt-3">
+              <table class="table table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Actor</th>
+                    <th>Action</th>
+                    <th>Target</th>
+                    <th class="text-end">Meta</th>
+                  </tr>
+                </thead>
+                <tbody id="activityBody">
+                  <tr>
+                    <td colspan="5">
+                      <div class="skeleton" style="height: 1.2rem; width: 100%;"></div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
 
-            // 3. Load Sentiment Share
-            fetch(`/api/sentiment/share?${qs}`).then(r => r.json()).then(data => {
-                if (sentPie) sentPie.destroy();
-                sentPie = new Chart($('#sentPie'), {
-                    type: 'doughnut',
-                    data: {
-                        labels: ['Positive', 'Neutral', 'Negative'],
-                        datasets: [{
-                            data: [data.counts.positive, data.counts.neutral, data.counts.negative],
-                            backgroundColor: ['#16a34a', '#64748b', '#dc2626']
-                        }]
-                    }
-                });
-            });
+          </div>
+        </div>
+      </div>
+    </div>
 
-            // 4. Load Keywords
-            fetch(`/api/v2/keywords?${qs}`).then(r => r.json()).then(data => {
-                const badge = (k) => `<span class="kw-badge">${k.term} (${k.freq})</span>`;
-                $('#kwPositive').innerHTML = data.positive.slice(0, 10).map(badge).join('');
-                $('#kwNegative').innerHTML = data.negative.slice(0, 10).map(badge).join('');
-            });
+  </main>
 
-            // 5. Load Review Feed
-            fetch(`/api/reviews/list?${qs}`).then(r => r.json()).then(data => {
-                $('#reviewsFeed').innerHTML = data.items.map(r => `
-                    <div class="activity-item">
-                        <div class="d-flex justify-content-between">
-                            <strong>${r.author_name}</strong>
-                            <span class="text-warning">${'★'.repeat(r.rating)}</span>
-                        </div>
-                        <p class="small mb-1">${r.text}</p>
-                        <small class="text-muted">${r.review_time}</small>
-                    </div>
-                `).join('');
-            });
-        }
+  <!-- Footer -->
+  <footer class="border-top py-3">
+    <div class="container-fluid d-flex justify-content-between">
+      <div class="small text-secondary">
+        © <span id="year"></span> Review Intelligence
+      </div>
+      <div class="small">
+        <span class="text-secondary">Built with</span>
+        <i class="bi bi-bootstrap-fill text-primary" aria-hidden="true"></i>
+        <span class="text-secondary"> & </span>
+        <i class="bi bi-bar-chart-line-fill text-success" aria-hidden="true"></i>
+      </div>
+    </div>
+  </footer>
 
-        // Init Dates
-        document.addEventListener('DOMContentLoaded', () => {
-            const end = new Date();
-            const start = new Date();
-            start.setDate(end.getDate() - 30);
-            $('#endDate').value = end.toISOString().split('T')[0];
-            $('#startDate').value = start.toISOString().split('T')[0];
-            
-            $('#btnRefresh').onclick = refresh;
-            $('#companySelect').onchange = refresh;
-            
-            refresh();
+  <!-- Bootstrap JS -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+    crossorigin="anonymous"
+  ></script>
+
+  <!-- Google Maps Places (defer; key templated) -->
+  <script
+    id="gmaps"
+    src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key | default('') }}&libraries=places&language=en"
+    defer
+  ></script>
+
+  <script>
+    // =========================
+    // Utilities & Theme
+    // =========================
+    const $ = (s, d=document) => d.querySelector(s);
+    const $$ = (s, d=document) => Array.from(d.querySelectorAll(s));
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    function setTheme(theme) {
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      localStorage.setItem('theme', theme);
+      const icon = $('#themeIcon');
+      if (icon) {
+        icon.className = theme === 'dark' ? 'bi bi-sun' : 'bi bi-moon-stars';
+      }
+    }
+
+    (function initTheme() {
+      const saved = localStorage.getItem('theme');
+      setTheme(saved || (prefersDark ? 'dark' : 'light'));
+    })();
+
+    $('#themeToggle')?.addEventListener('click', () => {
+      const current = document.documentElement.getAttribute('data-bs-theme') || 'light';
+      setTheme(current === 'light' ? 'dark' : 'light');
+    });
+
+    // Footer year
+    $('#year').textContent = new Date().getFullYear();
+
+    // =========================
+    // Charts: setup helpers
+    // =========================
+    let ordersChart, categoryChart;
+    const chartPalette = [
+      '#4c6ef5', '#22b8cf', '#12b886', '#fab005', '#e64980', '#7950f2', '#20c997', '#ff922b', '#228be6'
+    ];
+
+    function ensureChart(ctx, config, existing) {
+      if (existing) {
+        existing.data = config.data;
+        existing.options = config.options || existing.options;
+        existing.update();
+        return existing;
+      }
+      return new Chart(ctx, config);
+    }
+
+    function fmt(n, d=0) {
+      return Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d });
+    }
+
+    function deltaSpan(el, value) {
+      const v = Number(value || 0);
+      el.textContent = (v > 0 ? '+' : '') + fmt(v, 2);
+      el.classList.remove('delta-up', 'delta-down', 'text-secondary');
+      if (v > 0) el.classList.add('delta-up');
+      else if (v < 0) el.classList.add('delta-down');
+      else el.classList.add('text-secondary');
+    }
+
+    // =========================
+    // Fetchers
+    // =========================
+    async function getJSON(url) {
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' }});
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
+
+    async function loadKPIs() {
+      try {
+        const data = await getJSON('/api/kpis');
+        // Expected keys: total_reviews, avg_rating, new_reviews, sentiment_score, pos, neu, neg, deltas...
+        $('#kpiTotal').textContent = fmt(data.total_reviews ?? data.total ?? 0);
+        deltaSpan($('#kpiTotalDelta'), data.delta_total ?? data.total_delta ?? 0);
+
+        $('#kpiRating').textContent = fmt(data.avg_rating ?? 0, 2);
+        deltaSpan($('#kpiRatingDelta'), data.delta_rating ?? data.rating_delta ?? 0);
+
+        $('#kpiNew').textContent = fmt(data.new_reviews ?? data.new ?? 0);
+        deltaSpan($('#kpiNewDelta'), data.delta_new ?? data.new_delta ?? 0);
+
+        const s = data.sentiment_score ?? 0;
+        $('#kpiSentiment').textContent = (s > 0 ? '🙂 ' : s < 0 ? '🙁 ' : '😐 ') + fmt(s, 2);
+        const pos = data.pos ?? data.positive ?? 0;
+        const neu = data.neu ?? data.neutral ?? 0;
+        const neg = data.neg ?? data.negative ?? 0;
+        $('#kpiSentimentSplit').textContent = `${fmt(pos,0)} / ${fmt(neu,0)} / ${fmt(neg,0)}`;
+      } catch (e) {
+        console.error('KPIs error', e);
+        $('#kpiTotal').textContent = '—';
+        $('#kpiRating').textContent = '—';
+        $('#kpiNew').textContent = '—';
+        $('#kpiSentiment').textContent = '—';
+        $('#kpiSentimentSplit').textContent = '—';
+        ['kpiTotalDelta','kpiRatingDelta','kpiNewDelta'].forEach(id => {
+          const el = document.getElementById(id);
+          el.textContent = '—'; el.classList.add('text-secondary');
         });
-    </script>
+      }
+    }
+
+    async function loadOrdersSeries() {
+      try {
+        const data = await getJSON('/api/orders/series?days=14');
+        // Expecting: { labels: [...], series: [...] } OR array of {date,value}
+        let labels = [], series = [];
+        if (Array.isArray(data)) {
+          labels = data.map(d => d.date ?? d.day ?? d.label);
+          series = data.map(d => d.value ?? d.count ?? d.total ?? 0);
+        } else {
+          labels = data.labels ?? [];
+          series = data.series ?? data.values ?? [];
+        }
+
+        const ctx = document.getElementById('ordersChart').getContext('2d');
+        const theme = document.documentElement.getAttribute('data-bs-theme') || 'light';
+        const gridColor = theme === 'dark' ? 'rgba(255,255,255,.1)' : 'rgba(0,0,0,.07)';
+        const tickColor = theme === 'dark' ? 'rgba(255,255,255,.7)' : 'rgba(0,0,0,.7)';
+
+        ordersChart = ensureChart(ctx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [{
+              label: 'Reviews',
+              data: series,
+              tension: .35,
+              fill: true,
+              borderColor: '#4c6ef5',
+              backgroundColor: 'rgba(76, 110, 245, .15)',
+              pointRadius: 2,
+              pointHoverRadius: 4
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: true } },
+            scales: {
+              x: {
+                grid: { color: gridColor },
+                ticks: { color: tickColor }
+              },
+              y: {
+                grid: { color: gridColor },
+                ticks: { color: tickColor, callback: v => fmt(v) }
+              }
+            }
+          }
+        }, ordersChart);
+      } catch (e) {
+        console.error('Series error', e);
+      }
+    }
+
+    async function loadCategoryMix() {
+      try {
+        const data = await getJSON('/api/category-mix');
+        // Expecting: { labels: [...], values: [...] } OR array of {category,count}
+        let labels = [], values = [];
+        if (Array.isArray(data)) {
+          labels = data.map(d => d.category ?? d.label);
+          values = data.map(d => d.count ?? d.value ?? 0);
+        } else {
+          labels = data.labels ?? [];
+          values = data.values ?? [];
+        }
+
+        const colors = labels.map((_, i) => chartPalette[i % chartPalette.length]);
+        const ctx = document.getElementById('categoryChart').getContext('2d');
+        categoryChart = ensureChart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels,
+            datasets: [{ data: values, backgroundColor: colors, borderWidth: 0 }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom' } },
+            cutout: '60%'
+          }
+        }, categoryChart);
+      } catch (e) {
+        console.error('Category mix error', e);
+      }
+    }
+
+    async function loadActivity() {
+      const body = $('#activityBody');
+      body.innerHTML = '';
+      try {
+        const data = await getJSON('/api/activity?limit=100');
+        if (!Array.isArray(data) || data.length === 0) {
+          body.innerHTML = `<tr><td colspan="5" class="text-center text-secondary">No activity yet.</td></tr>`;
+          return;
+        }
+        for (const row of data) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="text-nowrap">${row.time ?? row.timestamp ?? '-'}</td>
+            <td>${row.actor ?? '-'}</td>
+            <td><span class="badge text-bg-light">${row.action ?? '-'}</span></td>
+            <td>${row.target ?? '-'}</td>
+            <td class="text-end">
+              <code class="small">${(typeof row.meta === 'object' ? JSON.stringify(row.meta) : (row.meta ?? ''))}</code>
+            </td>`;
+          body.appendChild(tr);
+        }
+      } catch (e) {
+        console.error('Activity error', e);
+        body.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Failed to load activity.</td></tr>`;
+      }
+    }
+
+    async function loadRecentFeed() {
+      const feed = $('#recentFeed');
+      try {
+        // Optional endpoint; handle gracefully if not present
+        const res = await fetch('/api/reviews/recent?limit=10', { headers: { 'Accept': 'application/json' }});
+        if (!res.ok) { feed.innerHTML = `<div class="text-secondary small">Recent feed not available.</div>`; return; }
+        const data = await res.json();
+        if (!Array.isArray(data) || data.length === 0) {
+          feed.innerHTML = `<div class="text-secondary small">No recent items.</div>`;
+          return;
+        }
+        feed.innerHTML = '';
+        for (const r of data) {
+          const item = document.createElement('div');
+          const stars = '★★★★★☆☆☆☆☆'.slice(5 - Math.round(r.rating ?? 0), 10 - Math.round(r.rating ?? 0));
+          item.className = 'mb-3';
+          item.innerHTML = `
+            <div class="d-flex gap-2 align-items-start">
+              <i class="bi bi-person-circle fs-4 text-secondary" aria-hidden="true"></i>
+              <div>
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                  <strong>${r.author ?? 'Anonymous'}</strong>
+                  <span class="text-secondary small">${r.date ?? r.time ?? ''}</span>
+                </div>
+                <div class="small text-warning" aria-label="Rating">${'★'.repeat(Math.round(r.rating ?? 0))}<span class="text-secondary">${'☆'.repeat(5 - Math.round(r.rating ?? 0))}</span></div>
+                <div class="mt-1">${(r.text ?? '').slice(0, 240)}${(r.text && r.text.length > 240) ? '…' : ''}</div>
+                ${r.tags ? `<div class="mt-1">${(r.tags||[]).map(t => `<span class="badge me-1 text-bg-light">${t}</span>`).join('')}</div>` : ''}
+              </div>
+            </div>`;
+          feed.appendChild(item);
+        }
+      } catch (e) {
+        console.error('Recent feed error', e);
+        feed.innerHTML = `<div class="text-danger small">Failed to load feed.</div>`;
+      }
+    }
+
+    // =========================
+    // Google Places: Autocomplete
+    // =========================
+    function initPlacesAutocomplete() {
+      if (!window.google || !google.maps || !google.maps.places) return;
+      const input = document.getElementById('placeSearch');
+      const ac = new google.maps.places.Autocomplete(input, {
+        types: ['establishment'],
+        fields: ['place_id','name','formatted_address','formatted_phone_number','website']
+      });
+
+      ac.addListener('place_changed', () => {
+        const place = ac.getPlace();
+        if (!place || !place.place_id) return;
+
+        // Fill fields
+        document.getElementById('placeId').value = place.place_id;
+        document.getElementById('companyAddress').value = place.formatted_address || '';
+        document.getElementById('companyPhone').value = place.formatted_phone_number || '';
+        document.getElementById('companyWebsite').value = place.website || '';
+      });
+    }
+
+    // If Google script loads after DOM
+    window.addEventListener('load', () => {
+      // For dynamic theme changes, re-render charts when theme toggles
+      document.getElementById('themeToggle')?.addEventListener('click', () => {
+        setTimeout(() => {
+          loadOrdersSeries();
+          loadCategoryMix();
+        }, 120);
+      });
+
+      initPlacesAutocomplete();
+    });
+
+    // If Google script evaluated earlier
+    window.initMap = initPlacesAutocomplete;
+
+    // =========================
+    // Company form submit
+    // =========================
+    document.getElementById('companyForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.currentTarget;
+      const msg = document.getElementById('companyFormMsg');
+      msg.textContent = '';
+
+      if (!form.checkValidity()) {
+        form.classList.add('was-validated');
+        return;
+      }
+      const payload = {
+        place_id: document.getElementById('placeId').value || null,
+        name: document.getElementById('placeSearch').value || '',
+        address: document.getElementById('companyAddress').value || '',
+        phone: document.getElementById('companyPhone').value || '',
+        website: document.getElementById('companyWebsite').value || ''
+      };
+      if (!payload.place_id) {
+        msg.innerHTML = `<span class="text-danger">Please choose a company from suggestions.</span>`;
+        return;
+      }
+      try {
+        const res = await fetch('/companies/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        msg.innerHTML = `<span class="text-success">Company created successfully.</span>`;
+        form.reset();
+        ['placeId','companyAddress','companyPhone','companyWebsite'].forEach(id => document.getElementById(id).value = '');
+      } catch (err) {
+        console.error('Create company failed', err);
+        msg.innerHTML = `<span class="text-danger">Failed to create company. Please try again.</span>`;
+      }
+    });
+
+    // =========================
+    // Init load
+    // =========================
+    async function init() {
+      await Promise.allSettled([
+        loadKPIs(),
+        loadOrdersSeries(),
+        loadCategoryMix(),
+        loadActivity(),
+        loadRecentFeed()
+      ]);
+    }
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
 </body>
 </html>
