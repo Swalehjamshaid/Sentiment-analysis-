@@ -1,4 +1,3 @@
-<!-- filename: app/templates/dashboard.html -->
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">
 <head>
@@ -6,19 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ReviewSaaS • Dashboard</title>
 
-  <!-- Bootstrap 5 CSS -->
   <link
     rel="stylesheet"
     href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
     integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
     crossorigin="anonymous"
   />
-  <!-- Bootstrap Icons -->
   <link
     rel="stylesheet"
     href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
   />
-  <!-- Chart.js -->
   <script
     src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
     integrity="sha384-5Q+Uve4Zc0Q0t3Z9bE1E1mCwP+4b2d2q6zRFGhS9+2JtG0c7Jm8vS4d2i3doz0KZ"
@@ -46,7 +42,6 @@
   </style>
 </head>
 <body>
-  <!-- Navbar -->
   <header class="navbar navbar-expand-lg sticky-top">
     <div class="container-fluid">
       <a href="/dashboard" class="navbar-brand">
@@ -54,7 +49,6 @@
       </a>
 
       <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
-        <!-- Company selector (from Jinja: companies, active_company_id) -->
         <div class="input-group input-group-sm">
           <span class="input-group-text"><i class="bi bi-buildings"></i></span>
           <select id="companySelect" class="form-select form-select-sm">
@@ -70,7 +64,6 @@
           </select>
         </div>
 
-        <!-- Date range (backend defaults to last 30 days if blank) -->
         <div class="input-group input-group-sm">
           <span class="input-group-text"><i class="bi bi-calendar3"></i></span>
           <input id="startDate" type="date" class="form-control" />
@@ -78,12 +71,10 @@
           <button id="btnApplyRange" class="btn btn-outline-secondary">Apply</button>
         </div>
 
-        <!-- Sync button -->
         <button id="btnSync" class="btn btn-outline-primary btn-sm" title="Trigger background review sync">
           <i class="bi bi-arrow-repeat me-1"></i> Sync
         </button>
 
-        <!-- Theme toggle -->
         <button id="themeToggle" class="btn btn-outline-secondary btn-sm" title="Toggle theme">
           <i class="bi bi-moon-stars" id="themeIcon"></i>
         </button>
@@ -98,11 +89,9 @@
     </div>
   </header>
 
-  <!-- Hidden (templated) -->
   <input type="hidden" id="activeCompanyId" value="{{ active_company_id or '' }}" />
 
   <main class="container my-4">
-    <!-- KPIs -->
     <section class="row g-3 mb-3">
       <div class="col-12 col-sm-6 col-xl-3">
         <div class="card kpi-card h-100">
@@ -154,7 +143,6 @@
       </div>
     </section>
 
-    <!-- Charts -->
     <section class="row g-3">
       <div class="col-12 col-xl-6">
         <div class="card h-100">
@@ -202,12 +190,11 @@
       </div>
     </section>
 
-    <!-- Ops & Alerts -->
     <section class="row g-3 mt-1">
       <div class="col-12 col-xl-6">
         <div class="card h-100">
           <div class="card-header fw-semibold"><i class="bi bi-shield-exclamation me-2"></i> Urgent Issues</div>
-          <div class="card-body" id="urgentList">
+          <div class="card-body overflow-auto" style="max-height: 400px;" id="urgentList">
             <div class="text-secondary">Loading…</div>
           </div>
         </div>
@@ -222,7 +209,6 @@
       </div>
     </section>
 
-    <!-- Executive Summary -->
     <section class="row g-3 mt-1">
       <div class="col-12 col-xl-8">
         <div class="card h-100">
@@ -243,7 +229,6 @@
       </div>
     </section>
 
-    <!-- Reviews Feed -->
     <section class="row g-3 mt-1">
       <div class="col-12">
         <div class="card">
@@ -261,14 +246,13 @@
               </button>
             </div>
           </div>
-          <div class="card-body" id="reviewsFeed">
+          <div class="card-body overflow-auto" style="max-height: 600px;" id="reviewsFeed">
             <div class="text-secondary">Loading…</div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Google Places: Add Company -->
     <section class="row g-3 mt-1">
       <div class="col-12 col-xl-6">
         <div class="card h-100">
@@ -349,17 +333,17 @@
     </span>
   </footer>
 
-  <!-- Bootstrap JS (bundle) -->
+  
+
   <script
     src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
     integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
     crossorigin="anonymous"
   ></script>
 
-  <!-- App JS -->
   <script>
     // ===========================
-    // Theme Toggle
+    // Theme Toggle Logic
     // ===========================
     (function initTheme(){
       const html = document.documentElement;
@@ -380,28 +364,31 @@
     })();
 
     // ===========================
-    // Utilities
+    // Utility Helpers
     // ===========================
     const $  = (s) => document.querySelector(s);
     const $$ = (s) => document.querySelectorAll(s);
     const fmt = new Intl.NumberFormat();
-    const todayISO = () => new Date().toISOString().slice(0,10);
+    
     const parseJSONSafe = async (res) => {
       const text = await res.text().catch(()=> '');
       try { return JSON.parse(text || '{}'); } catch { return { raw: text }; }
     };
+
     function params() {
       const company_id = $('#companySelect')?.value || $('#activeCompanyId')?.value || '';
       const start = $('#startDate').value || '';
       const end   = $('#endDate').value   || '';
       return { company_id, start, end };
     }
+
     function qstr(obj) {
       return Object.entries(obj)
         .filter(([,v]) => v !== undefined && v !== null && v !== '')
         .map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
         .join('&');
     }
+
     function setDelta(el, delta) {
       if (!el) return;
       if (typeof delta !== 'number' || Object.is(delta, NaN)) { el.textContent = '—'; el.className='kpi-delta'; return; }
@@ -409,14 +396,25 @@
       else if (delta < 0) { el.textContent = `▼ ${Math.abs(delta).toFixed(2)}%`; el.className='kpi-delta down'; }
       else { el.textContent = '—'; el.className='kpi-delta'; }
     }
-    function sanitize(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+
+    function sanitize(s) { 
+      const d = document.createElement('div'); 
+      d.textContent = s ?? ''; 
+      return d.innerHTML; 
+    }
 
     // ===========================
-    // Charts
+    // Chart Initialization
     // ===========================
     window._charts = [];
     let overviewChart, sentPie, ratingsHist, aspectsStacked;
-    const destroyChart = (c) => { if (c) { c.destroy(); const i = window._charts.indexOf(c); if (i>=0) window._charts.splice(i,1);} };
+    const destroyChart = (c) => { 
+      if (c) { 
+        c.destroy(); 
+        const i = window._charts.indexOf(c); 
+        if (i>=0) window._charts.splice(i,1);
+      } 
+    };
 
     async function loadKpis() {
       try {
@@ -427,12 +425,9 @@
         $('#kpiNewReviews').textContent = fmt.format(data.new_reviews ?? 0);
         $('#kpiAvgRating').textContent = (data.avg_rating ?? 0).toFixed(2);
         $('#kpiAvgSentiment').textContent = (data.avg_sentiment ?? 0).toFixed(3);
-        // No deltas exposed by API; leave em as em dashes
         setDelta($('#kpiTotalReviewsDelta'), 0);
         setDelta($('#kpiNewReviewsDelta'), 0);
-        setDelta($('#kpiAvgRatingDelta'), 0);
-        setDelta($('#kpiAvgSentimentDelta'), 0);
-      } catch (e) { console.error(e); }
+      } catch (e) { console.error("KPI Error:", e); }
     }
 
     async function loadOverview() {
@@ -444,6 +439,7 @@
         const vol = (data.volume || []).map(d => d.value ?? 0);
         const rat = (data.rating || []).map(d => d.value ?? 0);
         const sen = (data.sentiment || []).map(d => d.value ?? 0);
+        
         destroyChart(overviewChart);
         overviewChart = new Chart($('#overviewChart'), {
           type: 'line',
@@ -465,7 +461,7 @@
           }
         });
         window._charts.push(overviewChart);
-      } catch (e) { console.error(e); }
+      } catch (e) { console.error("Overview Chart Error:", e); }
     }
 
     async function loadSentimentShare() {
@@ -483,7 +479,7 @@
           options: { responsive:true, plugins:{ legend:{ position:'bottom' } }, cutout:'60%' }
         });
         window._charts.push(sentPie);
-      } catch(e){ console.error(e); }
+      } catch(e){ console.error("Pie Chart Error:", e); }
     }
 
     async function loadRatingsDistribution() {
@@ -500,7 +496,7 @@
           options: { responsive:true, scales:{ y:{ beginAtZero:true } } }
         });
         window._charts.push(ratingsHist);
-      } catch(e){ console.error(e); }
+      } catch(e){ console.error("Histogram Error:", e); }
     }
 
     async function loadAspectsStacked() {
@@ -526,63 +522,51 @@
           options: { responsive:true, maintainAspectRatio:false, scales: { x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } } }
         });
         window._charts.push(aspectsStacked);
-      } catch (e) { console.error(e); }
+      } catch (e) { console.error("Aspects Error:", e); }
     }
 
     // ===========================
-    // Ops + Alerts + Summaries
+    // Operational & Feed Loading
     // ===========================
     async function loadOperational() {
       const el = $('#urgentList');
-      el.innerHTML = '<div class="text-secondary">Loading…</div>';
+      el.innerHTML = '<div class="text-secondary text-center p-4">Loading…</div>';
       try {
         const qs = qstr(params());
         const res = await fetch(`/api/operational/overview?${qs}`);
         const data = await res.json();
         const issues = data.urgent_issues || [];
-        if (!issues.length) { el.innerHTML = '<div class="text-secondary">No urgent issues found in this window.</div>'; return; }
-        const frag = document.createDocumentFragment();
-        issues.forEach(it => {
-          const div = document.createElement('div');
-          div.className = 'activity-item';
-          const label = it.sentiment_label || 'neutral';
-          const badgeClass = label === 'positive' ? 'positive' : (label === 'negative' ? 'negative' : 'neutral');
-          const dt = it.review_time || '';
-          div.innerHTML = `
+        if (!issues.length) { el.innerHTML = '<div class="text-secondary p-4">No urgent issues found.</div>'; return; }
+        
+        el.innerHTML = issues.map(it => `
+          <div class="activity-item">
             <div class="d-flex justify-content-between align-items-start">
               <div>
-                <span class="badge badge-sentiment ${badgeClass} me-2">${sanitize(label)}</span>
-                <strong>${sanitize(it.author_name || 'Anonymous')}</strong> — ${sanitize(it.text || '')}
-                ${it.rating != null ? ` <span class="text-warning"><i class="bi bi-star-fill"></i> ${sanitize(it.rating)}</span>` : ''}
+                <span class="badge badge-sentiment ${it.sentiment_label === 'negative' ? 'negative' : 'neutral'} me-2">${sanitize(it.sentiment_label)}</span>
+                <strong>${sanitize(it.author_name)}</strong> — ${sanitize(it.text.substring(0, 200))}...
+                <div class="mt-1 small text-warning">${'★'.repeat(it.rating)}</div>
               </div>
-              <small class="text-secondary ms-2">${sanitize(dt)}</small>
+              <small class="text-secondary ms-2">${sanitize(it.review_time)}</small>
             </div>
-          `;
-          frag.appendChild(div);
-        });
-        el.innerHTML = '';
-        el.appendChild(frag);
-      } catch(e) { console.error(e); el.innerHTML = '<div class="text-danger">Failed to load operational overview.</div>'; }
+          </div>
+        `).join('');
+      } catch(e) { console.error(e); el.innerHTML = '<div class="text-danger">Error loading urgent list.</div>'; }
     }
 
     async function loadAlerts() {
       const el = $('#alertsList');
-      el.innerHTML = '<div class="text-secondary">Loading…</div>';
       try {
         const qs = qstr(params());
         const res = await fetch(`/api/alerts?${qs}`);
         const data = await res.json();
         const items = data.alerts || [];
-        if (!items.length) { el.innerHTML = '<div class="text-secondary">No alerts for this period.</div>'; return; }
-        const ul = document.createElement('ul'); ul.className = 'mb-0';
-        items.forEach(a => {
-          const li = document.createElement('li');
-          const sev = a.severity || 'low';
-          li.innerHTML = `<span class="badge ${sev==='high'?'text-bg-danger':sev==='medium'?'text-bg-warning':'text-bg-secondary'} me-2">${sanitize(sev)}</span>${sanitize(a.message)}`;
-          ul.appendChild(li);
-        });
-        el.innerHTML = ''; el.appendChild(ul);
-      } catch(e){ console.error(e); el.innerHTML = '<div class="text-danger">Failed to load alerts.</div>'; }
+        if (!items.length) { el.innerHTML = '<div class="text-secondary">No active alerts.</div>'; return; }
+        el.innerHTML = `<ul class="list-group list-group-flush">${items.map(a => `
+          <li class="list-group-item bg-transparent">
+            <span class="badge ${a.severity==='high'?'text-bg-danger':'text-bg-warning'} me-2">${a.severity}</span> ${a.message}
+          </li>
+        `).join('')}</ul>`;
+      } catch(e){ console.error(e); }
     }
 
     async function loadExecutive() {
@@ -590,23 +574,17 @@
         const qs = qstr(params());
         const sres = await fetch(`/api/v2/ai/executive-summary?${qs}`);
         const sum = await sres.json();
-        $('#execSummary').textContent = sum.summary || '—';
-        const r = $('#execRationale'); r.innerHTML = '';
-        (sum.rationale || []).forEach(x => { const li = document.createElement('li'); li.textContent = x; r.appendChild(li); });
+        $('#execSummary').textContent = sum.summary || 'Summary unavailable.';
+        $('#execRationale').innerHTML = (sum.rationale || []).map(x => `<li>${x}</li>`).join('');
 
         const rres = await fetch(`/api/v2/ai/recommendations?${qs}`);
         const rec = await rres.json();
-        const ol = $('#recoList'); ol.innerHTML = '';
-        (rec.top_action_items || []).forEach(x => { const li = document.createElement('li'); li.textContent = x; ol.appendChild(li); });
+        $('#recoList').innerHTML = (rec.top_action_items || []).map(x => `<li>${x}</li>`).join('');
       } catch(e){ console.error(e); }
     }
 
-    // ===========================
-    // Reviews Feed
-    // ===========================
     async function loadReviews() {
       const feed = $('#reviewsFeed');
-      feed.innerHTML = '<div class="text-secondary">Loading…</div>';
       try {
         const p = params();
         const sort = $('#reviewsSort').value;
@@ -614,233 +592,107 @@
         const res = await fetch(`/api/reviews/list?${qs}`);
         const data = await res.json();
         const items = data.items || [];
-        if (!items.length) { feed.innerHTML = '<div class="text-secondary">No reviews in this window.</div>'; return; }
-        const frag = document.createDocumentFragment();
-        items.forEach(r => {
-          const row = document.createElement('div');
-          row.className = 'activity-item';
-          row.innerHTML = `
-            <div class="d-flex justify-content-between align-items-start">
+        if (!items.length) { feed.innerHTML = '<div class="text-secondary p-4">No reviews available.</div>'; return; }
+        
+        feed.innerHTML = items.map(r => `
+          <div class="activity-item">
+            <div class="d-flex justify-content-between">
               <div>
                 <strong>${sanitize(r.author_name)}</strong>
-                ${r.rating != null ? `<span class="text-warning ms-2"><i class="bi bi-star-fill"></i> ${sanitize(r.rating)}</span>` : ''}
-                <span class="badge ${r.sentiment_score >= 0.35 ? 'text-bg-success' : (r.sentiment_score <= -0.25 ? 'text-bg-danger' : 'text-bg-secondary')} ms-2">
-                  ${sanitize((r.sentiment_score ?? 0).toFixed(2))}
-                </span>
-                <div class="mt-1">${sanitize(r.text)}</div>
+                <span class="text-warning ms-2">${'★'.repeat(r.rating)}</span>
+                <p class="mt-1 mb-0">${sanitize(r.text)}</p>
               </div>
-              <small class="text-secondary ms-2">${sanitize(r.review_time)}</small>
+              <small class="text-secondary">${sanitize(r.review_time)}</small>
             </div>
-          `;
-          frag.appendChild(row);
-        });
-        feed.innerHTML = ''; feed.appendChild(frag);
-      } catch(e){ console.error(e); feed.innerHTML = '<div class="text-danger">Failed to load reviews.</div>'; }
+          </div>
+        `).join('');
+      } catch(e){ console.error(e); }
     }
 
     // ===========================
-    // Actions (Sync, Summary PNG, Aspect Email)
+    // Actions & Sync
     // ===========================
     async function triggerSync() {
-      const company_id = $('#companySelect').value || $('#activeCompanyId').value;
+      const { company_id } = params();
       if (!company_id) return;
+      $('#btnSync').disabled = true;
       try {
-        const res = await fetch(`/api/companies/${encodeURIComponent(company_id)}/sync`, { method:'POST' });
-        if (!res.ok) throw new Error(await res.text());
-        // Refresh shortly after trigger
-        setTimeout(() => { refreshAll(); }, 1500);
-      } catch(e){ console.error(e); alert('Failed to trigger sync.'); }
-    }
-
-    function openSummaryPng() {
-      const p = params();
-      const url = `/api/v2/charts/summary.png?${qstr(p)}`;
-      window.open(url, '_blank');
+        await fetch(`/api/companies/${encodeURIComponent(company_id)}/sync`, { method:'POST' });
+        alert('Sync triggered. Refreshing data in 3 seconds...');
+        setTimeout(refreshAll, 3000);
+      } catch(e){ alert('Sync failed.'); }
+      finally { $('#btnSync').disabled = false; }
     }
 
     async function composeAspectTrendEmail() {
       try {
-        const qs = qstr(params());
-        const res = await fetch(`/api/alerts/high-severity-email?${qs}`);
+        const res = await fetch(`/api/alerts/high-severity-email?${qstr(params())}`);
         const data = await res.json();
-        alert(`Subject:\n${data.subject}\n\n-----\n${data.body_text}`);
-      } catch(e){ console.error(e); alert('Failed to compose alert email.'); }
-    }
-
-    // Refresh companies & select by place_id (for duplicate add case)
-    async function refreshCompaniesAndSelect(place_id) {
-      try {
-        const res = await fetch('/api/companies/list');
-        const data = await res.json();
-        if (data && data.success && Array.isArray(data.companies)) {
-          const sel = $('#companySelect'); sel.innerHTML = '';
-          let selectedId = null;
-          data.companies.forEach(c => {
-            const opt = document.createElement('option');
-            opt.value = c.id; opt.textContent = c.name; sel.appendChild(opt);
-            if (String(c.place_id || '') === String(place_id)) selectedId = c.id;
-          });
-          if (selectedId) {
-            sel.value = String(selectedId);
-            $('#activeCompanyId').value = String(selectedId);
-            refreshAll();
-          }
-        }
-      } catch (e) { console.error(e); }
+        alert(`Subject: ${data.subject}\n\n${data.body_text}`);
+      } catch(e){ alert('Failed to generate email.'); }
     }
 
     // ===========================
-    // Google Maps + Places (client-side)
+    // Google Places Search
     // ===========================
-    let gmap, gmarker, autocomplete, placesService, selectedPlace;
+    let gmap, gmarker, autocomplete, placesService;
 
-    // Called by Google script (global)
     function onGoogleMapsReady() {
-      try {
-        const mapEl = document.getElementById('map');
-        if (!mapEl) return;
-        gmap = new google.maps.Map(mapEl, {
-          center: { lat: 31.5204, lng: 74.3587 }, // Lahore
-          zoom: 12,
-          mapTypeControl: false,
-          streetViewControl: false,
-          fullscreenControl: false
-        });
-        gmarker = new google.maps.Marker({ map: gmap });
+      const mapEl = $('#map');
+      gmap = new google.maps.Map(mapEl, { center: { lat: 31.52, lng: 74.35 }, zoom: 12 });
+      gmarker = new google.maps.Marker({ map: gmap });
+      
+      const input = $('#placeSearch');
+      autocomplete = new google.maps.places.Autocomplete(input, { 
+        fields: ['place_id', 'name', 'formatted_address', 'geometry', 'rating', 'website', 'url', 'formatted_phone_number'],
+        types: ['establishment']
+      });
+      placesService = new google.maps.places.PlacesService(gmap);
 
-        const input = document.getElementById('placeSearch');
-        if (!input) return;
+      autocomplete.addListener('place_changed', () => {
+        const place = autocomplete.getPlace();
+        if (!place.geometry) return;
+        
+        $('#placeName').value = place.name || '';
+        $('#placeRating').value = place.rating || '';
+        $('#placeAddress').value = place.formatted_address || '';
+        $('#placeId').value = place.place_id || '';
+        $('#placePhone').value = place.formatted_phone_number || '';
+        $('#placeWebsite').value = place.website || '';
+        $('#placeUrl').value = place.url || '';
 
-        autocomplete = new google.maps.places.Autocomplete(input, {
-          fields: [
-            'place_id','name','formatted_address','geometry','rating',
-            'formatted_phone_number','international_phone_number','website','url'
-          ],
-          types: ['establishment']
-        });
-        placesService = new google.maps.places.PlacesService(gmap);
-        autocomplete.addListener('place_changed', onPlaceChanged);
-        // Optional: mark loaded
-        console.log('Google Maps loaded');
-      } catch (err) {
-        console.error('Google Maps init failed:', err);
-        const hint = document.getElementById('mapHint');
-        if (hint) hint.textContent = 'Google Maps failed to initialize.';
-      }
-    }
-    // Expose globally for the script callback
-    window.onGoogleMapsReady = onGoogleMapsReady;
-
-    function onPlaceChanged() {
-      const place = autocomplete.getPlace();
-      if (!place || !place.place_id) return;
-      selectedPlace = place;
-      fillPlaceFields(place);
-      updateMap(place);
-      renderDetails(place);
-
-      // Fetch phone/website if missing
-      if (!place.formatted_phone_number || !place.website) {
-        placesService.getDetails(
-          { placeId: place.place_id, fields: ['formatted_phone_number','international_phone_number','website','url','rating'] },
-          (details, status) => {
-            if (status === google.maps.places.PlacesServiceStatus.OK && details) {
-              selectedPlace = { ...selectedPlace, ...details };
-              fillPlaceFields(selectedPlace);
-              renderDetails(selectedPlace);
-            }
-          }
-        );
-      }
-    }
-    function fillPlaceFields(p) {
-      $('#placeName').value = p.name ?? '';
-      $('#placeRating').value = (p.rating ?? '').toString();
-      $('#placeAddress').value = p.formatted_address ?? '';
-      $('#placeId').value = p.place_id ?? '';
-      $('#placePhone').value = p.formatted_phone_number ?? p.international_phone_number ?? '';
-      $('#placeWebsite').value = p.website ?? '';
-      $('#placeUrl').value = p.url ?? '';
-    }
-    function updateMap(p) {
-      if (p.geometry?.location) {
-        const latLng = { lat: p.geometry.location.lat(), lng: p.geometry.location.lng() };
-        gmap.setCenter(latLng); gmap.setZoom(16); gmarker.setPosition(latLng); gmarker.setTitle(p.name || '');
-      }
-    }
-    function renderDetails(p) {
-      const list = $('#detailsList'); list.innerHTML = '';
-      const items = [
-        ['Name', p.name],
-        ['Address', p.formatted_address],
-        ['Rating', p.rating],
-        ['Place ID', p.place_id],
-        ['Phone', p.formatted_phone_number || p.international_phone_number],
-        ['Website', p.website],
-        ['Maps URL', p.url],
-      ];
-      items.forEach(([k,v]) => {
-        if (!v) return;
-        const li = document.createElement('li'); li.className='mb-1';
-        const vv = (k === 'Website' || k === 'Maps URL') ? `<a href="${sanitize(String(v))}" target="_blank" rel="noopener">${sanitize(String(v))}</a>` : sanitize(String(v));
-        li.innerHTML = `<strong>${sanitize(k)}:</strong> <span class="text-secondary">${vv}</span>`;
-        list.appendChild(li);
+        const loc = place.geometry.location;
+        gmap.setCenter(loc);
+        gmap.setZoom(16);
+        gmarker.setPosition(loc);
       });
     }
-    function clearPlace() {
-      $('#placeSearch').value = '';
-      ['#placeName','#placeRating','#placeAddress','#placeId','#placePhone','#placeWebsite','#placeUrl'].forEach(s => $(s).value = '');
-      $('#placeMsg').textContent = '';
-      $('#detailsList').innerHTML = '';
-      gmarker?.setPosition(null);
-      gmap?.setCenter({ lat: 31.5204, lng: 74.3587 }); gmap?.setZoom(12);
-    }
+    window.onGoogleMapsReady = onGoogleMapsReady;
 
     async function createCompany() {
-      const name = $('#placeName').value.trim();
-      const pid  = $('#placeId').value.trim();
-      const addr = $('#placeAddress').value.trim();
-      if (!name || !pid) { $('#placeMsg').textContent = 'Select a valid place first.'; return; }
+      const name = $('#placeName').value;
+      const pid = $('#placeId').value;
+      if (!name || !pid) return;
 
       const fd = new FormData();
       fd.append('name', name);
       fd.append('google_place_id', pid);
-      if (addr) fd.append('address', addr);
+      fd.append('address', $('#placeAddress').value);
 
-      $('#placeMsg').textContent = 'Creating…';
       try {
         const res = await fetch('/api/companies', { method:'POST', body: fd });
-        const data = await parseJSONSafe(res);
-        if (!res.ok || !data.success) {
-          const msg = (data && (data.message || data.raw)) || `HTTP ${res.status}`;
-          $('#placeMsg').textContent = msg;
-          if (res.status === 400 && String(msg).toLowerCase().includes('already')) {
-            await refreshCompaniesAndSelect(pid);
-          }
-          return;
-        }
-        $('#placeMsg').textContent = 'Company added. Background sync started.';
-        // Update dropdown with returned list
-        if (data.companies && Array.isArray(data.companies)) {
-          const sel = $('#companySelect'); sel.innerHTML = '';
-          data.companies.forEach(c => {
-            const opt = document.createElement('option');
-            opt.value = c.id; opt.textContent = c.name; sel.appendChild(opt);
-          });
-          sel.value = String(data.company.id);
-          $('#activeCompanyId').value = String(data.company.id);
-          refreshAll();
+        const data = await res.json();
+        if (data.success) {
+          alert('Company added! Refreshing list...');
+          location.reload();
         } else {
-          await refreshCompaniesAndSelect(pid);
+          alert(data.message);
         }
-      } catch (e) {
-        console.error(e);
-        $('#placeMsg').textContent = 'Failed to create company.';
-      }
+      } catch(e){ alert('Submission failed.'); }
     }
 
     // ===========================
-    // Page lifecycle
+    // Lifecycle
     // ===========================
     async function refreshAll() {
       await Promise.all([
@@ -852,33 +704,31 @@
         loadOperational(),
         loadAlerts(),
         loadExecutive(),
-        loadReviews(),
+        loadReviews()
       ]);
     }
 
     document.addEventListener('DOMContentLoaded', () => {
       $('#year').textContent = new Date().getFullYear();
-
-      // Initial load
       refreshAll();
-
-      // Events
-      $('#companySelect')?.addEventListener('change', () => refreshAll());
-      $('#btnApplyRange').addEventListener('click', () => refreshAll());
-      $('#reviewsSort').addEventListener('change', () => loadReviews());
-      $('#btnSync').addEventListener('click', triggerSync);
-      $('#btnSummaryPng').addEventListener('click', openSummaryPng);
-      $('#btnAspectTrendEmail').addEventListener('click', composeAspectTrendEmail);
-
-      $('#btnCreateCompany').addEventListener('click', createCompany);
-      $('#btnClearPlace').addEventListener('click', clearPlace);
+      
+      $('#companySelect').onchange = refreshAll;
+      $('#btnApplyRange').onclick = refreshAll;
+      $('#reviewsSort').onchange = loadReviews;
+      $('#btnSync').onclick = triggerSync;
+      $('#btnAspectTrendEmail').onclick = composeAspectTrendEmail;
+      $('#btnCreateCompany').onclick = createCompany;
+      $('#btnClearPlace').onclick = () => {
+        $('#placeSearch').value = '';
+        $$('input[readonly]').forEach(i => i.value = '');
+        gmarker.setPosition(null);
+      };
+      $('#btnSummaryPng').onclick = () => window.open(`/api/v2/charts/summary.png?${qstr(params())}`, '_blank');
     });
   </script>
 
-  <!-- Google Maps JavaScript API (Places library) -->
-  <!-- Uses your provided key; for templating you can also pass {{ google_maps_api_key }} -->
   <script
-    src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key | default('AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc') }}&libraries=places&v=weekly&callback=onGoogleMapsReady"
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&v=weekly&callback=onGoogleMapsReady"
     async defer
   ></script>
 </body>
