@@ -1,144 +1,215 @@
-# filename: review_saas/app/routes/dashboard.py
-from __future__ import annotations
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ReviewSaaS • Dashboard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        header.navbar { backdrop-filter: saturate(1.2) blur(6px); background-color: rgba(var(--bs-body-bg-rgb), 0.85); border-bottom: 1px solid var(--bs-border-color); }
+        .kpi-card .kpi-title { font-size: .85rem; color: var(--bs-secondary-color); font-weight: 600; text-transform: uppercase; }
+        .kpi-card .kpi-value { font-size: 1.8rem; font-weight: 800; color: #0d6efd; }
+        .badge-sentiment { padding: 4px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; }
+        .badge-positive { background: #16a34a; color: white; }
+        .badge-neutral { background: #64748b; color: white; }
+        .badge-negative { background: #dc2626; color: white; }
+        .kw-badge { border:1px solid var(--bs-border-color); border-radius: 999px; padding: .25rem .5rem; margin: .125rem; display:inline-block; font-size:.8rem; background: rgba(13, 110, 253, 0.05); }
+        .chart-wrap { height: 300px; }
+        .activity-item { border-bottom: 1px dashed var(--bs-border-color); padding: 10px 0; }
+    </style>
+</head>
+<body>
+    <header class="navbar navbar-expand-lg sticky-top">
+        <div class="container-fluid">
+            <a href="/dashboard" class="navbar-brand fw-bold text-primary"><i class="bi bi-bar-chart-fill me-2"></i> ReviewSaaS</a>
+            <div class="d-flex align-items-center gap-2">
+                <select id="companySelect" class="form-select form-select-sm" style="width: 200px;">
+                    {% if companies %}
+                        {% for c in companies %}
+                            <option value="{{ c.id }}" {% if c.id == active_company_id %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    {% else %}
+                        <option value="">No businesses found</option>
+                    {% endif %}
+                </select>
+                <input id="startDate" type="date" class="form-control form-control-sm" style="width: 140px;" />
+                <input id="endDate" type="date" class="form-control form-control-sm" style="width: 140px;" />
+                <button id="btnRefresh" class="btn btn-primary btn-sm">Apply</button>
+            </div>
+        </div>
+    </header>
 
-import logging
-import math
-import re
-from collections import Counter, defaultdict
-from dataclasses import dataclass
-from datetime import date, datetime, timedelta
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+    <main class="container my-4">
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="card kpi-card shadow-sm border-0">
+                    <div class="card-body">
+                        <div class="kpi-title">Total Reviews</div>
+                        <div id="kpiTotalReviews" class="kpi-value">—</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card kpi-card shadow-sm border-0">
+                    <div class="card-body">
+                        <div class="kpi-title">Avg Rating</div>
+                        <div id="kpiAvgRating" class="kpi-value">—</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card kpi-card shadow-sm border-0">
+                    <div class="card-body">
+                        <div class="kpi-title">Avg Sentiment</div>
+                        <div id="kpiAvgSentiment" class="kpi-value">—</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card kpi-card shadow-sm border-0">
+                    <div class="card-body">
+                        <div class="kpi-title">New (7d)</div>
+                        <div id="kpiNewReviews" class="kpi-value">—</div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse
-from sqlalchemy import Date, Integer, and_, case, cast, desc, func, literal, select
-from starlette.templating import Jinja2Templates
+        <div class="row g-3 mb-4">
+            <div class="col-xl-8">
+                <div class="card shadow-sm border-0 h-100">
+                    <div class="card-header bg-white fw-bold">Sentiment & Volume Trend</div>
+                    <div class="card-body chart-wrap">
+                        <canvas id="overviewChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-xl-4">
+                <div class="card shadow-sm border-0 h-100">
+                    <div class="card-header bg-white fw-bold">Sentiment Distribution</div>
+                    <div class="card-body d-flex align-items-center">
+                        <canvas id="sentPie"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-from app.core.db import get_session
-from app.core.models import Company, Review
-from app.routes.companies import _require_user
+        <div class="row g-3">
+            <div class="col-lg-4">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-white fw-bold">Top Keywords</div>
+                    <div class="card-body">
+                        <h6 class="small fw-bold text-success">Positive</h6>
+                        <div id="kwPositive" class="mb-3"></div>
+                        <h6 class="small fw-bold text-danger">Negative</h6>
+                        <div id="kwNegative" class="mb-3"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-8">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-white fw-bold d-flex justify-content-between">
+                        <span>Recent Reviews</span>
+                    </div>
+                    <div class="card-body overflow-auto" style="max-height: 400px;" id="reviewsFeed">
+                        <div class="text-center py-5 text-muted">Select a company to view reviews.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
 
-router = APIRouter(tags=["dashboard"])
-templates = Jinja2Templates(directory="app/templates")
-logger = logging.getLogger("app.dashboard")
+    <script>
+        const $ = (s) => document.querySelector(s);
+        let overviewChart = null, sentPie = null;
 
-# ──────────────────────────────────────────────────────────────────────────────
-# NLP & Sentiment Logic (Negation Aware)
-# ──────────────────────────────────────────────────────────────────────────────
-_RATING_PROXY = {5: 0.8, 4: 0.4, 3: 0.0, 2: -0.4, 1: -0.8}
-_NEGATORS = {"not", "never", "no", "hardly", "barely", "scarcely", "without", "lack"}
-_TOKEN_RE = re.compile(r"[a-zA-Z]+")
-
-_LEXICON = {
-    "great": 4, "excellent": 5, "good": 3, "friendly": 3, "clean": 2, "amazing": 4,
-    "bad": -3, "poor": -3, "worst": -5, "slow": -2, "dirty": -3, "rude": -4, "issue": -2
-}
-
-def _tokenize(text: str) -> List[str]:
-    if not text: return []
-    toks = [t.lower() for t in _TOKEN_RE.findall(text)]
-    return [t for t in toks if len(t) > 2]
-
-def _safe_sentiment(text: str, rating: Optional[int] = None) -> float:
-    tokens = _tokenize(text or "")
-    score = 0.0
-    for i, t in enumerate(tokens):
-        base = _LEXICON.get(t, 0)
-        if base > 0 and any(tokens[j] in _NEGATORS for j in range(max(0, i-3), i)):
-            base = -abs(base)
-        score += base
-    norm = score / max(1.0, math.sqrt(len(tokens) or 1))
-    lex = float(max(-1.0, min(1.0, norm / 5.0)))
-    if rating is None: return lex
-    proxy = _RATING_PROXY.get(int(rating), 0.0)
-    return float(max(-1.0, min(1.0, 0.65 * lex + 0.35 * proxy)))
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Routes
-# ──────────────────────────────────────────────────────────────────────────────
-
-@router.get("/dashboard", response_class=HTMLResponse)
-async def get_dashboard(request: Request, company_id: Optional[int] = Query(None)):
-    uid = _require_user(request)
-    
-    async with get_session() as session:
-        result = await session.execute(select(Company).order_by(Company.name))
-        companies = result.scalars().all()
-    
-    # CRITICAL SAFETY CHECK: Handle empty database
-    active_company_id = None
-    if company_id:
-        active_company_id = int(company_id)
-    elif companies:
-        active_company_id = companies[0].id
-
-    # Must provide ALL keys used in dashboard.html to avoid Jinja2 errors
-    return templates.TemplateResponse(
-        "dashboard.html",
-        {
-            "request": request,
-            "companies": companies or [],
-            "active_company_id": active_company_id,
-            "api_links": {
-                "kpis": "/api/kpis",
-                "series_overview": "/api/series/overview",
-                "sentiment_share": "/api/sentiment/share",
-                "ratings_distribution": "/api/ratings/distribution",
-                "aspects_sentiment": "/api/aspects/sentiment",
-                "operational_overview": "/api/operational/overview",
-                "alerts": "/api/alerts",
-                "v2_keywords": "/api/v2/keywords",
-                "reviews_list": "/api/reviews/list"
-            }
-        },
-    )
-
-@router.get("/api/kpis")
-async def api_kpis(request: Request, company_id: int):
-    _require_user(request)
-    async with get_session() as session:
-        # Simple AVG sentiment using score or rating proxy
-        avg_sent_expr = func.avg(func.coalesce(func.nullif(Review.sentiment_score, 0.0), 
-            case((Review.rating == 5, 0.8), (Review.rating == 4, 0.4), (Review.rating == 1, -0.8), else_=0.0)))
-        
-        stmt = select(func.count(Review.id), func.avg(Review.rating), avg_sent_expr).where(Review.company_id == company_id)
-        res = (await session.execute(stmt)).first()
-        
-        return {
-            "total_reviews": int(res[0] or 0),
-            "avg_rating": round(float(res[1] or 0), 2),
-            "avg_sentiment": round(float(res[2] or 0), 3),
-            "new_reviews": 0 # Logic for last 7 days can be added here
+        // Fetch query parameters
+        function getQS() {
+            const cid = $('#companySelect').value;
+            if (!cid) return null;
+            return `company_id=${cid}&start=${$('#startDate').value}&end=${$('#endDate').value}`;
         }
 
-@router.get("/api/series/overview")
-async def api_series_overview(request: Request, company_id: int):
-    _require_user(request)
-    return {"volume": [], "rating": [], "sentiment": []} # Fallback for empty charts
+        async function refresh() {
+            const qs = getQS();
+            if (!qs) return;
 
-@router.get("/api/reviews/list")
-async def api_reviews_list(request: Request, company_id: int):
-    _require_user(request)
-    async with get_session() as session:
-        stmt = select(Review).where(Review.company_id == company_id).order_by(desc(Review.google_review_time)).limit(50)
-        rows = (await session.execute(stmt)).scalars().all()
-        return {"items": [{"author_name": r.author_name, "rating": r.rating, "text": r.text, "review_time": str(r.google_review_time)[:10]} for r in rows]}
+            // 1. Load KPIs
+            fetch(`/api/kpis?${qs}`).then(r => r.json()).then(data => {
+                $('#kpiTotalReviews').textContent = data.total_reviews;
+                $('#kpiAvgRating').textContent = data.avg_rating;
+                $('#kpiAvgSentiment').textContent = data.avg_sentiment;
+                $('#kpiNewReviews').textContent = data.new_reviews;
+            });
 
-# Placeholder endpoints to prevent 404s from Dashboard JavaScript
-@router.get("/api/sentiment/share")
-async def api_sentiment_share(): return {"counts": {"positive": 0, "neutral": 0, "negative": 0}}
+            // 2. Load Charts (Series Overview)
+            fetch(`/api/series/overview?${qs}`).then(r => r.json()).then(data => {
+                if (overviewChart) overviewChart.destroy();
+                overviewChart = new Chart($('#overviewChart'), {
+                    type: 'line',
+                    data: {
+                        labels: data.volume.map(d => d.date),
+                        datasets: [
+                            { label: 'Reviews', data: data.volume.map(d => d.value), borderColor: '#0d6efd', tension: 0.3 },
+                            { label: 'Sentiment', data: data.sentiment.map(d => d.value), borderColor: '#fd7e14', tension: 0.3 }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+            });
 
-@router.get("/api/ratings/distribution")
-async def api_ratings_dist(): return {"distribution": {i: 0 for i in range(1, 6)}}
+            // 3. Load Sentiment Share
+            fetch(`/api/sentiment/share?${qs}`).then(r => r.json()).then(data => {
+                if (sentPie) sentPie.destroy();
+                sentPie = new Chart($('#sentPie'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Positive', 'Neutral', 'Negative'],
+                        datasets: [{
+                            data: [data.counts.positive, data.counts.neutral, data.counts.negative],
+                            backgroundColor: ['#16a34a', '#64748b', '#dc2626']
+                        }]
+                    }
+                });
+            });
 
-@router.get("/api/aspects/sentiment")
-async def api_aspects(): return {"aspects": []}
+            // 4. Load Keywords
+            fetch(`/api/v2/keywords?${qs}`).then(r => r.json()).then(data => {
+                const badge = (k) => `<span class="kw-badge">${k.term} (${k.freq})</span>`;
+                $('#kwPositive').innerHTML = data.positive.slice(0, 10).map(badge).join('');
+                $('#kwNegative').innerHTML = data.negative.slice(0, 10).map(badge).join('');
+            });
 
-@router.get("/api/operational/overview")
-async def api_ops(): return {"urgent_issues": []}
+            // 5. Load Review Feed
+            fetch(`/api/reviews/list?${qs}`).then(r => r.json()).then(data => {
+                $('#reviewsFeed').innerHTML = data.items.map(r => `
+                    <div class="activity-item">
+                        <div class="d-flex justify-content-between">
+                            <strong>${r.author_name}</strong>
+                            <span class="text-warning">${'★'.repeat(r.rating)}</span>
+                        </div>
+                        <p class="small mb-1">${r.text}</p>
+                        <small class="text-muted">${r.review_time}</small>
+                    </div>
+                `).join('');
+            });
+        }
 
-@router.get("/api/alerts")
-async def api_alerts(): return {"alerts": []}
-
-@router.get("/api/v2/keywords")
-async def api_keywords(): return {"positive":[], "negative":[], "emerging":[], "bigrams":[]}
+        // Init Dates
+        document.addEventListener('DOMContentLoaded', () => {
+            const end = new Date();
+            const start = new Date();
+            start.setDate(end.getDate() - 30);
+            $('#endDate').value = end.toISOString().split('T')[0];
+            $('#startDate').value = start.toISOString().split('T')[0];
+            
+            $('#btnRefresh').onclick = refresh;
+            $('#companySelect').onchange = refresh;
+            
+            refresh();
+        });
+    </script>
+</body>
+</html>
