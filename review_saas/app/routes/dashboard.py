@@ -1022,4 +1022,4 @@ async def keywords_v2(request: Request, company_id: int, start: Optional[str] = 
         "positive": _cast(kw["positive"]),
         "negative": _cast(kw["negative"]),
         "emerging": _cast(kw["emerging"]),
-        "bigrams": [{"term": t, "freq": f} for (t, f)
+     "bigrams": [{"term": t, "freq": f} for (t, f) in bigrams],
