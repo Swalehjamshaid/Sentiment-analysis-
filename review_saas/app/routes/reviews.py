@@ -34,7 +34,7 @@ def _normalize_window(start: Optional[str], end: Optional[str]) -> Tuple[datetim
             if len(val) == 10:
                 return datetime.strptime(val, "%Y-%m-%d")
             return datetime.fromisoformat(val.replace("Z", "+00:00"))
-        except:
+        except Exception:
             return None
 
     s = _parse(start)
@@ -49,6 +49,7 @@ def _normalize_window(start: Optional[str], end: Optional[str]) -> Tuple[datetim
     if e and not s:
         s = e - timedelta(days=DEFAULT_DAYS - 1)
 
+    # Normalize to day bounds (inclusive)
     s = datetime.combine(s.date(), time.min)
     e = datetime.combine(e.date(), time.max)
 
@@ -93,9 +94,9 @@ async def reviews_list(
     if sort == "oldest":
         order = [dtcol.asc()]
     elif sort == "highest":
-        order = [Review.rating.desc(), dtcol.desc()]
+        order = [Review.rating.desc(), dtcol.desc()] if hasattr(Review, "rating") else [dtcol.desc()]
     elif sort == "lowest":
-        order = [Review.rating.asc(), dtcol.desc()]
+        order = [Review.rating.asc(), dtcol.desc()] if hasattr(Review, "rating") else [dtcol.desc()]
     else:
         order = [dtcol.desc()]
 
@@ -119,15 +120,15 @@ async def reviews_list(
             return v.strftime("%Y-%m-%d")
         try:
             return str(v)[:10]
-        except:
+        except Exception:
             return str(v)
 
     items = []
     for r in rows:
         items.append({
-            "author_name": r.author_name or "Anonymous",
-            "rating": int(r.rating or 0),
-            "text": r.text or "",
+            "author_name": (getattr(r, "author_name", None) or getattr(r, "author", None) or "Anonymous"),
+            "rating": int(getattr(r, "rating", 0) or 0),
+            "text": getattr(r, "text", None) or getattr(r, "review_text", None) or "",
             "review_time": _fmt_dt(
                 getattr(r, "google_review_time", None)
                 or getattr(r, "review_date", None)
@@ -188,25 +189,62 @@ async def ingest_reviews(
         for r in data:
             dt_val = r.time_created
 
-            # Duplicate detection
-            existing = await db.execute(
-                select(Review).where(
-                    Review.company_id == company_id,
-                    Review.author_name == r.author_name,
-                    Review.google_review_time == dt_val,
-                )
-            )
-            if existing.scalars().first():
+            # Duplicate detection:
+            # Prefer an external_review_id/google_review_id if your model has it,
+            # otherwise fallback to (company_id, author_name, time)
+            dedup_done = False
+            for id_field in ("external_review_id", "google_review_id"):
+                if hasattr(Review, id_field) and r.review_id:
+                    existing = await db.execute(
+                        select(Review).where(getattr(Review, id_field) == r.review_id)
+                    )
+                    if existing.scalars().first():
+                        dedup_done = True
+                        break
+            if dedup_done:
                 continue
 
+            if not dedup_done:
+                existing = await db.execute(
+                    select(Review).where(
+                        and_(
+                            Review.company_id == company_id,
+                            Review.author_name == (r.author_name or "Anonymous"),
+                            _resolve_dt_col() == dt_val,
+                        )
+                    )
+                )
+                if existing.scalars().first():
+                    continue
+
             row = Review()
+            # Mandatory
             row.company_id = company_id
             row.author_name = r.author_name or "Anonymous"
             row.rating = r.rating
             row.text = r.text
-            row.google_review_time = dt_val
-            row.profile_photo_url = r.additional_fields.get("profile_photo_url") if r.additional_fields else None
-            row.competitor_name = r.competitor_name
+
+            # Datetime (set both if your model has both)
+            if hasattr(Review, "google_review_time"):
+                row.google_review_time = dt_val
+            if hasattr(Review, "review_date"):
+                row.review_date = dt_val
+
+            # IDs if available
+            if hasattr(Review, "external_review_id"):
+                row.external_review_id = r.review_id
+            if hasattr(Review, "google_review_id"):
+                row.google_review_id = r.review_id
+
+            # Optional fields
+            if hasattr(Review, "profile_photo_url"):
+                row.profile_photo_url = (r.additional_fields or {}).get("profile_photo_url")
+            if hasattr(Review, "competitor_name"):
+                row.competitor_name = r.competitor_name
+            if hasattr(Review, "source_platform"):
+                row.source_platform = r.source_platform or "Google"
+            elif hasattr(Review, "platform"):
+                row.platform = r.source_platform or "Google"
 
             db.add(row)
             total_saved += 1
@@ -254,7 +292,7 @@ async def reviews_feed_legacy(
     def _fmt(v):
         try:
             return v.isoformat()
-        except:
+        except Exception:
             return str(v)
 
     out = []
@@ -264,7 +302,7 @@ async def reviews_feed_legacy(
             "author_name": r.author_name,
             "rating": r.rating,
             "text": r.text,
-            "review_time": _fmt(getattr(r, "google_review_time", None)),
+            "review_time": _fmt(getattr(r, "google_review_time", None) or getattr(r, "review_date", None)),
             "profile_photo_url": getattr(r, "profile_photo_url", None),
         })
 
@@ -292,7 +330,7 @@ async def competitor_stats(
         select(Review)
         .where(
             Review.company_id == company_id,
-            Review.competitor_name != None,
+            Review.competitor_name != None,  # noqa: E711
             dtcol >= s,
             dtcol <= e,
         )
