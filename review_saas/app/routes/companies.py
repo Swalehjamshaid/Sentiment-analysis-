@@ -24,6 +24,7 @@ templates = Jinja2Templates(directory="app/templates")
 def _require_user(request: Request) -> int | None:
     user_id = request.session.get("user_id")
     if not user_id:
+        # Important: return JSON 401 to keep front-end fetch() happy
         raise HTTPException(status_code=401, detail="Not authenticated")
     return user_id
 
@@ -80,7 +81,7 @@ async def _get_companies_data(session, uid: int):
     ]
 
 # ─────────────────────────────────────────────────────────────
-# UI: Companies page
+# UI: Companies page (HTML)
 # ─────────────────────────────────────────────────────────────
 @router.get("/companies", response_class=HTMLResponse, include_in_schema=False)
 async def companies_page(
@@ -117,7 +118,7 @@ async def companies_page(
     )
 
 # ─────────────────────────────────────────────────────────────
-# API: List companies
+# API: List companies (JSON)
 # ─────────────────────────────────────────────────────────────
 @router.get("/companies/list")
 async def list_companies(request: Request):
@@ -148,7 +149,7 @@ async def search_google_places(q: str = Query(..., min_length=3)):
         return {"success": False, "message": str(e)}
 
 # ─────────────────────────────────────────────────────────────
-# API: Add new company
+# API: Add new company (called by front-end FormData)
 # ─────────────────────────────────────────────────────────────
 @router.post("/companies")
 async def add_new_company(
@@ -158,20 +159,28 @@ async def add_new_company(
     google_place_id: str = Form(...),
     address: str | None = Form(None),
 ):
+    """
+    Front-end calls this with FormData. We return 200 with {success, id, message}.
+    If the company already exists for this owner, we return success=True + existing id
+    so the UI can continue without showing a 400 error.
+    """
     uid = _require_user(request)
     async with get_session() as session:
-        # Check duplicate
+        # Check duplicate by (owner_id, google_place_id)
         existing = await session.execute(
             select(Company).where(
                 Company.google_place_id == google_place_id,
                 Company.owner_id == uid,
             )
         )
-        if existing.scalar_one_or_none():
-            return JSONResponse(
-                {"success": False, "message": "This place is already added for your account"},
-                status_code=400,
-            )
+        exist_company = existing.scalar_one_or_none()
+        if exist_company:
+            # Return success True to keep UI happy (no special error handling needed)
+            return {
+                "success": True,
+                "id": int(exist_company.id),
+                "message": "This place is already added for your account.",
+            }
 
         # Create company
         new_company = Company(
@@ -194,15 +203,19 @@ async def add_new_company(
         await session.commit()
         await session.refresh(new_company)
 
-        # Trigger background sync
-        reviews_client = _get_reviews_client(request)
-        sync_entities = [{"place_id": google_place_id, "name": name}]
-        bg_tasks.add_task(
-            run_batch_review_ingestion, 
-            api_client=reviews_client,
-            primary_company_id=new_company.id,
-            entities=sync_entities
-        )
+        # Trigger background sync immediately (so first charts load after a short delay)
+        try:
+            reviews_client = _get_reviews_client(request)
+            sync_entities = [{"place_id": google_place_id, "name": name}]
+            bg_tasks.add_task(
+                run_batch_review_ingestion,
+                api_client=reviews_client,
+                primary_company_id=new_company.id,
+                entities=sync_entities
+            )
+        except HTTPException as e:
+            # If reviews client not configured, still return success; UI will work with empty data
+            logger.warning("Reviews client missing; skipping initial sync: %s", e.detail)
 
         companies = await _get_companies_data(session, uid)
 
@@ -210,17 +223,18 @@ async def add_new_company(
 
     return {
         "success": True,
+        "id": int(new_company.id),
         "company": {
-            "id": new_company.id,
+            "id": int(new_company.id),
             "name": new_company.name,
             "place_id": new_company.google_place_id,
         },
         "companies": companies,
-        "message": "Company added successfully. Review sync and database save started.",
+        "message": "Company added. Review sync started in background.",
     }
 
 # ─────────────────────────────────────────────────────────────
-# API: Sync reviews for existing company
+# API: Sync reviews for existing company (front-end Sync button)
 # ─────────────────────────────────────────────────────────────
 @router.post("/companies/{company_id}/sync")
 async def company_sync(
@@ -228,13 +242,20 @@ async def company_sync(
     request: Request,
     bg_tasks: BackgroundTasks,
 ):
+    """
+    Trigger background ingestion for the given company.
+    Front-end calls this with an empty POST body.
+    """
     uid = _require_user(request)
     async with get_session() as session:
         company = await session.get(Company, company_id)
         if not company or company.owner_id != uid:
             raise HTTPException(404, "Company not found or not owned by you")
 
-        # Triggering background sync
+        if not company.google_place_id:
+            raise HTTPException(status_code=400, detail="Company has no google_place_id configured")
+
+        # Trigger background sync (non-blocking)
         reviews_client = _get_reviews_client(request)
         sync_entities = [{"place_id": company.google_place_id, "name": company.name}]
         bg_tasks.add_task(
@@ -257,7 +278,7 @@ async def company_sync(
     return {
         "success": True,
         "message": "Background database sync triggered successfully",
-        "companies": companies
+        "companies": companies,
     }
 
 # ─────────────────────────────────────────────────────────────
