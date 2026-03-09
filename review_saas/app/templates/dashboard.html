@@ -333,8 +333,6 @@
     </span>
   </footer>
 
-  
-
   <script
     src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
     integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
@@ -369,7 +367,7 @@
     const $  = (s) => document.querySelector(s);
     const $$ = (s) => document.querySelectorAll(s);
     const fmt = new Intl.NumberFormat();
-    
+
     const parseJSONSafe = async (res) => {
       const text = await res.text().catch(()=> '');
       try { return JSON.parse(text || '{}'); } catch { return { raw: text }; }
@@ -397,10 +395,10 @@
       else { el.textContent = '—'; el.className='kpi-delta'; }
     }
 
-    function sanitize(s) { 
-      const d = document.createElement('div'); 
-      d.textContent = s ?? ''; 
-      return d.innerHTML; 
+    function sanitize(s) {
+      const d = document.createElement('div');
+      d.textContent = s ?? '';
+      return d.innerHTML;
     }
 
     // ===========================
@@ -408,12 +406,12 @@
     // ===========================
     window._charts = [];
     let overviewChart, sentPie, ratingsHist, aspectsStacked;
-    const destroyChart = (c) => { 
-      if (c) { 
-        c.destroy(); 
-        const i = window._charts.indexOf(c); 
+    const destroyChart = (c) => {
+      if (c) {
+        c.destroy();
+        const i = window._charts.indexOf(c);
         if (i>=0) window._charts.splice(i,1);
-      } 
+      }
     };
 
     async function loadKpis() {
@@ -439,7 +437,7 @@
         const vol = (data.volume || []).map(d => d.value ?? 0);
         const rat = (data.rating || []).map(d => d.value ?? 0);
         const sen = (data.sentiment || []).map(d => d.value ?? 0);
-        
+
         destroyChart(overviewChart);
         overviewChart = new Chart($('#overviewChart'), {
           type: 'line',
@@ -537,14 +535,14 @@
         const data = await res.json();
         const issues = data.urgent_issues || [];
         if (!issues.length) { el.innerHTML = '<div class="text-secondary p-4">No urgent issues found.</div>'; return; }
-        
+
         el.innerHTML = issues.map(it => `
           <div class="activity-item">
             <div class="d-flex justify-content-between align-items-start">
               <div>
                 <span class="badge badge-sentiment ${it.sentiment_label === 'negative' ? 'negative' : 'neutral'} me-2">${sanitize(it.sentiment_label)}</span>
-                <strong>${sanitize(it.author_name)}</strong> — ${sanitize(it.text.substring(0, 200))}...
-                <div class="mt-1 small text-warning">${'★'.repeat(it.rating)}</div>
+                <strong>${sanitize(it.author_name)}</strong> — ${sanitize((it.text || '').substring(0, 200))}...
+                <div class="mt-1 small text-warning">${'★'.repeat(Number(it.rating || 0))}</div>
               </div>
               <small class="text-secondary ms-2">${sanitize(it.review_time)}</small>
             </div>
@@ -593,13 +591,13 @@
         const data = await res.json();
         const items = data.items || [];
         if (!items.length) { feed.innerHTML = '<div class="text-secondary p-4">No reviews available.</div>'; return; }
-        
+
         feed.innerHTML = items.map(r => `
           <div class="activity-item">
             <div class="d-flex justify-content-between">
               <div>
                 <strong>${sanitize(r.author_name)}</strong>
-                <span class="text-warning ms-2">${'★'.repeat(r.rating)}</span>
+                <span class="text-warning ms-2">${'★'.repeat(Number(r.rating || 0))}</span>
                 <p class="mt-1 mb-0">${sanitize(r.text)}</p>
               </div>
               <small class="text-secondary">${sanitize(r.review_time)}</small>
@@ -617,6 +615,7 @@
       if (!company_id) return;
       $('#btnSync').disabled = true;
       try {
+        // No body required; backend will resolve place_id from company if missing
         await fetch(`/api/companies/${encodeURIComponent(company_id)}/sync`, { method:'POST' });
         alert('Sync triggered. Refreshing data in 3 seconds...');
         setTimeout(refreshAll, 3000);
@@ -641,9 +640,9 @@
       const mapEl = $('#map');
       gmap = new google.maps.Map(mapEl, { center: { lat: 31.52, lng: 74.35 }, zoom: 12 });
       gmarker = new google.maps.Marker({ map: gmap });
-      
+
       const input = $('#placeSearch');
-      autocomplete = new google.maps.places.Autocomplete(input, { 
+      autocomplete = new google.maps.places.Autocomplete(input, {
         fields: ['place_id', 'name', 'formatted_address', 'geometry', 'rating', 'website', 'url', 'formatted_phone_number'],
         types: ['establishment']
       });
@@ -651,8 +650,8 @@
 
       autocomplete.addListener('place_changed', () => {
         const place = autocomplete.getPlace();
-        if (!place.geometry) return;
-        
+        if (!place || !place.geometry) return;
+
         $('#placeName').value = place.name || '';
         $('#placeRating').value = place.rating || '';
         $('#placeAddress').value = place.formatted_address || '';
@@ -664,7 +663,7 @@
         const loc = place.geometry.location;
         gmap.setCenter(loc);
         gmap.setZoom(16);
-        gmarker.setPosition(loc);
+        if (gmarker) gmarker.setPosition(loc);
       });
     }
     window.onGoogleMapsReady = onGoogleMapsReady;
@@ -686,7 +685,7 @@
           alert('Company added! Refreshing list...');
           location.reload();
         } else {
-          alert(data.message);
+          alert(data.message || 'Failed to add company.');
         }
       } catch(e){ alert('Submission failed.'); }
     }
@@ -710,9 +709,13 @@
 
     document.addEventListener('DOMContentLoaded', () => {
       $('#year').textContent = new Date().getFullYear();
+      // Initialize selects & load data
+      if (!$('#companySelect') && $('#activeCompanyId')?.value) {
+        // hidden field fallback already set
+      }
       refreshAll();
-      
-      $('#companySelect').onchange = refreshAll;
+
+      $('#companySelect') && ($('#companySelect').onchange = refreshAll);
       $('#btnApplyRange').onclick = refreshAll;
       $('#reviewsSort').onchange = loadReviews;
       $('#btnSync').onclick = triggerSync;
@@ -720,13 +723,14 @@
       $('#btnCreateCompany').onclick = createCompany;
       $('#btnClearPlace').onclick = () => {
         $('#placeSearch').value = '';
-        $$('input[readonly]').forEach(i => i.value = '');
-        gmarker.setPosition(null);
+        $$('input[readonly]').forEach(i => (i.value = ''));
+        if (gmarker) gmarker.setPosition(null);
       };
       $('#btnSummaryPng').onclick = () => window.open(`/api/v2/charts/summary.png?${qstr(params())}`, '_blank');
     });
   </script>
 
+  <!-- Keep your Google Maps API key and callback intact -->
   <script
     src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&v=weekly&callback=onGoogleMapsReady"
     async defer
