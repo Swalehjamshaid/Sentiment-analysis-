@@ -1,11 +1,9 @@
 # filename: app/main.py
 from __future__ import annotations
-
 import logging
 import os
 from contextlib import asynccontextmanager
 from typing import Any, Dict
-
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,11 +13,9 @@ from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from sqlalchemy import text, select, func
 from sqlalchemy.ext.asyncio import AsyncEngine
-
 from app.core.config import settings
 from app.core.db import get_engine, get_session
 from app.core.models import Base, SCHEMA_VERSION, Company, Review
-
 # Routers
 from app.routes import auth as auth_routes
 from app.routes import companies as companies_routes
@@ -45,7 +41,7 @@ class OutscraperClient:
     Parses the nested list response and extracts 'reviews_data'.
     """
     BASE_URL = "https://api.app.outscraper.com/google-reviews"
-
+    
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=30.0))
@@ -56,17 +52,14 @@ class OutscraperClient:
                 "query": place_id,
                 "limit": limit,
                 "offset": offset,
-                "async": "false",  # synchronous mode
+                "async": "false", # synchronous mode
             }
             headers = {"X-API-KEY": self.api_key}
-
             logger.info("📡 Requesting Outscraper reviews for Place ID: %s", place_id)
             response = await self.client.get(self.BASE_URL, params=params, headers=headers)
-
             if response.status_code != 200:
                 logger.error("❌ Outscraper API Error %s: %s", response.status_code, response.text)
                 return {"reviews": []}
-
             data = response.json()
             # Expected top-level list -> item 0 -> "reviews_data"
             if isinstance(data, list) and data:
@@ -76,10 +69,8 @@ class OutscraperClient:
                     logger.warning("⚠️ Outscraper error: %s", q["error"])
                 logger.info("✅ Fetched %s reviews for %s", len(reviews), place_id)
                 return {"reviews": reviews}
-
             logger.warning("⚠️ Outscraper returned unexpected format (not a list or empty).")
             return {"reviews": []}
-
         except Exception as e:
             logger.error("🚨 Outscraper Client Failure: %s", e, exc_info=True)
             return {"reviews": []}
@@ -87,16 +78,14 @@ class OutscraperClient:
     async def close(self):
         await self.client.aclose()
 
-
 class DummyReviewsClient:
     """Fallback when API key is missing — prevents crash but logs warning."""
     async def get_reviews(self, *args, **kwargs):
         logger.warning("⚠️ DUMMY MODE: No real reviews will be fetched.")
         return {"reviews": []}
-
+    
     async def close(self):
         pass
-
 
 # -----------------------------------------------------------------------------
 # Lifespan (startup / shutdown)
@@ -114,17 +103,14 @@ async def lifespan(app: FastAPI):
                     value TEXT
                 )
             """))
-
             # Check schema version
             result = await conn.execute(text("SELECT value FROM config WHERE key='schema_version'"))
             row = result.first()
             db_version = row[0] if row else None
-
             if db_version != str(SCHEMA_VERSION):
                 logger.warning("🔄 Schema mismatch: DB v%s → v%s. Rebuilding...", db_version, SCHEMA_VERSION)
                 await conn.run_sync(Base.metadata.drop_all)
                 await conn.run_sync(Base.metadata.create_all)
-
                 # Upsert version
                 await conn.execute(
                     text("""
@@ -167,7 +153,6 @@ async def lifespan(app: FastAPI):
             pass
         logger.info("Outscraper client closed.")
 
-
 # -----------------------------------------------------------------------------
 # FastAPI app
 # -----------------------------------------------------------------------------
@@ -176,7 +161,7 @@ app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 # Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],        # adjust as needed
+    allow_origins=["*"],  # adjust as needed
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -187,15 +172,12 @@ app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
-
 # -----------------------------------------------------------------------------
 # Diagnostics & Health
 # -----------------------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def landing(request: Request):
-    # You can add "settings" in context if you want to expose keys for template usage
     return templates.TemplateResponse("landing.html", {"request": request, "settings": settings})
-
 
 @app.get("/health")
 async def health():
@@ -207,7 +189,6 @@ async def health():
         "schema_version": SCHEMA_VERSION,
     }
 
-
 @app.get("/api/diagnostics/db-check")
 async def db_diagnostic_check(company_id: int):
     """
@@ -218,14 +199,12 @@ async def db_diagnostic_check(company_id: int):
         total_reviews = (await session.execute(
             select(func.count(Review.id)).where(Review.company_id == company_id)
         )).scalar() or 0
-
         dates = (await session.execute(
             select(
                 func.min(Review.google_review_time),
                 func.max(Review.google_review_time),
             ).where(Review.company_id == company_id)
         )).first()
-
         return {
             "company_id": company_id,
             "reviews_in_database": int(total_reviews),
@@ -234,8 +213,7 @@ async def db_diagnostic_check(company_id: int):
             "api_status": getattr(app.state, "api_status", "unknown"),
         }
 
-
-# Optional: quick template checker to catch Jinja errors early (remove in prod if desired)
+# Optional: quick template checker
 @app.get("/__template_check")
 async def __template_check(request: Request):
     try:
@@ -244,15 +222,36 @@ async def __template_check(request: Request):
             {"request": request, "companies": [], "active_company_id": None},
         )
     except Exception as e:
-        # Surface the exception so you see the exact template error/line in the browser
         return Response(str(e), status_code=500)
 
-
 # -----------------------------------------------------------------------------
-# Routers (order matters only if paths overlap; these are distinct)
+# Routers
 # -----------------------------------------------------------------------------
 app.include_router(auth_routes.router)
 app.include_router(companies_routes.router)
 app.include_router(dashboard_routes.router)
 app.include_router(reviews_routes.router)
 app.include_router(exports_routes.router)
+
+# -----------------------------------------------------------------------------
+# Railway / production entry point
+# -----------------------------------------------------------------------------
+if __name__ == "__main__":
+    import uvicorn
+    
+    # Railway sets PORT environment variable
+    port = int(os.getenv("PORT", "8080"))
+    host = "0.0.0.0"
+    
+    logger.info(f"Starting Uvicorn → http://{host}:{port}")
+    
+    uvicorn.run(
+        "app.main:app",
+        host=host,
+        port=port,
+        log_level="info",
+        # Recommended for Railway (limits concurrency to avoid memory issues)
+        workers=1,
+        limit_concurrency=500,
+        timeout_keep_alive=30,
+    )
