@@ -2,172 +2,147 @@
 from __future__ import annotations
 
 from typing import List, Optional, Dict, Any, Tuple
-from collections import Counter
 from datetime import datetime, timedelta, date, time
+from collections import Counter
 
-from fastapi import APIRouter, HTTPException, Query, Depends, Request
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Query, Depends, HTTPException, Request
 from sqlalchemy import select, and_
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.models import Review, Company
 from app.services.google_reviews import OutscraperReviewsService, ReviewData
 
-# ---------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------
 DEFAULT_DAYS = 30
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
-# ---------------------------------------------------------
+# -------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------
-def _normalize_window(start_date: Optional[str], end_date: Optional[str]) -> Tuple[Optional[datetime], Optional[datetime]]:
+# -------------------------------------------------------------------
+
+def _normalize_window(start: Optional[str], end: Optional[str]) -> Tuple[datetime, datetime]:
     """
-    Accepts YYYY-MM-DD or ISO8601 strings and returns (start_dt, end_dt) inclusive.
-    If only date is provided, expands start->00:00:00 and end->23:59:59.999999.
-    If BOTH are missing/blank, defaults to the last 30 days (inclusive).
+    Handles dashboard date filters.
+    - If empty → last 30 days
+    - Accepts YYYY-MM-DD or ISO strings
     """
-    def _parse(s: Optional[str]) -> Optional[datetime]:
-        if not s:
+    def _parse(val: Optional[str]):
+        if not val:
             return None
         try:
-            # Simple date
-            if len(s) == 10:
-                return datetime.strptime(s, "%Y-%m-%d")
-            # ISO (strip Z to allow +00:00)
-            return datetime.fromisoformat(s.replace("Z", "+00:00"))
-        except Exception:
+            if len(val) == 10:
+                return datetime.strptime(val, "%Y-%m-%d")
+            return datetime.fromisoformat(val.replace("Z", "+00:00"))
+        except:
             return None
 
-    s = _parse(start_date)
-    e = _parse(end_date)
+    s = _parse(start)
+    e = _parse(end)
 
-    # Default to last 30 days when both empty
     if not s and not e:
         e = datetime.combine(date.today(), datetime.max.time())
         s = e - timedelta(days=DEFAULT_DAYS - 1)
 
-    # If user provided one side only, fill the other
     if s and not e:
         e = datetime.combine(date.today(), datetime.max.time())
     if e and not s:
         s = e - timedelta(days=DEFAULT_DAYS - 1)
 
-    if s and s.tzinfo:
-        s = s.replace(tzinfo=None)
-    if e and e.tzinfo:
-        e = e.replace(tzinfo=None)
+    s = datetime.combine(s.date(), time.min)
+    e = datetime.combine(e.date(), time.max)
 
-    if s:
-        s = datetime.combine(s.date(), time.min)
-    if e:
-        e = datetime.combine(e.date(), time.max)
-
-    if s and e and s > e:
+    if s > e:
         s, e = e, s
 
     return s, e
 
-def _set_if_has(obj: Any, field: str, value: Any):
-    if hasattr(obj, field):
-        setattr(obj, field, value)
 
-def _reviews_client(request: Request):
-    client = getattr(request.app.state, "google_reviews_client", None)
-    if client is None:
-        raise HTTPException(status_code=501, detail="Reviews API client not configured (app.state.google_reviews_client)")
-    return client
-
-def _resolve_date_col():
-    """
-    Resolve the best available datetime column for date filtering and ordering.
-    Prefers: google_review_time -> review_date -> created_at -> id (fallback).
-    """
+def _resolve_dt_col():
+    """Pick correct datetime column depending on DB schema."""
     if hasattr(Review, "google_review_time"):
-        return getattr(Review, "google_review_time")
+        return Review.google_review_time
     if hasattr(Review, "review_date"):
-        return getattr(Review, "review_date")
+        return Review.review_date
     if hasattr(Review, "created_at"):
-        return getattr(Review, "created_at")
-    # Fall back to id ordering when no time-like column exists
-    return getattr(Review, "id")
+        return Review.created_at
+    return Review.id
 
-# ---------------------------------------------------------
-# NEW: Front-end integration — /api/reviews/list
-# ---------------------------------------------------------
+
+# -------------------------------------------------------------------
+# NEW — REQUIRED BY FRONT-END
+# /api/reviews/list
+# -------------------------------------------------------------------
+
 @router.get("/list")
-async def list_reviews(
-    company_id: int = Query(..., description="Company ID"),
-    start: Optional[str] = Query(None, description="YYYY-MM-DD (optional)"),
-    end: Optional[str] = Query(None, description="YYYY-MM-DD (optional)"),
-    sort: Optional[str] = Query("newest", regex="^(newest|oldest|highest|lowest)$"),
-    limit: int = Query(200, ge=10, le=2000),
+async def reviews_list(
+    company_id: int = Query(...),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    sort: str = Query("newest", regex="^(newest|oldest|highest|lowest)$"),
+    limit: int = Query(200, ge=20, le=2000),
     db: AsyncSession = Depends(get_session),
 ):
     """
-    Returns the Recent Reviews feed your dashboard expects.
-    - Query params: company_id, start, end, sort (newest|oldest|highest|lowest)
-    - Defaults to last 30 days if start/end not provided.
-    - Output keys: author_name, rating, text, review_time, profile_photo_url
+    EXACT response expected by Dashboard front-end.
     """
     s, e = _normalize_window(start, end)
-    date_col = _resolve_date_col()
+    dtcol = _resolve_dt_col()
 
     # Sorting
     if sort == "oldest":
-        order_by = [date_col.asc()]
+        order = [dtcol.asc()]
     elif sort == "highest":
-        # rating DESC, then date desc
-        order_by = [getattr(Review, "rating").desc(), date_col.desc()] if hasattr(Review, "rating") else [date_col.desc()]
+        order = [Review.rating.desc(), dtcol.desc()]
     elif sort == "lowest":
-        # rating ASC, then date desc
-        order_by = [getattr(Review, "rating").asc(), date_col.desc()] if hasattr(Review, "rating") else [date_col.desc()]
+        order = [Review.rating.asc(), dtcol.desc()]
     else:
-        order_by = [date_col.desc()]
+        order = [dtcol.desc()]
 
-    q = select(Review).where(Review.company_id == company_id)
-    if s:
-        q = q.where(date_col >= s)
-    if e:
-        q = q.where(date_col <= e)
-    q = q.order_by(*order_by).limit(limit)
+    stmt = (
+        select(Review)
+        .where(
+            Review.company_id == company_id,
+            dtcol >= s,
+            dtcol <= e,
+        )
+        .order_by(*order)
+        .limit(limit)
+    )
 
-    result = await db.execute(q)
-    rows = result.scalars().all()
+    rows = (await db.execute(stmt)).scalars().all()
 
-    def _fmt_date(dt_obj) -> str:
-        if not dt_obj:
+    def _fmt_dt(v):
+        if not v:
             return ""
+        if isinstance(v, datetime):
+            return v.strftime("%Y-%m-%d")
         try:
-            # Normalize to YYYY-MM-DD for the UI
-            if isinstance(dt_obj, datetime):
-                return dt_obj.strftime("%Y-%m-%d")
-            return str(dt_obj)[:10]
-        except Exception:
-            return str(dt_obj)
+            return str(v)[:10]
+        except:
+            return str(v)
 
     items = []
     for r in rows:
-        author_name = getattr(r, "author_name", None) or getattr(r, "author", None) or "Anonymous"
-        text = getattr(r, "text", None) or getattr(r, "review_text", None) or ""
-        dt_obj = getattr(r, "google_review_time", None) or getattr(r, "review_date", None) or getattr(r, "created_at", None)
-        rating = getattr(r, "rating", None)
-
         items.append({
-            "author_name": author_name,
-            "rating": rating,
-            "text": text,
-            "review_time": _fmt_date(dt_obj),
-            "profile_photo_url": getattr(r, "profile_photo_url", None) or "",
+            "author_name": r.author_name or "Anonymous",
+            "rating": int(r.rating or 0),
+            "text": r.text or "",
+            "review_time": _fmt_dt(
+                getattr(r, "google_review_time", None)
+                or getattr(r, "review_date", None)
+                or getattr(r, "created_at", None)
+            ),
+            "profile_photo_url": getattr(r, "profile_photo_url", "") or "",
         })
 
     return {"items": items}
 
-# ---------------------------------------------------------
-# Ingest Reviews Based on Date Range (defaults to last 30d)
-# ---------------------------------------------------------
+
+# -------------------------------------------------------------------
+# (KEPT) /api/reviews/ingest — used by Admin/Batch Sync
+# -------------------------------------------------------------------
+
 @router.post("/ingest")
 async def ingest_reviews(
     request: Request,
@@ -176,116 +151,81 @@ async def ingest_reviews(
     competitor_place_ids: Optional[List[str]] = Query(None),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
-    limit: int = Query(1000, ge=1, le=50000),
+    limit: int = Query(500, ge=50, le=5000),
     db: AsyncSession = Depends(get_session),
 ):
     """
-    Fetch reviews via Outscraper/Google and store them.
-    - If start_date/end_date omitted, defaults to last 30 days inclusive.
-    - Supports competitor place_ids; all rows are stored under the same company_id
-      but retain `competitor_name` where available.
-    - Uses flexible field mapping and skips duplicates by `external_review_id` if your model has it.
+    Ingest external reviews into database.
     """
-    try:
-        # Validate company
-        result = await db.execute(select(Company).filter(Company.id == company_id))
-        company = result.scalars().first()
-        if not company:
-            raise HTTPException(status_code=404, detail="Company not found")
+    result = await db.execute(select(Company).filter(Company.id == company_id))
+    company = result.scalars().first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
 
-        start_dt, end_dt = _normalize_window(start_date, end_date)
+    s, e = _normalize_window(start_date, end_date)
 
-        # Build entities list (primary + competitors)
-        entities: List[str] = [place_id]
-        if competitor_place_ids:
-            entities.extend([pid for pid in competitor_place_ids if pid])
+    entities = [place_id] + (competitor_place_ids or [])
 
-        # Build the service with your real reviews client
-        client = _reviews_client(request)
-        service = OutscraperReviewsService(client)
+    client = getattr(request.app.state, "google_reviews_client", None)
+    if client is None:
+        raise HTTPException(status_code=501, detail="google_reviews_client missing")
 
-        total_saved = 0
-        total_fetched = 0
+    service = OutscraperReviewsService(client)
 
-        for pid in entities:
-            # Fetch with inclusive date range; service filters strictly within [start_dt, end_dt]
-            reviews_data: List[ReviewData] = service.fetch_reviews(
-                place_id=pid,
-                start_date=start_dt,
-                end_date=end_dt,
-                max_reviews=limit,
+    total_saved = 0
+    total_fetched = 0
+
+    for pid in entities:
+        data: List[ReviewData] = service.fetch_reviews(
+            place_id=pid,
+            start_date=s,
+            end_date=e,
+            max_reviews=limit
+        )
+
+        total_fetched += len(data)
+
+        for r in data:
+            dt_val = r.time_created
+
+            # Duplicate detection
+            existing = await db.execute(
+                select(Review).where(
+                    Review.company_id == company_id,
+                    Review.author_name == r.author_name,
+                    Review.google_review_time == dt_val,
+                )
             )
-            total_fetched += len(reviews_data)
+            if existing.scalars().first():
+                continue
 
-            for r in reviews_data:
-                review_date = r.time_created
+            row = Review()
+            row.company_id = company_id
+            row.author_name = r.author_name or "Anonymous"
+            row.rating = r.rating
+            row.text = r.text
+            row.google_review_time = dt_val
+            row.profile_photo_url = r.additional_fields.get("profile_photo_url") if r.additional_fields else None
+            row.competitor_name = r.competitor_name
 
-                # Duplicate guard by external ID if available; fallback to composite
-                external_id_field = "external_review_id" if hasattr(Review, "external_review_id") else None
+            db.add(row)
+            total_saved += 1
 
-                if external_id_field:
-                    exist = await db.execute(
-                        select(Review).filter(getattr(Review, external_id_field) == r.review_id)
-                    )
-                    if exist.scalars().first():
-                        continue
-                else:
-                    # Fallback composite duplicate check
-                    exist = await db.execute(
-                        select(Review).filter(
-                            and_(
-                                Review.company_id == company_id,
-                                Review.author_name == r.author_name,
-                                Review.google_review_time == review_date,
-                            )
-                        )
-                    )
-                    if exist.scalars().first():
-                        continue
+    await db.commit()
 
-                model = Review()
-                _set_if_has(model, "company_id", company_id)
-                _set_if_has(model, "external_review_id", r.review_id)  # if exists in your model
-                _set_if_has(model, "google_review_id", r.review_id)    # alt field if you have it
-                _set_if_has(model, "author_name", r.author_name)
-                _set_if_has(model, "author", r.author_name)  # compatibility
-                _set_if_has(model, "rating", r.rating)
-                _set_if_has(model, "text", r.text)
-                _set_if_has(model, "review_text", r.text)    # compatibility
-                _set_if_has(model, "google_review_time", review_date)
-                _set_if_has(model, "review_date", review_date)
-                _set_if_has(model, "sentiment_score", None)  # leave for later processing
-                _set_if_has(model, "sentiment", None)
-                _set_if_has(model, "platform", r.source_platform or "Google")
-                _set_if_has(model, "source_platform", r.source_platform or "Google")
-                _set_if_has(model, "competitor_name", r.competitor_name)
-                _set_if_has(model, "profile_photo_url", r.additional_fields.get("profile_photo_url") if r.additional_fields else None)
+    return {
+        "status": "success",
+        "reviews_fetched": total_fetched,
+        "reviews_saved": total_saved,
+    }
 
-                db.add(model)
-                total_saved += 1
 
-        await db.commit()
-        return {
-            "status": "success",
-            "reviews_fetched": total_fetched,
-            "reviews_saved": total_saved,
-            "date_range": {
-                "start_date": start_dt.isoformat() if start_dt else None,
-                "end_date": end_dt.isoformat() if end_dt else None,
-            },
-        }
+# -------------------------------------------------------------------
+# (LEGACY) /api/reviews/feed/{company_id}
+# -------------------------------------------------------------------
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to ingest reviews: {str(e)}")
-
-# ---------------------------------------------------------
-# Review Feed for Dashboard (legacy; kept for compatibility)
-# ---------------------------------------------------------
 @router.get("/feed/{company_id}")
-async def get_reviews_feed(
+async def reviews_feed_legacy(
     company_id: int,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -293,69 +233,48 @@ async def get_reviews_feed(
     db: AsyncSession = Depends(get_session),
 ):
     """
-    Returns filtered reviews (legacy). Your new front-end uses /api/reviews/list.
-    - Defaults to last 30 days when dates are not provided.
-    - Returns dual-naming variants for compatibility.
+    Older pages still use this.
     """
     s, e = _normalize_window(start_date, end_date)
+    dtcol = _resolve_dt_col()
 
-    query = select(Review).filter(Review.company_id == company_id)
+    stmt = (
+        select(Review)
+        .where(
+            Review.company_id == company_id,
+            dtcol >= s,
+            dtcol <= e,
+        )
+        .order_by(dtcol.desc())
+        .limit(limit)
+    )
 
-    # Apply date filter on preferred datetime column(s)
-    if hasattr(Review, "google_review_time"):
-        if s:
-            query = query.filter(Review.google_review_time >= s)
-        if e:
-            query = query.filter(Review.google_review_time <= e)
-    elif hasattr(Review, "review_date"):
-        if s:
-            query = query.filter(Review.review_date >= s)
-        if e:
-            query = query.filter(Review.review_date <= e)
+    rows = (await db.execute(stmt)).scalars().all()
 
-    order_col = getattr(Review, "google_review_time", getattr(Review, "review_date", Review.id))
-    query = query.order_by(order_col.desc()).limit(limit)
-
-    result = await db.execute(query)
-    reviews = result.scalars().all()
-
-    def _s(dt):
-        if not dt:
-            return None
+    def _fmt(v):
         try:
-            return dt.isoformat()
-        except Exception:
-            return str(dt)
+            return v.isoformat()
+        except:
+            return str(v)
 
     out = []
-    for r in reviews:
-        author_name = getattr(r, "author_name", None) or getattr(r, "author", None)
-        text = getattr(r, "text", None) or getattr(r, "review_text", None)
-        dt = getattr(r, "google_review_time", None) or getattr(r, "review_date", None)
-        sentiment = getattr(r, "sentiment_score", None)
-        if sentiment is None:
-            sentiment = getattr(r, "sentiment", None)
+    for r in rows:
         out.append({
-            "id": getattr(r, "id", None),
-            "author_name": author_name,
-            "author": author_name,  # duplicate for compatibility
-            "rating": getattr(r, "rating", None),
-            "text": text,
-            "review_text": text,    # duplicate for compatibility
-            "review_time": _s(dt),
-            "date": _s(dt),
-            "sentiment": sentiment,
-            "competitor": getattr(r, "competitor_name", None),
-            "competitor_name": getattr(r, "competitor_name", None),
-            "platform": getattr(r, "source_platform", getattr(r, "platform", "Google")),
+            "id": r.id,
+            "author_name": r.author_name,
+            "rating": r.rating,
+            "text": r.text,
+            "review_time": _fmt(getattr(r, "google_review_time", None)),
             "profile_photo_url": getattr(r, "profile_photo_url", None),
         })
 
-    return {"status": "success", "reviews": out, "window": {"start": _s(s), "end": _s(e)}}
+    return {"reviews": out}
 
-# ---------------------------------------------------------
-# Competitor Analytics API (defaults to last 30d)
-# ---------------------------------------------------------
+
+# -------------------------------------------------------------------
+# (OPTIONAL) Competitor analytics
+# -------------------------------------------------------------------
+
 @router.get("/competitors/{company_id}")
 async def competitor_stats(
     company_id: int,
@@ -364,48 +283,36 @@ async def competitor_stats(
     db: AsyncSession = Depends(get_session),
 ):
     """
-    Returns competitor review counts and ratings for the date window.
-    Defaults to last 30 days if not provided.
+    Used in future competitor analysis pages.
     """
     s, e = _normalize_window(start_date, end_date)
+    dtcol = _resolve_dt_col()
 
-    query = select(Review).filter(
-        Review.company_id == company_id,
-        Review.competitor_name != None,  # noqa: E711
+    stmt = (
+        select(Review)
+        .where(
+            Review.company_id == company_id,
+            Review.competitor_name != None,
+            dtcol >= s,
+            dtcol <= e,
+        )
     )
 
-    if hasattr(Review, "google_review_time"):
-        if s:
-            query = query.filter(Review.google_review_time >= s)
-        if e:
-            query = query.filter(Review.google_review_time <= e)
-    elif hasattr(Review, "review_date"):
-        if s:
-            query = query.filter(Review.review_date >= s)
-        if e:
-            query = query.filter(Review.review_date <= e)
+    rows = (await db.execute(stmt)).scalars().all()
 
-    result = await db.execute(query)
-    rows = result.scalars().all()
+    counts = Counter(r.competitor_name for r in rows if r.competitor_name)
+    ratings: Dict[str, List[float]] = {}
 
-    competitor_counts = Counter(
-        getattr(r, "competitor_name", None) for r in rows if getattr(r, "competitor_name", None)
-    )
-
-    competitor_ratings: Dict[str, List[float]] = {}
     for r in rows:
-        name = getattr(r, "competitor_name", None)
-        rating = getattr(r, "rating", None)
-        if name and rating is not None:
-            competitor_ratings.setdefault(name, []).append(float(rating))
+        if r.competitor_name and r.rating is not None:
+            ratings.setdefault(r.competitor_name, []).append(float(r.rating))
 
-    competitor_avg = {
-        name: round(sum(vals) / len(vals), 2) if vals else 0.0
-        for name, vals in competitor_ratings.items()
+    rating_avg = {
+        k: round(sum(v) / len(v), 2)
+        for k, v in ratings.items()
     }
 
     return {
-        "window": {"start": s.isoformat() if s else None, "end": e.isoformat() if e else None},
-        "competitor_review_count": dict(competitor_counts),
-        "competitor_avg_rating": competitor_avg,
+        "competitor_review_count": dict(counts),
+        "competitor_avg_rating": rating_avg
     }
