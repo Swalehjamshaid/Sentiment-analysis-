@@ -947,79 +947,79 @@ async def sentiment_summary_v2(request: Request, company_id: int, start: Optiona
             raise HTTPException(status_code=404, detail="Company not found")
     s, e = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
-        dc = _date_col()
-        rows = (await session.execute(
-            select(Review.text, Review.sentiment_score, Review.rating, Review.google_review_time)
-            .where(and_(Review.company_id == company_id, dc >= s, dc <= e))
-            .order_by(desc(Review.google_review_time))
-            .limit(10000)
-        )).all()
-    if not rows:
-        return {
-            "window": {"start": str(s), "end": str(e)},
-            "counts": {"positive": 0, "neutral": 0, "negative": 0},
-            "avg": 0.0,
-            "ci95": [0.0, 0.0],
-            "coverage": {"stored": 0, "fallback": 0}
-        }
-    vals: List[float] = []
-    counts = {"positive": 0, "neutral": 0, "negative": 0}
-    stored = 0
-    fallback = 0
-    for text, ss, rating, _ts in rows:
-        if ss is None or abs(float(ss)) < 1e-9:
-            score = _safe_sentiment(text or "", rating)
-            fallback += 1
-        else:
-            score = float(ss)
-            stored += 1
-        vals.append(score)
-        if score >= 0.35: counts["positive"] += 1
-        elif score <= -0.25: counts["negative"] += 1
-        else: counts["neutral"] += 1
-    n = len(vals)
-    avg = sum(vals) / n
-    var = sum((v - avg) ** 2 for v in vals) / max(1, (n - 1))
-    sd = math.sqrt(var)
-    se = sd / math.sqrt(n) if n > 0 else 0.0
-    ci95 = [avg - 1.96 * se, avg + 1.96 * se]
-    return {
-        "window": {"start": str(s), "end": str(e)},
-        "counts": counts,
-        "avg": round(avg, 3),
-        "ci95": [round(ci95[0], 3), round(ci95[1], 3)],
-        "coverage": {"stored": stored, "fallback": fallback}
-    }
 
-
-@router.get("/api/v2/keywords")
-async def keywords_v2(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None, limit: int = Query(20, ge=5, le=50)):
+        @router.get("/api/v2/keywords")
+async def keywords_v2(
+    request: Request,
+    company_id: int,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    limit: int = Query(20, ge=5, le=50),
+):
     _require_user(request)
+
+    # Validate company exists
     async with get_session() as session:
         if not await session.get(Company, company_id):
             raise HTTPException(status_code=404, detail="Company not found")
+
+    # Determine time window
     s, e = await _auto_range_last30(company_id, start, end)
     l7s = e - timedelta(days=NEW_REVIEW_DAYS - 1)
     p7e = l7s - timedelta(days=1)
     p7s = p7e - timedelta(days=NEW_REVIEW_DAYS - 1)
+
+    # Pull review texts for the window
     async with get_session() as session:
         dc = _date_col()
-        rows = (await session.execute(
-            select(Review.text, Review.sentiment_score, Review.rating, Review.google_review_time)
-            .where(and_(Review.company_id == company_id, dc >= s, dc <= e))
-            .order_by(desc(Review.google_review_time))
-            .limit(10000)
-        )).all()
+        rows = (
+            await session.execute(
+                select(
+                    Review.text,
+                    Review.sentiment_score,
+                    Review.rating,
+                    Review.google_review_time,
+                )
+                .where(and_(Review.company_id == company_id, dc >= s, dc <= e))
+                .order_by(desc(Review.google_review_time))
+                .limit(10000)
+            )
+        ).all()
+
     docs = [(t, ss, r, ts) for (t, ss, r, ts) in rows if t]
     if not docs:
-        return {"window": {"start": str(s), "end": str(e)}, "positive": [], "negative": [], "emerging": [], "bigrams": []}
+        return {
+            "window": {"start": str(s), "end": str(e)},
+            "positive": [],
+            "negative": [],
+            "emerging": [],
+            "bigrams": [],
+        }
+
+    # Keyword attribution and bigrams
     kw = _keyword_attribution(docs, (l7s, e), (p7s, p7e), top_n=limit)
     bigs = _top_bigrams_docs([d[0] for d in docs], top_n=limit)
+
     def _cast(items: List[KeywordScore]):
-        return [{"term": x.term, "freq": x.freq, "avg_sent": round(x.avg_sent, 3), "contribution": round(x.contribution, 3), "delta": x.delta} for x in items]
+        return [
+            {
+                "term": x.term,
+                "freq": x.freq,
+                "avg_sent": round(x.avg_sent, 3),
+                "contribution": round(x.contribution, 3),
+                "delta": x.delta,
+            }
+            for x in items
+        ]
+
     return {
         "window": {"start": str(s), "end": str(e)},
         "positive": _cast(kw["positive"]),
         "negative": _cast(kw["negative"]),
         "emerging": _cast(kw["emerging"]),
-     "bigrams": [{"term": t, "freq": f} for (t, f) in bigrams],
+        "bigrams": [
+            {"term": " ".join(t), "freq": int(f)}
+            for t, f in bigs.items()
+        ],
+    }
+    
