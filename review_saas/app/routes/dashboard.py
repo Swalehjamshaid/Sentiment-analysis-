@@ -188,19 +188,19 @@ class KeywordScore:
 
 
 _LEX_POS = {
-    "great":4, "excellent":5, "good":3, "friendly":3, "clean":2, "amazing":4, "love":4, "nice":2,
-    "comfortable":3, "helpful":3, "fast":2, "quick":2, "tasty":3, "spacious":2, "professional":3,
-    "responsive":3, "polite":2, "courteous":2, "beautiful":3, "quiet":2, "safe":2, "affordable":2,
-    "fair":2, "recommend":3, "recommended":3, "awesome":4, "perfect":4, "best":4, "delicious":4,
-    "fresh":2, "warm":1, "welcoming":2, "cleanliness":3, "hygienic":3
+    "great": 4, "excellent": 5, "good": 3, "friendly": 3, "clean": 2, "amazing": 4, "love": 4, "nice": 2,
+    "comfortable": 3, "helpful": 3, "fast": 2, "quick": 2, "tasty": 3, "spacious": 2, "professional": 3,
+    "responsive": 3, "polite": 2, "courteous": 2, "beautiful": 3, "quiet": 2, "safe": 2, "affordable": 2,
+    "fair": 2, "recommend": 3, "recommended": 3, "awesome": 4, "perfect": 4, "best": 4, "delicious": 4,
+    "fresh": 2, "warm": 1, "welcoming": 2, "cleanliness": 3, "hygienic": 3
 }
 
 _LEX_NEG = {
-    "bad":-3, "poor":-3, "worst":-5, "slow":-2, "dirty":-3, "rude":-4, "problem":-2, "issue":-2,
-    "disappointed":-3, "expensive":-2, "noisy":-2, "crowded":-2, "delay":-2, "delayed":-2, "broken":-3,
-    "smelly":-3, "cold":-1, "hot":-1, "late":-2, "unprofessional":-4, "unhelpful":-3, "refund":-3,
-    "fraud":-5, "scam":-5, "unsafe":-4, "hygiene":-2, "lawsuit":-4, "legal":-2, "threat":-4, "hazard":-4,
-    "poison":-5, "sick":-3, "expired":-3, "fire":-3, "electrical":-2, "incompetent":-4, "overpriced":-3
+    "bad": -3, "poor": -3, "worst": -5, "slow": -2, "dirty": -3, "rude": -4, "problem": -2, "issue": -2,
+    "disappointed": -3, "expensive": -2, "noisy": -2, "crowded": -2, "delay": -2, "delayed": -2, "broken": -3,
+    "smelly": -3, "cold": -1, "hot": -1, "late": -2, "unprofessional": -4, "unhelpful": -3, "refund": -3,
+    "fraud": -5, "scam": -5, "unsafe": -4, "hygiene": -2, "lawsuit": -4, "legal": -2, "threat": -4, "hazard": -4,
+    "poison": -5, "sick": -3, "expired": -3, "fire": -3, "electrical": -2, "incompetent": -4, "overpriced": -3
 }
 
 _LEXICON = {**_LEX_POS, **_LEX_NEG}
@@ -210,7 +210,7 @@ def _tokenize(text: str) -> List[str]:
     if not text:
         return []
     toks = [t.lower() for t in TOKEN_RE.findall(text)]
-    out = []
+    out: List[str] = []
     for t in toks:
         if len(t) <= 2:
             continue
@@ -288,7 +288,7 @@ def _keyword_attribution(
         s = sent if (sent is not None and abs(float(sent)) >= 1e-9) else _safe_sentiment(text, rating)
         for t in toks:
             token_counts[t] += 1
-            token_sent_sum[t] += s
+            token_sent_sum[t] += float(s)
             token_times.append((t, ts))
     scores: List[KeywordScore] = []
     for term, freq in token_counts.items():
@@ -296,16 +296,19 @@ def _keyword_attribution(
         scores.append(KeywordScore(term=term, freq=int(freq), avg_sent=float(avg), contribution=float(avg*freq)))
     l7s, l7e = last7
     p7s, p7e = prev7
-    last7_c = Counter()
-    prev7_c = Counter()
+    last7_c: Counter = Counter()
+    prev7_c: Counter = Counter()
     for t, ts in token_times:
-        if not ts: continue
+        if not ts:
+            continue
         d = ts.date()
-        if l7s <= d <= l7e: last7_c[t] += 1
-        elif p7s <= d <= p7e: prev7_c[t] += 1
+        if l7s <= d <= l7e:
+            last7_c[t] += 1
+        elif p7s <= d <= p7e:
+            prev7_c[t] += 1
     growth = {t: last7_c.get(t, 0) - prev7_c.get(t, 0) for t in token_counts.keys()}
     for s in scores:
-        s.delta = growth.get(s.term, 0)
+        s.delta = int(growth.get(s.term, 0))
     positive = sorted([s for s in scores if s.avg_sent > 0], key=lambda x: (x.contribution, x.freq), reverse=True)[:top_n]
     negative = sorted([s for s in scores if s.avg_sent < 0], key=lambda x: (abs(x.contribution), x.freq), reverse=True)[:top_n]
     emerging = sorted([s for s in scores if s.delta > 0 and s.freq >= 2], key=lambda x: (x.delta, x.freq), reverse=True)[:top_n]
@@ -313,7 +316,7 @@ def _keyword_attribution(
 
 
 def _top_bigrams_docs(docs: Iterable[str], top_n: int = 20) -> List[Tuple[str, int]]:
-    counter = Counter()
+    counter: Counter = Counter()
     for text in docs:
         toks = _tokenize(text or "")
         for bg in _bigrams2(toks):
@@ -841,7 +844,7 @@ async def api_operational_overview(request: Request, company_id: int, start: Opt
             .limit(500)
         )
         urgent_rows = (await session.execute(urgent_stmt)).all()
-        urgent_items = []
+        urgent_items: List[Dict[str, Any]] = []
         for r in urgent_rows:
             text = r.text or ""
             # Recompute sentiment with negation-aware safe sentiment
@@ -901,13 +904,13 @@ async def api_alerts(request: Request, company_id: int, start: Optional[str] = N
         return sum(vol_map.get(str(a + timedelta(days=i)), 0) for i in range((b - a).days + 1))
     last7 = _sum_in(last7_start, end_dt)
     prev7 = _sum_in(prev7_start, prev7_end)
-    alerts = []
+    alerts: List[Dict[str, Any]] = []
     if prev7 >= 8 and last7 <= prev7 * 0.6:
         pct = round(100 - (last7 / max(prev7, 1)) * 100)
         alerts.append({"type": "volume_drop", "severity": "high", "message": f"Review volume down {pct}% vs prior week."})
     rat_series = await api_series_ratings(request, company_id, start, end)
     sen_series = await api_sentiment_series(request, company_id, start, end)
-    def _avg_in(series: List[Dict], a: date, b: date) -> float:
+    def _avg_in(series: List[Dict[str, Any]], a: date, b: date) -> float:
         vals = [s["value"] for s in series if a <= datetime.strptime(s["date"], "%Y-%m-%d").date() <= b]
         return round(sum(vals) / len(vals), 3) if vals else 0.0
     rating_last7 = _avg_in(rat_series["series"], last7_start, end_dt)
@@ -937,18 +940,48 @@ async def api_alerts(request: Request, company_id: int, start: Optional[str] = N
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 7) Keywords & 8) AI Summaries (v2)
+# 7) Sentiment Summary (v2) + 8) Keywords (v2)
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/api/v2/sentiment/summary")
 async def sentiment_summary_v2(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
+    """Compact sentiment & rating summary for v2 cards."""
     _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
             raise HTTPException(status_code=404, detail="Company not found")
     s, e = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
+        dc = _date_col()
+        s_expr, pos, neu, neg, total = _sentiment_bucket_expr()
+        avg_sent = func.avg(func.coalesce(func.nullif(Review.sentiment_score, 0.0), _rating_sent_fallback()))
+        avg_rating = func.avg(Review.rating)
+        q = (
+            select(pos.label("pos"), neu.label("neu"), neg.label("neg"), total.label("total"), avg_sent.label("avg_sent"), avg_rating.label("avg_rating"))
+            .where(and_(Review.company_id == company_id, dc >= s, dc <= e))
+        )
+        row = (await session.execute(q)).first()
+    if not row:
+        return {
+            "window": {"start": str(s), "end": str(e)},
+            "total": 0,
+            "avg_rating": 0.0,
+            "avg_sentiment": 0.0,
+            "share": {"positive": 0, "neutral": 0, "negative": 0}
+        }
+    return {
+        "window": {"start": str(s), "end": str(e)},
+        "total": int(row.total or 0),
+        "avg_rating": round(float(row.avg_rating or 0.0), 3),
+        "avg_sentiment": round(float(row.avg_sent or 0.0), 3),
+        "share": {
+            "positive": int(row.pos or 0),
+            "neutral": int(row.neu or 0),
+            "negative": int(row.neg or 0),
+        },
+    }
 
-        @router.get("/api/v2/keywords")
+
+@router.get("/api/v2/keywords")
 async def keywords_v2(
     request: Request,
     company_id: int,
@@ -1018,8 +1051,7 @@ async def keywords_v2(
         "negative": _cast(kw["negative"]),
         "emerging": _cast(kw["emerging"]),
         "bigrams": [
-            {"term": " ".join(t), "freq": int(f)}
-            for t, f in bigs.items()
+            {"term": term, "freq": int(freq)}
+            for term, freq in bigs
         ],
     }
-    
