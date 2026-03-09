@@ -7,9 +7,9 @@
   <title>ReviewSaaS • Dashboard</title>
 
   <!-- Bootstrap 5 -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
   <!-- Bootstrap Icons -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
@@ -37,9 +37,7 @@
   <!-- Navbar -->
   <header class="navbar navbar-expand-lg sticky-top">
     <div class="container-fluid">
-      <a class="navbar-brand d-flex align-items-center" href="/dashboard">
-        <i class="bi bi-bar-chart-line me-2"></i> ReviewSaaS
-      </a>
+      <a class="navbar-brand" href="/dashboard"><i class="bi bi-bar-chart-line me-2"></i> ReviewSaaS</a>
 
       <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
         <!-- Company selector (from Jinja: companies, active_company_id) -->
@@ -58,7 +56,7 @@
           </select>
         </div>
 
-        <!-- Date range (optional; backend defaults to 30 days if blank) -->
+        <!-- Date range (optional; backend defaults to last 30 days if blank) -->
         <div class="input-group input-group-sm">
           <span class="input-group-text"><i class="bi bi-calendar3"></i></span>
           <input id="startDate" type="date" class="form-control" />
@@ -66,7 +64,7 @@
           <button id="btnApplyRange" class="btn btn-outline-secondary">Apply</button>
         </div>
 
-        <!-- Sync button (triggers background DB sync for active company) -->
+        <!-- Sync button -->
         <button id="btnSync" class="btn btn-outline-primary btn-sm">
           <i class="bi bi-arrow-repeat me-1"></i> Sync
         </button>
@@ -76,12 +74,8 @@
           <i class="bi bi-moon-stars" id="themeIcon"></i>
         </button>
 
-        <a class="btn btn-outline-secondary btn-sm" href="/api/companies" title="Manage companies">
-          <i class="bi bi-people"></i>
-        </a>
-        <a class="btn btn-outline-danger btn-sm" href="/logout" title="Logout">
-          <i class="bi bi-box-arrow-right"></i>
-        </a>
+        <a class="btn btn-outline-secondary btn-sm" href="/api/companies"><i class="bi bi-people"></i></a>
+        <a class="btn btn-outline-secondary btn-sm" href="/logout"><i class="bi bi-box-arrow-right"></i></a>
       </div>
     </div>
   </header>
@@ -179,9 +173,9 @@
         <div class="card">
           <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
             <span><i class="bi bi-diagram-3 me-2"></i> Aspect Sentiment (Service, Product, Pricing, Delivery)</span>
-            <a id="btnAspectTrendEmail" class="btn btn-outline-secondary btn-sm">
+            <button id="btnAspectTrendEmail" class="btn btn-outline-secondary btn-sm">
               <i class="bi bi-envelope-exclamation"></i> Compose High-Severity Email
-            </a>
+            </button>
           </div>
           <div class="card-body chart-wrap">
             <canvas id="aspectsStacked"></canvas>
@@ -244,9 +238,9 @@
                 <option value="highest">Highest rating</option>
                 <option value="lowest">Lowest rating</option>
               </select>
-              <a id="btnSummaryPng" class="btn btn-outline-secondary btn-sm ms-2">
+              <button id="btnSummaryPng" class="btn btn-outline-secondary btn-sm ms-2">
                 <i class="bi bi-image"></i> Summary PNG
-              </a>
+              </button>
             </div>
           </div>
           <div class="card-body" id="reviewsFeed">
@@ -331,8 +325,9 @@
   <footer class="container my-4 small text-secondary d-flex justify-content-between">
     <span>© <span id="year"></span> ReviewSaaS</span>
     <span>
-      <a href="/reports" class="text-secondary text-decoration-none me-3">Reports</a>
-      <a href="/admin" class="text-secondary text-decoration-none">Admin</a>
+      <a href="/reports">Reports</a>
+      <span class="mx-1">•</span>
+      <a href="/admin">Admin</a>
     </span>
   </footer>
 
@@ -340,13 +335,12 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
   <!-- Google Maps JavaScript API (Places library) -->
-  <!-- You provided the API Keys; loaded directly for client-side Autocomplete -->
+  <!-- Using your key as requested; you can also supply {{ google_maps_api_key }} if you template this -->
   <script>
-    // Expose your provided keys in JS (used only for info/debug text below; Maps loads via script tag)
-    const GOOGLE_MAPS_API_KEY   = "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc";
-    const GOOGLE_PLACES_API_KEY = "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc";
+    const GOOGLE_MAPS_API_KEY   = "{{ google_maps_api_key | default('AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc') }}";
+    const GOOGLE_PLACES_API_KEY = "{{ google_places_api_key | default('AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc') }}";
   </script>
-  <script async src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&v=weekly&callback=onGoogleMapsReady"></script>
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key | default('AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc') }}&libraries=places&v=weekly&callback=onGoogleMapsReady"></script>
 
   <script>
     // ===========================
@@ -366,7 +360,6 @@
         html.setAttribute('data-bs-theme', next);
         localStorage.setItem('theme', next);
         applyIcon();
-        // Repaint charts
         if (window._charts) window._charts.forEach(c => c.update('none'));
       });
     })();
@@ -378,6 +371,10 @@
     const $$ = (s) => document.querySelectorAll(s);
     const fmt = new Intl.NumberFormat();
     const todayISO = () => new Date().toISOString().slice(0,10);
+    const parseJSONSafe = async (res) => {
+      const text = await res.text().catch(()=> '');
+      try { return JSON.parse(text || '{}'); } catch { return { raw: text }; }
+    };
 
     function params() {
       const company_id = $('#companySelect')?.value || $('#activeCompanyId')?.value || '';
@@ -407,28 +404,22 @@
     // ===========================
     window._charts = [];
     let overviewChart, sentPie, ratingsHist, aspectsStacked;
-
-    function destroyChart(c) { if (c) { c.destroy(); const i = window._charts.indexOf(c); if (i>=0) window._charts.splice(i,1);} }
+    const destroyChart = (c) => { if (c) { c.destroy(); const i = window._charts.indexOf(c); if (i>=0) window._charts.splice(i,1);} };
 
     async function loadKpis() {
       try {
         const qs = qstr(params());
         const r = await fetch(`/api/kpis?${qs}`);
         const data = await r.json();
-
         $('#kpiTotalReviews').textContent = fmt.format(data.total_reviews ?? 0);
         $('#kpiNewReviews').textContent = fmt.format(data.new_reviews ?? 0);
         $('#kpiAvgRating').textContent = (data.avg_rating ?? 0).toFixed(2);
         $('#kpiAvgSentiment').textContent = (data.avg_sentiment ?? 0).toFixed(3);
-
-        // (We don't have deltas in API; leave em dashes)
         setDelta($('#kpiTotalReviewsDelta'), 0);
         setDelta($('#kpiNewReviewsDelta'), 0);
         setDelta($('#kpiAvgRatingDelta'), 0);
         setDelta($('#kpiAvgSentimentDelta'), 0);
-      } catch (e) {
-        console.error(e);
-      }
+      } catch (e) { console.error(e); }
     }
 
     async function loadOverview() {
@@ -437,11 +428,9 @@
         const res = await fetch(`/api/series/overview?${qs}`);
         const data = await res.json();
         const labels = (data.volume || []).map(d => d.date);
-
         const vol = (data.volume || []).map(d => d.value ?? 0);
         const rat = (data.rating || []).map(d => d.value ?? 0);
         const sen = (data.sentiment || []).map(d => d.value ?? 0);
-
         destroyChart(overviewChart);
         overviewChart = new Chart($('#overviewChart'), {
           type: 'line',
@@ -454,9 +443,7 @@
             ]
           },
           options: {
-            responsive:true,
-            maintainAspectRatio:false,
-            interaction:{ mode:'index', intersect:false },
+            responsive:true, maintainAspectRatio:false, interaction:{ mode:'index', intersect:false },
             scales: {
               y1: { type:'linear', position:'left', beginAtZero:true, title:{display:true, text:'Count'} },
               y2: { type:'linear', position:'right', beginAtZero:true, title:{display:true, text:'Rating'}, grid:{ drawOnChartArea:false }, min:0, max:5 },
@@ -465,9 +452,7 @@
           }
         });
         window._charts.push(overviewChart);
-      } catch (e) {
-        console.error(e);
-      }
+      } catch (e) { console.error(e); }
     }
 
     async function loadSentimentShare() {
@@ -481,10 +466,7 @@
         destroyChart(sentPie);
         sentPie = new Chart($('#sentPie'), {
           type: 'doughnut',
-          data: {
-            labels: ['Positive','Neutral','Negative'],
-            datasets: [{ data: [pos,neu,neg], backgroundColor:['#2ecc71','#95a5a6','#e74c3c'], borderWidth:0 }]
-          },
+          data: { labels: ['Positive','Neutral','Negative'], datasets: [{ data: [pos,neu,neg], backgroundColor:['#2ecc71','#95a5a6','#e74c3c'], borderWidth:0 }] },
           options: { responsive:true, plugins:{ legend:{ position:'bottom' } }, cutout:'60%' }
         });
         window._charts.push(sentPie);
@@ -517,7 +499,6 @@
         const pos = (data.aspects || []).map(a => a.positive || 0);
         const neu = (data.aspects || []).map(a => a.neutral  || 0);
         const neg = (data.aspects || []).map(a => a.negative || 0);
-
         destroyChart(aspectsStacked);
         aspectsStacked = new Chart($('#aspectsStacked'), {
           type: 'bar',
@@ -529,11 +510,7 @@
               { label:'Negative', data: neg, backgroundColor:'#e74c3c', stack: 's' },
             ]
           },
-          options: {
-            responsive:true,
-            maintainAspectRatio:false,
-            scales: { x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } }
-          }
+          options: { responsive:true, maintainAspectRatio:false, scales: { x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } } }
         });
         window._charts.push(aspectsStacked);
       } catch (e) { console.error(e); }
@@ -551,7 +528,6 @@
         const data = await res.json();
         const issues = data.urgent_issues || [];
         if (!issues.length) { el.innerHTML = '<div class="text-secondary">No urgent issues found in this window.</div>'; return; }
-
         const frag = document.createDocumentFragment();
         issues.forEach(it => {
           const div = document.createElement('div');
@@ -578,10 +554,7 @@
         });
         el.innerHTML = '';
         el.appendChild(frag);
-      } catch(e) {
-        console.error(e);
-        el.innerHTML = '<div class="text-danger">Failed to load operational overview.</div>';
-      }
+      } catch(e) { console.error(e); el.innerHTML = '<div class="text-danger">Failed to load operational overview.</div>'; }
     }
 
     async function loadAlerts() {
@@ -593,16 +566,14 @@
         const data = await res.json();
         const items = data.alerts || [];
         if (!items.length) { el.innerHTML = '<div class="text-secondary">No alerts for this period.</div>'; return; }
-        const ul = document.createElement('ul');
-        ul.className = 'mb-0';
+        const ul = document.createElement('ul'); ul.className = 'mb-0';
         items.forEach(a => {
           const li = document.createElement('li');
           const sev = a.severity || 'low';
           li.innerHTML = `<span class="badge ${sev==='high'?'text-bg-danger':sev==='medium'?'text-bg-warning':'text-bg-secondary'} me-2">${sanitize(sev)}</span>${sanitize(a.message)}`;
           ul.appendChild(li);
         });
-        el.innerHTML = '';
-        el.appendChild(ul);
+        el.innerHTML = ''; el.appendChild(ul);
       } catch(e){ console.error(e); el.innerHTML = '<div class="text-danger">Failed to load alerts.</div>'; }
     }
 
@@ -613,16 +584,12 @@
         const sum = await sres.json();
         $('#execSummary').textContent = sum.summary || '—';
         const r = $('#execRationale'); r.innerHTML = '';
-        (sum.rationale || []).forEach(x => {
-          const li = document.createElement('li'); li.textContent = x; r.appendChild(li);
-        });
+        (sum.rationale || []).forEach(x => { const li = document.createElement('li'); li.textContent = x; r.appendChild(li); });
 
         const rres = await fetch(`/api/v2/ai/recommendations?${qs}`);
         const rec = await rres.json();
         const ol = $('#recoList'); ol.innerHTML = '';
-        (rec.top_action_items || []).forEach(x => {
-          const li = document.createElement('li'); li.textContent = x; ol.appendChild(li);
-        });
+        (rec.top_action_items || []).forEach(x => { const li = document.createElement('li'); li.textContent = x; ol.appendChild(li); });
       } catch(e){ console.error(e); }
     }
 
@@ -659,8 +626,7 @@
           `;
           frag.appendChild(row);
         });
-        feed.innerHTML = '';
-        feed.appendChild(frag);
+        feed.innerHTML = ''; feed.appendChild(frag);
       } catch(e){ console.error(e); feed.innerHTML = '<div class="text-danger">Failed to load reviews.</div>'; }
     }
 
@@ -673,8 +639,7 @@
       try {
         const res = await fetch(`/api/companies/${encodeURIComponent(company_id)}/sync`, { method:'POST' });
         if (!res.ok) throw new Error(await res.text());
-        const data = await res.json().catch(()=>({}));
-        // Refresh datasets shortly after trigger
+        // Refresh shortly after trigger
         setTimeout(() => { refreshAll(); }, 1500);
       } catch(e){ console.error(e); alert('Failed to trigger sync.'); }
     }
@@ -690,7 +655,6 @@
         const qs = qstr(params());
         const res = await fetch(`/api/alerts/high-severity-email?${qs}`);
         const data = await res.json();
-        // Show subject + body_text in a simple modal-like alert for now
         alert(`Subject:\n${data.subject}\n\n-----\n${data.body_text}`);
       } catch(e){ console.error(e); alert('Failed to compose alert email.'); }
     }
@@ -723,7 +687,7 @@
         $('#mapHint').textContent = 'Google Maps failed to load.';
       }
     }
-    window.onGoogleMapsReady = onGoogleMapsReady; // expose for callback
+    window.onGoogleMapsReady = onGoogleMapsReady;
 
     function onPlaceChanged() {
       const place = autocomplete.getPlace();
@@ -776,7 +740,9 @@
       items.forEach(([k,v]) => {
         if (!v) return;
         const li = document.createElement('li'); li.className='mb-1';
-        const vv = (k === 'Website' || k === 'Maps URL') ? `<a href="${v}" target="_blank" rel="noopener">${sanitize(v)}</a>` : sanitize(String(v));
+        const vv = (k === 'Website' || k === 'Maps URL')
+          ? `<a href="${sanitize(String(v))}" target="_blank" rel="noopener">${sanitize(String(v))}</a>`
+          : sanitize(String(v));
         li.innerHTML = `<strong>${sanitize(k)}:</strong> <span class="text-secondary">${vv}</span>`;
         list.appendChild(li);
       });
@@ -804,10 +770,18 @@
       $('#placeMsg').textContent = 'Creating…';
       try {
         const res = await fetch('/api/companies', { method:'POST', body: fd });
-        const data = await res.json();
-        if (!res.ok || !data.success) throw new Error(data.message || `HTTP ${res.status}`);
+        const data = await parseJSONSafe(res);
+        if (!res.ok || !data.success) {
+          // If duplicate, refresh list and try to select existing company with same place_id
+          const msg = (data && (data.message || data.raw)) || `HTTP ${res.status}`;
+          $('#placeMsg').textContent = msg;
+          if (res.status === 400 && String(msg).toLowerCase().includes('already')) {
+            await refreshCompaniesAndSelect(pid);
+          }
+          return;
+        }
         $('#placeMsg').textContent = 'Company added. Background sync started.';
-        // Update company dropdown
+        // Update dropdown with returned list
         if (data.companies && Array.isArray(data.companies)) {
           const sel = $('#companySelect'); sel.innerHTML = '';
           data.companies.forEach(c => {
@@ -817,11 +791,35 @@
           sel.value = String(data.company.id);
           $('#activeCompanyId').value = String(data.company.id);
           refreshAll();
+        } else {
+          // Fallback: refetch
+          await refreshCompaniesAndSelect(pid);
         }
       } catch (e) {
         console.error(e);
         $('#placeMsg').textContent = 'Failed to create company.';
       }
+    }
+
+    async function refreshCompaniesAndSelect(place_id) {
+      try {
+        const res = await fetch('/api/companies/list');
+        const data = await res.json();
+        if (data && data.success && Array.isArray(data.companies)) {
+          const sel = $('#companySelect'); sel.innerHTML = '';
+          let selectedId = null;
+          data.companies.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id; opt.textContent = c.name; sel.appendChild(opt);
+            if (String(c.place_id || '') === String(place_id)) selectedId = c.id;
+          });
+          if (selectedId) {
+            sel.value = String(selectedId);
+            $('#activeCompanyId').value = String(selectedId);
+            refreshAll();
+          }
+        }
+      } catch (e) { console.error(e); }
     }
 
     // ===========================
@@ -843,10 +841,6 @@
 
     document.addEventListener('DOMContentLoaded', () => {
       $('#year').textContent = new Date().getFullYear();
-
-      // Default date range: blank (backend uses last 30 days). You can uncomment to auto-fill last 30:
-      // const end = todayISO(); const start = new Date(Date.now()-29*864e5).toISOString().slice(0,10);
-      // $('#startDate').value = start; $('#endDate').value = end;
 
       // Initial load
       refreshAll();
