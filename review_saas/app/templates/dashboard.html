@@ -1,12 +1,30 @@
+<!-- filename: app/templates/dashboard.html -->
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ReviewSaaS • Dashboard</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-5Q+Uve4Zc0Q0t3Z9bE1E1mCwP+4b2d2q6zRFGhS9+2JtG0c7Jm8vS4d2i3doz0KZ" crossorigin="anonymous"></script>
+
+  <!-- Bootstrap + Icons -->
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+    integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
+    crossorigin="anonymous"
+  />
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
+  />
+
+  <!-- Chart.js -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+    integrity="sha384-5Q+Uve4Zc0Q0t3Z9bE1E1mCwP+4b2d2q6zRFGhS9+2JtG0c7Jm8vS4d2i3doz0KZ"
+    crossorigin="anonymous"
+  ></script>
+
   <style>
     header.navbar {
       backdrop-filter: saturate(1.2) blur(6px);
@@ -26,6 +44,10 @@
     .chart-wrap-sm { height: 220px; }
     .text-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
     .loading-placeholder { min-height: 120px; display: flex; align-items: center; justify-content: center; color: var(--bs-secondary-color); }
+    .kw-badge { border:1px solid var(--bs-border-color); border-radius: 999px; padding: .25rem .5rem; margin: .125rem; display:inline-block; font-size:.8rem; }
+    .kw-pos { background:rgba(22,163,74,.08); }
+    .kw-neg { background:rgba(220,38,38,.08); }
+    .kw-em { background:rgba(13,110,253,.08); }
   </style>
 </head>
 <body>
@@ -35,6 +57,7 @@
         <i class="bi bi-bar-chart-line me-2"></i> ReviewSaaS
       </a>
       <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
+        <!-- Company selection -->
         <div class="input-group input-group-sm">
           <span class="input-group-text"><i class="bi bi-buildings"></i></span>
           <select id="companySelect" class="form-select form-select-sm">
@@ -49,18 +72,26 @@
             {% endif %}
           </select>
         </div>
+
+        <!-- Date range -->
         <div class="input-group input-group-sm">
           <span class="input-group-text"><i class="bi bi-calendar3"></i></span>
           <input id="startDate" type="date" class="form-control" />
           <input id="endDate" type="date" class="form-control" />
           <button id="btnApplyRange" class="btn btn-outline-secondary">Apply</button>
         </div>
+
+        <!-- Sync -->
         <button id="btnSync" class="btn btn-outline-primary btn-sm" title="Trigger background review sync">
           <i class="bi bi-arrow-repeat me-1"></i> Sync
         </button>
+
+        <!-- Theme -->
         <button id="themeToggle" class="btn btn-outline-secondary btn-sm" title="Toggle theme">
           <i class="bi bi-moon-stars" id="themeIcon"></i>
         </button>
+
+        <!-- Companies / Logout -->
         <a class="btn btn-outline-secondary btn-sm" href="/api/companies" title="Companies">
           <i class="bi bi-people"></i>
         </a>
@@ -130,9 +161,7 @@
     <section class="row g-3">
       <div class="col-12 col-xl-6">
         <div class="card h-100">
-          <div class="card-header fw-semibold">
-            <i class="bi bi-activity me-2"></i> Volume • Rating • Sentiment
-          </div>
+          <div class="card-header fw-semibold"><i class="bi bi-activity me-2"></i> Volume • Rating • Sentiment</div>
           <div class="card-body chart-wrap">
             <canvas id="overviewChart"></canvas>
           </div>
@@ -160,11 +189,8 @@
     <section class="row g-3 mt-1">
       <div class="col-12">
         <div class="card">
-          <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-diagram-3 me-2"></i> Aspect Sentiment (Service, Product, Pricing, Delivery)</span>
-            <button id="btnAspectTrendEmail" class="btn btn-outline-secondary btn-sm">
-              <i class="bi bi-envelope-exclamation"></i> Compose High‑Severity Email
-            </button>
+          <div class="card-header fw-semibold">
+            <i class="bi bi-diagram-3 me-2"></i> Aspect Sentiment (Service, Product, Pricing, Delivery)
           </div>
           <div class="card-body chart-wrap">
             <canvas id="aspectsStacked"></canvas>
@@ -193,7 +219,7 @@
       </div>
     </section>
 
-    <!-- Executive Summary + Recommendations -->
+    <!-- Executive Summary (client-side from v2 APIs) -->
     <section class="row g-3 mt-1">
       <div class="col-12 col-xl-8">
         <div class="card h-100">
@@ -206,9 +232,14 @@
       </div>
       <div class="col-12 col-xl-4">
         <div class="card h-100">
-          <div class="card-header fw-semibold"><i class="bi bi-lightbulb me-2"></i> Top Recommendations</div>
+          <div class="card-header fw-semibold"><i class="bi bi-lightbulb me-2"></i> Keywords</div>
           <div class="card-body">
-            <ol id="recoList" class="mb-0"></ol>
+            <div class="mb-2 fw-semibold">Top Positive</div>
+            <div id="kwPositive" class="mb-3"></div>
+            <div class="mb-2 fw-semibold">Top Negative</div>
+            <div id="kwNegative" class="mb-3"></div>
+            <div class="mb-2 fw-semibold">Emerging (Δ 7d)</div>
+            <div id="kwEmerging" class="mb-0"></div>
           </div>
         </div>
       </div>
@@ -227,9 +258,6 @@
                 <option value="highest">Highest rating</option>
                 <option value="lowest">Lowest rating</option>
               </select>
-              <button id="btnSummaryPng" class="btn btn-outline-secondary btn-sm ms-2">
-                <i class="bi bi-image"></i> Summary PNG
-              </button>
             </div>
           </div>
           <div class="card-body overflow-auto" style="max-height: 600px;" id="reviewsFeed">
@@ -239,20 +267,24 @@
       </div>
     </section>
 
-    <!-- Add Company + Map -->
+    <!-- Add Company + Map/Search -->
     <section class="row g-3 mt-1">
       <div class="col-12 col-xl-6">
         <div class="card h-100">
           <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
             <span><i class="bi bi-geo-alt me-2"></i> Add Company (Google Places)</span>
-            <small class="text-secondary">Autocomplete + autofill</small>
+            <small class="text-secondary">Autocomplete if Maps SDK present; otherwise server search</small>
           </div>
           <div class="card-body">
             <div class="mb-3">
               <label for="placeSearch" class="form-label">Search</label>
-              <input id="placeSearch" type="text" class="form-control" placeholder="Type business name, e.g., 'Starbucks Gulberg'">
-              <div class="small text-secondary mt-1">Pick from Google suggestions to autofill fields.</div>
+              <div class="input-group">
+                <input id="placeSearch" type="text" class="form-control" placeholder="Type business name, e.g., 'Starbucks Gulberg'">
+                <button id="btnServerSearch" class="btn btn-outline-secondary">Search</button>
+              </div>
+              <div class="small text-secondary mt-1">If Google Maps SDK is available, Autocomplete will fill fields automatically.</div>
             </div>
+            <div id="serverResults" class="mb-3"></div>
             <div class="row g-2">
               <div class="col-md-8">
                 <label class="form-label">Place Name</label>
@@ -298,9 +330,9 @@
       <div class="col-12 col-xl-6">
         <div class="card h-100">
           <div class="card-header fw-semibold"><i class="bi bi-map me-2"></i> Map Preview</div>
-          <div class="card-body">
+        <div class="card-body">
             <div id="map"></div>
-            <div id="mapHint" class="small text-secondary mt-2">Select a place to preview its location.</div>
+            <div id="mapHint" class="small text-secondary mt-2">Select a place to preview its location (if Google Maps SDK loaded).</div>
             <ul id="detailsList" class="list-unstyled mt-3 mb-0"></ul>
           </div>
         </div>
@@ -317,8 +349,12 @@
     </span>
   </footer>
 
-  <!-- Bootstrap JS -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+  <!-- Bootstrap Bundle -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
+    crossorigin="anonymous"
+  ></script>
 
   <script>
     // Theme Toggle
@@ -368,6 +404,10 @@
       d.textContent = s ?? '';
       return d.innerHTML;
     }
+    function stars(n) {
+      const v = Number(n || 0);
+      return '★'.repeat(Math.round(v));
+    }
 
     // Chart Management
     window._charts = [];
@@ -391,6 +431,7 @@
         $('#kpiNewReviews').textContent = fmt.format(data.new_reviews ?? 0);
         $('#kpiAvgRating').textContent = (data.avg_rating ?? 0).toFixed(2);
         $('#kpiAvgSentiment').textContent = (data.avg_sentiment ?? 0).toFixed(3);
+        // (Optional) deltas can be derived comparing windows; leaving neutral here
         setDelta($('#kpiTotalReviewsDelta'), 0);
         setDelta($('#kpiNewReviewsDelta'), 0);
       } catch (e) {
@@ -399,7 +440,7 @@
       }
     }
 
-    // Load Volume/Rating/Sentiment Chart
+    // Volume/Rating/Sentiment Chart
     async function loadOverview() {
       try {
         const qs = qstr(params());
@@ -434,7 +475,7 @@
       } catch (e) { console.error("Overview Chart Error:", e); }
     }
 
-    // Load Sentiment Share (Pie)
+    // Sentiment Share
     async function loadSentimentShare() {
       try {
         const qs = qstr(params());
@@ -453,7 +494,7 @@
       } catch(e){ console.error("Pie Chart Error:", e); }
     }
 
-    // Load Ratings Histogram
+    // Ratings Histogram
     async function loadRatingsDistribution() {
       try {
         const qs = qstr(params());
@@ -471,7 +512,7 @@
       } catch(e){ console.error("Histogram Error:", e); }
     }
 
-    // Load Aspect Sentiment Stacked Bar
+    // Aspect Sentiment Stacked
     async function loadAspectsStacked() {
       try {
         const qs = qstr(params());
@@ -498,7 +539,7 @@
       } catch (e) { console.error("Aspects Error:", e); }
     }
 
-    // Load Urgent Issues
+    // Urgent Issues
     async function loadOperational() {
       const el = $('#urgentList');
       el.innerHTML = '<div class="text-secondary text-center p-4">Loading…</div>';
@@ -515,11 +556,11 @@
           <div class="activity-item">
             <div class="d-flex justify-content-between align-items-start">
               <div>
-                <span class="badge badge-sentiment ${it.sentiment_label === 'negative' ? 'negative' : 'neutral'} me-2">${sanitize(it.sentiment_label)}</span>
-                <strong>${sanitize(it.author_name)}</strong> — ${sanitize((it.text || '').substring(0, 200))}...
-                <div class="mt-1 small text-warning">${'★'.repeat(Number(it.rating || 0))}</div>
+                <span class="badge badge-sentiment ${it.sentiment_label || 'neutral'} me-2">${sanitize(it.sentiment_label || 'neutral')}</span>
+                <strong>${sanitize(it.author_name || 'Anonymous')}</strong> — ${sanitize((it.text || '').substring(0, 200))}...
+                <div class="mt-1 small text-warning">${stars(it.rating)}</div>
               </div>
-              <small class="text-secondary ms-2">${sanitize(it.review_time)}</small>
+              <small class="text-secondary ms-2">${sanitize(it.review_time || '')}</small>
             </div>
           </div>
         `).join('');
@@ -529,7 +570,7 @@
       }
     }
 
-    // Load Alerts
+    // Alerts
     async function loadAlerts() {
       const el = $('#alertsList');
       try {
@@ -543,28 +584,70 @@
         }
         el.innerHTML = `<ul class="list-group list-group-flush">${items.map(a => `
           <li class="list-group-item bg-transparent">
-            <span class="badge ${a.severity==='high'?'text-bg-danger':'text-bg-warning'} me-2">${a.severity}</span> ${a.message}
+            <span class="badge ${a.severity==='high'?'text-bg-danger':'text-bg-warning'} me-2">${a.severity}</span> ${sanitize(a.message || '')}
           </li>
         `).join('')}</ul>`;
       } catch(e){ console.error(e); }
     }
 
-    // Load Executive Summary + Recommendations
+    // Executive Summary (client-side synthesis from v2 APIs)
     async function loadExecutive() {
+      const summaryEl = $('#execSummary');
+      const rationaleEl = $('#execRationale');
+      const kwPosEl = $('#kwPositive');
+      const kwNegEl = $('#kwNegative');
+      const kwEmEl  = $('#kwEmerging');
+
       try {
         const qs = qstr(params());
-        const sres = await fetch(`/api/v2/ai/executive-summary?${qs}`);
-        const sum = await sres.json();
-        $('#execSummary').textContent = sum.summary || 'Summary unavailable.';
-        $('#execRationale').innerHTML = (sum.rationale || []).map(x => `<li>${sanitize(x)}</li>`).join('');
-        
-        const rres = await fetch(`/api/v2/ai/recommendations?${qs}`);
-        const rec = await rres.json();
-        $('#recoList').innerHTML = (rec.top_action_items || []).map(x => `<li>${sanitize(x)}</li>`).join('');
-      } catch(e){ console.error(e); }
+        const [sumRes, kwRes] = await Promise.all([
+          fetch(`/api/v2/sentiment/summary?${qs}`),
+          fetch(`/api/v2/keywords?${qs}`)
+        ]);
+
+        const sum = await sumRes.json();
+        const kw  = await kwRes.json();
+
+        // Render Keywords
+        const badge = (t, cls, extra='') => `<span class="kw-badge ${cls}" title="${extra}">${sanitize(t)}</span>`;
+        kwPosEl.innerHTML = (kw.positive || []).slice(0, 12).map(x => badge(`${x.term} (${x.freq})`, 'kw-pos', `avg:${x.avg_sent}, Δ:${x.delta}`)).join(' ');
+        kwNegEl.innerHTML = (kw.negative || []).slice(0, 12).map(x => badge(`${x.term} (${x.freq})`, 'kw-neg', `avg:${x.avg_sent}, Δ:${x.delta}`)).join(' ');
+        kwEmEl.innerHTML  = (kw.emerging || []).slice(0, 12).map(x => badge(`${x.term} (+${x.delta})`, 'kw-em')).join(' ');
+
+        // Synthesize short exec summary
+        const total = sum.total ?? 0;
+        const avgR  = (sum.avg_rating ?? 0).toFixed(2);
+        const avgS  = (sum.avg_sentiment ?? 0).toFixed(3);
+        const share = sum.share || {positive:0, neutral:0, negative:0};
+        const topPos = (kw.positive || []).slice(0, 3).map(x => x.term);
+        const topNeg = (kw.negative || []).slice(0, 3).map(x => x.term);
+
+        summaryEl.classList.remove('text-secondary');
+        summaryEl.innerHTML = `
+          In the selected window, we analyzed <strong>${fmt.format(total)}</strong> reviews.
+          Average rating is <strong>${avgR}</strong> and average sentiment is <strong>${avgS}</strong>.
+          Sentiment share: <span class="text-success">Positive ${fmt.format(share.positive || 0)}</span>,
+          <span class="text-muted">Neutral ${fmt.format(share.neutral || 0)}</span>,
+          <span class="text-danger">Negative ${fmt.format(share.negative || 0)}</span>.
+        `.trim();
+
+        // Rationale bullets
+        const bullets = [];
+        if (topPos.length) bullets.push(`Customers praise: ${topPos.map(sanitize).join(', ')}.`);
+        if (topNeg.length) bullets.push(`Top issues: ${topNeg.map(sanitize).join(', ')}.`);
+        if ((kw.emerging || []).length) bullets.push(`Emerging topics show increased mentions: ${(kw.emerging || []).slice(0,3).map(x => x.term).join(', ')}.`);
+
+        rationaleEl.innerHTML = bullets.map(x => `<li>${x}</li>`).join('');
+
+      } catch (e) {
+        console.error(e);
+        summaryEl.textContent = 'Summary unavailable.';
+        rationaleEl.innerHTML = '';
+        kwPosEl.innerHTML = kwNegEl.innerHTML = kwEmEl.innerHTML = '';
+      }
     }
 
-    // Load Recent Reviews
+    // Recent Reviews
     async function loadReviews() {
       const feed = $('#reviewsFeed');
       try {
@@ -583,7 +666,7 @@
             <div class="d-flex justify-content-between">
               <div>
                 <strong>${sanitize(r.author_name)}</strong>
-                <span class="text-warning ms-2">${'★'.repeat(Number(r.rating || 0))}</span>
+                <span class="text-warning ms-2">${stars(r.rating)}</span>
                 <p class="mt-1 mb-0">${sanitize(r.text)}</p>
               </div>
               <small class="text-secondary">${sanitize(r.review_time)}</small>
@@ -607,25 +690,13 @@
       finally { $('#btnSync').disabled = false; }
     }
 
-    // High-Severity Email
-    async function composeAspectTrendEmail() {
-      try {
-        const qs = qstr(params());
-        const res = await fetch(`/api/alerts/high-severity-email?${qs}`);
-        if (!res.ok) throw new Error('Email template failed');
-        const data = await res.json();
-        alert(`Subject: ${data.subject}\n\n${data.body_text}`);
-      } catch(e){ alert('Failed to generate email: ' + e.message); }
-    }
-
-    // Google Places Autocomplete + Map
+    // Google Places: Autocomplete (if SDK loaded) + Map; otherwise fallback to server search
     let gmap, gmarker, autocomplete;
-    function onGoogleMapsReady() {
+    function useAutocompleteIfAvailable() {
+      if (!window.google || !google.maps || !google.maps.places) return false;
+
       const mapEl = $('#map');
-      gmap = new google.maps.Map(mapEl, {
-        center: { lat: 33.6844, lng: 73.0479 }, // Rawalpindi default
-        zoom: 12
-      });
+      gmap = new google.maps.Map(mapEl, { center: { lat: 33.6844, lng: 73.0479 }, zoom: 12 });
       gmarker = new google.maps.Marker({ map: gmap });
 
       const input = $('#placeSearch');
@@ -650,14 +721,67 @@
         gmap.setCenter(loc);
         gmap.setZoom(16);
         gmarker.setPosition(loc);
+
+        // Show structured details list
+        $('#detailsList').innerHTML = `
+          <li><strong>Name:</strong> ${sanitize(place.name || '')}</li>
+          <li><strong>Address:</strong> ${sanitize(place.formatted_address || '')}</li>
+          <li><strong>Place ID:</strong> <span class="text-mono">${sanitize(place.place_id || '')}</span></li>
+          <li><strong>Rating:</strong> ${sanitize(place.rating || '')}</li>
+        `;
       });
+      return true;
     }
-    window.onGoogleMapsReady = onGoogleMapsReady;
+
+    // Server Search fallback (no Maps SDK needed)
+    async function serverSearchPlaces() {
+      const q = $('#placeSearch').value.trim();
+      const out = $('#serverResults');
+      out.innerHTML = '';
+      if (!q || q.length < 3) {
+        out.innerHTML = '<div class="text-secondary">Type at least 3 characters.</div>';
+        return;
+      }
+      try {
+        const res = await fetch(`/api/google/places/search?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'Search failed');
+        const results = data.results || [];
+        if (!results.length) {
+          out.innerHTML = '<div class="text-secondary">No results.</div>';
+          return;
+        }
+        out.innerHTML = `
+          <div class="list-group">
+            ${results.map(r => `
+              <button type="button" class="list-group-item list-group-item-action" data-place-id="${sanitize(r.place_id)}" data-name="${sanitize(r.name)}" data-addr="${sanitize(r.formatted_address || '')}">
+                <i class="bi bi-geo-alt me-1"></i> ${sanitize(r.name)} <span class="text-secondary">— ${sanitize(r.formatted_address || '')}</span>
+              </button>
+            `).join('')}
+          </div>
+        `;
+        out.querySelectorAll('button[data-place-id]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            $('#placeName').value = btn.dataset.name || '';
+            $('#placeAddress').value = btn.dataset.addr || '';
+            $('#placeId').value = btn.dataset.placeId || '';
+            $('#placeRating').value = '';
+            $('#placePhone').value = '';
+            $('#placeWebsite').value = '';
+            $('#placeUrl').value = '';
+            $('#placeMsg').textContent = 'Place selected from server search.';
+          });
+        });
+      } catch (e) {
+        console.error(e);
+        out.innerHTML = '<div class="text-danger">Search failed.</div>';
+      }
+    }
 
     // Create Company
     async function createCompany() {
       const name = $('#placeName').value.trim();
-      const pid = $('#placeId').value.trim();
+      const pid  = $('#placeId').value.trim();
       if (!name || !pid) return alert('Please select a valid place first.');
 
       const fd = new FormData();
@@ -710,23 +834,30 @@
       $('#btnApplyRange').onclick = refreshAll;
       $('#reviewsSort').onchange = loadReviews;
       $('#btnSync').onclick = triggerSync;
-      $('#btnAspectTrendEmail').onclick = composeAspectTrendEmail;
       $('#btnCreateCompany').onclick = createCompany;
       $('#btnClearPlace').onclick = () => {
         $('#placeSearch').value = '';
         $$('#placeName, #placeRating, #placeAddress, #placeId, #placePhone, #placeWebsite, #placeUrl').forEach(i => i.value = '');
+        $('#serverResults').innerHTML = '';
         if (gmarker) gmarker.setPosition(null);
+        $('#placeMsg').textContent = '';
       };
-      $('#btnSummaryPng').onclick = () => {
-        const p = params();
-        window.open(`/api/v2/charts/summary.png?${qstr(p)}`, '_blank');
-      };
+      $('#btnServerSearch').onclick = serverSearchPlaces;
+
+      // Use Autocomplete if SDK is present
+      setTimeout(() => {
+        useAutocompleteIfAvailable();
+      }, 0);
 
       refreshAll();
     });
   </script>
 
-  <!-- Google Maps with YOUR key -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&v=weekly&callback=onGoogleMapsReady" async defer></script>
+  <!--
+    Google Maps SDK (optional):
+    If you have the key available, you can replace YOUR_GOOGLE_MAPS_API_KEY below
+    (or render it via Jinja: {{ settings.GOOGLE_PLACES_API_KEY }} if you pass `settings` into the template context)
+  -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&libraries=places&v=weekly" async defer></script>
 </body>
 </html>
