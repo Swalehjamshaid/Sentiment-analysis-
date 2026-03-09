@@ -7,11 +7,23 @@
   <title>ReviewSaaS • Dashboard</title>
 
   <!-- Bootstrap + Icons -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+    integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
+    crossorigin="anonymous"
+  />
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
+    rel="stylesheet"
+  />
 
   <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+    integrity="sha384-5Q+Uve4Zc0Q0t3Z9bE1E1mCwP+4b2d2q6zRFGhS9+2JtG0c7Jm8vS4d2i3doz0KZ"
+    crossorigin="anonymous"
+  ></script>
 
   <style>
     header.navbar {
@@ -38,6 +50,10 @@
   </style>
 </head>
 <body>
+  {% set _user = user if user is defined else None %}
+  {% set _companies = companies if companies is defined and companies else [] %}
+  {% set _active_company_id = active_company_id if active_company_id is defined else ( _companies[0].id if _companies else None ) %}
+
   <header class="navbar navbar-expand-lg sticky-top">
     <div class="container-fluid">
       <a href="/dashboard" class="navbar-brand">
@@ -47,10 +63,10 @@
         <!-- Company selection -->
         <div class="input-group input-group-sm">
           <span class="input-group-text"><i class="bi bi-buildings"></i></span>
-          <select id="companySelect" class="form-select form-select-sm">
-            {% if companies %}
-              {% for c in companies %}
-                <option value="{{ c.id }}" {% if c.id == active_company_id %}selected{% endif %}>
+          <select id="companySelect" class="form-select form-select-sm" {% if not _companies %}disabled{% endif %}>
+            {% if _companies %}
+              {% for c in _companies %}
+                <option value="{{ c.id }}" {% if c.id == _active_company_id %}selected{% endif %}>
                   {{ c.name }}
                 </option>
               {% endfor %}
@@ -69,7 +85,7 @@
         </div>
 
         <!-- Sync -->
-        <button id="btnSync" class="btn btn-outline-primary btn-sm" title="Trigger background review sync" type="button">
+        <button id="btnSync" class="btn btn-outline-primary btn-sm" title="Trigger background review sync" type="button" {% if not _active_company_id %}disabled{% endif %}>
           <i class="bi bi-arrow-repeat me-1"></i> Sync
         </button>
 
@@ -82,14 +98,16 @@
         <a class="btn btn-outline-secondary btn-sm" href="/api/companies" title="Companies">
           <i class="bi bi-people"></i>
         </a>
-        <a class="btn btn-outline-secondary btn-sm" href="/logout" title="Logout">
-          <i class="bi bi-box-arrow-right"></i>
-        </a>
+        <form method="post" action="/logout" class="d-inline">
+          <button class="btn btn-outline-secondary btn-sm" type="submit" title="Logout">
+            <i class="bi bi-box-arrow-right"></i>
+          </button>
+        </form>
       </div>
     </div>
   </header>
 
-  <input type="hidden" id="activeCompanyId" value="{{ active_company_id or '' }}" />
+  <input type="hidden" id="activeCompanyId" value="{{ _active_company_id or '' }}" />
 
   <main class="container my-4">
     <!-- KPI Cards -->
@@ -337,7 +355,11 @@
   </footer>
 
   <!-- Bootstrap Bundle -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
+    crossorigin="anonymous"
+  ></script>
 
   <script>
     // Theme Toggle
@@ -350,13 +372,16 @@
         icon.className = (html.getAttribute('data-bs-theme') === 'dark') ? 'bi bi-brightness-high' : 'bi bi-moon-stars';
       };
       applyIcon();
-      document.getElementById('themeToggle').addEventListener('click', () => {
-        const next = html.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
-        html.setAttribute('data-bs-theme', next);
-        localStorage.setItem('theme', next);
-        applyIcon();
-        if (window._charts) window._charts.forEach(c => c.update('none'));
-      });
+      const toggle = document.getElementById('themeToggle');
+      if (toggle) {
+        toggle.addEventListener('click', () => {
+          const next = html.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+          html.setAttribute('data-bs-theme', next);
+          localStorage.setItem('theme', next);
+          applyIcon();
+          if (window._charts) window._charts.forEach(c => c.update('none'));
+        });
+      }
     })();
 
     // Utility Helpers
@@ -364,9 +389,10 @@
     const $$ = (s) => document.querySelectorAll(s);
     const fmt = new Intl.NumberFormat();
     function params() {
-      const company_id = $('#companySelect')?.value || $('#activeCompanyId')?.value || '';
-      const start = $('#startDate').value || '';
-      const end = $('#endDate').value || '';
+      const companySelect = $('#companySelect');
+      const company_id = companySelect && !companySelect.disabled ? companySelect.value : ($('#activeCompanyId')?.value || '');
+      const start = $('#startDate')?.value || '';
+      const end = $('#endDate')?.value || '';
       return { company_id, start, end };
     }
     function qstr(obj) {
@@ -377,7 +403,7 @@
     }
     function setDelta(el, delta) {
       if (!el) return;
-      if (typeof delta !== 'number' || Object.is(delta, NaN)) { el.textContent = '—'; el.className='kpi-delta'; return; }
+      if (typeof delta !== 'number' || Number.isNaN(delta)) { el.textContent = '—'; el.className='kpi-delta'; return; }
       if (delta > 0) { el.textContent = `▲ ${delta.toFixed(2)}%`; el.className='kpi-delta up'; }
       else if (delta < 0) { el.textContent = `▼ ${Math.abs(delta).toFixed(2)}%`; el.className='kpi-delta down'; }
       else { el.textContent = '—'; el.className='kpi-delta'; }
@@ -389,14 +415,14 @@
     }
     function stars(n) {
       const v = Number(n || 0);
-      return '★'.repeat(Math.round(v));
+      return '★'.repeat(Math.max(0, Math.min(5, Math.round(v))));
     }
 
     // Chart Management
     window._charts = [];
     let overviewChart, sentPie, ratingsHist, aspectsStacked;
     const destroyChart = (c) => {
-      if (c) {
+      if (c && typeof c.destroy === 'function') {
         c.destroy();
         const i = window._charts.indexOf(c);
         if (i >= 0) window._charts.splice(i, 1);
@@ -405,20 +431,24 @@
 
     // Load KPIs
     async function loadKpis() {
+      const elTotal = $('#kpiTotalReviews');
       try {
         const qs = qstr(params());
         const r = await fetch(`/api/kpis?${qs}`);
         if (!r.ok) throw new Error('KPI fetch failed');
         const data = await r.json();
-        $('#kpiTotalReviews').textContent = fmt.format(data.total_reviews ?? 0);
-        $('#kpiNewReviews').textContent = fmt.format(data.new_reviews ?? 0);
-        $('#kpiAvgRating').textContent = (data.avg_rating ?? 0).toFixed(2);
-        $('#kpiAvgSentiment').textContent = (data.avg_sentiment ?? 0).toFixed(3);
+        (elTotal || {}).textContent = fmt.format(data.total_reviews ?? 0);
+        const elNew = $('#kpiNewReviews');
+        if (elNew) elNew.textContent = fmt.format(data.new_reviews ?? 0);
+        const elAR = $('#kpiAvgRating');
+        if (elAR) elAR.textContent = (data.avg_rating ?? 0).toFixed(2);
+        const elAS = $('#kpiAvgSentiment');
+        if (elAS) elAS.textContent = (data.avg_sentiment ?? 0).toFixed(3);
         setDelta($('#kpiTotalReviewsDelta'), 0);
         setDelta($('#kpiNewReviewsDelta'), 0);
       } catch (e) {
         console.error("KPI Error:", e);
-        $('#kpiTotalReviews').textContent = 'Error';
+        if (elTotal) elTotal.textContent = '—';
       }
     }
 
@@ -433,8 +463,10 @@
         const vol = (data.volume || []).map(d => d.value ?? 0);
         const rat = (data.rating || []).map(d => d.value ?? 0);
         const sen = (data.sentiment || []).map(d => d.value ?? 0);
+        const ctx = $('#overviewChart');
+        if (!ctx) return;
         destroyChart(overviewChart);
-        overviewChart = new Chart($('#overviewChart'), {
+        overviewChart = new Chart(ctx, {
           type: 'line',
           data: {
             labels,
@@ -466,8 +498,10 @@
         const pos = data.counts?.positive ?? 0;
         const neu = data.counts?.neutral ?? 0;
         const neg = data.counts?.negative ?? 0;
+        const ctx = $('#sentPie');
+        if (!ctx) return;
         destroyChart(sentPie);
-        sentPie = new Chart($('#sentPie'), {
+        sentPie = new Chart(ctx, {
           type: 'doughnut',
           data: { labels: ['Positive','Neutral','Negative'], datasets: [{ data: [pos,neu,neg], backgroundColor:['#2ecc71','#95a5a6','#e74c3c'], borderWidth:0 }] },
           options: { responsive:true, plugins:{ legend:{ position:'bottom' } }, cutout:'60%' }
@@ -484,8 +518,10 @@
         const data = await res.json();
         const labels = ['1','2','3','4','5'];
         const vals = [1,2,3,4,5].map(i => data.distribution?.[i] ?? 0);
+        const ctx = $('#ratingsHist');
+        if (!ctx) return;
         destroyChart(ratingsHist);
-        ratingsHist = new Chart($('#ratingsHist'), {
+        ratingsHist = new Chart(ctx, {
           type: 'bar',
           data: { labels, datasets: [{ label:'Count', data: vals, backgroundColor:'#0dcaf0' }] },
           options: { responsive:true, scales:{ y:{ beginAtZero:true } } }
@@ -504,8 +540,10 @@
         const pos = (data.aspects || []).map(a => a.positive || 0);
         const neu = (data.aspects || []).map(a => a.neutral || 0);
         const neg = (data.aspects || []).map(a => a.negative || 0);
+        const ctx = $('#aspectsStacked');
+        if (!ctx) return;
         destroyChart(aspectsStacked);
-        aspectsStacked = new Chart($('#aspectsStacked'), {
+        aspectsStacked = new Chart(ctx, {
           type: 'bar',
           data: {
             labels,
@@ -524,6 +562,7 @@
     // Urgent Issues
     async function loadOperational() {
       const el = $('#urgentList');
+      if (!el) return;
       el.innerHTML = '<div class="text-secondary text-center p-4">Loading…</div>';
       try {
         const qs = qstr(params());
@@ -538,7 +577,7 @@
           <div class="activity-item">
             <div class="d-flex justify-content-between align-items-start">
               <div>
-                <span class="badge badge-sentiment ${it.sentiment_label || 'neutral'} me-2">${sanitize(it.sentiment_label || 'neutral')}</span>
+                <span class="badge badge-sentiment ${sanitize(it.sentiment_label || 'neutral')} me-2">${sanitize(it.sentiment_label || 'neutral')}</span>
                 <strong>${sanitize(it.author_name || 'Anonymous')}</strong> — ${sanitize((it.text || '').substring(0, 200))}...
                 <div class="mt-1 small text-warning">${stars(it.rating)}</div>
               </div>
@@ -555,6 +594,7 @@
     // Alerts
     async function loadAlerts() {
       const el = $('#alertsList');
+      if (!el) return;
       try {
         const qs = qstr(params());
         const res = await fetch(`/api/alerts?${qs}`);
@@ -566,10 +606,10 @@
         }
         el.innerHTML = `<ul class="list-group list-group-flush">${items.map(a => `
           <li class="list-group-item bg-transparent">
-            <span class="badge ${a.severity==='high'?'text-bg-danger':'text-bg-warning'} me-2">${a.severity}</span> ${sanitize(a.message || '')}
+            <span class="badge ${a.severity==='high'?'text-bg-danger':'text-bg-warning'} me-2">${sanitize(a.severity || '')}</span> ${sanitize(a.message || '')}
           </li>
         `).join('')}</ul>`;
-      } catch(e){ console.error(e); }
+      } catch(e){ console.error(e); el.innerHTML = '<div class="text-danger">Error loading alerts.</div>'; }
     }
 
     // Executive Summary (client-side synthesis from v2 APIs)
@@ -579,6 +619,7 @@
       const kwPosEl = $('#kwPositive');
       const kwNegEl = $('#kwNegative');
       const kwEmEl  = $('#kwEmerging');
+      if (!summaryEl || !rationaleEl || !kwPosEl || !kwNegEl || !kwEmEl) return;
 
       try {
         const qs = qstr(params());
@@ -590,13 +631,13 @@
         const sum = await sumRes.json();
         const kw  = await kwRes.json();
 
-        // Render Keywords
-        const badge = (t, cls, extra='') => `<span class="kw-badge ${cls}" title="${extra}">${sanitize(t)}</span>`;
+        // Keywords
+        const badge = (t, cls, extra='') => `<span class="kw-badge ${cls}" title="${sanitize(extra)}">${sanitize(t)}</span>`;
         kwPosEl.innerHTML = (kw.positive || []).slice(0, 12).map(x => badge(`${x.term} (${x.freq})`, 'kw-pos', `avg:${x.avg_sent}, Δ:${x.delta}`)).join(' ');
         kwNegEl.innerHTML = (kw.negative || []).slice(0, 12).map(x => badge(`${x.term} (${x.freq})`, 'kw-neg', `avg:${x.avg_sent}, Δ:${x.delta}`)).join(' ');
         kwEmEl.innerHTML  = (kw.emerging || []).slice(0, 12).map(x => badge(`${x.term} (+${x.delta})`, 'kw-em')).join(' ');
 
-        // Synthesize short exec summary
+        // Summary text
         const total = sum.total ?? 0;
         const avgR  = (sum.avg_rating ?? 0).toFixed(2);
         const avgS  = (sum.avg_sentiment ?? 0).toFixed(3);
@@ -613,12 +654,10 @@
           <span class="text-danger">Negative ${fmt.format(share.negative || 0)}</span>.
         `.trim();
 
-        // Rationale bullets
         const bullets = [];
         if (topPos.length) bullets.push(`Customers praise: ${topPos.map(sanitize).join(', ')}.`);
         if (topNeg.length) bullets.push(`Top issues: ${topNeg.map(sanitize).join(', ')}.`);
-        if ((kw.emerging || []).length) bullets.push(`Emerging topics show increased mentions: ${(kw.emerging || []).slice(0,3).map(x => x.term).join(', ')}.`);
-
+        if ((kw.emerging || []).length) bullets.push(`Emerging topics show increased mentions: ${(kw.emerging || []).slice(0,3).map(x => sanitize(x.term)).join(', ')}.`);
         rationaleEl.innerHTML = bullets.map(x => `<li>${x}</li>`).join('');
 
       } catch (e) {
@@ -632,9 +671,10 @@
     // Recent Reviews
     async function loadReviews() {
       const feed = $('#reviewsFeed');
+      if (!feed) return;
       try {
         const p = params();
-        const sort = $('#reviewsSort').value;
+        const sort = $('#reviewsSort')?.value || 'newest';
         const qs = qstr({ ...p, sort });
         const res = await fetch(`/api/reviews/list?${qs}`);
         const data = await res.json();
@@ -647,41 +687,42 @@
           <div class="activity-item">
             <div class="d-flex justify-content-between">
               <div>
-                <strong>${sanitize(r.author_name)}</strong>
+                <strong>${sanitize(r.author_name || 'Anonymous')}</strong>
                 <span class="text-warning ms-2">${stars(r.rating)}</span>
-                <p class="mt-1 mb-0">${sanitize(r.text)}</p>
+                <p class="mt-1 mb-0">${sanitize(r.text || '')}</p>
               </div>
-              <small class="text-secondary">${sanitize(r.review_time)}</small>
+              <small class="text-secondary">${sanitize(r.review_time || '')}</small>
             </div>
           </div>
         `).join('');
-      } catch(e){ console.error(e); }
+      } catch(e){ console.error(e); feed.innerHTML = '<div class="text-danger">Failed to load reviews.</div>'; }
     }
 
     // Trigger Sync
     async function triggerSync() {
       const { company_id } = params();
       if (!company_id) return alert('Please select a company first.');
-      $('#btnSync').disabled = true;
+      const btn = $('#btnSync'); if (btn) btn.disabled = true;
       try {
         const res = await fetch(`/api/companies/${encodeURIComponent(company_id)}/sync`, { method: 'POST' });
         if (!res.ok) throw new Error('Sync failed');
         alert('Sync triggered. Refreshing data in 3 seconds...');
         setTimeout(refreshAll, 3000);
       } catch(e){ alert('Sync failed: ' + e.message); }
-      finally { $('#btnSync').disabled = false; }
+      finally { if (btn) btn.disabled = false; }
     }
 
-    // Google Places: Autocomplete (if SDK loaded) + Map; otherwise fallback to server search
+    // Google Places: Autocomplete (if SDK loaded) + Map; else server search fallback
     let gmap, gmarker, autocomplete;
     function useAutocompleteIfAvailable() {
-      if (!window.google || !google.maps || !google.maps.places) return false;
-
+      if (!(window.google && google.maps && google.maps.places)) return false;
       const mapEl = $('#map');
+      if (!mapEl) return false;
       gmap = new google.maps.Map(mapEl, { center: { lat: 33.6844, lng: 73.0479 }, zoom: 12 });
       gmarker = new google.maps.Marker({ map: gmap });
 
       const input = $('#placeSearch');
+      if (!input) return true;
       autocomplete = new google.maps.places.Autocomplete(input, {
         fields: ['place_id', 'name', 'formatted_address', 'geometry', 'rating', 'website', 'url', 'formatted_phone_number'],
         types: ['establishment']
@@ -691,33 +732,38 @@
         const place = autocomplete.getPlace();
         if (!place || !place.geometry) return;
 
-        $('#placeName').value = place.name || '';
-        $('#placeRating').value = place.rating || '';
-        $('#placeAddress').value = place.formatted_address || '';
-        $('#placeId').value = place.place_id || '';
-        $('#placePhone').value = place.formatted_phone_number || '';
-        $('#placeWebsite').value = place.website || '';
-        $('#placeUrl').value = place.url || '';
+        const setV = (sel, val) => { const el = $(sel); if (el) el.value = val || ''; };
+        setV('#placeName', place.name);
+        setV('#placeRating', place.rating);
+        setV('#placeAddress', place.formatted_address);
+        setV('#placeId', place.place_id);
+        setV('#placePhone', place.formatted_phone_number);
+        setV('#placeWebsite', place.website);
+        setV('#placeUrl', place.url);
 
         const loc = place.geometry.location;
         gmap.setCenter(loc);
         gmap.setZoom(16);
-        gmarker.setPosition(loc);
+        if (gmarker) gmarker.setPosition(loc);
 
-        $('#detailsList').innerHTML = `
-          <li><strong>Name:</strong> ${sanitize(place.name || '')}</li>
-          <li><strong>Address:</strong> ${sanitize(place.formatted_address || '')}</li>
-          <li><strong>Place ID:</strong> <span class="text-mono">${sanitize(place.place_id || '')}</span></li>
-          <li><strong>Rating:</strong> ${sanitize(place.rating || '')}</li>
-        `;
+        const details = $('#detailsList');
+        if (details) {
+          details.innerHTML = `
+            <li><strong>Name:</strong> ${sanitize(place.name || '')}</li>
+            <li><strong>Address:</strong> ${sanitize(place.formatted_address || '')}</li>
+            <li><strong>Place ID:</strong> <span class="text-mono">${sanitize(place.place_id || '')}</span></li>
+            <li><strong>Rating:</strong> ${sanitize(place.rating || '')}</li>
+          `;
+        }
       });
       return true;
     }
 
-    // Server Search fallback (no Maps SDK needed)
+    // Server Search fallback
     async function serverSearchPlaces() {
-      const q = $('#placeSearch').value.trim();
-      const out = $('#serverResults');
+      const inp = $('#placeSearch'); const out = $('#serverResults');
+      if (!inp || !out) return;
+      const q = (inp.value || '').trim();
       out.innerHTML = '';
       if (!q || q.length < 3) {
         out.innerHTML = '<div class="text-secondary">Type at least 3 characters.</div>';
@@ -735,7 +781,10 @@
         out.innerHTML = `
           <div class="list-group">
             ${results.map(r => `
-              <button type="button" class="list-group-item list-group-item-action" data-place-id="${sanitize(r.place_id)}" data-name="${sanitize(r.name)}" data-addr="${sanitize(r.formatted_address || '')}">
+              <button type="button" class="list-group-item list-group-item-action"
+                data-place-id="${sanitize(r.place_id)}"
+                data-name="${sanitize(r.name)}"
+                data-addr="${sanitize(r.formatted_address || '')}">
                 <i class="bi bi-geo-alt me-1"></i> ${sanitize(r.name)} <span class="text-secondary">— ${sanitize(r.formatted_address || '')}</span>
               </button>
             `).join('')}
@@ -743,14 +792,12 @@
         `;
         out.querySelectorAll('button[data-place-id]').forEach(btn => {
           btn.addEventListener('click', () => {
-            $('#placeName').value = btn.dataset.name || '';
-            $('#placeAddress').value = btn.dataset.addr || '';
-            $('#placeId').value = btn.dataset.placeId || '';
-            $('#placeRating').value = '';
-            $('#placePhone').value = '';
-            $('#placeWebsite').value = '';
-            $('#placeUrl').value = '';
-            $('#placeMsg').textContent = 'Place selected from server search.';
+            const setV = (sel, val) => { const el = $(sel); if (el) el.value = val || ''; };
+            setV('#placeName', btn.dataset.name || '');
+            setV('#placeAddress', btn.dataset.addr || '');
+            setV('#placeId', btn.dataset.placeId || '');
+            setV('#placeRating', ''); setV('#placePhone',''); setV('#placeWebsite',''); setV('#placeUrl','');
+            const msg = $('#placeMsg'); if (msg) msg.textContent = 'Place selected from server search.';
           });
         });
       } catch (e) {
@@ -761,14 +808,15 @@
 
     // Create Company
     async function createCompany() {
-      const name = $('#placeName').value.trim();
-      const pid  = $('#placeId').value.trim();
+      const name = $('#placeName')?.value.trim();
+      const pid  = $('#placeId')?.value.trim();
       if (!name || !pid) return alert('Please select a valid place first.');
 
       const fd = new FormData();
       fd.append('name', name);
       fd.append('google_place_id', pid);
-      fd.append('address', ($('#placeAddress').value || '').trim());
+      const addr = $('#placeAddress')?.value || '';
+      fd.append('address', addr.trim());
 
       try {
         const res = await fetch('/api/companies', { method: 'POST', body: fd });
@@ -786,7 +834,7 @@
 
     // Full Refresh
     async function refreshAll() {
-      await Promise.all([
+      await Promise.allSettled([
         loadKpis(),
         loadOverview(),
         loadSentimentShare(),
@@ -801,56 +849,41 @@
 
     // Init
     document.addEventListener('DOMContentLoaded', () => {
-      const yearEl = document.getElementById('year');
+      const yearEl = $('#year');
       if (yearEl) yearEl.textContent = new Date().getFullYear().toString();
 
       // Date defaults: last 30 days
       const today = new Date();
-      const past = new Date(today);
-      past.setDate(today.getDate() - 29);
-      const endEl = document.getElementById('endDate');
-      const startEl = document.getElementById('startDate');
+      const past = new Date(today); past.setDate(today.getDate() - 29);
+      const endEl = $('#endDate'); const startEl = $('#startDate');
       if (endEl) endEl.value = today.toISOString().split('T')[0];
       if (startEl) startEl.value = past.toISOString().split('T')[0];
 
-      // Events
-      const companySelect = document.getElementById('companySelect');
-      if (companySelect) companySelect.onchange = refreshAll;
-
-      const btnApplyRange = document.getElementById('btnApplyRange');
-      if (btnApplyRange) btnApplyRange.onclick = refreshAll;
-
-      const reviewsSort = document.getElementById('reviewsSort');
-      if (reviewsSort) reviewsSort.onchange = loadReviews;
-
-      const btnSync = document.getElementById('btnSync');
-      if (btnSync) btnSync.onclick = triggerSync;
-
-      const btnCreateCompany = document.getElementById('btnCreateCompany');
-      if (btnCreateCompany) btnCreateCompany.onclick = createCompany;
-
-      const btnClearPlace = document.getElementById('btnClearPlace');
-      if (btnClearPlace) btnClearPlace.onclick = () => {
-        const ids = ['placeSearch','placeName','placeRating','placeAddress','placeId','placePhone','placeWebsite','placeUrl'];
-        ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-        const sr = document.getElementById('serverResults'); if (sr) sr.innerHTML = '';
-        if (window.gmarker) window.gmarker.setPosition(null);
-        const pm = document.getElementById('placeMsg'); if (pm) pm.textContent = '';
+      // Events (guarded)
+      const sel = $('#companySelect'); if (sel) sel.onchange = refreshAll;
+      const btnApply = $('#btnApplyRange'); if (btnApply) btnApply.onclick = refreshAll;
+      const sortSel = $('#reviewsSort'); if (sortSel) sortSel.onchange = loadReviews;
+      const syncBtn = $('#btnSync'); if (syncBtn) syncBtn.onclick = triggerSync;
+      const createBtn = $('#btnCreateCompany'); if (createBtn) createBtn.onclick = createCompany;
+      const clearBtn = $('#btnClearPlace'); if (clearBtn) clearBtn.onclick = () => {
+        ['#placeSearch','#placeName','#placeRating','#placeAddress','#placeId','#placePhone','#placeWebsite','#placeUrl']
+          .forEach(s => { const el = $(s); if (el) el.value = ''; });
+        const sr = $('#serverResults'); if (sr) sr.innerHTML = '';
+        if (window.gmarker && typeof window.gmarker.setPosition === 'function') window.gmarker.setPosition(null);
+        const pm = $('#placeMsg'); if (pm) pm.textContent = '';
       };
+      const serverSearchBtn = $('#btnServerSearch'); if (serverSearchBtn) serverSearchBtn.onclick = serverSearchPlaces;
 
-      const btnServerSearch = document.getElementById('btnServerSearch');
-      if (btnServerSearch) btnServerSearch.onclick = serverSearchPlaces;
-
-      // Use Autocomplete if SDK is present (maps script is optional)
-      setTimeout(() => { useAutocompleteIfAvailable(); }, 0);
+      // Use Autocomplete if SDK is present (script optional)
+      try { useAutocompleteIfAvailable(); } catch(_) {}
 
       refreshAll();
     });
   </script>
 
-  <!-- Optional: Google Maps SDK (only if you have a key)
-       If you pass settings into template context, you can do:
-       <script src="https://maps.googleapis.com/maps/api/js?key={{ settings.GOOGLE_PLACES_API_KEY }}&libraries=places&v=weekly"></script>
+  <!-- Optional: Google Maps SDK (only if you have a key; otherwise server search works)
+       If passing settings via Jinja context, you can do:
+       <script src="https://maps.googleapis.com/maps/api/js?key={{ settings.GOOGLE_PLACES_API_KEY }}&libraries=places&v=weekly" async defer></script>
   -->
 </body>
 </html>
