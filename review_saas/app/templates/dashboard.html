@@ -4,23 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ReviewSaaS • Dashboard</title>
-
-  <link
-    rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
-    integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
-    crossorigin="anonymous"
-  />
-  <link
-    rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
-  />
-  <script
-    src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
-    integrity="sha384-5Q+Uve4Zc0Q0t3Z9bE1E1mCwP+4b2d2q6zRFGhS9+2JtG0c7Jm8vS4d2i3doz0KZ"
-    crossorigin="anonymous"
-  ></script>
-
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-5Q+Uve4Zc0Q0t3Z9bE1E1mCwP+4b2d2q6zRFGhS9+2JtG0c7Jm8vS4d2i3doz0KZ" crossorigin="anonymous"></script>
   <style>
     header.navbar {
       backdrop-filter: saturate(1.2) blur(6px);
@@ -29,16 +15,17 @@
     }
     .kpi-card .kpi-title { font-size: .9rem; color: var(--bs-secondary-color); }
     .kpi-card .kpi-value { font-size: 1.6rem; font-weight: 700; }
-    .kpi-delta.up   { color: #16a34a; }
+    .kpi-delta.up { color: #16a34a; }
     .kpi-delta.down { color: #dc2626; }
     .activity-item { border-bottom: 1px dashed var(--bs-border-color); padding-bottom:.75rem; margin-bottom:.75rem; }
     .badge-sentiment.positive { background:#16a34a; }
-    .badge-sentiment.neutral  { background:#64748b; }
+    .badge-sentiment.neutral { background:#64748b; }
     .badge-sentiment.negative { background:#dc2626; }
     #map { width:100%; height:240px; border-radius:.5rem; border:1px solid var(--bs-border-color); }
     .chart-wrap { height: 280px; }
     .chart-wrap-sm { height: 220px; }
     .text-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .loading-placeholder { min-height: 120px; display: flex; align-items: center; justify-content: center; color: var(--bs-secondary-color); }
   </style>
 </head>
 <body>
@@ -47,7 +34,6 @@
       <a href="/dashboard" class="navbar-brand">
         <i class="bi bi-bar-chart-line me-2"></i> ReviewSaaS
       </a>
-
       <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
         <div class="input-group input-group-sm">
           <span class="input-group-text"><i class="bi bi-buildings"></i></span>
@@ -63,22 +49,18 @@
             {% endif %}
           </select>
         </div>
-
         <div class="input-group input-group-sm">
           <span class="input-group-text"><i class="bi bi-calendar3"></i></span>
           <input id="startDate" type="date" class="form-control" />
           <input id="endDate" type="date" class="form-control" />
           <button id="btnApplyRange" class="btn btn-outline-secondary">Apply</button>
         </div>
-
         <button id="btnSync" class="btn btn-outline-primary btn-sm" title="Trigger background review sync">
           <i class="bi bi-arrow-repeat me-1"></i> Sync
         </button>
-
         <button id="themeToggle" class="btn btn-outline-secondary btn-sm" title="Toggle theme">
           <i class="bi bi-moon-stars" id="themeIcon"></i>
         </button>
-
         <a class="btn btn-outline-secondary btn-sm" href="/api/companies" title="Companies">
           <i class="bi bi-people"></i>
         </a>
@@ -92,6 +74,7 @@
   <input type="hidden" id="activeCompanyId" value="{{ active_company_id or '' }}" />
 
   <main class="container my-4">
+    <!-- KPI Cards -->
     <section class="row g-3 mb-3">
       <div class="col-12 col-sm-6 col-xl-3">
         <div class="card kpi-card h-100">
@@ -143,6 +126,7 @@
       </div>
     </section>
 
+    <!-- Main Charts -->
     <section class="row g-3">
       <div class="col-12 col-xl-6">
         <div class="card h-100">
@@ -154,7 +138,6 @@
           </div>
         </div>
       </div>
-
       <div class="col-12 col-xl-3">
         <div class="card h-100">
           <div class="card-header fw-semibold"><i class="bi bi-pie-chart me-2"></i> Sentiment Share</div>
@@ -163,7 +146,6 @@
           </div>
         </div>
       </div>
-
       <div class="col-12 col-xl-3">
         <div class="card h-100">
           <div class="card-header fw-semibold"><i class="bi bi-bar-chart me-2"></i> Ratings Histogram</div>
@@ -174,6 +156,7 @@
       </div>
     </section>
 
+    <!-- Aspect Sentiment -->
     <section class="row g-3 mt-1">
       <div class="col-12">
         <div class="card">
@@ -190,6 +173,7 @@
       </div>
     </section>
 
+    <!-- Urgent Issues + Alerts -->
     <section class="row g-3 mt-1">
       <div class="col-12 col-xl-6">
         <div class="card h-100">
@@ -209,6 +193,7 @@
       </div>
     </section>
 
+    <!-- Executive Summary + Recommendations -->
     <section class="row g-3 mt-1">
       <div class="col-12 col-xl-8">
         <div class="card h-100">
@@ -229,6 +214,7 @@
       </div>
     </section>
 
+    <!-- Recent Reviews -->
     <section class="row g-3 mt-1">
       <div class="col-12">
         <div class="card">
@@ -253,6 +239,7 @@
       </div>
     </section>
 
+    <!-- Add Company + Map -->
     <section class="row g-3 mt-1">
       <div class="col-12 col-xl-6">
         <div class="card h-100">
@@ -266,7 +253,6 @@
               <input id="placeSearch" type="text" class="form-control" placeholder="Type business name, e.g., 'Starbucks Gulberg'">
               <div class="small text-secondary mt-1">Pick from Google suggestions to autofill fields.</div>
             </div>
-
             <div class="row g-2">
               <div class="col-md-8">
                 <label class="form-label">Place Name</label>
@@ -297,7 +283,6 @@
                 <input id="placeUrl" class="form-control" readonly />
               </div>
             </div>
-
             <div class="d-flex gap-2 mt-3">
               <button id="btnCreateCompany" class="btn btn-primary">
                 <i class="bi bi-plus-lg me-1"></i> Create Company
@@ -310,7 +295,6 @@
           </div>
         </div>
       </div>
-
       <div class="col-12 col-xl-6">
         <div class="card h-100">
           <div class="card-header fw-semibold"><i class="bi bi-map me-2"></i> Map Preview</div>
@@ -333,17 +317,12 @@
     </span>
   </footer>
 
-  <script
-    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
-    integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
-    crossorigin="anonymous"
-  ></script>
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
 
   <script>
-    // ===========================
-    // Theme Toggle Logic
-    // ===========================
-    (function initTheme(){
+    // Theme Toggle
+    (function initTheme() {
       const html = document.documentElement;
       const saved = localStorage.getItem('theme');
       if (saved) html.setAttribute('data-bs-theme', saved);
@@ -361,32 +340,22 @@
       });
     })();
 
-    // ===========================
     // Utility Helpers
-    // ===========================
-    const $  = (s) => document.querySelector(s);
+    const $ = (s) => document.querySelector(s);
     const $$ = (s) => document.querySelectorAll(s);
     const fmt = new Intl.NumberFormat();
-
-    const parseJSONSafe = async (res) => {
-      const text = await res.text().catch(()=> '');
-      try { return JSON.parse(text || '{}'); } catch { return { raw: text }; }
-    };
-
     function params() {
       const company_id = $('#companySelect')?.value || $('#activeCompanyId')?.value || '';
       const start = $('#startDate').value || '';
-      const end   = $('#endDate').value   || '';
+      const end = $('#endDate').value || '';
       return { company_id, start, end };
     }
-
     function qstr(obj) {
       return Object.entries(obj)
         .filter(([,v]) => v !== undefined && v !== null && v !== '')
         .map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
         .join('&');
     }
-
     function setDelta(el, delta) {
       if (!el) return;
       if (typeof delta !== 'number' || Object.is(delta, NaN)) { el.textContent = '—'; el.className='kpi-delta'; return; }
@@ -394,30 +363,29 @@
       else if (delta < 0) { el.textContent = `▼ ${Math.abs(delta).toFixed(2)}%`; el.className='kpi-delta down'; }
       else { el.textContent = '—'; el.className='kpi-delta'; }
     }
-
     function sanitize(s) {
       const d = document.createElement('div');
       d.textContent = s ?? '';
       return d.innerHTML;
     }
 
-    // ===========================
-    // Chart Initialization
-    // ===========================
+    // Chart Management
     window._charts = [];
     let overviewChart, sentPie, ratingsHist, aspectsStacked;
     const destroyChart = (c) => {
       if (c) {
         c.destroy();
         const i = window._charts.indexOf(c);
-        if (i>=0) window._charts.splice(i,1);
+        if (i >= 0) window._charts.splice(i, 1);
       }
     };
 
+    // Load KPIs
     async function loadKpis() {
       try {
         const qs = qstr(params());
         const r = await fetch(`/api/kpis?${qs}`);
+        if (!r.ok) throw new Error('KPI fetch failed');
         const data = await r.json();
         $('#kpiTotalReviews').textContent = fmt.format(data.total_reviews ?? 0);
         $('#kpiNewReviews').textContent = fmt.format(data.new_reviews ?? 0);
@@ -425,19 +393,23 @@
         $('#kpiAvgSentiment').textContent = (data.avg_sentiment ?? 0).toFixed(3);
         setDelta($('#kpiTotalReviewsDelta'), 0);
         setDelta($('#kpiNewReviewsDelta'), 0);
-      } catch (e) { console.error("KPI Error:", e); }
+      } catch (e) {
+        console.error("KPI Error:", e);
+        $('#kpiTotalReviews').textContent = 'Error';
+      }
     }
 
+    // Load Volume/Rating/Sentiment Chart
     async function loadOverview() {
       try {
         const qs = qstr(params());
         const res = await fetch(`/api/series/overview?${qs}`);
+        if (!res.ok) throw new Error('Overview fetch failed');
         const data = await res.json();
         const labels = (data.volume || []).map(d => d.date);
         const vol = (data.volume || []).map(d => d.value ?? 0);
         const rat = (data.rating || []).map(d => d.value ?? 0);
         const sen = (data.sentiment || []).map(d => d.value ?? 0);
-
         destroyChart(overviewChart);
         overviewChart = new Chart($('#overviewChart'), {
           type: 'line',
@@ -462,13 +434,14 @@
       } catch (e) { console.error("Overview Chart Error:", e); }
     }
 
+    // Load Sentiment Share (Pie)
     async function loadSentimentShare() {
       try {
         const qs = qstr(params());
         const res = await fetch(`/api/sentiment/share?${qs}`);
         const data = await res.json();
         const pos = data.counts?.positive ?? 0;
-        const neu = data.counts?.neutral  ?? 0;
+        const neu = data.counts?.neutral ?? 0;
         const neg = data.counts?.negative ?? 0;
         destroyChart(sentPie);
         sentPie = new Chart($('#sentPie'), {
@@ -480,6 +453,7 @@
       } catch(e){ console.error("Pie Chart Error:", e); }
     }
 
+    // Load Ratings Histogram
     async function loadRatingsDistribution() {
       try {
         const qs = qstr(params());
@@ -497,6 +471,7 @@
       } catch(e){ console.error("Histogram Error:", e); }
     }
 
+    // Load Aspect Sentiment Stacked Bar
     async function loadAspectsStacked() {
       try {
         const qs = qstr(params());
@@ -504,7 +479,7 @@
         const data = await res.json();
         const labels = (data.aspects || []).map(a => a.aspect);
         const pos = (data.aspects || []).map(a => a.positive || 0);
-        const neu = (data.aspects || []).map(a => a.neutral  || 0);
+        const neu = (data.aspects || []).map(a => a.neutral || 0);
         const neg = (data.aspects || []).map(a => a.negative || 0);
         destroyChart(aspectsStacked);
         aspectsStacked = new Chart($('#aspectsStacked'), {
@@ -513,7 +488,7 @@
             labels,
             datasets: [
               { label:'Positive', data: pos, backgroundColor:'#2ecc71', stack: 's' },
-              { label:'Neutral',  data: neu, backgroundColor:'#95a5a6', stack: 's' },
+              { label:'Neutral', data: neu, backgroundColor:'#95a5a6', stack: 's' },
               { label:'Negative', data: neg, backgroundColor:'#e74c3c', stack: 's' },
             ]
           },
@@ -523,9 +498,7 @@
       } catch (e) { console.error("Aspects Error:", e); }
     }
 
-    // ===========================
-    // Operational & Feed Loading
-    // ===========================
+    // Load Urgent Issues
     async function loadOperational() {
       const el = $('#urgentList');
       el.innerHTML = '<div class="text-secondary text-center p-4">Loading…</div>';
@@ -534,8 +507,10 @@
         const res = await fetch(`/api/operational/overview?${qs}`);
         const data = await res.json();
         const issues = data.urgent_issues || [];
-        if (!issues.length) { el.innerHTML = '<div class="text-secondary p-4">No urgent issues found.</div>'; return; }
-
+        if (!issues.length) {
+          el.innerHTML = '<div class="text-secondary p-4">No urgent issues found.</div>';
+          return;
+        }
         el.innerHTML = issues.map(it => `
           <div class="activity-item">
             <div class="d-flex justify-content-between align-items-start">
@@ -548,9 +523,13 @@
             </div>
           </div>
         `).join('');
-      } catch(e) { console.error(e); el.innerHTML = '<div class="text-danger">Error loading urgent list.</div>'; }
+      } catch(e) {
+        console.error(e);
+        el.innerHTML = '<div class="text-danger">Error loading urgent list.</div>';
+      }
     }
 
+    // Load Alerts
     async function loadAlerts() {
       const el = $('#alertsList');
       try {
@@ -558,7 +537,10 @@
         const res = await fetch(`/api/alerts?${qs}`);
         const data = await res.json();
         const items = data.alerts || [];
-        if (!items.length) { el.innerHTML = '<div class="text-secondary">No active alerts.</div>'; return; }
+        if (!items.length) {
+          el.innerHTML = '<div class="text-secondary">No active alerts.</div>';
+          return;
+        }
         el.innerHTML = `<ul class="list-group list-group-flush">${items.map(a => `
           <li class="list-group-item bg-transparent">
             <span class="badge ${a.severity==='high'?'text-bg-danger':'text-bg-warning'} me-2">${a.severity}</span> ${a.message}
@@ -567,20 +549,22 @@
       } catch(e){ console.error(e); }
     }
 
+    // Load Executive Summary + Recommendations
     async function loadExecutive() {
       try {
         const qs = qstr(params());
         const sres = await fetch(`/api/v2/ai/executive-summary?${qs}`);
         const sum = await sres.json();
         $('#execSummary').textContent = sum.summary || 'Summary unavailable.';
-        $('#execRationale').innerHTML = (sum.rationale || []).map(x => `<li>${x}</li>`).join('');
-
+        $('#execRationale').innerHTML = (sum.rationale || []).map(x => `<li>${sanitize(x)}</li>`).join('');
+        
         const rres = await fetch(`/api/v2/ai/recommendations?${qs}`);
         const rec = await rres.json();
-        $('#recoList').innerHTML = (rec.top_action_items || []).map(x => `<li>${x}</li>`).join('');
+        $('#recoList').innerHTML = (rec.top_action_items || []).map(x => `<li>${sanitize(x)}</li>`).join('');
       } catch(e){ console.error(e); }
     }
 
+    // Load Recent Reviews
     async function loadReviews() {
       const feed = $('#reviewsFeed');
       try {
@@ -590,8 +574,10 @@
         const res = await fetch(`/api/reviews/list?${qs}`);
         const data = await res.json();
         const items = data.items || [];
-        if (!items.length) { feed.innerHTML = '<div class="text-secondary p-4">No reviews available.</div>'; return; }
-
+        if (!items.length) {
+          feed.innerHTML = '<div class="text-secondary p-4">No reviews available.</div>';
+          return;
+        }
         feed.innerHTML = items.map(r => `
           <div class="activity-item">
             <div class="d-flex justify-content-between">
@@ -607,38 +593,39 @@
       } catch(e){ console.error(e); }
     }
 
-    // ===========================
-    // Actions & Sync
-    // ===========================
+    // Trigger Sync
     async function triggerSync() {
       const { company_id } = params();
-      if (!company_id) return;
+      if (!company_id) return alert('Please select a company first.');
       $('#btnSync').disabled = true;
       try {
-        // No body required; backend will resolve place_id from company if missing
-        await fetch(`/api/companies/${encodeURIComponent(company_id)}/sync`, { method:'POST' });
+        const res = await fetch(`/api/companies/${encodeURIComponent(company_id)}/sync`, { method: 'POST' });
+        if (!res.ok) throw new Error('Sync failed');
         alert('Sync triggered. Refreshing data in 3 seconds...');
         setTimeout(refreshAll, 3000);
-      } catch(e){ alert('Sync failed.'); }
+      } catch(e){ alert('Sync failed: ' + e.message); }
       finally { $('#btnSync').disabled = false; }
     }
 
+    // High-Severity Email
     async function composeAspectTrendEmail() {
       try {
-        const res = await fetch(`/api/alerts/high-severity-email?${qstr(params())}`);
+        const qs = qstr(params());
+        const res = await fetch(`/api/alerts/high-severity-email?${qs}`);
+        if (!res.ok) throw new Error('Email template failed');
         const data = await res.json();
         alert(`Subject: ${data.subject}\n\n${data.body_text}`);
-      } catch(e){ alert('Failed to generate email.'); }
+      } catch(e){ alert('Failed to generate email: ' + e.message); }
     }
 
-    // ===========================
-    // Google Places Search
-    // ===========================
-    let gmap, gmarker, autocomplete, placesService;
-
+    // Google Places Autocomplete + Map
+    let gmap, gmarker, autocomplete;
     function onGoogleMapsReady() {
       const mapEl = $('#map');
-      gmap = new google.maps.Map(mapEl, { center: { lat: 31.52, lng: 74.35 }, zoom: 12 });
+      gmap = new google.maps.Map(mapEl, {
+        center: { lat: 33.6844, lng: 73.0479 }, // Rawalpindi default
+        zoom: 12
+      });
       gmarker = new google.maps.Marker({ map: gmap });
 
       const input = $('#placeSearch');
@@ -646,7 +633,6 @@
         fields: ['place_id', 'name', 'formatted_address', 'geometry', 'rating', 'website', 'url', 'formatted_phone_number'],
         types: ['establishment']
       });
-      placesService = new google.maps.places.PlacesService(gmap);
 
       autocomplete.addListener('place_changed', () => {
         const place = autocomplete.getPlace();
@@ -663,36 +649,37 @@
         const loc = place.geometry.location;
         gmap.setCenter(loc);
         gmap.setZoom(16);
-        if (gmarker) gmarker.setPosition(loc);
+        gmarker.setPosition(loc);
       });
     }
     window.onGoogleMapsReady = onGoogleMapsReady;
 
+    // Create Company
     async function createCompany() {
-      const name = $('#placeName').value;
-      const pid = $('#placeId').value;
-      if (!name || !pid) return;
+      const name = $('#placeName').value.trim();
+      const pid = $('#placeId').value.trim();
+      if (!name || !pid) return alert('Please select a valid place first.');
 
       const fd = new FormData();
       fd.append('name', name);
       fd.append('google_place_id', pid);
-      fd.append('address', $('#placeAddress').value);
+      fd.append('address', $('#placeAddress').value.trim());
 
       try {
-        const res = await fetch('/api/companies', { method:'POST', body: fd });
+        const res = await fetch('/api/companies', { method: 'POST', body: fd });
         const data = await res.json();
         if (data.success) {
-          alert('Company added! Refreshing list...');
+          alert('Company added successfully! Refreshing...');
           location.reload();
         } else {
           alert(data.message || 'Failed to add company.');
         }
-      } catch(e){ alert('Submission failed.'); }
+      } catch(e) {
+        alert('Submission failed: ' + e.message);
+      }
     }
 
-    // ===========================
-    // Lifecycle
-    // ===========================
+    // Full Refresh
     async function refreshAll() {
       await Promise.all([
         loadKpis(),
@@ -707,15 +694,19 @@
       ]);
     }
 
+    // Init
     document.addEventListener('DOMContentLoaded', () => {
       $('#year').textContent = new Date().getFullYear();
-      // Initialize selects & load data
-      if (!$('#companySelect') && $('#activeCompanyId')?.value) {
-        // hidden field fallback already set
-      }
-      refreshAll();
 
-      $('#companySelect') && ($('#companySelect').onchange = refreshAll);
+      // Date defaults: last 30 days
+      const today = new Date();
+      const past = new Date(today);
+      past.setDate(today.getDate() - 29);
+      $('#endDate').value = today.toISOString().split('T')[0];
+      $('#startDate').value = past.toISOString().split('T')[0];
+
+      // Events
+      $('#companySelect').onchange = refreshAll;
       $('#btnApplyRange').onclick = refreshAll;
       $('#reviewsSort').onchange = loadReviews;
       $('#btnSync').onclick = triggerSync;
@@ -723,17 +714,19 @@
       $('#btnCreateCompany').onclick = createCompany;
       $('#btnClearPlace').onclick = () => {
         $('#placeSearch').value = '';
-        $$('input[readonly]').forEach(i => (i.value = ''));
+        $$('#placeName, #placeRating, #placeAddress, #placeId, #placePhone, #placeWebsite, #placeUrl').forEach(i => i.value = '');
         if (gmarker) gmarker.setPosition(null);
       };
-      $('#btnSummaryPng').onclick = () => window.open(`/api/v2/charts/summary.png?${qstr(params())}`, '_blank');
+      $('#btnSummaryPng').onclick = () => {
+        const p = params();
+        window.open(`/api/v2/charts/summary.png?${qstr(p)}`, '_blank');
+      };
+
+      refreshAll();
     });
   </script>
 
-  <!-- Keep your Google Maps API key and callback intact -->
-  <script
-    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&v=weekly&callback=onGoogleMapsReady"
-    async defer
-  ></script>
+  <!-- Google Maps with YOUR key -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&v=weekly&callback=onGoogleMapsReady" async defer></script>
 </body>
 </html>
