@@ -13,15 +13,19 @@ from app.core.db import get_session
 from app.core.models import Review 
 # ----------------------------
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("app.services.google_reviews")
 logger.setLevel(logging.INFO)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Data models
+# Data Models
 # ──────────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class ReviewData:
+    """
+    Standardized internal data structure for a single review.
+    Used to bridge the API response and the Database model.
+    """
     review_id: str
     author_name: str
     rating: float
@@ -34,8 +38,12 @@ class ReviewData:
     competitor_name: Optional[str] = None
     additional_fields: Dict[str, Any] = field(default_factory=dict)
 
+
 @dataclass
 class CompanyReviews:
+    """
+    Container for a batch of reviews belonging to a company.
+    """
     company_id: str
     reviews: List[ReviewData] = field(default_factory=list)
 
@@ -43,7 +51,7 @@ class CompanyReviews:
         self.reviews.append(review)
 
     def rating_summary(self) -> Dict[str, float]:
-        """Return average, min, max, and count of ratings."""
+        """Calculates average, min, max, and count for dashboard KPIs."""
         if not self.reviews:
             return {"average": 0.0, "min": 0.0, "max": 0.0, "count": 0}
         ratings = [float(r.rating or 0.0) for r in self.reviews]
@@ -55,7 +63,7 @@ class CompanyReviews:
         }
 
     def rating_distribution(self) -> Dict[int, int]:
-        """Return count of each rating 1..5."""
+        """Calculates 1-5 star frequency for the dashboard histogram."""
         def as_star(v: float) -> int:
             try:
                 s = int(round(float(v)))
@@ -66,178 +74,156 @@ class CompanyReviews:
         dist = Counter(as_star(r.rating) for r in self.reviews if r.rating is not None)
         return {i: dist.get(i, 0) for i in range(1, 6)}
 
+
 # ──────────────────────────────────────────────────────────────────────────────
-# Service Layer
+# Service Layer (The Logic Engine)
 # ──────────────────────────────────────────────────────────────────────────────
 
 class OutscraperReviewsService:
     """
-    Fetch reviews from Outscraper/Google via an injected api_client.
+    Primary service for interacting with the Outscraper API Client.
+    Handles the transformation of raw API JSON into ReviewData objects.
     """
     PAGE_SIZE = 100
 
-    def __init__(self, api_client: Any, *, default_kwargs: Optional[Dict[str, Any]] = None):
+    def __init__(self, api_client: Any):
         self.client = api_client
-        self.default_kwargs = default_kwargs or {}
 
     @staticmethod
-    def _normalize_bounds(start_date: Optional[datetime], end_date: Optional[datetime]) -> Tuple[Optional[datetime], Optional[datetime]]:
-        s, e = start_date, end_date
-        if s and s.tzinfo: s = s.replace(tzinfo=None)
-        if e and e.tzinfo: e = e.replace(tzinfo=None)
-        if s: s = datetime.combine(s.date(), time.min)
-        if e: e = datetime.combine(e.date(), time.max)
-        return s, e
-
-    @staticmethod
-    def _coerce_datetime(value: Any) -> Optional[datetime]:
-        if value is None: return None
+    def _coerce_datetime(value: Any) -> datetime:
+        """Ensures that timestamps from various sources are converted to naive datetime."""
+        if not value:
+            return datetime.now()
         if isinstance(value, (int, float)):
             try: return datetime.fromtimestamp(float(value))
-            except Exception: pass
+            except: pass
         if isinstance(value, str):
             try:
+                # Handle ISO format and strip timezones for PostgreSQL compatibility
                 dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-                return dt.replace(tzinfo=None) if dt.tzinfo else dt
-            except Exception: pass
-            try: return datetime.strptime(value, "%Y-%m-%d")
-            except Exception: pass
-        return None
+                return dt.replace(tzinfo=None)
+            except:
+                try: return datetime.strptime(value, "%Y-%m-%d")
+                except: pass
+        return datetime.now()
 
-    @staticmethod
-    def _first(*vals: Any) -> Any:
-        for v in vals:
-            if v is not None and not (isinstance(v, str) and v.strip() == ""):
-                return v
-        return None
-
-    @staticmethod
-    def _as_float(val: Any, default: float = 0.0) -> float:
-        try: return float(val)
-        except Exception: return default
-
-    def _to_review(self, row: Dict[str, Any], *, competitor_name: Optional[str] = None) -> Optional[ReviewData]:
-        time_val = self._first(row.get("time"), row.get("timestamp"), row.get("date"), row.get("published_at"))
-        time_created = self._coerce_datetime(time_val) or datetime.now()
-        
-        rating = self._first(row.get("rating"), row.get("stars"), row.get("review_rating"))
-        rating_f = self._as_float(rating, default=0.0)
-        
-        author = self._first(row.get("author_name"), row.get("author"), row.get("user_name")) or "Anonymous"
-        review_id = self._first(row.get("review_id"), row.get("id"), row.get("google_review_id"))
-        
-        if not review_id:
-            review_id = f"noid-{hash((author, time_created.isoformat(), rating_f))}"
-
-        text = self._first(row.get("text"), row.get("review_text"), row.get("content")) or ""
-        title = self._first(row.get("title"), row.get("review_title"), row.get("summary"))
-        helpful = self._first(row.get("helpful_votes"), row.get("likes"), row.get("votes"))
-        platform = self._first(row.get("platform"), row.get("source")) or "Google"
-        
-        entity_name = competitor_name or self._first(row.get("competitor_name"), row.get("place_name"))
+    def _to_review_data(self, row: Dict[str, Any], competitor_name: Optional[str] = None) -> Optional[ReviewData]:
+        """Maps a raw Outscraper JSON row to a ReviewData object."""
+        # Drill down into Outscraper-specific fields
+        r_id = row.get("review_id") or row.get("id") or row.get("google_review_id")
+        if not r_id:
+            return None
 
         return ReviewData(
-            review_id=str(review_id),
-            author_name=str(author),
-            rating=rating_f,
-            text=str(text),
-            time_created=time_created,
-            sentiment=row.get("sentiment"),
-            review_title=str(title) if title else None,
-            helpful_votes=int(self._as_float(helpful, 0.0)),
-            source_platform=str(platform),
-            competitor_name=str(entity_name) if entity_name else None,
-            additional_fields=row,
+            review_id=str(r_id),
+            author_name=str(row.get("author_name") or row.get("author") or "Anonymous"),
+            rating=float(row.get("rating") or row.get("stars") or 0.0),
+            text=str(row.get("text") or row.get("review_text") or row.get("content") or ""),
+            time_created=self._coerce_datetime(row.get("timestamp") or row.get("time") or row.get("date")),
+            competitor_name=competitor_name,
+            source_platform=str(row.get("source") or row.get("platform") or "Google"),
+            additional_fields=row
         )
 
-    async def fetch_reviews(self, place_id: str, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, max_reviews: Optional[int] = None, *, competitor_name: Optional[str] = None, **extra_kwargs: Any) -> List[ReviewData]:
-        all_reviews: List[ReviewData] = []
-        offset = 0
-        start_norm, end_norm = self._normalize_bounds(start_date, end_date)
+    async def fetch_entity_reviews(self, place_id: str, limit: int = 100, competitor_name: Optional[str] = None) -> List[ReviewData]:
+        """
+        Fetches and maps reviews for a single place_id.
+        CRITICAL: Uses 'await' to ensure the async client completes.
+        """
+        # Call the OutscraperClient defined in main.py
+        response = await self.client.get_reviews(place_id=place_id, limit=limit)
         
-        while True:
-            kwargs = {**self.default_kwargs, **extra_kwargs}
-            # Ensure we await the async client call
-            response = await self.client.get_reviews(place_id=place_id, limit=self.PAGE_SIZE, offset=offset, **kwargs)
-            raw = response.get("reviews", []) or []
-            if not raw: break
-            
-            for row in raw:
-                rd = self._to_review(row, competitor_name=competitor_name)
-                if not rd: continue
-                if start_norm and rd.time_created < start_norm: continue
-                if end_norm and rd.time_created > end_norm: continue
-                
-                all_reviews.append(rd)
-                if max_reviews and len(all_reviews) >= max_reviews: break
-            
-            if (max_reviews and len(all_reviews) >= max_reviews) or len(raw) < self.PAGE_SIZE:
-                break
-            offset += self.PAGE_SIZE
-        return all_reviews
+        # Outscraper responses are often wrapped in a list; main.py handles the list,
+        # but we safeguard here as well.
+        raw_list = response.get("reviews", [])
+        
+        if not raw_list:
+            logger.warning(f"⚠️ No reviews returned from API for Place ID: {place_id}")
+            return []
 
-    async def fetch_many(self, entities: List[Dict[str, Any] | str], start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, max_reviews_per_entity: Optional[int] = None, **extra_kwargs: Any) -> Dict[str, List[ReviewData]]:
-        results: Dict[str, List[ReviewData]] = {}
-        for ent in entities:
-            if isinstance(ent, str):
-                pid, name = ent, None
-            elif isinstance(ent, dict):
-                pid = str(ent.get("place_id") or "").strip()
-                name = ent.get("name") or ent.get("competitor_name")
-            else: continue
-            if not pid: continue
-            
-            results[pid] = await self.fetch_reviews(place_id=pid, start_date=start_date, end_date=end_date, max_reviews=max_reviews_per_entity, competitor_name=name, **extra_kwargs)
-        return results
+        logger.info(f"✅ Mapping {len(raw_list)} reviews for {competitor_name or 'Primary Company'}")
+        return [self._to_review_data(r, competitor_name) for r in raw_list if r]
+
 
 # ──────────────────────────────────────────────────────────────────────────────
-# DATABASE PERSISTENCE LAYER (THE SYNC ENGINE)
+# Persistence Layer (The Database Engine)
 # ──────────────────────────────────────────────────────────────────────────────
 
-async def run_batch_review_ingestion(api_client: Any, primary_company_id: int, entities: List[Dict[str, Any] | str], start_date: Optional[datetime] = None):
+
+
+async def run_batch_review_ingestion(api_client: Any, primary_company_id: int, entities: List[Dict[str, Any] | str]):
     """
-    Core engine to fetch from API and save to PostgreSQL.
+    Main function used by the Dashboard Sync button and the Daily Scheduler.
+    Saves data for the primary company and all provided competitors.
     """
-    logger.info(f"🚀 Starting Sync for Company ID: {primary_company_id}")
+    logger.info(f"🚀 Batch Ingestion Triggered for Company ID: {primary_company_id}")
     service = OutscraperReviewsService(api_client)
     
-    # 1. Fetch data
-    grouped_data = await service.fetch_many(
-        entities=entities, 
-        start_date=start_date, 
-        max_reviews_per_entity=500
-    )
+    # 1. Standardize entities into a list of dictionaries
+    processed_entities = []
+    for ent in entities:
+        if isinstance(ent, str):
+            processed_entities.append({"place_id": ent, "name": None})
+        else:
+            processed_entities.append({
+                "place_id": ent.get("place_id"),
+                "name": ent.get("name") or ent.get("competitor_name")
+            })
 
-    # 2. Persist to Database
+    # 2. Process each entity and persist to the database
     async with get_session() as session:
-        total_saved = 0
-        for place_id, reviews in grouped_data.items():
-            for rd in reviews:
-                # Duplicate Check using google_review_id
+        total_new_reviews = 0
+        
+        for ent in processed_entities:
+            pid = ent['place_id']
+            c_name = ent['name']
+            
+            # Fetch reviews from API
+            fetched_reviews = await service.fetch_entity_reviews(
+                place_id=pid, 
+                limit=500, 
+                competitor_name=c_name
+            )
+            
+            # Save to Database
+            for rd in fetched_reviews:
+                if not rd: continue
+                
+                # Duplicate Guard: Check if review already exists for this company
                 stmt = select(Review).where(and_(
                     Review.company_id == primary_company_id,
                     Review.google_review_id == rd.review_id
                 ))
-                res = await session.execute(stmt)
-                if res.scalar_one_or_none():
+                existing = await session.execute(stmt)
+                if existing.scalar_one_or_none():
                     continue
 
-                # Create Review instance
-                new_review = Review(
+                # Create the database model instance
+                db_review = Review(
                     company_id=primary_company_id,
                     google_review_id=rd.review_id,
                     author_name=rd.author_name,
                     rating=rd.rating,
                     text=rd.text,
                     google_review_time=rd.time_created,
-                    competitor_name=rd.competitor_name,
-                    source_platform=rd.source_platform or "Google"
+                    competitor_name=rd.competitor_name,  # Critical for competitor charts
+                    source_platform=rd.source_platform
                 )
-                session.add(new_review)
-                total_saved += 1
+                session.add(db_review)
+                total_new_reviews += 1
         
-        if total_saved > 0:
+        # 3. Final Commit
+        if total_new_reviews > 0:
             await session.commit()
-            logger.info(f"✅ Sync Complete: {total_saved} reviews saved to DB.")
+            logger.info(f"✨ Successfully committed {total_new_reviews} new reviews to PostgreSQL.")
         else:
-            logger.info("ℹ️ No new reviews found.")
+            logger.info("ℹ️ Sync complete. No new reviews were found.")
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Helper Functions for Public Callers
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def ingest_multi_company_reviews(primary_company_id: int, entities: List[Dict[str, Any] | str], api_client: Any) -> int:
+    """Wrapper to run the ingestion and return the total count saved."""
+    # This matches the pattern called by your dashboard router
+    return await run_batch_review_ingestion(api_client, primary_company_id, entities)
