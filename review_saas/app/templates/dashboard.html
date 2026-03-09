@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         [x-cloak] { display: none !important; }
-        .chart-container { position: relative; height: 280px; width: 100%; }
+        .chart-container { position: relative; height: 300px; width: 100%; }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
     </style>
@@ -30,21 +30,18 @@
             
             <nav class="flex-1 p-6 space-y-2">
                 <div class="text-slate-500 text-xs font-bold uppercase tracking-wider mb-4 px-3">Main Menu</div>
-                <a href="#" class="flex items-center gap-3 p-3 rounded-xl bg-blue-600/10 text-blue-400 border border-blue-600/20">
+                <a href="/dashboard" class="flex items-center gap-3 p-3 rounded-xl bg-blue-600/10 text-blue-400 border border-blue-600/20">
                     <i class="fas fa-chart-line w-5"></i> Dashboard
                 </a>
                 <a href="/api/companies" class="flex items-center gap-3 p-3 rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-building w-5"></i> Companies
-                </a>
-                <a href="#" class="flex items-center gap-3 p-3 rounded-xl text-slate-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-shield-halved w-5"></i> Competitors
+                    <i class="fas fa-building w-5"></i> My Companies
                 </a>
             </nav>
 
             <div class="p-6 border-t border-slate-800">
                 <div class="bg-slate-800/50 rounded-2xl p-4 mb-4">
-                    <p class="text-xs text-slate-500 mb-1">Authenticated as</p>
-                    <p class="text-sm font-semibold truncate">{{ user.email }}</p>
+                    <p class="text-[10px] text-slate-500 font-bold uppercase mb-1">Session User</p>
+                    <p class="text-sm font-semibold truncate" x-text="userEmail"></p>
                 </div>
                 <form action="/logout" method="post">
                     <button type="submit" class="w-full flex items-center gap-3 p-3 text-slate-400 hover:text-red-400 transition">
@@ -58,117 +55,99 @@
             <header class="bg-white border-b border-slate-200 px-8 py-5 flex justify-between items-center z-30 shadow-sm">
                 <div class="flex items-center gap-6">
                     <div>
-                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Select Property</label>
+                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Property Insight</label>
                         <select 
-                            class="bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-xl focus:ring-2 focus:ring-blue-500 outline-none p-2.5 min-w-[240px] font-semibold"
+                            class="bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-xl focus:ring-2 focus:ring-blue-500 outline-none p-2.5 min-w-[260px] font-bold"
                             x-model="companyId"
                             @change="refreshDashboard()"
                         >
                             {% for c in companies %}
-                            <option value="{{ c.id }}">{{ c.name }}</option>
+                            <option value="{{ c.id }}" {% if c.id == active_company_id %}selected{% endif %}>{{ c.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
                 </div>
 
                 <div class="flex items-center gap-4">
-                    <div class="hidden md:block text-right mr-4">
-                        <span class="text-xs font-bold text-slate-400 block uppercase">Operational Status</span>
-                        <span class="text-sm font-bold text-green-500 flex items-center justify-end gap-1">
-                            <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> Live Sync
-                        </span>
-                    </div>
-                    <button @click="triggerSync()" :disabled="loading" class="bg-slate-900 text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-800 transition flex items-center gap-2 shadow-lg shadow-slate-200 disabled:opacity-50">
+                    <button @click="triggerSync()" :disabled="loading" class="bg-slate-900 text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-800 transition flex items-center gap-2 shadow-lg disabled:opacity-50">
                         <i class="fas fa-rotate" :class="loading ? 'animate-spin' : ''"></i>
-                        <span x-text="loading ? 'Syncing...' : 'Fetch Latest'"></span>
+                        <span x-text="loading ? 'Processing...' : 'Sync Google Data'"></span>
                     </button>
                 </div>
             </header>
 
             <div class="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
                 
-                <template x-if="alerts.length > 0">
-                    <div class="space-y-3">
-                        <template x-for="alert in alerts">
-                            <div :class="{
-                                'bg-red-50 border-red-200 text-red-700': alert.severity === 'high',
-                                'bg-amber-50 border-amber-200 text-amber-700': alert.severity === 'medium'
-                            }" class="p-4 rounded-2xl border flex items-center justify-between animate-in fade-in slide-in-from-top-4">
-                                <div class="flex items-center gap-3">
-                                    <i class="fas fa-triangle-exclamation"></i>
-                                    <span class="text-sm font-bold" x-text="alert.message"></span>
-                                </div>
-                                <span class="text-[10px] font-black uppercase tracking-tighter bg-white/50 px-2 py-1 rounded" x-text="alert.type"></span>
+                <div class="space-y-3" x-show="alerts.length > 0" x-cloak>
+                    <template x-for="alert in alerts">
+                        <div :class="alert.severity === 'high' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-700'" 
+                             class="p-4 rounded-2xl border flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <i class="fas fa-circle-exclamation"></i>
+                                <span class="text-sm font-bold" x-text="alert.message"></span>
                             </div>
-                        </template>
-                    </div>
-                </template>
+                            <span class="text-[10px] font-black uppercase tracking-tighter bg-white/50 px-2 py-1 rounded" x-text="alert.type"></span>
+                        </div>
+                    </template>
+                </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                    <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition">
                         <div class="bg-blue-50 w-10 h-10 rounded-xl flex items-center justify-center text-blue-600 mb-4">
                             <i class="fas fa-comments"></i>
                         </div>
-                        <p class="text-slate-500 text-xs font-bold uppercase tracking-widest">Total Volume</p>
+                        <p class="text-slate-500 text-xs font-bold uppercase tracking-widest">Reviews</p>
                         <h3 class="text-3xl font-black mt-1" x-text="kpis.total_reviews">0</h3>
                         <p class="text-xs font-bold mt-2 text-blue-600" x-show="kpis.new_reviews > 0">
-                            <i class="fas fa-arrow-trend-up"></i> <span x-text="kpis.new_reviews"></span> new reviews
+                            +<span x-text="kpis.new_reviews"></span> new this week
                         </p>
                     </div>
 
-                    <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                    <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition">
                         <div class="bg-amber-50 w-10 h-10 rounded-xl flex items-center justify-center text-amber-600 mb-4">
                             <i class="fas fa-star"></i>
                         </div>
                         <p class="text-slate-500 text-xs font-bold uppercase tracking-widest">Avg Rating</p>
                         <h3 class="text-3xl font-black mt-1" x-text="kpis.avg_rating">0.0</h3>
-                        <div class="flex gap-0.5 mt-2 text-[10px]">
+                        <div class="flex gap-0.5 mt-2">
                             <template x-for="i in 5">
-                                <i class="fas fa-star" :class="i <= Math.round(kpis.avg_rating) ? 'text-amber-400' : 'text-slate-200'"></i>
+                                <i class="fas fa-star text-[10px]" :class="i <= Math.round(kpis.avg_rating) ? 'text-amber-400' : 'text-slate-200'"></i>
                             </template>
                         </div>
                     </div>
 
-                    <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                    <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition">
                         <div class="bg-emerald-50 w-10 h-10 rounded-xl flex items-center justify-center text-emerald-600 mb-4">
                             <i class="fas fa-face-smile"></i>
                         </div>
-                        <p class="text-slate-500 text-xs font-bold uppercase tracking-widest">Sentiment Index</p>
-                        <h3 class="text-3xl font-black mt-1" :class="kpis.avg_sentiment >= 0 ? 'text-emerald-600' : 'text-red-600'" 
-                            x-text="(kpis.avg_sentiment * 100).toFixed(0) + '%'">0%</h3>
-                        <div class="w-full bg-slate-100 h-1.5 rounded-full mt-3">
-                            <div class="h-1.5 rounded-full bg-emerald-500 transition-all duration-700" :style="`width: ${ (kpis.avg_sentiment + 1) * 50 }%` font-size: 0px;"></div>
+                        <p class="text-slate-500 text-xs font-bold uppercase tracking-widest">Sentiment</p>
+                        <h3 class="text-3xl font-black mt-1" x-text="(kpis.avg_sentiment * 100).toFixed(0) + '%'">0%</h3>
+                        <div class="w-full bg-slate-100 h-1.5 rounded-full mt-4 overflow-hidden">
+                            <div class="h-full bg-emerald-500 transition-all duration-1000" :style="`width: ${ (kpis.avg_sentiment + 1) * 50 }%` font-size: 0px;"></div>
                         </div>
                     </div>
 
-                    <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                    <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition">
                         <div class="bg-indigo-50 w-10 h-10 rounded-xl flex items-center justify-center text-indigo-600 mb-4">
-                            <i class="fas fa-clock"></i>
+                            <i class="fas fa-calendar-check"></i>
                         </div>
-                        <p class="text-slate-500 text-xs font-bold uppercase tracking-widest">Monitoring Window</p>
-                        <h3 class="text-sm font-bold mt-3 text-slate-700">Last 30 Days</h3>
-                        <p class="text-[10px] font-bold text-slate-400 uppercase mt-1" x-text="`${kpis.window?.start} to ${kpis.window?.end}`"></p>
+                        <p class="text-slate-500 text-xs font-bold uppercase tracking-widest">Period</p>
+                        <h3 class="text-lg font-bold mt-2 text-slate-700">Last 30 Days</h3>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase mt-1" x-text="kpis.window?.start ? `${kpis.window.start} - ${kpis.window.end}` : 'Loading dates...'"></p>
                     </div>
                 </div>
 
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     <div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
-                        <div class="flex items-center justify-between mb-8">
-                            <h4 class="font-black text-lg text-slate-800 tracking-tight">Growth & Satisfaction</h4>
-                            <div class="flex gap-4">
-                                <span class="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase"><span class="w-2 h-2 rounded-full bg-blue-500"></span> Volume</span>
-                                <span class="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase"><span class="w-2 h-2 rounded-full bg-amber-400"></span> Rating</span>
-                            </div>
-                        </div>
+                        <h4 class="font-black text-slate-800 mb-6">Performance Trends</h4>
                         <div class="chart-container">
-                            <canvas id="mainSeriesChart"></canvas>
+                            <canvas id="trendChart"></canvas>
                         </div>
                     </div>
-
                     <div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
-                        <h4 class="font-black text-lg text-slate-800 tracking-tight mb-8">Sentiment Distribution</h4>
+                        <h4 class="font-black text-slate-800 mb-6">Sentiment Breakdown</h4>
                         <div class="chart-container">
-                            <canvas id="sentimentShareChart"></canvas>
+                            <canvas id="shareChart"></canvas>
                         </div>
                     </div>
                 </div>
@@ -176,60 +155,48 @@
                 <div class="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
                     <div class="p-8 border-b border-slate-50 flex justify-between items-center bg-white">
                         <h4 class="font-black text-lg text-slate-800">Intelligence Feed</h4>
-                        <div class="flex items-center gap-4">
-                            <select class="text-xs font-bold border-slate-200 bg-slate-50 rounded-xl p-2 outline-none" x-model="reviewSort" @change="fetchReviews()">
-                                <option value="newest">Newest First</option>
-                                <option value="highest">Highest Rated</option>
-                                <option value="lowest">Lowest Rated</option>
-                            </select>
-                        </div>
+                        <select class="text-xs font-bold border-slate-200 bg-slate-50 rounded-xl p-2 outline-none" 
+                                x-model="reviewSort" @change="fetchReviews()">
+                            <option value="newest">Newest First</option>
+                            <option value="highest">Highest Rating</option>
+                            <option value="lowest">Lowest Rating</option>
+                        </select>
                     </div>
                     
                     <div class="overflow-x-auto">
                         <table class="w-full text-left">
-                            <thead>
-                                <tr class="text-[10px] font-black uppercase text-slate-400 tracking-widest border-b border-slate-50">
-                                    <th class="px-8 py-4 text-center">AI Sentiment</th>
+                            <thead class="bg-slate-50/50">
+                                <tr class="text-[10px] font-black uppercase text-slate-400 tracking-widest border-b border-slate-100">
                                     <th class="px-8 py-4">Customer</th>
                                     <th class="px-8 py-4">Rating</th>
-                                    <th class="px-8 py-4 w-1/3">Detailed Feedback</th>
+                                    <th class="px-8 py-4 w-2/5">Feedback</th>
                                     <th class="px-8 py-4">Date</th>
-                                    <th class="px-8 py-4 text-right">Context</th>
+                                    <th class="px-8 py-4 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-50">
                                 <template x-for="rev in reviews" :key="rev.author_name + rev.review_time">
-                                    <tr class="hover:bg-slate-50 transition-colors group">
-                                        <td class="px-8 py-6">
-                                            <div class="flex justify-center">
-                                                <div :class="{
-                                                    'bg-emerald-100 text-emerald-600': rev.rating >= 4,
-                                                    'bg-amber-100 text-amber-600': rev.rating === 3,
-                                                    'bg-red-100 text-red-600': rev.rating < 3
-                                                }" class="w-8 h-8 rounded-full flex items-center justify-center">
-                                                    <i class="fas" :class="rev.rating >= 4 ? 'fa-smile' : (rev.rating === 3 ? 'fa-meh' : 'fa-frown')"></i>
-                                                </div>
-                                            </div>
-                                        </td>
+                                    <tr class="hover:bg-slate-50/80 transition-colors group">
                                         <td class="px-8 py-6">
                                             <div class="flex items-center gap-3">
-                                                <img :src="rev.profile_photo_url || `https://ui-avatars.com/api/?name=${rev.author_name}&background=random`" class="w-10 h-10 rounded-2xl border-2 border-white shadow-sm">
+                                                <img :src="rev.profile_photo_url || `https://ui-avatars.com/api/?name=${rev.author_name}&background=random`" 
+                                                     class="w-10 h-10 rounded-2xl border-2 border-white shadow-sm">
                                                 <span class="font-bold text-slate-800 text-sm" x-text="rev.author_name"></span>
                                             </div>
                                         </td>
                                         <td class="px-8 py-6">
-                                            <div class="flex text-[10px] gap-0.5">
+                                            <div class="flex gap-0.5 text-[10px]">
                                                 <template x-for="i in 5">
                                                     <i class="fas fa-star" :class="i <= rev.rating ? 'text-amber-400' : 'text-slate-200'"></i>
                                                 </template>
                                             </div>
                                         </td>
                                         <td class="px-8 py-6">
-                                            <p class="text-sm text-slate-600 font-medium line-clamp-2 leading-relaxed" x-text="rev.text"></p>
+                                            <p class="text-sm text-slate-600 font-medium leading-relaxed line-clamp-2" x-text="rev.text"></p>
                                         </td>
                                         <td class="px-8 py-6 text-xs font-bold text-slate-400" x-text="rev.review_time"></td>
                                         <td class="px-8 py-6 text-right">
-                                            <button class="bg-white border border-slate-200 px-4 py-2 rounded-xl text-[10px] font-black uppercase text-slate-600 hover:bg-slate-900 hover:text-white hover:border-slate-900 transition shadow-sm">
+                                            <button class="bg-white border border-slate-200 px-4 py-2 rounded-xl text-[10px] font-black uppercase text-slate-600 hover:bg-slate-900 hover:text-white transition">
                                                 AI Reply
                                             </button>
                                         </td>
@@ -237,6 +204,9 @@
                                 </template>
                             </tbody>
                         </table>
+                    </div>
+                    <div x-show="reviews.length === 0" class="p-12 text-center text-slate-400 font-bold" x-cloak>
+                        No reviews found for the selected period.
                     </div>
                 </div>
             </div>
@@ -247,6 +217,7 @@
         function reviewSaaS() {
             return {
                 companyId: "{{ active_company_id or '' }}",
+                userEmail: "{{ user.email or 'Admin User' }}",
                 loading: false,
                 kpis: { total_reviews: 0, avg_rating: 0, avg_sentiment: 0, new_reviews: 0, window: {} },
                 reviews: [],
@@ -263,6 +234,7 @@
                 async refreshDashboard() {
                     this.loading = true;
                     try {
+                        // All calls mapped to correct prefixes
                         await Promise.all([
                             this.fetchKPIs(),
                             this.fetchSeries(),
@@ -270,60 +242,78 @@
                             this.fetchAlerts(),
                             this.fetchSentimentShare()
                         ]);
+                    } catch (err) {
+                        console.error("Dashboard Load Error:", err);
                     } finally {
                         this.loading = false;
                     }
                 },
 
+                // From app/routes/dashboard.py
                 async fetchKPIs() {
                     const res = await fetch(`/api/kpis?company_id=${this.companyId}`);
                     this.kpis = await res.json();
                 },
 
+                // From app/routes/dashboard.py
                 async fetchAlerts() {
                     const res = await fetch(`/api/alerts?company_id=${this.companyId}`);
                     const data = await res.json();
                     this.alerts = data.alerts || [];
                 },
 
+                // From app/routes/reviews.py (uses /api/reviews prefix)
                 async fetchReviews() {
                     const res = await fetch(`/api/reviews/list?company_id=${this.companyId}&sort=${this.reviewSort}&limit=12`);
                     const data = await res.json();
                     this.reviews = data.items || [];
                 },
 
+                // From app/routes/dashboard.py
                 async fetchSeries() {
                     const res = await fetch(`/api/series/overview?company_id=${this.companyId}`);
                     const data = await res.json();
-                    this.renderSeriesChart(data);
+                    this.renderTrendChart(data);
                 },
 
+                // From app/routes/dashboard.py
                 async fetchSentimentShare() {
                     const res = await fetch(`/api/sentiment/share?company_id=${this.companyId}`);
                     const data = await res.json();
-                    this.renderSentimentShare(data.counts);
+                    this.renderShareChart(data.counts);
                 },
 
+                // From app/routes/companies.py (uses /api prefix)
                 async triggerSync() {
                     this.loading = true;
                     try {
-                        const res = await fetch(`/api/companies/${this.companyId}/sync`, { method: 'POST' });
+                        const res = await fetch(`/api/companies/${this.companyId}/sync`, { 
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                        
+                        if (res.status === 401) {
+                            window.location.href = "/login";
+                            return;
+                        }
+
                         const data = await res.json();
                         if (data.success) {
-                            // Delay slightly for background worker to commit records
-                            setTimeout(() => this.refreshDashboard(), 2500);
+                            // Give Outscraper task time to commit records
+                            setTimeout(() => this.refreshDashboard(), 3500);
                         }
                     } catch (e) {
-                        console.error("Sync failed", e);
+                        console.error("Sync trigger failed:", e);
+                    } finally {
                         this.loading = false;
                     }
                 },
 
-                renderSeriesChart(data) {
-                    const ctx = document.getElementById('mainSeriesChart').getContext('2d');
-                    if (this.charts.series) this.charts.series.destroy();
+                renderTrendChart(data) {
+                    const ctx = document.getElementById('trendChart').getContext('2d');
+                    if (this.charts.trend) this.charts.trend.destroy();
                     
-                    this.charts.series = new Chart(ctx, {
+                    this.charts.trend = new Chart(ctx, {
                         type: 'line',
                         data: {
                             labels: data.volume.map(v => v.date),
@@ -332,7 +322,7 @@
                                     label: 'Volume',
                                     data: data.volume.map(v => v.value),
                                     borderColor: '#3b82f6',
-                                    borderWidth: 4,
+                                    borderWidth: 3,
                                     pointRadius: 0,
                                     fill: true,
                                     backgroundColor: 'rgba(59, 130, 246, 0.05)',
@@ -342,7 +332,7 @@
                                     label: 'Rating',
                                     data: data.rating.map(r => r.value),
                                     borderColor: '#fbbf24',
-                                    borderWidth: 4,
+                                    borderWidth: 3,
                                     pointRadius: 0,
                                     yAxisID: 'y1',
                                     tension: 0.4
@@ -362,8 +352,8 @@
                     });
                 },
 
-                renderSentimentShare(counts) {
-                    const ctx = document.getElementById('sentimentShareChart').getContext('2d');
+                renderShareChart(counts) {
+                    const ctx = document.getElementById('shareChart').getContext('2d');
                     if (this.charts.share) this.charts.share.destroy();
 
                     this.charts.share = new Chart(ctx, {
@@ -373,16 +363,15 @@
                             datasets: [{
                                 data: [counts.positive, counts.neutral, counts.negative],
                                 backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
-                                borderWidth: 0,
-                                hoverOffset: 20
+                                borderWidth: 0
                             }]
                         },
                         options: {
                             responsive: true,
                             maintainAspectRatio: false,
-                            cutout: '80%',
+                            cutout: '75%',
                             plugins: {
-                                legend: { position: 'bottom', labels: { usePointStyle: true, font: { weight: 'bold', size: 11 } } }
+                                legend: { position: 'bottom', labels: { usePointStyle: true, font: { weight: 'bold' } } }
                             }
                         }
                     });
