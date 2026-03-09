@@ -1,3 +1,4 @@
+# filename: app/routes/companies.py
 from __future__ import annotations
 
 import logging
@@ -8,10 +9,8 @@ from starlette.templating import Jinja2Templates
 from sqlalchemy import select, delete, or_, func, desc
 
 from app.core.db import get_session
-from app.core.models import Company, AuditLog, User, Review
+from app.core.models import Company, AuditLog, Review
 from app.core.config import settings
-
-# --- IMPORTING THE REFINED DATABASE SAVER ---
 from app.services.google_reviews import run_batch_review_ingestion
 
 logger = logging.getLogger(__name__)
@@ -29,7 +28,7 @@ def _require_user(request: Request) -> int | None:
     return user_id
 
 # ─────────────────────────────────────────────────────────────
-# Safe Google Maps Client (for Places search only)
+# Safe Google Maps Client (for Places search)
 # ─────────────────────────────────────────────────────────────
 def _get_gmaps_client():
     if not settings.GOOGLE_PLACES_API_KEY:
@@ -160,7 +159,6 @@ async def add_new_company(
     address: str | None = Form(None),
 ):
     uid = _require_user(request)
-
     async with get_session() as session:
         # Check duplicate
         existing = await session.execute(
@@ -193,14 +191,12 @@ async def add_new_company(
                 meta={"company_id": new_company.id, "place_id": google_place_id},
             )
         )
-
         await session.commit()
         await session.refresh(new_company)
 
-        # 🚀 REFINED: Trigger Database Sync for this company and its future competitors
+        # Trigger background sync
         reviews_client = _get_reviews_client(request)
         sync_entities = [{"place_id": google_place_id, "name": name}]
-        
         bg_tasks.add_task(
             run_batch_review_ingestion, 
             api_client=reviews_client,
@@ -233,16 +229,14 @@ async def company_sync(
     bg_tasks: BackgroundTasks,
 ):
     uid = _require_user(request)
-
     async with get_session() as session:
         company = await session.get(Company, company_id)
         if not company or company.owner_id != uid:
             raise HTTPException(404, "Company not found or not owned by you")
 
-        # 🚀 REFINED: Triggering the multi-entity sync that includes the DB commit
+        # Triggering background sync
         reviews_client = _get_reviews_client(request)
         sync_entities = [{"place_id": company.google_place_id, "name": company.name}]
-        
         bg_tasks.add_task(
             run_batch_review_ingestion,
             api_client=reviews_client,
@@ -260,7 +254,11 @@ async def company_sync(
         await session.commit()
         companies = await _get_companies_data(session, uid)
 
-    return {"success": True, "message": "Background database sync triggered successfully", "companies": companies}
+    return {
+        "success": True,
+        "message": "Background database sync triggered successfully",
+        "companies": companies
+    }
 
 # ─────────────────────────────────────────────────────────────
 # DELETE: Remove company
