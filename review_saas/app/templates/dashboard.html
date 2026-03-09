@@ -1,4 +1,4 @@
-<!-- filename: app/templates/dashbord.html -->
+<!-- filename: app/templates/dashboard.html -->
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">
 <head>
@@ -6,12 +6,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ReviewSaaS • Dashboard</title>
 
-  <!-- Bootstrap 5 -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <!-- Bootstrap 5 CSS -->
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+    integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
+    crossorigin="anonymous"
+  />
   <!-- Bootstrap Icons -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
+  />
   <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+    integrity="sha384-5Q+Uve4Zc0Q0t3Z9bE1E1mCwP+4b2d2q6zRFGhS9+2JtG0c7Jm8vS4d2i3doz0KZ"
+    crossorigin="anonymous"
+  ></script>
 
   <style>
     header.navbar {
@@ -37,7 +49,9 @@
   <!-- Navbar -->
   <header class="navbar navbar-expand-lg sticky-top">
     <div class="container-fluid">
-      <a class="navbar-brand" href="/dashboard"><i class="bi bi-bar-chart-line me-2"></i> ReviewSaaS</a>
+      <a href="/dashboard" class="navbar-brand">
+        <i class="bi bi-bar-chart-line me-2"></i> ReviewSaaS
+      </a>
 
       <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
         <!-- Company selector (from Jinja: companies, active_company_id) -->
@@ -56,7 +70,7 @@
           </select>
         </div>
 
-        <!-- Date range (optional; backend defaults to last 30 days if blank) -->
+        <!-- Date range (backend defaults to last 30 days if blank) -->
         <div class="input-group input-group-sm">
           <span class="input-group-text"><i class="bi bi-calendar3"></i></span>
           <input id="startDate" type="date" class="form-control" />
@@ -65,7 +79,7 @@
         </div>
 
         <!-- Sync button -->
-        <button id="btnSync" class="btn btn-outline-primary btn-sm">
+        <button id="btnSync" class="btn btn-outline-primary btn-sm" title="Trigger background review sync">
           <i class="bi bi-arrow-repeat me-1"></i> Sync
         </button>
 
@@ -74,8 +88,12 @@
           <i class="bi bi-moon-stars" id="themeIcon"></i>
         </button>
 
-        <a class="btn btn-outline-secondary btn-sm" href="/api/companies"><i class="bi bi-people"></i></a>
-        <a class="btn btn-outline-secondary btn-sm" href="/logout"><i class="bi bi-box-arrow-right"></i></a>
+        <a class="btn btn-outline-secondary btn-sm" href="/api/companies" title="Companies">
+          <i class="bi bi-people"></i>
+        </a>
+        <a class="btn btn-outline-secondary btn-sm" href="/logout" title="Logout">
+          <i class="bi bi-box-arrow-right"></i>
+        </a>
       </div>
     </div>
   </header>
@@ -130,7 +148,7 @@
               <div id="kpiAvgSentiment" class="kpi-value">—</div>
               <small id="kpiAvgSentimentDelta" class="kpi-delta"></small>
             </div>
-            <div class="small text-secondary">Stored or rating-proxy</div>
+            <div class="small text-secondary">Stored or rating‑proxy</div>
           </div>
         </div>
       </div>
@@ -174,7 +192,7 @@
           <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
             <span><i class="bi bi-diagram-3 me-2"></i> Aspect Sentiment (Service, Product, Pricing, Delivery)</span>
             <button id="btnAspectTrendEmail" class="btn btn-outline-secondary btn-sm">
-              <i class="bi bi-envelope-exclamation"></i> Compose High-Severity Email
+              <i class="bi bi-envelope-exclamation"></i> Compose High‑Severity Email
             </button>
           </div>
           <div class="card-body chart-wrap">
@@ -331,17 +349,14 @@
     </span>
   </footer>
 
-  <!-- Bootstrap JS -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- Bootstrap JS (bundle) -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
+    crossorigin="anonymous"
+  ></script>
 
-  <!-- Google Maps JavaScript API (Places library) -->
-  <!-- Using your key as requested; you can also supply {{ google_maps_api_key }} if you template this -->
-  <script>
-    const GOOGLE_MAPS_API_KEY   = "{{ google_maps_api_key | default('AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc') }}";
-    const GOOGLE_PLACES_API_KEY = "{{ google_places_api_key | default('AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc') }}";
-  </script>
-  <script async defer src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key | default('AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc') }}&libraries=places&v=weekly&callback=onGoogleMapsReady"></script>
-
+  <!-- App JS -->
   <script>
     // ===========================
     // Theme Toggle
@@ -375,7 +390,6 @@
       const text = await res.text().catch(()=> '');
       try { return JSON.parse(text || '{}'); } catch { return { raw: text }; }
     };
-
     function params() {
       const company_id = $('#companySelect')?.value || $('#activeCompanyId')?.value || '';
       const start = $('#startDate').value || '';
@@ -395,9 +409,7 @@
       else if (delta < 0) { el.textContent = `▼ ${Math.abs(delta).toFixed(2)}%`; el.className='kpi-delta down'; }
       else { el.textContent = '—'; el.className='kpi-delta'; }
     }
-    function sanitize(s) {
-      const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML;
-    }
+    function sanitize(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
 
     // ===========================
     // Charts
@@ -415,6 +427,7 @@
         $('#kpiNewReviews').textContent = fmt.format(data.new_reviews ?? 0);
         $('#kpiAvgRating').textContent = (data.avg_rating ?? 0).toFixed(2);
         $('#kpiAvgSentiment').textContent = (data.avg_sentiment ?? 0).toFixed(3);
+        // No deltas exposed by API; leave em as em dashes
         setDelta($('#kpiTotalReviewsDelta'), 0);
         setDelta($('#kpiNewReviewsDelta'), 0);
         setDelta($('#kpiAvgRatingDelta'), 0);
@@ -544,11 +557,6 @@
               </div>
               <small class="text-secondary ms-2">${sanitize(dt)}</small>
             </div>
-            <div class="small text-secondary mt-1">Reason: 
-              ${it.urgent_reason?.low_rating ? 'Low rating; ' : '' }
-              ${it.urgent_reason?.very_negative_sentiment ? 'Very negative; ' : '' }
-              ${it.urgent_reason?.keyword_flag ? 'Keyword flag' : '' }
-            </div>
           `;
           frag.appendChild(div);
         });
@@ -659,148 +667,7 @@
       } catch(e){ console.error(e); alert('Failed to compose alert email.'); }
     }
 
-    // ===========================
-    // Google Maps + Places (client-side)
-    // ===========================
-    let map, marker, autocomplete, placesService, selectedPlace;
-
-    function onGoogleMapsReady() {
-      try {
-        map = new google.maps.Map(document.getElementById('map'), {
-          center: { lat: 31.5204, lng: 74.3587 }, // Lahore
-          zoom: 12,
-          mapTypeControl: false,
-          streetViewControl: false,
-          fullscreenControl: false
-        });
-        marker = new google.maps.Marker({ map });
-
-        const input = $('#placeSearch');
-        autocomplete = new google.maps.places.Autocomplete(input, {
-          fields: ['place_id','name','formatted_address','geometry','rating','formatted_phone_number','international_phone_number','website','url'],
-          types: ['establishment']
-        });
-        placesService = new google.maps.places.PlacesService(map);
-        autocomplete.addListener('place_changed', onPlaceChanged);
-      } catch (err) {
-        console.error('Google Maps init failed:', err);
-        $('#mapHint').textContent = 'Google Maps failed to load.';
-      }
-    }
-    window.onGoogleMapsReady = onGoogleMapsReady;
-
-    function onPlaceChanged() {
-      const place = autocomplete.getPlace();
-      if (!place || !place.place_id) return;
-      selectedPlace = place;
-      fillPlaceFields(place);
-      updateMap(place);
-      renderDetails(place);
-
-      if (!place.formatted_phone_number || !place.website) {
-        placesService.getDetails(
-          { placeId: place.place_id, fields: ['formatted_phone_number','international_phone_number','website','url','rating'] },
-          (details, status) => {
-            if (status === google.maps.places.PlacesServiceStatus.OK && details) {
-              selectedPlace = { ...selectedPlace, ...details };
-              fillPlaceFields(selectedPlace);
-              renderDetails(selectedPlace);
-            }
-          }
-        );
-      }
-    }
-
-    function fillPlaceFields(p) {
-      $('#placeName').value = p.name ?? '';
-      $('#placeRating').value = (p.rating ?? '').toString();
-      $('#placeAddress').value = p.formatted_address ?? '';
-      $('#placeId').value = p.place_id ?? '';
-      $('#placePhone').value = p.formatted_phone_number ?? p.international_phone_number ?? '';
-      $('#placeWebsite').value = p.website ?? '';
-      $('#placeUrl').value = p.url ?? '';
-    }
-    function updateMap(p) {
-      if (p.geometry?.location) {
-        const latLng = { lat: p.geometry.location.lat(), lng: p.geometry.location.lng() };
-        map.setCenter(latLng); map.setZoom(16); marker.setPosition(latLng); marker.setTitle(p.name || '');
-      }
-    }
-    function renderDetails(p) {
-      const list = $('#detailsList'); list.innerHTML = '';
-      const items = [
-        ['Name', p.name],
-        ['Address', p.formatted_address],
-        ['Rating', p.rating],
-        ['Place ID', p.place_id],
-        ['Phone', p.formatted_phone_number || p.international_phone_number],
-        ['Website', p.website],
-        ['Maps URL', p.url],
-      ];
-      items.forEach(([k,v]) => {
-        if (!v) return;
-        const li = document.createElement('li'); li.className='mb-1';
-        const vv = (k === 'Website' || k === 'Maps URL')
-          ? `<a href="${sanitize(String(v))}" target="_blank" rel="noopener">${sanitize(String(v))}</a>`
-          : sanitize(String(v));
-        li.innerHTML = `<strong>${sanitize(k)}:</strong> <span class="text-secondary">${vv}</span>`;
-        list.appendChild(li);
-      });
-    }
-    function clearPlace() {
-      $('#placeSearch').value = '';
-      ['#placeName','#placeRating','#placeAddress','#placeId','#placePhone','#placeWebsite','#placeUrl'].forEach(s => $(s).value = '');
-      $('#placeMsg').textContent = '';
-      $('#detailsList').innerHTML = '';
-      marker?.setPosition(null);
-      map?.setCenter({ lat: 31.5204, lng: 74.3587 }); map?.setZoom(12);
-    }
-
-    async function createCompany() {
-      const name = $('#placeName').value.trim();
-      const pid  = $('#placeId').value.trim();
-      const addr = $('#placeAddress').value.trim();
-      if (!name || !pid) { $('#placeMsg').textContent = 'Select a valid place first.'; return; }
-
-      const fd = new FormData();
-      fd.append('name', name);
-      fd.append('google_place_id', pid);
-      if (addr) fd.append('address', addr);
-
-      $('#placeMsg').textContent = 'Creating…';
-      try {
-        const res = await fetch('/api/companies', { method:'POST', body: fd });
-        const data = await parseJSONSafe(res);
-        if (!res.ok || !data.success) {
-          // If duplicate, refresh list and try to select existing company with same place_id
-          const msg = (data && (data.message || data.raw)) || `HTTP ${res.status}`;
-          $('#placeMsg').textContent = msg;
-          if (res.status === 400 && String(msg).toLowerCase().includes('already')) {
-            await refreshCompaniesAndSelect(pid);
-          }
-          return;
-        }
-        $('#placeMsg').textContent = 'Company added. Background sync started.';
-        // Update dropdown with returned list
-        if (data.companies && Array.isArray(data.companies)) {
-          const sel = $('#companySelect'); sel.innerHTML = '';
-          data.companies.forEach(c => {
-            const opt = document.createElement('option');
-            opt.value = c.id; opt.textContent = c.name; sel.appendChild(opt);
-          });
-          sel.value = String(data.company.id);
-          $('#activeCompanyId').value = String(data.company.id);
-          refreshAll();
-        } else {
-          // Fallback: refetch
-          await refreshCompaniesAndSelect(pid);
-        }
-      } catch (e) {
-        console.error(e);
-        $('#placeMsg').textContent = 'Failed to create company.';
-      }
-    }
-
+    // Refresh companies & select by place_id (for duplicate add case)
     async function refreshCompaniesAndSelect(place_id) {
       try {
         const res = await fetch('/api/companies/list');
@@ -820,6 +687,156 @@
           }
         }
       } catch (e) { console.error(e); }
+    }
+
+    // ===========================
+    // Google Maps + Places (client-side)
+    // ===========================
+    let gmap, gmarker, autocomplete, placesService, selectedPlace;
+
+    // Called by Google script (global)
+    function onGoogleMapsReady() {
+      try {
+        const mapEl = document.getElementById('map');
+        if (!mapEl) return;
+        gmap = new google.maps.Map(mapEl, {
+          center: { lat: 31.5204, lng: 74.3587 }, // Lahore
+          zoom: 12,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false
+        });
+        gmarker = new google.maps.Marker({ map: gmap });
+
+        const input = document.getElementById('placeSearch');
+        if (!input) return;
+
+        autocomplete = new google.maps.places.Autocomplete(input, {
+          fields: [
+            'place_id','name','formatted_address','geometry','rating',
+            'formatted_phone_number','international_phone_number','website','url'
+          ],
+          types: ['establishment']
+        });
+        placesService = new google.maps.places.PlacesService(gmap);
+        autocomplete.addListener('place_changed', onPlaceChanged);
+        // Optional: mark loaded
+        console.log('Google Maps loaded');
+      } catch (err) {
+        console.error('Google Maps init failed:', err);
+        const hint = document.getElementById('mapHint');
+        if (hint) hint.textContent = 'Google Maps failed to initialize.';
+      }
+    }
+    // Expose globally for the script callback
+    window.onGoogleMapsReady = onGoogleMapsReady;
+
+    function onPlaceChanged() {
+      const place = autocomplete.getPlace();
+      if (!place || !place.place_id) return;
+      selectedPlace = place;
+      fillPlaceFields(place);
+      updateMap(place);
+      renderDetails(place);
+
+      // Fetch phone/website if missing
+      if (!place.formatted_phone_number || !place.website) {
+        placesService.getDetails(
+          { placeId: place.place_id, fields: ['formatted_phone_number','international_phone_number','website','url','rating'] },
+          (details, status) => {
+            if (status === google.maps.places.PlacesServiceStatus.OK && details) {
+              selectedPlace = { ...selectedPlace, ...details };
+              fillPlaceFields(selectedPlace);
+              renderDetails(selectedPlace);
+            }
+          }
+        );
+      }
+    }
+    function fillPlaceFields(p) {
+      $('#placeName').value = p.name ?? '';
+      $('#placeRating').value = (p.rating ?? '').toString();
+      $('#placeAddress').value = p.formatted_address ?? '';
+      $('#placeId').value = p.place_id ?? '';
+      $('#placePhone').value = p.formatted_phone_number ?? p.international_phone_number ?? '';
+      $('#placeWebsite').value = p.website ?? '';
+      $('#placeUrl').value = p.url ?? '';
+    }
+    function updateMap(p) {
+      if (p.geometry?.location) {
+        const latLng = { lat: p.geometry.location.lat(), lng: p.geometry.location.lng() };
+        gmap.setCenter(latLng); gmap.setZoom(16); gmarker.setPosition(latLng); gmarker.setTitle(p.name || '');
+      }
+    }
+    function renderDetails(p) {
+      const list = $('#detailsList'); list.innerHTML = '';
+      const items = [
+        ['Name', p.name],
+        ['Address', p.formatted_address],
+        ['Rating', p.rating],
+        ['Place ID', p.place_id],
+        ['Phone', p.formatted_phone_number || p.international_phone_number],
+        ['Website', p.website],
+        ['Maps URL', p.url],
+      ];
+      items.forEach(([k,v]) => {
+        if (!v) return;
+        const li = document.createElement('li'); li.className='mb-1';
+        const vv = (k === 'Website' || k === 'Maps URL') ? `<a href="${sanitize(String(v))}" target="_blank" rel="noopener">${sanitize(String(v))}</a>` : sanitize(String(v));
+        li.innerHTML = `<strong>${sanitize(k)}:</strong> <span class="text-secondary">${vv}</span>`;
+        list.appendChild(li);
+      });
+    }
+    function clearPlace() {
+      $('#placeSearch').value = '';
+      ['#placeName','#placeRating','#placeAddress','#placeId','#placePhone','#placeWebsite','#placeUrl'].forEach(s => $(s).value = '');
+      $('#placeMsg').textContent = '';
+      $('#detailsList').innerHTML = '';
+      gmarker?.setPosition(null);
+      gmap?.setCenter({ lat: 31.5204, lng: 74.3587 }); gmap?.setZoom(12);
+    }
+
+    async function createCompany() {
+      const name = $('#placeName').value.trim();
+      const pid  = $('#placeId').value.trim();
+      const addr = $('#placeAddress').value.trim();
+      if (!name || !pid) { $('#placeMsg').textContent = 'Select a valid place first.'; return; }
+
+      const fd = new FormData();
+      fd.append('name', name);
+      fd.append('google_place_id', pid);
+      if (addr) fd.append('address', addr);
+
+      $('#placeMsg').textContent = 'Creating…';
+      try {
+        const res = await fetch('/api/companies', { method:'POST', body: fd });
+        const data = await parseJSONSafe(res);
+        if (!res.ok || !data.success) {
+          const msg = (data && (data.message || data.raw)) || `HTTP ${res.status}`;
+          $('#placeMsg').textContent = msg;
+          if (res.status === 400 && String(msg).toLowerCase().includes('already')) {
+            await refreshCompaniesAndSelect(pid);
+          }
+          return;
+        }
+        $('#placeMsg').textContent = 'Company added. Background sync started.';
+        // Update dropdown with returned list
+        if (data.companies && Array.isArray(data.companies)) {
+          const sel = $('#companySelect'); sel.innerHTML = '';
+          data.companies.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id; opt.textContent = c.name; sel.appendChild(opt);
+          });
+          sel.value = String(data.company.id);
+          $('#activeCompanyId').value = String(data.company.id);
+          refreshAll();
+        } else {
+          await refreshCompaniesAndSelect(pid);
+        }
+      } catch (e) {
+        console.error(e);
+        $('#placeMsg').textContent = 'Failed to create company.';
+      }
     }
 
     // ===========================
@@ -857,5 +874,12 @@
       $('#btnClearPlace').addEventListener('click', clearPlace);
     });
   </script>
+
+  <!-- Google Maps JavaScript API (Places library) -->
+  <!-- Uses your provided key; for templating you can also pass {{ google_maps_api_key }} -->
+  <script
+    src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key | default('AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc') }}&libraries=places&v=weekly&callback=onGoogleMapsReady"
+    async defer
+  ></script>
 </body>
 </html>
