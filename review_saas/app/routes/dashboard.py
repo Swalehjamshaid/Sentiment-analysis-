@@ -791,7 +791,7 @@ async def api_operational_overview(company_id: int, start: Optional[str] = None,
                 urgent_items.append({
                     "review_id": r.id,
                     "author_name": r.author_name or "Anonymous",
-                    "rating": r.rating,
+                    "rating": int(r.rating or 0),  # defensive for front-end '★'.repeat()
                     "sentiment_score": round(float(s_val or 0.0), 3),
                     "sentiment_label": s_label,
                     "review_time": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "",
@@ -1362,7 +1362,12 @@ async def api_external_google_reviews_fetch(request: Request):
     if ingest_company_reviews is None:
         raise HTTPException(status_code=501, detail="google_reviews service not available")
 
-    body = await request.json()
+    # Safe JSON body parsing (allow empty body)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
     client = _get_reviews_api_client(request)
 
     # Split generic args
@@ -1458,13 +1463,26 @@ async def api_companies_sync_reviews(company_id: int, request: Request):
     if ingest_company_reviews is None:
         raise HTTPException(status_code=501, detail="google_reviews service not available")
 
-    data = await request.json()
+    # Safe JSON body parsing (allow empty body)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+
     client = _get_reviews_api_client(request)
 
     place_id = data.get("place_id")
     entities = data.get("entities")
     start_dt, end_dt = _normalize_window(data.get("start"), data.get("end"))
     vendor_kwargs = {k: v for k, v in data.items() if k not in {"place_id", "entities", "start", "end", "max_reviews", "max_reviews_per_entity"}}
+
+    # If no place_id provided, auto-resolve from Company.google_place_id
+    if not place_id and not entities:
+        async with get_session() as session:
+            row = await session.execute(select(Company.google_place_id).where(Company.id == company_id))
+            place_id = row.scalar()
+        if not place_id:
+            raise HTTPException(status_code=400, detail="No place_id provided and company has no google_place_id.")
 
     inserted_total = 0
     skipped_total = 0
