@@ -1,3 +1,4 @@
+# filename: app/services/google_reviews.py
 from __future__ import annotations
 
 import logging
@@ -14,7 +15,6 @@ from app.core.models import Review
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Data models
@@ -33,7 +33,6 @@ class ReviewData:
     source_platform: Optional[str] = None  # e.g., Google, Yelp
     competitor_name: Optional[str] = None
     additional_fields: Dict[str, Any] = field(default_factory=dict)
-
 
 @dataclass
 class CompanyReviews:
@@ -67,17 +66,6 @@ class CompanyReviews:
         dist = Counter(as_star(r.rating) for r in self.reviews if r.rating is not None)
         return {i: dist.get(i, 0) for i in range(1, 6)}
 
-    def generate_summary(self) -> str:
-        """Light summary compatible with existing callers."""
-        rs = self.rating_summary()
-        return (
-            f"Total Reviews: {rs['count']}, "
-            f"Avg Rating: {rs['average']:.2f}, "
-            f"Max Rating: {rs['max']}, "
-            f"Min Rating: {rs['min']}"
-        )
-
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Service Layer
 # ──────────────────────────────────────────────────────────────────────────────
@@ -85,7 +73,6 @@ class CompanyReviews:
 class OutscraperReviewsService:
     """
     Fetch reviews from Outscraper/Google via an injected api_client.
-    Supports pagination, date filtering, and multi-entity (competitor) mapping.
     """
     PAGE_SIZE = 100
 
@@ -163,14 +150,15 @@ class OutscraperReviewsService:
             additional_fields=row,
         )
 
-    def fetch_reviews(self, place_id: str, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, max_reviews: Optional[int] = None, *, competitor_name: Optional[str] = None, **extra_kwargs: Any) -> List[ReviewData]:
+    async def fetch_reviews(self, place_id: str, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, max_reviews: Optional[int] = None, *, competitor_name: Optional[str] = None, **extra_kwargs: Any) -> List[ReviewData]:
         all_reviews: List[ReviewData] = []
-        offset, page = 0, 1
+        offset = 0
         start_norm, end_norm = self._normalize_bounds(start_date, end_date)
         
         while True:
             kwargs = {**self.default_kwargs, **extra_kwargs}
-            response: Dict[str, Any] = self.client.get_reviews(place_id=place_id, limit=self.PAGE_SIZE, offset=offset, **kwargs)
+            # Ensure we await the async client call
+            response = await self.client.get_reviews(place_id=place_id, limit=self.PAGE_SIZE, offset=offset, **kwargs)
             raw = response.get("reviews", []) or []
             if not raw: break
             
@@ -186,10 +174,9 @@ class OutscraperReviewsService:
             if (max_reviews and len(all_reviews) >= max_reviews) or len(raw) < self.PAGE_SIZE:
                 break
             offset += self.PAGE_SIZE
-            page += 1
         return all_reviews
 
-    def fetch_many(self, entities: List[Dict[str, Any] | str], start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, max_reviews_per_entity: Optional[int] = None, **extra_kwargs: Any) -> Dict[str, List[ReviewData]]:
+    async def fetch_many(self, entities: List[Dict[str, Any] | str], start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, max_reviews_per_entity: Optional[int] = None, **extra_kwargs: Any) -> Dict[str, List[ReviewData]]:
         results: Dict[str, List[ReviewData]] = {}
         for ent in entities:
             if isinstance(ent, str):
@@ -200,31 +187,8 @@ class OutscraperReviewsService:
             else: continue
             if not pid: continue
             
-            results[pid] = self.fetch_reviews(place_id=pid, start_date=start_date, end_date=end_date, max_reviews=max_reviews_per_entity, competitor_name=name, **extra_kwargs)
+            results[pid] = await self.fetch_reviews(place_id=pid, start_date=start_date, end_date=end_date, max_reviews=max_reviews_per_entity, competitor_name=name, **extra_kwargs)
         return results
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Public Ingestion Helpers
-# ──────────────────────────────────────────────────────────────────────────────
-
-def ingest_company_reviews(place_id: str, company_id: str, api_client: Any, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, max_reviews: Optional[int] = None, **extra_kwargs: Any) -> CompanyReviews:
-    service = OutscraperReviewsService(api_client)
-    reviews_data = service.fetch_reviews(place_id=place_id, start_date=start_date, end_date=end_date, max_reviews=max_reviews, **extra_kwargs)
-    out = CompanyReviews(company_id=company_id)
-    for r in reviews_data: out.add_review(r)
-    return out
-
-def ingest_multi_company_reviews(primary_company_id: str, entities: List[Dict[str, Any] | str], api_client: Any, **kwargs) -> Dict[str, CompanyReviews]:
-    service = OutscraperReviewsService(api_client)
-    batch: Dict[str, CompanyReviews] = {}
-    grouped = service.fetch_many(entities=entities, **kwargs)
-    for pid, rows in grouped.items():
-        bucket = CompanyReviews(company_id=primary_company_id)
-        for r in rows: bucket.add_review(r)
-        batch[pid] = bucket
-    return batch
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # DATABASE PERSISTENCE LAYER (THE SYNC ENGINE)
@@ -232,49 +196,48 @@ def ingest_multi_company_reviews(primary_company_id: str, entities: List[Dict[st
 
 async def run_batch_review_ingestion(api_client: Any, primary_company_id: int, entities: List[Dict[str, Any] | str], start_date: Optional[datetime] = None):
     """
-    Final function to fetch and PHYSICALLY save data to PostgreSQL.
-    This handles both the primary hotel and all competitors.
+    Core engine to fetch from API and save to PostgreSQL.
     """
-    logger.info(f"🚀 Starting Sync for Company ID: {primary_company_id} (and {len(entities)} competitors)")
+    logger.info(f"🚀 Starting Sync for Company ID: {primary_company_id}")
+    service = OutscraperReviewsService(api_client)
     
-    # 1. Fetch data into memory
-    batch_results = ingest_multi_company_reviews(
-        primary_company_id=str(primary_company_id),
-        entities=entities,
-        api_client=api_client,
-        start_date=start_date
+    # 1. Fetch data
+    grouped_data = await service.fetch_many(
+        entities=entities, 
+        start_date=start_date, 
+        max_reviews_per_entity=500
     )
 
-    # 2. Open DB session and SAVE
+    # 2. Persist to Database
     async with get_session() as session:
         total_saved = 0
-        for place_id, container in batch_results.items():
-            for rd in container.reviews:
-                # Duplicate Check
+        for place_id, reviews in grouped_data.items():
+            for rd in reviews:
+                # Duplicate Check using google_review_id
                 stmt = select(Review).where(and_(
                     Review.company_id == primary_company_id,
                     Review.google_review_id == rd.review_id
                 ))
-                existing = await session.execute(stmt)
-                if existing.scalar_one_or_none():
+                res = await session.execute(stmt)
+                if res.scalar_one_or_none():
                     continue
 
-                # Create DB Row
-                db_row = Review(
+                # Create Review instance
+                new_review = Review(
                     company_id=primary_company_id,
                     google_review_id=rd.review_id,
                     author_name=rd.author_name,
                     rating=rd.rating,
                     text=rd.text,
                     google_review_time=rd.time_created,
-                    competitor_name=rd.competitor_name,  # Saves the competitor tag
-                    source_platform=rd.source_platform
+                    competitor_name=rd.competitor_name,
+                    source_platform=rd.source_platform or "Google"
                 )
-                session.add(db_row)
+                session.add(new_review)
                 total_saved += 1
         
         if total_saved > 0:
             await session.commit()
-            logger.info(f"✅ Successfully committed {total_saved} reviews to the database.")
+            logger.info(f"✅ Sync Complete: {total_saved} reviews saved to DB.")
         else:
-            logger.info("ℹ️ Database is already up to date. No new reviews inserted.")
+            logger.info("ℹ️ No new reviews found.")
