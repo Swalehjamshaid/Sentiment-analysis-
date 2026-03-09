@@ -82,7 +82,7 @@ _ASPECT_LEX = {
     "Delivery": {"delivery", "deliver", "delivered", "takeaway", "pickup", "late", "delay", "on time", "fast", "quick"},
 }
 
-# Canonicalized map for operational aspect trend endpoint (non-breaking, new)
+# Canonicalized map for operational aspect trend endpoint (non‑breaking, new)
 _ASPECT_TREND_CANON = {
     "Service": _ASPECT_LEX["Service"],
     "Product": _ASPECT_LEX["Product Quality"],  # map 'Product' → existing 'Product Quality' lex
@@ -188,19 +188,19 @@ class KeywordScore:
 
 
 _LEX_POS = {
-    "great": 4, "excellent": 5, "good": 3, "friendly": 3, "clean": 2, "amazing": 4, "love": 4, "nice": 2,
-    "comfortable": 3, "helpful": 3, "fast": 2, "quick": 2, "tasty": 3, "spacious": 2, "professional": 3,
-    "responsive": 3, "polite": 2, "courteous": 2, "beautiful": 3, "quiet": 2, "safe": 2, "affordable": 2,
-    "fair": 2, "recommend": 3, "recommended": 3, "awesome": 4, "perfect": 4, "best": 4, "delicious": 4,
-    "fresh": 2, "warm": 1, "welcoming": 2, "cleanliness": 3, "hygienic": 3
+    "great":4, "excellent":5, "good":3, "friendly":3, "clean":2, "amazing":4, "love":4, "nice":2,
+    "comfortable":3, "helpful":3, "fast":2, "quick":2, "tasty":3, "spacious":2, "professional":3,
+    "responsive":3, "polite":2, "courteous":2, "beautiful":3, "quiet":2, "safe":2, "affordable":2,
+    "fair":2, "recommend":3, "recommended":3, "awesome":4, "perfect":4, "best":4, "delicious":4,
+    "fresh":2, "warm":1, "welcoming":2, "cleanliness":3, "hygienic":3
 }
 
 _LEX_NEG = {
-    "bad": -3, "poor": -3, "worst": -5, "slow": -2, "dirty": -3, "rude": -4, "problem": -2, "issue": -2,
-    "disappointed": -3, "expensive": -2, "noisy": -2, "crowded": -2, "delay": -2, "delayed": -2, "broken": -3,
-    "smelly": -3, "cold": -1, "hot": -1, "late": -2, "unprofessional": -4, "unhelpful": -3, "refund": -3,
-    "fraud": -5, "scam": -5, "unsafe": -4, "hygiene": -2, "lawsuit": -4, "legal": -2, "threat": -4, "hazard": -4,
-    "poison": -5, "sick": -3, "expired": -3, "fire": -3, "electrical": -2, "incompetent": -4, "overpriced": -3
+    "bad":-3, "poor":-3, "worst":-5, "slow":-2, "dirty":-3, "rude":-4, "problem":-2, "issue":-2,
+    "disappointed":-3, "expensive":-2, "noisy":-2, "crowded":-2, "delay":-2, "delayed":-2, "broken":-3,
+    "smelly":-3, "cold":-1, "hot":-1, "late":-2, "unprofessional":-4, "unhelpful":-3, "refund":-3,
+    "fraud":-5, "scam":-5, "unsafe":-4, "hygiene":-2, "lawsuit":-4, "legal":-2, "threat":-4, "hazard":-4,
+    "poison":-5, "sick":-3, "expired":-3, "fire":-3, "electrical":-2, "incompetent":-4, "overpriced":-3
 }
 
 _LEXICON = {**_LEX_POS, **_LEX_NEG}
@@ -383,7 +383,7 @@ async def get_dashboard(request: Request, company_id: Optional[int] = Query(None
 
 @router.get("/dashboard/links")
 async def dashboard_links():
-    """Simple machine-readable map of dashboard API endpoints."""
+    """Simple machine‑readable map of dashboard API endpoints."""
     return JSONResponse({
         "kpis": "/api/kpis",
         "ratings_distribution": "/api/ratings/distribution",
@@ -417,7 +417,7 @@ async def dashboard_links():
 # KPIs & Ratings (AVG SENTIMENT fix applied)
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/api/kpis")
-async def api_kpis(company_id: int, start: Optional[str] = None, end: Optional[str] = None, request: Request):
+async def api_kpis(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """
     High-level KPIs:
       - total_reviews (in window)
@@ -425,10 +425,10 @@ async def api_kpis(company_id: int, start: Optional[str] = None, end: Optional[s
       - avg_sentiment (stored OR rating-proxy; treats 0.0 as NULL)
       - new_reviews (last 7 days ending at end_dt)
     """
-    _require_user(request)
+    uid = _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
+            raise HTTPException(status_code=404, detail="Company not found")
     start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
@@ -460,12 +460,12 @@ async def api_kpis(company_id: int, start: Optional[str] = None, end: Optional[s
 
 
 @router.get("/api/ratings/distribution")
-async def api_ratings_distribution(company_id: int, start: Optional[str] = None, end: Optional[str] = None, request: Request):
+async def api_ratings_distribution(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Histogram of rating 1..5 within window."""
     _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
+            raise HTTPException(status_code=404, detail="Company not found")
     start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
@@ -486,12 +486,12 @@ async def api_ratings_distribution(company_id: int, start: Optional[str] = None,
 # 1) Overall Sentiment Share (Pie/Donut)
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/api/sentiment/share")
-async def api_sentiment_share(company_id: int, start: Optional[str] = None, end: Optional[str] = None, request: Request):
+async def api_sentiment_share(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Counts of positive / neutral / negative (uses rating fallback; treats 0.0 as NULL)."""
     _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
+            raise HTTPException(status_code=404, detail="Company not found")
     s, e = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         dc = _date_col()
@@ -513,12 +513,12 @@ async def api_sentiment_share(company_id: int, start: Optional[str] = None, end:
 # Trends (daily series)
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/api/series/reviews")
-async def api_series_reviews(company_id: int, start: Optional[str] = None, end: Optional[str] = None, request: Request):
+async def api_series_reviews(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Daily review volume."""
     _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
+            raise HTTPException(status_code=404, detail="Company not found")
     start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
@@ -534,12 +534,12 @@ async def api_series_reviews(company_id: int, start: Optional[str] = None, end: 
 
 
 @router.get("/api/series/ratings")
-async def api_series_ratings(company_id: int, start: Optional[str] = None, end: Optional[str] = None, request: Request):
+async def api_series_ratings(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Daily average rating."""
     _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
+            raise HTTPException(status_code=404, detail="Company not found")
     start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
@@ -555,12 +555,12 @@ async def api_series_ratings(company_id: int, start: Optional[str] = None, end: 
 
 
 @router.get("/api/sentiment/series")
-async def api_sentiment_series(company_id: int, start: Optional[str] = None, end: Optional[str] = None, request: Request):
+async def api_sentiment_series(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Daily average sentiment score (stored or rating-derived; treats 0.0 as NULL)."""
     _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
+            raise HTTPException(status_code=404, detail="Company not found")
     start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
@@ -579,15 +579,15 @@ async def api_sentiment_series(company_id: int, start: Optional[str] = None, end
 
 
 @router.get("/api/series/overview")
-async def api_series_overview(company_id: int, start: Optional[str] = None, end: Optional[str] = None, request: Request):
+async def api_series_overview(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Return all three series in one call."""
     _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
-    vol = await api_series_reviews(company_id, start, end, request)
-    rat = await api_series_ratings(company_id, start, end, request)
-    sen = await api_sentiment_series(company_id, start, end, request)
+            raise HTTPException(status_code=404, detail="Company not found")
+    vol = await api_series_reviews(request, company_id, start, end)
+    rat = await api_series_ratings(request, company_id, start, end)
+    sen = await api_sentiment_series(request, company_id, start, end)
     return {"volume": vol["series"], "rating": rat["series"], "sentiment": sen["series"], "window": vol["window"]}
 
 
@@ -595,7 +595,7 @@ async def api_series_overview(company_id: int, start: Optional[str] = None, end:
 # 3) Aspect-Based Sentiment (stacked bar data)
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/api/aspects/sentiment")
-async def api_aspects_sentiment(company_id: int, start: Optional[str] = None, end: Optional[str] = None, request: Request):
+async def api_aspects_sentiment(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """
     Keyword-based aspect sentiment: Service, Product Quality, Pricing, Delivery.
     Buckets per aspect: positive / neutral / negative + avg sentiment.
@@ -604,7 +604,7 @@ async def api_aspects_sentiment(company_id: int, start: Optional[str] = None, en
     _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
+            raise HTTPException(status_code=404, detail="Company not found")
     s, e = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         dc = _date_col()
@@ -645,7 +645,7 @@ async def api_aspects_sentiment(company_id: int, start: Optional[str] = None, en
 
 # ───────── UPDATED (defensive): numeric aspects average ─────────
 @router.get("/api/aspects/avg")
-async def api_aspects_average(company_id: int, start: Optional[str] = None, end: Optional[str] = None, request: Request):
+async def api_aspects_average(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """
     Departmental numeric aspects average values.
     Defensive: if any aspect column doesn't exist on Review, returns 0.0 for it.
@@ -654,7 +654,7 @@ async def api_aspects_average(company_id: int, start: Optional[str] = None, end:
     _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
+            raise HTTPException(status_code=404, detail="Company not found")
     start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
@@ -711,12 +711,12 @@ async def api_aspects_average(company_id: int, start: Optional[str] = None, end:
 # 4) Trend Over Time (week/month/day)
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/api/trends")
-async def api_trends(company_id: int, start: Optional[str] = None, end: Optional[str] = None, freq: str = Query("week", regex="^(day|week|month)$"), request: Request):
+async def api_trends(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None, freq: str = Query("week", regex="^(day|week|month)$")):
     """Average sentiment & rating per period (day|week|month)."""
     _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
+            raise HTTPException(status_code=404, detail="Company not found")
     s, e = await _auto_range_last30(company_id, start, end)
     bucket = "day" if freq == "day" else ("week" if freq == "week" else "month")
     async with get_session() as session:
@@ -744,12 +744,12 @@ async def api_trends(company_id: int, start: Optional[str] = None, end: Optional
 # 5) Review Volume vs Sentiment (dual-axis)
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/api/volume-vs-sentiment")
-async def api_volume_vs_sentiment(company_id: int, start: Optional[str] = None, end: Optional[str] = None, freq: str = Query("week", regex="^(day|week|month)$"), request: Request):
+async def api_volume_vs_sentiment(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None, freq: str = Query("week", regex="^(day|week|month)$")):
     """Bucketed review count and avg sentiment per period for dual-axis chart."""
     _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
+            raise HTTPException(status_code=404, detail="Company not found")
     s, e = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         ts = _ts_col()
@@ -778,12 +778,12 @@ async def api_volume_vs_sentiment(company_id: int, start: Optional[str] = None, 
 # 6) Rating vs Sentiment Correlation (scatter)
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/api/correlation/rating-sentiment")
-async def api_correlation_rating_sentiment(company_id: int, start: Optional[str] = None, end: Optional[str] = None, limit: int = Query(5000, ge=100, le=50000), request: Request):
+async def api_correlation_rating_sentiment(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None, limit: int = Query(5000, ge=100, le=50000)):
     """Scatter points: (rating, sentiment, date). Uses rating-proxy when stored sentiment is missing/0."""
     _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
+            raise HTTPException(status_code=404, detail="Company not found")
     s, e = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         dc = _date_col()
@@ -811,12 +811,12 @@ async def api_correlation_rating_sentiment(company_id: int, start: Optional[str]
 # Operational Overview + Alerts
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/api/operational/overview")
-async def api_operational_overview(company_id: int, start: Optional[str] = None, end: Optional[str] = None, limit_urgent: int = Query(10, ge=1, le=50), request: Request):
+async def api_operational_overview(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None, limit_urgent: int = Query(10, ge=1, le=50)):
     """Operational overview with urgent issues."""
     _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
+            raise HTTPException(status_code=404, detail="Company not found")
     start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         date_col = _date_col()
@@ -883,19 +883,19 @@ async def api_operational_overview(company_id: int, start: Optional[str] = None,
 
 
 @router.get("/api/alerts")
-async def api_alerts(company_id: int, start: Optional[str] = None, end: Optional[str] = None, request: Request):
+async def api_alerts(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     """Trend-based alerts using two-window comparisons (last7 vs prev7)."""
     _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
+            raise HTTPException(status_code=404, detail="Company not found")
     start_dt, end_dt = await _auto_range_last30(company_id, start, end)
     last7_start = end_dt - timedelta(days=NEW_REVIEW_DAYS - 1)
     prev7_end = last7_start - timedelta(days=1)
     prev7_start = prev7_end - timedelta(days=NEW_REVIEW_DAYS - 1)
-    kpis = await api_kpis(company_id, start, end, request)
-    ops = await api_operational_overview(company_id, start, end, limit_urgent=5, request=request)
-    vol = await api_series_reviews(company_id, start, end, request)
+    kpis = await api_kpis(request, company_id, start, end)
+    ops = await api_operational_overview(request, company_id, start, end, limit_urgent=5)
+    vol = await api_series_reviews(request, company_id, start, end)
     vol_map = {s["date"]: s["value"] for s in vol["series"]}
     def _sum_in(a: date, b: date) -> int:
         return sum(vol_map.get(str(a + timedelta(days=i)), 0) for i in range((b - a).days + 1))
@@ -905,8 +905,8 @@ async def api_alerts(company_id: int, start: Optional[str] = None, end: Optional
     if prev7 >= 8 and last7 <= prev7 * 0.6:
         pct = round(100 - (last7 / max(prev7, 1)) * 100)
         alerts.append({"type": "volume_drop", "severity": "high", "message": f"Review volume down {pct}% vs prior week."})
-    rat_series = await api_series_ratings(company_id, start, end, request)
-    sen_series = await api_sentiment_series(company_id, start, end, request)
+    rat_series = await api_series_ratings(request, company_id, start, end)
+    sen_series = await api_sentiment_series(request, company_id, start, end)
     def _avg_in(series: List[Dict], a: date, b: date) -> float:
         vals = [s["value"] for s in series if a <= datetime.strptime(s["date"], "%Y-%m-%d").date() <= b]
         return round(sum(vals) / len(vals), 3) if vals else 0.0
@@ -940,11 +940,11 @@ async def api_alerts(company_id: int, start: Optional[str] = None, end: Optional
 # 7) Keywords & 8) AI Summaries (v2)
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/api/v2/sentiment/summary")
-async def sentiment_summary_v2(company_id: int, start: Optional[str] = None, end: Optional[str] = None, request: Request):
+async def sentiment_summary_v2(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
+            raise HTTPException(status_code=404, detail="Company not found")
     s, e = await _auto_range_last30(company_id, start, end)
     async with get_session() as session:
         dc = _date_col()
@@ -993,11 +993,11 @@ async def sentiment_summary_v2(company_id: int, start: Optional[str] = None, end
 
 
 @router.get("/api/v2/keywords")
-async def keywords_v2(company_id: int, start: Optional[str] = None, end: Optional[str] = None, limit: int = Query(20, ge=5, le=50), request: Request):
+async def keywords_v2(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None, limit: int = Query(20, ge=5, le=50)):
     _require_user(request)
     async with get_session() as session:
         if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
+            raise HTTPException(status_code=404, detail="Company not found")
     s, e = await _auto_range_last30(company_id, start, end)
     l7s = e - timedelta(days=NEW_REVIEW_DAYS - 1)
     p7e = l7s - timedelta(days=1)
@@ -1022,623 +1022,4 @@ async def keywords_v2(company_id: int, start: Optional[str] = None, end: Optiona
         "positive": _cast(kw["positive"]),
         "negative": _cast(kw["negative"]),
         "emerging": _cast(kw["emerging"]),
-        "bigrams": [{"term": t, "freq": f} for (t, f) in bigs]
-    }
-
-
-@router.get("/api/v2/ai/executive-summary")
-async def executive_summary_v2(company_id: int, start: Optional[str] = None, end: Optional[str] = None, request: Request):
-    _require_user(request)
-    async with get_session() as session:
-        if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
-    sent = await sentiment_summary_v2(company_id, start, end, request)
-    kw = await keywords_v2(company_id, start, end, limit=10, request=request)
-    avg = float(sent["avg"])
-    ci = sent["ci95"]
-    total = sum(sent["counts"].values())
-    conclusion = "On Track"
-    if avg <= -0.15:
-        conclusion = "Needs Immediate Attention"
-    elif avg < 0.1:
-        conclusion = "Needs Attention"
-    elif avg > 0.45 and total >= 50:
-        conclusion = "Strong Momentum"
-    rationale = []
-    ci_width = abs(ci[1] - ci[0])
-    if ci_width > 0.25:
-        rationale.append("Sentiment confidence is low (wide CI). Consider collecting more reviews.")
-    if sent["counts"]["negative"] >= max(5, 0.25 * total):
-        rationale.append("Negative share is elevated; triage root-cause themes below.")
-    top_pos = [k["term"] for k in kw["positive"][:5]]
-    top_neg = [k["term"] for k in kw["negative"][:5]]
-    emerging = [k["term"] for k in kw["emerging"][:5]]
-    summary = (
-        f"Across {total} reviews, average sentiment is {avg:.3f} (95% CI {ci[0]:.3f}–{ci[1]:.3f}). "
-        f"Positive: {sent['counts']['positive']}, Neutral: {sent['counts']['neutral']}, Negative: {sent['counts']['negative']}. "
-        f"Key positives: {', '.join(top_pos) if top_pos else '—'}; key pain points: {', '.join(top_neg) if top_neg else '—'}. "
-        f"Emerging topics: {', '.join(emerging) if emerging else '—'}."
-    )
-    return {"window": sent["window"], "summary": summary, "conclusion": conclusion, "rationale": rationale, "highlights": {"top_positive_keywords": top_pos, "top_negative_keywords": top_neg, "emerging_keywords": emerging}}
-
-
-@router.get("/api/v2/ai/recommendations")
-async def recommendations_v2(company_id: int, start: Optional[str] = None, end: Optional[str] = None, request: Request):
-    _require_user(request)
-    async with get_session() as session:
-        if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
-    sent = await sentiment_summary_v2(company_id, start, end, request)
-    kw = await keywords_v2(company_id, start, end, limit=15, request=request)
-    total = sum(sent["counts"].values())
-    avg = float(sent["avg"])
-    neg = kw["negative"]
-    pos = kw["positive"]
-    emerging = kw["emerging"]
-    actions: List[str] = []
-    if neg:
-        top_drivers = [n["term"] for n in sorted(neg, key=lambda x: (abs(x["contribution"]), x["freq"]), reverse=True)[:5]]
-        actions.append(f"Root-cause sprint on: {', '.join(top_drivers)}. Assign owners and 2-week targets.")
-    if pos:
-        top_strengths = [p["term"] for p in pos[:3]]
-        actions.append(f"Amplify strengths in replies and listings: {', '.join(top_strengths)}.")
-    if emerging:
-        rising = [e["term"] for e in emerging[:5]]
-        actions.append(f"Monitor rising topics: {', '.join(rising)}. Add them to weekly stand-up agenda.")
-    if total < 30:
-        actions.append("Increase review velocity: add post-visit nudges (SMS/email) and in-venue QR prompts.")
-    if sent["counts"]["negative"] >= max(5, 0.25 * total):
-        actions.append("Implement same-day outreach for negative reviews and track resolution SLAs.")
-    if avg < 0.1:
-        actions.append("Quick wins: pricing clarity, staff coaching, queue/time management, and cleanliness audits.")
-    else:
-        actions.append("Sustain momentum: celebrate wins publicly and codify good practices in SOPs.")
-    return {"window": sent["window"], "business_health": {"avg_sentiment": round(avg, 3), "n_reviews": total, "ci95": sent["ci95"]}, "top_action_items": actions[:6]}
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Reviews list (with sorting)
-# ──────────────────────────────────────────────────────────────────────────────
-@router.get("/api/reviews/list")
-async def api_reviews_list(company_id: int, start: Optional[str] = None, end: Optional[str] = None, sort: Optional[str] = Query("newest", regex="^(newest|oldest|highest|lowest)$"), request: Request):
-    _require_user(request)
-    async with get_session() as session:
-        if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
-    start_dt, end_dt = await _auto_range_last30(company_id, start, end)
-    date_col = _date_col()
-    if sort == "oldest":
-        order = [date_col.asc()]
-    elif sort == "highest":
-        order = [Review.rating.desc().nullslast(), date_col.desc()]
-    elif sort == "lowest":
-        order = [Review.rating.asc().nullslast(), date_col.desc()]
-    else:
-        order = [date_col.desc()]
-    async with get_session() as session:
-        res = await session.execute(
-            select(Review)
-            .where(and_(Review.company_id == company_id, date_col >= start_dt, date_col <= end_dt))
-            .order_by(*order)
-        )
-        items = res.scalars().all()
-    # Keep attribute names the same; recompute sentiment with negation for visibility
-    return {"items": [{
-        "author_name": r.author_name or "Anonymous",
-        "rating": r.rating,
-        "text": r.text or "",
-        "sentiment_score": round(float((r.sentiment_score if (r.sentiment_score is not None and abs(float(r.sentiment_score)) >= 1e-9) else _safe_sentiment(r.text or "", r.rating)) or 0.0), 3),
-        "review_time": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "",
-        "profile_photo_url": r.profile_photo_url or "",
-    } for r in items], "window": {"start": str(start_dt), "end": str(end_dt)}}
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# PNG summary (v2)
-# ──────────────────────────────────────────────────────────────────────────────
-@router.get("/api/v2/charts/summary.png")
-async def summary_png_v2(company_id: int, start: Optional[str] = None, end: Optional[str] = None, request: Request):
-    """Generates a compact PNG: sentiment share + top pos/neg keywords."""
-    _require_user(request)
-    async with get_session() as session:
-        if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-    except Exception:
-        return Response(status_code=501, content=b"matplotlib not available", media_type="text/plain")
-    sent = await sentiment_summary_v2(company_id, start, end, request)
-    kw = await keywords_v2(company_id, start, end, limit=8, request=request)
-    pos = kw["positive"][:8]
-    neg = kw["negative"][:8]
-    counts = sent["counts"]
-    fig = plt.figure(figsize=(9, 4))
-    gs = fig.add_gridspec(1, 3, wspace=0.35)
-    # Pie
-    ax0 = fig.add_subplot(gs[0, 0])
-    labels = ["Pos", "Neu", "Neg"]
-    vals = [counts.get("positive", 0), counts.get("neutral", 0), counts.get("negative", 0)]
-    colors = ["#2ecc71", "#bdc3c7", "#e74c3c"]
-    if sum(vals) == 0:
-        vals = [1, 0, 0]
-    ax0.pie(vals, labels=labels, autopct="%1.0f%%", colors=colors, startangle=140)
-    ax0.set_title("Sentiment Share")
-    # Top positives
-    ax1 = fig.add_subplot(gs[0, 1])
-    terms_p = [x["term"] for x in pos][::-1]
-    vals_p = [x["freq"] for x in pos][::-1]
-    ax1.barh(terms_p, vals_p, color="#2ecc71")
-    ax1.set_title("Top Positive")
-    ax1.set_xlabel("Frequency")
-    # Top negatives
-    ax2 = fig.add_subplot(gs[0, 2])
-    terms_n = [x["term"] for x in neg][::-1]
-    vals_n = [x["freq"] for x in neg][::-1]
-    ax2.barh(terms_n, vals_n, color="#e74c3c")
-    ax2.set_title("Top Negative")
-    ax2.set_xlabel("Frequency")
-    buf = io.BytesIO()
-    plt.tight_layout()
-    fig.savefig(buf, format="png", dpi=150)
-    plt.close(fig)
-    buf.seek(0)
-    return Response(content=buf.read(), media_type="image/png")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# NEW (Additive): Aspect Trend vs Previous Period + High-Severity Email
-# ──────────────────────────────────────────────────────────────────────────────
-def _window_length_days(s: date, e: date) -> int:
-    return (e - s).days + 1
-
-
-async def _aspect_trend_calc(company_id: int, s: date, e: date, request: Request) -> Dict[str, Dict[str, float]]:
-    """
-    Compute avg sentiment per canonical aspect (Service/Product/Pricing/Delivery)
-    for current window (s..e) and previous equal-length window.
-    """
-    _require_user(request)
-    async with get_session() as session:
-        if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
-    days = _window_length_days(s, e)
-    prev_e = s - timedelta(days=1)
-    prev_s = prev_e - timedelta(days=days - 1)
-    async with get_session() as session:
-        dc = _date_col()
-        rows = (await session.execute(
-            select(Review.text, Review.sentiment_score, Review.rating, Review.google_review_time)
-            .where(and_(Review.company_id == company_id, dc >= prev_s, dc <= e))
-            .order_by(desc(Review.google_review_time))
-            .limit(50000)  # full calculation buffer
-        )).all()
-    # Accumulators
-    cur_sum = defaultdict(float); cur_n = defaultdict(int)
-    prev_sum = defaultdict(float); prev_n = defaultdict(int)
-    for text, ss, rating, ts in rows:
-        if not text or not ts:
-            continue
-        t_low = text.lower()
-        d = ts.date()
-        score = float(ss) if (ss is not None and abs(float(ss)) >= 1e-9) else _safe_sentiment(text, rating)
-        for aspect, kws in _ASPECT_TREND_CANON.items():
-            if any(kw in t_low for kw in kws):
-                if s <= d <= e:
-                    cur_sum[aspect] += score; cur_n[aspect] += 1
-                elif prev_s <= d <= prev_e:
-                    prev_sum[aspect] += score; prev_n[aspect] += 1
-    out: Dict[str, Dict[str, float]] = {}
-    for a in _ASPECT_TREND_CANON.keys():
-        cur_avg = (cur_sum[a] / cur_n[a]) if cur_n[a] else 0.0
-        prev_avg = (prev_sum[a] / prev_n[a]) if prev_n[a] else 0.0
-        out[a] = {
-            "current_avg": round(cur_avg, 3),
-            "previous_avg": round(prev_avg, 3),
-            "delta": round(cur_avg - prev_avg, 3),
-            "current_n": int(cur_n[a]),
-            "previous_n": int(prev_n[a]),
-        }
-    return out
-
-
-def _top_aspect_root_causes(texts: List[str], limit: int = 8) -> List[str]:
-    """
-    Extract top negative drivers for an aspect: frequency-weighted negative terms.
-    """
-    counts = Counter()
-    for tx in texts:
-        toks = _tokenize(tx or "")
-        for t in toks:
-            val = _LEX_NEG.get(t)
-            if val is not None:
-                counts[t] += 1
-    return [t for (t, _) in counts.most_common(limit)]
-
-
-@router.get("/api/operational/aspect-trend")
-async def api_operational_aspect_trend(company_id: int, start: Optional[str] = None, end: Optional[str] = None, request: Request):
-    """
-    Non-breaking additive endpoint:
-    Returns avg sentiment per aspect for current window vs previous equal-length window.
-    """
-    _require_user(request)
-    async with get_session() as session:
-        if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
-    s, e = await _auto_range_last30(company_id, start, end)
-    metrics = await _aspect_trend_calc(company_id, s, e, request)
-    # Identify the most negative delta
-    worst_aspect = None
-    worst_delta = 0.0
-    for a, m in metrics.items():
-        if worst_aspect is None or m["delta"] < worst_delta:
-            worst_aspect = a
-            worst_delta = m["delta"]
-    return {"window": {"start": str(s), "end": str(e)}, "metrics": metrics, "worst_aspect": worst_aspect, "delta": worst_delta}
-
-
-@router.get("/api/alerts/high-severity-email")
-async def api_alerts_high_severity_email(company_id: int, company_name: Optional[str] = None, start: Optional[str] = None, end: Optional[str] = None, request: Request):
-    """
-    Creates a High-Severity alert email if any operational aspect has a negative delta vs previous period.
-    Returns subject + body (text & HTML) and the metrics. Does not send email.
-    """
-    _require_user(request)
-    async with get_session() as session:
-        if not await session.get(Company, company_id):
-            raise HTTPException(404, "Company not found")
-    s, e = await _auto_range_last30(company_id, start, end)
-    metrics = await _aspect_trend_calc(company_id, s, e, request)
-    # Find worst aspect
-    worst_aspect = None
-    worst_delta = 0.0
-    for a, m in metrics.items():
-        if worst_aspect is None or m["delta"] < worst_delta:
-            worst_aspect = a
-            worst_delta = m["delta"]
-    # Collect root-cause terms for the worst aspect during current window
-    async with get_session() as session:
-        dc = _date_col()
-        rows = (await session.execute(
-            select(Review.text, Review.google_review_time)
-            .where(and_(Review.company_id == company_id, dc >= s, dc <= e))
-            .order_by(desc(Review.google_review_time))
-            .limit(50000)
-        )).all()
-    aspect_texts = []
-    for text, ts in rows:
-        if not text:
-            continue
-        if any(kw in text.lower() for kw in _ASPECT_TREND_CANON.get(worst_aspect, set())):
-            aspect_texts.append(text)
-    root_causes = _top_aspect_root_causes(aspect_texts, limit=8)
-    # Compose email
-    comp = company_name or "Company"
-    cur_avg = metrics.get(worst_aspect, {}).get("current_avg", 0.0)
-    prev_avg = metrics.get(worst_aspect, {}).get("previous_avg", 0.0)
-    delta = metrics.get(worst_aspect, {}).get("delta", 0.0)
-    n_cur = metrics.get(worst_aspect, {}).get("current_n", 0)
-    n_prev = metrics.get(worst_aspect, {}).get("previous_n", 0)
-    subject = f"[HIGH] {comp}: {worst_aspect} sentiment down ({delta:.3f}) vs prior period"
-    body_text = (
-        f"Team,\n\n"
-        f"High-severity alert for {comp}.\n"
-        f"Operational aspect trending down: {worst_aspect}\n"
-        f"Window: {s} → {e}\n"
-        f"Current avg sentiment: {cur_avg:.3f} (n={n_cur})\n"
-        f"Previous avg sentiment: {prev_avg:.3f} (n={n_prev})\n"
-        f"Delta: {delta:.3f}\n\n"
-        f"Likely root causes (top negatives): {', '.join(root_causes) if root_causes else '—'}\n\n"
-        f"Actions:\n"
-        f" • Owner to triage top 3 drivers within 24 hours\n"
-        f" • Implement fast fixes and update SOPs where applicable\n"
-        f" • Monitor next 7 days in the dashboard\n\n"
-        f"- Auto-generated by ReviewSaaS"
-    )
-    body_html = (
-        f"<p>Team,</p>"
-        f"<p><strong>High-severity alert for {comp}.</strong></p>"
-        f"<p><strong>Aspect trending down:</strong> {worst_aspect}<br/>"
-        f"<strong>Window:</strong> {s} → {e}<br/>"
-        f"<strong>Current avg sentiment:</strong> {cur_avg:.3f} (n={n_cur})<br/>"
-        f"<strong>Previous avg sentiment:</strong> {prev_avg:.3f} (n={n_prev})<br/>"
-        f"<strong>Delta:</strong> {delta:.3f}</p>"
-        f"<p><strong>Likely root causes (top negatives):</strong> {', '.join(root_causes) if root_causes else '—'}</p>"
-        f"<p><strong>Actions:</strong></p>"
-        f"<ul>"
-        f"<li>Owner to triage top 3 drivers within 24 hours</li>"
-        f"<li>Implement fast fixes and update SOPs where applicable</li>"
-        f"<li>Monitor next 7 days in the dashboard</li>"
-        f"</ul>"
-        f"<p>— Auto-generated by ReviewSaaS</p>"
-    )
-    severity = "high" if (worst_delta < -0.05 and metrics.get(worst_aspect, {}).get("current_n", 0) >= 10) else "medium"
-    return {
-        "severity": severity,
-        "window": {"start": str(s), "end": str(e)},
-        "aspect": worst_aspect,
-        "metrics": metrics,
-        "subject": subject,
-        "body_text": body_text,
-        "body_html": body_html
-    }
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# NEW (Additive): Reviews fetch/sync integration (single + competitors)
-# ──────────────────────────────────────────────────────────────────────────────
-def _get_reviews_api_client(request: Request):
-    """
-    Resolve a pre-initialized API client placed at app.state.google_reviews_client
-    during application startup. The client must implement:
-        get_reviews(place_id: str, limit: int, offset: int, **kwargs) -> dict
-    returning {"reviews": [...]}
-    """
-    client = getattr(request.app.state, "google_reviews_client", None)
-    if client is None:
-        raise HTTPException(status_code=501, detail="Reviews API client not configured (app.state.google_reviews_client)")
-    return client
-
-
-def _normalize_window(start_s: Optional[str], end_s: Optional[str]) -> tuple[Optional[datetime], Optional[datetime]]:
-    """
-    Accepts 'YYYY-MM-DD' or ISO. Returns (start_dt, end_dt) inclusive.
-    If only date provided, start -> 00:00:00, end -> 23:59:59.999999
-    """
-    def _parse(s: Optional[str]) -> Optional[datetime]:
-        if not s:
-            return None
-        try:
-            if len(s) == 10:
-                return datetime.strptime(s, "%Y-%m-%d")
-            return datetime.fromisoformat(s.replace("Z", "+00:00"))
-        except Exception:
-            return None
-    s = _parse(start_s)
-    e = _parse(end_s)
-    if s and s.tzinfo:
-        s = s.replace(tzinfo=None)
-    if e and e.tzinfo:
-        e = e.replace(tzinfo=None)
-    if s:
-        s = datetime.combine(s.date(), time.min)
-    if e:
-        e = datetime.combine(e.date(), time.max)
-    return s, e
-
-
-def _set_if_has(obj: Any, attr: str, value: Any):
-    if hasattr(obj, attr):
-        setattr(obj, attr, value)
-
-
-# ---------- External fetch (no persistence); single or competitors batch ----------
-@router.post("/api/external/google-reviews/fetch")
-async def api_external_google_reviews_fetch(request: Request):
-    """
-    Runs external fetch via services/google_reviews (no DB writes).
-    Accepts either:
-      { "place_id": "..." , "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "max_reviews": 1000, ... }
-    OR:
-      { "entities": [ "pid1", {"place_id":"pid2","name":"Competitor A"} , ... ],
-        "start": "...", "end": "...", "max_reviews_per_entity": 500, ... }
-    Any extra keys are passed through to the underlying client.get_reviews(...).
-    """
-    if ingest_company_reviews is None:
-        raise HTTPException(status_code=501, detail="google_reviews service not available")
-    # Safe JSON body parsing (allow empty body)
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    client = _get_reviews_api_client(request)
-    # Split generic args
-    place_id = body.get("place_id")
-    entities = body.get("entities")
-    start_dt, end_dt = _normalize_window(body.get("start"), body.get("end"))
-    # Pass-through optional caps and vendor kwargs
-    max_reviews = body.get("max_reviews")
-    max_reviews_per_entity = body.get("max_reviews_per_entity")
-    vendor_kwargs = {k: v for k, v in body.items() if k not in {"place_id", "entities", "start", "end", "max_reviews", "max_reviews_per_entity"}}
-    if place_id and not entities:
-        # Single entity, no DB write
-        result = ingest_company_reviews(
-            place_id=place_id,
-            company_id="external",
-            api_client=client,
-            start_date=start_dt,
-            end_date=end_dt,
-            max_reviews=max_reviews,
-            **vendor_kwargs,
-        )
-        def _cast_review(r: SvcReviewData):
-            return {
-                "review_id": r.review_id,
-                "author_name": r.author_name,
-                "rating": r.rating,
-                "text": r.text,
-                "time_created": r.time_created.isoformat(),
-                "sentiment": r.sentiment,
-                "review_title": r.review_title,
-                "helpful_votes": r.helpful_votes,
-                "source_platform": r.source_platform,
-                "competitor_name": r.competitor_name,
-                "additional_fields": r.additional_fields,
-            }
-        return {
-            "place_id": place_id,
-            "count": len(result.reviews),
-            "rating_summary": result.rating_summary(),
-            "rating_distribution": result.rating_distribution(),
-            "reviews": [_cast_review(r) for r in result.reviews],
-        }
-    if entities:
-        # Batch (primary + competitors), no DB write
-        batch = ingest_multi_company_reviews(
-            primary_company_id="external",
-            entities=entities,
-            api_client=client,
-            start_date=start_dt,
-            end_date=end_dt,
-            max_reviews_per_entity=max_reviews_per_entity,
-            **vendor_kwargs,
-        )
-        out = {}
-        for pid, bucket in batch.items():
-            out[pid] = {
-                "count": len(bucket.reviews),
-                "rating_summary": bucket.rating_summary(),
-                "rating_distribution": bucket.rating_distribution(),
-                "sample": [{
-                    "review_id": r.review_id,
-                    "author_name": r.author_name,
-                    "rating": r.rating,
-                    "text": (r.text or "")[:1000],
-                    "time_created": r.time_created.isoformat(),
-                    "competitor_name": r.competitor_name,
-                } for r in bucket.reviews[:50]]
-            }
-        return {"entities": out}
-    raise HTTPException(status_code=400, detail="Provide either 'place_id' or 'entities'.")
-
-
-# ---------- Sync & persist; single or competitors batch ----------
-@router.post("/api/companies/{company_id}/sync-reviews")
-async def api_companies_sync_reviews(company_id: int, request: Request):
-    """
-    Fetch reviews via services/google_reviews and persist into Review.
-    Accepts either:
-      Single:
-        { "place_id": "...", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "max_reviews": 1000, ... }
-      Batch:
-        { "entities": [ "pid1", {"place_id":"pid2","name":"Competitor A"} , ... ],
-          "start": "...", "end": "...", "max_reviews_per_entity": 500, ... }
-    De-duplication:
-      - If model has google_review_id: dedupe by google_review_id (and optionally google_place_id/company_id).
-      - Else fallback to (company_id, author_name, google_review_time).
-    """
-    if ingest_company_reviews is None:
-        raise HTTPException(status_code=501, detail="google_reviews service not available")
-    # Safe JSON body parsing (allow empty body)
-    try:
-        data = await request.json()
-    except Exception:
-        data = {}
-    client = _get_reviews_api_client(request)
-    place_id = data.get("place_id")
-    entities = data.get("entities")
-    start_dt, end_dt = _normalize_window(data.get("start"), data.get("end"))
-    vendor_kwargs = {k: v for k, v in data.items() if k not in {"place_id", "entities", "start", "end", "max_reviews", "max_reviews_per_entity"}}
-    # If no place_id provided, auto-resolve from Company.google_place_id
-    if not place_id and not entities:
-        async with get_session() as session:
-            row = await session.execute(select(Company.google_place_id).where(Company.id == company_id))
-            place_id = row.scalar()
-        if not place_id:
-            raise HTTPException(status_code=400, detail="No place_id provided and company has no google_place_id.")
-    inserted_total = 0
-    skipped_total = 0
-    errors_total = 0
-    async with get_session() as session:
-        async def _persist_review(pid: str, r: SvcReviewData):
-            nonlocal inserted_total, skipped_total, errors_total
-            try:
-                # Dedup strategy
-                if hasattr(Review, "google_review_id") and r.review_id:
-                    exists = await session.execute(
-                        select(Review.id).where(
-                            and_(
-                                Review.company_id == company_id,
-                                Review.google_review_id == str(r.review_id)
-                            )
-                        )
-                    )
-                    if exists.scalar():
-                        skipped_total += 1
-                        return
-                else:
-                    exists = await session.execute(
-                        select(Review.id).where(
-                            and_(
-                                Review.company_id == company_id,
-                                Review.author_name == (r.author_name or ""),
-                                Review.google_review_time == r.time_created
-                            )
-                        )
-                    )
-                    if exists.scalar():
-                        skipped_total += 1
-                        return
-                row = Review()
-                _set_if_has(row, "company_id", company_id)
-                _set_if_has(row, "author_name", r.author_name or "Anonymous")
-                _set_if_has(row, "rating", float(r.rating) if r.rating is not None else None)
-                _set_if_has(row, "text", r.text or "")
-                _set_if_has(row, "google_review_time", r.time_created)
-                # Optional fields if present in the model
-                _set_if_has(row, "google_review_id", r.review_id)
-                _set_if_has(row, "google_place_id", pid)
-                _set_if_has(row, "source_platform", r.source_platform or "Google")
-                _set_if_has(row, "review_title", r.review_title)
-                _set_if_has(row, "helpful_votes", r.helpful_votes)
-                _set_if_has(row, "competitor_name", r.competitor_name)
-                # Compute and store sentiment_score (negation-aware)
-                computed_sent = _safe_sentiment(r.text or "", int(round(r.rating)) if r.rating is not None else None)
-                _set_if_has(row, "sentiment_score", float(computed_sent))
-                session.add(row)
-                inserted_total += 1
-            except Exception as ex:
-                logger.exception("Failed to persist fetched review: %s", ex)
-                errors_total += 1
-        if place_id and not entities:
-            max_reviews = data.get("max_reviews")
-            result = ingest_company_reviews(
-                place_id=place_id,
-                company_id=str(company_id),
-                api_client=client,
-                start_date=start_dt,
-                end_date=end_dt,
-                max_reviews=max_reviews,
-                **vendor_kwargs,
-            )
-            for r in result.reviews:
-                await _persist_review(place_id, r)
-        elif entities:
-            max_per = data.get("max_reviews_per_entity")
-            batch = ingest_multi_company_reviews(
-                primary_company_id=str(company_id),
-                entities=entities,
-                api_client=client,
-                start_date=start_dt,
-                end_date=end_dt,
-                max_reviews_per_entity=max_per,
-                **vendor_kwargs,
-            )
-            for pid, bucket in batch.items():
-                for r in bucket.reviews:
-                    await _persist_review(pid, r)
-        else:
-            raise HTTPException(status_code=400, detail="Provide either 'place_id' or 'entities'.")
-        try:
-            await session.commit()
-        except Exception as ex:
-            logger.exception("Commit failure during sync: %s", ex)
-            raise HTTPException(status_code=500, detail="Failed to commit synced reviews")
-    return {
-        "company_id": company_id,
-        "place_id": place_id,
-        "entities": entities if entities else None,
-        "inserted": inserted_total,
-        "skipped": skipped_total,
-        "errors": errors_total,
-        "start": start_dt.isoformat() if start_dt else None,
-        "end": end_dt.isoformat() if end_dt else None,
-    }
-
-
-# Alias: keep your existing button's action working
-@router.post("/api/companies/{company_id}/sync")
-async def api_companies_sync_alias(company_id: int, request: Request):
-    return await api_companies_sync_reviews(company_id, request)
+        "bigrams": [{"term": t, "freq": f} for (t, f)
