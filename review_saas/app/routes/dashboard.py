@@ -5,6 +5,7 @@ import hmac
 import hashlib
 import logging
 import math
+import os
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -20,31 +21,28 @@ from app.core.db import get_session
 from app.core.models import Company, Review
 from app.routes.companies import _require_user
 
-# Optional: If a User model exists, we'll use it. Otherwise we fall back to ENV admin login.
+# Try to import User if you have it; otherwise ENV fallback login still works.
 try:
     from app.core.models import User  # type: ignore
 except Exception:  # pragma: no cover
     User = None  # noqa: N816
-
-import os
 
 router = APIRouter(tags=["dashboard"])
 templates = Jinja2Templates(directory="app/templates")
 logger = logging.getLogger("app.dashboard")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Auth: helpers
+# Auth helpers (login flow + safe current_user)
 # ──────────────────────────────────────────────────────────────────────────────
-
 def _constant_time_eq(a: str, b: str) -> bool:
     return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
 
 def _verify_password(plain: str, stored_hash: Optional[str]) -> bool:
     """
-    Verify password against common formats:
-      - bcrypt: stored starts with $2b$ / $2a$ / $2y$
+    Supports:
+      - bcrypt ($2x$)
       - sha256 custom: 'sha256$<salt>$<hexdigest>'
-      - plain fallback: direct constant-time string compare
+      - plain fallback (dev only)
     """
     if stored_hash is None:
         return False
@@ -62,7 +60,6 @@ def _verify_password(plain: str, stored_hash: Optional[str]) -> bool:
                 return False
 
         if stored_hash.startswith("sha256$"):
-            # sha256$<salt>$<hexdigest>
             try:
                 _algo, salt, hexdigest = stored_hash.split("$", 2)
                 calc = hashlib.sha256((salt + plain).encode("utf-8")).hexdigest()
@@ -70,53 +67,64 @@ def _verify_password(plain: str, stored_hash: Optional[str]) -> bool:
             except Exception:
                 return False
 
-        # Plain compare fallback (not recommended for production)
+        # Plain compare fallback (not recommended in prod)
         return _constant_time_eq(plain, stored_hash)
     except Exception as e:
         logger.error("Password verify error: %s", e)
         return False
 
 def _is_safe_next(next_url: Optional[str]) -> bool:
-    """
-    Allow only app-internal redirects. Reject absolute URLs or protocols.
-    """
     if not next_url:
         return False
     if next_url.startswith("//") or "://" in next_url:
         return False
     return next_url.startswith("/")
 
-async def _find_user_by_email(session, email: str):
+async def _get_current_user(request: Request) -> Optional[Dict[str, Any]]:
     """
-    Look up a user by email if the User model is available. Returns None if no model or no user.
+    Return a minimal safe user dict or None.
+    Tries DB if User exists; otherwise returns a dummy from session/email.
     """
-    if not User:
+    uid = request.session.get("user_id")
+    if not uid:
         return None
-    try:
-        row = await session.execute(select(User).where(getattr(User, "email") == email))
-        return row.scalars().first()
-    except Exception as e:
-        logger.warning("User lookup failed (continuing with ENV auth): %s", e)
-        return None
+    # If you have a User model, attempt to load it.
+    if User:
+        try:
+            async with get_session() as session:
+                row = await session.execute(select(User).where(getattr(User, "id") == uid))
+                u = row.scalars().first()
+                if u is not None:
+                    # build a small safe dict (avoid template touching missing attrs)
+                    return {
+                        "id": getattr(u, "id", uid),
+                        "email": getattr(u, "email", request.session.get("user_email", "")),
+                        "name": getattr(u, "name", getattr(u, "full_name", "")) or "",
+                    }
+        except Exception as e:
+            logger.warning("User lookup failed; continuing with session user. %s", e)
+    # Fallback from session only
+    return {
+        "id": int(uid),
+        "email": request.session.get("user_email", ""),
+        "name": "",
+    }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Constants & Analytics helpers (existing)
+# Dates & analytics helpers (unchanged)
 # ──────────────────────────────────────────────────────────────────────────────
-
 DEFAULT_DAYS = 30
 NEW_REVIEW_DAYS = 7
-
 _RATING_PROXY = {5: 0.8, 4: 0.4, 3: 0.0, 2: -0.4, 1: -0.8}
-
 _STOPWORDS = {
-    "the", "and", "to", "a", "an", "in", "is", "it", "of", "for", "on", "was", "with", "at",
-    "this", "that", "by", "be", "from", "as", "are", "were", "or", "we", "you", "they", "our",
-    "your", "their", "but", "so", "if", "too", "very", "can", "could", "would", "will",
-    "has", "have", "had", "do", "did", "does", "just", "also", "than", "then", "there", "here",
-    "about", "into", "out", "over", "under", "between", "after", "before", "during", "more", "most",
-    "less", "least", "again", "ever", "never", "always", "some", "any", "much", "many", "few", "lot", "lots"
+    "the","and","to","a","an","in","is","it","of","for","on","was","with","at",
+    "this","that","by","be","from","as","are","were","or","we","you","they","our",
+    "your","their","but","so","if","too","very","can","could","would","will",
+    "has","have","had","do","did","does","just","also","than","then","there","here",
+    "about","into","out","over","under","between","after","before","during","more","most",
+    "less","least","again","ever","never","always","some","any","much","many","few","lot","lots"
 }
-_NEGATORS = {"not", "never", "no", "hardly", "barely", "scarcely", "without", "lack", "lacking"}
+_NEGATORS = {"not","never","no","hardly","barely","scarcely","without","lack","lacking"}
 _TOKEN_RE = re.compile(r"[a-zA-Z]+")
 
 _LEX_POS = {
@@ -136,19 +144,15 @@ _LEX_NEG = {
 _LEXICON = {**_LEX_POS, **_LEX_NEG}
 
 _ASPECT_LEX = {
-    "Service": {"service", "staff", "waiter", "host", "attendant", "attentive", "rude", "polite", "friendly", "unprofessional", "helpful"},
-    "Product Quality": {"quality", "taste", "fresh", "stale", "clean", "hygiene", "delicious", "burnt", "undercooked", "spoiled"},
-    "Pricing": {"price", "pricing", "expensive", "cheap", "affordable", "overpriced", "value", "cost"},
-    "Delivery": {"delivery", "deliver", "delivered", "takeaway", "pickup", "late", "delay", "on time", "fast", "quick"},
+    "Service": {"service","staff","waiter","host","attendant","attentive","rude","polite","friendly","unprofessional","helpful"},
+    "Product Quality": {"quality","taste","fresh","stale","clean","hygiene","delicious","burnt","undercooked","spoiled"},
+    "Pricing": {"price","pricing","expensive","cheap","affordable","overpriced","value","cost"},
+    "Delivery": {"delivery","deliver","delivered","takeaway","pickup","late","delay","on time","fast","quick"},
 }
 _URGENT_TERMS = {
-    "refund", "fraud", "scam", "unsafe", "health", "hygiene", "lawsuit", "legal", "threat",
-    "hazard", "poison", "sick", "food poisoning", "expired", "broken glass", "fire", "electrical"
+    "refund","fraud","scam","unsafe","health","hygiene","lawsuit","legal","threat",
+    "hazard","poison","sick","food poisoning","expired","broken glass","fire","electrical"
 }
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Basic helpers
-# ──────────────────────────────────────────────────────────────────────────────
 
 def _parse_date(s: Optional[str]) -> Optional[date]:
     if not s:
@@ -214,8 +218,7 @@ def _tokenize(text: str) -> List[str]:
         if len(t) <= 2:
             continue
         if t in _NEGATORS:
-            out.append(t)
-            continue
+            out.append(t); continue
         if t in _STOPWORDS:
             continue
         out.append(t)
@@ -321,14 +324,10 @@ def _top_bigrams_docs(docs: Iterable[str], top_n: int = 20) -> List[Tuple[str, i
     return counter.most_common(top_n)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Login + Logout (in-dashboard auth flow)
+# Login / Logout
 # ──────────────────────────────────────────────────────────────────────────────
-
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, next: Optional[str] = None):
-    """
-    Renders the login form. If already logged in, redirect to next or /dashboard.
-    """
     if request.session.get("user_id"):
         dest = next if _is_safe_next(next) else "/dashboard"
         return RedirectResponse(url=dest, status_code=status.HTTP_302_FOUND)
@@ -341,104 +340,105 @@ async def login_submit(
     password: str = Form(...),
     next: Optional[str] = Form(None),
 ):
-    """
-    Auth flow:
-      1) Try DB-backed user (if User model exists).
-      2) Fallback to ENV-based admin:
-         - ADMIN_EMAIL
-         - ADMIN_PASSWORD
-    On success: set session['user_id'] and redirect to next or /dashboard.
-    """
     email_norm = (email or "").strip().lower()
     pwd = password or ""
-
-    # Attempt DB user
     authed_user_id: Optional[int] = None
-    async with get_session() as session:
-        user = await _find_user_by_email(session, email_norm)
-        if user is not None:
-            # Determine stored password field name
-            stored_hash = None
-            for field in ("password_hash", "hashed_password", "password"):
-                if hasattr(user, field):
-                    stored_hash = getattr(user, field)
-                    break
-            if stored_hash and _verify_password(pwd, str(stored_hash)):
-                # Determine user id field
-                uid_val = None
-                for field in ("id", "user_id", "pk"):
-                    if hasattr(user, field):
-                        uid_val = getattr(user, field)
-                        break
-                if uid_val is None:
-                    # Fallback if model lacks a simple id
-                    uid_val = 1
-                authed_user_id = int(uid_val)
 
-    # Fallback to ENV admin login (simple, for bootstrap)
+    # DB user (if User model exists)
+    if User:
+        try:
+            async with get_session() as session:
+                row = await session.execute(select(User).where(getattr(User, "email") == email_norm))
+                u = row.scalars().first()
+                if u is not None:
+                    stored_hash = None
+                    for field in ("password_hash", "hashed_password", "password"):
+                        if hasattr(u, field):
+                            stored_hash = getattr(u, field); break
+                    if stored_hash and _verify_password(pwd, str(stored_hash)):
+                        for field in ("id", "user_id", "pk"):
+                            if hasattr(u, field):
+                                authed_user_id = int(getattr(u, field)); break
+                        if authed_user_id is None:
+                            authed_user_id = 1
+        except Exception as e:
+            logger.warning("User lookup failed during login: %s", e)
+
+    # ENV fallback (bootstrap)
     if authed_user_id is None:
         env_email = os.getenv("ADMIN_EMAIL") or ""
         env_password = os.getenv("ADMIN_PASSWORD") or ""
-        if email_norm and env_email and env_password and _constant_time_eq(email_norm, env_email.lower()) and _constant_time_eq(pwd, env_password):
-            authed_user_id = 1  # minimal stable ID for session
+        if env_email and env_password and _constant_time_eq(email_norm, env_email.lower()) and _constant_time_eq(pwd, env_password):
+            authed_user_id = 1
 
     if authed_user_id is None:
-        # Failed login
         return templates.TemplateResponse(
             "login.html",
             {"request": request, "next": next, "error": "Invalid email or password."},
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
 
-    # Set session + redirect
     request.session["user_id"] = authed_user_id
     request.session["user_email"] = email_norm
     dest = next if _is_safe_next(next) else "/dashboard"
-    return RedirectResponse(url=dest, status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(url=dest, status_code=status.HTTP_303_SEE_OTHER)
 
 @router.post("/logout")
 async def logout(request: Request, next: Optional[str] = None):
-    """
-    Simple logout: clear session & redirect to /login (or next).
-    """
     request.session.clear()
     dest = next if _is_safe_next(next) else "/login"
     return RedirectResponse(url=dest, status_code=status.HTTP_302_FOUND)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Page route (redirect unauthenticated to /login)
+# Robust /dashboard route (defensive, template-safe)
 # ──────────────────────────────────────────────────────────────────────────────
-
 @router.get("/dashboard", response_class=HTMLResponse)
-async def get_dashboard(request: Request, company_id: Optional[int] = Query(None), next: Optional[str] = None):
-    # Auth gate: redirect to /login if not authenticated
+async def get_dashboard(request: Request, company_id: Optional[int] = Query(None)):
+    # Auth gate: redirect if not logged in
     if not request.session.get("user_id"):
-        # Preserve desired destination
         target = f"/dashboard{f'?company_id={company_id}' if company_id else ''}"
         return RedirectResponse(url=f"/login?next={target}", status_code=status.HTTP_302_FOUND)
 
-    async with get_session() as session:
-        companies = (await session.execute(select(Company).order_by(Company.name))).scalars().all()
-
+    # Build safe context with defaults
+    current_user = None
+    companies: List[Company] = []
     active_company_id: Optional[int] = None
-    if company_id:
-        active_company_id = int(company_id)
-    elif companies:
-        active_company_id = int(companies[0].id)
 
-    return templates.TemplateResponse(
-        "dashboard.html",
-        {
+    try:
+        current_user = await _get_current_user(request)
+        async with get_session() as session:
+            res = await session.execute(select(Company).order_by(Company.name))
+            companies = res.scalars().all() or []
+
+        # Active company
+        if company_id is not None:
+            active_company_id = int(company_id)
+        elif companies:
+            active_company_id = int(companies[0].id)
+        else:
+            active_company_id = None
+
+        ctx = {
             "request": request,
-            "companies": companies,
+            "user": current_user,              # safe: may be None; template should not assume fields
+            "companies": companies or [],      # safe default list
             "active_company_id": active_company_id,
-        },
-    )
+        }
+        try:
+            return templates.TemplateResponse("dashboard.html", ctx)
+        except Exception as te:
+            logger.exception("Template rendering error on /dashboard")
+            # Fallback diagnostic page (prevents bare 500)
+            html = f"<h2>Dashboard</h2><p>Template error: {str(te)}</p>"
+            return HTMLResponse(html, status_code=500)
+
+    except Exception as e:
+        logger.exception("Dashboard route error")
+        return HTMLResponse(f"Error loading dashboard: {str(e)}", status_code=500)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # KPIs
 # ──────────────────────────────────────────────────────────────────────────────
-
 @router.get("/api/kpis")
 async def api_kpis(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     _require_user(request)
@@ -474,7 +474,6 @@ async def api_kpis(request: Request, company_id: int, start: Optional[str] = Non
 # ──────────────────────────────────────────────────────────────────────────────
 # Series (volume / ratings / sentiment + overview)
 # ──────────────────────────────────────────────────────────────────────────────
-
 @router.get("/api/series/reviews")
 async def api_series_reviews(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     _require_user(request)
@@ -545,17 +544,11 @@ async def api_series_overview(request: Request, company_id: int, start: Optional
     vol = await api_series_reviews(request, company_id, start, end)
     rat = await api_series_ratings(request, company_id, start, end)
     sen = await api_sentiment_series(request, company_id, start, end)
-    return {
-        "volume": vol["series"],
-        "rating": rat["series"],
-        "sentiment": sen["series"],
-        "window": vol["window"],
-    }
+    return {"volume": vol["series"], "rating": rat["series"], "sentiment": sen["series"], "window": vol["window"]}
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Ratings distribution & sentiment share
 # ──────────────────────────────────────────────────────────────────────────────
-
 @router.get("/api/ratings/distribution")
 async def api_ratings_distribution(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     _require_user(request)
@@ -605,7 +598,6 @@ async def api_sentiment_share(request: Request, company_id: int, start: Optional
 # ──────────────────────────────────────────────────────────────────────────────
 # Aspects (keyword-based)
 # ──────────────────────────────────────────────────────────────────────────────
-
 @router.get("/api/aspects/sentiment")
 async def api_aspects_sentiment(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     _require_user(request)
@@ -656,7 +648,6 @@ async def api_aspects_sentiment(request: Request, company_id: int, start: Option
 # ──────────────────────────────────────────────────────────────────────────────
 # Operational overview & alerts
 # ──────────────────────────────────────────────────────────────────────────────
-
 @router.get("/api/operational/overview")
 async def api_operational_overview(
     request: Request,
@@ -788,9 +779,8 @@ async def api_alerts(request: Request, company_id: int, start: Optional[str] = N
     }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# v2: compact summary + keywords (used by frontend Executive Summary/Keywords)
+# v2: compact summary + keywords (Executive Summary & Keywords cards)
 # ──────────────────────────────────────────────────────────────────────────────
-
 @router.get("/api/v2/sentiment/summary")
 async def sentiment_summary_v2(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     _require_user(request)
