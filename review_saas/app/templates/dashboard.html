@@ -26,8 +26,7 @@
     crossorigin="anonymous"
   ></script>
 
-  <!-- Google Places JS (Client-side key required for Places autocomplete) -->
-  <!-- NOTE: For production, consider proxying sensitive calls server-side when possible. -->
+  <!-- Google Places JS -->
   <script
     src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&callback=initGoogleApi"
     async
@@ -307,8 +306,8 @@
     let googleReady = false;
     let autocompleteBound = false;
     let cachedReviews = [];
-    let sortKey = 'date';      // 'date' | 'rating'
-    let sortDir = 'desc';      // 'asc' | 'desc'
+    let sortKey = 'date';
+    let sortDir = 'desc';
     let currentPage = 1;
     let pageSize = 10;
 
@@ -356,10 +355,13 @@
       }, timeout);
     }
 
-    async function fetchJSON(url, options={}, retries=2, backoffMs=400) {   for (let i = 0; i <= retries; i++) {     try {       const res = await fetch(url, { ...options, credentials: "include" });        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);        return await res.json();      } catch (err) {        if (i === retries) throw err;        await new Promise(r => setTimeout(r, backoffMs * Math.pow(2, i)));      }   } } {   for (let i = 0; i <= retries; i++) {     try {       const res = await fetch(url, { ...options, credentials: "include" });        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);        return await res.json();      } catch (err) {        if (i === retries) throw err;        await new Promise(r => setTimeout(r, backoffMs * Math.pow(2, i)));      }   } } {
+    // -------------------------
+    // fetchJSON FIXED
+    // -------------------------
+    async function fetchJSON(url, options = {}, retries = 2, backoffMs = 400) {
       for (let i = 0; i <= retries; i++) {
         try {
-          const res = await async function fetchJSON(url, options={}, retries=2, backoffMs=400) {   for (let i = 0; i <= retries; i++) {     try {       const res = await fetch(url, { ...options, credentials: "include" });        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);        return await res.json();      } catch (err) {        if (i === retries) throw err;        await new Promise(r => setTimeout(r, backoffMs * Math.pow(2, i)));      }   } } {async function fetchJSON(url, options={}, retries=2, backoffMs=400) {   for (let i = 0; i <= retries; i++) {     try {       const res = await fetch(url, { ...options, credentials: "include" });        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);        return await res.json();      } catch (err) {        if (i === retries) throw err;        await new Promise(r => setTimeout(r, backoffMs * Math.pow(2, i)));      }   } } {
+          const res = await fetch(url, { ...options, credentials: "include" });
           if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
           return await res.json();
         } catch (err) {
@@ -370,15 +372,19 @@
     }
 
     // -------------------------
-    // Google API wiring (robust)
+    // Google API wiring
     // -------------------------
     window.initGoogleApi = function() {
       googleReady = true;
-      bindAutocomplete(); // bind if modal already present
+      bindAutocomplete();
     }
 
     function bindAutocomplete() {
       if (!googleReady || autocompleteBound) return;
+      if (!window.google || !google.maps || !google.maps.places) {
+        notify("Google Places API failed to load", "danger");
+        return;
+      }
       const input = document.getElementById('placeSearch');
       if (!input) return;
       try {
@@ -391,115 +397,38 @@
           document.getElementById('companyAddress').value = place.formatted_address || '';
         });
         autocompleteBound = true;
-      } catch (e) {
-        // If binding fails, try again after small delay
+      } catch(e) {
         setTimeout(bindAutocomplete, 500);
       }
     }
 
-    // Re-bind when modal opens
     document.addEventListener('shown.bs.modal', (ev) => {
-      if (ev.target && ev.target.id === 'addCompanyModal') {
+      if (ev.target.id === 'addCompanyModal') {
         bindAutocomplete();
       }
     });
 
     // -------------------------
-    // Companies (robust retrieval)
+    // Company Load
     // -------------------------
     async function loadCompanies() {
-      const ddl = document.getElementById('companySelect');
-      const help = document.getElementById('companyHelp');
-      ddl.innerHTML = '';
-      help.classList.add('d-none');
-
       try {
-        // Try /companies/list first
-        let data;
-        try {
-          data = await fetchJSON('/companies/list');
-          // Normalize expected structure to .items
-          if (Array.isArray(data)) data = { items: data };
-          if (!data.items) throw new Error('Bad /api/companies payload');
-        } catch (_) {
-          // Fallback to /companies/list
-          data = await fetchJSON('/companies/list');
-        }
-
-        const items = Array.isArray(data.items) ? data.items : [];
-        if (!items.length) {
-          help.classList.remove('d-none');
-          ddl.innerHTML = `<option value="" disabled selected>No companies available</option>`;
-          disableControls(true);
-          return;
-        }
-
-        // populate
-        items.forEach(c => {
-          const id = c.id ?? c.company_id ?? '';
-          const name = c.name ?? 'Unnamed';
-          const place = c.place_id ?? '';
-          ddl.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(id)}">${escapeHtml(name)} ${place ? '('+escapeHtml(place)+')' : ''}</option>`);
-        });
-
-        disableControls(false);
-      } catch (err) {
-        notify(`Failed to load companies: ${err.message || err}`, 'danger');
-        // Attempt retry once more with /companies/list
-        try {
-          const data = await fetchJSON('/companies/list');
-          const items = Array.isArray(data.items) ? data.items : [];
-          if (!items.length) throw new Error('No companies returned');
-          items.forEach(c => {
-            const id = c.id ?? c.company_id ?? '';
-            const name = c.name ?? 'Unnamed';
-            const place = c.place_id ?? '';
-            ddl.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(id)}">${escapeHtml(name)} ${place ? '('+escapeHtml(place)+')' : ''}</option>`);
-          });
-          disableControls(false);
-        } catch (e2) {
-          help.classList.remove('d-none');
-          ddl.innerHTML = `<option value="" disabled selected>No companies available</option>`;
-          disableControls(true);
-        }
+        const data = await fetchJSON('/api/companies');
+        const sel = document.getElementById('companySelect');
+        sel.innerHTML = data.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
+        document.getElementById('companyHelp').classList.toggle('d-none', data.length > 0);
+      } catch(e) {
+        notify("Failed to load companies: " + e.message);
       }
     }
 
-    function disableControls(disabled) {
-      const ids = ['startDate','endDate','limitSelect','groupBy','loadBtn'];
-      ids.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.disabled = disabled;
-      });
-    }
-
     // -------------------------
-    // Export links builder
+    // Reviews & Charts
     // -------------------------
-    function rebuildExportLinks() {
-      const companyId = document.getElementById('companySelect').value;
-      const start = document.getElementById('startDate').value;
-      const end = document.getElementById('endDate').value;
-
-      // Only company_id is supported by the backend exports;
-      // extra params will be ignored by backend (we keep it minimal).
-      const qp = new URLSearchParams();
-      if (companyId) qp.set('company_id', companyId);
-      // If backend later supports start/end, we could add:
-      // if (start) qp.set('start', start);
-      // if (end) qp.set('end', end);
-
-      document.getElementById('exportCsv').href = '/api/export/reviews.csv?' + qp.toString();
-      document.getElementById('exportXlsx').href = '/api/export/reviews.xlsx?' + qp.toString();
-      document.getElementById('exportPdf').href = '/api/export/summary.pdf?' + qp.toString();
-    }
-
-    // -------------------------
-    // Dashboard Loader
-    // -------------------------
-    async function loadDashboard() {
-      const spinner = document.getElementById('loadingSpinner');
-      spinner.style.display = 'inline-block';
+    async function loadReviews() {
+      const btn = document.getElementById('loadBtn');
+      btn.disabled = true;
+      document.getElementById('loadingSpinner').style.display = 'inline-block';
 
       const companyId = document.getElementById('companySelect').value;
       const start = document.getElementById('startDate').value;
@@ -507,296 +436,134 @@
       const limit = document.getElementById('limitSelect').value;
       const groupBy = document.getElementById('groupBy').value;
 
-      rebuildExportLinks();
-
-      if (!companyId) {
-        spinner.style.display = 'none';
-        notify('Please select a company.', 'warning', 4000);
-        return;
-      }
-
-      const params = new URLSearchParams({
-        company_id: companyId,
-        limit_reviews: limit,
-        group_by: groupBy,
-        ai: 'true',
-      });
-      if (start) params.set('start', start);
-      if (end) params.set('end', end);
+      if (!companyId) { notify("Select a company first"); btn.disabled = false; return; }
+      if (start && end && start > end) { notify("Start date cannot be after end date"); btn.disabled = false; return; }
 
       try {
-        const data = await fetchJSON('/api/dashboard?' + params.toString());
+        const payload = { company_id: companyId, start, end, limit, group: groupBy };
+        const reviews = await fetchJSON(`/api/reviews?company_id=${companyId}&start=${start}&end=${end}&limit=${limit}`);
+        cachedReviews = reviews;
 
-        // KPIs with safe fallbacks
-        const kpis = data.kpis || {};
-        const share = data.charts?.pie?.sentiment_share || data.sentiment_share || {};
-        document.getElementById('kpiTotal').textContent = formatNum(kpis.total_reviews ?? 0);
-        document.getElementById('kpiRating').textContent = formatNum(kpis.avg_rating ?? 0, 2);
-        document.getElementById('kpiPos').textContent = formatNum(share.positive ?? 0);
-        document.getElementById('kpiNeu').textContent = formatNum(share.neutral ?? 0);
-        document.getElementById('kpiNeg').textContent = formatNum(share.negative ?? 0);
+        renderKPIs(reviews);
+        renderCharts(reviews);
+        renderTablePage(1);
 
-        // Charts data + destroy previous
-        const volume = data.charts?.line?.volume ?? [];
-        const dist = data.charts?.bar?.ratings_distribution ?? {};
-        const sentiShare = data.charts?.pie?.sentiment_share ?? { positive:0, neutral:0, negative:0 };
-
-        if (trendChart) trendChart.destroy();
-        if (distChart) distChart.destroy();
-        if (sentimentChart) sentimentChart.destroy();
-        if (competitorChart) competitorChart.destroy();
-
-        const trendLabels = volume.map((v, idx) => (v.label ?? v.date ?? `#${idx+1}`));
-        const trendValues = volume.map(v => Number(v.value ?? 0));
-        document.getElementById('trendEmpty').classList.toggle('d-none', trendValues.some(x => x>0));
-
-        trendChart = new Chart(document.getElementById('chartTrend'), {
-          type: 'line',
-          data: {
-            labels: trendLabels,
-            datasets: [{
-              label: 'Reviews',
-              data: trendValues,
-              borderColor: '#0d6efd',
-              backgroundColor: '#0d6efd33',
-              tension: 0.25,
-              fill: true,
-            }]
-          },
-          options: {
-            plugins: { tooltip: { enabled: true } },
-            responsive: true,
-            maintainAspectRatio: false,
-          }
-        });
-
-        const distValues = [
-          dist['1'] ?? dist[1] ?? 0,
-          dist['2'] ?? dist[2] ?? 0,
-          dist['3'] ?? dist[3] ?? 0,
-          dist['4'] ?? dist[4] ?? 0,
-          dist['5'] ?? dist[5] ?? 0,
-        ];
-        document.getElementById('distEmpty').classList.toggle('d-none', distValues.some(x => x>0));
-
-        distChart = new Chart(document.getElementById('chartDistribution'), {
-          type: 'bar',
-          data: {
-            labels: ['1★','2★','3★','4★','5★'],
-            datasets: [{
-              data: distValues,
-              backgroundColor: ['#dc3545','#fd7e14','#ffc107','#0d6efd','#198754'],
-            }]
-          },
-          options: {
-            plugins: { tooltip: { enabled: true } },
-            responsive: true,
-            maintainAspectRatio: false,
-          }
-        });
-
-        const pos = Number(sentiShare.positive ?? 0);
-        const neu = Number(sentiShare.neutral ?? 0);
-        const neg = Number(sentiShare.negative ?? 0);
-        document.getElementById('sentEmpty').classList.toggle('d-none', (pos+neu+neg) > 0);
-
-        sentimentChart = new Chart(document.getElementById('chartSentiment'), {
-          type: 'pie',
-          data: {
-            labels: ['Positive','Neutral','Negative'],
-            datasets: [{
-              data: [pos, neu, neg],
-              backgroundColor: ['#198754','#6c757d','#dc3545'],
-            }]
-          },
-          options: {
-            plugins: { tooltip: { enabled: true } },
-            responsive: true,
-            maintainAspectRatio: false,
-          }
-        });
-
-        // Competitor chart (volume trends per competitor)
-        const competitors = Array.isArray(data.competitors) ? data.competitors : [];
-        if (competitors.length === 0) {
-          document.getElementById('compEmpty').classList.remove('d-none');
-        } else {
-          document.getElementById('compEmpty').classList.add('d-none');
-          const labelsSet = new Set(trendLabels);
-          // Merge all competitor labels to ensure aligned scales
-          competitors.forEach(c => {
-            const series = c.trends?.volume ?? [];
-            series.forEach((p, idx) => labelsSet.add(p.label ?? p.date ?? `#${idx+1}`));
-          });
-          const labels = Array.from(labelsSet);
-          labels.sort(); // basic lexical order; for ISO dates this works
-
-          const datasets = competitors.map((c, idx) => {
-            const series = c.trends?.volume ?? [];
-            const map = new Map(series.map((p,i) => [String(p.label ?? p.date ?? `#${i+1}`), Number(p.value ?? 0)]));
-            const color = ['#6f42c1','#20c997','#0dcaf0','#d63384','#6610f2','#fd7e14','#198754'][idx % 7];
-            return {
-              label: c.company?.name ?? ('C' + (idx+1)),
-              data: labels.map(l => map.get(l) ?? 0),
-              borderColor: color,
-              backgroundColor: color+'33',
-              tension: 0.25,
-            };
-          });
-
-          competitorChart = new Chart(document.getElementById('chartCompetitors'), {
-            type: 'line',
-            data: { labels, datasets },
-            options: {
-              plugins: { tooltip: { enabled: true }, legend: { display: true } },
-              responsive: true,
-              maintainAspectRatio: false,
-            }
-          });
-        }
-
-        // AI summary
-        const ai = data.ai_summary;
-        document.getElementById('aiSummary').textContent = (ai && (ai.text || ai.summary || '')) || 'AI summary not available.';
-
-        // Reviews
-        cachedReviews = Array.isArray(data.recent_reviews) ? data.recent_reviews : [];
-        currentPage = 1;
-        renderReviews();
-
-      } catch (err) {
-        notify(`Failed to load dashboard: ${err.message || err}`, 'danger');
+      } catch(e) {
+        notify("Failed to load reviews: " + e.message);
       } finally {
-        spinner.style.display = 'none';
+        btn.disabled = false;
+        document.getElementById('loadingSpinner').style.display = 'none';
       }
     }
 
-    // -------------------------
-    // Reviews table render + pagination + sorting
-    // -------------------------
-    function renderReviews() {
-      // sort
-      cachedReviews.sort((a, b) => {
-        if (sortKey === 'rating') {
-          return sortDir === 'asc'
-            ? Number(a.rating||0) - Number(b.rating||0)
-            : Number(b.rating||0) - Number(a.rating||0);
-        } else {
-          // date
-          const da = new Date(a.time || a.date || a.review_time || 0);
-          const db = new Date(b.time || b.date || b.review_time || 0);
-          return sortDir === 'asc' ? (da - db) : (db - da);
-        }
-      });
+    function renderKPIs(reviews) {
+      const total = reviews.length;
+      const avg = total ? (reviews.reduce((a,b)=>a+b.rating,0)/total) : 0;
+      const pos = reviews.filter(r=>r.sentiment==='positive').length;
+      const neu = reviews.filter(r=>r.sentiment==='neutral').length;
+      const neg = reviews.filter(r=>r.sentiment==='negative').length;
 
-      // pagination
-      const total = cachedReviews.length;
-      const totalPages = Math.max(1, Math.ceil(total / pageSize));
-      currentPage = Math.min(Math.max(1, currentPage), totalPages);
-      const startIdx = (currentPage - 1) * pageSize;
-      const rows = cachedReviews.slice(startIdx, startIdx + pageSize);
+      document.getElementById('kpiTotal').textContent = formatNum(total);
+      document.getElementById('kpiRating').textContent = formatNum(avg, 1);
+      document.getElementById('kpiPos').textContent = formatNum(pos);
+      document.getElementById('kpiNeu').textContent = formatNum(neu);
+      document.getElementById('kpiNeg').textContent = formatNum(neg);
+    }
 
-      // render rows
+    function renderCharts(reviews) {
+      // Cleanup
+      Chart.getChart("chartTrend")?.destroy();
+      Chart.getChart("chartDistribution")?.destroy();
+      Chart.getChart("chartSentiment")?.destroy();
+      Chart.getChart("chartCompetitors")?.destroy();
+
+      // Trend
+      const trendLabels = [...new Set(reviews.map(r=>r.date))].sort((a,b)=>new Date(a)-new Date(b));
+      const trendData = trendLabels.map(l=>reviews.filter(r=>r.date===l).length);
+      const ctxTrend = document.getElementById('chartTrend').getContext('2d');
+      trendChart = new Chart(ctxTrend, { type:'line', data:{labels:trendLabels,datasets:[{label:'Reviews',data:trendData,borderColor:'#0d6efd',backgroundColor:'#0d6efd33'}]}, options:{responsive:true}});
+
+      // Distribution
+      const distCounts = [1,2,3,4,5].map(n=>reviews.filter(r=>r.rating===n).length);
+      const ctxDist = document.getElementById('chartDistribution').getContext('2d');
+      distChart = new Chart(ctxDist, { type:'bar', data:{labels:[1,2,3,4,5], datasets:[{label:'Count',data:distCounts,backgroundColor:'#0d6efd'}]}, options:{responsive:true}});
+
+      // Sentiment
+      const sentCounts = ['positive','neutral','negative'].map(s=>reviews.filter(r=>r.sentiment===s).length);
+      const ctxSent = document.getElementById('chartSentiment').getContext('2d');
+      sentimentChart = new Chart(ctxSent, { type:'pie', data:{labels:['Positive','Neutral','Negative'], datasets:[{data:sentCounts,backgroundColor:['#198754','#6c757d','#dc3545']}]}, options:{responsive:true}});
+
+      // Competitors (if available)
+      const compMap = {};
+      reviews.forEach(r=>{ if(r.competitor) compMap[r.competitor] = (compMap[r.competitor]||0)+1 });
+      const compLabels = Object.keys(compMap);
+      const compData = Object.values(compMap);
+      const ctxComp = document.getElementById('chartCompetitors').getContext('2d');
+      competitorChart = new Chart(ctxComp, { type:'bar', data:{labels:compLabels,datasets:[{label:'Reviews',data:compData,backgroundColor:'#0d6efd'}]}, options:{responsive:true}});
+    }
+
+    // -------------------------
+    // Reviews Table Pagination
+    // -------------------------
+    function renderTablePage(page) {
+      pageSize = Number(document.getElementById('pageSizeSelect').value);
+      currentPage = page;
+      const startIdx = (page-1)*pageSize;
+      const pageData = cachedReviews.slice().sort((a,b)=>{
+        if(sortKey==='rating') return (sortDir==='asc'?1:-1)*(a.rating-b.rating);
+        const da = new Date(a.date), db = new Date(b.date);
+        return (sortDir==='asc'?1:-1)*(da-db);
+      }).slice(startIdx, startIdx+pageSize);
+
       const tbody = document.getElementById('reviewsTable');
-      tbody.innerHTML = rows.map(r => {
-        const author = escapeHtml(r.author ?? r.author_name ?? 'Anonymous');
-        const rating = formatNum(r.rating ?? 0, 1);
-        const label = String(r.label ?? r.sentiment_label ?? 'neutral');
-        const cls = label === 'positive' ? 'sent-pos' : (label === 'negative' ? 'sent-neg' : 'sent-neu');
-        const dt = (r.time || r.date || r.review_time || '').toString();
-        const text = escapeHtml(r.text || '');
-        const d = new Date(dt);
-        const iso = isNaN(d.getTime()) ? escapeHtml(dt) : d.toISOString().slice(0,10);
+      tbody.innerHTML = pageData.map(r=>`
+        <tr>
+          <td>${escapeHtml(r.author)}</td>
+          <td>${r.rating}</td>
+          <td>${escapeHtml(r.sentiment)}</td>
+          <td>${escapeHtml(r.date)}</td>
+          <td>${escapeHtml(r.comment)}</td>
+        </tr>
+      `).join('');
 
-        return `
-          <tr>
-            <td>${author}</td>
-            <td>${rating}</td>
-            <td class="${cls}">${escapeHtml(label)}</td>
-            <td>${iso}</td>
-            <td>${text}</td>
-          </tr>
-        `;
-      }).join('');
-
-      // pagination buttons
-      const prev = document.getElementById('pagePrev');
-      const next = document.getElementById('pageNext');
-      prev.disabled = currentPage <= 1;
-      next.disabled = currentPage >= totalPages;
-      document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
+      const totalPages = Math.ceil(cachedReviews.length/pageSize);
+      document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages||1}`;
+      document.getElementById('pagePrev').disabled = currentPage<=1;
+      document.getElementById('pageNext').disabled = currentPage>=totalPages;
     }
 
-    // sorting toggle (stable + persisted)
-    document.querySelectorAll('th[data-sort]').forEach(th => {
-      th.addEventListener('click', () => {
+    document.getElementById('pagePrev').addEventListener('click', ()=>renderTablePage(currentPage-1));
+    document.getElementById('pageNext').addEventListener('click', ()=>renderTablePage(currentPage+1));
+    document.getElementById('pageSizeSelect').addEventListener('change', ()=>renderTablePage(1));
+
+    document.querySelectorAll('th[data-sort]').forEach(th=>{
+      th.addEventListener('click', ()=>{
         const key = th.getAttribute('data-sort');
-        if (sortKey === key) {
-          sortDir = (sortDir === 'asc') ? 'desc' : 'asc';
-        } else {
-          sortKey = key;
-          sortDir = 'desc';  // default when switching key
-        }
-        renderReviews();
+        if(sortKey===key) sortDir = sortDir==='asc'?'desc':'asc';
+        else { sortKey=key; sortDir='desc'; }
+        renderTablePage(currentPage);
       });
     });
 
-    // pagination events
-    document.getElementById('pagePrev').addEventListener('click', () => {
-      currentPage = Math.max(1, currentPage - 1);
-      renderReviews();
-    });
-    document.getElementById('pageNext').addEventListener('click', () => {
-      currentPage = currentPage + 1;
-      renderReviews();
-    });
-    document.getElementById('pageSizeSelect').addEventListener('change', (e) => {
-      pageSize = Number(e.target.value || 10);
-      currentPage = 1;
-      renderReviews();
-    });
+    document.getElementById('loadBtn').addEventListener('click', loadReviews);
 
-    // -------------------------
-    // Add Company submit
-    // -------------------------
-    document.getElementById('addCompanyForm').addEventListener('submit', async (e) => {
+    document.getElementById('addCompanyForm').addEventListener('submit', async e=>{
       e.preventDefault();
-      const fd = new FormData(e.target);
+      const data = {
+        name: document.getElementById('companyName').value,
+        place_id: document.getElementById('placeId').value,
+        address: document.getElementById('companyAddress').value
+      };
       try {
-        const res = await fetch('/companies', { method: 'POST', body: fd });
-        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-        notify('Company added successfully.', 'success', 3000);
-        // refresh list then close modal
-        await loadCompanies();
-        const modalEl = document.getElementById('addCompanyModal');
-        const modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
-        modal.hide();
-      } catch (err) {
-        notify('Failed to add company: ' + (err.message || err), 'danger');
-      }
+        await fetchJSON('/api/companies', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) });
+        notify("Company added successfully", "success");
+        bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
+        loadCompanies();
+      } catch(e) { notify("Failed to add company: "+e.message); }
     });
 
-    // -------------------------
-    // Init
-    // -------------------------
-    document.getElementById('loadBtn').addEventListener('click', loadDashboard);
-    document.getElementById('companySelect').addEventListener('change', () => { loadDashboard(); });
-    document.getElementById('startDate').addEventListener('change', () => { loadDashboard(); });
-    document.getElementById('endDate').addEventListener('change', () => { loadDashboard(); });
-    document.getElementById('limitSelect').addEventListener('change', () => { loadDashboard(); });
-    document.getElementById('groupBy').addEventListener('change', () => { loadDashboard(); });
-
-    // initial load
-    (async function boot() {
-      await loadCompanies();
-      // If we have at least one company, load dashboard
-      const cid = document.getElementById('companySelect')?.value;
-      if (cid) {
-        await loadDashboard();
-      } else {
-        notify('No companies found. Please add a company to get started.', 'warning', 8000);
-      }
-    })();
+    // Initial load
+    loadCompanies();
   </script>
 </body>
 </html>
