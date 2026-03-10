@@ -5,7 +5,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from starlette.templating import Jinja2Templates
 from sqlalchemy import desc, func, select
 
@@ -38,7 +38,8 @@ try:
 except Exception:
     run_batch_review_ingestion = None
 
-
+# CHANGED: If your main.py includes this with prefix="/api", 
+# then leave prefix="" here to avoid /api/api/ routes.
 router = APIRouter(tags=["companies"], prefix="/api")
 templates = Jinja2Templates(directory="app/templates")
 logger = logging.getLogger("app.companies")
@@ -70,22 +71,27 @@ def _get_gmaps_client() -> Optional[Any]:
 
 
 # ─────────────────────────────────────────
-# NEW: Google Autocomplete Endpoint
+# FIXED: Google Autocomplete Endpoint
 # ─────────────────────────────────────────
 @router.get("/google_autocomplete")
 async def google_autocomplete(request: Request, input: str = Query(...)):
     """
     Backend proxy for Google Places Autocomplete
-    Used by dashboard.html
     """
     _require_user(request)
 
     client = _get_gmaps_client()
     if not client:
-        raise HTTPException(status_code=503, detail="Google Maps client not configured")
+        # Return JSON instead of raising a raw exception to avoid HTML responses
+        return JSONResponse(
+            status_code=503, 
+            content={"error": "Google Maps client not configured"}
+        )
 
     try:
-        res = client.places_autocomplete(input)
+        # Use asyncio.to_thread because googlemaps client is synchronous/blocking
+        import asyncio
+        res = await asyncio.to_thread(client.places_autocomplete, input)
 
         predictions = []
         for p in res:
@@ -98,7 +104,7 @@ async def google_autocomplete(request: Request, input: str = Query(...)):
 
     except Exception as ex:
         logger.exception("Google autocomplete failed: %s", ex)
-        raise HTTPException(status_code=500, detail="Autocomplete failed")
+        return JSONResponse(status_code=500, content={"error": "Autocomplete failed"})
 
 
 # ─────────────────────────────────────────
@@ -134,7 +140,6 @@ async def google_place_details(request: Request, place_id: str = Query(...)):
 # ─────────────────────────────────────────
 @router.get("/companies/{company_id}/reviews")
 async def get_company_reviews(request: Request, company_id: int):
-
     _require_user(request)
 
     client = getattr(request.app.state, "reviews_client", None)
@@ -143,50 +148,35 @@ async def get_company_reviews(request: Request, company_id: int):
 
     try:
         reviews = await client.fetch_reviews(company_id)
-        logger.info("Fetched %d reviews for company %s", len(reviews), company_id)
         return {"reviews": reviews}
-
     except Exception as ex:
         logger.exception("Error fetching reviews: %s", ex)
         raise HTTPException(status_code=500, detail="Failed to fetch reviews")
 
 
 # ─────────────────────────────────────────
-# Companies Data
+# Companies Data (Internal Helper)
 # ─────────────────────────────────────────
 async def _get_companies_data(page: int = 1, size: int = 20, q: Optional[str] = None) -> Dict[str, Any]:
-
     page = max(1, page)
     size = max(1, min(100, size))
 
     async with get_session() as session:
-
         stmt = select(Company)
-
         if q:
-            like = f"%{q}%"
-            stmt = stmt.where(Company.name.ilike(like))
+            stmt = stmt.where(Company.name.ilike(f"%{q}%"))
 
         stmt = stmt.order_by(desc(Company.created_at))
 
-        total = (await session.execute(
-            select(func.count(Company.id))
-        )).scalar() or 0
-
-        rows = (await session.execute(
-            stmt.offset((page - 1) * size).limit(size)
-        )).scalars().all()
+        total = (await session.execute(select(func.count(Company.id)))).scalar() or 0
+        rows = (await session.execute(stmt.offset((page - 1) * size).limit(size))).scalars().all()
 
         data = []
-
         for c in rows:
-
-            stats = (
-                await session.execute(
-                    select(func.count(Review.id), func.avg(Review.rating))
-                    .where(Review.company_id == c.id)
-                )
-            ).first()
+            stats = (await session.execute(
+                select(func.count(Review.id), func.avg(Review.rating))
+                .where(Review.company_id == c.id)
+            )).first()
 
             data.append({
                 "id": int(c.id),
@@ -201,29 +191,15 @@ async def _get_companies_data(page: int = 1, size: int = 20, q: Optional[str] = 
 
 
 # ─────────────────────────────────────────
-# Companies Page
+# Companies List API (Returns JSON)
 # ─────────────────────────────────────────
-@router.get("/companies", response_class=HTMLResponse)
-async def companies_page(request: Request, page: int = 1, size: int = 20, q: Optional[str] = None):
-
-    _require_user(request)
-
-    payload = await _get_companies_data(page, size, q)
-
-    return templates.TemplateResponse(
-        "companies.html",
-        {"request": request, **payload}
-    )
-
-
-# ─────────────────────────────────────────
-# Companies API
-# ─────────────────────────────────────────
-@router.get("/companies/list")
+@router.get("/companies")
 async def companies_list(request: Request, page: int = 1, size: int = 20, q: Optional[str] = None):
-
+    """
+    FIXED: Changed from HTMLResponse to JSON by default. 
+    This ensures the 'Load' button gets JSON data.
+    """
     _require_user(request)
-
     return await _get_companies_data(page, size, q)
 
 
@@ -238,23 +214,19 @@ async def add_company(
     place_id: Optional[str] = Form(None),
     address: Optional[str] = Form(None),
 ):
-
     _require_user(request)
 
     async with get_session() as session:
-
         c = Company(
             name=name.strip(),
             place_id=place_id or "",
             address=address or ""
         )
-
         session.add(c)
         await session.commit()
         await session.refresh(c)
 
     client = getattr(request.app.state, "reviews_client", None)
-
     if run_batch_review_ingestion and client:
         background.add_task(run_batch_review_ingestion, client, [c])
 
@@ -274,16 +246,11 @@ async def add_company(
 # ─────────────────────────────────────────
 @router.post("/companies/{company_id}/delete")
 async def delete_company(request: Request, company_id: int):
-
     _require_user(request)
-
     async with get_session() as session:
-
         comp = await session.get(Company, company_id)
-
         if not comp:
             raise HTTPException(status_code=404, detail="Company not found")
-
         await session.delete(comp)
         await session.commit()
 
