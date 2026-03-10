@@ -11,25 +11,21 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <!-- Google Places Autocomplete -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
+  <!-- Google Places API (with callback) -->
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&callback=initGoogleMaps"></script>
 
   <style>
     body { padding: 24px; }
-    [data-theme="dark"] {
-      background-color: #121212 !important;
-      color: #eaeaea !important;
-    }
+    [data-theme="dark"] { background-color: #121212 !important; color: #eaeaea !important; }
     [data-theme="dark"] .card { background-color: #1e1e1e; color: #eaeaea; }
     .kpi-card { min-height: 120px; }
     .sent-pos { color: #198754; font-weight: 600; }
     .sent-neu { color: #6c757d; font-weight: 600; }
     .sent-neg { color: #dc3545; font-weight: 600; }
     #loadingSpinner { display: none; }
-    .chart-empty {
-      text-align: center; padding: 32px; color: #6c757d; font-style: italic;
-    }
+    .chart-empty { text-align: center; padding: 32px; color: #6c757d; font-style: italic; }
     .disabled-state { opacity: 0.6; pointer-events: none; }
+    .cursor-pointer { cursor: pointer; }
   </style>
 </head>
 <body>
@@ -38,15 +34,20 @@
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4 rounded">
   <div class="container-fluid">
     <span class="navbar-brand fw-bold fs-4">📊 Review SaaS Dashboard</span>
+
     <div class="ms-auto d-flex gap-2">
-      <select id="groupBy" class="form-select form-select-sm w-auto">
+      <select id="groupBy" class="form-select form-select-sm w-auto" title="Aggregation">
         <option value="day">Daily</option>
         <option value="week">Weekly</option>
         <option value="month">Monthly</option>
       </select>
+
       <button id="toggleTheme" class="btn btn-light btn-sm">
-        <i class="bi bi-moon-stars"></i>
-        <span class="ms-1" id="themeLabel">Dark</span>
+        <i class="bi bi-moon-stars"></i> <span id="themeLabel">Dark</span>
+      </button>
+
+      <button id="logoutBtn" class="btn btn-outline-light btn-sm ms-2" title="Logout">
+        <i class="bi bi-box-arrow-right"></i> Logout
       </button>
     </div>
   </div>
@@ -162,10 +163,10 @@
       </div></div>
     </div>
 
-    <!-- Competitor Chart Placeholder / Renderer -->
+    <!-- Competitor Chart Placeholder + Fallback Data Sources -->
     <div class="col-md-6">
       <div class="card"><div class="card-body">
-        <h6 class="mb-2">Competitor Volume (last period)</h6>
+        <h6 class="mb-2">Competitor Volume</h6>
         <div id="compEmpty" class="chart-empty">No competitor data available.</div>
         <canvas id="chartCompetitors" height="120" class="d-none"></canvas>
       </div></div>
@@ -243,33 +244,34 @@
   </div>
 </div>
 
-<!-- Bootstrap JS (for modal) -->
+<!-- Bootstrap JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
-/* ============================== Utilities & State ============================== */
+/* ============================== Global State & Helpers ============================== */
 
 const state = {
   companies: [],
+  companiesByPlaceId: new Set(),
   reviews: [],
   page: 1,
   perPage: 50,
   sort: JSON.parse(localStorage.getItem('reviewSort') || '{"key":"date","dir":"desc"}'),
   theme: localStorage.getItem('theme') || 'light',
-  token: localStorage.getItem('authToken') || null, // Optional: add a token if you use header auth
+  token: localStorage.getItem('authToken') || null, // Optional bearer token if you use header auth
 };
 
-function getAuthHeaders() {
-  const headers = {};
-  if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
-  return headers;
+function getAuthInit(init = {}) {
+  // Provide both Authorization header (if token set) & credentials for cookie session
+  const headers = new Headers(init.headers || {});
+  if (state.token) headers.set('Authorization', `Bearer ${state.token}`);
+  return { ...init, headers, credentials: 'include' };
 }
 
-// Apply theme on load
 document.documentElement.setAttribute('data-theme', state.theme);
 document.getElementById('themeLabel').textContent = state.theme === 'light' ? 'Dark' : 'Light';
 
-/* Defaults: if dates empty, set last 30 days */
+/* Date defaults (last 30 days) */
 function ensureDateDefaults() {
   const startEl = document.getElementById('startDate');
   const endEl = document.getElementById('endDate');
@@ -285,7 +287,7 @@ function ensureDateDefaults() {
   }
 }
 
-/* Export URLs builder with dates + company */
+/* Build export URLs with filters */
 function updateExportLinks() {
   const companyId = document.getElementById('companySelect').value || '';
   const start = document.getElementById('startDate').value || '';
@@ -299,49 +301,56 @@ function updateExportLinks() {
   document.getElementById('exportPdf').href  = `/api/export/summary.pdf?${qs}`;
 }
 
-/* Disable/enable entire dashboard when no companies */
 function setDashboardEnabled(enabled) {
   const controls = document.querySelectorAll('#companySelect,#startDate,#endDate,#limitSelect,#loadBtn,#groupBy');
   controls.forEach(c => c.disabled = !enabled);
   document.getElementById('noCompaniesMsg').classList.toggle('d-none', enabled);
 }
 
-/* ============================== Companies Loading ============================== */
+/* ============================== Companies Load (robust) ============================== */
 
 async function fetchCompanies() {
-  // Try /api/companies (requirement) then fallback to /companies/list (existing backend)
-  let res;
+  // Try /api/companies first, fallback to /companies/list
+  let data = null;
   try {
-    res = await fetch('/api/companies', { headers: getAuthHeaders() });
-    if (!res.ok) throw new Error('no /api/companies');
-  } catch {
-    res = await fetch('/companies/list', { headers: getAuthHeaders() });
+    const r1 = await fetch('/api/companies', getAuthInit());
+    if (r1.ok) data = await r1.json();
+  } catch {}
+  if (!data) {
+    const r2 = await fetch('/companies/list', getAuthInit());
+    if (r2.ok) data = await r2.json();
   }
-  const data = await res.json();
-  const items = data.items || data; // normalize
-  state.companies = items || [];
+  const items = (data && data.items) ? data.items : Array.isArray(data) ? data : [];
+
   const sel = document.getElementById('companySelect');
   sel.innerHTML = '';
-  if (state.companies.length === 0) {
+  state.companies = items || [];
+  state.companiesByPlaceId = new Set((items || []).map(x => (x.place_id || '').trim()).filter(Boolean));
+
+  if (!state.companies.length) {
     setDashboardEnabled(false);
     updateExportLinks();
     return;
   }
   setDashboardEnabled(true);
+
   state.companies.forEach(c => {
-    sel.insertAdjacentHTML('beforeend', `<option value="${c.id}">${c.name} (${c.place_id || ''})</option>`);
+    sel.insertAdjacentHTML('beforeend',
+      `<option value="${c.id}">${c.name} ${c.place_id ? '('+c.place_id+')' : ''}</option>`);
   });
-  // Keep previous selection if exists
+
   if (!sel.value && state.companies.length) sel.value = state.companies[0].id;
   updateExportLinks();
 }
 
-/* ============================== Dashboard Loading ============================== */
+/* ============================== Dashboard Load ============================== */
 
 let chartTrend, chartDistribution, chartSentiment, chartCompetitors;
 
-function showEmpty(elId, isEmpty) {
-  document.getElementById(elId).classList.toggle('d-none', !isEmpty);
+function showEmpty(id, isEmpty) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle('d-none', !isEmpty);
 }
 
 async function loadDashboard() {
@@ -357,7 +366,6 @@ async function loadDashboard() {
   const limit = document.getElementById('limitSelect').value;
   const groupBy = document.getElementById('groupBy').value;
 
-  // If no company chosen, block gracefully
   if (!companyId) {
     setDashboardEnabled(false);
     spinner.style.display = 'none';
@@ -374,15 +382,14 @@ async function loadDashboard() {
   if (end) qs.set('end', end);
 
   try {
-    const res = await fetch(`/api/dashboard?${qs}`, { headers: getAuthHeaders() });
+    const res = await fetch(`/api/dashboard?${qs}`, getAuthInit());
+    if (!res.ok) throw new Error(`Dashboard fetch failed ${res.status}`);
     const data = await res.json();
 
-    // Guard shapes & defaults
-    const dist = (data.charts?.bar?.ratings_distribution) || {"1":0,"2":0,"3":0,"4":0,"5":0};
+    const dist = (data.charts?.bar?.ratings_distribution) || data.ratings_distribution || {"1":0,"2":0,"3":0,"4":0,"5":0};
     const volumeSeries = (data.charts?.line?.volume) || [];
     const sentiShare = (data.charts?.pie?.sentiment_share) || data.sentiment_share || {positive:0,neutral:0,negative:0};
     const recent = data.recent_reviews || [];
-    const competitors = data.competitors || [];
 
     // KPIs
     document.getElementById('kpiTotal').textContent = data.kpis?.total_reviews ?? 0;
@@ -391,33 +398,29 @@ async function loadDashboard() {
     document.getElementById('kpiNeu').textContent = sentiShare.neutral ?? 0;
     document.getElementById('kpiNeg').textContent = sentiShare.negative ?? 0;
 
-    // Charts – destroy previous
+    // destroy old charts
     [chartTrend, chartDistribution, chartSentiment, chartCompetitors].forEach(ch => ch && ch.destroy());
 
-    // Empty-state toggles
-    const distVals = Object.values(dist || {}).map(Number);
+    const distVals = ['1','2','3','4','5'].map(k => Number(dist[k] || 0));
     const trendLabels = volumeSeries.map(v => v.label || v.date);
     const trendVals = volumeSeries.map(v => Number(v.value || 0));
-    const sentTotal = (sentiShare.positive||0) + (sentiShare.neutral||0) + (sentiShare.negative||0);
+    const sentTotal = (sentiShare.positive||0)+(sentiShare.neutral||0)+(sentiShare.negative||0);
 
     showEmpty('distEmpty', distVals.every(v => v === 0));
     showEmpty('trendEmpty', trendVals.length === 0 || trendVals.every(v => v === 0));
     showEmpty('sentEmpty', sentTotal === 0);
 
-    // Rating Distribution (Bar)
+    // Rating Distribution
     chartDistribution = new Chart(document.getElementById('chartDistribution'), {
       type: 'bar',
       data: {
         labels: ['1★','2★','3★','4★','5★'],
-        datasets: [{
-          data: distVals.length === 5 ? distVals : [0,0,0,0,0],
-          backgroundColor: ['#dc3545','#fd7e14','#ffc107','#0d6efd','#198754']
-        }]
+        datasets: [{ data: distVals, backgroundColor: ['#dc3545','#fd7e14','#ffc107','#0d6efd','#198754'] }]
       },
       options: { responsive: true, maintainAspectRatio: false }
     });
 
-    // Review Trend (Line)
+    // Review Trend
     chartTrend = new Chart(document.getElementById('chartTrend'), {
       type: 'line',
       data: {
@@ -434,42 +437,56 @@ async function loadDashboard() {
       options: { responsive: true, maintainAspectRatio: false }
     });
 
-    // Sentiment Share (Pie)
+    // Sentiment Distribution
     chartSentiment = new Chart(document.getElementById('chartSentiment'), {
       type: 'pie',
       data: {
-        labels: ['Positive','Neutral','Negative'],
+        labels: ['Positive', 'Neutral', 'Negative'],
         datasets: [{
           data: sentTotal ? [sentiShare.positive, sentiShare.neutral, sentiShare.negative] : [0,0,0],
-          backgroundColor: ['#198754','#6c757d','#dc3545']
+          backgroundColor: ['#198754', '#6c757d', '#dc3545']
         }]
       },
       options: { responsive: true, maintainAspectRatio: false }
     });
 
-    // Competitor placeholder / renderer
+    // Competitors: prefer /api/dashboard.competitors else fallback to /api/reviews/competitors
+    let competitors = data.competitors || [];
+    if (!competitors.length) {
+      try {
+        const qs2 = new URLSearchParams();
+        if (start) qs2.set('start', start);
+        if (end) qs2.set('end', end);
+        const res2 = await fetch(`/api/reviews/competitors/${companyId}?${qs2}`, getAuthInit());
+        if (res2.ok) {
+          const d2 = await res2.json();
+          competitors = (d2 && d2.competitors) ? d2.competitors.map(x => ({
+            company: { id: x.company_id, name: x.name },
+            kpis: { total_reviews: x.count, avg_rating: x.avg_rating },
+          })) : [];
+        }
+      } catch {}
+    }
     const compCanvas = document.getElementById('chartCompetitors');
     const compEmpty = document.getElementById('compEmpty');
     if (competitors.length) {
-      compEmpty.classList.add('d-none');
-      compCanvas.classList.remove('d-none');
-      const labels = competitors.map(c => c.company?.name || `#${c.company?.id || ''}`).slice(0, 8);
-      const values = competitors.map(c => c.kpis?.total_reviews || 0).slice(0, 8);
+      compEmpty.classList.add('d-none'); compCanvas.classList.remove('d-none');
+      const labels = competitors.map(c => (c.company?.name || `#${c.company?.id || ''}`)).slice(0, 10);
+      const values = competitors.map(c => (c.kpis?.total_reviews || 0)).slice(0, 10);
       chartCompetitors = new Chart(compCanvas, {
         type: 'bar',
         data: { labels, datasets: [{ label: 'Total Reviews', data: values, backgroundColor: '#6f42c133' }] },
         options: { responsive: true, maintainAspectRatio: false }
       });
     } else {
-      compEmpty.classList.remove('d-none');
-      compCanvas.classList.add('d-none');
+      compEmpty.classList.remove('d-none'); compCanvas.classList.add('d-none');
     }
 
-    // Reviews + pagination
-    state.reviews = recent.slice(); // clone
+    // Reviews + pagination + sorting
+    state.reviews = (data.recent_reviews || []).slice();
     state.perPage = Number(document.getElementById('limitSelect').value) || 50;
-    applySorting(); // keeps persisted sort
-    renderPageInfo();
+    applySorting();
+    state.page = 1;
     renderReviewsTable();
 
   } catch (err) {
@@ -519,7 +536,7 @@ function renderReviewsTable() {
   renderPageInfo();
 }
 
-// Pagination handlers
+// Pagination
 document.getElementById('prevPage').addEventListener('click', () => {
   if (state.page > 1) { state.page--; renderReviewsTable(); }
 });
@@ -528,7 +545,7 @@ document.getElementById('nextPage').addEventListener('click', () => {
   if (state.page < maxPage) { state.page++; renderReviewsTable(); }
 });
 
-// Sorting handlers with persistence
+// Sorting (persisted)
 document.getElementById('sortRatingBtn').addEventListener('click', () => {
   state.sort.key = 'rating';
   state.sort.dir = (state.sort.key === 'rating' && state.sort.dir === 'desc') ? 'asc' : 'desc';
@@ -549,14 +566,32 @@ document.getElementById('toggleTheme').addEventListener('click', () => {
   localStorage.setItem('theme', next);
 });
 
-/* ============================== Google Places Autocomplete (+unique validation) ============================== */
-let autocomplete;
-function initAutocomplete() {
+/* ============================== Logout ============================== */
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  try {
+    await fetch('/logout', getAuthInit({ method: 'POST' }));
+  } catch {}
+  localStorage.removeItem('authToken');
+  state.token = null;
+  window.location.href = '/login';
+});
+
+/* ============================== Google Places Autocomplete + Unique Validation ============================== */
+let _gmapsReady = false;
+let _autocomplete = null;
+
+function initGoogleMaps() {
+  _gmapsReady = true;
+}
+
+function bindAutocomplete() {
+  if (!_gmapsReady) return;
   const input = document.getElementById('placeSearch');
   if (!input) return;
-  autocomplete = new google.maps.places.Autocomplete(input, { types: ['establishment'] });
-  autocomplete.addListener('place_changed', () => {
-    const place = autocomplete.getPlace();
+  if (_autocomplete) return; // bind once
+  _autocomplete = new google.maps.places.Autocomplete(input, { types: ['establishment'] });
+  _autocomplete.addListener('place_changed', () => {
+    const place = _autocomplete.getPlace();
     if (!place) return;
     const name = place.name || '';
     const pid = place.place_id || '';
@@ -564,57 +599,81 @@ function initAutocomplete() {
     document.getElementById('companyName').value = name;
     document.getElementById('placeId').value = pid;
     document.getElementById('companyAddress').value = addr;
-
-    // Unique validation: block if place_id already exists
-    const dup = state.companies.find(c => (c.place_id || '') === pid);
-    const alertBox = document.getElementById('addCompanyAlert');
-    const submitBtn = document.querySelector('#addCompanyForm button[type="submit"]');
-    if (dup) {
-      alertBox.textContent = 'This Place ID already exists in your companies.';
-      alertBox.classList.remove('d-none');
-      submitBtn.disabled = true;
-    } else {
-      alertBox.classList.add('d-none');
-      submitBtn.disabled = false;
-    }
+    validateUniquePlaceId(pid);
   });
 }
-window.addEventListener('load', initAutocomplete);
 
-/* ============================== Add Company Submit (robust error handling) ============================== */
+// Also validate uniqueness when user types Place ID manually
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.id === 'placeId') {
+    validateUniquePlaceId(e.target.value.trim());
+  }
+});
+
+function validateUniquePlaceId(pid) {
+  const alertBox = document.getElementById('addCompanyAlert');
+  const submitBtn = document.querySelector('#addCompanyForm button[type="submit"]');
+  if (!pid) {
+    alertBox.classList.add('d-none');
+    submitBtn.disabled = false;
+    return;
+  }
+  const isDup = state.companiesByPlaceId.has(pid);
+  if (isDup) {
+    alertBox.textContent = 'This Place ID already exists in your companies.';
+    alertBox.classList.remove('d-none');
+    submitBtn.disabled = true;
+  } else {
+    alertBox.classList.add('d-none');
+    submitBtn.disabled = false;
+  }
+}
+
+// Ensure Autocomplete is bound when the modal opens (so the input is visible/attached)
+document.getElementById('addCompanyModal').addEventListener('shown.bs.modal', bindAutocomplete);
+
+/* Add Company submit with robust errors + fallback endpoint */
 document.getElementById('addCompanyForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = new FormData(e.target);
+  const pid = (form.get('place_id') || '').toString().trim();
+  // Submit-time unique validation (works even if Autocomplete failed)
+  if (pid && state.companiesByPlaceId.has(pid)) {
+    const alertBox = document.getElementById('addCompanyAlert');
+    alertBox.textContent = 'This Place ID already exists.';
+    alertBox.classList.remove('d-none');
+    return;
+  }
+
   const alertBox = document.getElementById('addCompanyAlert');
   const okBox = document.getElementById('addCompanySuccess');
   alertBox.classList.add('d-none'); okBox.classList.add('d-none');
 
-  // Try /api/companies then fallback to /companies
-  let res;
+  let res = null;
   try {
-    res = await fetch('/api/companies', { method: 'POST', body: form, headers: getAuthHeaders() });
+    res = await fetch('/api/companies', getAuthInit({ method: 'POST', body: form }));
     if (!res.ok) throw new Error('no /api/companies');
   } catch {
-    res = await fetch('/companies', { method: 'POST', body: form, headers: getAuthHeaders() });
+    res = await fetch('/companies', getAuthInit({ method: 'POST', body: form }));
   }
 
   if (res.ok) {
     okBox.textContent = 'Company added successfully.';
     okBox.classList.remove('d-none');
     await fetchCompanies();
-    // Reset and keep modal open for visibility; auto-close after short delay
+    // close modal soon
     setTimeout(() => {
       const modalEl = document.getElementById('addCompanyModal');
       const modal = bootstrap.Modal.getInstance(modalEl);
       modal && modal.hide();
       okBox.classList.add('d-none');
       e.target.reset();
-    }, 800);
+    }, 900);
   } else {
     let msg = 'Failed to add company.';
     try {
-      const data = await res.json();
-      if (data && (data.detail || data.message)) msg = data.detail || data.message;
+      const d = await res.json();
+      if (d && (d.detail || d.message)) msg = d.detail || d.message;
     } catch {}
     alertBox.textContent = msg;
     alertBox.classList.remove('d-none');
@@ -622,7 +681,6 @@ document.getElementById('addCompanyForm').addEventListener('submit', async (e) =
 });
 
 /* ============================== Triggers & Init ============================== */
-
 document.getElementById('loadBtn').addEventListener('click', () => { state.page = 1; loadDashboard(); });
 document.getElementById('companySelect').addEventListener('change', () => { state.page = 1; loadDashboard(); });
 document.getElementById('startDate').addEventListener('change', () => { state.page = 1; loadDashboard(); });
@@ -630,11 +688,11 @@ document.getElementById('endDate').addEventListener('change', () => { state.page
 document.getElementById('limitSelect').addEventListener('change', () => { state.page = 1; loadDashboard(); });
 document.getElementById('groupBy').addEventListener('change', () => { state.page = 1; loadDashboard(); });
 
-// Initial boot
+// On boot:
 (async function init() {
   ensureDateDefaults();
   await fetchCompanies();
-  if (state.companies.length === 0) return;
+  if (!state.companies.length) return;
   await loadDashboard();
 })();
 </script>
