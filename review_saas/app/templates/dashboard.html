@@ -4,29 +4,22 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Review SaaS Dashboard</title>
-  <!-- Bootstrap CSS -->
   <link
     href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
     rel="stylesheet"
     integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
     crossorigin="anonymous"
   />
-  <!-- Bootstrap Icons -->
   <link
     href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
     rel="stylesheet"
   />
-  <!-- Chart.js -->
   <script
     src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
     integrity="sha384-7j6QzDgT8YIm8oWslrjKz2nA3uMZkV6WZy0LhQwYqH8QvV4KekVZ1qC6mYI8M7Oh"
     crossorigin="anonymous"
   ></script>
 
-  <!-- 
-    Updated Google Maps JS – use beta channel for PlaceAutocompleteElement (new API)
-    Required after March 2025 deprecation for new keys/projects
-  -->
   <script
     src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&v=beta&callback=initGoogleApi"
     async
@@ -50,7 +43,6 @@
   </style>
 </head>
 <body>
-  <!-- NAV (unchanged) -->
   <nav class="navbar navbar-expand-lg navbar-dark bg-primary rounded mb-4">
     <div class="container-fluid">
       <span class="navbar-brand fw-semibold">📊 Review SaaS Dashboard</span>
@@ -67,10 +59,8 @@
   </nav>
 
   <div class="container-fluid">
-    <!-- Alerts (unchanged) -->
     <div id="alertHost" class="alert-placeholder mb-3"></div>
 
-    <!-- Filters (unchanged) -->
     <div class="row g-3 align-items-end mb-3">
       <div class="col-md-3">
         <label class="form-label fw-semibold">Company</label>
@@ -109,7 +99,6 @@
       </div>
     </div>
 
-    <!-- Actions (unchanged) -->
     <div class="d-flex gap-2 mb-3">
       <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
         <i class="bi bi-plus-circle"></i> Add Company
@@ -125,7 +114,6 @@
       </a>
     </div>
 
-    <!-- KPIs (unchanged) -->
     <div class="row g-3 mb-4">
       <div class="col-md-2">
         <div class="card kpi-card shadow-sm">
@@ -169,7 +157,6 @@
       </div>
     </div>
 
-    <!-- Charts (unchanged) -->
     <div class="row g-4">
       <div class="col-lg-6">
         <div class="card">
@@ -209,7 +196,6 @@
       </div>
     </div>
 
-    <!-- AI Summary (unchanged) -->
     <div class="card mt-4">
       <div class="card-body">
         <h6 class="mb-2">🤖 AI Summary</h6>
@@ -217,7 +203,6 @@
       </div>
     </div>
 
-    <!-- Reviews Table (unchanged) -->
     <div class="card mt-4 mb-5">
       <div class="card-body">
         <div class="d-flex align-items-center justify-content-between mb-2">
@@ -245,7 +230,6 @@
             <tbody id="reviewsTable"></tbody>
           </table>
         </div>
-        <!-- Pagination (unchanged) -->
         <div class="d-flex align-items-center gap-2">
           <button id="pagePrev" class="btn btn-outline-secondary btn-sm" disabled>
             <i class="bi bi-chevron-left"></i> Prev
@@ -259,7 +243,6 @@
     </div>
   </div>
 
-  <!-- Add Company Modal – updated for new Places API -->
   <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyModalLabel" aria-hidden="true">
     <div class="modal-dialog">
       <form id="addCompanyForm" class="modal-content">
@@ -269,7 +252,6 @@
         </div>
         <div class="modal-body">
           <label class="form-label fw-semibold">Search (Autocomplete)</label>
-          <!-- New web component replaces the old input -->
           <gmp-autocomplete
             id="placeSearch"
             placeholder="Type business name, address..."
@@ -295,7 +277,6 @@
     </div>
   </div>
 
-  <!-- Bootstrap JS (unchanged) -->
   <script
     src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
     integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
@@ -377,15 +358,17 @@
 
     function setupNewAutocomplete() {
       if (!googleReady) return;
+      
+      // Ensure the library and component are loaded
       if (!window.google?.maps?.places?.PlaceAutocompleteElement) {
-        notify("New Google Places Autocomplete not available in this channel. Check console.", "danger");
-        console.error("PlaceAutocompleteElement missing – make sure v=beta is used and Places API (New) is enabled.");
+        console.warn("PlaceAutocompleteElement not yet available. Waiting...");
         return;
       }
 
       const autocomplete = document.getElementById('placeSearch');
       if (!autocomplete) return;
 
+      // Event listener for the new GMP-SELECT event
       autocomplete.addEventListener('gmp-select', async (e) => {
         const place = e.detail.place;
         if (!place) {
@@ -394,13 +377,14 @@
         }
 
         try {
-          // Fetch needed fields
+          // Fetch needed fields from the selected place object
           await place.fetchFields({
             fields: ['displayName', 'id', 'formattedAddress']
           });
 
+          // Fill your existing form inputs
           document.getElementById('companyName').value    = place.displayName || '';
-          document.getElementById('placeId').value        = place.id || '';           // place.id is the place_id
+          document.getElementById('placeId').value        = place.id || '';
           document.getElementById('companyAddress').value = place.formattedAddress || '';
         } catch (err) {
           console.error("Place fetch error:", err);
@@ -409,15 +393,12 @@
       });
     }
 
-    // Re-try if modal opens before API ready
-    document.addEventListener('shown.bs.modal', (ev) => {
-      if (ev.target.id === 'addCompanyModal') {
-        setupNewAutocomplete();
-      }
-    });
+    // Re-try setup when modal opens
+    document.getElementById('addCompanyModal').addEventListener('shown.bs.modal', setupNewAutocomplete);
 
-    // The rest of your script remains EXACTLY the same
-    // Company Load
+    // -------------------------
+    // Dashboard Logic (unchanged)
+    // -------------------------
     async function loadCompanies() {
       try {
         const data = await fetchJSON('/api/companies');
@@ -429,18 +410,18 @@
       }
     }
 
-    // Reviews & Charts (unchanged)
     async function loadReviews() {
       const btn = document.getElementById('loadBtn');
       btn.disabled = true;
       document.getElementById('loadingSpinner').style.display = 'inline-block';
+      
       const companyId = document.getElementById('companySelect').value;
       const start = document.getElementById('startDate').value;
       const end = document.getElementById('endDate').value;
       const limit = document.getElementById('limitSelect').value;
-      const groupBy = document.getElementById('groupBy').value;
+      
       if (!companyId) { notify("Select a company first"); btn.disabled = false; return; }
-      if (start && end && start > end) { notify("Start date cannot be after end date"); btn.disabled = false; return; }
+      
       try {
         const reviews = await fetchJSON(`/api/reviews?company_id=${companyId}&start=${start}&end=${end}&limit=${limit}`);
         cachedReviews = reviews;
@@ -476,23 +457,17 @@
 
       const trendLabels = [...new Set(reviews.map(r=>r.date))].sort((a,b)=>new Date(a)-new Date(b));
       const trendData = trendLabels.map(l=>reviews.filter(r=>r.date===l).length);
-      const ctxTrend = document.getElementById('chartTrend').getContext('2d');
-      trendChart = new Chart(ctxTrend, { type:'line', data:{labels:trendLabels,datasets:[{label:'Reviews',data:trendData,borderColor:'#0d6efd',backgroundColor:'#0d6efd33'}]}, options:{responsive:true}});
+      new Chart(document.getElementById('chartTrend'), { type:'line', data:{labels:trendLabels,datasets:[{label:'Reviews',data:trendData,borderColor:'#0d6efd',backgroundColor:'#0d6efd33'}]}, options:{responsive:true}});
 
       const distCounts = [1,2,3,4,5].map(n=>reviews.filter(r=>r.rating===n).length);
-      const ctxDist = document.getElementById('chartDistribution').getContext('2d');
-      distChart = new Chart(ctxDist, { type:'bar', data:{labels:[1,2,3,4,5], datasets:[{label:'Count',data:distCounts,backgroundColor:'#0d6efd'}]}, options:{responsive:true}});
+      new Chart(document.getElementById('chartDistribution'), { type:'bar', data:{labels:[1,2,3,4,5], datasets:[{label:'Count',data:distCounts,backgroundColor:'#0d6efd'}]}, options:{responsive:true}});
 
       const sentCounts = ['positive','neutral','negative'].map(s=>reviews.filter(r=>r.sentiment===s).length);
-      const ctxSent = document.getElementById('chartSentiment').getContext('2d');
-      sentimentChart = new Chart(ctxSent, { type:'pie', data:{labels:['Positive','Neutral','Negative'], datasets:[{data:sentCounts,backgroundColor:['#198754','#6c757d','#dc3545']}]}, options:{responsive:true}});
+      new Chart(document.getElementById('chartSentiment'), { type:'pie', data:{labels:['Positive','Neutral','Negative'], datasets:[{data:sentCounts,backgroundColor:['#198754','#6c757d','#dc3545']}]}, options:{responsive:true}});
 
       const compMap = {};
       reviews.forEach(r=>{ if(r.competitor) compMap[r.competitor] = (compMap[r.competitor]||0)+1 });
-      const compLabels = Object.keys(compMap);
-      const compData = Object.values(compMap);
-      const ctxComp = document.getElementById('chartCompetitors').getContext('2d');
-      competitorChart = new Chart(ctxComp, { type:'bar', data:{labels:compLabels,datasets:[{label:'Reviews',data:compData,backgroundColor:'#0d6efd'}]}, options:{responsive:true}});
+      new Chart(document.getElementById('chartCompetitors'), { type:'bar', data:{labels:Object.keys(compMap),datasets:[{label:'Reviews',data:Object.values(compMap),backgroundColor:'#0d6efd'}]}, options:{responsive:true}});
     }
 
     function renderTablePage(page) {
@@ -501,9 +476,9 @@
       const startIdx = (page-1)*pageSize;
       const pageData = cachedReviews.slice().sort((a,b)=>{
         if(sortKey==='rating') return (sortDir==='asc'?1:-1)*(a.rating-b.rating);
-        const da = new Date(a.date), db = new Date(b.date);
-        return (sortDir==='asc'?1:-1)*(da-db);
+        return (sortDir==='asc'?1:-1)*(new Date(a.date)-new Date(b.date));
       }).slice(startIdx, startIdx+pageSize);
+      
       const tbody = document.getElementById('reviewsTable');
       tbody.innerHTML = pageData.map(r=>`
         <tr>
@@ -514,6 +489,7 @@
           <td>${escapeHtml(r.comment)}</td>
         </tr>
       `).join('');
+      
       const totalPages = Math.ceil(cachedReviews.length/pageSize);
       document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages||1}`;
       document.getElementById('pagePrev').disabled = currentPage<=1;
@@ -543,7 +519,7 @@
         address: document.getElementById('companyAddress').value
       };
       if (!data.place_id) {
-        notify("Please select a place from suggestions (Place ID required)", "warning");
+        notify("Please select a place from suggestions", "warning");
         return;
       }
       try {
@@ -554,7 +530,6 @@
       } catch(e) { notify("Failed to add company: "+e.message); }
     });
 
-    // Initial load
     loadCompanies();
   </script>
 </body>
