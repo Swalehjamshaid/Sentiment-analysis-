@@ -1,50 +1,104 @@
-
 # filename: app/routes/exports.py
 from __future__ import annotations
+
 import io
+import logging
+from datetime import datetime
+from typing import Optional
+
 import pandas as pd
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from pandas import DataFrame
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from sqlalchemy import and_, cast, Date, func, select
+
 from app.core.db import get_session
 from app.core.models import Review
 
-router = APIRouter(tags=['export'])
+router = APIRouter(tags=["export"])
+logger = logging.getLogger("app.exports")
 
-@router.get('/api/export/reviews.csv')
-async def export_reviews_csv(company_id: int | None = None):
-    async with get_session() as session:
-        stmt = select(Review)
-        if company_id: stmt = stmt.where(Review.company_id==company_id)
-        rows = (await session.execute(stmt)).scalars().all()
-    df = pd.DataFrame([{ 'company_id': r.company_id, 'rating': r.rating, 'text': r.text, 'sentiment': r.sentiment_compound, 'review_time': r.review_time } for r in rows])
-    stream = io.StringIO(); df.to_csv(stream, index=False); stream.seek(0)
-    return StreamingResponse(stream, media_type='text/csv', headers={'Content-Disposition':'attachment; filename=reviews.csv'})
 
-@router.get('/api/export/reviews.xlsx')
-async def export_reviews_xlsx(company_id: int | None = None):
+def _date_col():
+    base = getattr(Review, "google_review_time", None)
+    created = getattr(Review, "created_at", None)
+    if base is not None and created is not None:
+        return cast(func.coalesce(Review.google_review_time, Review.created_at), Date)
+    return cast(Review.google_review_time, Date)
+
+
+async def _load_reviews_df(company_id: Optional[int] = None) -> DataFrame:
     async with get_session() as session:
-        stmt = select(Review)
-        if company_id: stmt = stmt.where(Review.company_id==company_id)
-        rows = (await session.execute(stmt)).scalars().all()
-    df = pd.DataFrame([{ 'company_id': r.company_id, 'rating': r.rating, 'text': r.text, 'sentiment': r.sentiment_compound, 'review_time': r.review_time } for r in rows])
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False)
+        dc = _date_col()
+        stmt = select(
+            Review.company_id,
+            Review.rating,
+            Review.text,
+            Review.sentiment_score,
+            Review.google_review_time,
+        )
+        if company_id is not None:
+            stmt = stmt.where(and_(Review.company_id == company_id))
+        rows = (await session.execute(stmt)).all()
+    data = []
+    for r in rows:
+        ts = r.google_review_time
+        ts_str = ts.strftime("%Y-%m-%d") if isinstance(ts, datetime) else (str(ts) if ts else "")
+        data.append({
+            "company_id": int(r.company_id or 0),
+            "rating": float(r.rating or 0.0),
+            "text": r.text or "",
+            "sentiment": float(r.sentiment_score or 0.0) if r.sentiment_score is not None else None,
+            "review_time": ts_str,
+        })
+    return pd.DataFrame(data)
+
+
+@router.get("/api/export/reviews.csv")
+async def export_reviews_csv(request: Request, company_id: Optional[int] = None):
+    df = await _load_reviews_df(company_id)
+    buf = io.StringIO()
+    df.to_csv(buf, index=False)
     buf.seek(0)
-    return StreamingResponse(buf, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={'Content-Disposition':'attachment; filename=reviews.xlsx'})
+    return StreamingResponse(
+        buf,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=reviews.csv"},
+    )
 
-@router.get('/api/export/summary.pdf')
-async def export_summary_pdf(company_id: int | None = None):
-    # Minimal PDF summary
-    packet = io.BytesIO()
-    c = canvas.Canvas(packet, pagesize=A4)
-    c.setFont('Helvetica', 12)
-    c.drawString(50, 800, 'ReviewSaaS — Summary')
-    c.drawString(50, 780, f'Company ID: {company_id or "All"}')
-    c.drawString(50, 760, 'This is a minimal PDF summary placeholder.')
-    c.showPage(); c.save()
-    packet.seek(0)
-    return StreamingResponse(packet, media_type='application/pdf', headers={'Content-Disposition':'attachment; filename=summary.pdf'})
+
+@router.get("/api/export/reviews.xlsx")
+async def export_reviews_xlsx(request: Request, company_id: Optional[int] = None):
+    df = await _load_reviews_df(company_id)
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name="reviews", index=False)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=reviews.xlsx"},
+    )
+
+
+@router.get("/api/export/summary.pdf")
+async def export_summary_pdf(request: Request, company_id: Optional[int] = None):
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    width, height = A4
+    c.setFont("Helvetica", 12)
+    title = "Review Summary"
+    c.drawString(72, height - 72, title)
+    if company_id is not None:
+        c.drawString(72, height - 96, f"Company ID: {company_id}")
+    c.drawString(72, height - 120, "Generated by exports endpoint. Extend with charts as needed.")
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=summary.pdf"},
+    )
