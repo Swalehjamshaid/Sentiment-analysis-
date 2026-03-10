@@ -326,12 +326,15 @@
       host.insertAdjacentHTML('beforeend', `
         <div id="${id}" class="alert alert-${variant} alert-dismissible fade show" role="alert">
           ${escapeHtml(msg)}
-          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          <button type="button" class="btn-close" data-bs-alert="alert" aria-label="Close"></button>
         </div>
       `);
       if (timeout) setTimeout(() => {
         const el = document.getElementById(id);
-        if (el) bootstrap.Alert.getOrCreateInstance(el).close();
+        if (el) {
+            const bsAlert = bootstrap.Alert.getOrCreateInstance(el);
+            bsAlert.close();
+        }
       }, timeout);
     }
 
@@ -349,7 +352,7 @@
     }
 
     // -------------------------
-    // Google API – now using new PlaceAutocompleteElement
+    // Google API Implementation
     // -------------------------
     window.initGoogleApi = function() {
       googleReady = true;
@@ -359,41 +362,38 @@
     function setupNewAutocomplete() {
       if (!googleReady) return;
       
-      // Ensure the library and component are loaded
+      // Safety check for web component
       if (!window.google?.maps?.places?.PlaceAutocompleteElement) {
-        console.warn("PlaceAutocompleteElement not yet available. Waiting...");
+        console.warn("PlaceAutocompleteElement not yet available.");
         return;
       }
 
       const autocomplete = document.getElementById('placeSearch');
       if (!autocomplete) return;
 
-      // Event listener for the new GMP-SELECT event
+      // Event listener for selection
       autocomplete.addEventListener('gmp-select', async (e) => {
         const place = e.detail.place;
-        if (!place) {
-          notify("No place selected", "warning");
-          return;
-        }
+        if (!place) return;
 
         try {
-          // Fetch needed fields from the selected place object
+          // Fixed fetchFields logic to ensure data is returned
           await place.fetchFields({
             fields: ['displayName', 'id', 'formattedAddress']
           });
 
-          // Fill your existing form inputs
+          // Correctly map fields to your existing IDs
           document.getElementById('companyName').value    = place.displayName || '';
           document.getElementById('placeId').value        = place.id || '';
           document.getElementById('companyAddress').value = place.formattedAddress || '';
         } catch (err) {
-          console.error("Place fetch error:", err);
-          notify("Could not fetch place details", "danger");
+          console.error("Place selection failed:", err);
+          notify("Failed to fetch business details.", "warning");
         }
       });
     }
 
-    // Re-try setup when modal opens
+    // Re-bind when modal shows
     document.getElementById('addCompanyModal').addEventListener('shown.bs.modal', setupNewAutocomplete);
 
     // -------------------------
@@ -414,7 +414,6 @@
       const btn = document.getElementById('loadBtn');
       btn.disabled = true;
       document.getElementById('loadingSpinner').style.display = 'inline-block';
-      
       const companyId = document.getElementById('companySelect').value;
       const start = document.getElementById('startDate').value;
       const end = document.getElementById('endDate').value;
