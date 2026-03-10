@@ -250,7 +250,9 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
         <div class="modal-body">
-          <label class="form-label fw-semibold">Search (Autocomplete)</label>
+
+          <!-- Existing client-side gmp-autocomplete (new Places API) -->
+          <label class="form-label fw-semibold">Search via Google Places (client-side)</label>
           <gmp-autocomplete
             id="placeSearch"
             placeholder="Type business name, address..."
@@ -258,6 +260,12 @@
             class="form-control mb-3"
           ></gmp-autocomplete>
           <small class="form-text text-muted mb-3">Powered by Google Places – select suggestion to auto-fill below</small>
+
+          <!-- New server-side proxy autocomplete input -->
+          <label class="form-label fw-semibold mt-3">Or search via backend proxy</label>
+          <input type="text" id="company_name" placeholder="Enter company name" class="form-control mb-3" />
+
+          <small class="form-text text-muted mb-3">Debounced fetch to /api/google_autocomplete</small>
 
           <label class="form-label">Company Name</label>
           <input id="companyName" name="name" class="form-control mb-2" required />
@@ -282,7 +290,7 @@
     crossorigin="anonymous"
   ></script>
 
-  <!-- Modern Google Maps Places loader -->
+  <!-- Modern Google Maps Places loader (for gmp-autocomplete) -->
   <script>
     (g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;
     b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,
@@ -403,20 +411,55 @@
         }
       };
 
-      // Prevent duplicate listeners
       autoEl.removeEventListener('gmp-select', handler);
       autoEl.addEventListener('gmp-select', handler);
     }
 
-    // Initialize on page load
     initGooglePlaces();
 
-    // Re-setup when modal is shown (important for Bootstrap modals)
     document.getElementById('addCompanyModal').addEventListener('shown.bs.modal', () => {
       setTimeout(() => {
         setupNewAutocomplete();
       }, 150);
     });
+
+    // ────────────────────────────────────────────────
+    //        NEW: Server-side proxy autocomplete (your code)
+    // ────────────────────────────────────────────────
+    const companyNameInput = document.getElementById("company_name");
+    let debounceTimeout = null;
+
+    if (companyNameInput) {
+      companyNameInput.addEventListener("input", () => {
+        clearTimeout(debounceTimeout);
+        debounceTimeout = setTimeout(async () => {
+          const query = companyNameInput.value.trim();
+          if (!query) return;
+
+          try {
+            const res = await fetch(`/api/google_autocomplete?input=${encodeURIComponent(query)}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+
+            console.log("Google Autocomplete Results:", data.predictions);
+
+            // You can now show a dropdown/list with data.predictions
+            // For now it just logs – extend here to create <ul> with <li> clickable items
+            const suggestions = data.predictions?.map(p => p.description) || [];
+            console.log("Suggestions:", suggestions);
+
+            // Optional: notify user if no results
+            if (suggestions.length === 0) {
+              notify("No suggestions found for this search.", "info", 4000);
+            }
+
+          } catch (err) {
+            console.error("Autocomplete proxy error:", err);
+            notify("Failed to fetch suggestions from server.", "warning");
+          }
+        }, 300);
+      });
+    }
 
     // ────────────────────────────────────────────────
     //                  Rest of your logic
@@ -564,7 +607,7 @@
       };
 
       if (!data.place_id) {
-        notify("Please select a valid place from the suggestions", "warning");
+        notify("Please select a valid place (from suggestions or proxy)", "warning");
         return;
       }
 
