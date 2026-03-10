@@ -15,28 +15,28 @@ from app.core.models import Company, Review
 # Optional AuditLog model
 try:
     from app.core.models import AuditLog  # type: ignore
-except Exception:  # pragma: no cover
+except Exception:
     AuditLog = None  # type: ignore
 
 # Optional settings
 try:
     from app.core.config import settings  # type: ignore
-except Exception:  # pragma: no cover
+except Exception:
     class _S:
         google_maps_api_key: str = ""
     settings = _S()  # type: ignore
 
-# Google places service
+# Google Places service
 try:
     from app.services.google_places import place_details, client as google_places_client  # type: ignore
 except Exception:
     place_details = None
     google_places_client = None
 
-# Review ingestion
+# Review ingestion / Outscraper client
 try:
     from app.services.google_reviews import run_batch_review_ingestion  # type: ignore
-except Exception:  # pragma: no cover
+except Exception:
     run_batch_review_ingestion = None  # type: ignore
 
 router = APIRouter(tags=["companies"], prefix="/api")
@@ -73,13 +73,12 @@ def _get_gmaps_client() -> Optional[Any]:
 
 
 # ─────────────────────────────────────────────────────────
-# NEW: Backend Google Autofetch Endpoint
+# Backend Google Autofetch Endpoint
 # ─────────────────────────────────────────────────────────
 @router.get("/google/place/details")
 async def google_place_details(request: Request, place_id: str = Query(...)):
     """
-    Fetch Google place details via backend.
-    Used for auto-filling company form.
+    Fetch Google place details via backend for autofill.
     """
     _require_user(request)
 
@@ -87,7 +86,9 @@ async def google_place_details(request: Request, place_id: str = Query(...)):
         raise HTTPException(status_code=503, detail="Google Places service not configured")
 
     try:
-        data = place_details(place_id)
+        import asyncio
+        # run blocking code in thread if needed
+        data = await asyncio.to_thread(place_details, place_id)
         result = data.get("result", {})
 
         return {
@@ -104,6 +105,28 @@ async def google_place_details(request: Request, place_id: str = Query(...)):
 
 
 # ─────────────────────────────────────────────────────────
+# New Route: Fetch Google Reviews for Company
+# ─────────────────────────────────────────────────────────
+@router.get("/companies/{company_id}/reviews")
+async def get_company_reviews(request: Request, company_id: int):
+    """
+    Fetch Google reviews for a specific company using Outscraper or reviews client.
+    """
+    _require_user(request)
+    client = getattr(request.app.state, "reviews_client", None)
+    if not client:
+        raise HTTPException(status_code=503, detail="Reviews client not available")
+
+    try:
+        reviews = await client.fetch_reviews(company_id)
+        logger.info(f"Fetched {len(reviews)} reviews for company_id={company_id}")
+        return {"reviews": reviews}
+    except Exception as ex:
+        logger.exception("Error fetching reviews: %s", ex)
+        raise HTTPException(status_code=500, detail="Failed to fetch reviews")
+
+
+# ─────────────────────────────────────────────────────────
 # Existing data aggregators
 # ─────────────────────────────────────────────────────────
 async def _get_companies_data(page: int = 1, size: int = 20, q: Optional[str] = None) -> Dict[str, Any]:
@@ -112,14 +135,12 @@ async def _get_companies_data(page: int = 1, size: int = 20, q: Optional[str] = 
 
     async with get_session() as session:
         stmt = select(Company)
-
         if q:
             like = f"%{q}%"
             try:
                 stmt = stmt.where(Company.name.ilike(like))
             except Exception:
                 stmt = stmt.where(Company.name.like(like))
-
         stmt = stmt.order_by(desc(getattr(Company, "created_at", Company.id)))
 
         total = (await session.execute(select(func.count(Company.id)).select_from(Company))).scalar() or 0
@@ -155,7 +176,6 @@ async def _get_companies_data(page: int = 1, size: int = 20, q: Optional[str] = 
 async def companies_page(request: Request, page: int = 1, size: int = 20, q: Optional[str] = None):
     _require_user(request)
     payload = await _get_companies_data(page=page, size=size, q=q)
-
     try:
         return templates.TemplateResponse("companies.html", {"request": request, **payload})
     except Exception:
@@ -191,19 +211,15 @@ async def google_places_search(request: Request, q: str = Query(..., min_length=
 
     try:
         res = client.places(q)
-
         out = []
-
         for r in res.get("results", []):
             out.append(
                 {
                     "place_id": r.get("place_id"),
                     "name": r.get("name"),
-                    "formatted_address": r.get("formatted_address")
-                    or (r.get("vicinity") or ""),
+                    "formatted_address": r.get("formatted_address") or (r.get("vicinity") or ""),
                 }
             )
-
         return {"items": out}
 
     except Exception as ex:
@@ -223,20 +239,17 @@ async def add_company(
     address: Optional[str] = Form(None),
 ):
     _require_user(request)
-
     async with get_session() as session:
 
         if place_id:
             existing = (
                 await session.execute(select(Company).where(Company.place_id == place_id))
             ).scalars().first()
-
             if existing:
                 raise HTTPException(status_code=400, detail="Company already exists for this place_id")
 
         c = Company(name=name.strip(), place_id=place_id or "", address=address or "")
         session.add(c)
-
         await session.commit()
         await session.refresh(c)
 
@@ -253,20 +266,13 @@ async def add_company(
             pass
 
     client = getattr(request.app.state, "reviews_client", None)
-
     if run_batch_review_ingestion and client:
         background.add_task(run_batch_review_ingestion, client, [c])
 
     payload = await _get_companies_data(page=1, size=20, q=None)
-
     return {
         "status": "ok",
-        "company": {
-            "id": int(c.id),
-            "name": c.name,
-            "place_id": c.place_id,
-            "address": c.address,
-        },
+        "company": {"id": int(c.id), "name": c.name, "place_id": c.place_id, "address": c.address},
         "list": payload,
     }
 
@@ -280,17 +286,14 @@ async def sync_company_reviews(request: Request, background: BackgroundTasks, co
 
     async with get_session() as session:
         comp = await session.get(Company, company_id)
-
         if not comp:
             raise HTTPException(status_code=404, detail="Company not found")
 
     client = getattr(request.app.state, "reviews_client", None)
-
     if not (run_batch_review_ingestion and client):
         raise HTTPException(status_code=503, detail="Reviews client or ingestion unavailable")
 
     background.add_task(run_batch_review_ingestion, client, [comp])
-
     return {"status": "queued", "company_id": company_id}
 
 
@@ -302,9 +305,7 @@ async def delete_company(request: Request, company_id: int):
     _require_user(request)
 
     async with get_session() as session:
-
         comp = await session.get(Company, company_id)
-
         if not comp:
             raise HTTPException(status_code=404, detail="Company not found")
 
