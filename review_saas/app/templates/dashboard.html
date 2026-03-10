@@ -414,10 +414,10 @@
       help.classList.add('d-none');
 
       try {
-        // Try /api/companies first
+        // Try /companies/list first
         let data;
         try {
-          data = await fetchJSON('/api/companies');
+          data = await fetchJSON('/companies/list');
           // Normalize expected structure to .items
           if (Array.isArray(data)) data = { items: data };
           if (!data.items) throw new Error('Bad /api/companies payload');
