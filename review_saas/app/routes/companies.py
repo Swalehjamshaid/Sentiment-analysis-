@@ -4,10 +4,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Query, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
-from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy import desc, func, select
 
 from app.core.db import get_session
 from app.core.models import Company, Review
@@ -81,8 +81,9 @@ async def _get_companies_data(page: int = 1, size: int = 20, q: Optional[str] = 
             except Exception:
                 stmt = stmt.where(Company.name.like(like))
         stmt = stmt.order_by(desc(getattr(Company, "created_at", Company.id)))
+
         total = (await session.execute(select(func.count(Company.id)).select_from(Company))).scalar() or 0
-        rows = (await session.execute(stmt.offset((page-1)*size).limit(size))).scalars().all() or []
+        rows = (await session.execute(stmt.offset((page - 1) * size).limit(size))).scalars().all() or []
 
         data: List[Dict[str, Any]] = []
         for c in rows:
@@ -108,7 +109,6 @@ async def _get_companies_data(page: int = 1, size: int = 20, q: Optional[str] = 
 async def companies_page(request: Request, page: int = 1, size: int = 20, q: Optional[str] = None):
     _require_user(request)
     payload = await _get_companies_data(page=page, size=size, q=q)
-    # Render template if exists; otherwise show a fallback HTML block
     try:
         return templates.TemplateResponse("companies.html", {"request": request, **payload})
     except Exception:
@@ -159,10 +159,12 @@ async def add_company(
             existing = (await session.execute(select(Company).where(Company.place_id == place_id))).scalars().first()
             if existing:
                 raise HTTPException(status_code=400, detail="Company already exists for this place_id")
+
         c = Company(name=name.strip(), place_id=place_id or "", address=address or "")
         session.add(c)
         await session.commit()
         await session.refresh(c)
+
         # Audit log if available
         try:
             if AuditLog is not None:
@@ -179,7 +181,11 @@ async def add_company(
 
     # Return updated list
     payload = await _get_companies_data(page=1, size=20, q=None)
-    return {"status": "ok", "company": {"id": int(c.id), "name": c.name, "place_id": c.place_id, "address": c.address}, "list": payload}
+    return {
+        "status": "ok",
+        "company": {"id": int(c.id), "name": c.name, "place_id": c.place_id, "address": c.address},
+        "list": payload
+    }
 
 
 @router.post("/companies/{company_id}/sync")
@@ -189,9 +195,11 @@ async def sync_company_reviews(request: Request, background: BackgroundTasks, co
         comp = await session.get(Company, company_id)
         if not comp:
             raise HTTPException(status_code=404, detail="Company not found")
+
     client = _get_reviews_client(request)
     if not (run_batch_review_ingestion and client):
         raise HTTPException(status_code=503, detail="Reviews client or ingestion unavailable")
+
     background.add_task(run_batch_review_ingestion, client, [comp])
     return {"status": "queued", "company_id": company_id}
 
@@ -203,6 +211,7 @@ async def delete_company(request: Request, company_id: int):
         comp = await session.get(Company, company_id)
         if not comp:
             raise HTTPException(status_code=404, detail="Company not found")
+
         # Audit log
         try:
             if AuditLog is not None:
@@ -210,6 +219,8 @@ async def delete_company(request: Request, company_id: int):
                 session.add(log)
         except Exception:
             pass
+
         await session.delete(comp)
         await session.commit()
+
     return RedirectResponse(url="/companies", status_code=status.HTTP_302_FOUND)
