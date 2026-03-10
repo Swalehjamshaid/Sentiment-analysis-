@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Review SaaS Dashboard</title>
-
   <!-- Bootstrap CSS -->
   <link
     href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
@@ -12,27 +11,23 @@
     integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
     crossorigin="anonymous"
   />
-
   <!-- Bootstrap Icons -->
   <link
     href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
     rel="stylesheet"
   />
-
   <!-- Chart.js -->
   <script
     src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
     integrity="sha384-7j6QzDgT8YIm8oWslrjKz2nA3uMZkV6WZy0LhQwYqH8QvV4KekVZ1qC6mYI8M7Oh"
     crossorigin="anonymous"
   ></script>
-
-  <!-- Google Places JS -->
+  <!-- Google Places JS – using your provided key -->
   <script
     src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&callback=initGoogleApi"
     async
     defer
   ></script>
-
   <style>
     body { padding: 24px; }
     [data-theme="dark"] { background-color: #121212 !important; color: #e6e6e6 !important; }
@@ -48,7 +43,6 @@
     .chart-wrapper { min-height: 240px; }
   </style>
 </head>
-
 <body>
   <!-- NAV -->
   <nav class="navbar navbar-expand-lg navbar-dark bg-primary rounded mb-4">
@@ -65,12 +59,9 @@
       </div>
     </div>
   </nav>
-
   <div class="container-fluid">
-
     <!-- Alerts -->
     <div id="alertHost" class="alert-placeholder mb-3"></div>
-
     <!-- Filters -->
     <div class="row g-3 align-items-end mb-3">
       <div class="col-md-3">
@@ -109,7 +100,6 @@
         <div id="loadingSpinner" class="spinner-border text-primary" role="status" aria-label="loading"></div>
       </div>
     </div>
-
     <!-- Actions -->
     <div class="d-flex gap-2 mb-3">
       <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
@@ -125,7 +115,6 @@
         <i class="bi bi-filetype-pdf"></i> Export PDF
       </a>
     </div>
-
     <!-- KPIs -->
     <div class="row g-3 mb-4">
       <div class="col-md-2">
@@ -169,7 +158,6 @@
         </div>
       </div>
     </div>
-
     <!-- Charts -->
     <div class="row g-4">
       <div class="col-lg-6">
@@ -209,7 +197,6 @@
         </div>
       </div>
     </div>
-
     <!-- AI Summary -->
     <div class="card mt-4">
       <div class="card-body">
@@ -217,7 +204,6 @@
         <div id="aiSummary" class="fst-italic text-muted">AI summary not available.</div>
       </div>
     </div>
-
     <!-- Reviews Table -->
     <div class="card mt-4 mb-5">
       <div class="card-body">
@@ -246,7 +232,6 @@
             <tbody id="reviewsTable"></tbody>
           </table>
         </div>
-
         <!-- Pagination -->
         <div class="d-flex align-items-center gap-2">
           <button id="pagePrev" class="btn btn-outline-secondary btn-sm" disabled>
@@ -259,9 +244,7 @@
         </div>
       </div>
     </div>
-
   </div>
-
   <!-- Add Company Modal -->
   <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyModalLabel" aria-hidden="true">
     <div class="modal-dialog">
@@ -272,14 +255,12 @@
         </div>
         <div class="modal-body">
           <label class="form-label fw-semibold">Search (Autocomplete)</label>
-          <input id="placeSearch" class="form-control mb-3" placeholder="Type to search..." />
-
+          <input id="placeSearch" class="form-control mb-3" placeholder="Type business name, address..." autocomplete="off" />
+          <small class="form-text text-muted mb-3">Powered by Google Places – select suggestion to auto-fill below</small>
           <label class="form-label">Company Name</label>
-          <input id="companyName" name="name" class="form-control mb-2" />
-
+          <input id="companyName" name="name" class="form-control mb-2" required />
           <label class="form-label">Place ID</label>
-          <input id="placeId" name="place_id" class="form-control mb-2" />
-
+          <input id="placeId" name="place_id" class="form-control mb-2" required readonly />
           <label class="form-label">Address</label>
           <input id="companyAddress" name="address" class="form-control mb-2" />
         </div>
@@ -290,14 +271,12 @@
       </form>
     </div>
   </div>
-
   <!-- Bootstrap JS -->
   <script
     src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
     integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
     crossorigin="anonymous"
   ></script>
-
   <script>
     // -------------------------
     // Globals / State
@@ -334,12 +313,10 @@
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
     }
-
     function formatNum(n, digits=0) {
       if (n === null || n === undefined || Number.isNaN(Number(n))) return '–';
       return Number(n).toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits });
     }
-
     function notify(msg, variant='danger', timeout=6000) {
       const host = document.getElementById('alertHost');
       const id = 'alert-' + Date.now();
@@ -372,36 +349,46 @@
     }
 
     // -------------------------
-    // Google API wiring
+    // Google API wiring – auto-fill form on selection
     // -------------------------
     window.initGoogleApi = function() {
       googleReady = true;
       bindAutocomplete();
-    }
+    };
 
     function bindAutocomplete() {
       if (!googleReady || autocompleteBound) return;
       if (!window.google || !google.maps || !google.maps.places) {
-        notify("Google Places API failed to load", "danger");
+        notify("Google Places API failed to load. Check API key, enabled services (Places API), and billing.", "danger");
+        console.warn("Google Places library not loaded.");
         return;
       }
       const input = document.getElementById('placeSearch');
       if (!input) return;
+
       try {
-        const ac = new google.maps.places.Autocomplete(input, { types: ['establishment'] });
+        const ac = new google.maps.places.Autocomplete(input, {
+          types: ['establishment']  // businesses / places
+        });
         ac.addListener('place_changed', () => {
           const place = ac.getPlace();
-          if (!place) return;
-          document.getElementById('companyName').value = place.name || '';
-          document.getElementById('placeId').value = place.place_id || '';
-          document.getElementById('companyAddress').value = place.formatted_address || '';
+          if (!place || !place.place_id) {
+            notify("Please select a valid place from the suggestions.", "warning");
+            return;
+          }
+          // Auto-fill the form fields
+          document.getElementById('companyName').value    = place.name || '';
+          document.getElementById('placeId').value        = place.place_id || '';
+          document.getElementById('companyAddress').value = place.formatted_address || place.vicinity || '';
         });
         autocompleteBound = true;
       } catch(e) {
-        setTimeout(bindAutocomplete, 500);
+        console.error("Autocomplete init error:", e);
+        setTimeout(bindAutocomplete, 800); // retry once
       }
     }
 
+    // Bind when modal shown (in case API loads late)
     document.addEventListener('shown.bs.modal', (ev) => {
       if (ev.target.id === 'addCompanyModal') {
         bindAutocomplete();
@@ -423,31 +410,26 @@
     }
 
     // -------------------------
-    // Reviews & Charts
+    // Reviews & Charts (unchanged logic)
     // -------------------------
     async function loadReviews() {
       const btn = document.getElementById('loadBtn');
       btn.disabled = true;
       document.getElementById('loadingSpinner').style.display = 'inline-block';
-
       const companyId = document.getElementById('companySelect').value;
       const start = document.getElementById('startDate').value;
       const end = document.getElementById('endDate').value;
       const limit = document.getElementById('limitSelect').value;
       const groupBy = document.getElementById('groupBy').value;
-
       if (!companyId) { notify("Select a company first"); btn.disabled = false; return; }
       if (start && end && start > end) { notify("Start date cannot be after end date"); btn.disabled = false; return; }
-
       try {
         const payload = { company_id: companyId, start, end, limit, group: groupBy };
         const reviews = await fetchJSON(`/api/reviews?company_id=${companyId}&start=${start}&end=${end}&limit=${limit}`);
         cachedReviews = reviews;
-
         renderKPIs(reviews);
         renderCharts(reviews);
         renderTablePage(1);
-
       } catch(e) {
         notify("Failed to load reviews: " + e.message);
       } finally {
@@ -462,7 +444,6 @@
       const pos = reviews.filter(r=>r.sentiment==='positive').length;
       const neu = reviews.filter(r=>r.sentiment==='neutral').length;
       const neg = reviews.filter(r=>r.sentiment==='negative').length;
-
       document.getElementById('kpiTotal').textContent = formatNum(total);
       document.getElementById('kpiRating').textContent = formatNum(avg, 1);
       document.getElementById('kpiPos').textContent = formatNum(pos);
@@ -476,23 +457,19 @@
       Chart.getChart("chartDistribution")?.destroy();
       Chart.getChart("chartSentiment")?.destroy();
       Chart.getChart("chartCompetitors")?.destroy();
-
       // Trend
       const trendLabels = [...new Set(reviews.map(r=>r.date))].sort((a,b)=>new Date(a)-new Date(b));
       const trendData = trendLabels.map(l=>reviews.filter(r=>r.date===l).length);
       const ctxTrend = document.getElementById('chartTrend').getContext('2d');
       trendChart = new Chart(ctxTrend, { type:'line', data:{labels:trendLabels,datasets:[{label:'Reviews',data:trendData,borderColor:'#0d6efd',backgroundColor:'#0d6efd33'}]}, options:{responsive:true}});
-
       // Distribution
       const distCounts = [1,2,3,4,5].map(n=>reviews.filter(r=>r.rating===n).length);
       const ctxDist = document.getElementById('chartDistribution').getContext('2d');
       distChart = new Chart(ctxDist, { type:'bar', data:{labels:[1,2,3,4,5], datasets:[{label:'Count',data:distCounts,backgroundColor:'#0d6efd'}]}, options:{responsive:true}});
-
       // Sentiment
       const sentCounts = ['positive','neutral','negative'].map(s=>reviews.filter(r=>r.sentiment===s).length);
       const ctxSent = document.getElementById('chartSentiment').getContext('2d');
       sentimentChart = new Chart(ctxSent, { type:'pie', data:{labels:['Positive','Neutral','Negative'], datasets:[{data:sentCounts,backgroundColor:['#198754','#6c757d','#dc3545']}]}, options:{responsive:true}});
-
       // Competitors (if available)
       const compMap = {};
       reviews.forEach(r=>{ if(r.competitor) compMap[r.competitor] = (compMap[r.competitor]||0)+1 });
@@ -514,7 +491,6 @@
         const da = new Date(a.date), db = new Date(b.date);
         return (sortDir==='asc'?1:-1)*(da-db);
       }).slice(startIdx, startIdx+pageSize);
-
       const tbody = document.getElementById('reviewsTable');
       tbody.innerHTML = pageData.map(r=>`
         <tr>
@@ -525,7 +501,6 @@
           <td>${escapeHtml(r.comment)}</td>
         </tr>
       `).join('');
-
       const totalPages = Math.ceil(cachedReviews.length/pageSize);
       document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages||1}`;
       document.getElementById('pagePrev').disabled = currentPage<=1;
@@ -554,6 +529,10 @@
         place_id: document.getElementById('placeId').value,
         address: document.getElementById('companyAddress').value
       };
+      if (!data.place_id) {
+        notify("Please select a place from Google suggestions (Place ID is required)", "warning");
+        return;
+      }
       try {
         await fetchJSON('/api/companies', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) });
         notify("Company added successfully", "success");
