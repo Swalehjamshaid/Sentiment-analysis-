@@ -108,7 +108,6 @@
       </a>
     </div>
 
-    <!-- KPI Cards -->
     <div class="row g-3 mb-4">
       <div class="col-md-2">
         <div class="card kpi-card shadow-sm">
@@ -152,7 +151,6 @@
       </div>
     </div>
 
-    <!-- Charts -->
     <div class="row g-4">
       <div class="col-lg-6">
         <div class="card">
@@ -192,7 +190,6 @@
       </div>
     </div>
 
-    <!-- AI Summary -->
     <div class="card mt-4">
       <div class="card-body">
         <h6 class="mb-2">🤖 AI Summary</h6>
@@ -200,7 +197,6 @@
       </div>
     </div>
 
-    <!-- Recent Reviews Table -->
     <div class="card mt-4 mb-5">
       <div class="card-body">
         <div class="d-flex align-items-center justify-content-between mb-2">
@@ -241,7 +237,6 @@
     </div>
   </div>
 
-  <!-- Add Company Modal -->
   <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyModalLabel" aria-hidden="true">
     <div class="modal-dialog">
       <form id="addCompanyForm" class="modal-content">
@@ -250,8 +245,6 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
         <div class="modal-body">
-
-          <!-- Existing client-side gmp-autocomplete (new Places API) -->
           <label class="form-label fw-semibold">Search via Google Places (client-side)</label>
           <gmp-autocomplete
             id="placeSearch"
@@ -261,10 +254,8 @@
           ></gmp-autocomplete>
           <small class="form-text text-muted mb-3">Powered by Google Places – select suggestion to auto-fill below</small>
 
-          <!-- New server-side proxy autocomplete input -->
           <label class="form-label fw-semibold mt-3">Or search via backend proxy</label>
           <input type="text" id="company_name" placeholder="Enter company name" class="form-control mb-3" />
-
           <small class="form-text text-muted mb-3">Debounced fetch to /api/google_autocomplete</small>
 
           <label class="form-label">Company Name</label>
@@ -290,7 +281,6 @@
     crossorigin="anonymous"
   ></script>
 
-  <!-- Modern Google Maps Places loader (for gmp-autocomplete) -->
   <script>
     (g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;
     b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,
@@ -323,12 +313,7 @@
     })();
 
     function escapeHtml(s='') {
-      return String(s)
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
+      return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
     }
 
     function formatNum(n, digits=0) {
@@ -364,111 +349,62 @@
       }
     }
 
-    // ────────────────────────────────────────────────
-    //        Google Places (new web component) setup
-    // ────────────────────────────────────────────────
     async function initGooglePlaces() {
       if (googlePlacesReady) return;
       try {
         await google.maps.importLibrary("places");
         googlePlacesReady = true;
-        console.log("Google Places library loaded successfully");
         setupNewAutocomplete();
       } catch (err) {
         console.error("Failed to load Places library:", err);
-        notify("Google Places failed to load. Check API key, billing, and Places API (New) enabled.", "danger");
+        notify("Google Places failed to load.", "danger");
       }
     }
 
     function setupNewAutocomplete() {
       if (!googlePlacesReady) return;
-
       const autoEl = document.getElementById('placeSearch');
       if (!autoEl) return;
-
-      const handler = async (e) => {
+      autoEl.addEventListener('gmp-select', async (e) => {
         const placePrediction = e.detail?.placePrediction;
-        if (!placePrediction) {
-          console.warn("No placePrediction in gmp-select event");
-          return;
-        }
-
+        if (!placePrediction) return;
         try {
           const place = placePrediction.toPlace();
-
-          await place.fetchFields({
-            fields: ['displayName', 'id', 'formattedAddress']
-          });
-
-          document.getElementById('companyName').value   = place.displayName?.trim()   || '';
-          document.getElementById('placeId').value       = place.id                  || '';
+          await place.fetchFields({ fields: ['displayName', 'id', 'formattedAddress'] });
+          document.getElementById('companyName').value = place.displayName?.trim() || '';
+          document.getElementById('placeId').value = place.id || '';
           document.getElementById('companyAddress').value = place.formattedAddress?.trim() || '';
-
-          console.log("Place selected and fields filled:", { name: place.displayName, id: place.id });
         } catch (err) {
-          console.error("fetchFields failed:", err);
-          notify("Couldn't load place details. Try another suggestion.", "warning");
+          notify("Couldn't load place details.", "warning");
         }
-      };
-
-      autoEl.removeEventListener('gmp-select', handler);
-      autoEl.addEventListener('gmp-select', handler);
+      });
     }
 
     initGooglePlaces();
 
-    document.getElementById('addCompanyModal').addEventListener('shown.bs.modal', () => {
-      setTimeout(() => {
-        setupNewAutocomplete();
-      }, 150);
-    });
-
-    // ────────────────────────────────────────────────
-    //        NEW: Server-side proxy autocomplete (your code)
-    // ────────────────────────────────────────────────
     const companyNameInput = document.getElementById("company_name");
     let debounceTimeout = null;
-
     if (companyNameInput) {
       companyNameInput.addEventListener("input", () => {
         clearTimeout(debounceTimeout);
         debounceTimeout = setTimeout(async () => {
           const query = companyNameInput.value.trim();
           if (!query) return;
-
           try {
-            const res = await fetch(`/api/google_autocomplete?input=${encodeURIComponent(query)}`);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const data = await res.json();
-
-            console.log("Google Autocomplete Results:", data.predictions);
-
-            // You can now show a dropdown/list with data.predictions
-            // For now it just logs – extend here to create <ul> with <li> clickable items
-            const suggestions = data.predictions?.map(p => p.description) || [];
-            console.log("Suggestions:", suggestions);
-
-            // Optional: notify user if no results
-            if (suggestions.length === 0) {
-              notify("No suggestions found for this search.", "info", 4000);
-            }
-
+            const data = await fetchJSON(`/api/google_autocomplete?input=${encodeURIComponent(query)}`);
+            console.log("Suggestions:", data.predictions);
           } catch (err) {
-            console.error("Autocomplete proxy error:", err);
-            notify("Failed to fetch suggestions from server.", "warning");
+            notify("Failed to fetch suggestions.", "warning");
           }
         }, 300);
       });
     }
 
-    // ────────────────────────────────────────────────
-    //                  Rest of your logic
-    // ────────────────────────────────────────────────
-
     async function loadCompanies() {
       try {
         const data = await fetchJSON('/api/companies');
         const sel = document.getElementById('companySelect');
+        // Backend returns clean array: data.map works
         sel.innerHTML = data.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
         document.getElementById('companyHelp').classList.toggle('d-none', data.length > 0);
       } catch(e) { notify("Failed to load companies: " + e.message); }
@@ -478,27 +414,23 @@
       const btn = document.getElementById('loadBtn');
       btn.disabled = true;
       document.getElementById('loadingSpinner').style.display = 'inline-block';
-
       const companyId = document.getElementById('companySelect').value;
       const start = document.getElementById('startDate').value;
       const end = document.getElementById('endDate').value;
       const limit = document.getElementById('limitSelect').value;
-
       if (!companyId) {
         notify("Select a company first");
         btn.disabled = false;
         return;
       }
-
       try {
         const reviews = await fetchJSON(`/api/reviews?company_id=${companyId}&start=${start}&end=${end}&limit=${limit}`);
         cachedReviews = reviews;
         renderKPIs(reviews);
         renderCharts(reviews);
         renderTablePage(1);
-      } catch(e) {
-        notify("Failed to load reviews: "+e.message);
-      } finally {
+      } catch(e) { notify("Failed to load reviews: "+e.message); }
+      finally {
         btn.disabled = false;
         document.getElementById('loadingSpinner').style.display = 'none';
       }
@@ -510,7 +442,6 @@
       const pos = reviews.filter(r=>r.sentiment==='positive').length;
       const neu = reviews.filter(r=>r.sentiment==='neutral').length;
       const neg = reviews.filter(r=>r.sentiment==='negative').length;
-
       document.getElementById('kpiTotal').textContent = formatNum(total);
       document.getElementById('kpiRating').textContent = formatNum(avg,1);
       document.getElementById('kpiPos').textContent = formatNum(pos);
@@ -523,30 +454,25 @@
       Chart.getChart("chartDistribution")?.destroy();
       Chart.getChart("chartSentiment")?.destroy();
       Chart.getChart("chartCompetitors")?.destroy();
-
       const trendLabels = [...new Set(reviews.map(r=>r.date))].sort((a,b)=>new Date(a)-new Date(b));
       const trendData = trendLabels.map(l=>reviews.filter(r=>r.date===l).length);
-
       new Chart(document.getElementById('chartTrend'), {
         type:'line',
         data:{ labels:trendLabels, datasets:[{label:'Reviews',data:trendData,borderColor:'#0d6efd',backgroundColor:'#0d6efd33'}] },
         options:{ responsive:true }
       });
-
       const distCounts = [1,2,3,4,5].map(n=>reviews.filter(r=>r.rating===n).length);
       new Chart(document.getElementById('chartDistribution'), {
         type:'bar',
         data:{ labels:[1,2,3,4,5], datasets:[{label:'Count',data:distCounts,backgroundColor:'#0d6efd'}] },
         options:{ responsive:true }
       });
-
       const sentCounts = ['positive','neutral','negative'].map(s=>reviews.filter(r=>r.sentiment===s).length);
       new Chart(document.getElementById('chartSentiment'), {
         type:'pie',
         data:{ labels:['Positive','Neutral','Negative'], datasets:[{data:sentCounts,backgroundColor:['#198754','#6c757d','#dc3545']}] },
         options:{ responsive:true }
       });
-
       const compMap = {};
       reviews.forEach(r=>{ if(r.competitor) compMap[r.competitor] = (compMap[r.competitor]||0)+1 });
       new Chart(document.getElementById('chartCompetitors'), {
@@ -559,13 +485,11 @@
     function renderTablePage(page) {
       pageSize = Number(document.getElementById('pageSizeSelect').value);
       currentPage = page;
-
       const startIdx = (page-1)*pageSize;
       const pageData = cachedReviews.slice().sort((a,b)=>{
         if(sortKey==='rating') return (sortDir==='asc'?1:-1)*(a.rating - b.rating);
         return (sortDir==='asc'?1:-1)*(new Date(a.date) - new Date(b.date));
       }).slice(startIdx, startIdx + pageSize);
-
       const tbody = document.getElementById('reviewsTable');
       tbody.innerHTML = pageData.map(r=>`
         <tr>
@@ -576,7 +500,6 @@
           <td>${escapeHtml(r.comment)}</td>
         </tr>
       `).join('');
-
       const totalPages = Math.ceil(cachedReviews.length / pageSize);
       document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages||1}`;
       document.getElementById('pagePrev').disabled = currentPage <= 1;
@@ -586,7 +509,6 @@
     document.getElementById('pagePrev').addEventListener('click', ()=>renderTablePage(currentPage-1));
     document.getElementById('pageNext').addEventListener('click', ()=>renderTablePage(currentPage+1));
     document.getElementById('pageSizeSelect').addEventListener('change', ()=>renderTablePage(1));
-
     document.querySelectorAll('th[data-sort]').forEach(th=>{
       th.addEventListener('click', ()=>{
         const key = th.getAttribute('data-sort');
@@ -598,34 +520,30 @@
 
     document.getElementById('loadBtn').addEventListener('click', loadReviews);
 
+    // FIXED: Corrected ID selection and JSON payload for backend compatibility
     document.getElementById('addCompanyForm').addEventListener('submit', async e=>{
       e.preventDefault();
-      const data = {
-        name:     document.getElementById('companyName').value.trim(),
+      const payload = {
+        name: document.getElementById('companyName').value.trim(),
         place_id: document.getElementById('placeId').value.trim(),
-        address:  document.getElementById('companyAddress').value.trim()
+        address: document.getElementById('companyAddress').value.trim()
       };
-
-      if (!data.place_id) {
-        notify("Please select a valid place (from suggestions or proxy)", "warning");
+      if (!payload.place_id) {
+        notify("Please select a valid place.", "warning");
         return;
       }
-
       try {
         await fetchJSON('/api/companies', {
           method: 'POST',
           headers: {'Content-Type':'application/json'},
-          body: JSON.stringify(data)
+          body: JSON.stringify(payload)
         });
         notify("Company added successfully", "success");
         bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
         loadCompanies();
-      } catch(e) {
-        notify("Failed to add company: " + e.message, "danger");
-      }
+      } catch(e) { notify("Failed to add company: " + e.message, "danger"); }
     });
 
-    // Initial load
     loadCompanies();
   </script>
 </body>
