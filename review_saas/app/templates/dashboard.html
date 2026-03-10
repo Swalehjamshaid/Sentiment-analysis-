@@ -1,119 +1,109 @@
-<!-- filename: app/templates/dashboard.html -->
+<!-- app/templates/dashboard.html -->
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{{ user.email }} | Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Review SaaS Dashboard</title>
 
-    <!-- Bootstrap 5 -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap -->
+    https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css
 
     <!-- Icons -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+    https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css
 
     <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js
 
     <style>
-        body {
-            padding: 24px;
-        }
-
-        /* Dark Mode */
+        body { padding: 25px; }
         [data-theme="dark"] {
-            background-color: #121212 !important;
-            color: #e6e6e6 !important;
+            background-color: #111 !important;
+            color: #fff !important;
         }
         [data-theme="dark"] .card {
-            background-color: #1e1e1e;
-            color: #fff;
+            background-color: #222;
+            color: white;
         }
-
-        /* KPI Cards */
-        .kpi-card {
-            min-height: 110px;
-        }
-
-        /* Sentiment Colors */
-        .sentiment-positive { color: #198754; font-weight: bold; }
-        .sentiment-neutral { color: #6c757d; font-weight: bold; }
-        .sentiment-negative { color: #dc3545; font-weight: bold; }
-
-        #loadingSpinner {
-            display: none;
-        }
-
-        /* Search bar */
-        #reviewSearch {
-            max-width: 320px;
-        }
+        .kpi-card { min-height: 125px; }
+        .sent-positive { color: #198754; }
+        .sent-neutral { color: #6c757d; }
+        .sent-negative { color: #dc3545; }
+        #loadingSpinner { display: none; }
     </style>
 </head>
-
 <body>
+
+<!-- NAVBAR -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4 rounded">
+    <div class="container-fluid">
+        <span class="navbar-brand fw-bold fs-4">📊 Review SaaS Dashboard</span>
+
+        <button id="toggleTheme" class="btn btn-light ms-2">
+            <i class="bi bi-moon-stars"></i> Toggle Theme
+        </button>
+    </div>
+</nav>
+
 <div class="container-fluid">
 
-    <!-- Header -->
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="fw-bold">📊 Reviews Dashboard</h2>
-        <div>
-            <button id="themeToggle" class="btn btn-outline-dark">
-                <i class="bi bi-moon-stars"></i> Dark Mode
-            </button>
-            <form style="display:inline;" action="/logout" method="post">
-                <button class="btn btn-danger ms-2">Logout</button>
-            </form>
-        </div>
-    </div>
-
-    <!-- Filters -->
+    <!-- TOP FILTERS -->
     <div class="row g-3 mb-4">
 
+        <!-- Company Dropdown -->
         <div class="col-md-3">
-            <label class="form-label">Company</label>
-            <select id="companySelect" class="form-select">
-                {% for c in companies %}
-                    <option value="{{ c.id }}" {% if c.id == active_company_id %}selected{% endif %}>
-                        {{ c.name }} (#{{ c.id }})
-                    </option>
-                {% endfor %}
-            </select>
+            <label class="form-label fw-bold">Select Company</label>
+            <select id="companySelect" class="form-select"></select>
         </div>
 
+        <!-- Start Date -->
         <div class="col-md-2">
-            <label class="form-label">Start</label>
+            <label class="form-label fw-bold">Start Date</label>
             <input id="startDate" type="date" class="form-control">
         </div>
 
+        <!-- End Date -->
         <div class="col-md-2">
-            <label class="form-label">End</label>
+            <label class="form-label fw-bold">End Date</label>
             <input id="endDate" type="date" class="form-control">
         </div>
 
+        <!-- Limit -->
         <div class="col-md-2">
-            <label class="form-label">Group By</label>
-            <select id="groupBy" class="form-select">
-                <option value="day">Daily</option>
-                <option value="week">Weekly</option>
-                <option value="month">Monthly</option>
+            <label class="form-label fw-bold">Review Limit</label>
+            <select id="limitSelect" class="form-select">
+                <option value="10">10</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
             </select>
         </div>
 
+        <!-- Load Button -->
         <div class="col-md-2 align-self-end">
-            <button id="loadBtn" class="btn btn-primary w-100">Load Dashboard</button>
+            <button id="loadBtn" class="btn btn-primary w-100">
+                Load Dashboard
+            </button>
         </div>
 
+        <!-- Spinner -->
         <div class="col-md-1 align-self-end">
-            <div id="loadingSpinner" class="spinner-border text-primary" role="status"></div>
+            <div id="loadingSpinner" class="spinner-border text-primary"></div>
         </div>
 
     </div>
 
-    <!-- KPI Cards -->
+    <!-- ADD COMPANY BUTTON -->
+    <div class="mb-4">
+        <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+            <i class="bi bi-plus-circle"></i> Add Company
+        </button>
+    </div>
+
+    <!-- KPI SECTION -->
     <div class="row g-3 mb-4">
-        <div class="col-md-3">
-            <div class="card kpi-card">
+
+        <div class="col-md-2">
+            <div class="card kpi-card shadow-sm">
                 <div class="card-body">
                     <h6>Total Reviews</h6>
                     <div id="kpiTotal" class="fs-3 fw-bold">–</div>
@@ -121,234 +111,238 @@
             </div>
         </div>
 
-        <div class="col-md-3">
-            <div class="card kpi-card">
+        <div class="col-md-2">
+            <div class="card kpi-card shadow-sm">
                 <div class="card-body">
                     <h6>Avg Rating</h6>
-                    <div id="kpiAvgRating" class="fs-3 fw-bold">–</div>
+                    <div id="kpiRating" class="fs-3 fw-bold">–</div>
                 </div>
             </div>
         </div>
 
-        <div class="col-md-3">
-            <div class="card kpi-card">
+        <div class="col-md-2">
+            <div class="card kpi-card shadow-sm">
                 <div class="card-body">
-                    <h6>Avg Sentiment</h6>
-                    <div id="kpiAvgSentiment" class="fs-3 fw-bold">–</div>
+                    <h6>Positive</h6>
+                    <div id="kpiPos" class="fs-3 sent-positive fw-bold">–</div>
                 </div>
             </div>
         </div>
 
-        <div class="col-md-3">
-            <div class="card kpi-card">
+        <div class="col-md-2">
+            <div class="card kpi-card shadow-sm">
                 <div class="card-body">
-                    <h6>New (7 days)</h6>
-                    <div id="kpiNewReviews" class="fs-3 fw-bold">–</div>
+                    <h6>Neutral</h6>
+                    <div id="kpiNeu" class="fs-3 sent-neutral fw-bold">–</div>
                 </div>
             </div>
         </div>
+
+        <div class="col-md-2">
+            <div class="card kpi-card shadow-sm">
+                <div class="card-body">
+                    <h6>Negative</h6>
+                    <div id="kpiNeg" class="fs-3 sent-negative fw-bold">–</div>
+                </div>
+            </div>
+        </div>
+
     </div>
 
-    <!-- Charts Section -->
-    <div class="row g-3">
+    <!-- CHARTS -->
+    <div class="row g-4 mb-5">
 
         <div class="col-md-6">
             <div class="card"><div class="card-body">
-                <h6>Review Volume</h6>
-                <canvas id="chartVolume" height="140"></canvas>
-            </div></div>
-        </div>
-
-        <div class="col-md-6">
-            <div class="card"><div class="card-body">
-                <h6>Average Rating</h6>
-                <canvas id="chartRating" height="140"></canvas>
-            </div></div>
-        </div>
-
-        <div class="col-md-6 mt-3">
-            <div class="card"><div class="card-body">
-                <h6>Sentiment Trend</h6>
-                <canvas id="chartSentiment" height="140"></canvas>
-            </div></div>
-        </div>
-
-        <div class="col-md-6 mt-3">
-            <div class="card"><div class="card-body">
-                <h6>Ratings Distribution</h6>
+                <h5>Rating Distribution</h5>
                 <canvas id="chartDistribution" height="140"></canvas>
             </div></div>
         </div>
 
+        <div class="col-md-6">
+            <div class="card"><div class="card-body">
+                <h5>Review Trend</h5>
+                <canvas id="chartTrend" height="140"></canvas>
+            </div></div>
+        </div>
+
+        <div class="col-md-6 mt-3">
+            <div class="card"><div class="card-body">
+                <h5>Sentiment Distribution</h5>
+                <canvas id="chartSentiment" height="140"></canvas>
+            </div></div>
+        </div>
     </div>
 
-    <!-- AI Summary -->
-    <div class="card mt-5">
+    <!-- REVIEWS TABLE -->
+    <div class="card mb-5">
         <div class="card-body">
-            <h5>🤖 AI Summary</h5>
-            <div id="aiSummary" class="text-muted fst-italic">AI summary not loaded.</div>
-        </div>
-    </div>
+            <h4 class="mb-3">Recent Reviews</h4>
 
-    <!-- Competitors -->
-    <div class="card mt-5">
-        <div class="card-body">
-            <h4>🏆 Competitor Comparison</h4>
-            <div id="competitorContainer" class="mt-3"></div>
-        </div>
-    </div>
+            <table class="table table-hover table-bordered">
+                <thead class="table-light">
+                <tr>
+                    <th>Author</th>
+                    <th>Rating</th>
+                    <th>Sentiment</th>
+                    <th>Date</th>
+                    <th>Review</th>
+                </tr>
+                </thead>
+                <tbody id="reviewsTable"></tbody>
+            </table>
 
-    <!-- Reviews Table -->
-    <div class="card mt-5 mb-5">
-        <div class="card-body">
-            <h4 class="mb-3">📝 Latest Reviews</h4>
-
-            <input id="reviewSearch" class="form-control mb-3" placeholder="Search reviews...">
-
-            <ul id="reviewsList" class="list-group"></ul>
-
-        </div>
-    </div>
-
-    <!-- Exports -->
-    <div class="row mb-5">
-        <div class="col-auto">
-            <a href="/api/export/reviews.csv" target="_blank" class="btn btn-outline-secondary">
-                <i class="bi bi-filetype-csv"></i> CSV
-            </a>
-        </div>
-        <div class="col-auto">
-            <a href="/api/export/reviews.xlsx" target="_blank" class="btn btn-outline-secondary">
-                <i class="bi bi-filetype-xlsx"></i> Excel
-            </a>
-        </div>
-        <div class="col-auto">
-            <a href="/api/export/summary.pdf" target="_blank" class="btn btn-outline-secondary">
-                <i class="bi bi-filetype-pdf"></i> PDF
-            </a>
         </div>
     </div>
 
 </div>
 
-<!-- JavaScript -->
+<!-- ADD COMPANY MODAL -->
+<div class="modal fade" id="addCompanyModal">
+    <div class="modal-dialog">
+        <form id="addCompanyForm" class="modal-content">
+
+            <div class="modal-header">
+                <h5 class="modal-title">Add Company</h5>
+                <button class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+
+            <div class="modal-body">
+                <label class="fw-bold">Google Places Search</label>
+                <input id="googleSearch" class="form-control mb-2">
+
+                <label>Name</label>
+                <input id="companyName" class="form-control mb-2">
+
+                <label>Place ID</label>
+                <input id="placeID" class="form-control mb-2">
+
+                <label>Address</label>
+                <input id="companyAddress" class="form-control mb-2">
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-success" type="submit">Add Company</button>
+            </div>
+
+        </form>
+    </div>
+</div>
+
+<!-- JAVASCRIPT -->
 <script>
-/* ============== DARK MODE ============== */
-document.getElementById("themeToggle").addEventListener("click", () => {
+
+let chartTrend, chartDistribution, chartSentiment;
+
+/* ------------------- THEME TOGGLE ------------------- */
+document.getElementById("toggleTheme").onclick = () => {
     const html = document.documentElement;
-    const current = html.getAttribute("data-theme");
-    html.setAttribute("data-theme", current === "light" ? "dark" : "light");
-});
+    html.setAttribute("data-theme",
+        html.getAttribute("data-theme") === "light" ? "dark" : "light");
+};
 
-/* ============== GLOBAL CHART HANDLES ============== */
-let volumeChart, ratingChart, sentimentChart, distChart;
+/* ------------------- LOAD COMPANIES ------------------- */
+async function loadCompanies() {
+    const res = await fetch("/companies/list");
+    const data = await res.json();
+    const sel = document.getElementById("companySelect");
 
-/* ============== FETCH DASHBOARD ============== */
+    sel.innerHTML = "";
+    data.items.forEach(c => {
+        sel.innerHTML += `<option value="${c.id}">${c.name} (${c.place_id})</option>`;
+    });
+}
+
+/* ------------------- LOAD DASHBOARD DATA ------------------- */
 async function loadDashboard() {
-
     const companyId = document.getElementById("companySelect").value;
     const start = document.getElementById("startDate").value;
     const end = document.getElementById("endDate").value;
-    const groupBy = document.getElementById("groupBy").value;
+    const limit = document.getElementById("limitSelect").value;
 
     const spinner = document.getElementById("loadingSpinner");
     spinner.style.display = "inline-block";
 
     try {
-
-        const params = new URLSearchParams({
+        let params = new URLSearchParams({
             company_id: companyId,
-            group_by: groupBy,
-            ai: true
+            limit_reviews: limit,
+            group_by: "day",
+            ai: false
         });
-
         if (start) params.append("start", start);
         if (end) params.append("end", end);
 
-        const response = await fetch(`/api/dashboard?${params.toString()}`);
-        const data = await response.json();
+        const res = await fetch(`/api/dashboard?${params.toString()}`);
+        const data = await res.json();
 
-        /* ==== KPIs ==== */
+        /* -------- KPIS -------- */
         document.getElementById("kpiTotal").textContent = data.kpis.total_reviews;
-        document.getElementById("kpiAvgRating").textContent = data.kpis.avg_rating;
-        document.getElementById("kpiAvgSentiment").textContent = data.kpis.avg_sentiment;
-        document.getElementById("kpiNewReviews").textContent = data.kpis.new_reviews;
+        document.getElementById("kpiRating").textContent = data.kpis.avg_rating;
+        document.getElementById("kpiPos").textContent = data.sentiment_share.positive;
+        document.getElementById("kpiNeu").textContent = data.sentiment_share.neutral;
+        document.getElementById("kpiNeg").textContent = data.sentiment_share.negative;
 
-        /* ==== Charts ==== */
-        const volLabels = data.charts.line.volume.map(i => i.label ?? i.date);
-        const volValues = data.charts.line.volume.map(i => i.value);
+        /* -------- Charts -------- */
+        if (chartTrend) chartTrend.destroy();
+        if (chartDistribution) chartDistribution.destroy();
+        if (chartSentiment) chartSentiment.destroy();
 
-        const ratingLabels = data.charts.line.rating.map(i => i.label ?? i.date);
-        const ratingValues = data.charts.line.rating.map(i => i.value);
-
-        const sentLabels = data.charts.line.sentiment.map(i => i.label ?? i.date);
-        const sentValues = data.charts.line.sentiment.map(i => i.value);
-
-        const dist = data.charts.bar.ratings_distribution;
-        const distLabels = Object.keys(dist);
-        const distValues = Object.values(dist);
-
-        /* CLEAN OLD CHARTS */
-        if (volumeChart) volumeChart.destroy();
-        if (ratingChart) ratingChart.destroy();
-        if (sentimentChart) sentimentChart.destroy();
-        if (distChart) distChart.destroy();
-
-        /* RENDER NEW CHARTS */
-        volumeChart = new Chart(document.getElementById("chartVolume"), {
+        chartTrend = new Chart(document.getElementById("chartTrend"), {
             type: "line",
-            data: { labels: volLabels, datasets: [{ label: "Volume", data: volValues, borderColor: "#0d6efd", backgroundColor: "#0d6efd33", fill: true }] }
+            data: {
+                labels: data.charts.line.volume.map(r => r.label),
+                datasets: [{
+                    label: "Reviews",
+                    data: data.charts.line.volume.map(r => r.value),
+                    borderColor: "#0d6efd",
+                    fill: true
+                }]
+            }
         });
 
-        ratingChart = new Chart(document.getElementById("chartRating"), {
-            type: "line",
-            data: { labels: ratingLabels, datasets: [{ label: "Rating", data: ratingValues, borderColor: "#198754", backgroundColor: "#19875433", fill: true }] }
-        });
-
-        sentimentChart = new Chart(document.getElementById("chartSentiment"), {
-            type: "line",
-            data: { labels: sentLabels, datasets: [{ label: "Sentiment", data: sentValues, borderColor: "#fd7e14", backgroundColor: "#fd7e1433", fill: true }] }
-        });
-
-        distChart = new Chart(document.getElementById("chartDistribution"), {
+        chartDistribution = new Chart(document.getElementById("chartDistribution"), {
             type: "bar",
-            data: { labels: distLabels, datasets: [{ data: distValues, backgroundColor: ["#dc3545","#fd7e14","#ffc107","#0d6efd","#198754"] }] }
+            data: {
+                labels: ["1★", "2★", "3★", "4★", "5★"],
+                datasets: [{
+                    data: Object.values(data.ratings_distribution),
+                    backgroundColor: ["#dc3545", "#fd7e14", "#ffc107", "#0d6efd", "#198754"]
+                }]
+            }
         });
 
-        /* ==== AI SUMMARY ==== */
-        document.getElementById("aiSummary").textContent = data.ai_summary?.text || "AI summary unavailable.";
-
-        /* ==== COMPETITORS ==== */
-        const compBox = document.getElementById("competitorContainer");
-        compBox.innerHTML = "";
-
-        data.competitors.forEach(c => {
-            compBox.innerHTML += `
-                <div class="card p-3 mb-3">
-                    <h6>${c.company.name}</h6>
-                    <p class="mb-1">Avg Rating: <b>${c.kpis.avg_rating}</b></p>
-                    <p class="mb-1">Reviews: <b>${c.kpis.total_reviews}</b></p>
-                </div>
-            `;
+        chartSentiment = new Chart(document.getElementById("chartSentiment"), {
+            type: "pie",
+            data: {
+                labels: ["Positive", "Neutral", "Negative"],
+                datasets: [{
+                    data: [
+                        data.sentiment_share.positive,
+                        data.sentiment_share.neutral,
+                        data.sentiment_share.negative
+                    ],
+                    backgroundColor: ["#198754", "#6c757d", "#dc3545"]
+                }]
+            }
         });
 
-        /* ==== REVIEWS ==== */
-        const list = document.getElementById("reviewsList");
-        list.innerHTML = "";
-
+        /* -------- REVIEWS TABLE -------- */
+        let table = document.getElementById("reviewsTable");
+        table.innerHTML = "";
         data.recent_reviews.forEach(r => {
-            const cls = r.label === "positive" ? "sentiment-positive"
-                     : r.label === "negative" ? "sentiment-negative"
-                     : "sentiment-neutral";
-
-            list.innerHTML += `
-                <li class="list-group-item">
-                    <div class="d-flex justify-content-between">
-                        <div><strong>${r.author}</strong> — ${r.time}</div>
-                        <div class="${cls}">★ ${r.rating}</div>
-                    </div>
-                    <div class="small mt-2">${r.text}</div>
-                </li>
+            table.innerHTML += `
+                <tr>
+                    <td>${r.author}</td>
+                    <td>${r.rating}</td>
+                    <td class="${
+                        r.label === "positive" ? "sent-positive" :
+                        r.label === "negative" ? "sent-negative" : "sent-neutral"
+                    }">${r.label}</td>
+                    <td>${r.time}</td>
+                    <td>${r.text}</td>
+                </tr>
             `;
         });
 
@@ -360,17 +354,26 @@ async function loadDashboard() {
     }
 }
 
-/* ============== SEARCH FILTER ============== */
-document.getElementById("reviewSearch").addEventListener("input", function() {
-    const term = this.value.toLowerCase();
-    document.querySelectorAll("#reviewsList li").forEach(li => {
-        li.style.display = li.textContent.toLowerCase().includes(term) ? "" : "none";
+/* ------------------- ADD COMPANY FORM ------------------- */
+document.getElementById("addCompanyForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const res = await fetch("/companies", {
+        method: "POST",
+        body: new FormData(e.target)
     });
-});
 
-/* ============== INIT ============== */
-document.getElementById("loadBtn").addEventListener("click", loadDashboard);
-loadDashboard();
+    if (res.ok) {
+        alert("Company added!");
+        loadCompanies();
+    } else {
+        alert("Error adding company.");
+    }
+};
+
+/* ------------------- INIT ------------------- */
+loadCompanies().then(loadDashboard);
+document.getElementById("loadBtn").onclick = loadDashboard;
+document.getElementById("companySelect").onchange = loadDashboard;
 
 </script>
 
