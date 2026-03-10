@@ -19,15 +19,7 @@
     integrity="sha384-7j6QzDgT8YIm8oWslrjKz2nA3uMZkV6WZy0LhQwYqH8QvV4KekVZ1qC6mYI8M7Oh"
     crossorigin="anonymous"
   ></script>
-  <!-- 
-    Important: using &loading=async so we can use the new web components 
-    (you can also try weekly channel if you want even newer features)
-  -->
-  <script
-    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&v=beta&loading=async&callback=initGoogleApi"
-    async
-    defer
-  ></script>
+
   <style>
     body { padding: 24px; }
     [data-theme="dark"] { background-color: #121212 !important; color: #e6e6e6 !important; }
@@ -41,7 +33,7 @@
     .disabled { pointer-events: none; opacity: 0.6; }
     .alert-placeholder { min-height: 0; }
     .chart-wrapper { min-height: 240px; }
-    gmp-autocomplete { width: 100%; }
+    gmp-autocomplete { width: 100%; display: block; }
   </style>
 </head>
 <body>
@@ -290,9 +282,21 @@
     crossorigin="anonymous"
   ></script>
 
+  <!-- Modern Google Maps Places loader -->
+  <script>
+    (g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;
+    b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,
+    u=()=>h||(h=new Promise(async(f,n)=>{await (e=l=>n(Error(p+" could not load.")))
+    (()=>{var e=document.createElement("script");
+    e.src=`https://maps.${c}apis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&loading=async&libraries=places&v=beta&callback=${q}`;
+    d[q]=f;e.onerror=()=>h=n(Error(p+" network error"));m.head.append(e)});
+    await google.maps.importLibrary("places");}));d[l]?console.warn(p+" only loads once. Ignoring:",g):
+    d[l]=(f,...n)=>r.add(f)&&e(()=>h||e()).then(()=>d[l](f,...n))})({key:"AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc",libraries:"places"});
+  </script>
+
   <script>
     let trendChart, distChart, sentimentChart, competitorChart;
-    let googleReady = false;
+    let googlePlacesReady = false;
     let cachedReviews = [];
     let sortKey = 'date';
     let sortDir = 'desc';
@@ -353,50 +357,69 @@
     }
 
     // ────────────────────────────────────────────────
-    //        New Places API (web component) setup
+    //        Google Places (new web component) setup
     // ────────────────────────────────────────────────
-    window.initGoogleApi = function() {
-      googleReady = true;
-      setupNewAutocomplete();
-    };
+    async function initGooglePlaces() {
+      if (googlePlacesReady) return;
+      try {
+        await google.maps.importLibrary("places");
+        googlePlacesReady = true;
+        console.log("Google Places library loaded successfully");
+        setupNewAutocomplete();
+      } catch (err) {
+        console.error("Failed to load Places library:", err);
+        notify("Google Places failed to load. Check API key, billing, and Places API (New) enabled.", "danger");
+      }
+    }
 
     function setupNewAutocomplete() {
-      if (!googleReady) return;
+      if (!googlePlacesReady) return;
 
       const autoEl = document.getElementById('placeSearch');
       if (!autoEl) return;
 
-      // Remove any old listeners to prevent duplicates
-      const newListener = async (e) => {
-        const place = e.detail.place;   // ← this is a Place object already
-        if (!place) return;
+      const handler = async (e) => {
+        const placePrediction = e.detail?.placePrediction;
+        if (!placePrediction) {
+          console.warn("No placePrediction in gmp-select event");
+          return;
+        }
 
         try {
-          // We still need to explicitly fetch the fields we want
+          const place = placePrediction.toPlace();
+
           await place.fetchFields({
             fields: ['displayName', 'id', 'formattedAddress']
           });
 
-          document.getElementById('companyName').value   = place.displayName   || '';
-          document.getElementById('placeId').value       = place.id           || '';
-          document.getElementById('companyAddress').value = place.formattedAddress || '';
+          document.getElementById('companyName').value   = place.displayName?.trim()   || '';
+          document.getElementById('placeId').value       = place.id                  || '';
+          document.getElementById('companyAddress').value = place.formattedAddress?.trim() || '';
 
+          console.log("Place selected and fields filled:", { name: place.displayName, id: place.id });
         } catch (err) {
-          console.error("Place fetch failed:", err);
-          notify("Failed to fetch business details.", "warning");
+          console.error("fetchFields failed:", err);
+          notify("Couldn't load place details. Try another suggestion.", "warning");
         }
       };
 
-      // Clean previous listeners if any (important when modal is reopened)
-      autoEl.removeEventListener('gmp-select', newListener);
-      autoEl.addEventListener('gmp-select', newListener);
+      // Prevent duplicate listeners
+      autoEl.removeEventListener('gmp-select', handler);
+      autoEl.addEventListener('gmp-select', handler);
     }
 
-    // Re-init when modal is shown (safe now)
-    document.getElementById('addCompanyModal').addEventListener('shown.bs.modal', setupNewAutocomplete);
+    // Initialize on page load
+    initGooglePlaces();
+
+    // Re-setup when modal is shown (important for Bootstrap modals)
+    document.getElementById('addCompanyModal').addEventListener('shown.bs.modal', () => {
+      setTimeout(() => {
+        setupNewAutocomplete();
+      }, 150);
+    });
 
     // ────────────────────────────────────────────────
-    // The rest of your code remains unchanged
+    //                  Rest of your logic
     // ────────────────────────────────────────────────
 
     async function loadCompanies() {
@@ -535,13 +558,13 @@
     document.getElementById('addCompanyForm').addEventListener('submit', async e=>{
       e.preventDefault();
       const data = {
-        name:     document.getElementById('companyName').value,
-        place_id: document.getElementById('placeId').value,
-        address:  document.getElementById('companyAddress').value
+        name:     document.getElementById('companyName').value.trim(),
+        place_id: document.getElementById('placeId').value.trim(),
+        address:  document.getElementById('companyAddress').value.trim()
       };
 
       if (!data.place_id) {
-        notify("Please select a place from suggestions", "warning");
+        notify("Please select a valid place from the suggestions", "warning");
         return;
       }
 
@@ -555,7 +578,7 @@
         bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
         loadCompanies();
       } catch(e) {
-        notify("Failed to add company: " + e.message);
+        notify("Failed to add company: " + e.message, "danger");
       }
     });
 
