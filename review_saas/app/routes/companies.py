@@ -93,7 +93,7 @@ async def _get_companies_data(page: int = 1, size: int = 20, q: Optional[str] = 
             data.append({
                 "id": int(c.id),
                 "name": getattr(c, "name", ""),
-                "place_id": getattr(c, "place_id", ""),
+                "place_id": getattr(c, "google_place_id", ""),  # Fixed to match models.py
                 "address": getattr(c, "address", ""),
                 "review_count": int(stats[0] or 0) if stats else 0,
                 "avg_rating": round(float(stats[1] or 0.0), 2) if stats else 0.0,
@@ -154,13 +154,13 @@ async def add_company(
 ):
     _require_user(request)
     async with get_session() as session:
-        # Prevent duplicate by place_id if provided
+        # Prevent duplicate by google_place_id if provided
         if place_id:
-            existing = (await session.execute(select(Company).where(Company.place_id == place_id))).scalars().first()
+            existing = (await session.execute(select(Company).where(Company.google_place_id == place_id))).scalars().first()
             if existing:
                 raise HTTPException(status_code=400, detail="Company already exists for this place_id")
 
-        c = Company(name=name.strip(), place_id=place_id or "", address=address or "")
+        c = Company(name=name.strip(), google_place_id=place_id or "", address=address or "")
         session.add(c)
         await session.commit()
         await session.refresh(c)
@@ -168,7 +168,7 @@ async def add_company(
         # Audit log if available
         try:
             if AuditLog is not None:
-                log = AuditLog(action="company_add", entity_id=c.id, details={"name": name, "place_id": place_id or ""})
+                log = AuditLog(action="company_add", user_id=request.session.get("user_id"), meta={"name": name, "place_id": place_id or ""})
                 session.add(log)
                 await session.commit()
         except Exception:
@@ -183,7 +183,7 @@ async def add_company(
     payload = await _get_companies_data(page=1, size=20, q=None)
     return {
         "status": "ok",
-        "company": {"id": int(c.id), "name": c.name, "place_id": c.place_id, "address": c.address},
+        "company": {"id": int(c.id), "name": c.name, "place_id": c.google_place_id, "address": c.address},
         "list": payload
     }
 
@@ -215,7 +215,7 @@ async def delete_company(request: Request, company_id: int):
         # Audit log
         try:
             if AuditLog is not None:
-                log = AuditLog(action="company_delete", entity_id=comp.id, details={"name": comp.name})
+                log = AuditLog(action="company_delete", user_id=request.session.get("user_id"), meta={"name": comp.name})
                 session.add(log)
         except Exception:
             pass
