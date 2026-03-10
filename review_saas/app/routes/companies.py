@@ -62,14 +62,18 @@ def _get_gmaps_client() -> Optional[Any]:
         return None
     try:
         import googlemaps
-        return googlemaps.Client(key=key)
+        client = googlemaps.Client(key=key)
+        # Test API connection
+        test_res = client.places("test")
+        logger.info("✅ Google API key is valid, API connected, test results: %d", len(test_res.get("results", [])))
+        return client
     except Exception as ex:
-        logger.info("googlemaps client import failed: %s", ex)
+        logger.warning("❌ Google Maps client failed: %s", ex)
         return None
 
 
 # ─────────────────────────────────────────────────────────
-# Google Autofetch Endpoints
+# NEW: Backend Google Autofetch Endpoint
 # ─────────────────────────────────────────────────────────
 @router.get("/google/place/details")
 async def google_place_details(request: Request, place_id: str = Query(...)):
@@ -80,13 +84,11 @@ async def google_place_details(request: Request, place_id: str = Query(...)):
     _require_user(request)
 
     if not place_details:
-        logger.warning("⚠️ Google Places service not configured")
         raise HTTPException(status_code=503, detail="Google Places service not configured")
 
     try:
         data = place_details(place_id)
         result = data.get("result", {})
-        logger.info("✅ Google place details fetched: place_id=%s, name=%s", place_id, result.get("name"))
 
         return {
             "name": result.get("name"),
@@ -97,41 +99,12 @@ async def google_place_details(request: Request, place_id: str = Query(...)):
         }
 
     except Exception as ex:
-        logger.exception("❌ Google place details failed: %s", ex)
+        logger.exception("Google place details failed: %s", ex)
         raise HTTPException(status_code=500, detail="Google place lookup failed")
 
 
-@router.get("/google/places/search")
-async def google_places_search(request: Request, q: str = Query(..., min_length=3)):
-    _require_user(request)
-
-    client = _get_gmaps_client()
-    if not client:
-        raise HTTPException(status_code=503, detail="Google Maps client not configured")
-
-    try:
-        res = client.places(q)
-        results = res.get("results", [])
-        logger.info("✅ Google Places search called for query '%s', results returned: %d", q, len(results))
-
-        out = []
-        for r in results:
-            out.append(
-                {
-                    "place_id": r.get("place_id"),
-                    "name": r.get("name"),
-                    "formatted_address": r.get("formatted_address") or (r.get("vicinity") or ""),
-                }
-            )
-        return {"items": out}
-
-    except Exception as ex:
-        logger.exception("❌ Google Places search failed for query '%s': %s", q, ex)
-        raise HTTPException(status_code=500, detail="Google Places search failed")
-
-
 # ─────────────────────────────────────────────────────────
-# Companies Data Aggregator
+# Existing data aggregators
 # ─────────────────────────────────────────────────────────
 async def _get_companies_data(page: int = 1, size: int = 20, q: Optional[str] = None) -> Dict[str, Any]:
     page = max(1, page)
@@ -176,28 +149,71 @@ async def _get_companies_data(page: int = 1, size: int = 20, q: Optional[str] = 
 
 
 # ─────────────────────────────────────────────────────────
-# Page / List / Add / Sync / Delete
+# Page
 # ─────────────────────────────────────────────────────────
 @router.get("/companies", response_class=HTMLResponse)
 async def companies_page(request: Request, page: int = 1, size: int = 20, q: Optional[str] = None):
     _require_user(request)
     payload = await _get_companies_data(page=page, size=size, q=q)
+
     try:
         return templates.TemplateResponse("companies.html", {"request": request, **payload})
     except Exception:
         items = ''.join(
-            [f"<li>#{i['id']} {i['name']} — Reviews: {i['review_count']} (avg {i['avg_rating']})</li>" for i in payload["items"]]
+            [
+                f"<li>#{i['id']} {i['name']} — Reviews: {i['review_count']} (avg {i['avg_rating']})</li>"
+                for i in payload["items"]
+            ]
         )
         html = f"<h2>Companies</h2><ul>{items}</ul>"
         return HTMLResponse(html)
 
 
+# ─────────────────────────────────────────────────────────
+# API list
+# ─────────────────────────────────────────────────────────
 @router.get("/companies/list")
 async def companies_list(request: Request, page: int = 1, size: int = 20, q: Optional[str] = None):
     _require_user(request)
     return await _get_companies_data(page=page, size=size, q=q)
 
 
+# ─────────────────────────────────────────────────────────
+# Google Search
+# ─────────────────────────────────────────────────────────
+@router.get("/google/places/search")
+async def google_places_search(request: Request, q: str = Query(..., min_length=3)):
+    _require_user(request)
+
+    client = _get_gmaps_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Google Maps client not configured")
+
+    try:
+        res = client.places(q)
+
+        out = []
+
+        for r in res.get("results", []):
+            out.append(
+                {
+                    "place_id": r.get("place_id"),
+                    "name": r.get("name"),
+                    "formatted_address": r.get("formatted_address")
+                    or (r.get("vicinity") or ""),
+                }
+            )
+
+        return {"items": out}
+
+    except Exception as ex:
+        logger.exception("Google Places search failed: %s", ex)
+        raise HTTPException(status_code=500, detail="Google Places search failed")
+
+
+# ─────────────────────────────────────────────────────────
+# Add Company
+# ─────────────────────────────────────────────────────────
 @router.post("/companies")
 async def add_company(
     request: Request,
@@ -255,16 +271,21 @@ async def add_company(
     }
 
 
+# ─────────────────────────────────────────────────────────
+# Sync Reviews
+# ─────────────────────────────────────────────────────────
 @router.post("/companies/{company_id}/sync")
 async def sync_company_reviews(request: Request, background: BackgroundTasks, company_id: int):
     _require_user(request)
 
     async with get_session() as session:
         comp = await session.get(Company, company_id)
+
         if not comp:
             raise HTTPException(status_code=404, detail="Company not found")
 
     client = getattr(request.app.state, "reviews_client", None)
+
     if not (run_batch_review_ingestion and client):
         raise HTTPException(status_code=503, detail="Reviews client or ingestion unavailable")
 
@@ -273,6 +294,9 @@ async def sync_company_reviews(request: Request, background: BackgroundTasks, co
     return {"status": "queued", "company_id": company_id}
 
 
+# ─────────────────────────────────────────────────────────
+# Delete Company
+# ─────────────────────────────────────────────────────────
 @router.post("/companies/{company_id}/delete")
 async def delete_company(request: Request, company_id: int):
     _require_user(request)
@@ -280,6 +304,7 @@ async def delete_company(request: Request, company_id: int):
     async with get_session() as session:
 
         comp = await session.get(Company, company_id)
+
         if not comp:
             raise HTTPException(status_code=404, detail="Company not found")
 
