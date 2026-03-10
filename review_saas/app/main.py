@@ -1,4 +1,3 @@
-# filename: app/main.py
 from __future__ import annotations
 import logging
 import os
@@ -26,18 +25,15 @@ from app.routes import dashboard as dashboard_routes
 from app.routes import reviews as reviews_routes
 from app.routes import exports as exports_routes
 
-# -----------------------------------------------------------------------
-# Logging Setup
-# -----------------------------------------------------------------------
+# Logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("app.main")
 
-# -----------------------------------------------------------------------
-# Outscraper Client Integration
-# -----------------------------------------------------------------------
+
+# Outscraper Client
 class OutscraperClient:
     BASE_URL = "https://api.app.outscraper.com/google-reviews"
 
@@ -72,27 +68,30 @@ class OutscraperClient:
         await self.client.aclose()
 
 
+# Dummy client
 class DummyReviewsClient:
     async def get_reviews(self, *args, **kwargs):
         logger.warning("⚠️ DUMMY MODE: No real reviews will be fetched.")
         return {"reviews": []}
+
     async def close(self):
         pass
 
-# -----------------------------------------------------------------------
+
 # Lifespan
-# -----------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
         engine: AsyncEngine = get_engine()
         async with engine.begin() as conn:
+            # Ensure config table
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS config (
                     key TEXT PRIMARY KEY,
                     value TEXT
                 )
             """))
+            # Schema version check
             result = await conn.execute(text("SELECT value FROM config WHERE key='schema_version'"))
             row = result.first()
             db_version = row[0] if row else None
@@ -106,7 +105,7 @@ async def lifespan(app: FastAPI):
                         VALUES ('schema_version', :v)
                         ON CONFLICT (key) DO UPDATE SET value = :v
                     """),
-                    {"v": str(SCHEMA_VERSION)},
+                    {"v": str(SCHEMA_VERSION)},  # <--- retained logic
                 )
                 logger.info("✅ Schema rebuilt to v%s", SCHEMA_VERSION)
             else:
@@ -115,6 +114,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("❌ Database startup failed: %s", e, exc_info=True)
 
+    # Outscraper client
     api_key = os.getenv("OUTSCRAPER_API_KEY") or getattr(settings, "OUTSCRAPER_API_KEY", None)
     if api_key and len(api_key) > 10:
         app.state.google_reviews_client = OutscraperClient(api_key=api_key)
@@ -125,11 +125,13 @@ async def lifespan(app: FastAPI):
         app.state.api_status = "Disconnected (API Key Missing)"
         logger.error("🛑 OUTSCRAPER_API_KEY missing.")
 
+    # Secret key check
     if not getattr(settings, "SECRET_KEY", None):
         logger.error("🛑 SECRET_KEY is missing in settings.")
 
     yield
 
+    # Close client gracefully
     if hasattr(app.state, "google_reviews_client"):
         try:
             await app.state.google_reviews_client.close()
@@ -137,14 +139,9 @@ async def lifespan(app: FastAPI):
             pass
         logger.info("Outscraper client closed.")
 
-# -----------------------------------------------------------------------
-# FastAPI App Initialization
-# -----------------------------------------------------------------------
-app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
-# -----------------------------------------------------------------------
-# Middleware
-# -----------------------------------------------------------------------
+# FastAPI app
+app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -154,22 +151,21 @@ app.add_middleware(
 )
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
-# Static & Templates
+# Static & templates
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
-# -----------------------------------------------------------------------
-# Current User Dependency
-# -----------------------------------------------------------------------
+
+# Current user
 def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
 
-# -----------------------------------------------------------------------
-# Routes
-# -----------------------------------------------------------------------
+
+# Landing & dashboard
 @app.get("/", response_class=HTMLResponse)
 async def landing(request: Request):
     return templates.TemplateResponse("landing.html", {"request": request, "settings": settings})
+
 
 @app.get("/health")
 async def health():
@@ -180,30 +176,37 @@ async def health():
         "schema_version": SCHEMA_VERSION,
     }
 
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
 
+
+# Login route
 @app.post("/login", response_class=RedirectResponse)
 async def login_post(request: Request):
     user = {"id": 1, "email": "roy.jamshaid@gmail.com", "name": "Rai Jamshaid"}
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # ✅ FIXED: Store both user and user_id in session for _require_user
     request.session["user"] = user
+    request.session["user_id"] = user["id"]
+
     return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
 
-# -----------------------------------------------------------------------
-# Routers (Fixed: Added /api prefix for companies)
-# -----------------------------------------------------------------------
+
+# Include routers
 app.include_router(auth_routes.router)
-app.include_router(companies_routes.router, prefix="/api")  # ✅ Fix for 404
+app.include_router(companies_routes.router)
 app.include_router(dashboard_routes.router)
 app.include_router(reviews_routes.router)
 app.include_router(exports_routes.router)
 
-# -----------------------------------------------------------------------
-# Railway-compatible Entry Point
-# -----------------------------------------------------------------------
+
+# Railway entry point
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
