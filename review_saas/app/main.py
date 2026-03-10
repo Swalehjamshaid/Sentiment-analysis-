@@ -27,7 +27,7 @@ from app.routes import reviews as reviews_routes
 from app.routes import exports as exports_routes
 
 # -----------------------------------------------------------------------
-# Logging Setup (Requirement 2)
+# Logging Setup
 # -----------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
@@ -36,7 +36,7 @@ logging.basicConfig(
 logger = logging.getLogger("app.main")
 
 # -----------------------------------------------------------------------
-# Outscraper Client Integration (Requirement 3)
+# Outscraper Client Integration
 # -----------------------------------------------------------------------
 class OutscraperClient:
     BASE_URL = "https://api.app.outscraper.com/google-reviews"
@@ -71,7 +71,7 @@ class OutscraperClient:
     async def close(self):
         await self.client.aclose()
 
-# Requirement 4: Dummy Client
+
 class DummyReviewsClient:
     async def get_reviews(self, *args, **kwargs):
         logger.warning("⚠️ DUMMY MODE: No real reviews will be fetched.")
@@ -80,12 +80,11 @@ class DummyReviewsClient:
         pass
 
 # -----------------------------------------------------------------------
-# Lifespan (Requirements 5,6,7,8,9,10,11)
+# Lifespan
 # -----------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        # Requirement 6: DB Schema Verification
         engine: AsyncEngine = get_engine()
         async with engine.begin() as conn:
             await conn.execute(text("""
@@ -116,7 +115,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("❌ Database startup failed: %s", e, exc_info=True)
 
-    # Requirement 9: API Key Validation
     api_key = os.getenv("OUTSCRAPER_API_KEY") or getattr(settings, "OUTSCRAPER_API_KEY", None)
     if api_key and len(api_key) > 10:
         app.state.google_reviews_client = OutscraperClient(api_key=api_key)
@@ -127,13 +125,11 @@ async def lifespan(app: FastAPI):
         app.state.api_status = "Disconnected (API Key Missing)"
         logger.error("🛑 OUTSCRAPER_API_KEY missing.")
 
-    # Requirement 10: Secret Key Validation
     if not getattr(settings, "SECRET_KEY", None):
         logger.error("🛑 SECRET_KEY is missing in settings.")
 
     yield
 
-    # Requirement 11: Close client gracefully
     if hasattr(app.state, "google_reviews_client"):
         try:
             await app.state.google_reviews_client.close()
@@ -142,12 +138,12 @@ async def lifespan(app: FastAPI):
         logger.info("Outscraper client closed.")
 
 # -----------------------------------------------------------------------
-# FastAPI App Initialization (Requirement 1)
+# FastAPI App Initialization
 # -----------------------------------------------------------------------
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
 # -----------------------------------------------------------------------
-# Middleware Setup (Requirements 12,13)
+# Middleware
 # -----------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
@@ -158,19 +154,18 @@ app.add_middleware(
 )
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
-# Requirement 14: Static Files
+# Static & Templates
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
-# Requirement 15: Templates
 templates = Jinja2Templates(directory="app/templates")
 
 # -----------------------------------------------------------------------
-# Current User Dependency (Requirement 16)
+# Current User Dependency
 # -----------------------------------------------------------------------
 def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
 
 # -----------------------------------------------------------------------
-# Routes (Requirements 17,18,19)
+# Routes
 # -----------------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def landing(request: Request):
@@ -191,22 +186,17 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
 
-# -----------------------------------------------------------------------
-# Example Login Route
-# -----------------------------------------------------------------------
 @app.post("/login", response_class=RedirectResponse)
 async def login_post(request: Request):
     user = {"id": 1, "email": "roy.jamshaid@gmail.com", "name": "Rai Jamshaid"}
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
     request.session["user"] = user
     return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
 
 # -----------------------------------------------------------------------
-# Routers (Requirement 20)
+# Routers (Fixed: Added /api prefix for companies)
 # -----------------------------------------------------------------------
 app.include_router(auth_routes.router)
-app.include_router(companies_routes.router)
+app.include_router(companies_routes.router, prefix="/api")  # ✅ Fix for 404
 app.include_router(dashboard_routes.router)
 app.include_router(reviews_routes.router)
 app.include_router(exports_routes.router)
