@@ -2,307 +2,214 @@
 from __future__ import annotations
 
 import logging
-import googlemaps
-from fastapi import APIRouter, Request, BackgroundTasks, Query, HTTPException, Form
-from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Query, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
-from sqlalchemy import select, delete, or_, func, desc
+from sqlalchemy import and_, desc, func, or_, select
 
 from app.core.db import get_session
-from app.core.models import Company, AuditLog, Review
-from app.core.config import settings
-from app.services.google_reviews import run_batch_review_ingestion
+from app.core.models import Company, Review
 
-logger = logging.getLogger(__name__)
+# Optional AuditLog model
+try:
+    from app.core.models import AuditLog  # type: ignore
+except Exception:  # pragma: no cover
+    AuditLog = None  # type: ignore
 
-router = APIRouter(prefix="/api", tags=["companies"])
+# Optional settings
+try:
+    from app.core.config import settings  # type: ignore
+except Exception:  # pragma: no cover
+    class _S:  # fallback
+        google_maps_api_key: str = ""
+    settings = _S()  # type: ignore
+
+# Review ingestion
+try:
+    from app.services.google_reviews import run_batch_review_ingestion  # type: ignore
+except Exception:  # pragma: no cover
+    run_batch_review_ingestion = None  # type: ignore
+
+router = APIRouter(tags=["companies"])
 templates = Jinja2Templates(directory="app/templates")
+logger = logging.getLogger("app.companies")
 
-# ─────────────────────────────────────────────────────────────
-# Helper: Authentication
-# ─────────────────────────────────────────────────────────────
-def _require_user(request: Request) -> int | None:
-    user_id = request.session.get("user_id")
-    if not user_id:
-        # Important: return JSON 401 to keep front-end fetch() happy
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    return user_id
 
-# ─────────────────────────────────────────────────────────────
-# Safe Google Maps Client (for Places search)
-# ─────────────────────────────────────────────────────────────
-def _get_gmaps_client():
-    if not settings.GOOGLE_PLACES_API_KEY:
-        raise HTTPException(
-            status_code=500,
-            detail="Google Places API key is not configured in settings.",
-        )
-    return googlemaps.Client(key=settings.GOOGLE_PLACES_API_KEY)
+# ──────────────────────────────────────────────────────────────────────────────
+# Auth helper
+# ──────────────────────────────────────────────────────────────────────────────
+def _require_user(request: Request) -> None:
+    if not request.session.get("user_id"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
-# Reviews client (for Outscraper/Google Reviews ingestion)
-def _get_reviews_client(request: Request):
-    client = getattr(request.app.state, "google_reviews_client", None)
-    if client is None:
-        raise HTTPException(
-            status_code=501,
-            detail="Reviews API client not configured (app.state.google_reviews_client)",
-        )
-    return client
 
-# ─────────────────────────────────────────────────────────────
-# Helper: Get companies with aggregated stats
-# ─────────────────────────────────────────────────────────────
-async def _get_companies_data(session, uid: int):
-    stmt = (
-        select(
-            Company.id,
-            Company.name,
-            Company.address,
-            Company.google_place_id,
-            func.count(Review.id).label("review_count"),
-            func.coalesce(func.avg(Review.rating), 0).label("avg_rating"),
-        )
-        .outerjoin(Review, Company.id == Review.company_id)
-        .where(Company.owner_id == uid)
-        .group_by(Company.id, Company.name, Company.address, Company.google_place_id)
-        .order_by(desc(Company.created_at))
-    )
-    res = await session.execute(stmt)
-    return [
-        {
-            "id": int(r.id),
-            "name": r.name,
-            "address": r.address or "",
-            "place_id": r.google_place_id or "",
-            "review_count": int(r.review_count or 0),
-            "avg_rating": round(float(r.avg_rating or 0), 2),
-        }
-        for r in res.all()
-    ]
-
-# ─────────────────────────────────────────────────────────────
-# UI: Companies page (HTML)
-# ─────────────────────────────────────────────────────────────
-@router.get("/companies", response_class=HTMLResponse, include_in_schema=False)
-async def companies_page(
-    request: Request,
-    q: str | None = None,
-    page: int = 1,
-    size: int = 10,
-):
-    uid = _require_user(request)
-    async with get_session() as session:
-        stmt = select(Company).where(Company.owner_id == uid).order_by(Company.created_at.desc())
-        if q:
-            stmt = stmt.where(
-                or_(
-                    Company.name.ilike(f"%{q}%"),
-                    Company.address.ilike(f"%{q}%"),
-                )
-            )
-        result = await session.execute(stmt)
-        all_rows = result.scalars().all()
-        total = len(all_rows)
-        items = all_rows[(page - 1) * size : (page - 1) * size + size]
-
-    return templates.TemplateResponse(
-        "companies.html",
-        {
-            "request": request,
-            "items": items,
-            "page": page,
-            "size": size,
-            "total": total,
-            "q": q or "",
-        },
-    )
-
-# ─────────────────────────────────────────────────────────────
-# API: List companies (JSON)
-# ─────────────────────────────────────────────────────────────
-@router.get("/companies/list")
-async def list_companies(request: Request):
-    uid = _require_user(request)
-    async with get_session() as session:
-        data = await _get_companies_data(session, uid)
-    return {"success": True, "companies": data}
-
-# ─────────────────────────────────────────────────────────────
-# API: Search Google Places
-# ─────────────────────────────────────────────────────────────
-@router.get("/google/places/search")
-async def search_google_places(q: str = Query(..., min_length=3)):
+# ──────────────────────────────────────────────────────────────────────────────
+# External clients (safe getters)
+# ──────────────────────────────────────────────────────────────────────────────
+def _get_gmaps_client() -> Optional[Any]:
+    """Return a Google Maps client if available. Keep it safe to missing creds."""
+    key = getattr(settings, "google_maps_api_key", "")
+    if not key:
+        return None
     try:
-        gmaps_client = _get_gmaps_client()
-        result = gmaps_client.places(query=q)
-        places = [
-            {
-                "place_id": p["place_id"],
-                "name": p["name"],
-                "formatted_address": p.get("formatted_address"),
-            }
-            for p in result.get("results", [])
-        ]
-        return {"success": True, "results": places}
-    except Exception as e:
-        logger.error(f"Google Places search failed: {e}", exc_info=True)
-        return {"success": False, "message": str(e)}
+        import googlemaps  # type: ignore
+        return googlemaps.Client(key=key)
+    except Exception as ex:
+        logger.info("googlemaps not available: %s", ex)
+        return None
 
-# ─────────────────────────────────────────────────────────────
-# API: Add new company (called by front-end FormData)
-# ─────────────────────────────────────────────────────────────
+
+def _get_reviews_client(request: Request) -> Optional[Any]:
+    return getattr(request.app.state, "reviews_client", None)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Data aggregators
+# ──────────────────────────────────────────────────────────────────────────────
+async def _get_companies_data(page: int = 1, size: int = 20, q: Optional[str] = None) -> Dict[str, Any]:
+    page = max(1, page)
+    size = max(1, min(100, size))
+
+    async with get_session() as session:
+        stmt = select(Company)
+        if q:
+            like = f"%{q}%"
+            try:
+                stmt = stmt.where(Company.name.ilike(like))
+            except Exception:
+                stmt = stmt.where(Company.name.like(like))
+        stmt = stmt.order_by(desc(getattr(Company, "created_at", Company.id)))
+        total = (await session.execute(select(func.count(Company.id)).select_from(Company))).scalar() or 0
+        rows = (await session.execute(stmt.offset((page-1)*size).limit(size))).scalars().all() or []
+
+        data: List[Dict[str, Any]] = []
+        for c in rows:
+            stats = (await session.execute(
+                select(func.count(Review.id), func.avg(Review.rating)).where(Review.company_id == c.id)
+            )).first()
+            data.append({
+                "id": int(c.id),
+                "name": getattr(c, "name", ""),
+                "place_id": getattr(c, "place_id", ""),
+                "address": getattr(c, "address", ""),
+                "review_count": int(stats[0] or 0) if stats else 0,
+                "avg_rating": round(float(stats[1] or 0.0), 2) if stats else 0.0,
+            })
+
+    return {"page": page, "size": size, "total": int(total), "items": data}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Routes
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/companies", response_class=HTMLResponse)
+async def companies_page(request: Request, page: int = 1, size: int = 20, q: Optional[str] = None):
+    _require_user(request)
+    payload = await _get_companies_data(page=page, size=size, q=q)
+    # Render template if exists; otherwise show a fallback HTML block
+    try:
+        return templates.TemplateResponse("companies.html", {"request": request, **payload})
+    except Exception:
+        items = ''.join([f"<li>#{i['id']} {i['name']} — Reviews: {i['review_count']} (avg {i['avg_rating']})</li>" for i in payload['items']])
+        html = f"<h2>Companies</h2><ul>{items}</ul>"
+        return HTMLResponse(html)
+
+
+@router.get("/companies/list")
+async def companies_list(request: Request, page: int = 1, size: int = 20, q: Optional[str] = None):
+    _require_user(request)
+    return await _get_companies_data(page=page, size=size, q=q)
+
+
+@router.get("/google/places/search")
+async def google_places_search(request: Request, q: str = Query(..., min_length=3)):
+    _require_user(request)
+    client = _get_gmaps_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Google Maps client not configured")
+    try:
+        res = client.places(q)
+        out = []
+        for r in res.get('results', []):
+            out.append({
+                "place_id": r.get("place_id"),
+                "name": r.get("name"),
+                "formatted_address": r.get("formatted_address") or (r.get("vicinity") or ""),
+            })
+        return {"items": out}
+    except Exception as ex:
+        logger.exception("Google Places search failed: %s", ex)
+        raise HTTPException(status_code=500, detail="Google Places search failed")
+
+
 @router.post("/companies")
-async def add_new_company(
-    bg_tasks: BackgroundTasks,
+async def add_company(
     request: Request,
+    background: BackgroundTasks,
     name: str = Form(...),
-    google_place_id: str = Form(...),
-    address: str | None = Form(None),
+    place_id: Optional[str] = Form(None),
+    address: Optional[str] = Form(None),
 ):
-    """
-    Front-end calls this with FormData. We return 200 with {success, id, message}.
-    If the company already exists for this owner, we return success=True + existing id
-    so the UI can continue without showing a 400 error.
-    """
-    uid = _require_user(request)
+    _require_user(request)
     async with get_session() as session:
-        # Check duplicate by (owner_id, google_place_id)
-        existing = await session.execute(
-            select(Company).where(
-                Company.google_place_id == google_place_id,
-                Company.owner_id == uid,
-            )
-        )
-        exist_company = existing.scalar_one_or_none()
-        if exist_company:
-            # Return success True to keep UI happy (no special error handling needed)
-            return {
-                "success": True,
-                "id": int(exist_company.id),
-                "message": "This place is already added for your account.",
-            }
-
-        # Create company
-        new_company = Company(
-            name=name.strip(),
-            google_place_id=google_place_id,
-            address=address.strip() if address else None,
-            owner_id=uid,
-        )
-        session.add(new_company)
-        await session.flush()
-
-        # Audit log
-        session.add(
-            AuditLog(
-                user_id=uid,
-                action="company_add_google",
-                meta={"company_id": new_company.id, "place_id": google_place_id},
-            )
-        )
+        # Prevent duplicate by place_id if provided
+        if place_id:
+            existing = (await session.execute(select(Company).where(Company.place_id == place_id))).scalars().first()
+            if existing:
+                raise HTTPException(status_code=400, detail="Company already exists for this place_id")
+        c = Company(name=name.strip(), place_id=place_id or "", address=address or "")
+        session.add(c)
         await session.commit()
-        await session.refresh(new_company)
-
-        # Trigger background sync immediately (so first charts load after a short delay)
+        await session.refresh(c)
+        # Audit log if available
         try:
-            reviews_client = _get_reviews_client(request)
-            sync_entities = [{"place_id": google_place_id, "name": name}]
-            bg_tasks.add_task(
-                run_batch_review_ingestion,
-                api_client=reviews_client,
-                primary_company_id=new_company.id,
-                entities=sync_entities
-            )
-        except HTTPException as e:
-            # If reviews client not configured, still return success; UI will work with empty data
-            logger.warning("Reviews client missing; skipping initial sync: %s", e.detail)
+            if AuditLog is not None:
+                log = AuditLog(action="company_add", entity_id=c.id, details={"name": name, "place_id": place_id or ""})
+                session.add(log)
+                await session.commit()
+        except Exception:
+            pass
 
-        companies = await _get_companies_data(session, uid)
+    # Trigger background ingestion
+    client = _get_reviews_client(request)
+    if run_batch_review_ingestion and client:
+        background.add_task(run_batch_review_ingestion, client, [c])
 
-    logger.info("Company added & sync started: %s (ID: %s)", new_company.name, new_company.id)
+    # Return updated list
+    payload = await _get_companies_data(page=1, size=20, q=None)
+    return {"status": "ok", "company": {"id": int(c.id), "name": c.name, "place_id": c.place_id, "address": c.address}, "list": payload}
 
-    return {
-        "success": True,
-        "id": int(new_company.id),
-        "company": {
-            "id": int(new_company.id),
-            "name": new_company.name,
-            "place_id": new_company.google_place_id,
-        },
-        "companies": companies,
-        "message": "Company added. Review sync started in background.",
-    }
 
-# ─────────────────────────────────────────────────────────────
-# API: Sync reviews for existing company (front-end Sync button)
-# ─────────────────────────────────────────────────────────────
 @router.post("/companies/{company_id}/sync")
-async def company_sync(
-    company_id: int,
-    request: Request,
-    bg_tasks: BackgroundTasks,
-):
-    """
-    Trigger background ingestion for the given company.
-    Front-end calls this with an empty POST body.
-    """
-    uid = _require_user(request)
+async def sync_company_reviews(request: Request, background: BackgroundTasks, company_id: int):
+    _require_user(request)
     async with get_session() as session:
-        company = await session.get(Company, company_id)
-        if not company or company.owner_id != uid:
-            raise HTTPException(404, "Company not found or not owned by you")
+        comp = await session.get(Company, company_id)
+        if not comp:
+            raise HTTPException(status_code=404, detail="Company not found")
+    client = _get_reviews_client(request)
+    if not (run_batch_review_ingestion and client):
+        raise HTTPException(status_code=503, detail="Reviews client or ingestion unavailable")
+    background.add_task(run_batch_review_ingestion, client, [comp])
+    return {"status": "queued", "company_id": company_id}
 
-        if not company.google_place_id:
-            raise HTTPException(status_code=400, detail="Company has no google_place_id configured")
 
-        # Trigger background sync (non-blocking)
-        reviews_client = _get_reviews_client(request)
-        sync_entities = [{"place_id": company.google_place_id, "name": company.name}]
-        bg_tasks.add_task(
-            run_batch_review_ingestion,
-            api_client=reviews_client,
-            primary_company_id=company.id,
-            entities=sync_entities
-        )
-
-        session.add(
-            AuditLog(
-                user_id=uid,
-                action="company_sync_triggered",
-                meta={"company_id": company.id},
-            )
-        )
-        await session.commit()
-        companies = await _get_companies_data(session, uid)
-
-    return {
-        "success": True,
-        "message": "Background database sync triggered successfully",
-        "companies": companies,
-    }
-
-# ─────────────────────────────────────────────────────────────
-# DELETE: Remove company
-# ─────────────────────────────────────────────────────────────
 @router.post("/companies/{company_id}/delete")
-async def company_delete(request: Request, company_id: int):
-    uid = _require_user(request)
+async def delete_company(request: Request, company_id: int):
+    _require_user(request)
     async with get_session() as session:
-        stmt = delete(Company).where(
-            Company.id == company_id,
-            Company.owner_id == uid,
-        )
-        result = await session.execute(stmt)
-        if result.rowcount == 0:
-            raise HTTPException(404, "Company not found")
-
-        session.add(
-            AuditLog(
-                user_id=uid,
-                action="company_delete",
-                meta={"company_id": company_id},
-            )
-        )
+        comp = await session.get(Company, company_id)
+        if not comp:
+            raise HTTPException(status_code=404, detail="Company not found")
+        # Audit log
+        try:
+            if AuditLog is not None:
+                log = AuditLog(action="company_delete", entity_id=comp.id, details={"name": comp.name})
+                session.add(log)
+        except Exception:
+            pass
+        await session.delete(comp)
         await session.commit()
-
-    return RedirectResponse("/companies", status_code=302)
+    return RedirectResponse(url="/companies", status_code=status.HTTP_302_FOUND)
