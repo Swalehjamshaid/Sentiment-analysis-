@@ -81,17 +81,16 @@ class DummyReviewsClient:
 # Lifespan
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # DB setup
     try:
         engine: AsyncEngine = get_engine()
         async with engine.begin() as conn:
-            # Ensure config table
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS config (
                     key TEXT PRIMARY KEY,
                     value TEXT
                 )
             """))
-            # Schema version check
             result = await conn.execute(text("SELECT value FROM config WHERE key='schema_version'"))
             row = result.first()
             db_version = row[0] if row else None
@@ -105,7 +104,7 @@ async def lifespan(app: FastAPI):
                         VALUES ('schema_version', :v)
                         ON CONFLICT (key) DO UPDATE SET value = :v
                     """),
-                    {"v": str(SCHEMA_VERSION)},  # <--- retained logic
+                    {"v": str(SCHEMA_VERSION)},
                 )
                 logger.info("✅ Schema rebuilt to v%s", SCHEMA_VERSION)
             else:
@@ -117,11 +116,11 @@ async def lifespan(app: FastAPI):
     # Outscraper client
     api_key = os.getenv("OUTSCRAPER_API_KEY") or getattr(settings, "OUTSCRAPER_API_KEY", None)
     if api_key and len(api_key) > 10:
-        app.state.google_reviews_client = OutscraperClient(api_key=api_key)
+        app.state.reviews_client = OutscraperClient(api_key=api_key)
         app.state.api_status = "Connected"
         logger.info("🚀 Outscraper Client: CONNECTED")
     else:
-        app.state.google_reviews_client = DummyReviewsClient()
+        app.state.reviews_client = DummyReviewsClient()
         app.state.api_status = "Disconnected (API Key Missing)"
         logger.error("🛑 OUTSCRAPER_API_KEY missing.")
 
@@ -132,9 +131,9 @@ async def lifespan(app: FastAPI):
     yield
 
     # Close client gracefully
-    if hasattr(app.state, "google_reviews_client"):
+    if hasattr(app.state, "reviews_client"):
         try:
-            await app.state.google_reviews_client.close()
+            await app.state.reviews_client.close()
         except Exception:
             pass
         logger.info("Outscraper client closed.")
@@ -188,19 +187,14 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
 @app.post("/login", response_class=RedirectResponse)
 async def login_post(request: Request):
     user = {"id": 1, "email": "roy.jamshaid@gmail.com", "name": "Rai Jamshaid"}
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    # ✅ FIXED: Store both user and user_id in session for _require_user
     request.session["user"] = user
     request.session["user_id"] = user["id"]
-
     return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
 
 
 # Include routers
 app.include_router(auth_routes.router)
-app.include_router(companies_routes.router)
+app.include_router(companies_routes.router)  # <-- fixes /api/google_autocomplete 404
 app.include_router(dashboard_routes.router)
 app.include_router(reviews_routes.router)
 app.include_router(exports_routes.router)
