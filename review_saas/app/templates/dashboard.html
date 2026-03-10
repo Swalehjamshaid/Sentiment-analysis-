@@ -356,10 +356,10 @@
       }, timeout);
     }
 
-    async function fetchJSON(url, options={}, retries=2, backoffMs=400) {
+    async function fetchJSON(url, options={}, retries=2, backoffMs=400) {   for (let i = 0; i <= retries; i++) {     try {       const res = await fetch(url, { ...options, credentials: "include" });        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);        return await res.json();      } catch (err) {        if (i === retries) throw err;        await new Promise(r => setTimeout(r, backoffMs * Math.pow(2, i)));      }   } } {   for (let i = 0; i <= retries; i++) {     try {       const res = await fetch(url, { ...options, credentials: "include" });        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);        return await res.json();      } catch (err) {        if (i === retries) throw err;        await new Promise(r => setTimeout(r, backoffMs * Math.pow(2, i)));      }   } } {
       for (let i = 0; i <= retries; i++) {
         try {
-          const res = await fetch(url, options);
+          const res = await async function fetchJSON(url, options={}, retries=2, backoffMs=400) {   for (let i = 0; i <= retries; i++) {     try {       const res = await fetch(url, { ...options, credentials: "include" });        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);        return await res.json();      } catch (err) {        if (i === retries) throw err;        await new Promise(r => setTimeout(r, backoffMs * Math.pow(2, i)));      }   } } {async function fetchJSON(url, options={}, retries=2, backoffMs=400) {   for (let i = 0; i <= retries; i++) {     try {       const res = await fetch(url, { ...options, credentials: "include" });        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);        return await res.json();      } catch (err) {        if (i === retries) throw err;        await new Promise(r => setTimeout(r, backoffMs * Math.pow(2, i)));      }   } } {
           if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
           return await res.json();
         } catch (err) {
