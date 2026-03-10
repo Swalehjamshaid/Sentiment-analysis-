@@ -1,257 +1,209 @@
-# filename: app/routes/companies.py
 from __future__ import annotations
-
 import logging
-from typing import Any, Dict, List, Optional
+import os
+from contextlib import asynccontextmanager
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+import httpx
+from fastapi import FastAPI, Request, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
-from sqlalchemy import desc, func, select
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.core.db import get_session
-from app.core.models import Company, Review
+from app.core.config import settings
+from app.core.db import get_engine, get_session
+from app.core.models import Base, SCHEMA_VERSION, Company, Review
 
-# Optional AuditLog model
-try:
-    from app.core.models import AuditLog
-except Exception:
-    AuditLog = None
+# Routers
+from app.routes import auth as auth_routes
+from app.routes import companies as companies_routes
+from app.routes import dashboard as dashboard_routes
+from app.routes import reviews as reviews_routes
+from app.routes import exports as exports_routes
 
-# Optional settings
-try:
-    from app.core.config import settings
-except Exception:
-    class _S:
-        google_maps_api_key: str = ""
-    settings = _S()
+# Logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("app.main")
 
-# Google Places service
-try:
-    from app.services.google_places import place_details
-except Exception:
-    place_details = None
 
-# Review ingestion
-try:
-    from app.services.google_reviews import run_batch_review_ingestion
-except Exception:
-    run_batch_review_ingestion = None
+# Outscraper Client
+class OutscraperClient:
+    BASE_URL = "https://api.app.outscraper.com/google-reviews"
 
-# CHANGED: If your main.py includes this with prefix="/api", 
-# then leave prefix="" here to avoid /api/api/ routes.
-router = APIRouter(tags=["companies"], prefix="/api")
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=30.0))
+
+    async def get_reviews(self, place_id: str, limit: int = 200, offset: int = 0) -> Dict[str, Any]:
+        try:
+            params = {"query": place_id, "limit": limit, "offset": offset, "async": "false"}
+            headers = {"X-API-KEY": self.api_key}
+            logger.info("📡 Requesting Outscraper reviews for Place ID: %s", place_id)
+            response = await self.client.get(self.BASE_URL, params=params, headers=headers)
+            if response.status_code != 200:
+                logger.error("❌ Outscraper API Error %s: %s", response.status_code, response.text)
+                return {"reviews": []}
+            data = response.json()
+            if isinstance(data, list) and data:
+                q = data[0]
+                reviews = q.get("reviews_data", [])
+                if not reviews and q.get("error"):
+                    logger.warning("⚠️ Outscraper error: %s", q["error"])
+                logger.info("✅ Fetched %s reviews for %s", len(reviews), place_id)
+                return {"reviews": reviews}
+            logger.warning("⚠️ Outscraper returned unexpected format.")
+            return {"reviews": []}
+        except Exception as e:
+            logger.error("🚨 Outscraper Client Failure: %s", e, exc_info=True)
+            return {"reviews": []}
+
+    async def close(self):
+        await self.client.aclose()
+
+
+# Dummy client
+class DummyReviewsClient:
+    async def get_reviews(self, *args, **kwargs):
+        logger.warning("⚠️ DUMMY MODE: No real reviews will be fetched.")
+        return {"reviews": []}
+
+    async def close(self):
+        pass
+
+
+# Lifespan
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # DB setup
+    try:
+        engine: AsyncEngine = get_engine()
+        async with engine.begin() as conn:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS config (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            """))
+            result = await conn.execute(text("SELECT value FROM config WHERE key='schema_version'"))
+            row = result.first()
+            db_version = row[0] if row else None
+            if db_version != str(SCHEMA_VERSION):
+                logger.warning("🔄 Schema mismatch: DB v%s → v%s. Rebuilding...", db_version, SCHEMA_VERSION)
+                await conn.run_sync(Base.metadata.drop_all)
+                await conn.run_sync(Base.metadata.create_all)
+                await conn.execute(
+                    text("""
+                        INSERT INTO config (key, value)
+                        VALUES ('schema_version', :v)
+                        ON CONFLICT (key) DO UPDATE SET value = :v
+                    """),
+                    {"v": str(SCHEMA_VERSION)},
+                )
+                logger.info("✅ Schema rebuilt to v%s", SCHEMA_VERSION)
+            else:
+                await conn.run_sync(Base.metadata.create_all)
+                logger.info("✅ Schema v%s verified.", SCHEMA_VERSION)
+    except Exception as e:
+        logger.error("❌ Database startup failed: %s", e, exc_info=True)
+
+    # Outscraper client
+    api_key = os.getenv("OUTSCRAPER_API_KEY") or getattr(settings, "OUTSCRAPER_API_KEY", None)
+    if api_key and len(api_key) > 10:
+        app.state.reviews_client = OutscraperClient(api_key=api_key)
+        app.state.api_status = "Connected"
+        logger.info("🚀 Outscraper Client: CONNECTED")
+    else:
+        app.state.reviews_client = DummyReviewsClient()
+        app.state.api_status = "Disconnected (API Key Missing)"
+        logger.error("🛑 OUTSCRAPER_API_KEY missing.")
+
+    # Secret key check
+    if not getattr(settings, "SECRET_KEY", None):
+        logger.error("🛑 SECRET_KEY is missing in settings.")
+
+    yield
+
+    # Close client gracefully
+    if hasattr(app.state, "reviews_client"):
+        try:
+            await app.state.reviews_client.close()
+        except Exception:
+            pass
+        logger.info("Outscraper client closed.")
+
+
+# FastAPI app
+app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
+
+# Static & templates
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
-logger = logging.getLogger("app.companies")
 
 
-# ─────────────────────────────────────────
-# Auth helper
-# ─────────────────────────────────────────
-def _require_user(request: Request) -> None:
-    if not request.session.get("user"):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+# Current user
+def get_current_user(request: Request) -> Optional[dict]:
+    return request.session.get("user")
 
 
-# ─────────────────────────────────────────
-# Google Maps Client
-# ─────────────────────────────────────────
-def _get_gmaps_client() -> Optional[Any]:
-    key = getattr(settings, "google_maps_api_key", "")
-    if not key:
-        logger.warning("Google Maps API key not configured")
-        return None
-
-    try:
-        import googlemaps
-        return googlemaps.Client(key=key)
-    except Exception as ex:
-        logger.warning("Google Maps client failed: %s", ex)
-        return None
+# Landing & dashboard
+@app.get("/", response_class=HTMLResponse)
+async def landing(request: Request):
+    return templates.TemplateResponse("landing.html", {"request": request, "settings": settings})
 
 
-# ─────────────────────────────────────────
-# FIXED: Google Autocomplete Endpoint
-# ─────────────────────────────────────────
-@router.get("/google_autocomplete")
-async def google_autocomplete(request: Request, input: str = Query(...)):
-    """
-    Backend proxy for Google Places Autocomplete
-    """
-    _require_user(request)
-
-    client = _get_gmaps_client()
-    if not client:
-        # Return JSON instead of raising a raw exception to avoid HTML responses
-        return JSONResponse(
-            status_code=503, 
-            content={"error": "Google Maps client not configured"}
-        )
-
-    try:
-        # Use asyncio.to_thread because googlemaps client is synchronous/blocking
-        import asyncio
-        res = await asyncio.to_thread(client.places_autocomplete, input)
-
-        predictions = []
-        for p in res:
-            predictions.append({
-                "description": p.get("description"),
-                "place_id": p.get("place_id")
-            })
-
-        return {"predictions": predictions}
-
-    except Exception as ex:
-        logger.exception("Google autocomplete failed: %s", ex)
-        return JSONResponse(status_code=500, content={"error": "Autocomplete failed"})
-
-
-# ─────────────────────────────────────────
-# Google Place Details
-# ─────────────────────────────────────────
-@router.get("/google/place/details")
-async def google_place_details(request: Request, place_id: str = Query(...)):
-    _require_user(request)
-
-    if not place_details:
-        raise HTTPException(status_code=503, detail="Google Places service not configured")
-
-    try:
-        import asyncio
-        data = await asyncio.to_thread(place_details, place_id)
-        result = data.get("result", {})
-
-        return {
-            "name": result.get("name"),
-            "place_id": result.get("place_id"),
-            "address": result.get("formatted_address"),
-            "rating": result.get("rating"),
-            "user_ratings_total": result.get("user_ratings_total")
-        }
-
-    except Exception as ex:
-        logger.exception("Google place details failed: %s", ex)
-        raise HTTPException(status_code=500, detail="Google place lookup failed")
-
-
-# ─────────────────────────────────────────
-# Fetch Company Reviews
-# ─────────────────────────────────────────
-@router.get("/companies/{company_id}/reviews")
-async def get_company_reviews(request: Request, company_id: int):
-    _require_user(request)
-
-    client = getattr(request.app.state, "reviews_client", None)
-    if not client:
-        raise HTTPException(status_code=503, detail="Reviews client not available")
-
-    try:
-        reviews = await client.fetch_reviews(company_id)
-        return {"reviews": reviews}
-    except Exception as ex:
-        logger.exception("Error fetching reviews: %s", ex)
-        raise HTTPException(status_code=500, detail="Failed to fetch reviews")
-
-
-# ─────────────────────────────────────────
-# Companies Data (Internal Helper)
-# ─────────────────────────────────────────
-async def _get_companies_data(page: int = 1, size: int = 20, q: Optional[str] = None) -> Dict[str, Any]:
-    page = max(1, page)
-    size = max(1, min(100, size))
-
-    async with get_session() as session:
-        stmt = select(Company)
-        if q:
-            stmt = stmt.where(Company.name.ilike(f"%{q}%"))
-
-        stmt = stmt.order_by(desc(Company.created_at))
-
-        total = (await session.execute(select(func.count(Company.id)))).scalar() or 0
-        rows = (await session.execute(stmt.offset((page - 1) * size).limit(size))).scalars().all()
-
-        data = []
-        for c in rows:
-            stats = (await session.execute(
-                select(func.count(Review.id), func.avg(Review.rating))
-                .where(Review.company_id == c.id)
-            )).first()
-
-            data.append({
-                "id": int(c.id),
-                "name": c.name,
-                "place_id": getattr(c, "place_id", ""),
-                "address": getattr(c, "address", ""),
-                "review_count": int(stats[0] or 0),
-                "avg_rating": round(float(stats[1] or 0), 2)
-            })
-
-    return {"page": page, "size": size, "total": int(total), "items": data}
-
-
-# ─────────────────────────────────────────
-# Companies List API (Returns JSON)
-# ─────────────────────────────────────────
-@router.get("/companies")
-async def companies_list(request: Request, page: int = 1, size: int = 20, q: Optional[str] = None):
-    """
-    FIXED: Changed from HTMLResponse to JSON by default. 
-    This ensures the 'Load' button gets JSON data.
-    """
-    _require_user(request)
-    return await _get_companies_data(page, size, q)
-
-
-# ─────────────────────────────────────────
-# Add Company
-# ─────────────────────────────────────────
-@router.post("/companies")
-async def add_company(
-    request: Request,
-    background: BackgroundTasks,
-    name: str = Form(...),
-    place_id: Optional[str] = Form(None),
-    address: Optional[str] = Form(None),
-):
-    _require_user(request)
-
-    async with get_session() as session:
-        c = Company(
-            name=name.strip(),
-            place_id=place_id or "",
-            address=address or ""
-        )
-        session.add(c)
-        await session.commit()
-        await session.refresh(c)
-
-    client = getattr(request.app.state, "reviews_client", None)
-    if run_batch_review_ingestion and client:
-        background.add_task(run_batch_review_ingestion, client, [c])
-
+@app.get("/health")
+async def health():
     return {
         "status": "ok",
-        "company": {
-            "id": int(c.id),
-            "name": c.name,
-            "place_id": c.place_id,
-            "address": c.address
-        }
+        "api_client": getattr(app.state, "api_status", "unknown"),
+        "database": "connected",
+        "schema_version": SCHEMA_VERSION,
     }
 
 
-# ─────────────────────────────────────────
-# Delete Company
-# ─────────────────────────────────────────
-@router.post("/companies/{company_id}/delete")
-async def delete_company(request: Request, company_id: int):
-    _require_user(request)
-    async with get_session() as session:
-        comp = await session.get(Company, company_id)
-        if not comp:
-            raise HTTPException(status_code=404, detail="Company not found")
-        await session.delete(comp)
-        await session.commit()
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
+    if not user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
 
-    return RedirectResponse(url="/dashboard", status_code=302)
+
+# Login route
+@app.post("/login", response_class=RedirectResponse)
+async def login_post(request: Request):
+    user = {"id": 1, "email": "roy.jamshaid@gmail.com", "name": "Rai Jamshaid"}
+    request.session["user"] = user
+    request.session["user_id"] = user["id"]
+    return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+
+
+# Include routers
+app.include_router(auth_routes.router)
+app.include_router(companies_routes.router)  # <-- fixes /api/google_autocomplete 404
+app.include_router(dashboard_routes.router)
+app.include_router(reviews_routes.router)
+app.include_router(exports_routes.router)
+
+
+# Railway entry point
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8080))
+    host = "0.0.0.0"
+    logger.info(f"Starting Uvicorn on http://{host}:{port}")
+    uvicorn.run("app.main:app", host=host, port=port, log_level="info", workers=1, limit_concurrency=300, timeout_keep_alive=30)
