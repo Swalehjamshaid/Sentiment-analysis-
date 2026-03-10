@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import logging
 import asyncio
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel
 
 from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -24,6 +25,13 @@ router = APIRouter(tags=["companies"], prefix="/api")
 templates = Jinja2Templates(directory="app/templates")
 logger = logging.getLogger("app.companies")
 
+# ─────────────────────────────────────────
+# JSON Schema for Adding Company
+# ─────────────────────────────────────────
+class CompanyCreate(BaseModel):
+    name: str
+    place_id: str
+    address: Optional[str] = None
 
 # ─────────────────────────────────────────
 # Auth helper
@@ -31,7 +39,6 @@ logger = logging.getLogger("app.companies")
 def _require_user(request: Request) -> None:
     if not request.session.get("user"):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
 
 # ─────────────────────────────────────────
 # Google Maps Client
@@ -48,7 +55,6 @@ def _get_gmaps_client() -> Optional[Any]:
     except Exception as ex:
         logger.warning("Google Maps client failed: %s", ex)
         return None
-
 
 # ─────────────────────────────────────────
 # Google Autocomplete Endpoint
@@ -74,7 +80,6 @@ async def google_autocomplete(request: Request, input: str = Query(...)):
             content={"error": "Autocomplete service unavailable"}
         )
 
-
 # ─────────────────────────────────────────
 # Google Place Details
 # ─────────────────────────────────────────
@@ -97,7 +102,6 @@ async def google_place_details(request: Request, place_id: str = Query(...)):
     except Exception as ex:
         logger.exception("Google place details failed: %s", ex)
         raise HTTPException(status_code=500, detail="Google place lookup failed")
-
 
 # ─────────────────────────────────────────
 # Companies Data Helper
@@ -136,35 +140,37 @@ async def _get_companies_data(page: int = 1, size: int = 20, q: Optional[str] = 
 
     return {"page": page, "size": size, "total": int(total), "items": data}
 
-
 # ─────────────────────────────────────────
-# Companies List API
+# Companies List API (Fixed for .map())
 # ─────────────────────────────────────────
 @router.get("/companies")
 async def companies_list(request: Request, page: int = 1, size: int = 20, q: Optional[str] = None):
     _require_user(request)
     data = await _get_companies_data(page, size, q)
-    return data
-
+    # Return only the items array to fix "data.map is not a function"
+    return data["items"]
 
 # ─────────────────────────────────────────
-# Add Company
+# Add Company (Fixed for JSON input)
 # ─────────────────────────────────────────
 @router.post("/companies")
 async def add_company(
     request: Request,
     background: BackgroundTasks,
-    name: str = Form(...),
-    place_id: Optional[str] = Form(None),
-    address: Optional[str] = Form(None),
+    company_in: CompanyCreate,  # Accepting JSON via Pydantic
 ):
     _require_user(request)
     async with get_session() as session:
-        c = Company(name=name.strip(), place_id=place_id or "", address=address or "")
+        c = Company(
+            name=company_in.name.strip(), 
+            place_id=company_in.place_id or "", 
+            address=company_in.address or ""
+        )
         session.add(c)
         await session.commit()
         await session.refresh(c)
 
+    # Use the reviews client from app state as per your architecture
     client = getattr(request.app.state, "google_reviews_client", None)
     if run_batch_review_ingestion and client:
         background.add_task(run_batch_review_ingestion, client, [c])
@@ -173,7 +179,6 @@ async def add_company(
         "status": "ok",
         "company": {"id": int(c.id), "name": c.name, "place_id": c.place_id, "address": c.address}
     }
-
 
 # ─────────────────────────────────────────
 # Delete Company
