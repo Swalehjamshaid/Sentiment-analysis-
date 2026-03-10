@@ -21,8 +21,8 @@ from sqlalchemy.sql import func
 # ---------------------------------------------------
 Base = declarative_base()
 
-# SCHEMA VERSION
-SCHEMA_VERSION = "15.0.4-full-outscraper-persistence-ready"
+# SCHEMA VERSION (updated for new tables)
+SCHEMA_VERSION = "15.0.5-new-tables-added"
 
 # ---------------------------------------------------
 # Users
