@@ -1,399 +1,485 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Review SaaS Dashboard</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Review SaaS Dashboard</title>
 
-    <!-- Bootstrap CSS FIXED -->
-    <link rel="stylesheet"
-          href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <!-- Bootstrap Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 
-    <!-- Bootstrap Icons -->
-    <link rel="stylesheet"
-          href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <!-- 
+    Google Maps JS API + Places library (Legacy)
+    IMPORTANT — March 2025 change:
+      • New API keys / new projects (after ~March 1, 2025) can NO LONGER use legacy Places library
+      • If this stops working → migrate to Places API (New) + <gmp-autocomplete> or fetch-based autocomplete
+      • Migration guide: https://developers.google.com/maps/documentation/javascript/places-migration-autocomplete
+      • Your key still works if created before deprecation or legacy Places is enabled in console
+  -->
+  <script async
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&callback=initAutocomplete">
+  </script>
 
-    <!-- Chart.js FIXED -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-
-    <!-- Google Places Autocomplete FIXED -->
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
-
-    <style>
-        body { padding: 25px; }
-
-        [data-theme="dark"] {
-            background-color: #121212 !important;
-            color: #e6e6e6 !important;
-        }
-        [data-theme="dark"] .card {
-            background-color: #1f1f1f;
-            color: #ffffff;
-        }
-
-        .kpi-card { min-height: 120px; }
-        .sent-pos { color:#198754; font-weight:bold; }
-        .sent-neu { color:#6c757d; font-weight:bold; }
-        .sent-neg { color:#dc3545; font-weight:bold; }
-
-        #loadingSpinner { display:none; }
-    </style>
+  <style>
+    body { padding: 1.5rem; }
+    [data-theme="dark"] {
+      background: #121212 !important;
+      color: #e0e0e0 !important;
+    }
+    [data-theme="dark"] .card {
+      background: #1e1e1e;
+      color: #ffffff;
+    }
+    [data-theme="dark"] .table-light {
+      --bs-table-bg: #2c2c2c;
+      --bs-table-color: #e0e0e0;
+    }
+    .kpi-card { min-height: 118px; }
+    .sent-pos { color: #198754; font-weight: 700; }
+    .sent-neu { color: #6c757d; font-weight: 700; }
+    .sent-neg { color: #dc3545; font-weight: 700; }
+    #loadingSpinner { display: none; vertical-align: middle; }
+    .cursor-pointer { cursor: pointer; user-select: none; }
+    .form-label { margin-bottom: 0.35rem; }
+    #placeSearch { background: #fff; }
+    #placeId { background: #f8f9fa; font-family: monospace; }
+    .api-error { color: #dc3545; font-size: 0.9rem; margin-top: 0.5rem; }
+  </style>
 </head>
 <body>
 
-<!-- NAVBAR -->
-<nav class="navbar navbar-dark bg-primary rounded mb-4 px-3">
-    <span class="navbar-brand fw-bold fs-4">📊 Review SaaS Dashboard</span>
+  <!-- Top Nav -->
+  <nav class="navbar navbar-expand-lg navbar-dark bg-primary rounded-3 mb-4 shadow-sm">
+    <div class="container-fluid">
+      <span class="navbar-brand fw-bold">📊 Review SaaS Dashboard</span>
+      <button id="toggleTheme" class="btn btn-light btn-sm">
+        <i class="bi bi-moon-stars-fill"></i> Toggle Theme
+      </button>
+    </div>
+  </nav>
 
-    <button id="toggleTheme" class="btn btn-light">
-        <i class="bi bi-moon-stars"></i> Theme
-    </button>
-</nav>
+  <div class="container-fluid">
 
-
-<div class="container-fluid">
-
-    <!-- FILTERS -->
-    <div class="row g-3 mb-4">
-
-        <!-- COMPANY -->
-        <div class="col-md-3">
-            <label class="form-label fw-bold">Company</label>
-            <select id="companySelect" class="form-select"></select>
-        </div>
-
-        <!-- START DATE -->
-        <div class="col-md-2">
-            <label class="form-label fw-bold">Start</label>
-            <input type="date" id="startDate" class="form-control">
-        </div>
-
-        <!-- END DATE -->
-        <div class="col-md-2">
-            <label class="form-label fw-bold">End</label>
-            <input type="date" id="endDate" class="form-control">
-        </div>
-
-        <!-- LIMIT -->
-        <div class="col-md-2">
-            <label class="form-label fw-bold">Limit</label>
-            <select id="limitSelect" class="form-select">
-                <option value="10">10</option>
-                <option value="50" selected>50</option>
-                <option value="100">100</option>
-            </select>
-        </div>
-
-        <!-- LOAD -->
-        <div class="col-md-2 align-self-end">
-            <button id="loadBtn" class="btn btn-primary w-100">Load</button>
-        </div>
-
-        <div class="col-md-1 align-self-end">
-            <div id="loadingSpinner" class="spinner-border text-primary"></div>
-        </div>
-
+    <!-- Filters -->
+    <div class="row g-3 align-items-end mb-4">
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">Company</label>
+        <select id="companySelect" class="form-select"></select>
+        <div class="form-text text-muted" id="companySourceNote"></div>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label fw-semibold">Start Date</label>
+        <input id="startDate" type="date" class="form-control"/>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label fw-semibold">End Date</label>
+        <input id="endDate" type="date" class="form-control"/>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label fw-semibold">Group By</label>
+        <select id="groupBy" class="form-select">
+          <option value="day" selected>Daily</option>
+          <option value="week">Weekly</option>
+          <option value="month">Monthly</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label fw-semibold">Review Limit</label>
+        <select id="limitSelect" class="form-select">
+          <option value="10">10</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+        </select>
+      </div>
+      <div class="col-auto d-flex gap-2 align-items-end">
+        <button id="loadBtn" class="btn btn-primary px-4">Load</button>
+        <div id="loadingSpinner" class="spinner-border spinner-border-sm text-primary" role="status"></div>
+      </div>
     </div>
 
-    <!-- ADD COMPANY -->
-    <button class="btn btn-success mb-4" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+    <!-- Actions -->
+    <div class="d-flex flex-wrap gap-2 mb-4">
+      <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
         <i class="bi bi-plus-circle"></i> Add Company
-    </button>
-
-
-    <!-- KPI CARDS -->
-    <div class="row g-3 mb-4">
-
-        <div class="col-md-2">
-            <div class="card kpi-card shadow">
-                <div class="card-body">
-                    <h6>Total Reviews</h6>
-                    <div id="kpiTotal" class="fs-3 fw-bold">–</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-md-2">
-            <div class="card kpi-card shadow">
-                <div class="card-body">
-                    <h6>Avg Rating</h6>
-                    <div id="kpiRating" class="fs-3 fw-bold">–</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-md-2">
-            <div class="card kpi-card shadow">
-                <div class="card-body">
-                    <h6>Positive</h6>
-                    <div id="kpiPos" class="fs-3 sent-pos">–</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-md-2">
-            <div class="card kpi-card shadow">
-                <div class="card-body">
-                    <h6>Neutral</h6>
-                    <div id="kpiNeu" class="fs-3 sent-neu">–</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-md-2">
-            <div class="card kpi-card shadow">
-                <div class="card-body">
-                    <h6>Negative</h6>
-                    <div id="kpiNeg" class="fs-3 sent-neg">–</div>
-                </div>
-            </div>
-        </div>
-
+      </button>
+      <a class="btn btn-outline-secondary" href="/api/export/reviews.csv" target="_blank">
+        <i class="bi bi-filetype-csv"></i> CSV
+      </a>
+      <a class="btn btn-outline-secondary" href="/api/export/reviews.xlsx" target="_blank">
+        <i class="bi bi-filetype-xlsx"></i> Excel
+      </a>
+      <a class="btn btn-outline-secondary" href="/api/export/summary.pdf" target="_blank">
+        <i class="bi bi-filetype-pdf"></i> PDF
+      </a>
     </div>
 
-    <!-- CHARTS -->
+    <!-- KPI cards -->
+    <div class="row g-3 mb-5">
+      <div class="col-md-2 col-6">
+        <div class="card kpi-card shadow-sm h-100">
+          <div class="card-body text-center">
+            <h6 class="card-title mb-2">Total Reviews</h6>
+            <div id="kpiTotal" class="fs-3 fw-bold">–</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-2 col-6">
+        <div class="card kpi-card shadow-sm h-100">
+          <div class="card-body text-center">
+            <h6 class="card-title mb-2">Avg Rating</h6>
+            <div id="kpiRating" class="fs-3 fw-bold">–</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-2 col-4">
+        <div class="card kpi-card shadow-sm h-100">
+          <div class="card-body text-center">
+            <h6 class="card-title mb-2">Positive</h6>
+            <div id="kpiPos" class="fs-3 sent-pos">–</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-2 col-4">
+        <div class="card kpi-card shadow-sm h-100">
+          <div class="card-body text-center">
+            <h6 class="card-title mb-2">Neutral</h6>
+            <div id="kpiNeu" class="fs-3 sent-neu">–</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-2 col-4">
+        <div class="card kpi-card shadow-sm h-100">
+          <div class="card-body text-center">
+            <h6 class="card-title mb-2">Negative</h6>
+            <div id="kpiNeg" class="fs-3 sent-neg">–</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts -->
     <div class="row g-4 mb-5">
-
-        <div class="col-md-6">
-            <div class="card shadow"><div class="card-body">
-                <h5>Rating Distribution</h5>
-                <canvas id="chartDistribution" height="140"></canvas>
-            </div></div>
+      <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+          <div class="card-body">
+            <h5 class="card-title">Rating Distribution</h5>
+            <canvas id="chartDistribution" height="140"></canvas>
+          </div>
         </div>
-
-        <div class="col-md-6">
-            <div class="card shadow"><div class="card-body">
-                <h5>Review Trend</h5>
-                <canvas id="chartTrend" height="140"></canvas>
-            </div></div>
+      </div>
+      <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+          <div class="card-body">
+            <h5 class="card-title">Review Trend</h5>
+            <canvas id="chartTrend" height="140"></canvas>
+          </div>
         </div>
-
-        <div class="col-md-6">
-            <div class="card shadow mt-4"><div class="card-body">
-                <h5>Sentiment Distribution</h5>
-                <canvas id="chartSentiment" height="140"></canvas>
-            </div></div>
+      </div>
+      <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+          <div class="card-body">
+            <h5 class="card-title">Sentiment Breakdown</h5>
+            <canvas id="chartSentiment" height="140"></canvas>
+          </div>
         </div>
-
+      </div>
     </div>
 
-    <!-- REVIEWS TABLE -->
-    <div class="card shadow mb-5">
-        <div class="card-body">
-            <h4 class="mb-3">Recent Reviews</h4>
-
-            <table class="table table-bordered table-striped">
-                <thead class="table-light">
-                    <tr>
-                        <th>Author</th>
-                        <th>Rating</th>
-                        <th>Sentiment</th>
-                        <th>Date</th>
-                        <th>Review</th>
-                    </tr>
-                </thead>
-                <tbody id="reviewsTable"></tbody>
-            </table>
-
+    <!-- Reviews table -->
+    <div class="card shadow-sm mb-5">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h4 class="mb-0">Recent Reviews</h4>
+          <small class="text-muted">Click headers to sort</small>
         </div>
+        <div class="table-responsive">
+          <table class="table table-striped table-hover table-bordered">
+            <thead class="table-light">
+              <tr>
+                <th>Author</th>
+                <th class="cursor-pointer" onclick="sortReviews('rating')">Rating ⬍</th>
+                <th>Sentiment</th>
+                <th class="cursor-pointer" onclick="sortReviews('date')">Date ⬍</th>
+                <th>Review Text</th>
+              </tr>
+            </thead>
+            <tbody id="reviewsTable"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
-</div>
+  </div>
 
-
-<!-- ADD COMPANY MODAL -->
-<div class="modal fade" id="addCompanyModal" tabindex="-1">
+  <!-- Add Company Modal -->
+  <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyModalLabel" aria-hidden="true">
     <div class="modal-dialog">
-        <form id="addCompanyForm" class="modal-content">
-
-            <div class="modal-header">
-                <h5 class="modal-title">Add Company</h5>
-                <button class="btn-close" data-bs-dismiss="modal"></button>
+      <form id="addCompanyForm" class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="addCompanyModalLabel">Add Company via Google Places</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Search place / business</label>
+            <input id="placeSearch" class="form-control" placeholder="e.g. Pizza Hut Rawalpindi, McDonald's Islamabad..." autocomplete="off">
+            <div class="form-text text-muted">Powered by Google Places</div>
+            <div id="placesLoadError" class="api-error d-none">
+              Google Places failed to load. Check API key, console errors, and whether legacy Places is enabled.
             </div>
-
-            <div class="modal-body">
-
-                <label class="fw-bold">Google Search</label>
-                <input id="placeSearch" class="form-control mb-3">
-
-                <label>Company Name</label>
-                <input id="companyName" name="name" class="form-control mb-2">
-
-                <label>Place ID</label>
-                <input id="placeId" name="place_id" class="form-control mb-2">
-
-                <label>Address</label>
-                <input id="companyAddress" name="address" class="form-control mb-2">
-
-            </div>
-
-            <div class="modal-footer">
-                <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button class="btn btn-success" type="submit">Add Company</button>
-            </div>
-
-        </form>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Company Name</label>
+            <input id="companyName" name="name" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Google Place ID</label>
+            <input id="placeId" name="google_place_id" class="form-control" readonly required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Address</label>
+            <input id="companyAddress" name="address" class="form-control">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="submit" class="btn btn-success">Add Company</button>
+        </div>
+      </form>
     </div>
-</div>
+  </div>
 
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 
-<!-- Bootstrap JS (REQUIRED for modals) -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // Theme toggle
+    document.getElementById("toggleTheme").onclick = () => {
+      document.documentElement.dataset.theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    };
 
-<!-- DASHBOARD LOGIC -->
-<script>
+    let chartTrend, chartDistribution, chartSentiment;
+    let cachedReviews = [];
 
-/* ==============================
-      THEME TOGGLE
-============================== */
-document.getElementById("toggleTheme").onclick = () => {
-    const html = document.documentElement;
-    const t = html.getAttribute("data-theme");
-    html.setAttribute("data-theme", t === "light" ? "dark" : "light");
-};
+    // ── Companies loading ───────────────────────────────────────
+    async function loadCompanies() {
+      const select = document.getElementById("companySelect");
+      const note = document.getElementById("companySourceNote");
+      select.innerHTML = '<option value="">Loading...</option>';
 
-/* ==============================
-   LOAD COMPANIES
-============================== */
-async function loadCompanies() {
-    const res = await fetch("/companies/list");
-    const data = await res.json();
+      try {
+        let data = await fetch("/api/companies").then(r => r.ok ? r.json() : null);
+        let source = "/api/companies";
 
-    const sel = document.getElementById("companySelect");
-    sel.innerHTML = "";
-
-    data.items.forEach(c => {
-        sel.innerHTML += `<option value="${c.id}">${c.name} (${c.place_id})</option>`;
-    });
-}
-
-/* ==============================
-   LOAD DASHBOARD
-============================== */
-async function loadDashboard() {
-    const spinner = document.getElementById("loadingSpinner");
-    spinner.style.display = "inline-block";
-
-    const companyId = document.getElementById("companySelect").value;
-    const start = document.getElementById("startDate").value;
-    const end = document.getElementById("endDate").value;
-    const limit = document.getElementById("limitSelect").value;
-
-    let params = new URLSearchParams({
-        company_id: companyId,
-        limit_reviews: limit,
-        group_by: "day"
-    });
-
-    if (start) params.set("start", start);
-    if (end) params.set("end", end);
-
-    const res = await fetch(`/api/dashboard?${params}`);
-    const d = await res.json();
-
-    spinner.style.display = "none";
-
-    /* KPIs */
-    document.getElementById("kpiTotal").textContent = d.kpis.total_reviews;
-    document.getElementById("kpiRating").textContent = d.kpis.avg_rating;
-    document.getElementById("kpiPos").textContent = d.sentiment_share.positive;
-    document.getElementById("kpiNeu").textContent = d.sentiment_share.neutral;
-    document.getElementById("kpiNeg").textContent = d.sentiment_share.negative;
-
-    /* ========== CHARTS ========== */
-    if (window.chartTrend) chartTrend.destroy();
-    if (window.chartDistribution) chartDistribution.destroy();
-    if (window.chartSentiment) chartSentiment.destroy();
-
-    chartDistribution = new Chart(document.getElementById("chartDistribution"), {
-        type: "bar",
-        data: {
-            labels: ["1★", "2★", "3★", "4★", "5★"],
-            datasets: [{
-                data: Object.values(d.ratings_distribution),
-                backgroundColor: ["#dc3545","#fd7e14","#ffc107","#0d6efd","#198754"]
-            }]
+        if (!data) {
+          data = await fetch("/companies/list").then(r => r.ok ? r.json() : null);
+          source = "/companies/list (fallback)";
         }
-    });
 
-    chartTrend = new Chart(document.getElementById("chartTrend"), {
-        type: "line",
-        data: {
-            labels: d.charts.line.volume.map(i => i.label),
-            datasets: [{
-                label: "Reviews",
-                data: d.charts.line.volume.map(i => i.value),
-                borderColor: "#0d6efd",
-                backgroundColor: "#0d6efd33",
-                fill: true
-            }]
+        select.innerHTML = '<option value="" disabled selected>Select company...</option>';
+
+        if (data) {
+          (data.items || data).forEach(c => {
+            const pid = c.google_place_id ?? c.place_id ?? '—';
+            select.insertAdjacentHTML("beforeend", `<option value="${c.id}">${c.name} (${pid})</option>`);
+          });
+          note.textContent = `Loaded from ${source}`;
+        } else {
+          note.textContent = "No companies available";
         }
-    });
+      } catch (err) {
+        note.textContent = "Error loading companies";
+        console.error(err);
+      }
+    }
 
-    chartSentiment = new Chart(document.getElementById("chartSentiment"), {
-        type: "pie",
-        data: {
-            labels: ["Positive","Neutral","Negative"],
-            datasets:[{
-                data:[
-                    d.sentiment_share.positive,
-                    d.sentiment_share.neutral,
-                    d.sentiment_share.negative
-                ],
-                backgroundColor:["#198754","#6c757d","#dc3545"]
-            }]
+    // ── Dashboard loading ───────────────────────────────────────
+    async function loadDashboard() {
+      const spinner = document.getElementById("loadingSpinner");
+      const companyId = document.getElementById("companySelect").value;
+      if (!companyId) return;
+
+      spinner.style.display = "inline-block";
+
+      try {
+        const params = new URLSearchParams({
+          company_id: companyId,
+          group_by: document.getElementById("groupBy").value,
+          limit_reviews: document.getElementById("limitSelect").value,
+          ai: "false"
+        });
+        if (document.getElementById("startDate").value) params.set("start", document.getElementById("startDate").value);
+        if (document.getElementById("endDate").value)   params.set("end",   document.getElementById("endDate").value);
+
+        const res = await fetch(`/api/dashboard?${params}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const data = await res.json();
+
+        // KPIs
+        document.getElementById("kpiTotal").textContent  = data?.kpis?.total_reviews ?? "–";
+        document.getElementById("kpiRating").textContent = Number(data?.kpis?.avg_rating ?? 0).toFixed(2);
+
+        const share = data?.charts?.pie?.sentiment_share ?? { positive:0, neutral:0, negative:0 };
+        document.getElementById("kpiPos").textContent = share.positive ?? 0;
+        document.getElementById("kpiNeu").textContent = share.neutral ?? 0;
+        document.getElementById("kpiNeg").textContent = share.negative ?? 0;
+
+        // Destroy previous charts
+        [chartTrend, chartDistribution, chartSentiment].forEach(c => c?.destroy());
+
+        // Rating Distribution
+        const dist = data?.charts?.bar?.ratings_distribution ?? {1:0,2:0,3:0,4:0,5:0};
+        const distKeys = Object.keys(dist).sort((a,b)=>+a - +b);
+        chartDistribution = new Chart(document.getElementById("chartDistribution"), {
+          type: "bar",
+          data: {
+            labels: distKeys.map(n => n + " ★"),
+            datasets: [{ data: distKeys.map(k => dist[k]), backgroundColor: ["#dc3545","#fd7e14","#ffc107","#0d6efd","#198754"] }]
+          },
+          options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+        });
+
+        // Trend
+        const trend = data?.charts?.line?.volume ?? [];
+        chartTrend = new Chart(document.getElementById("chartTrend"), {
+          type: "line",
+          data: {
+            labels: trend.map(t => t.label ?? t.date ?? "?"),
+            datasets: [{ label: "Reviews", data: trend.map(t => t.value ?? 0), borderColor: "#0d6efd", backgroundColor: "#0d6efd33", fill: true, tension: 0.3 }]
+          },
+          options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+        });
+
+        // Sentiment Pie
+        chartSentiment = new Chart(document.getElementById("chartSentiment"), {
+          type: "pie",
+          data: {
+            labels: ["Positive", "Neutral", "Negative"],
+            datasets: [{ data: [share.positive, share.neutral, share.negative], backgroundColor: ["#198754","#6c757d","#dc3545"] }]
+          },
+          options: { responsive: true }
+        });
+
+        // Reviews
+        cachedReviews = data?.recent_reviews ?? [];
+        renderReviewsTable(cachedReviews);
+
+      } catch (err) {
+        console.error("Dashboard load failed", err);
+      } finally {
+        spinner.style.display = "none";
+      }
+    }
+
+    function renderReviewsTable(rows) {
+      const tbody = document.getElementById("reviewsTable");
+      tbody.innerHTML = rows?.length
+        ? rows.map(r => {
+            const cls = r.label === "positive" ? "sent-pos" : r.label === "negative" ? "sent-neg" : "sent-neu";
+            return `
+              <tr>
+                <td>${r.author ?? "—"}</td>
+                <td>${Number(r.rating ?? 0).toFixed(1)}</td>
+                <td class="${cls}">${r.label ?? "neutral"}</td>
+                <td>${r.time ?? "—"}</td>
+                <td style="white-space: pre-wrap;">${(r.text ?? "").replace(/</g, "&lt;")}</td>
+              </tr>`;
+          }).join("")
+        : `<tr><td colspan="5" class="text-center py-4 text-muted">No reviews found</td></tr>`;
+    }
+
+    function sortReviews(by) {
+      if (by === "rating") {
+        cachedReviews.sort((a,b) => (b.rating ?? 0) - (a.rating ?? 0));
+      } else {
+        cachedReviews.sort((a,b) => new Date(b.time ?? 0) - new Date(a.time ?? 0));
+      }
+      renderReviewsTable(cachedReviews);
+    }
+
+    // ── Google Places Autocomplete (Legacy) ──────────────────────
+    function initAutocomplete() {
+      const input = document.getElementById("placeSearch");
+      const errorEl = document.getElementById("placesLoadError");
+
+      if (!window.google?.maps?.places) {
+        input.placeholder = "Google Places not available — check API key";
+        errorEl.classList.remove("d-none");
+        return;
+      }
+
+      errorEl.classList.add("d-none");
+
+      const ac = new google.maps.places.Autocomplete(input, {
+        types: ["establishment"],
+        fields: ["name", "place_id", "formatted_address"]
+      });
+
+      ac.addListener("place_changed", () => {
+        const place = ac.getPlace();
+        if (!place.place_id) {
+          alert("Please select a valid suggestion from the list.");
+          return;
         }
+
+        document.getElementById("companyName").value    = place.name ?? "";
+        document.getElementById("placeId").value        = place.place_id;
+        document.getElementById("companyAddress").value = place.formatted_address ?? "";
+      });
+    }
+    window.initAutocomplete = initAutocomplete;
+
+    // Add company form
+    document.getElementById("addCompanyForm").addEventListener("submit", async e => {
+      e.preventDefault();
+      const form = new FormData(e.target);
+      if (!form.get("google_place_id")) {
+        alert("Please select a business from Google suggestions first.");
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/companies", { method: "POST", body: form });
+        if (!res.ok) throw new Error(await res.text() || res.status);
+
+        await loadCompanies();
+
+        const name = form.get("name");
+        const sel = document.getElementById("companySelect");
+        for (const opt of sel.options) {
+          if (opt.text.startsWith(name + " ")) {
+            sel.value = opt.value;
+            break;
+          }
+        }
+
+        bootstrap.Modal.getInstance(document.getElementById("addCompanyModal"))?.hide();
+        await loadDashboard();
+      } catch (err) {
+        alert("Failed to add company:\n" + err.message);
+      }
     });
 
-    /* REVIEWS TABLE */
-    const tbody = document.getElementById("reviewsTable");
-    tbody.innerHTML = "";
-
-    d.recent_reviews.forEach(r => {
-        tbody.innerHTML += `
-            <tr>
-                <td>${r.author}</td>
-                <td>${r.rating}</td>
-                <td class="${
-                    r.label === 'positive' ? 'sent-pos' :
-                    r.label === 'negative' ? 'sent-neg' : 'sent-neu'
-                }">${r.label}</td>
-                <td>${r.time}</td>
-                <td>${r.text}</td>
-            </tr>`;
-    });
-}
-
-/* ==============================
-   GOOGLE AUTOCOMPLETE
-============================== */
-let autocomplete;
-function initAutocomplete() {
-    autocomplete = new google.maps.places.Autocomplete(
-        document.getElementById("placeSearch"),
-        { types: ["establishment"] }
+    // Events
+    document.getElementById("loadBtn").onclick = loadDashboard;
+    document.getElementById("companySelect").onchange = loadDashboard;
+    ["startDate","endDate","groupBy","limitSelect"].forEach(id =>
+      document.getElementById(id).onchange = loadDashboard
     );
 
-    autocomplete.addListener("place_changed", () => {
-        const p = autocomplete.getPlace();
-        if (!p) return;
-
-        document.getElementById("companyName").value = p.name || "";
-        document.getElementById("placeId").value = p.place_id || "";
-        document.getElementById("companyAddress").value =
-            p.formatted_address || "";
+    // Boot
+    loadCompanies().then(() => {
+      if (document.getElementById("companySelect").options.length > 1) {
+        document.getElementById("companySelect").selectedIndex = 1;
+        loadDashboard();
+      }
     });
-}
-
-window.onload = () => {
-    initAutocomplete();
-    loadCompanies().then(loadDashboard);
-};
-
-document.getElementById("loadBtn").onclick = loadDashboard;
-document.getElementById("companySelect").onchange = loadDashboard;
-
-</script>
-
+  </script>
 </body>
 </html>
