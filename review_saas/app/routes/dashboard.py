@@ -14,12 +14,25 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Query, Request, Form, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy import Date, Integer, and_, case, cast, desc, func, literal, select
+from sqlalchemy import Date, Integer, and_, case, cast, desc, func, literal, select, or_
 from starlette.templating import Jinja2Templates
 
 from app.core.db import get_session
 from app.core.models import Company, Review
 from app.routes.companies import _require_user
+
+# Optional AI summary service (best-effort import)
+try:  # pragma: no cover - optional dependency
+    from app.services.ai_insights import summarize_dashboard as _ai_summarize_dashboard  # type: ignore
+except Exception:  # pragma: no cover
+    _ai_summarize_dashboard = None  # type: ignore
+
+# Optional Google reviews service references (not called here; kept for compatibility)
+try:  # pragma: no cover
+    from app.services.google_reviews import ingest_company_reviews, CompanyReviews  # type: ignore
+except Exception:  # pragma: no cover
+    ingest_company_reviews = None  # type: ignore
+    CompanyReviews = None  # type: ignore
 
 # Try to import User if you have it; otherwise ENV fallback login still works.
 try:
@@ -34,8 +47,10 @@ logger = logging.getLogger("app.dashboard")
 # ──────────────────────────────────────────────────────────────────────────────
 # Auth helpers (login flow + safe current_user)
 # ──────────────────────────────────────────────────────────────────────────────
+
 def _constant_time_eq(a: str, b: str) -> bool:
     return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
+
 
 def _verify_password(plain: str, stored_hash: Optional[str]) -> bool:
     """
@@ -73,12 +88,14 @@ def _verify_password(plain: str, stored_hash: Optional[str]) -> bool:
         logger.error("Password verify error: %s", e)
         return False
 
+
 def _is_safe_next(next_url: Optional[str]) -> bool:
     if not next_url:
         return False
     if next_url.startswith("//") or "://" in next_url:
         return False
     return next_url.startswith("/")
+
 
 async def _get_current_user(request: Request) -> Optional[Dict[str, Any]]:
     """
@@ -218,7 +235,8 @@ def _tokenize(text: str) -> List[str]:
         if len(t) <= 2:
             continue
         if t in _NEGATORS:
-            out.append(t); continue
+            out.append(t)
+            continue
         if t in _STOPWORDS:
             continue
         out.append(t)
@@ -494,6 +512,7 @@ async def api_series_reviews(request: Request, company_id: int, start: Optional[
     series = [{"date": str(r.date), "value": int(r.value or 0)} for r in rows]
     return {"series": series, "window": {"start": str(s), "end": str(e)}}
 
+
 @router.get("/api/series/ratings")
 async def api_series_ratings(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     _require_user(request)
@@ -513,6 +532,7 @@ async def api_series_ratings(request: Request, company_id: int, start: Optional[
         )).all()
     series = [{"date": str(r.date), "value": round(float(r.value or 0.0), 3)} for r in rows]
     return {"series": series, "window": {"start": str(s), "end": str(e)}}
+
 
 @router.get("/api/sentiment/series")
 async def api_sentiment_series(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
@@ -534,6 +554,7 @@ async def api_sentiment_series(request: Request, company_id: int, start: Optiona
         )).all()
     series = [{"date": str(r.date), "value": round(float(r.value or 0.0), 3)} for r in rows]
     return {"series": series, "window": {"start": str(s), "end": str(e)}}
+
 
 @router.get("/api/series/overview")
 async def api_series_overview(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
@@ -570,6 +591,7 @@ async def api_ratings_distribution(request: Request, company_id: int, start: Opt
         if rating in dist:
             dist[int(rating)] = int(cnt or 0)
     return {"distribution": dist, "window": {"start": str(s), "end": str(e)}}
+
 
 @router.get("/api/sentiment/share")
 async def api_sentiment_share(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
@@ -721,6 +743,7 @@ async def api_operational_overview(
         "window": {"start": str(s), "end": str(e)},
     }
 
+
 @router.get("/api/alerts")
 async def api_alerts(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
     _require_user(request)
@@ -821,6 +844,7 @@ async def sentiment_summary_v2(request: Request, company_id: int, start: Optiona
         },
     }
 
+
 @router.get("/api/v2/keywords")
 async def keywords_v2(
     request: Request,
@@ -880,3 +904,314 @@ async def keywords_v2(
         "emerging": _cast(kw["emerging"]),
         "bigrams": [{"term": term, "freq": int(freq)} for term, freq in bigs],
     }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Helpers for dashboard aggregation
+# ──────────────────────────────────────────────────────────────────────────────
+def _group_series(series: List[Dict[str, Any]], group_by: str) -> List[Dict[str, Any]]:
+    """Group a daily series by day/week/month. For week we use ISO week; for month we use YYYY-MM.
+    For counts we sum; for averages the caller should pass appropriate reducer.
+    """
+    if group_by == "day":
+        return series
+
+    buckets: Dict[str, List[float]] = defaultdict(list)
+    # we preserve order by sorting dates
+    for item in sorted(series, key=lambda x: x["date"]):
+        dt = datetime.strptime(item["date"], "%Y-%m-%d").date()
+        key = None
+        if group_by == "week":
+            iso_year, iso_week, _ = dt.isocalendar()
+            key = f"{iso_year}-W{iso_week:02d}"
+        elif group_by == "month":
+            key = f"{dt.year}-{dt.month:02d}"
+        else:
+            key = item["date"]
+        buckets[key].append(float(item["value"]))
+
+    # For counts, caller will sum; for averages, caller will average.
+    # Here we store sum in 'value' and retain 'n' for optional averaging outside
+    grouped = []
+    for k in buckets.keys():
+        grouped.append({"label": k, "value_sum": float(sum(buckets[k])), "value_avg": float(sum(buckets[k]) / max(len(buckets[k]), 1)), "n": len(buckets[k])})
+    # preserve chronological order using label sort heuristic
+    def _key_order(lbl: str) -> Tuple[int, int]:
+        if group_by == "week":
+            y, w = lbl.split("-W")
+            return (int(y), int(w))
+        if group_by == "month":
+            y, m = lbl.split("-")
+            return (int(y), int(m))
+        # day
+        d = datetime.strptime(lbl, "%Y-%m-%d").date()
+        return (d.year, d.timetuple().tm_yday)
+
+    grouped.sort(key=lambda x: _key_order(x["label"]))
+    return grouped
+
+
+def _to_line_series_from_grouped(grouped: List[Dict[str, Any]], kind: str = "count") -> List[Dict[str, Any]]:
+    out = []
+    for g in grouped:
+        if kind == "avg":
+            out.append({"label": g["label"], "value": round(float(g["value_avg"]), 3)})
+        else:
+            out.append({"label": g["label"], "value": int(round(float(g["value_sum"])) )})
+    return out
+
+
+def _rolling_average(series: List[Dict[str, Any]], window: int) -> List[Dict[str, Any]]:
+    """Compute rolling average on an ordered daily series; if labels not dates, we just slide over order."""
+    if window <= 1:
+        return [{"date": s.get("date") or s.get("label"), "value": float(s["value"]) } for s in series]
+    vals = [float(s["value"]) for s in series]
+    out: List[Dict[str, Any]] = []
+    for i in range(len(vals)):
+        start = max(0, i - window + 1)
+        chunk = vals[start:i+1]
+        avg = sum(chunk) / len(chunk)
+        out.append({"date": series[i].get("date") or series[i].get("label"), "value": round(float(avg), 3)})
+    return out
+
+
+async def _recent_reviews(company_id: int, start: date, end: date, limit: int = 50) -> List[Dict[str, Any]]:
+    async with get_session() as session:
+        dc = _date_col()
+        rows = (await session.execute(
+            select(
+                Review.id,
+                Review.author_name,
+                Review.rating,
+                Review.text,
+                Review.sentiment_score,
+                Review.google_review_time,
+                Review.profile_photo_url,
+            )
+            .where(and_(Review.company_id == company_id, dc >= start, dc <= end))
+            .order_by(desc(_ts_col()))
+            .limit(limit)
+        )).all()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        text = r.text or ""
+        s_val = float(r.sentiment_score) if (r.sentiment_score is not None and abs(float(r.sentiment_score)) >= 1e-9) else _safe_sentiment(text, r.rating)
+        out.append({
+            "id": r.id,
+            "author": r.author_name or "Anonymous",
+            "rating": int(r.rating or 0),
+            "sentiment": round(float(s_val), 3),
+            "label": _label_from_score(s_val),
+            "time": r.google_review_time.strftime("%Y-%m-%d") if isinstance(r.google_review_time, datetime) else (str(r.google_review_time) if r.google_review_time else ""),
+            "text": (text[:500] + ("…" if len(text) > 500 else "")),
+            "avatar": r.profile_photo_url or "",
+        })
+    return out
+
+
+async def _company_kpis_block(request: Request, company_id: int, start: Optional[str], end: Optional[str]) -> Dict[str, Any]:
+    k = await api_kpis(request, company_id, start, end)
+    dist = await api_ratings_distribution(request, company_id, start, end)
+    share = await api_sentiment_share(request, company_id, start, end)
+    return {
+        "kpis": k,
+        "ratings_distribution": dist["distribution"],
+        "sentiment_share": share["counts"],
+    }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# New consolidated /api/dashboard endpoint
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/api/dashboard")
+async def api_dashboard(
+    request: Request,
+    company_id: int = Query(..., description="Primary company id"),
+    start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    group_by: str = Query("day", regex="^(day|week|month)$", description="Grouping for trends"),
+    limit_reviews: int = Query(20, ge=1, le=200, description="Limit recent reviews returned"),
+    competitor_names: Optional[str] = Query(None, description="Comma-separated competitor name filters (ILIKE)"),
+    company_ids: Optional[str] = Query(None, description="Optional comma-separated extra company IDs for multi-company view"),
+    rolling_window: Optional[int] = Query(None, description="Override rolling window size (default: 7 for day, 3 otherwise)"),
+    ai: bool = Query(False, description="Enable AI-generated summary when available"),
+):
+    """All-in-one dashboard API (async), designed for frontend charts.
+
+    Satisfies requirements: KPIs, series, distributions, sentiment, rolling averages,
+    competitor comparisons, multi-company, export-ready blocks, and robust defaults.
+    """
+    _require_user(request)
+
+    async with get_session() as session:
+        base_company = await session.get(Company, company_id)
+        if not base_company:
+            raise HTTPException(status_code=404, detail="Company not found")
+
+    s, e = await _auto_range_last30(company_id, start, end)
+
+    # Base company core series
+    vol = await api_series_reviews(request, company_id, start, end)
+    rat = await api_series_ratings(request, company_id, start, end)
+    sen = await api_sentiment_series(request, company_id, start, end)
+
+    # Grouping
+    g_reviews = _group_series(vol["series"], group_by)
+    g_rating = _group_series(rat["series"], group_by)
+    g_sent = _group_series(sen["series"], group_by)
+
+    grouped_volume = _to_line_series_from_grouped(g_reviews, kind="count")
+    grouped_rating = _to_line_series_from_grouped(g_rating, kind="avg")
+    grouped_sentiment = _to_line_series_from_grouped(g_sent, kind="avg")
+
+    # Rolling average (daily -> 7, else -> 3 by default)
+    default_window = 7 if group_by == "day" else 3
+    rwin = int(rolling_window or default_window)
+    rolling_rating = _rolling_average(
+        [{"label": x.get("label", x.get("date")), "value": x["value"], "date": x.get("date", x.get("label"))} for x in grouped_rating],
+        window=rwin,
+    )
+
+    # KPIs, dist, share
+    kpis_block = await _company_kpis_block(request, company_id, start, end)
+
+    # Recent reviews sample
+    recent = await _recent_reviews(company_id, s, e, limit=limit_reviews)
+
+    # Competitors by names (ILIKE any), optional
+    competitors: List[Dict[str, Any]] = []
+    names = []
+    if competitor_names:
+        names = [n.strip() for n in competitor_names.split(',') if n.strip()]
+    extra_ids: List[int] = []
+    if company_ids:
+        try:
+            extra_ids = [int(x.strip()) for x in company_ids.split(',') if x.strip()]
+        except Exception:
+            logger.warning("Invalid company_ids query param; expected comma-separated ints.")
+            extra_ids = []
+
+    # Fetch competitor companies by name filter or explicit IDs
+    comp_candidates: List[Company] = []
+    async with get_session() as session:
+        q = select(Company).where(Company.id != company_id)
+        if names:
+            # Build ILIKE OR conditions
+            ors = []
+            for n in names:
+                try:
+                    ors.append(Company.name.ilike(f"%{n}%"))
+                except Exception:
+                    pass
+            if ors:
+                q = q.where(or_(*ors))  # type: ignore
+        if extra_ids:
+            q = q.where(Company.id.in_(extra_ids))
+        q = q.order_by(Company.name).limit(10)
+        try:
+            comp_candidates = (await session.execute(q)).scalars().all() or []
+        except Exception as ex:
+            # Some DBs might not support ILIKE; fallback to LIKE
+            logger.info("ILIKE not supported; falling back to LIKE for competitor search. %s", ex)
+            if names:
+                q2 = select(Company).where(Company.id != company_id)
+                ors2 = []
+                for n in names:
+                    ors2.append(Company.name.like(f"%{n}%"))
+                q2 = q2.where(or_(*ors2)).order_by(Company.name).limit(10)  # type: ignore
+                comp_candidates = (await session.execute(q2)).scalars().all() or []
+            else:
+                comp_candidates = []
+
+    # Compose competitor metrics (lightweight to keep perf)
+    for comp in comp_candidates:
+        try:
+            c_kpis = await _company_kpis_block(request, int(comp.id), start, end)
+            c_vol = await api_series_reviews(request, int(comp.id), start, end)
+            g_c_rev = _group_series(c_vol["series"], group_by)
+            competitors.append({
+                "company": {"id": int(comp.id), "name": comp.name},
+                "kpis": c_kpis["kpis"],
+                "ratings_distribution": c_kpis["ratings_distribution"],
+                "sentiment_share": c_kpis["sentiment_share"],
+                "trends": {
+                    "volume": _to_line_series_from_grouped(g_c_rev, kind="count"),
+                },
+            })
+        except Exception as ex:
+            logger.warning("Competitor metric build failed for %s: %s", getattr(comp, 'name', comp), ex)
+
+    # Multi-company view (explicit list)
+    multi_companies: List[Dict[str, Any]] = []
+    if extra_ids:
+        ids = [cid for cid in extra_ids if cid != company_id and cid not in [int(c.get("company", {}).get("id", -1)) for c in competitors]]
+        for cid in ids[:10]:
+            try:
+                c_kpis = await _company_kpis_block(request, cid, start, end)
+                multi_companies.append({"company_id": cid, **c_kpis})
+            except Exception as ex:
+                logger.info("Skipping multi-company id %s: %s", cid, ex)
+
+    # Optional AI summary
+    ai_summary: Optional[Dict[str, Any]] = None
+    if ai and _ai_summarize_dashboard:
+        try:
+            ai_summary = await _ai_summarize_dashboard({
+                "company_id": company_id,
+                "window": {"start": str(s), "end": str(e)},
+                "kpis": kpis_block["kpis"],
+                "trends": {
+                    "volume": grouped_volume,
+                    "rating": grouped_rating,
+                    "sentiment": grouped_sentiment,
+                    "rolling_rating": rolling_rating,
+                },
+                "distribution": kpis_block["ratings_distribution"],
+                "sentiment_share": kpis_block["sentiment_share"],
+                "recent_reviews": recent,
+                "competitors": competitors,
+            })
+        except Exception as ex:
+            logger.info("AI summary disabled due to error: %s", ex)
+            ai_summary = None
+
+    response: Dict[str, Any] = {
+        "window": {"start": str(s), "end": str(e)},
+        "company": {"id": int(company_id), "name": getattr(base_company, "name", "")},
+        "group_by": group_by,
+        "kpis": kpis_block["kpis"],
+        "charts": {
+            "line": {
+                "volume": grouped_volume,
+                "rating": grouped_rating,
+                "sentiment": grouped_sentiment,
+                "rolling_rating": rolling_rating,
+            },
+            "bar": {
+                "ratings_distribution": kpis_block["ratings_distribution"],
+            },
+            "pie": {
+                "sentiment_share": kpis_block["sentiment_share"],
+            },
+        },
+        "trends": {
+            "daily": (await api_series_overview(request, company_id, start, end)) if group_by == "day" else None,
+        },
+        "recent_reviews": recent,
+        "competitors": competitors,
+        "multi_companies": multi_companies,
+        "ai_summary": ai_summary,
+        "export_summary": {
+            "company_id": int(company_id),
+            "company_name": getattr(base_company, "name", ""),
+            "start": str(s),
+            "end": str(e),
+            "total_reviews": kpis_block["kpis"]["total_reviews"],
+            "avg_rating": kpis_block["kpis"]["avg_rating"],
+            "avg_sentiment": kpis_block["kpis"]["avg_sentiment"],
+            "new_reviews": kpis_block["kpis"]["new_reviews"],
+            "positive": kpis_block["sentiment_share"].get("positive", 0),
+            "neutral": kpis_block["sentiment_share"].get("neutral", 0),
+            "negative": kpis_block["sentiment_share"].get("negative", 0),
+        },
+    }
+
+    return JSONResponse(response)
