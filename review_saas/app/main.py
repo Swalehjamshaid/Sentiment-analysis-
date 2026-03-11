@@ -21,21 +21,26 @@ from app.core.config import settings
 from app.core.db import get_engine
 from app.core.models import Base, SCHEMA_VERSION, Company, Review
 
+# ---------------------------
 # Routers
+# ---------------------------
 from app.routes import auth as auth_routes
 from app.routes import companies as companies_routes
 from app.routes import dashboard as dashboard_routes
 from app.routes import reviews as reviews_routes
 from app.routes import exports as exports_routes
-from app.routes import google_check as google_routes  # Added Google autocomplete router
 
+# FIX: Ensure this file exists: app/routes/google_check.py
+from app.routes import google_check as google_routes  # Google autocomplete router
+
+# ---------------------------
 # Logging
+# ---------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("app.main")
-
 
 # ---------------------------
 # Outscraper Client
@@ -74,7 +79,7 @@ class OutscraperClient:
         await self.client.aclose()
 
 
-# Dummy client
+# Dummy client for missing API key
 class DummyReviewsClient:
     async def get_reviews(self, *args, **kwargs):
         logger.warning("⚠️ DUMMY MODE: No real reviews will be fetched.")
@@ -89,18 +94,15 @@ class DummyReviewsClient:
 # ---------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # DB setup
     try:
         engine: AsyncEngine = get_engine()
         async with engine.begin() as conn:
-            # Create config table if missing
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS config (
                     key TEXT PRIMARY KEY,
                     value TEXT
                 )
             """))
-            # Check schema version
             result = await conn.execute(text("SELECT value FROM config WHERE key='schema_version'"))
             row = result.first()
             db_version = row[0] if row else None
@@ -155,7 +157,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace * with your frontend domain in production
+    allow_origins=["*"],  # Change for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -205,6 +207,7 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
 
 @app.post("/login", response_class=RedirectResponse)
 async def login_post(request: Request):
+    # Dummy login for testing
     user = {"id": 1, "email": "roy.jamshaid@gmail.com", "name": "Rai Jamshaid"}
     request.session["user"] = user
     request.session["user_id"] = user["id"]
