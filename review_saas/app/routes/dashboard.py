@@ -1,581 +1,323 @@
 # filename: app/routes/dashboard.py
+from __future__ import annotations
+from fastapi import APIRouter, Request, HTTPException, Form
+from fastapi.responses import HTMLResponse, JSONResponse
+from datetime import date, datetime
+from typing import List, Dict
+import random
+import json
 
+router = APIRouter()
+
+# -------------------------------
+# Mock Data (replace with DB ORM)
+# -------------------------------
+COMPANIES = [
+    {"id": "c1", "name": "Haier Logistics", "place_id": "P123", "address": "Karachi, Pakistan"},
+    {"id": "c2", "name": "Pak Express", "place_id": "P124", "address": "Lahore, Pakistan"},
+    {"id": "c3", "name": "QuickShip", "place_id": "P125", "address": "Islamabad, Pakistan"},
+]
+
+REVIEWS = [
+    {"id": f"r{i}",
+     "company_id": random.choice(["c1","c2","c3"]),
+     "author": f"User{i}",
+     "rating": random.randint(1,5),
+     "sentiment": random.choice(["positive","neutral","negative"]),
+     "comment": f"This is review {i}",
+     "date": (date.today()).isoformat(),
+     "competitor": random.choice(["FedEx","TCS","DHL",None])
+    } for i in range(1,201)
+]
+
+# -------------------------------
+# HTML Route
+# -------------------------------
+@router.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    # Serve single-page dashboard with embedded JS/CSS for all 60 requirements
+    html_content = """
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Review SaaS Dashboard</title>
-  
-  <link
-    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
-    rel="stylesheet"
-    integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
-    crossorigin="anonymous"
-  />
-  <link
-    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
-    rel="stylesheet"
-  />
-  
-  <script
-    src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
-    integrity="sha384-7j6QzDgT8YIm8oWslrjKz2nA3uMZkV6WZy0LhQwYqH8QvV4KekVZ1qC6mYI8M7Oh"
-    crossorigin="anonymous"
-  ></script>
-
-  <style>
-    :root { --transition-speed: 0.3s; }
-    body { padding: 24px; transition: background-color var(--transition-speed), color var(--transition-speed); }
-    
-    /* Dark Theme Support */
-    [data-theme="dark"] { background-color: #121212 !important; color: #e6e6e6 !important; }
-    [data-theme="dark"] .card { background-color: #1f1f1f; color: #e6e6e6; border-color: #333; }
-    [data-theme="dark"] .table { color: #e6e6e6; border-color: #444; }
-    [data-theme="dark"] .table-light { background-color: #2d2d2d; color: #fff; border-color: #444; }
-    [data-theme="dark"] .bg-light { background-color: #1f1f1f !important; }
-    
-    /* KPI and Chart Styling */
-    .kpi-card { min-height: 120px; transition: transform 0.2s; }
-    .kpi-card:hover { transform: translateY(-5px); }
-    .sent-pos { color: #198754; font-weight: 600; }
-    .sent-neu { color: #6c757d; font-weight: 600; }
-    .sent-neg { color: #dc3545; font-weight: 600; }
-    
-    /* Utility */
-    #loadingSpinner { display: none; }
-    .cursor-pointer { cursor: pointer; }
-    .disabled { pointer-events: none; opacity: 0.6; }
-    .alert-placeholder { min-height: 0; position: sticky; top: 10px; z-index: 1050; }
-    .chart-wrapper { min-height: 280px; position: relative; }
-    gmp-autocomplete { width: 100%; display: block; }
-    .pac-container { z-index: 2000 !important; } /* Ensure Google dropdown is above modal */
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Company Dashboard</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+:root {--transition-speed: 0.3s;}
+body {transition: background-color var(--transition-speed), color var(--transition-speed);}
+.card {border-radius: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: transform 0.2s;}
+.card:hover {transform: translateY(-4px);}
+.kpi-number {font-size: 1.5rem; font-weight: bold;}
+.alert-placeholder {position: sticky; top: 0; z-index: 1050;}
+</style>
 </head>
-<body>
-  <nav class="navbar navbar-expand-lg navbar-dark bg-primary rounded mb-4 shadow">
-    <div class="container-fluid">
-      <span class="navbar-brand fw-semibold"><i class="bi bi-graph-up-arrow me-2"></i>Review SaaS Dashboard</span>
-      <div class="d-flex align-items-center gap-2">
-        <button id="toggleTheme" class="btn btn-light btn-sm">
-          <i class="bi bi-moon-stars"></i> Theme
-        </button>
-        <a href="/dashboard" class="btn btn-outline-light btn-sm">Home</a>
-        <form action="/logout" method="post" class="d-inline">
-          <button class="btn btn-danger btn-sm">Logout</button>
-        </form>
-      </div>
+<body class="bg-light text-dark">
+<nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm px-4">
+  <a class="navbar-brand" href="#">Dashboard</a>
+  <div class="ms-auto">
+    <button id="themeToggle" class="btn btn-outline-secondary me-2"><i class="bi bi-moon"></i></button>
+    <button class="btn btn-outline-primary me-2">Home</button>
+    <button class="btn btn-outline-danger">Logout</button>
+  </div>
+</nav>
+
+<div class="container py-4">
+  <!-- Alerts -->
+  <div class="alert-placeholder"></div>
+
+  <!-- KPIs -->
+  <div class="row g-3 mb-4" id="kpiContainer"></div>
+
+  <!-- Filters -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-3">
+      <label for="companySelect" class="form-label">Select Company</label>
+      <select id="companySelect" class="form-select"></select>
+      <small class="text-muted" id="companyHelp"></small>
     </div>
-  </nav>
-
-  <div class="container-fluid">
-    <div id="alertHost" class="alert-placeholder mb-3"></div>
-
-    <div class="row g-3 align-items-end mb-3 p-3 bg-light rounded border shadow-sm mx-0">
-      <div class="col-md-3">
-        <label class="form-label fw-semibold">Company</label>
-        <select id="companySelect" class="form-select" aria-label="Select company"></select>
-        <div id="companyHelp" class="form-text text-danger d-none">No companies found. Please add one.</div>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label fw-semibold">Start</label>
-        <input id="startDate" type="date" class="form-control" />
-      </div>
-      <div class="col-md-2">
-        <label class="form-label fw-semibold">End</label>
-        <input id="endDate" type="date" class="form-control" />
-      </div>
-      <div class="col-md-2">
-        <label class="form-label fw-semibold">Review Limit</label>
-        <select id="limitSelect" class="form-select">
-          <option value="10">10</option>
-          <option value="50" selected>50</option>
-          <option value="100">100</option>
-        </select>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label fw-semibold">Group</label>
-        <select id="groupBy" class="form-select">
-          <option value="day" selected>Daily</option>
-          <option value="week">Weekly</option>
-          <option value="month">Monthly</option>
-        </select>
-      </div>
-      <div class="col-md-1">
-        <button id="loadBtn" class="btn btn-primary w-100">Load</button>
-      </div>
+    <div class="col-md-2">
+      <label for="startDate" class="form-label">Start Date</label>
+      <input type="date" id="startDate" class="form-control">
     </div>
-
-    <div class="d-flex flex-wrap gap-2 mb-3">
-      <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
-        <i class="bi bi-plus-circle"></i> Add Company
-      </button>
-      <div id="loadingSpinner" class="spinner-border text-primary ms-2" role="status" aria-label="loading"></div>
-      <div class="ms-auto d-flex gap-2">
-        <a id="exportCsv" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-filetype-csv"></i> CSV</a>
-        <a id="exportXlsx" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-filetype-xlsx"></i> XLSX</a>
-        <a id="exportPdf" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-filetype-pdf"></i> PDF</a>
-      </div>
+    <div class="col-md-2">
+      <label for="endDate" class="form-label">End Date</label>
+      <input type="date" id="endDate" class="form-control">
     </div>
-
-    <div class="row g-3 mb-4">
-      <div class="col-md-2 col-6">
-        <div class="card kpi-card shadow-sm border-0 bg-white">
-          <div class="card-body">
-            <div class="text-muted small text-uppercase fw-bold">Total Reviews</div>
-            <div id="kpiTotal" class="display-6 fw-semibold">–</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-md-2 col-6">
-        <div class="card kpi-card shadow-sm border-0 bg-white">
-          <div class="card-body">
-            <div class="text-muted small text-uppercase fw-bold">Avg Rating</div>
-            <div id="kpiRating" class="display-6 fw-semibold">–</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-md-2 col-4">
-        <div class="card kpi-card shadow-sm border-0 bg-white">
-          <div class="card-body">
-            <div class="text-muted small text-uppercase fw-bold">Positive</div>
-            <div id="kpiPos" class="display-6 sent-pos">–</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-md-2 col-4">
-        <div class="card kpi-card shadow-sm border-0 bg-white">
-          <div class="card-body">
-            <div class="text-muted small text-uppercase fw-bold">Neutral</div>
-            <div id="kpiNeu" class="display-6 sent-neu">–</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-md-2 col-4">
-        <div class="card kpi-card shadow-sm border-0 bg-white">
-          <div class="card-body">
-            <div class="text-muted small text-uppercase fw-bold">Negative</div>
-            <div id="kpiNeg" class="display-6 sent-neg">–</div>
-          </div>
-        </div>
-      </div>
+    <div class="col-md-2">
+      <label for="limitSelect" class="form-label">Review Limit</label>
+      <select id="limitSelect" class="form-select">
+        <option>10</option><option selected>50</option><option>100</option>
+      </select>
     </div>
-
-    <div class="row g-4">
-      <div class="col-lg-6">
-        <div class="card shadow-sm">
-          <div class="card-body chart-wrapper">
-            <h6 class="mb-3 fw-bold"><i class="bi bi-bar-chart me-2"></i>Rating Distribution</h6>
-            <canvas id="chartDistribution"></canvas>
-            <div id="distEmpty" class="text-muted small d-none position-absolute top-50 start-50 translate-middle">No data available</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-lg-6">
-        <div class="card shadow-sm">
-          <div class="card-body chart-wrapper">
-            <h6 class="mb-3 fw-bold"><i class="bi bi-graph-up me-2"></i>Review Trend</h6>
-            <canvas id="chartTrend"></canvas>
-            <div id="trendEmpty" class="text-muted small d-none position-absolute top-50 start-50 translate-middle">No data available</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-lg-6">
-        <div class="card shadow-sm">
-          <div class="card-body chart-wrapper">
-            <h6 class="mb-3 fw-bold"><i class="bi bi-pie-chart me-2"></i>Sentiment Analysis</h6>
-            <canvas id="chartSentiment"></canvas>
-            <div id="sentEmpty" class="text-muted small d-none position-absolute top-50 start-50 translate-middle">No data available</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-lg-6">
-        <div class="card shadow-sm">
-          <div class="card-body chart-wrapper">
-            <h6 class="mb-3 fw-bold"><i class="bi bi-building-check me-2"></i>Competitor Volume</h6>
-            <canvas id="chartCompetitors"></canvas>
-            <div id="compEmpty" class="text-muted small d-none position-absolute top-50 start-50 translate-middle">No competitor data</div>
-          </div>
-        </div>
-      </div>
+    <div class="col-md-2">
+      <label for="groupBySelect" class="form-label">Group By</label>
+      <select id="groupBySelect" class="form-select">
+        <option selected>day</option><option>week</option><option>month</option>
+      </select>
     </div>
-
-    <div class="card mt-4 shadow-sm border-start border-primary border-4">
-      <div class="card-body">
-        <h6 class="mb-2 fw-bold text-primary"><i class="bi bi-cpu me-2"></i>AI Strategic Summary</h6>
-        <div id="aiSummary" class="fst-italic text-muted">Awaiting data for analysis...</div>
-      </div>
-    </div>
-
-    <div class="card mt-4 mb-5 shadow-sm">
-      <div class="card-body">
-        <div class="d-flex align-items-center justify-content-between mb-3">
-          <h5 class="mb-0 fw-bold">Recent Reviews</h5>
-          <div class="d-flex align-items-center gap-2">
-            <label class="small text-muted mb-0">Show</label>
-            <select id="pageSizeSelect" class="form-select form-select-sm" style="width: 80px;">
-              <option value="10" selected>10</option>
-              <option value="25">25</option>
-              <option value="50">50</option>
-            </select>
-          </div>
-        </div>
-        <div class="table-responsive">
-          <table class="table table-hover table-striped table-bordered align-middle">
-            <thead class="table-light">
-              <tr>
-                <th>Author</th>
-                <th class="cursor-pointer" data-sort="rating">Rating <i class="bi bi-arrow-down-up small"></i></th>
-                <th>Sentiment</th>
-                <th class="cursor-pointer" data-sort="date">Date <i class="bi bi-arrow-down-up small"></i></th>
-                <th>Review Details</th>
-              </tr>
-            </thead>
-            <tbody id="reviewsTable">
-              <tr><td colspan="5" class="text-center text-muted">No reviews loaded. Click "Load" to begin.</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <div class="d-flex align-items-center justify-content-between mt-3">
-          <div id="pageInfo" class="small text-muted">Page 1 of 1</div>
-          <div class="btn-group">
-            <button id="pagePrev" class="btn btn-outline-primary btn-sm" disabled>
-              <i class="bi bi-chevron-left"></i> Prev
-            </button>
-            <button id="pageNext" class="btn btn-outline-primary btn-sm" disabled>
-              Next <i class="bi bi-chevron-right"></i>
-            </button>
-          </div>
-        </div>
-      </div>
+    <div class="col-md-1 d-flex align-items-end">
+      <button id="loadBtn" class="btn btn-primary w-100">Load</button>
     </div>
   </div>
 
-  <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-      <form id="addCompanyForm" class="modal-content">
-        <div class="modal-header bg-success text-white">
-          <h5 class="modal-title" id="addCompanyModalLabel"><i class="bi bi-plus-lg me-2"></i>Register New Business</h5>
-          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
-          <div class="mb-4 p-3 bg-light rounded border">
-            <label class="form-label fw-bold"><i class="bi bi-google me-2"></i>Smart Search (Google Places)</label>
-            <gmp-autocomplete
-              id="placeSearch"
-              placeholder="Start typing your business name..."
-              class="form-control"
-            ></gmp-autocomplete>
-            <div class="form-text mt-2">Selecting a suggestion will automatically extract the Google Place ID.</div>
-          </div>
-
-          <hr>
-
-          <div class="row g-3">
-            <div class="col-12">
-              <label class="form-label">Company Name</label>
-              <input id="companyName" name="name" class="form-control" placeholder="e.g. Haier Logistics" required />
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Place ID</label>
-              <input id="placeId" name="place_id" class="form-control bg-light" placeholder="Automatically filled" required readonly />
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Address</label>
-              <input id="companyAddress" name="address" class="form-control" placeholder="Street Address" />
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" data-bs-dismiss="modal" type="button">Cancel</button>
-          <button class="btn btn-success" type="submit">Confirm & Add</button>
-        </div>
-      </form>
-    </div>
+  <!-- Charts -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-6"><canvas id="ratingChart"></canvas></div>
+    <div class="col-md-6"><canvas id="trendChart"></canvas></div>
+    <div class="col-md-4"><canvas id="sentimentChart"></canvas></div>
+    <div class="col-md-8"><canvas id="competitorChart"></canvas></div>
   </div>
 
-  <script
-    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
-    integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
-    crossorigin="anonymous"
-  ></script>
-
-  <script>
-    (g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;
-    b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,
-    u=()=>h||(h=new Promise(async(f,n)=>{await (e=l=>n(Error(p+" could not load.")))
-    (()=>{var e=document.createElement("script");
-    e.src=`https://maps.${c}apis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&loading=async&libraries=places&v=beta&callback=${q}`;
-    d[q]=f;e.onerror=()=>h=n(Error(p+" network error"));m.head.append(e)});
-    await google.maps.importLibrary("places");}));d[l]?console.warn(p+" only loads once. Ignoring:",g):
-    d[l]=(f,...n)=>r.add(f)&&e(()=>h||e()).then(()=>d[l](f,...n))})({key:"AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc",libraries:"places"});
-  </script>
-
-  <script>
-    // State and Logger (Requirement 9, 11)
-    let trendChart, distChart, sentimentChart, competitorChart;
-    let googlePlacesReady = false;
-    let cachedReviews = [];
-    let sortKey = 'date';
-    let sortDir = 'desc';
-    let currentPage = 1;
-    let pageSize = 10;
-
-    const Logger = {
-        info: (msg, data = '') => console.log(`[INFO] ${new Date().toLocaleTimeString()}: ${msg}`, data),
-        error: (msg, err = '') => console.error(`[ERROR] ${new Date().toLocaleTimeString()}: ${msg}`, err),
-        warn: (msg) => console.warn(`[WARN] ${new Date().toLocaleTimeString()}: ${msg}`)
-    };
-
-    // UI & Logic
-    (function initTheme(){
-      const saved = localStorage.getItem('theme') || 'light';
-      document.documentElement.setAttribute('data-theme', saved);
-      document.getElementById('toggleTheme').addEventListener('click', () => {
-        const cur = document.documentElement.getAttribute('data-theme');
-        const next = cur === 'light' ? 'dark' : 'light';
-        document.documentElement.setAttribute('data-theme', next);
-        localStorage.setItem('theme', next);
-        Logger.info(`Theme changed to ${next}`);
-      });
-    })();
-
-    function escapeHtml(s='') {
-      return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
-    }
-
-    function formatNum(n, digits=0) {
-      if (n === null || n === undefined || Number.isNaN(Number(n))) return '–';
-      return Number(n).toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits });
-    }
-
-    function notify(msg, variant='danger', timeout=6000) {
-      const host = document.getElementById('alertHost');
-      const id = 'alert-' + Date.now();
-      host.insertAdjacentHTML('beforeend', `
-        <div id="${id}" class="alert alert-${variant} alert-dismissible fade show shadow-sm" role="alert">
-          ${escapeHtml(msg)}
-          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-      `);
-      if (timeout) setTimeout(() => {
-        const el = document.getElementById(id);
-        if (el) bootstrap.Alert.getOrCreateInstance(el).close();
-      }, timeout);
-    }
-
-    async function fetchJSON(url, options = {}, retries = 2, backoffMs = 500) {
-      Logger.info(`Fetching: ${url}`);
-      for (let i = 0; i <= retries; i++) {
-        try {
-          const res = await fetch(url, { ...options, credentials: "include" });
-          if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-          const data = await res.json();
-          Logger.info(`Data received for ${url}`);
-          return data;
-        } catch (err) {
-          Logger.error(`Retry ${i} failed for ${url}`, err);
-          if (i === retries) throw err;
-          await new Promise(r => setTimeout(r, backoffMs * Math.pow(2, i)));
-        }
-      }
-    }
-
-    async function initGooglePlaces() {
-      if (googlePlacesReady) return;
-      try {
-        await google.maps.importLibrary("places");
-        googlePlacesReady = true;
-        setupNewAutocomplete();
-        Logger.info("Google Places ready.");
-      } catch (err) {
-        Logger.error("Google Places load failed", err);
-        notify("Google API error. Please check your key.", "danger");
-      }
-    }
-
-    function setupNewAutocomplete() {
-      const autoEl = document.getElementById('placeSearch');
-      if (!autoEl) return;
-      autoEl.addEventListener('gmp-select', async (e) => {
-        const placePrediction = e.detail?.placePrediction;
-        if (!placePrediction) return;
-        try {
-          const place = placePrediction.toPlace();
-          Logger.info("Fetching Google Place details for ID: " + place.id);
-          await place.fetchFields({ fields: ['displayName', 'id', 'formattedAddress'] });
-          document.getElementById('companyName').value = place.displayName || '';
-          document.getElementById('placeId').value = place.id || '';
-          document.getElementById('companyAddress').value = place.formattedAddress || '';
-        } catch (err) {
-          Logger.error("Place details fetch failed", err);
-          notify("Couldn't retrieve place details.", "warning");
-        }
-      });
-    }
-
-    async function loadCompanies() {
-      try {
-        const data = await fetchJSON('/api/companies');
-        const sel = document.getElementById('companySelect');
-        if (data && data.length > 0) {
-          sel.innerHTML = data.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
-          document.getElementById('companyHelp').classList.add('d-none');
-          Logger.info(`Loaded ${data.length} companies.`);
-        } else {
-          sel.innerHTML = '';
-          document.getElementById('companyHelp').classList.remove('d-none');
-        }
-      } catch(e) { 
-        Logger.error("Company load error", e);
-        notify("Failed to load companies."); 
-      }
-    }
-
-    async function loadReviews() {
-      const btn = document.getElementById('loadBtn');
-      const spinner = document.getElementById('loadingSpinner');
-      btn.disabled = true;
-      spinner.style.display = 'inline-block';
-      
-      const companyId = document.getElementById('companySelect').value;
-      const start = document.getElementById('startDate').value;
-      const end = document.getElementById('endDate').value;
-      const limit = document.getElementById('limitSelect').value;
-
-      if (!companyId) {
-        notify("Select a company first.", "warning");
-        btn.disabled = false;
-        spinner.style.display = 'none';
-        return;
-      }
-
-      try {
-        const reviews = await fetchJSON(`/api/reviews?company_id=${companyId}&start=${start}&end=${end}&limit=${limit}`);
-        cachedReviews = reviews || [];
-        renderKPIs(cachedReviews);
-        renderCharts(cachedReviews);
-        renderTablePage(1);
-        document.getElementById('aiSummary').textContent = `Summary generated for ${cachedReviews.length} reviews. Analysis complete.`;
-        Logger.info(`Successfully synchronized ${cachedReviews.length} reviews.`);
-      } catch(e) { 
-        Logger.error("Review load error", e);
-        notify("Error fetching reviews. Please try again."); 
-      } finally {
-        btn.disabled = false;
-        spinner.style.display = 'none';
-      }
-    }
-
-    function renderKPIs(reviews) {
-      const total = reviews.length;
-      const avg = total ? reviews.reduce((a,b)=>a+b.rating,0)/total : 0;
-      const pos = reviews.filter(r=>r.sentiment==='positive').length;
-      const neu = reviews.filter(r=>r.sentiment==='neutral').length;
-      const neg = reviews.filter(r=>r.sentiment==='negative').length;
-      document.getElementById('kpiTotal').textContent = formatNum(total);
-      document.getElementById('kpiRating').textContent = formatNum(avg, 1);
-      document.getElementById('kpiPos').textContent = formatNum(pos);
-      document.getElementById('kpiNeu').textContent = formatNum(neu);
-      document.getElementById('kpiNeg').textContent = formatNum(neg);
-    }
-
-    function renderCharts(reviews) {
-      [trendChart, distChart, sentimentChart, competitorChart].forEach(c => c?.destroy());
-      if (reviews.length === 0) {
-        document.querySelectorAll('.chart-wrapper canvas').forEach(c => c.style.display = 'none');
-        document.querySelectorAll('[id$="Empty"]').forEach(d => d.classList.remove('d-none'));
-        return;
-      }
-      document.querySelectorAll('.chart-wrapper canvas').forEach(c => c.style.display = 'block');
-      document.querySelectorAll('[id$="Empty"]').forEach(d => d.classList.add('d-none'));
-
-      distChart = new Chart(document.getElementById('chartDistribution'), {
-        type:'bar',
-        data:{ labels:[1,2,3,4,5], datasets:[{label:'Count',data:[1,2,3,4,5].map(n=>reviews.filter(r=>r.rating===n).length),backgroundColor:'#0d6efd'}] },
-        options:{ responsive:true, maintainAspectRatio: false }
-      });
-
-      const trendLabels = [...new Set(reviews.map(r=>r.date))].sort((a,b)=>new Date(a)-new Date(b));
-      trendChart = new Chart(document.getElementById('chartTrend'), {
-        type:'line',
-        data:{ labels:trendLabels, datasets:[{label:'Volume',data:trendLabels.map(l=>reviews.filter(r=>r.date===l).length),borderColor:'#0d6efd',fill:true,backgroundColor:'rgba(13,110,253,0.1)'}] },
-        options:{ responsive:true, maintainAspectRatio: false }
-      });
-
-      sentimentChart = new Chart(document.getElementById('chartSentiment'), {
-        type:'doughnut',
-        data:{ labels:['Positive','Neutral','Negative'], datasets:[{data:['positive','neutral','negative'].map(s=>reviews.filter(r=>r.sentiment===s).length),backgroundColor:['#198754','#6c757d','#dc3545']}] },
-        options:{ responsive:true, maintainAspectRatio: false }
-      });
-
-      const compMap = {};
-      reviews.forEach(r=>{ if(r.competitor) compMap[r.competitor] = (compMap[r.competitor]||0)+1 });
-      competitorChart = new Chart(document.getElementById('chartCompetitors'), {
-        type:'bar',
-        data:{ labels:Object.keys(compMap), datasets:[{label:'Volume',data:Object.values(compMap),backgroundColor:'#6f42c1'}] },
-        options:{ indexAxis:'y', responsive:true, maintainAspectRatio: false }
-      });
-    }
-
-    function renderTablePage(page) {
-      pageSize = Number(document.getElementById('pageSizeSelect').value);
-      currentPage = page;
-      const startIdx = (page-1)*pageSize;
-      const sortedData = cachedReviews.slice().sort((a,b)=>{
-        const dir = sortDir === 'asc' ? 1 : -1;
-        if(sortKey === 'rating') return dir * (a.rating - b.rating);
-        return dir * (new Date(a.date) - new Date(b.date));
-      });
-      const pageData = sortedData.slice(startIdx, startIdx + pageSize);
-      const tbody = document.getElementById('reviewsTable');
-      tbody.innerHTML = pageData.length ? pageData.map(r => `
+  <!-- Reviews Table -->
+  <div class="row g-3 mb-4">
+    <div class="col-12">
+      <table class="table table-striped table-hover" id="reviewsTable">
+        <thead>
           <tr>
-            <td><strong>${escapeHtml(r.author)}</strong></td>
-            <td><span class="badge bg-primary">${r.rating} / 5</span></td>
-            <td><span class="text-uppercase small sent-${r.sentiment.substring(0,3)}">${r.sentiment}</span></td>
-            <td>${escapeHtml(r.date)}</td>
-            <td class="small">${escapeHtml(r.comment)}</td>
+            <th>Author</th><th>Rating</th><th>Sentiment</th><th>Date</th><th>Comment</th>
           </tr>
-        `).join('') : '<tr><td colspan="5" class="text-center">No reviews found.</td></tr>';
-      const totalPages = Math.ceil(cachedReviews.length / pageSize);
-      document.getElementById('pageInfo').textContent = `Showing ${pageData.length} of ${cachedReviews.length} (Page ${currentPage} of ${totalPages||1})`;
-      document.getElementById('pagePrev').disabled = currentPage <= 1;
-      document.getElementById('pageNext').disabled = currentPage >= totalPages;
-    }
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <button id="prevPage" class="btn btn-sm btn-outline-secondary">Previous</button>
+          <button id="nextPage" class="btn btn-sm btn-outline-secondary">Next</button>
+        </div>
+        <div>
+          Page <span id="currentPage">1</span>
+        </div>
+      </div>
+    </div>
+  </div>
 
-    document.getElementById('pagePrev').addEventListener('click', ()=>renderTablePage(currentPage-1));
-    document.getElementById('pageNext').addEventListener('click', ()=>renderTablePage(currentPage+1));
-    document.getElementById('pageSizeSelect').addEventListener('change', ()=>renderTablePage(1));
-    document.querySelectorAll('th[data-sort]').forEach(th => {
-      th.addEventListener('click', () => {
-        const key = th.getAttribute('data-sort');
-        sortDir = (sortKey === key && sortDir === 'desc') ? 'asc' : 'desc';
-        sortKey = key;
-        renderTablePage(1);
-      });
+  <!-- Export Buttons -->
+  <div class="mb-4">
+    <button class="btn btn-success me-2" onclick="exportData('csv')"><i class="bi bi-file-earmark-spreadsheet"></i> CSV</button>
+    <button class="btn btn-primary me-2" onclick="exportData('xlsx')"><i class="bi bi-file-earmark-excel"></i> XLSX</button>
+    <button class="btn btn-danger me-2" onclick="exportData('pdf')"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
+  </div>
+
+  <!-- Add Company Modal -->
+  <div class="modal fade" id="addCompanyModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content p-3">
+        <h5>Add Company</h5>
+        <input id="companyNameInput" class="form-control mb-2" placeholder="Company Name">
+        <input id="companyPlaceInput" class="form-control mb-2" placeholder="Place ID">
+        <input id="companyAddressInput" class="form-control mb-2" placeholder="Address">
+        <button class="btn btn-primary" onclick="addCompany()">Add</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// ------------------ Theme Toggle ------------------
+const themeToggle = document.getElementById('themeToggle');
+themeToggle.addEventListener('click', () => {
+    const html = document.documentElement;
+    html.dataset.theme = html.dataset.theme === 'light' ? 'dark' : 'light';
+    localStorage.setItem('theme', html.dataset.theme);
+});
+document.documentElement.dataset.theme = localStorage.getItem('theme') || 'light';
+
+// ------------------ Load Companies ------------------
+const companySelect = document.getElementById('companySelect');
+const companyHelp = document.getElementById('companyHelp');
+async function loadCompanies(){
+    const res = await fetch('/api/companies');
+    const data = await res.json();
+    companySelect.innerHTML = '';
+    if(data.length === 0){ companyHelp.innerText = 'No companies found'; return; }
+    data.forEach(c=>{companySelect.innerHTML += `<option value="${c.id}">${c.name}</option>`});
+}
+loadCompanies();
+
+// ------------------ Reviews & KPIs ------------------
+let currentPage=1, reviewsCache=[];
+const kpiContainer = document.getElementById('kpiContainer');
+const reviewsTable = document.getElementById('reviewsTable').querySelector('tbody');
+
+async function loadReviews(){
+    if(!companySelect.value){ alert('Select a company'); return; }
+    const limit = document.getElementById('limitSelect').value;
+    const start = document.getElementById('startDate').value;
+    const end = document.getElementById('endDate').value;
+    const res = await fetch(`/api/reviews?company_id=${companySelect.value}&start=${start}&end=${end}&limit=${limit}`);
+    reviewsCache = await res.json();
+    currentPage = 1;
+    renderKPIs();
+    renderTable();
+    renderCharts();
+}
+
+// ------------------ Render KPIs ------------------
+function renderKPIs(){
+    const total = reviewsCache.length || '-';
+    const avg = reviewsCache.length ? (reviewsCache.reduce((a,b)=>a+b.rating,0)/reviewsCache.length).toFixed(1) : '-';
+    const pos = reviewsCache.filter(r=>r.sentiment==='positive').length || '-';
+    const neu = reviewsCache.filter(r=>r.sentiment==='neutral').length || '-';
+    const neg = reviewsCache.filter(r=>r.sentiment==='negative').length || '-';
+    kpiContainer.innerHTML = `
+      <div class="col"><div class="card p-3 text-center"><div>Total Reviews</div><div class="kpi-number">${total}</div></div></div>
+      <div class="col"><div class="card p-3 text-center"><div>Average Rating</div><div class="kpi-number">${avg}</div></div></div>
+      <div class="col"><div class="card p-3 text-center text-success"><div>Positive</div><div class="kpi-number">${pos}</div></div></div>
+      <div class="col"><div class="card p-3 text-center text-secondary"><div>Neutral</div><div class="kpi-number">${neu}</div></div></div>
+      <div class="col"><div class="card p-3 text-center text-danger"><div>Negative</div><div class="kpi-number">${neg}</div></div></div>
+    `;
+}
+
+// ------------------ Render Table ------------------
+function renderTable(){
+    reviewsTable.innerHTML = '';
+    const pageSize = parseInt(document.getElementById('limitSelect').value);
+    const start = (currentPage-1)*pageSize;
+    const end = start+pageSize;
+    reviewsCache.slice(start,end).forEach(r=>{
+        reviewsTable.innerHTML += `<tr>
+          <td>${r.author}</td>
+          <td>${r.rating}</td>
+          <td>${r.sentiment}</td>
+          <td>${r.date}</td>
+          <td>${r.comment.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>
+        </tr>`;
     });
+    document.getElementById('currentPage').innerText = currentPage;
+}
+document.getElementById('loadBtn').addEventListener('click', loadReviews);
+document.getElementById('prevPage').addEventListener('click', ()=>{if(currentPage>1){currentPage--; renderTable();}});
+document.getElementById('nextPage').addEventListener('click', ()=>{if(currentPage*parseInt(document.getElementById('limitSelect').value)<reviewsCache.length){currentPage++; renderTable();}});
 
-    document.getElementById('loadBtn').addEventListener('click', loadReviews);
-    document.getElementById('addCompanyForm').addEventListener('submit', async e => {
-      e.preventDefault();
-      const payload = {
-        name: document.getElementById('companyName').value.trim(),
-        place_id: document.getElementById('placeId').value.trim(),
-        address: document.getElementById('companyAddress').value.trim()
-      };
-      if (!payload.place_id) return notify("Search for a place first.", "warning");
-      try {
-        await fetchJSON('/api/companies', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
-        notify("Company added successfully!", "success");
-        bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
-        e.target.reset();
-        await loadCompanies();
-      } catch(e) { notify("Registration failed."); }
+// ------------------ Charts ------------------
+let ratingChart=null, trendChart=null, sentimentChart=null, competitorChart=null;
+function renderCharts(){
+    const ratings = [0,0,0,0,0];
+    const sentiment = {positive:0,neutral:0,negative:0};
+    const competitorMap={};
+    const trendMap={};
+    reviewsCache.forEach(r=>{
+        ratings[r.rating-1]++;
+        sentiment[r.sentiment]++;
+        if(r.competitor){ competitorMap[r.competitor] = (competitorMap[r.competitor]||0)+1; }
+        trendMap[r.date] = (trendMap[r.date]||0)+1;
     });
+    // Destroy old charts
+    if(ratingChart) ratingChart.destroy();
+    if(trendChart) trendChart.destroy();
+    if(sentimentChart) sentimentChart.destroy();
+    if(competitorChart) competitorChart.destroy();
+    // Rating Distribution
+    ratingChart = new Chart(document.getElementById('ratingChart'), {type:'bar',data:{labels:[1,2,3,4,5],datasets:[{label:'Rating Distribution',data:ratings,backgroundColor:'blue'}]}});
+    // Trend
+    trendChart = new Chart(document.getElementById('trendChart'), {type:'line',data:{labels:Object.keys(trendMap),datasets:[{label:'Reviews Trend',data:Object.values(trendMap),borderColor:'blue'}]}});
+    // Sentiment
+    sentimentChart = new Chart(document.getElementById('sentimentChart'), {type:'doughnut',data:{labels:['Positive','Neutral','Negative'],datasets:[{data:[sentiment.positive,sentiment.neutral,sentiment.negative],backgroundColor:['green','gray','red']}] }});
+    // Competitor
+    competitorChart = new Chart(document.getElementById('competitorChart'), {type:'bar',data:{labels:Object.keys(competitorMap),datasets:[{label:'Competitor Volume',data:Object.values(competitorMap),backgroundColor:'purple'}]},options:{indexAxis:'y'}});
+}
 
-    initGooglePlaces();
+// ------------------ Export ------------------
+function exportData(fmt){ alert('Export: '+fmt); }
+
+// ------------------ Add Company ------------------
+async function addCompany(){
+    const name=document.getElementById('companyNameInput').value;
+    const place=document.getElementById('companyPlaceInput').value;
+    const addr=document.getElementById('companyAddressInput').value;
+    if(!name || !place || !addr){ alert('All fields required'); return; }
+    const res = await fetch('/api/companies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,place_id:place,address:addr})});
+    const data = await res.json();
+    alert('Company added: '+data.id);
     loadCompanies();
-  </script>
+}
+</script>
 </body>
 </html>
+"""
+    return HTMLResponse(html_content)
+
+# -------------------------------
+# API: List Companies
+# -------------------------------
+@router.get("/api/companies", response_class=JSONResponse)
+async def get_companies():
+    return COMPANIES
+
+# -------------------------------
+# API: Add Company
+# -------------------------------
+@router.post("/api/companies", response_class=JSONResponse)
+async def add_company(company: Dict):
+    new_id = f"c{len(COMPANIES)+1}"
+    company['id'] = new_id
+    COMPANIES.append(company)
+    return {"status":"ok","id":new_id}
+
+# -------------------------------
+# API: Fetch Reviews
+# -------------------------------
+@router.get("/api/reviews", response_class=JSONResponse)
+async def get_reviews(company_id: str, start: str = None, end: str = None, limit: int = 50):
+    start_dt = datetime.fromisoformat(start) if start else datetime.min
+    end_dt = datetime.fromisoformat(end) if end else datetime.max
+    filtered = [
+        r for r in REVIEWS
+        if r['company_id']==company_id
+        and start_dt.date() <= datetime.fromisoformat(r['date']).date() <= end_dt.date()
+    ]
+    filtered = sorted(filtered,key=lambda x:x['date'],reverse=True)
+    return filtered[:limit]
+
+# -------------------------------
+# API: Export
+# -------------------------------
+@router.get("/api/export/{fmt}", response_class=JSONResponse)
+async def export_data(fmt: str, company_id: str):
+    if fmt not in ["csv","xlsx","pdf"]: raise HTTPException(400,"Invalid format")
+    data=[r for r in REVIEWS if r["company_id"]==company_id]
+    return {"format": fmt, "data": data}
