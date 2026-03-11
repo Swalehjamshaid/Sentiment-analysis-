@@ -16,7 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core.config import settings
-from app.core.db import get_engine, get_session
+from app.core.db import get_engine
 from app.core.models import Base, SCHEMA_VERSION, Company, Review
 
 # Routers
@@ -25,6 +25,7 @@ from app.routes import companies as companies_routes
 from app.routes import dashboard as dashboard_routes
 from app.routes import reviews as reviews_routes
 from app.routes import exports as exports_routes
+from app.routes import google_check as google_routes  # Added Google autocomplete router
 
 # Logging
 logging.basicConfig(
@@ -34,7 +35,9 @@ logging.basicConfig(
 logger = logging.getLogger("app.main")
 
 
+# ---------------------------
 # Outscraper Client
+# ---------------------------
 class OutscraperClient:
     BASE_URL = "https://api.app.outscraper.com/google-reviews"
 
@@ -79,19 +82,23 @@ class DummyReviewsClient:
         pass
 
 
+# ---------------------------
 # Lifespan
+# ---------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # DB setup
     try:
         engine: AsyncEngine = get_engine()
         async with engine.begin() as conn:
+            # Create config table if missing
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS config (
                     key TEXT PRIMARY KEY,
                     value TEXT
                 )
             """))
+            # Check schema version
             result = await conn.execute(text("SELECT value FROM config WHERE key='schema_version'"))
             row = result.first()
             db_version = row[0] if row else None
@@ -140,11 +147,13 @@ async def lifespan(app: FastAPI):
         logger.info("Outscraper client closed.")
 
 
+# ---------------------------
 # FastAPI app
+# ---------------------------
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Replace * with your frontend domain in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -156,12 +165,16 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
 
+# ---------------------------
 # Current user
+# ---------------------------
 def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
 
 
-# Landing & dashboard
+# ---------------------------
+# Routes
+# ---------------------------
 @app.get("/", response_class=HTMLResponse)
 async def landing(request: Request):
     return templates.TemplateResponse("landing.html", {"request": request, "settings": settings})
@@ -181,10 +194,13 @@ async def health():
 async def dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
-    return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
+    try:
+        return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
+    except Exception as e:
+        logger.error("❌ Dashboard rendering failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Dashboard rendering error")
 
 
-# Login route
 @app.post("/login", response_class=RedirectResponse)
 async def login_post(request: Request):
     user = {"id": 1, "email": "roy.jamshaid@gmail.com", "name": "Rai Jamshaid"}
@@ -193,18 +209,32 @@ async def login_post(request: Request):
     return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
 
 
+# ---------------------------
 # Include routers
+# ---------------------------
 app.include_router(auth_routes.router)
-app.include_router(companies_routes.router)  # <-- fixes /api/google_autocomplete 404
+app.include_router(companies_routes.router)
 app.include_router(dashboard_routes.router)
 app.include_router(reviews_routes.router)
 app.include_router(exports_routes.router)
+app.include_router(google_routes.router, prefix="/api/google_autocomplete")  # Google API endpoint
 
 
-# Railway entry point
+# ---------------------------
+# Railway / Uvicorn entry point
+# ---------------------------
 if __name__ == "__main__":
     import uvicorn
+
     port = int(os.environ.get("PORT", 8080))
     host = "0.0.0.0"
     logger.info(f"Starting Uvicorn on http://{host}:{port}")
-    uvicorn.run("app.main:app", host=host, port=port, log_level="info", workers=1, limit_concurrency=300, timeout_keep_alive=30)
+    uvicorn.run(
+        "app.main:app",
+        host=host,
+        port=port,
+        log_level="info",
+        workers=1,
+        limit_concurrency=300,
+        timeout_keep_alive=30,
+    )
