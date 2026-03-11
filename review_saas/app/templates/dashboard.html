@@ -4,19 +4,29 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Review SaaS Dashboard</title>
-  
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous" />
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-7j6QzDgT8YIm8oWslrjKz2nA3uMZkV6WZy0LhQwYqH8QvV4KekVZ1qC6mYI8M7Oh" crossorigin="anonymous"></script>
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+    integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
+    crossorigin="anonymous"
+  />
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
+    rel="stylesheet"
+  />
+  <script
+    src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+    integrity="sha384-7j6QzDgT8YIm8oWslrjKz2nA3uMZkV6WZy0LhQwYqH8QvV4KekVZ1qC6mYI8M7Oh"
+    crossorigin="anonymous"
+  ></script>
 
   <style>
-    /* Requirement 6 & 8: Consistent & Responsive Styling */
-    body { padding: 24px; transition: background-color 0.3s, color 0.3s; }
+    :root { --transition-speed: 0.3s; }
+    body { padding: 24px; transition: background-color var(--transition-speed), color var(--transition-speed); }
     [data-theme="dark"] { background-color: #121212 !important; color: #e6e6e6 !important; }
     [data-theme="dark"] .card { background-color: #1f1f1f; color: #e6e6e6; border-color: #333; }
     [data-theme="dark"] .table { color: #e6e6e6; border-color: #333; }
     [data-theme="dark"] .table-light { background-color: #2d2d2d; color: #fff; }
-    
     .kpi-card { min-height: 120px; transition: transform 0.2s; }
     .kpi-card:hover { transform: translateY(-5px); }
     .sent-pos { color: #198754; font-weight: 600; }
@@ -25,27 +35,21 @@
     #loadingSpinner { display: none; }
     .cursor-pointer { cursor: pointer; }
     .disabled { pointer-events: none; opacity: 0.6; }
-    .chart-wrapper { min-height: 240px; }
-    
-    /* Requirement 2: Improved Autocomplete Dropdown Visibility */
-    .autocomplete-dropdown {
-      position: absolute; z-index: 1051; background: white; width: 100%;
-      border: 1px solid #ddd; border-top: none; max-height: 200px; overflow-y: auto;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: none;
-    }
-    [data-theme="dark"] .autocomplete-dropdown { background: #1f1f1f; border-color: #444; }
-    .autocomplete-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #eee; }
-    .autocomplete-item:hover { background-color: #f8f9fa; }
-    [data-theme="dark"] .autocomplete-item:hover { background-color: #2d2d2d; }
+    .alert-placeholder { min-height: 0; position: sticky; top: 10px; z-index: 1050; }
+    .chart-wrapper { min-height: 280px; position: relative; }
+    gmp-autocomplete { width: 100%; display: block; }
+    /* Fix for Google Autocomplete visibility in some layouts */
+    .pac-container { z-index: 2000 !important; }
   </style>
 </head>
-
 <body>
-  <nav class="navbar navbar-expand-lg navbar-dark bg-primary rounded mb-4 shadow-sm">
+  <nav class="navbar navbar-expand-lg navbar-dark bg-primary rounded mb-4 shadow">
     <div class="container-fluid">
-      <span class="navbar-brand fw-semibold">📊 Review SaaS Dashboard</span>
+      <span class="navbar-brand fw-semibold"><i class="bi bi-graph-up-arrow me-2"></i>Review SaaS Dashboard</span>
       <div class="d-flex align-items-center gap-2">
-        <button id="toggleTheme" class="btn btn-light btn-sm"><i class="bi bi-moon-stars"></i> Theme</button>
+        <button id="toggleTheme" class="btn btn-light btn-sm">
+          <i class="bi bi-moon-stars"></i> Theme
+        </button>
         <a href="/dashboard" class="btn btn-outline-light btn-sm">Home</a>
         <form action="/logout" method="post" class="d-inline">
           <button class="btn btn-danger btn-sm">Logout</button>
@@ -57,18 +61,18 @@
   <div class="container-fluid">
     <div id="alertHost" class="alert-placeholder mb-3"></div>
 
-    <div class="row g-3 align-items-end mb-3">
+    <div class="row g-3 align-items-end mb-3 p-3 bg-light rounded border shadow-sm mx-0">
       <div class="col-md-3">
         <label class="form-label fw-semibold">Company</label>
         <select id="companySelect" class="form-select" aria-label="Select company"></select>
-        <div id="companyHelp" class="form-text text-danger d-none">No companies found.</div>
+        <div id="companyHelp" class="form-text text-danger d-none">No companies found. Please add one.</div>
       </div>
       <div class="col-md-2">
-        <label class="form-label fw-semibold">Start Date</label>
+        <label class="form-label fw-semibold">Start</label>
         <input id="startDate" type="date" class="form-control" />
       </div>
       <div class="col-md-2">
-        <label class="form-label fw-semibold">End Date</label>
+        <label class="form-label fw-semibold">End</label>
         <input id="endDate" type="date" class="form-control" />
       </div>
       <div class="col-md-2">
@@ -80,7 +84,7 @@
         </select>
       </div>
       <div class="col-md-2">
-        <label class="form-label fw-semibold">Group By</label>
+        <label class="form-label fw-semibold">Group</label>
         <select id="groupBy" class="form-select">
           <option value="day" selected>Daily</option>
           <option value="week">Weekly</option>
@@ -90,441 +94,535 @@
       <div class="col-md-1">
         <button id="loadBtn" class="btn btn-primary w-100">Load</button>
       </div>
-      <div class="col-md-1 text-center">
-        <div id="loadingSpinner" class="spinner-border text-primary" role="status"></div>
-      </div>
     </div>
 
-    <div class="d-flex gap-2 mb-3 flex-wrap">
+    <div class="d-flex flex-wrap gap-2 mb-3">
       <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
         <i class="bi bi-plus-circle"></i> Add Company
       </button>
-      <a id="exportCsv" class="btn btn-outline-secondary btn-sm"><i class="bi bi-filetype-csv"></i> CSV</a>
-      <a id="exportXlsx" class="btn btn-outline-secondary btn-sm"><i class="bi bi-filetype-xlsx"></i> XLSX</a>
-      <a id="exportPdf" class="btn btn-outline-secondary btn-sm"><i class="bi bi-filetype-pdf"></i> PDF</a>
+      <div id="loadingSpinner" class="spinner-border text-primary ms-2" role="status" aria-label="loading"></div>
+      <div class="ms-auto d-flex gap-2">
+        <a id="exportCsv" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-filetype-csv"></i> CSV</a>
+        <a id="exportXlsx" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-filetype-xlsx"></i> XLSX</a>
+        <a id="exportPdf" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-filetype-pdf"></i> PDF</a>
+      </div>
     </div>
 
     <div class="row g-3 mb-4">
-      <div class="col-md-4 col-lg-2">
-        <div class="card kpi-card shadow-sm"><div class="card-body"><div class="text-muted small">Total Reviews</div><div id="kpiTotal" class="display-6 fw-semibold">–</div></div></div>
+      <div class="col-md-2 col-6">
+        <div class="card kpi-card shadow-sm border-0 bg-white">
+          <div class="card-body">
+            <div class="text-muted small text-uppercase fw-bold">Total Reviews</div>
+            <div id="kpiTotal" class="display-6 fw-semibold">–</div>
+          </div>
+        </div>
       </div>
-      <div class="col-md-4 col-lg-2">
-        <div class="card kpi-card shadow-sm"><div class="card-body"><div class="text-muted small">Avg Rating</div><div id="kpiRating" class="display-6 fw-semibold">–</div></div></div>
+      <div class="col-md-2 col-6">
+        <div class="card kpi-card shadow-sm border-0 bg-white">
+          <div class="card-body">
+            <div class="text-muted small text-uppercase fw-bold">Avg Rating</div>
+            <div id="kpiRating" class="display-6 fw-semibold">–</div>
+          </div>
+        </div>
       </div>
-      <div class="col-md-4 col-lg-2">
-        <div class="card kpi-card shadow-sm"><div class="card-body"><div class="text-muted small">Positive</div><div id="kpiPos" class="display-6 sent-pos">–</div></div></div>
+      <div class="col-md-2 col-4">
+        <div class="card kpi-card shadow-sm border-0 bg-white">
+          <div class="card-body">
+            <div class="text-muted small text-uppercase fw-bold">Positive</div>
+            <div id="kpiPos" class="display-6 sent-pos">–</div>
+          </div>
+        </div>
       </div>
-      <div class="col-md-4 col-lg-2">
-        <div class="card kpi-card shadow-sm"><div class="card-body"><div class="text-muted small">Neutral</div><div id="kpiNeu" class="display-6 sent-neu">–</div></div></div>
+      <div class="col-md-2 col-4">
+        <div class="card kpi-card shadow-sm border-0 bg-white">
+          <div class="card-body">
+            <div class="text-muted small text-uppercase fw-bold">Neutral</div>
+            <div id="kpiNeu" class="display-6 sent-neu">–</div>
+          </div>
+        </div>
       </div>
-      <div class="col-md-4 col-lg-2">
-        <div class="card kpi-card shadow-sm"><div class="card-body"><div class="text-muted small">Negative</div><div id="kpiNeg" class="display-6 sent-neg">–</div></div></div>
+      <div class="col-md-2 col-4">
+        <div class="card kpi-card shadow-sm border-0 bg-white">
+          <div class="card-body">
+            <div class="text-muted small text-uppercase fw-bold">Negative</div>
+            <div id="kpiNeg" class="display-6 sent-neg">–</div>
+          </div>
+        </div>
       </div>
     </div>
 
     <div class="row g-4">
       <div class="col-lg-6">
-        <div class="card shadow-sm"><div class="card-body chart-wrapper"><h6>Rating Distribution (1–5)</h6><canvas id="chartDistribution"></canvas></div></div>
+        <div class="card shadow-sm">
+          <div class="card-body chart-wrapper">
+            <h6 class="mb-3 fw-bold"><i class="bi bi-bar-chart me-2"></i>Rating Distribution</h6>
+            <canvas id="chartDistribution"></canvas>
+            <div id="distEmpty" class="text-muted small d-none position-absolute top-50 start-50 translate-middle">No data available</div>
+          </div>
+        </div>
       </div>
       <div class="col-lg-6">
-        <div class="card shadow-sm"><div class="card-body chart-wrapper"><h6>Review Trend</h6><canvas id="chartTrend"></canvas></div></div>
+        <div class="card shadow-sm">
+          <div class="card-body chart-wrapper">
+            <h6 class="mb-3 fw-bold"><i class="bi bi-graph-up me-2"></i>Review Trend</h6>
+            <canvas id="chartTrend"></canvas>
+            <div id="trendEmpty" class="text-muted small d-none position-absolute top-50 start-50 translate-middle">No data available</div>
+          </div>
+        </div>
       </div>
       <div class="col-lg-6">
-        <div class="card shadow-sm"><div class="card-body chart-wrapper"><h6>Sentiment Distribution</h6><canvas id="chartSentiment"></canvas></div></div>
+        <div class="card shadow-sm">
+          <div class="card-body chart-wrapper">
+            <h6 class="mb-3 fw-bold"><i class="bi bi-pie-chart me-2"></i>Sentiment Analysis</h6>
+            <canvas id="chartSentiment"></canvas>
+            <div id="sentEmpty" class="text-muted small d-none position-absolute top-50 start-50 translate-middle">No data available</div>
+          </div>
+        </div>
       </div>
       <div class="col-lg-6">
-        <div class="card shadow-sm"><div class="card-body chart-wrapper"><h6>Competitor Volume</h6><canvas id="chartCompetitors"></canvas></div></div>
+        <div class="card shadow-sm">
+          <div class="card-body chart-wrapper">
+            <h6 class="mb-3 fw-bold"><i class="bi bi-building-check me-2"></i>Competitor Volume</h6>
+            <canvas id="chartCompetitors"></canvas>
+            <div id="compEmpty" class="text-muted small d-none position-absolute top-50 start-50 translate-middle">No competitor data</div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="card mt-4 border-primary shadow-sm">
+    <div class="card mt-4 shadow-sm border-start border-primary border-4">
       <div class="card-body">
-        <h6 class="mb-2 text-primary"><i class="bi bi-robot"></i> AI Summary</h6>
-        <div id="aiSummary" class="fst-italic text-muted">Dashboard initialized. Load data to generate summary.</div>
+        <h6 class="mb-2 fw-bold text-primary"><i class="bi bi-cpu me-2"></i>AI Strategic Summary</h6>
+        <div id="aiSummary" class="fst-italic text-muted">Awaiting data for analysis...</div>
       </div>
     </div>
 
     <div class="card mt-4 mb-5 shadow-sm">
       <div class="card-body">
         <div class="d-flex align-items-center justify-content-between mb-3">
-          <h5 class="mb-0">Recent Reviews</h5>
-          <select id="pageSizeSelect" class="form-select form-select-sm" style="width: 80px;">
-            <option value="10" selected>10</option><option value="25">25</option><option value="50">50</option>
-          </select>
+          <h5 class="mb-0 fw-bold">Recent Reviews</h5>
+          <div class="d-flex align-items-center gap-2">
+            <label class="small text-muted mb-0">Show</label>
+            <select id="pageSizeSelect" class="form-select form-select-sm" style="width: 80px;">
+              <option value="10" selected>10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+            </select>
+          </div>
         </div>
         <div class="table-responsive">
-          <table class="table table-hover table-striped align-middle">
+          <table class="table table-hover table-striped table-bordered align-middle">
             <thead class="table-light">
               <tr>
                 <th>Author</th>
-                <th class="cursor-pointer" data-sort="rating">Rating <i class="bi bi-arrow-down-up"></i></th>
+                <th class="cursor-pointer" data-sort="rating">Rating <i class="bi bi-arrow-down-up small"></i></th>
                 <th>Sentiment</th>
-                <th class="cursor-pointer" data-sort="date">Date <i class="bi bi-arrow-down-up"></i></th>
-                <th>Review</th>
+                <th class="cursor-pointer" data-sort="date">Date <i class="bi bi-arrow-down-up small"></i></th>
+                <th>Review Details</th>
               </tr>
             </thead>
-            <tbody id="reviewsTable"></tbody>
+            <tbody id="reviewsTable">
+              <tr><td colspan="5" class="text-center text-muted">No reviews loaded. Click "Load" to begin.</td></tr>
+            </tbody>
           </table>
         </div>
-        <div class="d-flex justify-content-between align-items-center mt-3">
-          <button id="pagePrev" class="btn btn-outline-primary btn-sm" disabled><i class="bi bi-chevron-left"></i> Prev</button>
-          <span id="pageInfo" class="small text-muted">Page 1 of 1</span>
-          <button id="pageNext" class="btn btn-outline-primary btn-sm" disabled>Next <i class="bi bi-chevron-right"></i></button>
+        <div class="d-flex align-items-center justify-content-between mt-3">
+          <div id="pageInfo" class="small text-muted">Page 1 of 1</div>
+          <div class="btn-group">
+            <button id="pagePrev" class="btn btn-outline-primary btn-sm" disabled>
+              <i class="bi bi-chevron-left"></i> Prev
+            </button>
+            <button id="pageNext" class="btn btn-outline-primary btn-sm" disabled>
+              Next <i class="bi bi-chevron-right"></i>
+            </button>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="modal fade" id="addCompanyModal" tabindex="-1">
-    <div class="modal-dialog">
+  <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-labelledby="addCompanyModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
       <form id="addCompanyForm" class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title">Add Company (Google Maps Data)</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <div class="modal-header bg-success text-white">
+          <h5 class="modal-title" id="addCompanyModalLabel"><i class="bi bi-plus-lg me-2"></i>Register New Business</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
         <div class="modal-body">
-          <div class="mb-3 position-relative">
-            <label class="form-label fw-semibold">Search Business via Backend Proxy</label>
-            <input type="text" id="proxySearchInput" placeholder="Start typing business name..." class="form-control" autocomplete="off" />
-            <div id="proxyResults" class="autocomplete-dropdown"></div>
-            <div id="proxySpinner" class="spinner-border spinner-border-sm text-primary position-absolute end-0 top-50 me-3 d-none" style="margin-top:-10px"></div>
+          <div class="mb-4 p-3 bg-light rounded border">
+            <label class="form-label fw-bold"><i class="bi bi-google me-2"></i>Smart Search (Google Places)</label>
+            <gmp-autocomplete
+              id="placeSearch"
+              placeholder="Start typing your business name..."
+              class="form-control"
+            ></gmp-autocomplete>
+            <div class="form-text mt-2">Selecting a suggestion will automatically extract the Google Place ID.</div>
           </div>
 
           <hr>
 
-          <div class="mb-2">
-            <label class="form-label">Selected Company Name</label>
-            <input id="companyName" name="name" class="form-control" required />
-          </div>
-          <div class="mb-2">
-            <label class="form-label">Google Place ID</label>
-            <input id="placeId" name="place_id" class="form-control bg-light" required readonly />
-          </div>
-          <div class="mb-2">
-            <label class="form-label">Verified Address</label>
-            <input id="companyAddress" name="address" class="form-control" />
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">Company Name</label>
+              <input id="companyName" name="name" class="form-control" placeholder="e.g. Haier Logistics Center" required />
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Place ID (Unique Identifier)</label>
+              <input id="placeId" name="place_id" class="form-control bg-light" placeholder="Automatically filled" required readonly />
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Address</label>
+              <input id="companyAddress" name="address" class="form-control" placeholder="Business street address" />
+            </div>
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-secondary" data-bs-dismiss="modal" type="button">Close</button>
-          <button class="btn btn-success" type="submit">Add Company</button>
+          <button class="btn btn-secondary" data-bs-dismiss="modal" type="button">Cancel</button>
+          <button class="btn btn-success" type="submit">Confirm & Add</button>
         </div>
       </form>
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
+    crossorigin="anonymous"
+  ></script>
 
   <script>
-    /**
-     * Requirement 9 & 10: Unified Logging, Debugging & Documentation
-     * APPLICATION STATE & CHART REGISTRY
-     */
-    let charts = {};
+    (g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;
+    b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,
+    u=()=>h||(h=new Promise(async(f,n)=>{await (e=l=>n(Error(p+" could not load.")))
+    (()=>{var e=document.createElement("script");
+    e.src=`https://maps.${c}apis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&loading=async&libraries=places&v=beta&callback=${q}`;
+    d[q]=f;e.onerror=()=>h=n(Error(p+" network error"));m.head.append(e)});
+    await google.maps.importLibrary("places");}));d[l]?console.warn(p+" only loads once. Ignoring:",g):
+    d[l]=(f,...n)=>r.add(f)&&e(()=>h||e()).then(()=>d[l](f,...n))})({key:"AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc",libraries:"places"});
+  </script>
+
+  <script>
+    // Global State Management
+    let trendChart, distChart, sentimentChart, competitorChart;
+    let googlePlacesReady = false;
     let cachedReviews = [];
     let sortKey = 'date';
     let sortDir = 'desc';
     let currentPage = 1;
     let pageSize = 10;
 
-    // Requirement 9: Unified Logger
-    const logger = {
-      info: (msg, data = '') => console.log(`[DASHBOARD-INFO] ${msg}`, data),
-      error: (msg, err = '') => console.error(`[DASHBOARD-ERROR] ${msg}`, err)
+    // SECTION 1: Logging Utility (Requirement 9)
+    const Logger = {
+        info: (msg, data = '') => console.log(`[INFO] ${new Date().toLocaleTimeString()}: ${msg}`, data),
+        error: (msg, err = '') => console.error(`[ERROR] ${new Date().toLocaleTimeString()}: ${msg}`, err),
+        warn: (msg) => console.warn(`[WARN] ${new Date().toLocaleTimeString()}: ${msg}`)
     };
 
-    /**
-     * Requirement 1 & 6: CORE INITIALIZATION
-     */
-    (function initApp() {
-      const savedTheme = localStorage.getItem('theme') || 'light';
-      document.documentElement.setAttribute('data-theme', savedTheme);
-      
+    // SECTION 2: UI Initialization
+    (function initTheme(){
+      const saved = localStorage.getItem('theme') || 'light';
+      document.documentElement.setAttribute('data-theme', saved);
       document.getElementById('toggleTheme').addEventListener('click', () => {
-        const current = document.documentElement.getAttribute('data-theme');
-        const next = current === 'light' ? 'dark' : 'light';
+        const cur = document.documentElement.getAttribute('data-theme');
+        const next = cur === 'light' ? 'dark' : 'light';
         document.documentElement.setAttribute('data-theme', next);
         localStorage.setItem('theme', next);
-        Object.values(charts).forEach(c => c.update()); 
+        Logger.info(`Theme changed to ${next}`);
       });
-      
-      logger.info("Application context loaded successfully.");
     })();
 
-    // Requirement 3: Professional Alert Handler
-    function notify(msg, variant = 'danger') {
+    function escapeHtml(s='') {
+      return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+    }
+
+    function formatNum(n, digits=0) {
+      if (n === null || n === undefined || Number.isNaN(Number(n))) return '–';
+      return Number(n).toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits });
+    }
+
+    function notify(msg, variant='danger', timeout=6000) {
       const host = document.getElementById('alertHost');
       const id = 'alert-' + Date.now();
       host.insertAdjacentHTML('beforeend', `
         <div id="${id}" class="alert alert-${variant} alert-dismissible fade show shadow-sm" role="alert">
-          ${msg} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>`);
-      setTimeout(() => {
+          ${escapeHtml(msg)}
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      `);
+      if (timeout) setTimeout(() => {
         const el = document.getElementById(id);
         if (el) bootstrap.Alert.getOrCreateInstance(el).close();
-      }, 5000);
+      }, timeout);
     }
 
-    /**
-     * Requirement 7: OPTIMIZED ASYNC FETCH ENGINE
-     */
-    async function apiRequest(url, options = {}) {
-      logger.info(`Starting API Request to: ${url}`);
-      try {
-        const res = await fetch(url, { ...options, credentials: "include" });
-        if (!res.ok) throw new Error(`Server Response ${res.status}: ${res.statusText}`);
-        return await res.json();
-      } catch (err) {
-        logger.error(`API Failure: ${url}`, err);
-        throw err;
-      }
-    }
-
-    /**
-     * Requirement 2: REAL-TIME GOOGLE API AUTO-FETCH
-     */
-    const proxyInput = document.getElementById('proxySearchInput');
-    const proxyResults = document.getElementById('proxyResults');
-    const proxySpinner = document.getElementById('proxySpinner');
-    let searchDebounce = null;
-
-    proxyInput.addEventListener('input', () => {
-      clearTimeout(searchDebounce);
-      const query = proxyInput.value.trim();
-      if (query.length < 3) {
-        proxyResults.style.display = 'none';
-        return;
-      }
-
-      proxySpinner.classList.remove('d-none');
-      // Requirement 7: Debounce to optimize backend calls
-      searchDebounce = setTimeout(async () => {
+    // SECTION 3: API Operations (Requirements 2, 7)
+    async function fetchJSON(url, options = {}, retries = 2, backoffMs = 500) {
+      Logger.info(`Fetching: ${url}`);
+      for (let i = 0; i <= retries; i++) {
         try {
-          const data = await apiRequest(`/api/google_autocomplete?input=${encodeURIComponent(query)}`);
-          renderProxyResults(data.predictions || []);
-        } catch (e) {
-          notify("Google Proxy unreachable. Check backend logs.");
-        } finally {
-          proxySpinner.classList.add('d-none');
+          const res = await fetch(url, { ...options, credentials: "include" });
+          if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+          const data = await res.json();
+          Logger.info(`Response received for ${url}`);
+          return data;
+        } catch (err) {
+          Logger.error(`Retry ${i} failed for ${url}`, err);
+          if (i === retries) throw err;
+          await new Promise(r => setTimeout(r, backoffMs * Math.pow(2, i)));
         }
-      }, 400); 
-    });
-
-    function renderProxyResults(predictions) {
-      proxyResults.innerHTML = '';
-      if (!predictions.length) {
-        proxyResults.style.display = 'none';
-        return;
       }
-      predictions.forEach(p => {
-        const div = document.createElement('div');
-        div.className = 'autocomplete-item';
-        div.textContent = p.description;
-        div.onclick = () => {
-            document.getElementById('companyName').value = p.structured_formatting?.main_text || p.description;
-            document.getElementById('placeId').value = p.place_id;
-            document.getElementById('companyAddress').value = p.description;
-            proxyResults.style.display = 'none';
-            proxyInput.value = '';
-            logger.info("Location auto-filled via Place ID:", p.place_id);
-        };
-        proxyResults.appendChild(div);
-      });
-      proxyResults.style.display = 'block';
     }
 
-    /**
-     * Requirement 4: DYNAMIC DASHBOARD ENGINE (REAL-TIME RENDERING)
-     */
+    // Google Places Fix: Explicitly load and listen (Requirement 2)
+    async function initGooglePlaces() {
+      if (googlePlacesReady) return;
+      try {
+        Logger.info("Loading Google Places Library...");
+        await google.maps.importLibrary("places");
+        googlePlacesReady = true;
+        setupNewAutocomplete();
+        Logger.info("Google Places Library Ready.");
+      } catch (err) {
+        Logger.error("Failed to load Places library", err);
+        notify("Google Places failed to load. Check API Key.", "danger");
+      }
+    }
+
+    function setupNewAutocomplete() {
+      const autoEl = document.getElementById('placeSearch');
+      if (!autoEl) return;
+      autoEl.addEventListener('gmp-select', async (e) => {
+        const placePrediction = e.detail?.placePrediction;
+        if (!placePrediction) return;
+        try {
+          const place = placePrediction.toPlace();
+          Logger.info("Fetching details for Place ID: " + place.id);
+          await place.fetchFields({ fields: ['displayName', 'id', 'formattedAddress'] });
+          
+          document.getElementById('companyName').value = place.displayName || '';
+          document.getElementById('placeId').value = place.id || '';
+          document.getElementById('companyAddress').value = place.formattedAddress || '';
+          Logger.info("Form populated with Google data.");
+        } catch (err) {
+          Logger.error("Place details fetch failed", err);
+          notify("Couldn't load place details.", "warning");
+        }
+      });
+    }
+
+    // SECTION 4: Data Management (Requirement 4, 10)
     async function loadCompanies() {
       try {
-        const data = await apiRequest('/api/companies');
+        const data = await fetchJSON('/api/companies');
         const sel = document.getElementById('companySelect');
-        sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-        document.getElementById('companyHelp').classList.toggle('d-none', data.length > 0);
-      } catch (e) { notify("Could not sync company list."); }
+        if (data && data.length > 0) {
+          sel.innerHTML = data.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
+          document.getElementById('companyHelp').classList.add('d-none');
+        } else {
+          sel.innerHTML = '';
+          document.getElementById('companyHelp').classList.remove('d-none');
+        }
+      } catch(e) { 
+        Logger.error("Load companies error", e);
+        notify("Failed to load companies: " + e.message); 
+      }
     }
 
     async function loadReviews() {
-      const companyId = document.getElementById('companySelect').value;
-      if (!companyId) return notify("Select a target company first.", "warning");
-
       const btn = document.getElementById('loadBtn');
       const spinner = document.getElementById('loadingSpinner');
       
       btn.disabled = true;
       spinner.style.display = 'inline-block';
+      
+      const companyId = document.getElementById('companySelect').value;
+      const start = document.getElementById('startDate').value;
+      const end = document.getElementById('endDate').value;
+      const limit = document.getElementById('limitSelect').value;
 
-      const params = new URLSearchParams({
-        company_id: companyId,
-        start: document.getElementById('startDate').value,
-        end: document.getElementById('endDate').value,
-        limit: document.getElementById('limitSelect').value
-      });
+      if (!companyId) {
+        notify("Please select or add a company first", "warning");
+        btn.disabled = false;
+        spinner.style.display = 'none';
+        return;
+      }
 
       try {
-        cachedReviews = await apiRequest(`/api/reviews?${params}`);
-        updateDashboardUI();
-        notify(`Dashboard updated with ${cachedReviews.length} records.`, "success");
-      } catch (e) {
-        notify("Data sync failed. Check console for error trace.");
+        const reviews = await fetchJSON(`/api/reviews?company_id=${companyId}&start=${start}&end=${end}&limit=${limit}`);
+        cachedReviews = reviews || [];
+        
+        // Sequential rendering to improve perceived performance
+        renderKPIs(cachedReviews);
+        renderCharts(cachedReviews);
+        renderTablePage(1);
+        updateAISummary(cachedReviews);
+        
+        Logger.info(`Successfully loaded ${cachedReviews.length} reviews.`);
+      } catch(e) { 
+        Logger.error("Load reviews error", e);
+        notify("Failed to load reviews. Backend might be offline."); 
       } finally {
         btn.disabled = false;
         spinner.style.display = 'none';
       }
     }
 
-    /**
-     * Requirement 4: DYNAMIC COMPONENT UPDATE (NO RELOAD)
-     */
-    function updateDashboardUI() {
-      // KPI CALCULATION
-      const total = cachedReviews.length;
-      const avg = total ? cachedReviews.reduce((a,b) => a + b.rating, 0) / total : 0;
-      const getSentimentCount = (key) => cachedReviews.filter(r => r.sentiment === key).length;
+    function renderKPIs(reviews) {
+      const total = reviews.length;
+      const avg = total ? reviews.reduce((a,b)=>a+b.rating,0)/total : 0;
+      const pos = reviews.filter(r=>r.sentiment==='positive').length;
+      const neu = reviews.filter(r=>r.sentiment==='neutral').length;
+      const neg = reviews.filter(r=>r.sentiment==='negative').length;
 
-      document.getElementById('kpiTotal').textContent = total;
-      document.getElementById('kpiRating').textContent = avg.toFixed(1);
-      document.getElementById('kpiPos').textContent = getSentimentCount('positive');
-      document.getElementById('kpiNeu').textContent = getSentimentCount('neutral');
-      document.getElementById('kpiNeg').textContent = getSentimentCount('negative');
-
-      // CHART REFRESH
-      refreshCharts();
-      
-      // TABLE REFRESH
-      renderTablePage(1);
-
-      // AI TEXT UPDATE
-      document.getElementById('aiSummary').textContent = total > 0 
-        ? `Consolidated analysis of ${total} reviews shows a rating stability of ${avg.toFixed(1)}/5.` 
-        : "Insufficient data for AI summary.";
+      document.getElementById('kpiTotal').textContent = formatNum(total);
+      document.getElementById('kpiRating').textContent = formatNum(avg, 1);
+      document.getElementById('kpiPos').textContent = formatNum(pos);
+      document.getElementById('kpiNeu').textContent = formatNum(neu);
+      document.getElementById('kpiNeg').textContent = formatNum(neg);
     }
 
-    /**
-     * Requirement 4: CHART.JS DYNAMIC RELOAD
-     */
-    function refreshCharts() {
-      Object.values(charts).forEach(c => c.destroy()); // Clear memory to prevent overlaps
+    function updateAISummary(reviews) {
+      const el = document.getElementById('aiSummary');
+      if (reviews.length === 0) {
+        el.textContent = "No data available for AI analysis.";
+        return;
+      }
+      // Placeholder for actual AI generation call
+      el.textContent = `Analyzing ${reviews.length} reviews... Trend shows a steady feedback loop.`;
+    }
 
-      const create = (id, type, data, options = {}) => {
-        const ctx = document.getElementById(id).getContext('2d');
-        charts[id] = new Chart(ctx, { 
-          type, 
-          data, 
-          options: { responsive: true, maintainAspectRatio: false, ...options } 
-        });
-      };
+    // SECTION 5: Chart Visualization (Requirement 4)
+    function renderCharts(reviews) {
+      // Destroy old charts to prevent memory leaks and ghost images
+      [trendChart, distChart, sentimentChart, competitorChart].forEach(c => c?.destroy());
 
-      // Rating Distribution
-      create('chartDistribution', 'bar', {
-        labels: ['1★','2★','3★','4★','5★'],
-        datasets: [{ label: 'Review Count', data: [1,2,3,4,5].map(n => cachedReviews.filter(r => r.rating === n).length), backgroundColor: '#0d6efd' }]
+      if (reviews.length === 0) {
+        document.querySelectorAll('.chart-wrapper canvas').forEach(c => c.style.display = 'none');
+        document.querySelectorAll('[id$="Empty"]').forEach(d => d.classList.remove('d-none'));
+        return;
+      }
+
+      document.querySelectorAll('.chart-wrapper canvas').forEach(c => c.style.display = 'block');
+      document.querySelectorAll('[id$="Empty"]').forEach(d => d.classList.add('d-none'));
+
+      // Distribution Chart
+      const distCounts = [1,2,3,4,5].map(n=>reviews.filter(r=>r.rating===n).length);
+      distChart = new Chart(document.getElementById('chartDistribution'), {
+        type:'bar',
+        data:{ labels:[1,2,3,4,5], datasets:[{label:'Count',data:distCounts,backgroundColor:'#0d6efd'}] },
+        options:{ responsive:true, maintainAspectRatio: false }
+      });
+
+      // Trend Chart
+      const trendLabels = [...new Set(reviews.map(r=>r.date))].sort((a,b)=>new Date(a)-new Date(b));
+      const trendData = trendLabels.map(l=>reviews.filter(r=>r.date===l).length);
+      trendChart = new Chart(document.getElementById('chartTrend'), {
+        type:'line',
+        data:{ labels:trendLabels, datasets:[{label:'Review Volume',data:trendData,borderColor:'#0d6efd',fill: true, backgroundColor:'rgba(13, 110, 253, 0.1)'}] },
+        options:{ responsive:true, maintainAspectRatio: false }
       });
 
       // Sentiment Pie
-      create('chartSentiment', 'pie', {
-        labels: ['Positive', 'Neutral', 'Negative'],
-        datasets: [{
-          data: ['positive', 'neutral', 'negative'].map(s => cachedReviews.filter(r => r.sentiment === s).length),
-          backgroundColor: ['#198754', '#6c757d', '#dc3545']
-        }]
+      const sentCounts = ['positive','neutral','negative'].map(s=>reviews.filter(r=>r.sentiment===s).length);
+      sentimentChart = new Chart(document.getElementById('chartSentiment'), {
+        type:'doughnut',
+        data:{ labels:['Positive','Neutral','Negative'], datasets:[{data:sentCounts,backgroundColor:['#198754','#6c757d','#dc3545']}] },
+        options:{ responsive:true, maintainAspectRatio: false }
       });
 
-      // Trend Over Time
-      const dates = [...new Set(cachedReviews.map(r => r.date))].sort();
-      create('chartTrend', 'line', {
-        labels: dates,
-        datasets: [{
-          label: 'Volume', data: dates.map(d => cachedReviews.filter(r => r.date === d).length),
-          borderColor: '#0d6efd', fill: true, backgroundColor: 'rgba(13, 110, 253, 0.1)'
-        }]
-      });
-
-      // Competitor Landscape
+      // Competitor Bar
       const compMap = {};
-      cachedReviews.forEach(r => { if(r.competitor) compMap[r.competitor] = (compMap[r.competitor] || 0) + 1; });
-      create('chartCompetitors', 'bar', {
-        labels: Object.keys(compMap),
-        datasets: [{ label: 'Engagement', data: Object.values(compMap), backgroundColor: '#198754' }]
-      }, { indexAxis: 'y' });
+      reviews.forEach(r=>{ if(r.competitor) compMap[r.competitor] = (compMap[r.competitor]||0)+1 });
+      competitorChart = new Chart(document.getElementById('chartCompetitors'), {
+        type:'bar',
+        data:{ labels:Object.keys(compMap), datasets:[{label:'Review Volume',data:Object.values(compMap),backgroundColor:'#6f42c1'}] },
+        options:{ indexAxis: 'y', responsive:true, maintainAspectRatio: false }
+      });
     }
 
-    /**
-     * Requirement 4 & 5: DYNAMIC DATA TABLE
-     */
+    // SECTION 6: Pagination & Sorting (Requirement 4)
     function renderTablePage(page) {
-      pageSize = parseInt(document.getElementById('pageSizeSelect').value);
+      pageSize = Number(document.getElementById('pageSizeSelect').value);
       currentPage = page;
+      const startIdx = (page-1)*pageSize;
       
-      const sorted = [...cachedReviews].sort((a,b) => {
-        let valA = a[sortKey], valB = b[sortKey];
-        if (sortKey === 'date') { valA = new Date(valA); valB = new Date(valB); }
-        return sortDir === 'asc' ? (valA > valB ? 1 : -1) : (valA < valB ? 1 : -1);
+      const sortedData = cachedReviews.slice().sort((a,b)=>{
+        const dir = sortDir === 'asc' ? 1 : -1;
+        if(sortKey === 'rating') return dir * (a.rating - b.rating);
+        return dir * (new Date(a.date) - new Date(b.date));
       });
 
-      const start = (page - 1) * pageSize;
-      const slice = sorted.slice(start, start + pageSize);
-      
+      const pageData = sortedData.slice(startIdx, startIdx + pageSize);
       const tbody = document.getElementById('reviewsTable');
-      tbody.innerHTML = slice.map(r => `
-        <tr>
-          <td>${r.author || 'Anonymous'}</td>
-          <td><span class="badge bg-primary">${r.rating}★</span></td>
-          <td><span class="text-uppercase small fw-bold sent-${r.sentiment}">${r.sentiment}</span></td>
-          <td class="small">${r.date}</td>
-          <td class="small text-wrap" style="max-width:300px">${r.comment || 'N/A'}</td>
-        </tr>`).join('');
+      
+      if (pageData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center">No data found matching current filters.</td></tr>';
+      } else {
+        tbody.innerHTML = pageData.map(r => `
+          <tr>
+            <td><strong>${escapeHtml(r.author)}</strong></td>
+            <td><span class="badge bg-primary">${r.rating} / 5</span></td>
+            <td><span class="text-uppercase small sent-${r.sentiment.substring(0,3)}">${r.sentiment}</span></td>
+            <td>${escapeHtml(r.date)}</td>
+            <td class="small">${escapeHtml(r.comment)}</td>
+          </tr>
+        `).join('');
+      }
 
-      const totalPages = Math.ceil(cachedReviews.length / pageSize) || 1;
-      document.getElementById('pageInfo').textContent = `Page ${page} of ${totalPages}`;
-      document.getElementById('pagePrev').disabled = page === 1;
-      document.getElementById('pageNext').disabled = page >= totalPages;
+      const totalPages = Math.ceil(cachedReviews.length / pageSize);
+      document.getElementById('pageInfo').textContent = `Showing ${pageData.length} of ${cachedReviews.length} (Page ${currentPage} of ${totalPages||1})`;
+      document.getElementById('pagePrev').disabled = currentPage <= 1;
+      document.getElementById('pageNext').disabled = currentPage >= totalPages;
     }
 
-    // Table Sorting Requirement
+    // SECTION 7: Event Listeners (Requirement 5, 13)
+    document.getElementById('pagePrev').addEventListener('click', ()=>renderTablePage(currentPage-1));
+    document.getElementById('pageNext').addEventListener('click', ()=>renderTablePage(currentPage+1));
+    document.getElementById('pageSizeSelect').addEventListener('change', ()=>renderTablePage(1));
+    
     document.querySelectorAll('th[data-sort]').forEach(th => {
-      th.onclick = () => {
-        const key = th.dataset.sort;
+      th.addEventListener('click', () => {
+        const key = th.getAttribute('data-sort');
         sortDir = (sortKey === key && sortDir === 'desc') ? 'asc' : 'desc';
         sortKey = key;
         renderTablePage(1);
-      };
+      });
     });
 
-    /**
-     * Requirement 2: BACKEND FORM SUBMISSION
-     */
-    document.getElementById('addCompanyForm').onsubmit = async (e) => {
+    document.getElementById('loadBtn').addEventListener('click', loadReviews);
+
+    document.getElementById('addCompanyForm').addEventListener('submit', async e => {
       e.preventDefault();
       const payload = {
-        name: document.getElementById('companyName').value,
-        place_id: document.getElementById('placeId').value,
-        address: document.getElementById('companyAddress').value
+        name: document.getElementById('companyName').value.trim(),
+        place_id: document.getElementById('placeId').value.trim(),
+        address: document.getElementById('companyAddress').value.trim()
       };
 
+      if (!payload.place_id) {
+        notify("Missing Google Place ID. Please use the search box.", "warning");
+        return;
+      }
+
       try {
-        await apiRequest('/api/companies', {
+        await fetchJSON('/api/companies', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {'Content-Type':'application/json'},
           body: JSON.stringify(payload)
         });
-        notify("New target business synchronized.", "success");
+        notify("Company successfully registered!", "success");
         bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
-        loadCompanies();
-      } catch (err) {
-        notify("Failed to synchronize business. Check backend connection.");
+        e.target.reset();
+        await loadCompanies();
+      } catch(e) { 
+        Logger.error("Add company error", e);
+        notify("Failed to add company: " + e.message, "danger"); 
       }
-    };
+    });
 
-    // Event Registration
-    document.getElementById('loadBtn').onclick = loadReviews;
-    document.getElementById('pagePrev').onclick = () => renderTablePage(currentPage - 1);
-    document.getElementById('pageNext').onclick = () => renderTablePage(currentPage + 1);
-    document.getElementById('pageSizeSelect').onchange = () => renderTablePage(1);
-
-    // Bootstrap Initial Load
-    window.onload = loadCompanies;
+    // Run on startup
+    initGooglePlaces();
+    loadCompanies();
   </script>
 </body>
 </html>
