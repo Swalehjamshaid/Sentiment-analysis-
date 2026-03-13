@@ -66,10 +66,10 @@ class CompanyReviews:
                 dist[rr] += 1
         return dist
 
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Normalization helpers
 # ──────────────────────────────────────────────────────────────────────────────
+
 def _coerce_datetime(value: Any) -> Optional[datetime]:
     """Accepts UNIX ts (sec/ms), ISO strings, or datetime; returns naive datetime (UTC-assumed)."""
     if value is None:
@@ -78,7 +78,7 @@ def _coerce_datetime(value: Any) -> Optional[datetime]:
         return value.replace(tzinfo=None)
     try:
         if isinstance(value, (int, float)):
-            if float(value) > 10_000_000_000:
+            if float(value) > 10_000_000_000:  # milliseconds
                 return datetime.utcfromtimestamp(float(value) / 1000.0)
             return datetime.utcfromtimestamp(float(value))
     except Exception:
@@ -98,13 +98,9 @@ def _coerce_datetime(value: Any) -> Optional[datetime]:
                 continue
     return None
 
-
 class OutscraperReviewsService:
-    """Lightweight normalizer that converts raw API JSON to ReviewData.
-    The client must provide an async `fetch_reviews(entity, max_reviews=None)` method that returns
-    a list of dicts with keys resembling Google/Outscraper responses.
-    """
-
+    """Normalizes raw review JSON from any client to ReviewData."""
+    
     def __init__(self, source_platform: str = "Google") -> None:
         self.source_platform = source_platform
 
@@ -143,14 +139,12 @@ class OutscraperReviewsService:
             }},
         )
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Fetch + ingest helpers
+# ──────────────────────────────────────────────────────────────────────────────
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Fetch + ingest
-# ──────────────────────────────────────────────────────────────────────────────
 async def fetch_entity_reviews(client: Any, entity: Union[str, Dict[str, Any]], max_reviews: Optional[int] = None) -> List[Dict[str, Any]]:
-    """Delegate to the provided async client to fetch raw reviews JSON for an entity.
-    The entity can be a place_id or a dict containing place_id/name/etc.
-    """
+    """Delegate to the async client to fetch raw review JSON for an entity."""
     if not hasattr(client, "fetch_reviews"):
         logger.warning("Reviews client missing fetch_reviews(entity, max_reviews) method.")
         return []
@@ -160,11 +154,15 @@ async def fetch_entity_reviews(client: Any, entity: Union[str, Dict[str, Any]], 
         logger.warning("fetch_entity_reviews failed: %s", ex)
         return []
 
-
-async def ingest_company_reviews(client: Any, company: Any, start: Optional[datetime] = None, end: Optional[datetime] = None, max_reviews: Optional[int] = None, source_platform: str = "Google") -> CompanyReviews:
-    """Fetch, normalize, and filter reviews for a single company. Returns CompanyReviews.
-    This does not write to DB; see run_batch_review_ingestion for persistence.
-    """
+async def ingest_company_reviews(
+    client: Any,
+    company: Any,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    max_reviews: Optional[int] = None,
+    source_platform: str = "Google"
+) -> CompanyReviews:
+    """Fetch, normalize, and filter reviews for a single company. Does not persist to DB."""
     cid = int(getattr(company, "id", company.get("id") if isinstance(company, dict) else 0))
     service = OutscraperReviewsService(source_platform=source_platform)
     raw = await fetch_entity_reviews(client, company, max_reviews=max_reviews)
@@ -182,8 +180,14 @@ async def ingest_company_reviews(client: Any, company: Any, start: Optional[date
         out.reviews.append(rd)
     return out
 
-
-async def ingest_multi_company_reviews(client: Any, entities: Iterable[Any], start: Optional[datetime] = None, end: Optional[datetime] = None, max_reviews: Optional[int] = None, source_platform: str = "Google") -> Dict[str, CompanyReviews]:
+async def ingest_multi_company_reviews(
+    client: Any,
+    entities: Iterable[Any],
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    max_reviews: Optional[int] = None,
+    source_platform: str = "Google"
+) -> Dict[str, CompanyReviews]:
     """Fetch reviews for multiple entities. Keys are str(entity_id or place_id)."""
     result: Dict[str, CompanyReviews] = {}
     for ent in entities:
@@ -194,11 +198,15 @@ async def ingest_multi_company_reviews(client: Any, entities: Iterable[Any], sta
         result[cid] = await ingest_company_reviews(client, ent, start=start, end=end, max_reviews=max_reviews, source_platform=source_platform)
     return result
 
-
-async def run_batch_review_ingestion(client: Any, entities: Iterable[Any], start: Optional[datetime] = None, end: Optional[datetime] = None, max_reviews: Optional[int] = None, source_platform: str = "Google") -> Dict[str, Any]:
-    """Legacy-compatible: fetch and write to DB, avoiding duplicates via external_review_id or composite key.
-    Returns summary dict with counts per company.
-    """
+async def run_batch_review_ingestion(
+    client: Any,
+    entities: Iterable[Any],
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    max_reviews: Optional[int] = None,
+    source_platform: str = "Google"
+) -> Dict[str, Any]:
+    """Fetch, normalize, and write reviews to DB, avoiding duplicates."""
     summary: Dict[str, Any] = {"companies": []}
     for ent in entities:
         try:
@@ -209,19 +217,12 @@ async def run_batch_review_ingestion(client: Any, entities: Iterable[Any], start
         new_count = 0
         async with get_session() as session:
             for rd in crevs.reviews:
-                exists_q = None
-                if rd.external_review_id:
-                    exists_q = select(Review.id).where(and_(Review.company_id == cid_int, Review.external_review_id == rd.external_review_id)).limit(1)
-                else:
-                    exists_q = select(Review.id).where(and_(
-                        Review.company_id == cid_int,
-                        Review.author_name == rd.author_name,
-                        Review.google_review_time.cast(Review.google_review_time.type) == rd.review_time
-                    ))
+                exists_q = select(Review.id).where(and_(Review.company_id == cid_int, Review.external_review_id == rd.external_review_id)).limit(1) if rd.external_review_id else \
+                           select(Review.id).where(and_(Review.company_id == cid_int, Review.author_name == rd.author_name, Review.google_review_time.cast(Review.google_review_time.type) == rd.review_time))
                 exists = (await session.execute(exists_q)).first()
                 if exists:
                     continue
-                obj = Review(
+                session.add(Review(
                     company_id=cid_int,
                     author_name=rd.author_name,
                     rating=float(rd.rating or 0.0),
@@ -231,19 +232,9 @@ async def run_batch_review_ingestion(client: Any, entities: Iterable[Any], start
                     external_review_id=rd.external_review_id,
                     source_platform=rd.source_platform,
                     sentiment_score=rd.sentiment_score,
-                )
-                session.add(obj)
+                ))
                 new_count += 1
             await session.commit()
         logger.info("Committed %s new reviews for company %s", new_count, cid_int)
         summary["companies"].append({"company_id": cid_int, "fetched": len(crevs.reviews), "saved": new_count})
     return summary
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# GOOGLE API KEY PLACEHOLDER
-# ──────────────────────────────────────────────────────────────────────────────
-# Insert your Google API key here and reference it in the client that fetches reviews.
-# Example:
-# GOOGLE_API_KEY = "YOUR_GOOGLE_API_KEY_HERE"
-# Use this key in your Outscraper or Google client initialization.
