@@ -1,11 +1,14 @@
 # filename: app/routes/companies.py
 from __future__ import annotations
 
+import json
 import logging
 import asyncio
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel
+import urllib.parse
+import urllib.request
+from typing import Any, Dict, List, Optional, Tuple
 
+from pydantic import BaseModel
 from fastapi import APIRouter, BackgroundTasks, Query, Request, HTTPException, status
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.templating import Jinja2Templates
@@ -41,69 +44,158 @@ def _require_user(request: Request) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
 # ─────────────────────────────────────────
-# Google Maps Client
+# Lightweight Google Places REST client
+# (avoids third-party googlemaps dependency)
 # ─────────────────────────────────────────
-def _get_gmaps_client() -> Optional[Any]:
-    key = getattr(settings, "GOOGLE_PLACES_API_KEY", "")
-    if not key:
-        logger.warning("Google Maps API key not configured")
-        return None
+class _GMapsClient:
+    BASE = "https://maps.googleapis.com/maps/api/place"
 
+    def __init__(self, api_key: str, language: Optional[str] = None, region: Optional[str] = None, timeout: int = 10):
+        if not api_key:
+            raise RuntimeError("Google API key is missing")
+        self.api_key = api_key
+        self.language = language
+        self.region = region
+        self.timeout = timeout
+
+    def _get_json(self, path: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        # Add required params
+        params["key"] = self.api_key
+        if self.language:
+            params["language"] = self.language
+        if self.region:
+            params["region"] = self.region
+
+        url = f"{self.BASE}/{path}?{urllib.parse.urlencode(params)}"
+        req = urllib.request.Request(url, headers={"User-Agent": "ReviewSaaS/1.0"})
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+        except Exception as ex:
+            raise RuntimeError(f"Network error contacting Google Places: {ex}")
+
+        status_val = payload.get("status")
+        # Google Places returns OK / ZERO_RESULTS as non-error; others are errors
+        if status_val not in ("OK", "ZERO_RESULTS"):
+            msg = payload.get("error_message", status_val)
+            raise RuntimeError(f"Google Places error: {msg}")
+        return payload
+
+    # Mirrors googlemaps.Client.places_autocomplete signature semantically
+    def places_autocomplete(self, input_text: str) -> List[Dict[str, Any]]:
+        data = self._get_json("autocomplete/json", {
+            "input": input_text,
+            "types": "establishment",
+        })
+        return data.get("predictions", [])
+
+    # Simple place details
+    def place_details(self, place_id: str) -> Dict[str, Any]:
+        fields = ",".join([
+            "place_id",
+            "name",
+            "formatted_address",
+            "geometry/location",
+            "website",
+            "url",
+            "rating",
+            "user_ratings_total",
+        ])
+        data = self._get_json("details/json", {
+            "place_id": place_id,
+            "fields": fields,
+        })
+        return data  # includes top-level status, result, etc.
+
+def _resolve_google_api_key() -> str:
+    # Support both names to avoid configuration mismatch
+    return (
+        getattr(settings, "GOOGLE_PLACES_API_KEY", None)
+        or getattr(settings, "GOOGLE_MAPS_API_KEY", None)
+        or ""
+    )
+
+def _gmaps_prefs() -> Tuple[Optional[str], Optional[str]]:
+    language = getattr(settings, "GOOGLE_PLACES_LANGUAGE", None)
+    region = getattr(settings, "GOOGLE_PLACES_REGION", None)
+    return language, region
+
+def _get_gmaps_client() -> Optional[_GMapsClient]:
+    key = _resolve_google_api_key()
+    if not key:
+        logger.warning("Google API key not configured (GOOGLE_PLACES_API_KEY/GOOGLE_MAPS_API_KEY)")
+        return None
+    language, region = _gmaps_prefs()
     try:
-        import googlemaps
-        return googlemaps.Client(key=key)
+        return _GMapsClient(api_key=key, language=language, region=region)
     except Exception as ex:
-        logger.warning("Google Maps client failed: %s", ex)
+        logger.warning("Failed to initialize Google Places client: %s", ex)
         return None
 
 # ─────────────────────────────────────────
 # Google Autocomplete Endpoint
 # ─────────────────────────────────────────
 @router.get("/google_autocomplete")
-async def google_autocomplete(request: Request, input: str = Query(...)):
+async def google_autocomplete(request: Request, input: str = Query(..., min_length=1, max_length=120)):
     _require_user(request)
     client = _get_gmaps_client()
     if not client:
         return JSONResponse(
             status_code=503,
-            content={"error": "Google Maps client not configured"}
+            content={"error": "Google Places client not configured"}
         )
 
     try:
-        # Run Google Places autocomplete in a thread
+        # `places_autocomplete` is sync; run in thread
         res = await asyncio.to_thread(client.places_autocomplete, input)
         predictions = [{"description": p.get("description"), "place_id": p.get("place_id")} for p in res]
         return {"predictions": predictions}
     except Exception as ex:
         logger.exception("Google autocomplete failed: %s", ex)
         return JSONResponse(
-            status_code=500,
-            content={"error": "Autocomplete service unavailable"}
+            status_code=502,
+            content={"error": f"Autocomplete service error: {str(ex)}"}
         )
 
 # ─────────────────────────────────────────
 # Google Place Details
 # ─────────────────────────────────────────
 @router.get("/google/place/details")
-async def google_place_details(request: Request, place_id: str = Query(...)):
+async def google_place_details(request: Request, place_id: str = Query(..., min_length=5)):
     _require_user(request)
+
+    # Prefer local REST client; fall back to optional service if present
+    client = _get_gmaps_client()
+    svc_place_details = None
     try:
-        from app.services.google_places import place_details
-        data = await asyncio.to_thread(place_details, place_id)
+        from app.services.google_places import place_details as _svc_place_details  # optional
+        svc_place_details = _svc_place_details
+    except Exception:
+        svc_place_details = None
+
+    try:
+        if client:
+            data = await asyncio.to_thread(client.place_details, place_id)
+        elif svc_place_details:
+            # If a custom service exists (legacy), use it
+            data = await asyncio.to_thread(svc_place_details, place_id)
+        else:
+            raise RuntimeError("Google Places client/service not configured")
+
         result = data.get("result", {})
         return {
             "name": result.get("name"),
             "place_id": result.get("place_id"),
             "address": result.get("formatted_address"),
             "rating": result.get("rating"),
-            "user_ratings_total": result.get("user_ratings_total")
+            "user_ratings_total": result.get("user_ratings_total"),
+            "website": result.get("website"),
+            "url": result.get("url"),
+            "location": (result.get("geometry") or {}).get("location", {}),
         }
-    except ImportError:
-        logger.error("Google Places service not configured")
-        raise HTTPException(status_code=503, detail="Google Places service not configured")
     except Exception as ex:
         logger.exception("Google place details failed: %s", ex)
-        raise HTTPException(status_code=500, detail="Google place lookup failed")
+        raise HTTPException(status_code=502, detail=f"Google place lookup failed: {str(ex)}")
 
 # ─────────────────────────────────────────
 # Companies Data Helper
@@ -124,7 +216,7 @@ async def _get_companies_data(page: int = 1, size: int = 20, q: Optional[str] = 
         total = (await session.execute(total_stmt)).scalar() or 0
         rows = (await session.execute(stmt.offset((page - 1) * size).limit(size))).scalars().all()
 
-        data = []
+        data: List[Dict[str, Any]] = []
         for c in rows:
             stats = (await session.execute(
                 select(func.count(Review.id), func.avg(Review.rating))
@@ -175,6 +267,7 @@ async def add_company(
     # Trigger review ingestion if client is available
     client = getattr(request.app.state, "google_reviews_client", None)
     if run_batch_review_ingestion and client:
+        # Pass ORM instance as before to keep existing signature unchanged
         background.add_task(run_batch_review_ingestion, client, [c])
 
     return {
