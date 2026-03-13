@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 from sqlalchemy import and_, select
 
@@ -76,16 +76,13 @@ def _coerce_datetime(value: Any) -> Optional[datetime]:
         return None
     if isinstance(value, datetime):
         return value.replace(tzinfo=None)
-    # int/float timestamp
     try:
         if isinstance(value, (int, float)):
-            # detect ms vs sec: assume > 10^11 is ms
             if float(value) > 10_000_000_000:
                 return datetime.utcfromtimestamp(float(value) / 1000.0)
             return datetime.utcfromtimestamp(float(value))
     except Exception:
         pass
-    # string timestamp
     if isinstance(value, str):
         for fmt in (
             "%Y-%m-%dT%H:%M:%S.%fZ",
@@ -99,7 +96,6 @@ def _coerce_datetime(value: Any) -> Optional[datetime]:
                 return datetime.strptime(value, fmt)
             except Exception:
                 continue
-    # give up
     return None
 
 
@@ -122,7 +118,6 @@ class OutscraperReviewsService:
             rating = float(rating)
         except Exception:
             rating = 0.0
-        # possible time fields
         when = raw.get("time") or raw.get("review_time") or raw.get("date") or raw.get("time_timestamp")
         dt = _coerce_datetime(when) or datetime.utcnow()
         profile = raw.get("profile_photo_url") or raw.get("avatar") or ""
@@ -142,7 +137,10 @@ class OutscraperReviewsService:
             external_review_id=str(external_id) if external_id is not None else None,
             source_platform=self.source_platform,
             sentiment_score=sent,
-            additional_fields={k: v for k, v in raw.items() if k not in {"author_name", "text", "rating", "date", "time", "profile_photo_url", "google_review_id", "review_id", "id", "sentiment", "sentiment_score"}},
+            additional_fields={k: v for k, v in raw.items() if k not in {
+                "author_name", "text", "rating", "date", "time", "profile_photo_url",
+                "google_review_id", "review_id", "id", "sentiment", "sentiment_score"
+            }},
         )
 
 
@@ -211,13 +209,15 @@ async def run_batch_review_ingestion(client: Any, entities: Iterable[Any], start
         new_count = 0
         async with get_session() as session:
             for rd in crevs.reviews:
-                # Duplicate check: external_review_id or composite (company_id + author_name + date)
                 exists_q = None
                 if rd.external_review_id:
                     exists_q = select(Review.id).where(and_(Review.company_id == cid_int, Review.external_review_id == rd.external_review_id)).limit(1)
                 else:
-                    # Use date-only for comparison; fallback to exact timestamp
-                    exists_q = select(Review.id).where(and_(Review.company_id == cid_int, Review.author_name == rd.author_name, Review.google_review_time.cast(Review.google_review_time.type) == rd.review_time))
+                    exists_q = select(Review.id).where(and_(
+                        Review.company_id == cid_int,
+                        Review.author_name == rd.author_name,
+                        Review.google_review_time.cast(Review.google_review_time.type) == rd.review_time
+                    ))
                 exists = (await session.execute(exists_q)).first()
                 if exists:
                     continue
@@ -238,3 +238,12 @@ async def run_batch_review_ingestion(client: Any, entities: Iterable[Any], start
         logger.info("Committed %s new reviews for company %s", new_count, cid_int)
         summary["companies"].append({"company_id": cid_int, "fetched": len(crevs.reviews), "saved": new_count})
     return summary
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# GOOGLE API KEY PLACEHOLDER
+# ──────────────────────────────────────────────────────────────────────────────
+# Insert your Google API key here and reference it in the client that fetches reviews.
+# Example:
+# GOOGLE_API_KEY = "YOUR_GOOGLE_API_KEY_HERE"
+# Use this key in your Outscraper or Google client initialization.
