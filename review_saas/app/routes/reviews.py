@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import logging
-from collections import Counter
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
 from sqlalchemy import and_, asc, cast, Date, desc, func, or_, select
 
 from app.core.db import get_session
@@ -170,7 +168,6 @@ async def ingest_reviews_endpoint(
     s_dt = datetime.combine(s, datetime.min.time())
     e_dt = datetime.combine(e, datetime.max.time())
 
-    # Avoid multiple fetches: run_batch_review_ingestion handles duplicates
     summary = await run_batch_review_ingestion(client, [company], start=s_dt, end=e_dt, max_reviews=max_reviews)
     return summary
 
@@ -186,7 +183,6 @@ async def competitor_analytics(
     """Fetch competitor reviews analytics with counts and average ratings."""
     s, e = _range_or_default(start, end)
 
-    # Resolve competitor companies
     async with get_session() as session:
         if not await session.get(Company, company_id):
             raise HTTPException(status_code=404, detail="Company not found")
@@ -217,7 +213,6 @@ async def competitor_analytics(
                 "avg_rating": round(float(row.avg_rating or 0.0), 3) if row else 0.0,
             })
 
-    # Sort by count desc then name asc
     results.sort(key=lambda x: (-x["count"], x["name"]))
     return {"window": {"start": str(s), "end": str(e)}, "competitors": results}
 
@@ -255,6 +250,5 @@ async def batch_ingest_reviews(
     s_dt = datetime.combine(s, datetime.min.time())
     e_dt = datetime.combine(e, datetime.max.time())
 
-    # Run batch ingestion safely; duplicates handled internally
     summary = await run_batch_review_ingestion(client, rows, start=s_dt, end=e_dt, max_reviews=max_reviews)
     return summary
