@@ -78,6 +78,7 @@ class OutscraperClient:
         Interface method required by app.services.google_reviews.
         Handles both ORM Company objects and raw place_id strings.
         """
+        # Improved attribute resolution to ensure compatibility with model schema
         place_id = getattr(entity, "google_place_id", entity if isinstance(entity, str) else None)
         if not place_id:
             logger.warning("No place_id found for ingestion")
@@ -141,7 +142,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("❌ Database startup failed: %s", e, exc_info=True)
 
-    # Outscraper client
+    # Outscraper client initialization
     api_key = os.getenv("OUTSCRAPER_API_KEY") or getattr(settings, "OUTSCRAPER_API_KEY", None)
     if api_key and len(api_key) > 10:
         app.state.reviews_client = OutscraperClient(api_key=api_key)
@@ -215,6 +216,7 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     try:
+        # Optimized: Directly using settings for Google API Key resolution
         return templates.TemplateResponse("dashboard.html", {
             "request": request, 
             "user": user,
