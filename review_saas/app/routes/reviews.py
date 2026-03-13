@@ -28,7 +28,6 @@ DEFAULT_LIMIT = 200
 MAX_LIMIT = 2000
 DEFAULT_DAYS = 30
 
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
@@ -65,9 +64,12 @@ def _date_col():
 
 
 async def _get_reviews_client(request: Request) -> Optional[Any]:
-    """Fetch a reviews client from app.state if available."""
+    """Fetch a reviews client from app.state if available. Placeholder for API keys."""
     app = request.app
     client = getattr(app.state, "reviews_client", None)
+    if client and hasattr(client, "configure"):
+        # Example: client.configure(api_key="YOUR_API_KEY_HERE")
+        pass
     return client
 
 
@@ -164,6 +166,7 @@ async def ingest_reviews_endpoint(
     s_dt = datetime.combine(s, datetime.min.time())
     e_dt = datetime.combine(e, datetime.max.time())
 
+    # Avoid multiple fetches: run_batch_review_ingestion handles duplicates
     summary = await run_batch_review_ingestion(client, [company], start=s_dt, end=e_dt, max_reviews=max_reviews)
     return summary
 
@@ -246,5 +249,6 @@ async def batch_ingest_reviews(
     s_dt = datetime.combine(s, datetime.min.time())
     e_dt = datetime.combine(e, datetime.max.time())
 
+    # Run batch ingestion safely, duplicates handled internally
     summary = await run_batch_review_ingestion(client, rows, start=s_dt, end=e_dt, max_reviews=max_reviews)
     return summary
