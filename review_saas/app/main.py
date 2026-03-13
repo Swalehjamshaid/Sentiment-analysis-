@@ -29,9 +29,7 @@ from app.routes import companies as companies_routes
 from app.routes import dashboard as dashboard_routes
 from app.routes import reviews as reviews_routes
 from app.routes import exports as exports_routes
-
-# FIX: Ensure this file exists: app/routes/google_check.py
-from app.routes import google_check as google_routes  # Google autocomplete router
+from app.routes import google_check as google_routes
 
 # ---------------------------
 # Logging
@@ -199,7 +197,11 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     try:
-        return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
+        return templates.TemplateResponse("dashboard.html", {
+            "request": request, 
+            "user": user,
+            "google_api_key": settings.GOOGLE_API_KEY
+        })
     except Exception as e:
         logger.error("❌ Dashboard rendering failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Dashboard rendering error")
@@ -222,11 +224,7 @@ app.include_router(companies_routes.router)
 app.include_router(dashboard_routes.router)
 app.include_router(reviews_routes.router)
 app.include_router(exports_routes.router)
-
-# NOTE: Include as-is (no extra prefix) because routes are already absolute:
-#   /api/google_autocomplete
-#   /api/google/place/details
-app.include_router(google_routes.router)  # <-- prefix removed to keep exact paths
+app.include_router(google_routes.router)
 
 
 # ---------------------------
