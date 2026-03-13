@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 import httpx
 from fastapi import FastAPI, Request, Depends, HTTPException, status
@@ -73,13 +73,31 @@ class OutscraperClient:
             logger.error("🚨 Outscraper Client Failure: %s", e, exc_info=True)
             return {"reviews": []}
 
+    async def fetch_reviews(self, entity: Any, max_reviews: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Interface method required by app.services.google_reviews.
+        Handles both ORM Company objects and raw place_id strings.
+        """
+        place_id = getattr(entity, "google_place_id", entity if isinstance(entity, str) else None)
+        if not place_id:
+            logger.warning("No place_id found for ingestion")
+            return []
+        
+        limit = max_reviews or 100
+        result = await self.get_reviews(place_id, limit=limit)
+        return result.get("reviews", [])
+
     async def close(self):
         await self.client.aclose()
 
 
 # Dummy client for missing API key
 class DummyReviewsClient:
-    async def get_reviews(self, *args, **kwargs):
+    async def fetch_reviews(self, *args, **kwargs) -> List[Dict[str, Any]]:
+        logger.warning("⚠️ DUMMY MODE: No real reviews will be fetched.")
+        return []
+
+    async def get_reviews(self, *args, **kwargs) -> Dict[str, Any]:
         logger.warning("⚠️ DUMMY MODE: No real reviews will be fetched.")
         return {"reviews": []}
 
