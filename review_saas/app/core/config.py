@@ -1,5 +1,3 @@
-# filename: app/core/config.py
-
 import os
 from pydantic_settings import BaseSettings
 from typing import Optional
@@ -12,10 +10,8 @@ class Settings(BaseSettings):
     APP_BASE_URL: str = "https://sentiment-analysis-production-f96a.up.railway.app"
     
     # --- Scraping Settings ---
-    # Fixed Typo: Using OUTSCRAPER_API_KEY as the primary standard
-    OUTSCRAPER_API_KEY: Optional[str] = None 
-    # Fallback to the typo version so existing Railway variables don't break
-    OUTSCAPTER_KEY: Optional[str] = None 
+    OUTSCRAPER_API_KEY: Optional[str] = None
+    OUTSCAPTER_KEY: Optional[str] = None  # Legacy fallback
     
     # --- Database Settings ---
     DATABASE_URL: str
@@ -25,11 +21,16 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str
     GOOGLE_REFRESH_TOKEN: str
     GOOGLE_REDIRECT_URI: str = "https://sentiment-analysis-production-f96a.up.railway.app/auth/callback"
-    GOOGLE_PLACES_API_KEY: str
-    
+
+    # Your original variable (KEEPING IT)
+    GOOGLE_PLACES_API_KEY: Optional[str] = None  
+
+    # Added for backend compatibility (NEW)
+    GOOGLE_MAPS_API_KEY: Optional[str] = None  
+
     # --- Rate Limiting Settings ---
     RATE_LIMIT_WINDOW_SEC: int = 60
-    RATE_LIMIT_REQUESTS: int = 100 # Increased for production usability 
+    RATE_LIMIT_REQUESTS: int = 100  
 
     # --- Session & Cookie Settings ---
     SESSION_COOKIE_NAME: str = "session"
@@ -40,7 +41,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     JWT_SECRET: str
     JWT_ALG: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     # --- Email / SMTP Settings ---
     SMTP_HOST: str = "smtp.gmail.com"
@@ -53,5 +54,19 @@ class Settings(BaseSettings):
         case_sensitive = True
         env_file = ".env"
         extra = "ignore"
+
+    # --- Helper: unified Google key resolver ---
+    @property
+    def GOOGLE_API_KEY(self) -> str:
+        """
+        Ensures ANY of the following environment variables will work:
+            GOOGLE_MAPS_API_KEY  (recommended)
+            GOOGLE_PLACES_API_KEY  (your existing)
+        """
+        return (
+            self.GOOGLE_MAPS_API_KEY
+            or self.GOOGLE_PLACES_API_KEY
+            or ""
+        )
 
 settings = Settings()
