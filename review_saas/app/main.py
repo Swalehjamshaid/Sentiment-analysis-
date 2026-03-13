@@ -155,7 +155,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change for production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -210,7 +210,7 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
 @app.post("/login", response_class=RedirectResponse)
 async def login_post(request: Request):
     # Dummy login for testing
-    user = {"id": 1, "email": "roy.jamshaid@gmail.com", "name": "Rai Jamshaid"}
+    user = {"id": 1, "email": "roy.jamshaid@gmail.com", "name": "Swaleh"}
     request.session["user"] = user
     request.session["user_id"] = user["id"]
     return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
