@@ -32,6 +32,7 @@ DEFAULT_DAYS = 30
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 def _parse_date(s: Optional[str]) -> Optional[date]:
+    """Parse string into date object; fallback to None on failure."""
     if not s:
         return None
     try:
@@ -41,6 +42,7 @@ def _parse_date(s: Optional[str]) -> Optional[date]:
 
 
 def _range_or_default(start: Optional[str], end: Optional[str], default_days: int = DEFAULT_DAYS):
+    """Return start and end dates; apply default if missing; ensure start <= end."""
     today = date.today()
     e = _parse_date(end) or today
     s = _parse_date(start) or (e - timedelta(days=default_days - 1))
@@ -50,10 +52,10 @@ def _range_or_default(start: Optional[str], end: Optional[str], default_days: in
 
 
 def _date_col():
+    """Return the Review date column for filtering; coalesce multiple date fields."""
     base = getattr(Review, "google_review_time", None)
     review_date = getattr(Review, "review_date", None)
     created = getattr(Review, "created_at", None)
-    # coalesce to first non-null
     if base is not None and review_date is not None and created is not None:
         return cast(func.coalesce(Review.google_review_time, Review.review_date, Review.created_at), Date)
     if base is not None and review_date is not None:
@@ -64,7 +66,7 @@ def _date_col():
 
 
 async def _get_reviews_client(request: Request) -> Optional[Any]:
-    """Fetch a reviews client from app.state if available. Placeholder for API keys."""
+    """Fetch a reviews client from app.state; placeholder for API keys/config."""
     app = request.app
     client = getattr(app.state, "reviews_client", None)
     if client and hasattr(client, "configure"):
@@ -85,6 +87,7 @@ async def list_reviews(
     sort: str = Query("newest", regex="^(newest|oldest|highest|lowest)$"),
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
 ):
+    """Fetch reviews for a company within a date range, with sorting and limit."""
     async with get_session() as session:
         if not await session.get(Company, company_id):
             raise HTTPException(status_code=404, detail="Company not found")
@@ -141,6 +144,7 @@ async def list_reviews(
 
 @router.get("/api/reviews/feed/{company_id}")
 async def legacy_feed(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
+    """Legacy endpoint that calls the main list_reviews function."""
     return await list_reviews(request, company_id=company_id, start=start, end=end)
 
 
@@ -152,6 +156,7 @@ async def ingest_reviews_endpoint(
     end: Optional[str] = None,
     max_reviews: Optional[int] = Query(None, ge=1, le=5000),
 ):
+    """Fetch and ingest reviews for a single company; avoids duplicate ingestion."""
     client = await _get_reviews_client(request)
     if client is None:
         raise HTTPException(status_code=503, detail="Reviews client not configured")
@@ -161,7 +166,6 @@ async def ingest_reviews_endpoint(
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
-    # Normalize date range
     s, e = _range_or_default(start, end)
     s_dt = datetime.combine(s, datetime.min.time())
     e_dt = datetime.combine(e, datetime.max.time())
@@ -179,6 +183,7 @@ async def competitor_analytics(
     end: Optional[str] = None,
     names: Optional[str] = None,
 ):
+    """Fetch competitor reviews analytics with counts and average ratings."""
     s, e = _range_or_default(start, end)
 
     # Resolve competitor companies
@@ -225,6 +230,7 @@ async def batch_ingest_reviews(
     end: Optional[str] = None,
     max_reviews: Optional[int] = Query(None, ge=1, le=5000),
 ):
+    """Batch ingestion for multiple companies; duplicates handled internally."""
     client = await _get_reviews_client(request)
     if client is None:
         raise HTTPException(status_code=503, detail="Reviews client not configured")
@@ -249,6 +255,6 @@ async def batch_ingest_reviews(
     s_dt = datetime.combine(s, datetime.min.time())
     e_dt = datetime.combine(e, datetime.max.time())
 
-    # Run batch ingestion safely, duplicates handled internally
+    # Run batch ingestion safely; duplicates handled internally
     summary = await run_batch_review_ingestion(client, rows, start=s_dt, end=e_dt, max_reviews=max_reviews)
     return summary
