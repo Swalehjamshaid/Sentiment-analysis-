@@ -1,290 +1,247 @@
-# filename: app/routes/companies.py
+# filename: app/main.py
+
 from __future__ import annotations
 
-import json
 import logging
-import asyncio
-import urllib.parse
-import urllib.request
-from typing import Any, Dict, List, Optional, Tuple
+import os
+from contextlib import asynccontextmanager
+from typing import Any, Dict, Optional
 
-from pydantic import BaseModel
-from fastapi import APIRouter, BackgroundTasks, Query, Request, HTTPException, status
-from fastapi.responses import JSONResponse, RedirectResponse
+import httpx
+from fastapi import FastAPI, Request, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
-from sqlalchemy import desc, func, select
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.core.db import get_session
-from app.core.models import Company, Review
 from app.core.config import settings
+from app.core.db import get_engine
+from app.core.models import Base, SCHEMA_VERSION, Company, Review
 
-# Optional Review ingestion
-try:
-    from app.services.google_reviews import run_batch_review_ingestion
-except Exception:
-    run_batch_review_ingestion = None
+# ---------------------------
+# Routers
+# ---------------------------
+from app.routes import auth as auth_routes
+from app.routes import companies as companies_routes
+from app.routes import dashboard as dashboard_routes
+from app.routes import reviews as reviews_routes
+from app.routes import exports as exports_routes
+from app.routes import google_check as google_routes
 
-router = APIRouter(tags=["companies"], prefix="/api")
-templates = Jinja2Templates(directory="app/templates")
-logger = logging.getLogger("app.companies")
+# ---------------------------
+# Logging
+# ---------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("app.main")
 
-# ─────────────────────────────────────────
-# JSON Schema for Adding Company
-# ─────────────────────────────────────────
-class CompanyCreate(BaseModel):
-    name: str
-    place_id: str
-    address: Optional[str] = None
+# ---------------------------
+# Outscraper Client
+# ---------------------------
+class OutscraperClient:
+    BASE_URL = "https://api.app.outscraper.com/google-reviews"
 
-# ─────────────────────────────────────────
-# Auth helper
-# ─────────────────────────────────────────
-def _require_user(request: Request) -> None:
-    if not request.session.get("user"):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
-
-# ─────────────────────────────────────────
-# Lightweight Google Places REST client
-# (avoids third-party googlemaps dependency)
-# ─────────────────────────────────────────
-class _GMapsClient:
-    BASE = "https://maps.googleapis.com/maps/api/place"
-
-    def __init__(self, api_key: str, language: Optional[str] = None, region: Optional[str] = None, timeout: int = 10):
-        if not api_key:
-            raise RuntimeError("Google API key is missing")
+    def __init__(self, api_key: str):
         self.api_key = api_key
-        self.language = language
-        self.region = region
-        self.timeout = timeout
+        self.client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=30.0))
 
-    def _get_json(self, path: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        # Add required params
-        params["key"] = self.api_key
-        if self.language:
-            params["language"] = self.language
-        if self.region:
-            params["region"] = self.region
-
-        url = f"{self.BASE}/{path}?{urllib.parse.urlencode(params)}"
-        req = urllib.request.Request(url, headers={"User-Agent": "ReviewSaaS/1.0"})
+    async def get_reviews(self, place_id: str, limit: int = 200, offset: int = 0) -> Dict[str, Any]:
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                payload = json.loads(resp.read().decode("utf-8"))
-        except Exception as ex:
-            raise RuntimeError(f"Network error contacting Google Places: {ex}")
+            params = {"query": place_id, "limit": limit, "offset": offset, "async": "false"}
+            headers = {"X-API-KEY": self.api_key}
+            logger.info("📡 Requesting Outscraper reviews for Place ID: %s", place_id)
+            response = await self.client.get(self.BASE_URL, params=params, headers=headers)
+            if response.status_code != 200:
+                logger.error("❌ Outscraper API Error %s: %s", response.status_code, response.text)
+                return {"reviews": []}
+            data = response.json()
+            if isinstance(data, list) and data:
+                q = data[0]
+                reviews = q.get("reviews_data", [])
+                if not reviews and q.get("error"):
+                    logger.warning("⚠️ Outscraper error: %s", q["error"])
+                logger.info("✅ Fetched %s reviews for %s", len(reviews), place_id)
+                return {"reviews": reviews}
+            logger.warning("⚠️ Outscraper returned unexpected format.")
+            return {"reviews": []}
+        except Exception as e:
+            logger.error("🚨 Outscraper Client Failure: %s", e, exc_info=True)
+            return {"reviews": []}
 
-        status_val = payload.get("status")
-        # Google Places returns OK / ZERO_RESULTS as non-error; others are errors
-        if status_val not in ("OK", "ZERO_RESULTS"):
-            msg = payload.get("error_message", status_val)
-            raise RuntimeError(f"Google Places error: {msg}")
-        return payload
+    async def close(self):
+        await self.client.aclose()
 
-    # Mirrors googlemaps.Client.places_autocomplete signature semantically
-    def places_autocomplete(self, input_text: str) -> List[Dict[str, Any]]:
-        data = self._get_json("autocomplete/json", {
-            "input": input_text,
-            "types": "establishment",
-        })
-        return data.get("predictions", [])
 
-    # Simple place details
-    def place_details(self, place_id: str) -> Dict[str, Any]:
-        fields = ",".join([
-            "place_id",
-            "name",
-            "formatted_address",
-            "geometry/location",
-            "website",
-            "url",
-            "rating",
-            "user_ratings_total",
-        ])
-        data = self._get_json("details/json", {
-            "place_id": place_id,
-            "fields": fields,
-        })
-        return data  # includes top-level status, result, etc.
+# Dummy client for missing API key
+class DummyReviewsClient:
+    async def get_reviews(self, *args, **kwargs):
+        logger.warning("⚠️ DUMMY MODE: No real reviews will be fetched.")
+        return {"reviews": []}
 
-def _resolve_google_api_key() -> str:
-    # Support both names to avoid configuration mismatch
-    return (
-        getattr(settings, "GOOGLE_PLACES_API_KEY", None)
-        or getattr(settings, "GOOGLE_MAPS_API_KEY", None)
-        or ""
-    )
+    async def close(self):
+        pass
 
-def _gmaps_prefs() -> Tuple[Optional[str], Optional[str]]:
-    language = getattr(settings, "GOOGLE_PLACES_LANGUAGE", None)
-    region = getattr(settings, "GOOGLE_PLACES_REGION", None)
-    return language, region
 
-def _get_gmaps_client() -> Optional[_GMapsClient]:
-    key = _resolve_google_api_key()
-    if not key:
-        logger.warning("Google API key not configured (GOOGLE_PLACES_API_KEY/GOOGLE_MAPS_API_KEY)")
-        return None
-    language, region = _gmaps_prefs()
+# ---------------------------
+# Lifespan
+# ---------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     try:
-        return _GMapsClient(api_key=key, language=language, region=region)
-    except Exception as ex:
-        logger.warning("Failed to initialize Google Places client: %s", ex)
-        return None
+        engine: AsyncEngine = get_engine()
+        async with engine.begin() as conn:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS config (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            """))
+            result = await conn.execute(text("SELECT value FROM config WHERE key='schema_version'"))
+            row = result.first()
+            db_version = row[0] if row else None
+            if db_version != str(SCHEMA_VERSION):
+                logger.warning("🔄 Schema mismatch: DB v%s → v%s. Rebuilding...", db_version, SCHEMA_VERSION)
+                await conn.run_sync(Base.metadata.drop_all)
+                await conn.run_sync(Base.metadata.create_all)
+                await conn.execute(
+                    text("""
+                        INSERT INTO config (key, value)
+                        VALUES ('schema_version', :v)
+                        ON CONFLICT (key) DO UPDATE SET value = :v
+                    """),
+                    {"v": str(SCHEMA_VERSION)},
+                )
+                logger.info("✅ Schema rebuilt to v%s", SCHEMA_VERSION)
+            else:
+                await conn.run_sync(Base.metadata.create_all)
+                logger.info("✅ Schema v%s verified.", SCHEMA_VERSION)
+    except Exception as e:
+        logger.error("❌ Database startup failed: %s", e, exc_info=True)
 
-# ─────────────────────────────────────────
-# Google Autocomplete Endpoint
-# ─────────────────────────────────────────
-@router.get("/google_autocomplete")
-async def google_autocomplete(request: Request, input: str = Query(..., min_length=1, max_length=120)):
-    _require_user(request)
-    client = _get_gmaps_client()
-    if not client:
-        return JSONResponse(
-            status_code=503,
-            content={"error": "Google Places client not configured"}
-        )
+    # Outscraper client
+    api_key = os.getenv("OUTSCRAPER_API_KEY") or getattr(settings, "OUTSCRAPER_API_KEY", None)
+    if api_key and len(api_key) > 10:
+        app.state.reviews_client = OutscraperClient(api_key=api_key)
+        app.state.api_status = "Connected"
+        logger.info("🚀 Outscraper Client: CONNECTED")
+    else:
+        app.state.reviews_client = DummyReviewsClient()
+        app.state.api_status = "Disconnected (API Key Missing)"
+        logger.error("🛑 OUTSCRAPER_API_KEY missing.")
 
-    try:
-        # `places_autocomplete` is sync; run in thread
-        res = await asyncio.to_thread(client.places_autocomplete, input)
-        predictions = [{"description": p.get("description"), "place_id": p.get("place_id")} for p in res]
-        return {"predictions": predictions}
-    except Exception as ex:
-        logger.exception("Google autocomplete failed: %s", ex)
-        return JSONResponse(
-            status_code=502,
-            content={"error": f"Autocomplete service error: {str(ex)}"}
-        )
+    # Secret key check
+    if not getattr(settings, "SECRET_KEY", None):
+        logger.error("🛑 SECRET_KEY is missing in settings.")
 
-# ─────────────────────────────────────────
-# Google Place Details
-# ─────────────────────────────────────────
-@router.get("/google/place/details")
-async def google_place_details(request: Request, place_id: str = Query(..., min_length=5)):
-    _require_user(request)
+    yield
 
-    # Prefer local REST client; fall back to optional service if present
-    client = _get_gmaps_client()
-    svc_place_details = None
-    try:
-        from app.services.google_places import place_details as _svc_place_details  # optional
-        svc_place_details = _svc_place_details
-    except Exception:
-        svc_place_details = None
+    # Close client gracefully
+    if hasattr(app.state, "reviews_client"):
+        try:
+            await app.state.reviews_client.close()
+        except Exception:
+            pass
+        logger.info("Outscraper client closed.")
 
-    try:
-        if client:
-            data = await asyncio.to_thread(client.place_details, place_id)
-        elif svc_place_details:
-            # If a custom service exists (legacy), use it
-            data = await asyncio.to_thread(svc_place_details, place_id)
-        else:
-            raise RuntimeError("Google Places client/service not configured")
 
-        result = data.get("result", {})
-        return {
-            "name": result.get("name"),
-            "place_id": result.get("place_id"),
-            "address": result.get("formatted_address"),
-            "rating": result.get("rating"),
-            "user_ratings_total": result.get("user_ratings_total"),
-            "website": result.get("website"),
-            "url": result.get("url"),
-            "location": (result.get("geometry") or {}).get("location", {}),
-        }
-    except Exception as ex:
-        logger.exception("Google place details failed: %s", ex)
-        raise HTTPException(status_code=502, detail=f"Google place lookup failed: {str(ex)}")
+# ---------------------------
+# FastAPI app
+# ---------------------------
+app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Change for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
-# ─────────────────────────────────────────
-# Companies Data Helper
-# ─────────────────────────────────────────
-async def _get_companies_data(page: int = 1, size: int = 20, q: Optional[str] = None) -> Dict[str, Any]:
-    page = max(1, page)
-    size = max(1, min(100, size))
-    async with get_session() as session:
-        stmt = select(Company)
-        if q:
-            stmt = stmt.where(Company.name.ilike(f"%{q}%"))
-        stmt = stmt.order_by(desc(Company.created_at))
+# Static & templates
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+templates = Jinja2Templates(directory="app/templates")
 
-        total_stmt = select(func.count(Company.id))
-        if q:
-            total_stmt = total_stmt.where(Company.name.ilike(f"%{q}%"))
 
-        total = (await session.execute(total_stmt)).scalar() or 0
-        rows = (await session.execute(stmt.offset((page - 1) * size).limit(size))).scalars().all()
+# ---------------------------
+# Current user
+# ---------------------------
+def get_current_user(request: Request) -> Optional[dict]:
+    return request.session.get("user")
 
-        data: List[Dict[str, Any]] = []
-        for c in rows:
-            stats = (await session.execute(
-                select(func.count(Review.id), func.avg(Review.rating))
-                .where(Review.company_id == c.id)
-            )).first()
 
-            data.append({
-                "id": int(c.id),
-                "name": c.name,
-                "place_id": getattr(c, "place_id", ""),
-                "address": getattr(c, "address", ""),
-                "review_count": int(stats[0] or 0),
-                "avg_rating": round(float(stats[1] or 0), 2)
-            })
+# ---------------------------
+# Routes
+# ---------------------------
+@app.get("/", response_class=HTMLResponse)
+async def landing(request: Request):
+    return templates.TemplateResponse("landing.html", {"request": request, "settings": settings})
 
-    return {"page": page, "size": size, "total": int(total), "items": data}
 
-# ─────────────────────────────────────────
-# Companies List API
-# ─────────────────────────────────────────
-@router.get("/companies")
-async def companies_list(request: Request, page: int = 1, size: int = 20, q: Optional[str] = None):
-    _require_user(request)
-    data = await _get_companies_data(page, size, q)
-    # Return only the items array for front-end mapping
-    return data["items"]
-
-# ─────────────────────────────────────────
-# Add Company
-# ─────────────────────────────────────────
-@router.post("/companies")
-async def add_company(
-    request: Request,
-    background: BackgroundTasks,
-    company_in: CompanyCreate,
-):
-    _require_user(request)
-    async with get_session() as session:
-        c = Company(
-            name=company_in.name.strip(),
-            place_id=company_in.place_id or "",
-            address=company_in.address or ""
-        )
-        session.add(c)
-        await session.commit()
-        await session.refresh(c)
-
-    # Trigger review ingestion if client is available
-    client = getattr(request.app.state, "google_reviews_client", None)
-    if run_batch_review_ingestion and client:
-        # Pass ORM instance as before to keep existing signature unchanged
-        background.add_task(run_batch_review_ingestion, client, [c])
-
+@app.get("/health")
+async def health():
     return {
         "status": "ok",
-        "company": {"id": int(c.id), "name": c.name, "place_id": c.place_id, "address": c.address}
+        "api_client": getattr(app.state, "api_status", "unknown"),
+        "database": "connected",
+        "schema_version": SCHEMA_VERSION,
     }
 
-# ─────────────────────────────────────────
-# Delete Company
-# ─────────────────────────────────────────
-@router.post("/companies/{company_id}/delete")
-async def delete_company(request: Request, company_id: int):
-    _require_user(request)
-    async with get_session() as session:
-        comp = await session.get(Company, company_id)
-        if not comp:
-            raise HTTPException(status_code=404, detail="Company not found")
-        await session.delete(comp)
-        await session.commit()
-    return RedirectResponse(url="/dashboard", status_code=302)
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
+    if not user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    try:
+        return templates.TemplateResponse("dashboard.html", {
+            "request": request, 
+            "user": user,
+            "google_api_key": settings.GOOGLE_API_KEY
+        })
+    except Exception as e:
+        logger.error("❌ Dashboard rendering failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Dashboard rendering error")
+
+
+@app.post("/login", response_class=RedirectResponse)
+async def login_post(request: Request):
+    # Dummy login for testing
+    user = {"id": 1, "email": "roy.jamshaid@gmail.com", "name": "Rai Jamshaid"}
+    request.session["user"] = user
+    request.session["user_id"] = user["id"]
+    return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+
+
+# ---------------------------
+# Include routers
+# ---------------------------
+app.include_router(auth_routes.router)
+app.include_router(companies_routes.router)
+app.include_router(dashboard_routes.router)
+app.include_router(reviews_routes.router)
+app.include_router(exports_routes.router)
+app.include_router(google_routes.router)
+
+
+# ---------------------------
+# Railway / Uvicorn entry point
+# ---------------------------
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.environ.get("PORT", 8080))
+    host = "0.0.0.0"
+    logger.info(f"Starting Uvicorn on http://{host}:{port}")
+    uvicorn.run(
+        "app.main:app",
+        host=host,
+        port=port,
+        log_level="info",
+        workers=1,
+        limit_concurrency=300,
+        timeout_keep_alive=30,
+    )
