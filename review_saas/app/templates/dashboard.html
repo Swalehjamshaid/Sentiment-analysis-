@@ -297,6 +297,7 @@
         let cachedReviews = [];
         let sortKey = 'date';
         let sortDir = 'desc';
+        let isLoadingReviews = false; // Fix: Flag to prevent infinite request loops
 
         // --- Notifications ---
         function notify(msg, type = "danger") {
@@ -326,6 +327,11 @@
                 const data = await apiRequest("/api/companies");
                 const sel = document.getElementById("companySelect");
                 sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+                
+                // Optimized: Auto-load reviews for the first company found
+                if (data.length > 0) {
+                    loadReviews();
+                }
             } catch {
                 notify("Failed to load companies");
             }
@@ -333,12 +339,13 @@
 
         // --- Load Reviews and Analytics ---
         async function loadReviews() {
+            // Fix: Check if a request is already in progress to stop infinite spam
+            if (isLoadingReviews) return;
+
             const companyId = document.getElementById("companySelect").value;
-            if (!companyId) {
-                notify("Select company first", "warning");
-                return;
-            }
+            if (!companyId) return;
             
+            isLoadingReviews = true;
             const loadingSpinner = document.getElementById("loadingSpinner");
             loadingSpinner.style.display = "inline-block";
             
@@ -355,8 +362,10 @@
                 updateDashboardUI();
             } catch {
                 notify("Review load failed");
+            } finally {
+                loadingSpinner.style.display = "none";
+                isLoadingReviews = false;
             }
-            loadingSpinner.style.display = "none";
         }
 
         // --- Dashboard UI Updates ---
@@ -386,14 +395,16 @@
             const dist = [1, 2, 3, 4, 5].map(x => cachedReviews.filter(r => Math.round(r.rating) == x).length);
             chartInstances.dist = new Chart(document.getElementById("chartDistribution"), {
                 type: "bar",
-                data: { labels: ["1★", "2★", "3★", "4★", "5★"], datasets: [{ label: 'Reviews', data: dist, backgroundColor: '#0d6efd' }] }
+                data: { labels: ["1★", "2★", "3★", "4★", "5★"], datasets: [{ label: 'Reviews', data: dist, backgroundColor: '#0d6efd' }] },
+                options: { responsive: true, maintainAspectRatio: false }
             });
 
             // Trend
-            const dates = [...new Set(cachedReviews.map(r => r.review_time))];
+            const dates = [...new Set(cachedReviews.map(r => r.review_time))].sort();
             chartInstances.trend = new Chart(document.getElementById("chartTrend"), {
                 type: "line",
-                data: { labels: dates, datasets: [{ label: 'Review Count', data: dates.map(d => cachedReviews.filter(r => r.review_time == d).length), borderColor: '#0dcaf0', tension: 0.1 }] }
+                data: { labels: dates, datasets: [{ label: 'Review Count', data: dates.map(d => cachedReviews.filter(r => r.review_time == d).length), borderColor: '#0dcaf0', tension: 0.1 }] },
+                options: { responsive: true, maintainAspectRatio: false }
             });
 
             // Sentiment
@@ -404,13 +415,18 @@
             ];
             chartInstances.sent = new Chart(document.getElementById("chartSentiment"), {
                 type: "doughnut",
-                data: { labels: ["Positive", "Neutral", "Negative"], datasets: [{ data: sent, backgroundColor: ['#198754', '#6c757d', '#dc3545'] }] }
+                data: { labels: ["Positive", "Neutral", "Negative"], datasets: [{ data: sent, backgroundColor: ['#198754', '#6c757d', '#dc3545'] }] },
+                options: { responsive: true, maintainAspectRatio: false }
             });
         }
 
         // --- Render Table ---
         function renderTable() {
             const reviewsTable = document.getElementById("reviewsTable");
+            if (cachedReviews.length === 0) {
+                reviewsTable.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No data found for selected filters.</td></tr>';
+                return;
+            }
             reviewsTable.innerHTML = cachedReviews.map(r => `
                 <tr>
                     <td>${r.author_name}</td>
@@ -435,7 +451,6 @@
             if (val.length < 2) { proxyResults.style.display = "none"; return; }
             
             try {
-                // Hits the /api/google_autocomplete proxy on your FastAPI backend
                 const data = await apiRequest("/api/google_autocomplete?input=" + encodeURIComponent(val));
                 if (data.predictions && data.predictions.length > 0) {
                     proxyResults.innerHTML = data.predictions.map(p =>
@@ -449,12 +464,11 @@
                             const fullDescription = item.dataset.name;
                             
                             proxySearchInput.value = fullDescription;
-                            companyNameInput.value = fullDescription.split(',')[0]; // Set first part as name
+                            companyNameInput.value = fullDescription.split(',')[0]; 
                             placeIdInput.value = selectedPlaceId;
                             proxyResults.style.display = "none";
                             
                             try {
-                                // Fetch place details via backend proxy
                                 const placeDetails = await apiRequest("/api/google/place/details?place_id=" + selectedPlaceId);
                                 if (placeDetails.address) companyAddressInput.value = placeDetails.address;
                             } catch {
@@ -468,8 +482,18 @@
             }
         });
 
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            if (!proxySearchInput.contains(event.target) && !proxyResults.contains(event.target)) {
+                proxyResults.style.display = "none";
+            }
+        });
+
         // --- Event Handlers ---
         document.getElementById("loadBtn").onclick = loadReviews;
+        
+        // Optimized: Refresh reviews automatically when company changes
+        document.getElementById("companySelect").onchange = loadReviews;
 
         document.getElementById("toggleTheme").onclick = () => {
             const theme = document.documentElement.getAttribute("data-theme");
@@ -493,7 +517,6 @@
                 });
                 notify("Company added successfully", "success");
                 loadCompanies();
-                // Close modal using Bootstrap API
                 const modal = bootstrap.Modal.getInstance(document.getElementById('addCompanyModal'));
                 modal.hide();
                 e.target.reset();
