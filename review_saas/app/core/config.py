@@ -1,6 +1,11 @@
+# filename: app/core/config.py
+
 import os
-from pydantic_settings import BaseSettings
 from typing import Optional
+
+from pydantic_settings import BaseSettings
+from pydantic import Field, AliasChoices, ValidationError, field_validator, model_validator
+
 
 class Settings(BaseSettings):
     # --- App General Settings ---
@@ -8,11 +13,13 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "production"
     DEBUG: bool = False
     APP_BASE_URL: str = "https://sentiment-analysis-production-f96a.up.railway.app"
-    
+
     # --- Scraping Settings ---
+    # Fixed Typo: Using OUTSCRAPER_API_KEY as the primary standard
     OUTSCRAPER_API_KEY: Optional[str] = None
-    OUTSCAPTER_KEY: Optional[str] = None  # Legacy fallback
-    
+    # Fallback to the typo version so existing Railway variables don't break
+    OUTSCAPTER_KEY: Optional[str] = None
+
     # --- Database Settings ---
     DATABASE_URL: str
 
@@ -22,15 +29,21 @@ class Settings(BaseSettings):
     GOOGLE_REFRESH_TOKEN: str
     GOOGLE_REDIRECT_URI: str = "https://sentiment-analysis-production-f96a.up.railway.app/auth/callback"
 
-    # Your original variable (KEEPING IT)
-    GOOGLE_PLACES_API_KEY: Optional[str] = None  
-
-    # Added for backend compatibility (NEW)
-    GOOGLE_MAPS_API_KEY: Optional[str] = None  
+    # Accept either env var name for Places/Maps key and normalize:
+    # - If you set GOOGLE_MAPS_API_KEY in Railway/.env -> it fills BOTH fields
+    # - If you set GOOGLE_PLACES_API_KEY in Railway/.env -> it fills BOTH fields
+    GOOGLE_MAPS_API_KEY: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_MAPS_API_KEY", "GOOGLE_PLACES_API_KEY"),
+    )
+    GOOGLE_PLACES_API_KEY: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_PLACES_API_KEY", "GOOGLE_MAPS_API_KEY"),
+    )
 
     # --- Rate Limiting Settings ---
     RATE_LIMIT_WINDOW_SEC: int = 60
-    RATE_LIMIT_REQUESTS: int = 100  
+    RATE_LIMIT_REQUESTS: int = 100  # Increased for production usability
 
     # --- Session & Cookie Settings ---
     SESSION_COOKIE_NAME: str = "session"
@@ -50,23 +63,38 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: Optional[str] = None
     SMTP_FROM_EMAIL: Optional[str] = None
 
+    # Pydantic settings config
     class Config:
         case_sensitive = True
         env_file = ".env"
         extra = "ignore"
 
-    # --- Helper: unified Google key resolver ---
+    # ---- Normalization & validation for Google API key ----
+    @model_validator(mode="after")
+    def _normalize_google_keys(self):
+        """
+        Ensure that at least one of GOOGLE_MAPS_API_KEY / GOOGLE_PLACES_API_KEY is provided.
+        Then mirror the value so both fields are populated. This way, any existing code that
+        reads either field continues to work.
+        """
+        key = self.GOOGLE_MAPS_API_KEY or self.GOOGLE_PLACES_API_KEY
+        if not key:
+            # You can relax this to a warning if you want to allow boot without the key
+            raise ValueError(
+                "Missing Google API key. Set either GOOGLE_MAPS_API_KEY or GOOGLE_PLACES_API_KEY "
+                "in your environment variables."
+            )
+        self.GOOGLE_MAPS_API_KEY = key
+        self.GOOGLE_PLACES_API_KEY = key
+        return self
+
     @property
     def GOOGLE_API_KEY(self) -> str:
         """
-        Ensures ANY of the following environment variables will work:
-            GOOGLE_MAPS_API_KEY  (recommended)
-            GOOGLE_PLACES_API_KEY  (your existing)
+        Convenience accessor for service code that just wants 'the key'.
+        Not required by your existing code, but useful going forward.
         """
-        return (
-            self.GOOGLE_MAPS_API_KEY
-            or self.GOOGLE_PLACES_API_KEY
-            or ""
-        )
+        return self.GOOGLE_MAPS_API_KEY or self.GOOGLE_PLACES_API_KEY or ""
+
 
 settings = Settings()
