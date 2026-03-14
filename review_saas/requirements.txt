@@ -1,6 +1,8 @@
+asyncpg==0.29.0
 # ----------------------------------------------------------------
 # Language Detection & Sentiment Analysis
 # ----------------------------------------------------------------
+
 textblob==0.18.0.post0
 vaderSentiment==3.3.2
 langdetect==1.0.9
