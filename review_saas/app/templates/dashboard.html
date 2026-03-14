@@ -80,10 +80,16 @@ box-shadow:0 4px 12px rgba(0,0,0,.15);
 padding:10px;
 cursor:pointer;
 border-bottom:1px solid #eee;
+color: #333;
 }
 
 .autocomplete-item:hover{
 background:#f8f9fa;
+}
+
+/* Ensure Google dropdown appears above modal */
+.pac-container {
+    z-index: 2000 !important;
 }
 </style>
 </head>
@@ -287,7 +293,7 @@ Add Company
 <div class="modal-body">
 
 <div class="mb-3 position-relative">
-<label class="form-label">Smart Search</label>
+<label class="form-label">Smart Search (Google Powered)</label>
 <input id="proxySearchInput" class="form-control" placeholder="Type business name">
 <div id="proxyResults" class="autocomplete-dropdown"></div>
 </div>
@@ -300,7 +306,7 @@ Add Company
 
 <div class="col-md-6">
 <label class="form-label">Google Place ID</label>
-<input id="placeId" class="form-control" required>
+<input id="placeId" class="form-control" required readonly>
 </div>
 
 <div class="col-md-6">
@@ -313,7 +319,7 @@ Add Company
 
 <div class="modal-footer">
 <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-<button class="btn btn-success" type="submit">Add</button>
+<button class="btn btn-success" type="submit">Add Business</button>
 </div>
 
 </form>
@@ -322,299 +328,243 @@ Add Company
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
-<!-- Google Maps JavaScript SDK (with Places library) -->
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
 
 <script>
+// API Keys Configuration
+const GOOGLE_MAPS_API_KEY = "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc";
+const GOOGLE_PLACES_API_KEY = "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc";
+
 let chartInstances = {};
 let cachedReviews = [];
-let sortKey = 'date';
-let sortDir = 'desc';
-let currentPage = 1;
+let isLoadingReviews = false;
 
-/* ---- GOOGLE PLACES: Robust binding that works with modal & Enter/blur ---- */
-(function googlePlacesInit() {
-  const modal = document.getElementById('addCompanyModal');
-  const input = document.getElementById('proxySearchInput');
+/* ------------------------------------------------------------------
+   GOOGLE PLACES AUTO-FILL LOGIC
+   ------------------------------------------------------------------ */
+function initGoogleAutocomplete() {
+    const input = document.getElementById('proxySearchInput');
+    const options = {
+        fields: ["name", "place_id", "formatted_address", "geometry"],
+        types: ["establishment"]
+    };
 
-  // Central fill function (no attribute changes)
-  function fillFromPlace(place) {
-    if (!place) return;
-    const name = place.name || '';
-    const pid  = place.place_id || '';
-    const addr = place.formatted_address || '';
+    const autocomplete = new google.maps.places.Autocomplete(input, options);
 
-    const companyNameEl = document.getElementById('companyName');
-    const placeIdEl     = document.getElementById('placeId');
-    const addressEl     = document.getElementById('companyAddress');
-    const proxyResults  = document.getElementById('proxyResults');
-
-    if (companyNameEl && name) companyNameEl.value = name;
-    if (placeIdEl && pid) placeIdEl.value = pid;
-    if (addressEl && addr) addressEl.value = addr;
-
-    if (input) input.value = [name, addr].filter(Boolean).join(', ');
-    if (proxyResults) proxyResults.style.display = 'none';
-  }
-
-  function tryResolveFreeText(query) {
-    // Fallback when user presses Enter without selecting a dropdown item
-    if (!window.google || !google.maps || !google.maps.places || !query) return;
-    const acService = new google.maps.places.AutocompleteService();
-    const psService = new google.maps.places.PlacesService(document.createElement('div'));
-
-    acService.getPlacePredictions({ input: query }, (preds, status) => {
-      if (!preds || !preds.length) return;
-      const top = preds[0];
-      psService.getDetails({ placeId: top.place_id, fields: ['place_id','name','formatted_address'] }, (place, st) => {
-        if (place) fillFromPlace(place);
-      });
-    });
-  }
-
-  function bindAutocompleteOnce() {
-    if (!input || input.__hasPlacesBound) return;
-    if (!window.google || !google.maps || !google.maps.places) return;
-
-    const ac = new google.maps.places.Autocomplete(input, {
-      fields: ['place_id','name','formatted_address']
-    });
-    ac.addListener('place_changed', () => fillFromPlace(ac.getPlace()));
-
-    // Handle Enter key (no selection) and blur to auto-resolve text
-    input.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter') {
-        // prevent form submit on Enter in search box
-        ev.preventDefault();
-        tryResolveFreeText(input.value);
-      }
-    });
-    input.addEventListener('blur', () => {
-      const placeIdVal = (document.getElementById('placeId') || {}).value || '';
-      if (!placeIdVal && input.value) {
-        tryResolveFreeText(input.value);
-      }
-    });
-
-    input.__hasPlacesBound = true;
-  }
-
-  // Bind when Google SDK is available
-  function tryBindNow() {
-    if (window.google && google.maps && google.maps.places) {
-      bindAutocompleteOnce();
+    // Main Fill Function
+    function fillDetails(place) {
+        if (!place.place_id) return;
+        
+        document.getElementById('companyName').value = place.name || '';
+        document.getElementById('placeId').value = place.place_id || '';
+        document.getElementById('companyAddress').value = place.formatted_address || '';
+        
+        // Hide proxy dropdown if it's open
+        document.getElementById('proxyResults').style.display = 'none';
     }
-  }
 
-  // Bind immediately if SDK already loaded
-  tryBindNow();
-
-  // Also (re)bind every time the modal is shown (ensures field exists & visible)
-  if (modal) {
-    modal.addEventListener('shown.bs.modal', () => {
-      tryBindNow();
-      // If user typed text first, try to resolve on open (optional — no-op if empty)
-      if (input && input.value && !(document.getElementById('placeId')||{}).value) {
-        tryResolveFreeText(input.value);
-      }
+    // Trigger on Selection from Dropdown
+    autocomplete.addListener('place_changed', () => {
+        const place = autocomplete.getPlace();
+        fillDetails(place);
     });
-  }
-})();
-/* ---- END GOOGLE PLACES ---- */
 
-// Keep existing functions and logic unchanged below
+    // ROBUST FALLBACK: Auto-resolve if user types and moves away or hits enter
+    input.addEventListener('blur', () => {
+        setTimeout(() => {
+            if (!document.getElementById('placeId').value && input.value.length > 2) {
+                resolveFirstMatchingPlace(input.value);
+            }
+        }, 200);
+    });
 
-function notify(msg,type="danger"){
-    const host=document.getElementById("alertHost");
-    host.innerHTML=`
-    <div class="alert alert-${type} alert-dismissible fade show">
-    ${msg}
-    <button class="btn-close" data-bs-dismiss="alert"></button>
-    </div>`;
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            resolveFirstMatchingPlace(input.value);
+        }
+    });
 }
 
-async function apiRequest(url,options={}){
-    try{
-        const res=await fetch(url,{...options,credentials:"include"});
-        if(!res.ok) throw new Error(res.status);
+// Logic to find the best match if a user doesn't click the dropdown
+function resolveFirstMatchingPlace(query) {
+    const service = new google.maps.places.AutocompleteService();
+    const placesService = new google.maps.places.PlacesService(document.createElement('div'));
+
+    service.getPlacePredictions({ input: query, types: ['establishment'] }, (predictions, status) => {
+        if (status === google.maps.places.PlacesServiceStatus.OK && predictions.length > 0) {
+            const firstResult = predictions[0];
+            placesService.getDetails({ placeId: firstResult.place_id, fields: ['name', 'place_id', 'formatted_address'] }, (place, status) => {
+                if (status === google.maps.places.PlacesServiceStatus.OK) {
+                    document.getElementById('companyName').value = place.name;
+                    document.getElementById('placeId').value = place.place_id;
+                    document.getElementById('companyAddress').value = place.formatted_address;
+                }
+            });
+        }
+    });
+}
+
+// Run Google Init on load
+window.addEventListener('load', initGoogleAutocomplete);
+
+/* ------------------------------------------------------------------
+   DASHBOARD CORE LOGIC
+   ------------------------------------------------------------------ */
+
+function notify(msg, type = "danger") {
+    const host = document.getElementById("alertHost");
+    host.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show">${msg}<button class="btn-close" data-bs-dismiss="alert"></button></div>`;
+}
+
+async function apiRequest(url, options = {}) {
+    try {
+        const res = await fetch(url, { ...options, credentials: "include" });
+        if (!res.ok) throw new Error(res.status);
         return await res.json();
-    }catch(e){
-        notify("API request failed");
+    } catch (e) {
+        notify("API request failed: " + e.message);
         throw e;
     }
 }
 
-async function loadCompanies(){
-    try{
-        const data=await apiRequest("/api/companies");
-        const sel=document.getElementById("companySelect");
-        sel.innerHTML=data.map(c=>`<option value="${c.id}">${c.name}</option>`).join("");
-    }catch{
+async function loadCompanies() {
+    try {
+        const data = await apiRequest("/api/companies");
+        const sel = document.getElementById("companySelect");
+        sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+        if (data.length > 0) loadReviews();
+    } catch {
         notify("Failed to load companies");
     }
 }
 
-async function loadReviews(){
-    const companyId=companySelect.value;
-    if(!companyId){
-        notify("Select company first","warning");
-        return;
-    }
-    loadingSpinner.style.display="inline-block";
-    const params=new URLSearchParams({
-        company_id:companyId,
-        start:startDate.value,
-        end:endDate.value,
-        limit:limitSelect.value
+async function loadReviews() {
+    if (isLoadingReviews) return;
+    const companyId = document.getElementById("companySelect").value;
+    if (!companyId) return;
+
+    isLoadingReviews = true;
+    document.getElementById("loadingSpinner").style.display = "inline-block";
+
+    const params = new URLSearchParams({
+        company_id: companyId,
+        start: document.getElementById("startDate").value,
+        end: document.getElementById("endDate").value,
+        limit: document.getElementById("limitSelect").value
     });
-    try{
-        const res=await apiRequest("/api/reviews?"+params);
-        cachedReviews=res.feed||[];
+
+    try {
+        const res = await apiRequest("/api/reviews?" + params);
+        cachedReviews = res.feed || [];
         updateDashboardUI();
-    }catch{
+    } catch {
         notify("Review load failed");
+    } finally {
+        document.getElementById("loadingSpinner").style.display = "none";
+        isLoadingReviews = false;
     }
-    loadingSpinner.style.display="none";
 }
 
-function updateDashboardUI(){
-    const total=cachedReviews.length;
-    const avg=total?cachedReviews.reduce((a,b)=>a+b.rating,0)/total:0;
-    const pos=cachedReviews.filter(r=>r.sentiment_score>0).length;
-    const neu=cachedReviews.filter(r=>r.sentiment_score==0).length;
-    const neg=cachedReviews.filter(r=>r.sentiment_score<0).length;
+function updateDashboardUI() {
+    const total = cachedReviews.length;
+    const avg = total ? cachedReviews.reduce((a, b) => a + b.rating, 0) / total : 0;
+    const pos = cachedReviews.filter(r => r.sentiment_score > 0).length;
+    const neu = cachedReviews.filter(r => r.sentiment_score == 0).length;
+    const neg = cachedReviews.filter(r => r.sentiment_score < 0).length;
 
-    kpiTotal.textContent=total;
-    kpiRating.textContent=avg.toFixed(1);
-    kpiPos.textContent=pos;
-    kpiNeu.textContent=neu;
-    kpiNeg.textContent=neg;
+    document.getElementById("kpiTotal").textContent = total;
+    document.getElementById("kpiRating").textContent = avg.toFixed(1);
+    document.getElementById("kpiPos").textContent = pos;
+    document.getElementById("kpiNeu").textContent = neu;
+    document.getElementById("kpiNeg").textContent = neg;
 
     renderCharts();
     renderTable();
 }
 
-function renderCharts(){
-    Object.values(chartInstances).forEach(c=>c.destroy());
-    chartInstances={};
+function renderCharts() {
+    Object.values(chartInstances).forEach(c => c.destroy());
+    chartInstances = {};
 
-    const dist=[1,2,3,4,5].map(x=>cachedReviews.filter(r=>Math.round(r.rating)==x).length);
-    chartInstances.dist=new Chart(chartDistribution,{
-        type:"bar",
-        data:{labels:["1★","2★","3★","4★","5★"],datasets:[{data:dist}]}
+    const dist = [1, 2, 3, 4, 5].map(x => cachedReviews.filter(r => Math.round(r.rating) == x).length);
+    chartInstances.dist = new Chart(document.getElementById("chartDistribution"), {
+        type: "bar",
+        data: { labels: ["1★", "2★", "3★", "4★", "5★"], datasets: [{ label: 'Reviews', data: dist, backgroundColor: '#0d6efd' }] },
+        options: { responsive: true, maintainAspectRatio: false }
     });
 
-    const dates=[...new Set(cachedReviews.map(r=>r.review_time))];
-    chartInstances.trend=new Chart(chartTrend,{
-        type:"line",
-        data:{labels:dates,datasets:[{data:dates.map(d=>cachedReviews.filter(r=>r.review_time==d).length)}]}
+    const dates = [...new Set(cachedReviews.map(r => r.review_time))].sort();
+    chartInstances.trend = new Chart(document.getElementById("chartTrend"), {
+        type: "line",
+        data: { labels: dates, datasets: [{ label: 'Review Count', data: dates.map(d => cachedReviews.filter(r => r.review_time == d).length), borderColor: '#0dcaf0', tension: .1 }] },
+        options: { responsive: true, maintainAspectRatio: false }
     });
 
-    const sent=[
-        cachedReviews.filter(r=>r.sentiment_score>0).length,
-        cachedReviews.filter(r=>r.sentiment_score==0).length,
-        cachedReviews.filter(r=>r.sentiment_score<0).length
+    const sent = [
+        cachedReviews.filter(r => r.sentiment_score > 0).length,
+        cachedReviews.filter(r => r.sentiment_score == 0).length,
+        cachedReviews.filter(r => r.sentiment_score < 0).length
     ];
-    chartInstances.sent=new Chart(chartSentiment,{
-        type:"doughnut",
-        data:{labels:["Positive","Neutral","Negative"],datasets:[{data:sent}]}
+    chartInstances.sent = new Chart(document.getElementById("chartSentiment"), {
+        type: "doughnut",
+        data: { labels: ["Positive", "Neutral", "Negative"], datasets: [{ data: sent, backgroundColor: ['#198754', '#6c757d', '#dc3545'] }] },
+        options: { responsive: true, maintainAspectRatio: false }
     });
 }
 
-function renderTable(){
-    reviewsTable.innerHTML=cachedReviews.map(r=>`
-<tr>
-<td>${r.author_name}</td>
-<td>${r.rating} ★</td>
-<td>${r.sentiment_score>0?"Positive":r.sentiment_score<0?"Negative":"Neutral"}</td>
-<td>${r.review_time}</td>
-<td>${r.text||""}</td>
-</tr>`).join("");
-}
-
-// --- Google Autocomplete Integration (existing proxy flow; also fills Company Name on proxy selection) ---
-const proxySearchInput = document.getElementById("proxySearchInput");
-const proxyResults = document.getElementById("proxyResults");
-const placeIdInput = document.getElementById("placeId");
-const companyAddressInput = document.getElementById("companyAddress");
-const companyNameInput = document.getElementById("companyName");
-
-proxySearchInput.addEventListener("input", async e => {
-    const val = e.target.value;
-
-    // If Google native autocomplete is available, hide proxy list (native dropdown takes over)
-    if (window.google && google.maps && google.maps.places) {
-        if (proxyResults) proxyResults.style.display = "none";
+function renderTable() {
+    const reviewsTable = document.getElementById("reviewsTable");
+    if (cachedReviews.length === 0) {
+        reviewsTable.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No data loaded.</td></tr>';
         return;
     }
+    reviewsTable.innerHTML = cachedReviews.map(r => `
+        <tr>
+            <td>${r.author_name}</td>
+            <td>${r.rating} ★</td>
+            <td class="${r.sentiment_score > 0 ? 'sent-pos' : r.sentiment_score < 0 ? 'sent-neg' : 'sent-neu'}">
+                ${r.sentiment_score > 0 ? "Positive" : r.sentiment_score < 0 ? "Negative" : "Neutral"}
+            </td>
+            <td>${r.review_time}</td>
+            <td class="small">${r.text || ""}</td>
+        </tr>`).join("");
+}
 
-    if (!val) { proxyResults.style.display = "none"; return; }
-    try {
-        const data = await apiRequest("/api/google_autocomplete?input=" + encodeURIComponent(val));
-        proxyResults.innerHTML = (data.predictions||[]).map(p =>
-            `<div class="autocomplete-item" data-id="${p.place_id}" data-name="${p.description}">${p.description}</div>`
-        ).join("");
-        proxyResults.style.display = (data.predictions && data.predictions.length) ? "block" : "none";
+// Bind Buttons
+document.getElementById("loadBtn").onclick = loadReviews;
+document.getElementById("companySelect").onchange = loadReviews;
 
-        document.querySelectorAll(".autocomplete-item").forEach(item => {
-            item.onclick = async () => {
-                const selectedPlaceId = item.dataset.id;
-                const fullDescription = item.dataset.name || "";
-
-                proxySearchInput.value = fullDescription;
-                if (companyNameInput) companyNameInput.value = fullDescription.split(',')[0].trim();
-                placeIdInput.value = selectedPlaceId;
-                proxyResults.style.display = "none";
-                try {
-                    const placeDetails = await apiRequest("/api/google/place/details?place_id=" + selectedPlaceId);
-                    if (placeDetails && placeDetails.address) companyAddressInput.value = placeDetails.address;
-                } catch {
-                    notify("Failed to fetch place details","warning");
-                }
-            };
-        });
-    } catch {
-        notify("Google autocomplete failed");
-    }
-});
-
-document.addEventListener('click', function(event) {
-    if (!proxySearchInput.contains(event.target) && !proxyResults.contains(event.target)) {
-        proxyResults.style.display = "none";
-    }
-});
-
-document.getElementById("loadBtn").onclick=loadReviews;
-
-document.getElementById("toggleTheme").onclick=()=>{
-    const theme=document.documentElement.getAttribute("data-theme");
-    const next=theme==="light"?"dark":"light";
-    document.documentElement.setAttribute("data-theme",next);
-    localStorage.setItem("theme",next);
+document.getElementById("toggleTheme").onclick = () => {
+    const theme = document.documentElement.getAttribute("data-theme");
+    const next = theme === "light" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem("theme", next);
 };
 
-document.getElementById("addCompanyForm").onsubmit=async e=>{
+document.getElementById("addCompanyForm").onsubmit = async e => {
     e.preventDefault();
-    const payload={
-        name:companyName.value,
-        place_id:placeId.value,
-        address:companyAddress.value
+    const payload = {
+        name: document.getElementById("companyName").value,
+        place_id: document.getElementById("placeId").value,
+        address: document.getElementById("companyAddress").value
     };
-    try{
-        await apiRequest("/api/companies",{
-            method:"POST",
-            headers:{"Content-Type":"application/json"},
-            body:JSON.stringify(payload)
+    try {
+        await apiRequest("/api/companies", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
         });
-        notify("Company added","success");
+        notify("Company added successfully", "success");
         loadCompanies();
-    }catch{
+        bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
+        e.target.reset();
+    } catch {
         notify("Failed adding company");
     }
 };
 
-window.onload=loadCompanies;
+window.onload = loadCompanies;
 </script>
-
 </body>
 </html>
