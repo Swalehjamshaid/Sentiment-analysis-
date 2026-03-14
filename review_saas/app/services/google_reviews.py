@@ -1,9 +1,10 @@
 # filename: app/services/google_reviews.py
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, date
 from typing import Any, Dict, Iterable, List, Optional, Union
 
 from sqlalchemy import and_, select, cast, Date
@@ -17,6 +18,7 @@ logger = logging.getLogger("app.google_reviews")
 # Data models for normalized review ingestion/analytics
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class ReviewData:
     company_id: int
@@ -25,7 +27,7 @@ class ReviewData:
     text: str
     review_time: datetime
     profile_photo_url: str = ""
-    external_review_id: Optional[str] = None   # e.g., google_review_id
+    external_review_id: Optional[str] = None  # e.g., google_review_id
     source_platform: str = "Google"
     sentiment_score: Optional[float] = None
     additional_fields: Dict[str, Any] = field(default_factory=dict)
@@ -66,15 +68,18 @@ class CompanyReviews:
                 dist[rr] += 1
         return dist
 
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Normalization helpers
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def _coerce_datetime(value: Any) -> Optional[datetime]:
     """Accepts UNIX ts (sec/ms), ISO strings, or datetime; returns naive datetime (UTC-assumed)."""
     if value is None:
         return None
     if isinstance(value, datetime):
+        # ensure naive (UTC-assumed) for consistent DB writes (DB column is TZ-aware; SQLAlchemy will handle)
         return value.replace(tzinfo=None)
     try:
         if isinstance(value, (int, float)):
@@ -97,6 +102,24 @@ def _coerce_datetime(value: Any) -> Optional[datetime]:
             except Exception:
                 continue
     return None
+
+
+def _sentiment_from_rating(r: Optional[float]) -> float:
+    """Map 1..5 stars to [-1,1] scale (3->0)."""
+    if r is None:
+        return 0.0
+    try:
+        r = max(1.0, min(5.0, float(r)))
+        return (r - 3.0) / 2.0
+    except Exception:
+        return 0.0
+
+
+def _stable_google_id_for(author_name: str, d: date) -> str:
+    """Create a deterministic google_review_id when none is provided (author+date-based)."""
+    base = f"{(author_name or 'anon').strip().lower()}|{d.isoformat()}"
+    return hashlib.sha1(base.encode("utf-8")).hexdigest()
+
 
 class OutscraperReviewsService:
     """Normalizes raw review JSON from any client to ReviewData."""
@@ -123,6 +146,7 @@ class OutscraperReviewsService:
             sent = float(sent) if sent is not None else None
         except Exception:
             sent = None
+
         return ReviewData(
             company_id=company_id,
             author_name=str(author)[:255],
@@ -133,17 +157,43 @@ class OutscraperReviewsService:
             external_review_id=str(external_id) if external_id is not None else None,
             source_platform=self.source_platform,
             sentiment_score=sent,
-            additional_fields={k: v for k, v in raw.items() if k not in {
-                "author_name", "text", "rating", "date", "time", "profile_photo_url",
-                "google_review_id", "review_id", "id", "sentiment", "sentiment_score"
-            }},
+            additional_fields={
+                k: v
+                for k, v in raw.items()
+                if k
+                not in {
+                    "author_name",
+                    "author",
+                    "user",
+                    "text",
+                    "review_text",
+                    "content",
+                    "rating",
+                    "stars",
+                    "score",
+                    "date",
+                    "time",
+                    "time_timestamp",
+                    "profile_photo_url",
+                    "avatar",
+                    "google_review_id",
+                    "review_id",
+                    "id",
+                    "sentiment",
+                    "sentiment_score",
+                }
+            },
         )
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Fetch + ingest helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
-async def fetch_entity_reviews(client: Any, entity: Union[str, Dict[str, Any]], max_reviews: Optional[int] = None) -> List[Dict[str, Any]]:
+
+async def fetch_entity_reviews(
+    client: Any, entity: Union[str, Dict[str, Any]], max_reviews: Optional[int] = None
+) -> List[Dict[str, Any]]:
     """Delegate to the async client to fetch raw review JSON for an entity."""
     if not hasattr(client, "fetch_reviews"):
         logger.warning("Reviews client missing fetch_reviews(entity, max_reviews) method.")
@@ -153,8 +203,9 @@ async def fetch_entity_reviews(client: Any, entity: Union[str, Dict[str, Any]], 
         logger.info("Fetched %d raw reviews for entity %s", len(reviews), getattr(entity, "id", entity))
         return reviews
     except Exception as ex:
-        logger.error("fetch_entity_reviews failed for entity %s: %s", getattr(entity, "id", entity), ex)
+        logger.exception("fetch_entity_reviews failed for entity %s: %s", getattr(entity, "id", entity), ex)
         return []
+
 
 async def ingest_company_reviews(
     client: Any,
@@ -162,13 +213,14 @@ async def ingest_company_reviews(
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
     max_reviews: Optional[int] = None,
-    source_platform: str = "Google"
+    source_platform: str = "Google",
 ) -> CompanyReviews:
     """Fetch, normalize, and filter reviews for a single company. Does not persist to DB."""
     cid = int(getattr(company, "id", company.get("id") if isinstance(company, dict) else 0))
     service = OutscraperReviewsService(source_platform=source_platform)
     raw = await fetch_entity_reviews(client, company, max_reviews=max_reviews)
     out = CompanyReviews(company_id=cid)
+
     for r in raw:
         rd = service.normalize(r, company_id=cid)
         if not rd:
@@ -177,9 +229,14 @@ async def ingest_company_reviews(
             continue
         if end and rd.review_time.date() > end.date():
             continue
+        # Backfill sentiment if not provided
+        if rd.sentiment_score is None:
+            rd.sentiment_score = _sentiment_from_rating(rd.rating)
         out.reviews.append(rd)
+
     logger.info("Normalized %d reviews for company %s after filtering by date", len(out.reviews), cid)
     return out
+
 
 async def ingest_multi_company_reviews(
     client: Any,
@@ -187,7 +244,7 @@ async def ingest_multi_company_reviews(
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
     max_reviews: Optional[int] = None,
-    source_platform: str = "Google"
+    source_platform: str = "Google",
 ) -> Dict[str, CompanyReviews]:
     """Fetch reviews for multiple entities. Keys are str(entity_id)."""
     result: Dict[str, CompanyReviews] = {}
@@ -196,8 +253,11 @@ async def ingest_multi_company_reviews(
             cid = str(getattr(ent, "id", ent.get("id") if isinstance(ent, dict) else ent))
         except Exception:
             cid = str(ent)
-        result[cid] = await ingest_company_reviews(client, ent, start=start, end=end, max_reviews=max_reviews, source_platform=source_platform)
+        result[cid] = await ingest_company_reviews(
+            client, ent, start=start, end=end, max_reviews=max_reviews, source_platform=source_platform
+        )
     return result
+
 
 async def run_batch_review_ingestion(
     client: Any,
@@ -205,49 +265,117 @@ async def run_batch_review_ingestion(
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
     max_reviews: Optional[int] = None,
-    source_platform: str = "Google"
+    source_platform: str = "Google",
 ) -> Dict[str, Any]:
-    """Fetch, normalize, and write reviews to DB, avoiding duplicates."""
+    """
+    Fetch, normalize, and write reviews to DB, avoiding duplicates.
+
+    Duplicate Prevention (unchanged contract):
+      - Prefer external_review_id (maps to DB google_review_id)
+      - Fallback to author_name + review_date (YYYY-MM-DD)
+
+    Returns:
+      {
+        "companies": [
+          {"company_id": <int>, "fetched": <int>, "saved": <int>},
+          ...
+        ]
+      }
+    """
     summary: Dict[str, Any] = {"companies": []}
+
     for ent in entities:
         try:
             cid_int = int(getattr(ent, "id", ent.get("id") if isinstance(ent, dict) else ent))
         except Exception:
+            logger.warning("Skipping entity with invalid id: %r", ent)
             continue
-        crevs = await ingest_company_reviews(client, ent, start=start, end=end, max_reviews=max_reviews, source_platform=source_platform)
+
+        crevs = await ingest_company_reviews(
+            client, ent, start=start, end=end, max_reviews=max_reviews, source_platform=source_platform
+        )
+
         new_count = 0
         async with get_session() as session:
             for rd in crevs.reviews:
-                # Duplicate prevention by external_review_id or author+review_time
-                exists_q = select(Review.id).where(
-                    and_(
-                        Review.company_id == cid_int,
-                        Review.external_review_id == rd.external_review_id
+                # Duplicate prevention by external_review_id (google_review_id) or author+review_date
+                if rd.external_review_id:
+                    exists_q = (
+                        select(Review.id)
+                        .where(and_(Review.company_id == cid_int, Review.google_review_id == rd.external_review_id))
+                        .limit(1)
                     )
-                ).limit(1) if rd.external_review_id else \
-                select(Review.id).where(
-                    and_(
-                        Review.company_id == cid_int,
-                        Review.author_name == rd.author_name,
-                        cast(Review.google_review_time, Date) == rd.review_time.date()
-                    )
-                )
+                else:
+                    # Fallback by author + date (cast to DATE)
+                    exists_q = select(Review.id).where(
+                        and_(
+                            Review.company_id == cid_int,
+                            Review.author_name == rd.author_name,
+                            cast(Review.google_review_time, Date) == rd.review_time.date(),
+                        )
+                    ).limit(1)
+
                 exists = (await session.execute(exists_q)).first()
                 if exists:
                     continue
-                session.add(Review(
-                    company_id=cid_int,
-                    author_name=rd.author_name,
-                    rating=float(rd.rating or 0.0),
-                    text=rd.text,
-                    google_review_time=rd.review_time,
-                    profile_photo_url=rd.profile_photo_url,
-                    external_review_id=rd.external_review_id,
-                    source_platform=rd.source_platform,
-                    sentiment_score=rd.sentiment_score,
-                ))
+
+                # Ensure a google_review_id is provided (DB column is NOT NULL, unique with company_id)
+                google_review_id = rd.external_review_id
+                if not google_review_id:
+                    google_review_id = _stable_google_id_for(rd.author_name, rd.review_time.date())
+
+                # Persist
+                session.add(
+                    Review(
+                        company_id=cid_int,
+                        google_review_id=google_review_id,
+                        review_url=None,  # not provided by normalized payload; preserving schema
+                        author_name=rd.author_name,
+                        author_id=None,
+                        author_url=None,
+                        profile_photo_url=rd.profile_photo_url or None,
+                        author_profile_photo=None,
+                        author_reviews_count=None,
+                        author_level=None,
+                        author_location=None,
+                        author_contributions=None,
+                        rating=int(round(float(rd.rating))) if rd.rating is not None else None,
+                        text=rd.text,
+                        review_language=None,
+                        google_review_time=rd.review_time,
+                        competitor_name=None,
+                        source_platform=rd.source_platform,
+                        owner_answer=None,
+                        owner_answer_timestamp=None,
+                        review_reply_text=None,
+                        review_photos=None,
+                        review_videos=None,
+                        review_likes=0,
+                        is_local_guide=False,
+                        sentiment_label=None,  # optional, can be computed downstream
+                        sentiment_score=rd.sentiment_score if rd.sentiment_score is not None else _sentiment_from_rating(rd.rating),
+                        keywords=None,
+                        topic_tags=None,
+                        spam_score=None,
+                        is_complaint=False,
+                        is_praise=False,
+                        aspect_rooms=None,
+                        aspect_staff=None,
+                        aspect_location=None,
+                        aspect_value=None,
+                        aspect_cleanliness=None,
+                        aspect_food=None,
+                        aspect_service=None,
+                        aspect_amenities=None,
+                        aspect_price=None,
+                        aspect_atmosphere=None,
+                    )
+                )
                 new_count += 1
+
             await session.commit()
-        logger.info("Committed %d new reviews for company %s", new_count, cid_int)
+            logger.info("Committed %d new reviews for company %s", new_count, cid_int)
+
         summary["companies"].append({"company_id": cid_int, "fetched": len(crevs.reviews), "saved": new_count})
+
     return summary
