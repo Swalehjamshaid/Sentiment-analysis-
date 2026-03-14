@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Union
 
-from sqlalchemy import and_, cast, Date, select
+from sqlalchemy import and_, select, cast, Date
 
 from app.core.db import get_session
 from app.core.models import Review
@@ -100,7 +100,7 @@ def _coerce_datetime(value: Any) -> Optional[datetime]:
 
 class OutscraperReviewsService:
     """Normalizes raw review JSON from any client to ReviewData."""
-    
+
     def __init__(self, source_platform: str = "Google") -> None:
         self.source_platform = source_platform
 
@@ -149,9 +149,11 @@ async def fetch_entity_reviews(client: Any, entity: Union[str, Dict[str, Any]], 
         logger.warning("Reviews client missing fetch_reviews(entity, max_reviews) method.")
         return []
     try:
-        return await client.fetch_reviews(entity, max_reviews=max_reviews)
+        reviews = await client.fetch_reviews(entity, max_reviews=max_reviews)
+        logger.info("Fetched %d raw reviews for entity %s", len(reviews), getattr(entity, "id", entity))
+        return reviews
     except Exception as ex:
-        logger.warning("fetch_entity_reviews failed: %s", ex)
+        logger.error("fetch_entity_reviews failed for entity %s: %s", getattr(entity, "id", entity), ex)
         return []
 
 async def ingest_company_reviews(
@@ -176,6 +178,7 @@ async def ingest_company_reviews(
         if end and rd.review_time.date() > end.date():
             continue
         out.reviews.append(rd)
+    logger.info("Normalized %d reviews for company %s after filtering by date", len(out.reviews), cid)
     return out
 
 async def ingest_multi_company_reviews(
@@ -186,7 +189,7 @@ async def ingest_multi_company_reviews(
     max_reviews: Optional[int] = None,
     source_platform: str = "Google"
 ) -> Dict[str, CompanyReviews]:
-    """Fetch reviews for multiple entities. Keys are str(entity_id or place_id)."""
+    """Fetch reviews for multiple entities. Keys are str(entity_id)."""
     result: Dict[str, CompanyReviews] = {}
     for ent in entities:
         try:
@@ -211,31 +214,27 @@ async def run_batch_review_ingestion(
             cid_int = int(getattr(ent, "id", ent.get("id") if isinstance(ent, dict) else ent))
         except Exception:
             continue
-
         crevs = await ingest_company_reviews(client, ent, start=start, end=end, max_reviews=max_reviews, source_platform=source_platform)
         new_count = 0
-
         async with get_session() as session:
             for rd in crevs.reviews:
-                if rd.external_review_id:
-                    exists_q = select(Review.id).where(
-                        and_(
-                            Review.company_id == cid_int,
-                            Review.external_review_id == rd.external_review_id
-                        )
-                    ).limit(1)
-                else:
-                    exists_q = select(Review.id).where(
-                        and_(
-                            Review.company_id == cid_int,
-                            Review.author_name == rd.author_name,
-                            cast(Review.google_review_time, Date) == rd.review_time.date()
-                        )
-                    ).limit(1)
+                # Duplicate prevention by external_review_id or author+review_time
+                exists_q = select(Review.id).where(
+                    and_(
+                        Review.company_id == cid_int,
+                        Review.external_review_id == rd.external_review_id
+                    )
+                ).limit(1) if rd.external_review_id else \
+                select(Review.id).where(
+                    and_(
+                        Review.company_id == cid_int,
+                        Review.author_name == rd.author_name,
+                        cast(Review.google_review_time, Date) == rd.review_time.date()
+                    )
+                )
                 exists = (await session.execute(exists_q)).first()
                 if exists:
                     continue
-
                 session.add(Review(
                     company_id=cid_int,
                     author_name=rd.author_name,
@@ -249,7 +248,6 @@ async def run_batch_review_ingestion(
                 ))
                 new_count += 1
             await session.commit()
-
-        logger.info("Committed %s new reviews for company %s", new_count, cid_int)
+        logger.info("Committed %d new reviews for company %s", new_count, cid_int)
         summary["companies"].append({"company_id": cid_int, "fetched": len(crevs.reviews), "saved": new_count})
     return summary
