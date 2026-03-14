@@ -13,6 +13,8 @@ from sqlalchemy import and_, select, cast, Date
 from app.core.db import get_session
 from app.core.models import Review
 
+# Setup logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.google_reviews")
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -21,6 +23,7 @@ logger = logging.getLogger("app.google_reviews")
 
 @dataclass
 class ReviewData:
+    """Normalized data structure for a single review."""
     company_id: int
     author_name: str
     rating: float
@@ -35,6 +38,7 @@ class ReviewData:
 
 @dataclass
 class CompanyReviews:
+    """Container for a collection of reviews for a specific company."""
     company_id: int
     reviews: List[ReviewData] = field(default_factory=list)
 
@@ -73,20 +77,22 @@ class CompanyReviews:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _coerce_datetime(value: Any) -> Optional[datetime]:
+    """Universal date parser for various timestamp and string formats."""
     if value is None:
         return None
     if isinstance(value, datetime):
         return value.replace(tzinfo=None)
     try:
         if isinstance(value, (int, float)):
-            if float(value) > 10_000_000_000:  # milliseconds
+            # Handle milliseconds vs seconds
+            if float(value) > 10_000_000_000:  
                 return datetime.utcfromtimestamp(float(value) / 1000.0)
             return datetime.utcfromtimestamp(float(value))
     except Exception:
         pass
     if isinstance(value, str):
-        for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ","%Y-%m-%dT%H:%M:%S.%f","%Y-%m-%dT%H:%M:%SZ",
-                    "%Y-%m-%dT%H:%M:%S","%Y-%m-%d %H:%M:%S","%Y-%m-%d"):
+        for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%SZ",
+                    "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
             try:
                 return datetime.strptime(value, fmt)
             except Exception:
@@ -94,37 +100,47 @@ def _coerce_datetime(value: Any) -> Optional[datetime]:
     return None
 
 def _sentiment_from_rating(r: Optional[float]) -> float:
+    """Converts a 1-5 star rating to a -1.0 to 1.0 sentiment score."""
     if r is None:
         return 0.0
     try:
         r = max(1.0, min(5.0, float(r)))
+        # Map [1, 5] to [-1, 1]
         return round((r - 3.0) / 2.0, 2)
     except Exception:
         return 0.0
 
 def _stable_google_id_for(author_name: str, d: date) -> str:
+    """Generates a deterministic hash for reviews missing an external ID."""
     base = f"{(author_name or 'anon').strip().lower()}|{d.isoformat()}"
     return hashlib.sha1(base.encode("utf-8")).hexdigest()
 
 class OutscraperReviewsService:
+    """Logic for transforming raw scraper data into normalized ReviewData."""
     def __init__(self, source_platform: str = "Google") -> None:
         self.source_platform = source_platform
 
     def normalize(self, raw: Dict[str, Any], company_id: int) -> Optional[ReviewData]:
         if not raw:
             return None
-        author = raw.get("author_name") or raw.get("author") or raw.get("user") or "Anonymous"
-        text = raw.get("text") or raw.get("review_text") or raw.get("content") or ""
-        rating = raw.get("rating") or raw.get("stars") or raw.get("score") or 0
+        
+        # Mapping variations of common keys
+        author = raw.get("author_name") or raw.get("author_title") or raw.get("author") or "Anonymous"
+        text = raw.get("review_text") or raw.get("text") or raw.get("content") or ""
+        rating = raw.get("review_rating") or raw.get("rating") or raw.get("stars") or 0
+        
         try:
             rating = float(rating)
         except Exception:
             rating = 0.0
-        when = raw.get("time") or raw.get("review_time") or raw.get("date") or raw.get("time_timestamp")
+            
+        when = raw.get("review_timestamp") or raw.get("time") or raw.get("review_datetime_utc") or raw.get("date")
         dt = _coerce_datetime(when) or datetime.utcnow()
-        profile = raw.get("profile_photo_url") or raw.get("avatar") or ""
-        external_id = raw.get("google_review_id") or raw.get("review_id") or raw.get("id")
-        sent = raw.get("sentiment") or raw.get("sentiment_score")
+        
+        profile = raw.get("author_image") or raw.get("profile_photo_url") or raw.get("avatar") or ""
+        external_id = raw.get("review_id") or raw.get("google_review_id") or raw.get("id")
+        
+        sent = raw.get("sentiment_score") or raw.get("sentiment")
         try:
             sent = float(sent) if sent is not None else None
         except Exception:
@@ -140,10 +156,11 @@ class OutscraperReviewsService:
             external_review_id=str(external_id) if external_id is not None else None,
             source_platform=self.source_platform,
             sentiment_score=sent,
-            additional_fields={k:v for k,v in raw.items() if k not in {
-                "author_name","author","user","text","review_text","content","rating","stars","score",
-                "date","time","time_timestamp","profile_photo_url","avatar","google_review_id","review_id","id",
-                "sentiment","sentiment_score"
+            additional_fields={k: v for k, v in raw.items() if k not in {
+                "author_name", "author_title", "author", "user", "text", "review_text", "content", 
+                "rating", "stars", "score", "review_rating", "date", "time", "time_timestamp", 
+                "review_timestamp", "review_datetime_utc", "profile_photo_url", "avatar", 
+                "author_image", "google_review_id", "review_id", "id", "sentiment", "sentiment_score"
             }},
         )
 
@@ -151,21 +168,27 @@ class OutscraperReviewsService:
 # Fetch + ingest helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
-async def fetch_entity_reviews(client: Any, entity: Union[str, Dict[str, Any]], max_reviews: Optional[int] = None) -> List[Dict[str, Any]]:
+async def fetch_entity_reviews(client: Any, entity: Any, max_reviews: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Safely calls the external scraper client."""
     if not hasattr(client, "fetch_reviews"):
-        logger.warning("Reviews client missing fetch_reviews(entity, max_reviews) method.")
+        logger.error("Reviews client missing fetch_reviews(entity, max_reviews) method.")
         return []
     try:
+        # Client should be the Outscraper wrapper
         reviews = await client.fetch_reviews(entity, max_reviews=max_reviews)
-        logger.info("Fetched %d raw reviews for entity %s", len(reviews), getattr(entity, "id", entity))
+        logger.info("Fetched %d raw reviews from external source", len(reviews))
         return reviews
     except Exception as ex:
-        logger.exception("fetch_entity_reviews failed for entity %s: %s", getattr(entity, "id", entity), ex)
+        logger.exception("fetch_entity_reviews failed: %s", ex)
         return []
 
-async def ingest_company_reviews(client: Any, company: Any, start: Optional[datetime]=None, end: Optional[datetime]=None, max_reviews: Optional[int]=None, source_platform: str="Google") -> CompanyReviews:
-    cid = int(getattr(company, "id", company.get("id") if isinstance(company, dict) else 0))
+async def ingest_company_reviews(client: Any, company: Any, start: Optional[datetime] = None, 
+                                 end: Optional[datetime] = None, max_reviews: Optional[int] = None, 
+                                 source_platform: str = "Google") -> CompanyReviews:
+    """Fetch, normalize, and date-filter reviews for a single company."""
+    cid = int(getattr(company, "id", 0))
     service = OutscraperReviewsService(source_platform=source_platform)
+    
     raw = await fetch_entity_reviews(client, company, max_reviews=max_reviews)
     out = CompanyReviews(company_id=cid)
 
@@ -173,58 +196,72 @@ async def ingest_company_reviews(client: Any, company: Any, start: Optional[date
         rd = service.normalize(r, company_id=cid)
         if not rd:
             continue
+            
+        # Scenario 1 & 2: Filter by Date
         if start and rd.review_time.date() < start.date():
             continue
         if end and rd.review_time.date() > end.date():
             continue
+            
         if rd.sentiment_score is None:
             rd.sentiment_score = _sentiment_from_rating(rd.rating)
+            
         out.reviews.append(rd)
 
-    logger.info("Normalized %d reviews for company %s after filtering by date", len(out.reviews), cid)
+    logger.info("Normalized %d reviews for company_id %d", len(out.reviews), cid)
     return out
 
-async def ingest_multi_company_reviews(client: Any, entities: Iterable[Any], start: Optional[datetime]=None, end: Optional[datetime]=None, max_reviews: Optional[int]=None, source_platform: str="Google") -> Dict[str, CompanyReviews]:
-    result: Dict[str, CompanyReviews] = {}
+async def run_batch_review_ingestion(client: Any, entities: Iterable[Any], start: Optional[datetime] = None, 
+                                     end: Optional[datetime] = None, max_reviews: Optional[int] = None, 
+                                     source_platform: str = "Google") -> Dict[str, Any]:
+    """
+    Main orchestration function.
+    Fetches fresh data, checks PostgreSQL for duplicates, and persists new records.
+    """
+    summary: Dict[str, Any] = {"total_saved": 0, "companies": []}
+    
     for ent in entities:
         try:
-            cid = str(getattr(ent, "id", ent.get("id") if isinstance(ent, dict) else ent))
-        except Exception:
-            cid = str(ent)
-        result[cid] = await ingest_company_reviews(client, ent, start=start, end=end, max_reviews=max_reviews, source_platform=source_platform)
-    return result
-
-async def run_batch_review_ingestion(client: Any, entities: Iterable[Any], start: Optional[datetime]=None, end: Optional[datetime]=None, max_reviews: Optional[int]=None, source_platform: str="Google") -> Dict[str, Any]:
-    summary: Dict[str, Any] = {"companies": []}
-    for ent in entities:
-        try:
-            cid_int = int(getattr(ent, "id", ent.get("id") if isinstance(ent, dict) else ent))
-        except Exception:
-            logger.warning("Skipping entity with invalid id: %r", ent)
+            cid_int = int(getattr(ent, "id", 0))
+        except (AttributeError, ValueError):
             continue
 
-        crevs = await ingest_company_reviews(client, ent, start=start, end=end, max_reviews=max_reviews, source_platform=source_platform)
+        # Fetch and normalize fresh data
+        crevs = await ingest_company_reviews(client, ent, start=start, end=end, 
+                                            max_reviews=max_reviews, source_platform=source_platform)
         new_count = 0
 
         async with get_session() as session:
             for rd in crevs.reviews:
+                # Deduplication logic
                 if rd.external_review_id:
-                    exists_q = select(Review.id).where(and_(Review.company_id==cid_int, Review.google_review_id==rd.external_review_id)).limit(1)
+                    exists_q = select(Review.id).where(
+                        and_(Review.company_id == cid_int, Review.google_review_id == rd.external_review_id)
+                    ).limit(1)
                 else:
-                    exists_q = select(Review.id).where(and_(Review.company_id==cid_int, Review.author_name==rd.author_name, cast(Review.google_review_time, Date)==rd.review_time.date())).limit(1)
+                    # Fallback deduplication based on author and day
+                    exists_q = select(Review.id).where(
+                        and_(
+                            Review.company_id == cid_int, 
+                            Review.author_name == rd.author_name, 
+                            cast(Review.google_review_time, Date) == rd.review_time.date()
+                        )
+                    ).limit(1)
+                
                 exists = (await session.execute(exists_q)).first()
                 if exists:
                     continue
 
+                # Prepare the Review record for PostgreSQL
                 google_review_id = rd.external_review_id or _stable_google_id_for(rd.author_name, rd.review_time.date())
+                
                 session.add(
                     Review(
                         company_id=cid_int,
                         google_review_id=google_review_id,
-                        review_url=None,
                         author_name=rd.author_name,
                         profile_photo_url=rd.profile_photo_url or None,
-                        rating=int(round(float(rd.rating))) if rd.rating is not None else None,
+                        rating=float(rd.rating) if rd.rating is not None else 0.0,
                         text=rd.text,
                         google_review_time=rd.review_time,
                         source_platform=rd.source_platform,
@@ -234,8 +271,9 @@ async def run_batch_review_ingestion(client: Any, entities: Iterable[Any], start
                 new_count += 1
 
             await session.commit()
-            logger.info("Committed %d new reviews for company %s", new_count, cid_int)
+            logger.info("Saved %d new reviews to database for company %d", new_count, cid_int)
 
+        summary["total_saved"] += new_count
         summary["companies"].append({"company_id": cid_int, "fetched": len(crevs.reviews), "saved": new_count})
 
     return summary
