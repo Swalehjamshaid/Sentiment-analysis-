@@ -4,22 +4,23 @@ from __future__ import annotations
 import os
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import and_, cast, Date, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
-from app.core.models import Company, Review  # type: ignore
+from app.core.models import Company, Review
+from app.services.google_reviews import run_batch_review_ingestion
 
 router = APIRouter(tags=["reviews"])
 logger = logging.getLogger("app.reviews")
 
 # ---------------------------------------------------------
-# Google API key config
+# Configuration & Utilities
 # ---------------------------------------------------------
 GOOGLE_API_KEY = (
     os.getenv("GOOGLE_PLACES_API_KEY")
@@ -27,11 +28,8 @@ GOOGLE_API_KEY = (
     or os.getenv("GOOGLE_API_KEY")
 )
 
-HTTPX_TIMEOUT = 15.0  # seconds
+HTTPX_TIMEOUT = 15.0
 
-# ---------------------------------------------------------
-# Utilities
-# ---------------------------------------------------------
 def _parse_date(s: Optional[str]) -> Optional[date]:
     if not s:
         return None
@@ -45,6 +43,20 @@ def _parse_date(s: Optional[str]) -> Optional[date]:
     except Exception:
         return None
 
+def _resolve_range(start: Optional[str], end: Optional[str]):
+    """
+    Implements Scenarios 1 & 2:
+    Scenario 1: No dates provided -> Default to last 15 days.
+    Scenario 2: Specific range provided -> Use that range.
+    """
+    today = date.today()
+    e_dt = _parse_date(end) or today
+    if start:
+        s_dt = _parse_date(start) or (e_dt - timedelta(days=14))
+    else:
+        s_dt = e_dt - timedelta(days=14)
+    return s_dt, e_dt
+
 def _safe_day_str(dt: Optional[datetime]) -> str:
     if not dt:
         return ""
@@ -53,128 +65,129 @@ def _safe_day_str(dt: Optional[datetime]) -> str:
     except Exception:
         return ""
 
-def _sentiment_from_rating(rating: Optional[float]) -> float:
-    """Convert rating 1..5 to sentiment_score [-1..1]"""
-    if rating is None:
-        return 0.0
-    r = max(1.0, min(5.0, float(rating)))
-    return round((r - 3.0) / 2.0, 2)
-
 @asynccontextmanager
 async def _httpx_client():
     async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
         yield client
 
 # ---------------------------------------------------------
-# GOOGLE AUTOCOMPLETE PROXY
+# GOOGLE PROXY ENDPOINTS
 # ---------------------------------------------------------
+
 @router.get("/api/google_autocomplete")
 async def google_autocomplete(input: str) -> Dict[str, Any]:
     if not GOOGLE_API_KEY:
         raise HTTPException(status_code=500, detail="Google API key missing")
     url = "https://maps.googleapis.com/maps/api/place/autocomplete/json"
     params = {"input": input, "key": GOOGLE_API_KEY}
-    try:
-        async with _httpx_client() as client:
-            r = await client.get(url, params=params)
-        data = r.json()
-        return {"predictions": data.get("predictions", [])}
-    except httpx.HTTPError as he:
-        logger.exception("Google Autocomplete HTTP error: %s", he)
-        raise HTTPException(status_code=502, detail="Google Autocomplete upstream error")
-    except Exception as ex:
-        logger.exception("Google Autocomplete unknown error: %s", ex)
-        raise HTTPException(status_code=500, detail="Google Autocomplete failed")
+    async with _httpx_client() as client:
+        r = await client.get(url, params=params)
+    return {"predictions": r.json().get("predictions", [])}
 
-# ---------------------------------------------------------
-# GOOGLE PLACE DETAILS PROXY
-# ---------------------------------------------------------
 @router.get("/api/google/place/details")
 async def google_place_details(place_id: str) -> Dict[str, Any]:
     if not GOOGLE_API_KEY:
         raise HTTPException(status_code=500, detail="Google API key missing")
     url = "https://maps.googleapis.com/maps/api/place/details/json"
-    params = {
-        "place_id": place_id,
-        "fields": "name,formatted_address,rating,place_id",
-        "key": GOOGLE_API_KEY,
+    params = {"place_id": place_id, "fields": "name,formatted_address,rating,place_id", "key": GOOGLE_API_KEY}
+    async with _httpx_client() as client:
+        r = await client.get(url, params=params)
+    res = r.json().get("result", {}) or {}
+    return {
+        "name": res.get("name"),
+        "address": res.get("formatted_address"),
+        "rating": res.get("rating"),
+        "place_id": res.get("place_id"),
     }
-    try:
-        async with _httpx_client() as client:
-            r = await client.get(url, params=params)
-        data = r.json()
-        result = data.get("result", {}) or {}
-        return {
-            "name": result.get("name"),
-            "address": result.get("formatted_address"),
-            "rating": result.get("rating"),
-            "place_id": result.get("place_id"),
-        }
-    except httpx.HTTPError as he:
-        logger.exception("Google Place Details HTTP error: %s", he)
-        raise HTTPException(status_code=502, detail="Google Place Details upstream error")
-    except Exception as ex:
-        logger.exception("Google Place Details unknown error: %s", ex)
-        raise HTTPException(status_code=500, detail="Google Place Details failed")
 
 # ---------------------------------------------------------
-# MAIN REVIEWS API (reads from PostgreSQL)
+# INGESTION API (Trigger Outscraper -> PostgreSQL)
 # ---------------------------------------------------------
+
+@router.post("/api/reviews/ingest/{company_id}")
+async def trigger_ingestion(
+    request: Request,
+    company_id: int,
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Triggers the Outscraper sync. 
+    New reviews are normalized and saved to PostgreSQL.
+    """
+    company = await session.get(Company, company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    client = getattr(request.app.state, "reviews_client", None)
+    if not client:
+        raise HTTPException(status_code=503, detail="Outscraper client not initialized in app state")
+
+    # Resolve date range logic
+    s_date, e_date = _resolve_range(start, end)
+    
+    logger.info(f"Syncing reviews for {company.name} | Range: {s_date} to {e_date}")
+
+    # Call service layer (google_reviews.py logic)
+    summary = await run_batch_review_ingestion(
+        client=client,
+        entities=[company],
+        start=datetime.combine(s_date, datetime.min.time()),
+        end=datetime.combine(e_date, datetime.max.time())
+    )
+
+    return {
+        "status": "success",
+        "total_added": summary.get("total_saved", 0),
+        "sync_range": {"start": s_date.isoformat(), "end": e_date.isoformat()}
+    }
+
+# ---------------------------------------------------------
+# DASHBOARD DATA API (PostgreSQL -> Dashboard UI)
+# ---------------------------------------------------------
+
 @router.get("/api/reviews")
 async def get_reviews(
-    company_id: int = Query(..., description="Company ID"),
-    start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
-    end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
-    limit: int = Query(50, ge=1, le=2000, description="Max number of reviews"),
+    company_id: int = Query(...),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=2000),
     session: AsyncSession = Depends(get_session),
 ) -> Dict[str, Any]:
+    """
+    Returns review data strictly from the PostgreSQL database for the Dashboard.
+    """
     company = await session.get(Company, company_id)
     if not company:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
 
-    start_d = _parse_date(start)
-    end_d = _parse_date(end)
-
-    date_col = getattr(Review, "google_review_time", None) or getattr(Review, "created_at", None)
-    if date_col is None:
-        raise HTTPException(status_code=500, detail="Review date column missing")
-
-    filters = [Review.company_id == company_id]  # type: ignore[attr-defined]
-    if start_d:
-        filters.append(cast(date_col, Date) >= start_d)
-    if end_d:
-        filters.append(cast(date_col, Date) <= end_d)
+    s_date, e_date = _resolve_range(start, end)
 
     stmt = (
-        select(
-            Review.author_name,
-            Review.rating,
-            Review.text,
-            Review.google_review_time,
-            Review.sentiment_score,
+        select(Review)
+        .where(
+            and_(
+                Review.company_id == company_id,
+                cast(Review.google_review_time, Date) >= s_date,
+                cast(Review.google_review_time, Date) <= e_date
+            )
         )
-        .where(and_(*filters))
-        .order_by(desc(date_col))
+        .order_by(desc(Review.google_review_time))
         .limit(limit)
     )
 
     result = await session.execute(stmt)
-    rows = result.all()
+    rows = result.scalars().all()
 
-    feed: List[Dict[str, Any]] = []
+    feed = []
     for row in rows:
-        rating = float(row.rating or 0.0)
-        sentiment = float(row.sentiment_score) if row.sentiment_score is not None else _sentiment_from_rating(rating)
-        review_time = _safe_day_str(row.google_review_time)
-        feed.append(
-            {
-                "author_name": row.author_name or "",
-                "rating": rating,
-                "sentiment_score": sentiment,
-                "review_time": review_time,
-                "text": row.text or "",
-            }
-        )
+        feed.append({
+            "author_name": row.author_name or "Anonymous",
+            "rating": float(row.rating or 0.0),
+            "sentiment_score": float(row.sentiment_score or 0.0),
+            "review_time": _safe_day_str(row.google_review_time),
+            "text": row.text or "",
+        })
 
-    logger.info(f"Loaded {len(feed)} reviews for company_id={company_id}")
-    return {"feed": feed}
+    return {"feed": feed, "count": len(feed)}
