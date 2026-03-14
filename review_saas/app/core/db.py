@@ -3,11 +3,24 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 import os
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine, async_sessionmaker, AsyncSession
+import logging
+
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    create_async_engine,
+    async_sessionmaker,
+    AsyncSession
+)
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import settings
-from app.core.models import Base  # Import your Base here
+from app.core.models import Base  # Make sure Base includes all models like Review
+
+# --------------------
+# Setup logger
+# --------------------
+logger = logging.getLogger("app.db")
+logging.basicConfig(level=logging.INFO)
 
 # --------------------
 # Global instances for reuse
@@ -20,7 +33,7 @@ _sessionmaker: Optional[async_sessionmaker[AsyncSession]] = None
 # --------------------
 def _normalize_async_url(raw_url: str) -> str:
     """
-    Ensures the DATABASE_URL is compatible with SQLAlchemy's async drivers.
+    Ensures DATABASE_URL is compatible with SQLAlchemy async drivers.
     Converts postgres:// to postgresql+asyncpg://
     """
     if not raw_url or not raw_url.strip():
@@ -28,7 +41,7 @@ def _normalize_async_url(raw_url: str) -> str:
 
     v = raw_url.strip().strip('"').strip("'")
 
-    # Replace old-style postgres URL
+    # Convert old-style postgres URL
     if v.startswith('postgres://'):
         v = v.replace('postgres://', 'postgresql://', 1)
     if v.startswith('postgresql://') and 'asyncpg' not in v:
@@ -45,22 +58,26 @@ def _normalize_async_url(raw_url: str) -> str:
 
 
 def get_database_url() -> str:
-    """Retrieves the normalized URL from settings."""
-    return _normalize_async_url(settings.DATABASE_URL or '')
+    """Returns normalized DATABASE_URL from settings or environment."""
+    env_url = getattr(settings, "DATABASE_URL", os.getenv("DATABASE_URL", ""))
+    return _normalize_async_url(env_url)
 
 # --------------------
 # ENGINE & SESSION
 # --------------------
 def get_engine() -> AsyncEngine:
-    """Returns the global AsyncEngine, initializing it if necessary."""
+    """Returns global AsyncEngine, initializing if needed."""
     global _engine, _sessionmaker
     if _engine is None:
         url = get_database_url()
+        logger.info(f"Initializing AsyncEngine with URL: {url}")
         _engine = create_async_engine(
             url,
-            echo=settings.DEBUG,
+            echo=getattr(settings, "DEBUG", False),
             future=True,
             pool_pre_ping=True,
+            pool_size=10,
+            max_overflow=20
         )
         _sessionmaker = async_sessionmaker(
             bind=_engine,
@@ -71,7 +88,7 @@ def get_engine() -> AsyncEngine:
 
 
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
-    """Returns the global session factory."""
+    """Returns global session factory."""
     global _sessionmaker
     if _sessionmaker is None:
         get_engine()
@@ -89,15 +106,18 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         try:
             yield session
             await session.commit()
-        except Exception:
+            logger.info("✅ Session committed successfully.")
+        except Exception as e:
             await session.rollback()
+            logger.error(f"⚠ Session rollback due to error: {e}")
             raise
         finally:
             await session.close()
+            logger.info("Session closed.")
 
 
 # --------------------
-# SAFE DATABASE INIT (FIXED: no auto-drop)
+# SAFE DATABASE INIT (no auto-drop)
 # --------------------
 async def init_database():
     """
@@ -110,16 +130,13 @@ async def init_database():
     engine = get_engine()
     async with engine.begin() as conn:
         try:
-            # Safe: create tables if they don't exist
+            # Create missing tables
             await conn.run_sync(Base.metadata.create_all)
-            print("✅ Database tables ensured (safe create - no data loss)")
-
-            # Optional: print schema version
-            print(f"Schema version in code: {SCHEMA_VERSION}")
+            logger.info("✅ Database tables ensured (safe create - no data loss)")
+            logger.info(f"Schema version in code: {SCHEMA_VERSION}")
         except SQLAlchemyError as e:
-            print(f"⚠ Error initializing database: {e}")
+            logger.error(f"⚠ Error initializing database: {e}")
             raise
-
 
 # --------------------
 # SESSION FACTORY FOR BACKGROUND TASKS
