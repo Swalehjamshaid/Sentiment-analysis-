@@ -39,7 +39,7 @@ def _parse_date(s: Optional[str]) -> Optional[date]:
         return None
 
 
-def _range_or_default(start: Optional[str], end: Optional[str], default_days: int = DEFAULT_DAYS):
+def _range_or_default(start: Optional[str], end: Optional[str], default_days: int = DEFAULT_DAYS) -> tuple[date, date]:
     today = date.today()
     e = _parse_date(end) or today
     s = _parse_date(start) or (e - timedelta(days=default_days - 1))
@@ -49,22 +49,43 @@ def _range_or_default(start: Optional[str], end: Optional[str], default_days: in
 
 
 def _date_col():
+    """
+    Picks the best available column to represent the review's date for filtering/sorting.
+    Prefers google_review_time, then review_date, then created_at, cast to Date.
+    """
     base = getattr(Review, "google_review_time", None)
     review_date = getattr(Review, "review_date", None)
     created = getattr(Review, "created_at", None)
 
     cols = [c for c in (base, review_date, created) if c is not None]
+    if not cols:
+        # Fallback: cast a known column to keep SQL valid; use created_at if absolutely nothing else
+        return cast(Review.created_at, Date)  # type: ignore
     if len(cols) > 1:
         return cast(func.coalesce(*cols), Date)
-    return cast(base, Date)
+    return cast(cols[0], Date)
 
 
 async def _get_reviews_client(request: Request) -> Optional[Any]:
+    """
+    Returns a preconfigured Outscraper/Reviews client attached to app.state.reviews_client.
+    If not present, returns None (caller decides error handling).
+    """
     app = request.app
     client = getattr(app.state, "reviews_client", None)
-    if client and hasattr(client, "configure"):
-        pass
     return client
+
+
+def _safe_iso(dt: Optional[datetime]) -> str:
+    if not dt:
+        return ""
+    try:
+        return dt.isoformat()
+    except Exception:
+        try:
+            return dt.strftime("%Y-%m-%dT%H:%M:%S")
+        except Exception:
+            return str(dt)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -80,11 +101,16 @@ async def list_reviews(
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
 ):
     """Fetch reviews for a company within a date range, with sorting and limit."""
+    logger.info("GET /api/reviews company_id=%s start=%s end=%s sort=%s limit=%s", company_id, start, end, sort, limit)
+
+    # Validate company existence early
     async with get_session() as session:
         if not await session.get(Company, company_id):
+            logger.warning("GET /api/reviews company_id=%s -> 404 (company not found)", company_id)
             raise HTTPException(status_code=404, detail="Company not found")
 
     s, e = _range_or_default(start, end)
+    logger.debug("GET /api/reviews window resolved start=%s end=%s", s, e)
 
     async with get_session() as session:
         dc = _date_col()
@@ -96,27 +122,31 @@ async def list_reviews(
             "lowest": asc(Review.rating),
         }
 
-        rows = (
-            await session.execute(
-                select(
-                    Review.id,
-                    Review.author_name,
-                    Review.rating,
-                    Review.text,
-                    Review.google_review_time,
-                    Review.profile_photo_url,
-                    Review.sentiment_score,
-                )
-                .where(and_(Review.company_id == company_id, dc >= s, dc <= e))
-                .order_by(order_map.get(sort, desc(dc)))
-                .limit(limit)
+        stmt = (
+            select(
+                Review.id,
+                Review.author_name,
+                Review.rating,
+                Review.text,
+                Review.google_review_time,
+                Review.profile_photo_url,
+                Review.sentiment_score,
             )
-        ).all()
+            .where(and_(Review.company_id == company_id, dc >= s, dc <= e))
+            .order_by(order_map.get(sort, desc(dc)))
+            .limit(limit)
+        )
+
+        rows = (await session.execute(stmt)).all()
 
     feed = []
     for r in rows:
         when = r.google_review_time
-        ts = when.strftime("%Y-%m-%d") if isinstance(when, datetime) else (str(when) if when else "")
+        # Preserve existing string shape (YYYY-MM-DD if date-like, otherwise ISO)
+        if isinstance(when, datetime):
+            ts = when.strftime("%Y-%m-%d")
+        else:
+            ts = str(when) if when is not None else ""
         feed.append(
             {
                 "id": r.id,
@@ -131,7 +161,7 @@ async def list_reviews(
             }
         )
 
-    return {
+    resp = {
         "window": {"start": str(s), "end": str(e)},
         "company_id": company_id,
         "sort": sort,
@@ -139,6 +169,8 @@ async def list_reviews(
         "count": len(feed),
         "feed": feed,
     }
+    logger.info("GET /api/reviews company_id=%s -> %s items", company_id, resp["count"])
+    return resp
 
 
 @router.get("/api/reviews/feed/{company_id}")
@@ -149,6 +181,7 @@ async def legacy_feed(
     end: Optional[str] = None,
 ):
     """Legacy endpoint calling main list_reviews."""
+    logger.info("GET /api/reviews/feed/%s start=%s end=%s", company_id, start, end)
     return await list_reviews(request, company_id=company_id, start=start, end=end)
 
 
@@ -161,22 +194,33 @@ async def ingest_reviews_endpoint(
     max_reviews: Optional[int] = Query(None, ge=1, le=5000),
 ):
     """Fetch and ingest reviews for a single company."""
+    logger.info("POST /api/reviews/ingest/%s start=%s end=%s max_reviews=%s", company_id, start, end, max_reviews)
     client = await _get_reviews_client(request)
     if client is None:
+        logger.error("POST /api/reviews/ingest/%s -> 503 (reviews client not configured)", company_id)
         raise HTTPException(status_code=503, detail="Reviews client not configured")
 
+    # Ensure company exists and load it
     async with get_session() as session:
         company = await session.get(Company, company_id)
         if not company:
+            logger.warning("POST /api/reviews/ingest/%s -> 404 (company not found)", company_id)
             raise HTTPException(status_code=404, detail="Company not found")
 
-    s, e = _range_or_default(start, end)
+    # Determine range:
+    # - If no dates provided -> default window (DEFAULT_DAYS)
+    # - If dates provided -> exact window (inclusive)
+    s, e = _range_or_default(start, end, default_days=15) if not (start or end) else _range_or_default(start, end)
     s_dt = datetime.combine(s, datetime.min.time())
     e_dt = datetime.combine(e, datetime.max.time())
+    logger.debug("POST /api/reviews/ingest/%s window start=%s end=%s", company_id, s_dt, e_dt)
 
-    return await run_batch_review_ingestion(
+    # Delegate to service orchestration (signature preserved)
+    result = await run_batch_review_ingestion(
         client, [company], start=s_dt, end=e_dt, max_reviews=max_reviews
     )
+    logger.info("POST /api/reviews/ingest/%s -> summary=%s", company_id, result)
+    return result
 
 
 @router.get("/api/reviews/competitors/{company_id}")
@@ -188,10 +232,19 @@ async def competitor_analytics(
     names: Optional[str] = None,
 ):
     """Fetch competitor reviews analytics with counts and average ratings."""
+    logger.info(
+        "GET /api/reviews/competitors/%s start=%s end=%s names=%s",
+        company_id,
+        start,
+        end,
+        names,
+    )
     s, e = _range_or_default(start, end)
 
+    # Validate base company
     async with get_session() as session:
         if not await session.get(Company, company_id):
+            logger.warning("GET /api/reviews/competitors/%s -> 404 (company not found)", company_id)
             raise HTTPException(status_code=404, detail="Company not found")
 
         q = select(Company).where(Company.id != company_id)
@@ -209,6 +262,7 @@ async def competitor_analytics(
 
     results = []
 
+    # Aggregate counts and average ratings per competitor
     async with get_session() as session:
         dc = _date_col()
 
@@ -226,16 +280,21 @@ async def competitor_analytics(
                 {
                     "company_id": int(c.id),
                     "name": getattr(c, "name", ""),
-                    "count": int(row.count or 0) if row else 0,
-                    "avg_rating": round(float(row.avg_rating or 0.0), 3)
-                    if row
-                    else 0.0,
+                    "count": int(row.count or 0) if row else 0,  # type: ignore[attr-defined]
+                    "avg_rating": round(float(row.avg_rating or 0.0), 3) if row else 0.0,  # type: ignore[attr-defined]
                 }
             )
 
+    # Sort by count desc, then name
     results.sort(key=lambda x: (-x["count"], x["name"]))
 
-    return {"window": {"start": str(s), "end": str(e)}, "competitors": results}
+    resp = {"window": {"start": str(s), "end": str(e)}, "competitors": results}
+    logger.info(
+        "GET /api/reviews/competitors/%s -> %s competitors",
+        company_id,
+        len(results),
+    )
+    return resp
 
 
 @router.post("/api/reviews/ingest/batch")
@@ -247,34 +306,52 @@ async def batch_ingest_reviews(
     max_reviews: Optional[int] = Query(None, ge=1, le=5000),
 ):
     """Batch ingestion for multiple companies."""
+    logger.info(
+        "POST /api/reviews/ingest/batch company_ids=%s start=%s end=%s max_reviews=%s",
+        company_ids,
+        start,
+        end,
+        max_reviews,
+    )
     client = await _get_reviews_client(request)
     if client is None:
+        logger.error("POST /api/reviews/ingest/batch -> 503 (reviews client not configured)")
         raise HTTPException(status_code=503, detail="Reviews client not configured")
 
-    ids = []
+    # Parse IDs
+    ids: list[int] = []
     for x in company_ids.split(","):
         x = x.strip()
-        if x:
-            try:
-                ids.append(int(x))
-            except Exception:
-                continue
+        if not x:
+            continue
+        try:
+            ids.append(int(x))
+        except Exception:
+            continue
 
     if not ids:
+        logger.warning("POST /api/reviews/ingest/batch -> 400 (no valid company IDs)")
         raise HTTPException(status_code=400, detail="No valid company IDs provided")
 
+    # Load companies
     async with get_session() as session:
-        rows = (
-            await session.execute(select(Company).where(Company.id.in_(ids)))
-        ).scalars().all() or []
+        rows = (await session.execute(select(Company).where(Company.id.in_(ids)))).scalars().all() or []
 
     if not rows:
+        logger.warning("POST /api/reviews/ingest/batch -> 404 (no companies found)")
         raise HTTPException(status_code=404, detail="No companies found")
 
-    s, e = _range_or_default(start, end)
+    # Determine range:
+    # - If no dates provided -> default window (DEFAULT_DAYS) for batch
+    # - If dates provided -> exact window (inclusive)
+    s, e = _range_or_default(start, end, default_days=15) if not (start or end) else _range_or_default(start, end)
     s_dt = datetime.combine(s, datetime.min.time())
     e_dt = datetime.combine(e, datetime.max.time())
+    logger.debug("POST /api/reviews/ingest/batch window start=%s end=%s count=%s", s_dt, e_dt, len(rows))
 
-    return await run_batch_review_ingestion(
+    # Delegate to service orchestration (signature preserved)
+    result = await run_batch_review_ingestion(
         client, rows, start=s_dt, end=e_dt, max_reviews=max_reviews
     )
+    logger.info("POST /api/reviews/ingest/batch -> summary=%s", result)
+    return result
