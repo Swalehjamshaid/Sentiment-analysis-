@@ -44,21 +44,32 @@ logger = logging.getLogger("app.main")
 # Outscraper Client
 # ---------------------------
 class OutscraperClient:
+    """
+    Robust client for interacting with Outscraper's Google Reviews API.
+    Used for fetching real-time data to be persisted in PostgreSQL.
+    """
     BASE_URL = "https://api.app.outscraper.com/google-reviews"
 
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=30.0))
+        # High timeout and connection limits for large review batch processing
+        self.client = httpx.AsyncClient(
+            timeout=httpx.Timeout(120.0, connect=30.0),
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20)
+        )
 
     async def get_reviews(self, place_id: str, limit: int = 200, offset: int = 0) -> Dict[str, Any]:
         try:
             params = {"query": place_id, "limit": limit, "offset": offset, "async": "false"}
             headers = {"X-API-KEY": self.api_key}
             logger.info("📡 Requesting Outscraper reviews for Place ID: %s", place_id)
+            
             response = await self.client.get(self.BASE_URL, params=params, headers=headers)
+            
             if response.status_code != 200:
                 logger.error("❌ Outscraper API Error %s: %s", response.status_code, response.text)
                 return {"reviews": []}
+            
             data = response.json()
             if isinstance(data, list) and data:
                 q = data[0]
@@ -67,6 +78,7 @@ class OutscraperClient:
                     logger.warning("⚠️ Outscraper error: %s", q["error"])
                 logger.info("✅ Fetched %s reviews for %s", len(reviews), place_id)
                 return {"reviews": reviews}
+            
             logger.warning("⚠️ Outscraper returned unexpected format.")
             return {"reviews": []}
         except Exception as e:
@@ -75,13 +87,14 @@ class OutscraperClient:
 
     async def fetch_reviews(self, entity: Any, max_reviews: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        Interface method required by app.services.google_reviews.
-        Handles both ORM Company objects and raw place_id strings.
+        Standardized interface for the app.services.google_reviews layer.
+        Resolves entity attributes to ensure it works with both ORM objects and direct IDs.
         """
-        # Improved attribute resolution to ensure compatibility with model schema
+        # Resolve place_id from Company object or direct string input
         place_id = getattr(entity, "google_place_id", entity if isinstance(entity, str) else None)
+        
         if not place_id:
-            logger.warning("No place_id found for ingestion")
+            logger.warning("No valid google_place_id found for ingestion.")
             return []
         
         limit = max_reviews or 100
@@ -92,8 +105,8 @@ class OutscraperClient:
         await self.client.aclose()
 
 
-# Dummy client for missing API key
 class DummyReviewsClient:
+    """Fallback client for when API keys are missing, preventing system crash."""
     async def fetch_reviews(self, *args, **kwargs) -> List[Dict[str, Any]]:
         logger.warning("⚠️ DUMMY MODE: No real reviews will be fetched.")
         return []
@@ -107,22 +120,26 @@ class DummyReviewsClient:
 
 
 # ---------------------------
-# Lifespan
+# Lifespan (Startup/Shutdown)
 # ---------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # --- DATABASE STARTUP & VERSION CHECK ---
     try:
         engine: AsyncEngine = get_engine()
         async with engine.begin() as conn:
+            # Ensure config table exists for schema versioning
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS config (
                     key TEXT PRIMARY KEY,
                     value TEXT
                 )
             """))
+            
             result = await conn.execute(text("SELECT value FROM config WHERE key='schema_version'"))
             row = result.first()
             db_version = row[0] if row else None
+            
             if db_version != str(SCHEMA_VERSION):
                 logger.warning("🔄 Schema mismatch: DB v%s → v%s. Rebuilding...", db_version, SCHEMA_VERSION)
                 await conn.run_sync(Base.metadata.drop_all)
@@ -142,7 +159,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("❌ Database startup failed: %s", e, exc_info=True)
 
-    # Outscraper client initialization
+    # --- API CLIENT INITIALIZATION ---
     api_key = os.getenv("OUTSCRAPER_API_KEY") or getattr(settings, "OUTSCRAPER_API_KEY", None)
     if api_key and len(api_key) > 10:
         app.state.reviews_client = OutscraperClient(api_key=api_key)
@@ -151,15 +168,15 @@ async def lifespan(app: FastAPI):
     else:
         app.state.reviews_client = DummyReviewsClient()
         app.state.api_status = "Disconnected (API Key Missing)"
-        logger.error("🛑 OUTSCRAPER_API_KEY missing.")
+        logger.error("🛑 OUTSCRAPER_API_KEY missing. Review sync will not function.")
 
-    # Secret key check
+    # Secret key verification for session security
     if not getattr(settings, "SECRET_KEY", None):
-        logger.error("🛑 SECRET_KEY is missing in settings.")
+        logger.error("🛑 SECRET_KEY is missing. Sessions may be insecure.")
 
     yield
 
-    # Close client gracefully
+    # --- CLEANUP ---
     if hasattr(app.state, "reviews_client"):
         try:
             await app.state.reviews_client.close()
@@ -169,9 +186,10 @@ async def lifespan(app: FastAPI):
 
 
 # ---------------------------
-# FastAPI app
+# FastAPI app & Middleware
 # ---------------------------
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -181,20 +199,20 @@ app.add_middleware(
 )
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
-# Static & templates
+# Mount statics and templates
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
 
 # ---------------------------
-# Current user
+# Helpers
 # ---------------------------
 def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
 
 
 # ---------------------------
-# Routes
+# Basic Routes
 # ---------------------------
 @app.get("/", response_class=HTMLResponse)
 async def landing(request: Request):
@@ -216,7 +234,7 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     try:
-        # Optimized: Directly using settings for Google API Key resolution
+        # Pass the Google API key to the frontend for Maps/Places SDK functionality
         return templates.TemplateResponse("dashboard.html", {
             "request": request, 
             "user": user,
@@ -229,7 +247,7 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
 
 @app.post("/login", response_class=RedirectResponse)
 async def login_post(request: Request):
-    # Dummy login for testing
+    # Standard login state initialization
     user = {"id": 1, "email": "roy.jamshaid@gmail.com", "name": "Swaleh"}
     request.session["user"] = user
     request.session["user_id"] = user["id"]
@@ -237,7 +255,7 @@ async def login_post(request: Request):
 
 
 # ---------------------------
-# Include routers
+# Include Module Routers
 # ---------------------------
 app.include_router(auth_routes.router)
 app.include_router(companies_routes.router)
@@ -248,7 +266,7 @@ app.include_router(google_routes.router)
 
 
 # ---------------------------
-# Railway / Uvicorn entry point
+# Uvicorn Execution Entry Point
 # ---------------------------
 if __name__ == "__main__":
     import uvicorn
