@@ -13,7 +13,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core.config import settings
@@ -35,7 +34,6 @@ logger = logging.getLogger("app.main")
 # FIXED: Outscraper Client
 # ---------------------------
 class OutscraperClient:
-    # FIX: Changed endpoint from /google-reviews to /maps/reviews
     BASE_URL = "https://api.app.outscraper.com/maps/reviews"
 
     def __init__(self, api_key: str):
@@ -45,28 +43,27 @@ class OutscraperClient:
     async def get_reviews(self, place_id: str, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
         try:
             params = {
-                "query": place_id, 
-                "limit": limit, 
-                "offset": offset, 
+                "query": place_id,
+                "limit": limit,
+                "offset": offset,
                 "async": "false"
             }
             headers = {"X-API-KEY": self.api_key}
-            
+
             logger.info("📡 Requesting Outscraper reviews for Place ID: %s", place_id)
             response = await self.client.get(self.BASE_URL, params=params, headers=headers)
-            
+
             if response.status_code != 200:
                 logger.error("❌ Outscraper API Error %s: %s", response.status_code, response.text)
                 return {"reviews": []}
-            
+
             data = response.json()
-            # Outscraper returns a list of queries; we need the first result
             if isinstance(data, list) and len(data) > 0:
                 result_block = data[0]
                 reviews = result_block.get("reviews_data", [])
                 logger.info("✅ Successfully parsed %s reviews from Outscraper payload", len(reviews))
                 return {"reviews": reviews}
-                
+
             return {"reviews": []}
         except Exception as e:
             logger.error("🚨 Outscraper Client Failure: %s", e, exc_info=True)
@@ -83,12 +80,12 @@ class OutscraperClient:
     async def close(self):
         await self.client.aclose()
 
+
 # ---------------------------
 # Lifespan & App Setup
 # ---------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Database Initialization
     try:
         engine: AsyncEngine = get_engine()
         async with engine.begin() as conn:
@@ -97,7 +94,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("❌ Database startup failed: %s", e)
 
-    # API Client Setup
     api_key = os.getenv("OUTSCRAPER_API_KEY") or getattr(settings, "OUTSCRAPER_API_KEY", None)
     if api_key and len(api_key) > 10:
         app.state.reviews_client = OutscraperClient(api_key=api_key)
@@ -109,6 +105,7 @@ async def lifespan(app: FastAPI):
     if hasattr(app.state, "reviews_client"):
         await app.state.reviews_client.close()
 
+
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
@@ -116,35 +113,54 @@ app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
+
 # Auth Helper
 def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
 
-# Routes
+
+# ---------------------------
+# Root Route Redirect
+# ---------------------------
+@app.get("/")
+async def root():
+    return RedirectResponse(url="/dashboard")
+
+
+# Health
 @app.get("/health")
 async def health():
     return {"status": "ok", "database": "connected", "schema": SCHEMA_VERSION}
 
+
+# Dashboard
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse("dashboard.html", {
-        "request": request, "user": user, "google_api_key": settings.GOOGLE_API_KEY
+        "request": request,
+        "user": user,
+        "google_api_key": settings.GOOGLE_API_KEY
     })
 
+
+# Login
 @app.post("/login")
 async def login_post(request: Request):
     user = {"id": 1, "email": "roy.jamshaid@gmail.com", "name": "Swaleh"}
     request.session["user"] = user
     return RedirectResponse(url="/dashboard", status_code=303)
 
+
+# Routers
 app.include_router(auth_routes.router)
 app.include_router(companies_routes.router)
 app.include_router(dashboard_routes.router)
 app.include_router(reviews_routes.router)
 app.include_router(exports_routes.router)
 app.include_router(google_routes.router)
+
 
 if __name__ == "__main__":
     import uvicorn
