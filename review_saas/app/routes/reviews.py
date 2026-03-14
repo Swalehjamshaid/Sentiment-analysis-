@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from datetime import date, datetime, timedelta
 from contextlib import asynccontextmanager
 
@@ -26,13 +26,12 @@ GOOGLE_API_KEY = (
     os.getenv("GOOGLE_PLACES_API_KEY")
     or os.getenv("GOOGLE_MAPS_API_KEY")
     or os.getenv("GOOGLE_API_KEY")
-    or "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc"  # Provided SDK Key
+    or "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc"
 )
 
 HTTPX_TIMEOUT = 30.0
 
 def _parse_date(s: Optional[str]) -> Optional[date]:
-    """Parses a date string into a date object using multiple formats."""
     if not s:
         return None
     for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d"):
@@ -46,21 +45,12 @@ def _parse_date(s: Optional[str]) -> Optional[date]:
         return None
 
 def _resolve_range(start: Optional[str], end: Optional[str]):
-    """
-    Implements Business Logic Scenarios:
-    Scenario 1: No dates provided -> Default to last 15 days window.
-    Scenario 2: Specific range provided -> Use that range for filtering.
-    """
     today = date.today()
     e_dt = _parse_date(end) or today
-    if start:
-        s_dt = _parse_date(start) or (e_dt - timedelta(days=14))
-    else:
-        s_dt = e_dt - timedelta(days=14)
+    s_dt = _parse_date(start) or (e_dt - timedelta(days=14))
     return s_dt, e_dt
 
 def _safe_day_str(dt: Optional[datetime]) -> str:
-    """Safely converts a datetime object to an ISO date string."""
     if not dt:
         return ""
     try:
@@ -70,23 +60,18 @@ def _safe_day_str(dt: Optional[datetime]) -> str:
 
 @asynccontextmanager
 async def _httpx_client():
-    """Context manager for the httpx client with standardized timeout."""
     async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
         yield client
 
 # ---------------------------------------------------------
-# GOOGLE PROXY ENDPOINTS (Direct SDK Integration)
+# Google Proxy Endpoints
 # ---------------------------------------------------------
-
 @router.get("/api/google_autocomplete")
 async def google_autocomplete(input: str) -> Dict[str, Any]:
-    """Proxies Google Places Autocomplete requests to the upstream API."""
     if not GOOGLE_API_KEY:
         raise HTTPException(status_code=500, detail="Google API key missing")
-    
     url = "https://maps.googleapis.com/maps/api/place/autocomplete/json"
     params = {"input": input, "key": GOOGLE_API_KEY}
-    
     try:
         async with _httpx_client() as client:
             r = await client.get(url, params=params)
@@ -98,17 +83,10 @@ async def google_autocomplete(input: str) -> Dict[str, Any]:
 
 @router.get("/api/google/place/details")
 async def google_place_details(place_id: str) -> Dict[str, Any]:
-    """Proxies Google Place Details requests to retrieve name, address, and rating."""
     if not GOOGLE_API_KEY:
         raise HTTPException(status_code=500, detail="Google API key missing")
-        
     url = "https://maps.googleapis.com/maps/api/place/details/json"
-    params = {
-        "place_id": place_id, 
-        "fields": "name,formatted_address,rating,place_id", 
-        "key": GOOGLE_API_KEY
-    }
-    
+    params = {"place_id": place_id, "fields": "name,formatted_address,rating,place_id", "key": GOOGLE_API_KEY}
     try:
         async with _httpx_client() as client:
             r = await client.get(url, params=params)
@@ -125,9 +103,8 @@ async def google_place_details(place_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail="Upstream Google API failure")
 
 # ---------------------------------------------------------
-# INGESTION API (Outscraper -> Database Pipeline)
+# Review Ingestion Endpoint
 # ---------------------------------------------------------
-
 @router.post("/api/reviews/ingest/{company_id}")
 async def trigger_ingestion(
     request: Request,
@@ -136,34 +113,23 @@ async def trigger_ingestion(
     end: Optional[str] = Query(None),
     session: AsyncSession = Depends(get_session)
 ):
-    """
-    Triggers the Outscraper synchronization process.
-    Validates company, resolves date range (Scenario 1 or 2), 
-    normalizes external data, and persists to PostgreSQL.
-    """
     company = await session.get(Company, company_id)
     if not company:
         raise HTTPException(status_code=404, detail="Company not found in local records")
-
-    # Access Outscraper client attached to FastAPI app state
     client = getattr(request.app.state, "reviews_client", None)
     if not client:
         raise HTTPException(status_code=503, detail="Outscraper service client not initialized")
-
-    # Resolve date range for Scenario 1 (default) or Scenario 2 (custom)
     s_date, e_date = _resolve_range(start, end)
-    
     logger.info(f"🔄 INGESTION TRIGGERED: {company.name} | Window: {s_date} to {e_date}")
 
     try:
-        # Call service layer to perform external fetch and internal persistence
         summary = await run_batch_review_ingestion(
             client=client,
             entities=[company],
             start=datetime.combine(s_date, datetime.min.time()),
             end=datetime.combine(e_date, datetime.max.time())
         )
-
+        logger.info(f"✅ Ingestion completed: {summary.get('total_saved', 0)} reviews saved")
         return {
             "status": "success",
             "total_added": summary.get("total_saved", 0),
@@ -174,9 +140,8 @@ async def trigger_ingestion(
         raise HTTPException(status_code=500, detail="Review ingestion process failed")
 
 # ---------------------------------------------------------
-# DASHBOARD DATA API (Database -> UI Analytics)
+# Dashboard Fetch Endpoint
 # ---------------------------------------------------------
-
 @router.get("/api/reviews")
 async def get_reviews(
     company_id: int = Query(...),
@@ -185,18 +150,10 @@ async def get_reviews(
     limit: int = Query(50, ge=1, le=2000),
     session: AsyncSession = Depends(get_session),
 ) -> Dict[str, Any]:
-    """
-    Retrieves review data strictly from the local PostgreSQL database.
-    Provides structured JSON for Chart.js analytics and Dashboard tables.
-    """
     company = await session.get(Company, company_id)
     if not company:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
-
-    # Ensure query matches the resolved logical window
     s_date, e_date = _resolve_range(start, end)
-
-    # Build optimized select statement
     stmt = (
         select(Review)
         .where(
@@ -209,12 +166,9 @@ async def get_reviews(
         .order_by(desc(Review.google_review_time))
         .limit(limit)
     )
-
     try:
         result = await session.execute(stmt)
         rows = result.scalars().all()
-
-        # Build clean JSON response payload
         feed = []
         for row in rows:
             feed.append({
@@ -224,10 +178,8 @@ async def get_reviews(
                 "review_time": _safe_day_str(row.google_review_time),
                 "text": str(row.text or ""),
             })
-
         logger.info(f"📊 DASHBOARD FEED: {len(feed)} items loaded for {company.name}")
         return {"feed": feed, "count": len(feed)}
-        
     except Exception as e:
         logger.error(f"Database Query Error: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch dashboard reviews")
