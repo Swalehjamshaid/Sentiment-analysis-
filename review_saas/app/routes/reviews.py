@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy import and_, asc, cast, Date, desc, func, or_, select
@@ -26,11 +26,11 @@ DEFAULT_LIMIT = 200
 MAX_LIMIT = 2000
 DEFAULT_DAYS = 30
 
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 def _parse_date(s: Optional[str]) -> Optional[date]:
-    """Parse string into date object; fallback to None on failure."""
     if not s:
         return None
     try:
@@ -40,7 +40,6 @@ def _parse_date(s: Optional[str]) -> Optional[date]:
 
 
 def _range_or_default(start: Optional[str], end: Optional[str], default_days: int = DEFAULT_DAYS):
-    """Return start and end dates; apply default if missing; ensure start <= end."""
     today = date.today()
     e = _parse_date(end) or today
     s = _parse_date(start) or (e - timedelta(days=default_days - 1))
@@ -50,25 +49,20 @@ def _range_or_default(start: Optional[str], end: Optional[str], default_days: in
 
 
 def _date_col():
-    """Return the Review date column for filtering; coalesce multiple date fields."""
     base = getattr(Review, "google_review_time", None)
     review_date = getattr(Review, "review_date", None)
     created = getattr(Review, "created_at", None)
-    if base is not None and review_date is not None and created is not None:
-        return cast(func.coalesce(Review.google_review_time, Review.review_date, Review.created_at), Date)
-    if base is not None and review_date is not None:
-        return cast(func.coalesce(Review.google_review_time, Review.review_date), Date)
-    if base is not None and created is not None:
-        return cast(func.coalesce(Review.google_review_time, Review.created_at), Date)
-    return cast(Review.google_review_time, Date)
+
+    cols = [c for c in (base, review_date, created) if c is not None]
+    if len(cols) > 1:
+        return cast(func.coalesce(*cols), Date)
+    return cast(base, Date)
 
 
 async def _get_reviews_client(request: Request) -> Optional[Any]:
-    """Fetch a reviews client from app.state; placeholder for API keys/config."""
     app = request.app
     client = getattr(app.state, "reviews_client", None)
     if client and hasattr(client, "configure"):
-        # Example: client.configure(api_key="YOUR_API_KEY_HERE")
         pass
     return client
 
@@ -91,44 +85,51 @@ async def list_reviews(
             raise HTTPException(status_code=404, detail="Company not found")
 
     s, e = _range_or_default(start, end)
+
     async with get_session() as session:
         dc = _date_col()
-        order = desc(dc)
-        if sort == "oldest":
-            order = asc(dc)
-        elif sort == "highest":
-            order = desc(Review.rating)
-        elif sort == "lowest":
-            order = asc(Review.rating)
 
-        rows = (await session.execute(
-            select(
-                Review.id,
-                Review.author_name,
-                Review.rating,
-                Review.text,
-                Review.google_review_time,
-                Review.profile_photo_url,
-                Review.sentiment_score,
+        order_map = {
+            "newest": desc(dc),
+            "oldest": asc(dc),
+            "highest": desc(Review.rating),
+            "lowest": asc(Review.rating),
+        }
+
+        rows = (
+            await session.execute(
+                select(
+                    Review.id,
+                    Review.author_name,
+                    Review.rating,
+                    Review.text,
+                    Review.google_review_time,
+                    Review.profile_photo_url,
+                    Review.sentiment_score,
+                )
+                .where(and_(Review.company_id == company_id, dc >= s, dc <= e))
+                .order_by(order_map.get(sort, desc(dc)))
+                .limit(limit)
             )
-            .where(and_(Review.company_id == company_id, dc >= s, dc <= e))
-            .order_by(order)
-            .limit(limit)
-        )).all()
+        ).all()
 
     feed = []
     for r in rows:
         when = r.google_review_time
-        ts_str = when.strftime("%Y-%m-%d") if isinstance(when, datetime) else (str(when) if when else "")
-        feed.append({
-            "id": r.id,
-            "author_name": r.author_name or "Anonymous",
-            "rating": float(r.rating or 0.0),
-            "text": r.text or "",
-            "review_time": ts_str,
-            "profile_photo_url": r.profile_photo_url or "",
-            "sentiment_score": float(r.sentiment_score or 0.0) if r.sentiment_score is not None else None,
-        })
+        ts = when.strftime("%Y-%m-%d") if isinstance(when, datetime) else (str(when) if when else "")
+        feed.append(
+            {
+                "id": r.id,
+                "author_name": r.author_name or "Anonymous",
+                "rating": float(r.rating or 0.0),
+                "text": r.text or "",
+                "review_time": ts,
+                "profile_photo_url": r.profile_photo_url or "",
+                "sentiment_score": float(r.sentiment_score or 0.0)
+                if r.sentiment_score is not None
+                else None,
+            }
+        )
 
     return {
         "window": {"start": str(s), "end": str(e)},
@@ -141,8 +142,13 @@ async def list_reviews(
 
 
 @router.get("/api/reviews/feed/{company_id}")
-async def legacy_feed(request: Request, company_id: int, start: Optional[str] = None, end: Optional[str] = None):
-    """Legacy endpoint that calls the main list_reviews function."""
+async def legacy_feed(
+    request: Request,
+    company_id: int,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+):
+    """Legacy endpoint calling main list_reviews."""
     return await list_reviews(request, company_id=company_id, start=start, end=end)
 
 
@@ -154,7 +160,7 @@ async def ingest_reviews_endpoint(
     end: Optional[str] = None,
     max_reviews: Optional[int] = Query(None, ge=1, le=5000),
 ):
-    """Fetch and ingest reviews for a single company; avoids duplicate ingestion."""
+    """Fetch and ingest reviews for a single company."""
     client = await _get_reviews_client(request)
     if client is None:
         raise HTTPException(status_code=503, detail="Reviews client not configured")
@@ -168,8 +174,9 @@ async def ingest_reviews_endpoint(
     s_dt = datetime.combine(s, datetime.min.time())
     e_dt = datetime.combine(e, datetime.max.time())
 
-    summary = await run_batch_review_ingestion(client, [company], start=s_dt, end=e_dt, max_reviews=max_reviews)
-    return summary
+    return await run_batch_review_ingestion(
+        client, [company], start=s_dt, end=e_dt, max_reviews=max_reviews
+    )
 
 
 @router.get("/api/reviews/competitors/{company_id}")
@@ -186,34 +193,48 @@ async def competitor_analytics(
     async with get_session() as session:
         if not await session.get(Company, company_id):
             raise HTTPException(status_code=404, detail="Company not found")
+
         q = select(Company).where(Company.id != company_id)
-        filters = []
+
         if names:
-            for n in [x.strip() for x in names.split(',') if x.strip()]:
-                try:
-                    filters.append(Company.name.ilike(f"%{n}%"))
-                except Exception:
-                    filters.append(Company.name.like(f"%{n}%"))
-        if filters:
-            q = q.where(or_(*filters))
+            filters = [
+                Company.name.ilike(f"%{n.strip()}%")
+                for n in names.split(",")
+                if n.strip()
+            ]
+            if filters:
+                q = q.where(or_(*filters))
+
         companies = (await session.execute(q)).scalars().all() or []
 
     results = []
+
     async with get_session() as session:
         dc = _date_col()
+
         for c in companies:
-            row = (await session.execute(
-                select(func.count(Review.id).label("count"), func.avg(Review.rating).label("avg_rating"))
-                .where(and_(Review.company_id == c.id, dc >= s, dc <= e))
-            )).first()
-            results.append({
-                "company_id": int(c.id),
-                "name": getattr(c, "name", ""),
-                "count": int(row.count or 0) if row else 0,
-                "avg_rating": round(float(row.avg_rating or 0.0), 3) if row else 0.0,
-            })
+            row = (
+                await session.execute(
+                    select(
+                        func.count(Review.id).label("count"),
+                        func.avg(Review.rating).label("avg_rating"),
+                    ).where(and_(Review.company_id == c.id, dc >= s, dc <= e))
+                )
+            ).first()
+
+            results.append(
+                {
+                    "company_id": int(c.id),
+                    "name": getattr(c, "name", ""),
+                    "count": int(row.count or 0) if row else 0,
+                    "avg_rating": round(float(row.avg_rating or 0.0), 3)
+                    if row
+                    else 0.0,
+                }
+            )
 
     results.sort(key=lambda x: (-x["count"], x["name"]))
+
     return {"window": {"start": str(s), "end": str(e)}, "competitors": results}
 
 
@@ -225,24 +246,28 @@ async def batch_ingest_reviews(
     end: Optional[str] = None,
     max_reviews: Optional[int] = Query(None, ge=1, le=5000),
 ):
-    """Batch ingestion for multiple companies; duplicates handled internally."""
+    """Batch ingestion for multiple companies."""
     client = await _get_reviews_client(request)
     if client is None:
         raise HTTPException(status_code=503, detail="Reviews client not configured")
 
     ids = []
-    for x in company_ids.split(','):
+    for x in company_ids.split(","):
         x = x.strip()
         if x:
             try:
                 ids.append(int(x))
             except Exception:
                 continue
+
     if not ids:
         raise HTTPException(status_code=400, detail="No valid company IDs provided")
 
     async with get_session() as session:
-        rows = (await session.execute(select(Company).where(Company.id.in_(ids)))).scalars().all() or []
+        rows = (
+            await session.execute(select(Company).where(Company.id.in_(ids)))
+        ).scalars().all() or []
+
     if not rows:
         raise HTTPException(status_code=404, detail="No companies found")
 
@@ -250,5 +275,6 @@ async def batch_ingest_reviews(
     s_dt = datetime.combine(s, datetime.min.time())
     e_dt = datetime.combine(e, datetime.max.time())
 
-    summary = await run_batch_review_ingestion(client, rows, start=s_dt, end=e_dt, max_reviews=max_reviews)
-    return summary
+    return await run_batch_review_ingestion(
+        client, rows, start=s_dt, end=e_dt, max_reviews=max_reviews
+    )
