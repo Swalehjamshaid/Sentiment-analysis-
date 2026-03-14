@@ -98,7 +98,7 @@ def _sentiment_from_rating(r: Optional[float]) -> float:
         return 0.0
     try:
         r = max(1.0, min(5.0, float(r)))
-        return (r - 3.0) / 2.0
+        return round((r - 3.0) / 2.0, 2)
     except Exception:
         return 0.0
 
@@ -223,44 +223,12 @@ async def run_batch_review_ingestion(client: Any, entities: Iterable[Any], start
                         google_review_id=google_review_id,
                         review_url=None,
                         author_name=rd.author_name,
-                        author_id=None,
-                        author_url=None,
                         profile_photo_url=rd.profile_photo_url or None,
-                        author_profile_photo=None,
-                        author_reviews_count=None,
-                        author_level=None,
-                        author_location=None,
-                        author_contributions=None,
                         rating=int(round(float(rd.rating))) if rd.rating is not None else None,
                         text=rd.text,
-                        review_language=None,
                         google_review_time=rd.review_time,
-                        competitor_name=None,
                         source_platform=rd.source_platform,
-                        owner_answer=None,
-                        owner_answer_timestamp=None,
-                        review_reply_text=None,
-                        review_photos=None,
-                        review_videos=None,
-                        review_likes=0,
-                        is_local_guide=False,
-                        sentiment_label=None,
                         sentiment_score=rd.sentiment_score if rd.sentiment_score is not None else _sentiment_from_rating(rd.rating),
-                        keywords=None,
-                        topic_tags=None,
-                        spam_score=None,
-                        is_complaint=False,
-                        is_praise=False,
-                        aspect_rooms=None,
-                        aspect_staff=None,
-                        aspect_location=None,
-                        aspect_value=None,
-                        aspect_cleanliness=None,
-                        aspect_food=None,
-                        aspect_service=None,
-                        aspect_amenities=None,
-                        aspect_price=None,
-                        aspect_atmosphere=None,
                     )
                 )
                 new_count += 1
