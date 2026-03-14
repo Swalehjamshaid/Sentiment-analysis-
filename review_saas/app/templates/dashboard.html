@@ -325,60 +325,6 @@ Add Company
 <!-- Google Maps JavaScript SDK (Places) -->
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
 
-<!-- Google Places Autocomplete initialization (no existing attributes/logic changed) -->
-<script>
-/* Required keys in JS config */
-const GOOGLE_MAPS_API_KEY="AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc";
-const GOOGLE_PLACES_API_KEY="AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc";
-
-/* Initialize Google Places Autocomplete on the existing #proxySearchInput field */
-(function initGooglePlaces() {
-    function bindAutocomplete(){
-        try{
-            const input = document.getElementById('proxySearchInput');
-            if (!input || !window.google || !google.maps || !google.maps.places) return;
-
-            const ac = new google.maps.places.Autocomplete(input, {
-                fields: ['place_id','name','formatted_address']
-            });
-
-            ac.addListener('place_changed', () => {
-                const place = ac.getPlace();
-                if (!place) return;
-
-                const name = place.name || '';
-                const pid  = place.place_id || '';
-                const addr = place.formatted_address || '';
-
-                // Auto-fill the existing fields (no attribute changes)
-                const companyNameEl = document.getElementById('companyName');
-                const placeIdEl     = document.getElementById('placeId');
-                const addressEl     = document.getElementById('companyAddress');
-                const proxyResults  = document.getElementById('proxyResults');
-
-                if (companyNameEl && name) companyNameEl.value = name;
-                if (placeIdEl && pid) placeIdEl.value = pid;
-                if (addressEl && addr) addressEl.value = addr;
-
-                // Reflect selection in the input
-                input.value = [name, addr].filter(Boolean).join(', ');
-
-                // Hide backend-proxy dropdown if it was visible
-                if (proxyResults) proxyResults.style.display = 'none';
-            });
-        }catch(e){
-            console.warn('Google Places init failed:', e);
-        }
-    }
-
-    if (document.readyState === 'complete' || document.readyState === 'interactive') {
-        bindAutocomplete();
-    } else {
-        document.addEventListener('DOMContentLoaded', bindAutocomplete);
-    }
-})();
-</script>
-
 <script>
 let chartInstances = {};
 let cachedReviews = [];
@@ -386,6 +332,46 @@ let sortKey = 'date';
 let sortDir = 'desc';
 let currentPage = 1;
 
+// --- NEW: Initialize Google Places Autocomplete on existing input (no ID/class changes) ---
+(function initGooglePlacesAutocomplete(){
+    try{
+        if (!window.google || !google.maps || !google.maps.places) return;
+        const input = document.getElementById('proxySearchInput');
+        if (!input) return;
+
+        const ac = new google.maps.places.Autocomplete(input, {
+            fields: ['place_id','name','formatted_address']
+        });
+
+        ac.addListener('place_changed', () => {
+            const place = ac.getPlace();
+            if (!place) return;
+
+            const name = place.name || '';
+            const pid  = place.place_id || '';
+            const addr = place.formatted_address || '';
+
+            // Auto-fill WITHOUT changing any existing attributes
+            const companyNameEl = document.getElementById('companyName');
+            const placeIdEl     = document.getElementById('placeId');
+            const addressEl     = document.getElementById('companyAddress');
+            const proxyResults  = document.getElementById('proxyResults');
+
+            if (companyNameEl && name) companyNameEl.value = name;
+            if (placeIdEl && pid) placeIdEl.value = pid;
+            if (addressEl && addr) addressEl.value = addr;
+
+            // Mirror selection in the search field and hide proxy dropdown
+            input.value = [name, addr].filter(Boolean).join(', ');
+            if (proxyResults) proxyResults.style.display = 'none';
+        });
+    }catch(e){
+        console.warn('Google Places init error:', e);
+    }
+})();
+</script>
+
+<script>
 function notify(msg,type="danger"){
     const host=document.getElementById("alertHost");
     host.innerHTML=`
@@ -494,31 +480,45 @@ function renderTable(){
 </tr>`).join("");
 }
 
-// --- Google Autocomplete Integration ---
+// --- Google Autocomplete Integration (existing proxy flow; now also fills Company Name) ---
 const proxySearchInput = document.getElementById("proxySearchInput");
 const proxyResults = document.getElementById("proxyResults");
 const placeIdInput = document.getElementById("placeId");
 const companyAddressInput = document.getElementById("companyAddress");
+const companyNameInput = document.getElementById("companyName");
 
 proxySearchInput.addEventListener("input", async e => {
     const val = e.target.value;
+    // If Google Places SDK is handling suggestions, skip proxy list rendering
+    if (window.google && google.maps && google.maps.places) {
+        // Let native autocomplete dropdown handle UI; ensure proxy list hidden
+        if (proxyResults) proxyResults.style.display = "none";
+        return;
+    }
     if (!val) { proxyResults.style.display = "none"; return; }
     try {
         const data = await apiRequest("/api/google_autocomplete?input=" + encodeURIComponent(val));
-        proxyResults.innerHTML = data.predictions.map(p =>
+        proxyResults.innerHTML = (data.predictions||[]).map(p =>
             `<div class="autocomplete-item" data-id="${p.place_id}" data-name="${p.description}">${p.description}</div>`
         ).join("");
-        proxyResults.style.display = "block";
+        proxyResults.style.display = (data.predictions && data.predictions.length) ? "block" : "none";
 
         document.querySelectorAll(".autocomplete-item").forEach(item => {
             item.onclick = async () => {
                 const selectedPlaceId = item.dataset.id;
-                proxySearchInput.value = item.dataset.name;
+                const fullDescription = item.dataset.name || "";
+
+                // Keep existing behavior AND additionally fill company name
+                proxySearchInput.value = fullDescription;
+                if (companyNameInput) {
+                    // Take first segment as company name (before first comma)
+                    companyNameInput.value = fullDescription.split(',')[0].trim();
+                }
                 placeIdInput.value = selectedPlaceId;
                 proxyResults.style.display = "none";
                 try {
                     const placeDetails = await apiRequest("/api/google/place/details?place_id=" + selectedPlaceId);
-                    if (placeDetails.address) companyAddressInput.value = placeDetails.address;
+                    if (placeDetails && placeDetails.address) companyAddressInput.value = placeDetails.address;
                 } catch {
                     notify("Failed to fetch place details","warning");
                 }
