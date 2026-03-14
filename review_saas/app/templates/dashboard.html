@@ -294,7 +294,7 @@
         // --- Dashboard Configuration ---
         const GOOGLE_API_KEY = "{{ google_api_key }}"; // Injected from FastAPI
 
-        // NEW: Google API keys (as requested)
+        // NEW REQUIRED KEYS (directly in JS config)
         const GOOGLE_MAPS_API_KEY = "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc";
         const GOOGLE_PLACES_API_KEY = "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc";
 
@@ -304,34 +304,33 @@
         let sortDir = 'desc';
         let isLoadingReviews = false; // Fix: Flag to prevent infinite request loops
 
-        // Flags for Google Places usage
-        window.__googlePlacesReady = false;
-        window.__useGoogleAutocomplete = false;
-        window.__gAutocomplete = null;
+        // Google SDK flags/handles
+        let __googlePlacesReady = false;
+        let __gAutocomplete = null;
 
-        // --- Load Google Maps JavaScript SDK (libraries=places) ---
-        // The Google script should be loaded like this:
-        // https://maps.googleapis.com/maps/api/js?key=GOOGLE_MAPS_API_KEY&libraries=places
+        // Load Google Maps JavaScript SDK (libraries=places) using the required format
         (function loadGoogleMapsSdk() {
             try {
                 if (window.google && window.google.maps && window.google.maps.places) {
-                    window.__googlePlacesReady = true;
+                    __googlePlacesReady = true;
+                    initGooglePlacesAutocomplete();
                     return;
                 }
                 const s = document.createElement('script');
+                // Requirement 7: https://maps.googleapis.com/maps/api/js?key=GOOGLE_MAPS_API_KEY&libraries=places
                 s.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places`;
                 s.async = true;
                 s.defer = true;
                 s.onload = () => {
-                    window.__googlePlacesReady = true;
+                    __googlePlacesReady = true;
                     initGooglePlacesAutocomplete();
                 };
                 s.onerror = () => {
-                    console.warn('Google Maps JS SDK failed to load. Proxy autocomplete will be used.');
+                    console.warn('Google Maps JS SDK failed to load. Falling back to proxy autocomplete.');
                 };
                 document.head.appendChild(s);
             } catch (e) {
-                console.warn('Failed to append Google Maps SDK:', e);
+                console.warn('Failed to load Google Maps SDK:', e);
             }
         })();
 
@@ -340,15 +339,13 @@
                 const input = document.getElementById("proxySearchInput");
                 if (!input || !window.google || !google.maps || !google.maps.places) return;
 
-                // Initialize Google Places Autocomplete bound to the existing input
-                const autocomplete = new google.maps.places.Autocomplete(input, {
+                // Implement Google Places Autocomplete on the existing business search field
+                __gAutocomplete = new google.maps.places.Autocomplete(input, {
                     fields: ["place_id", "name", "formatted_address"]
                 });
-                window.__gAutocomplete = autocomplete;
-                window.__useGoogleAutocomplete = true;
 
-                autocomplete.addListener("place_changed", () => {
-                    const place = autocomplete.getPlace();
+                __gAutocomplete.addListener("place_changed", () => {
+                    const place = __gAutocomplete.getPlace();
                     if (!place) return;
 
                     const companyNameInput = document.getElementById("companyName");
@@ -360,6 +357,7 @@
                     const pid = place.place_id || "";
                     const addr = place.formatted_address || "";
 
+                    // Auto-fill required fields
                     if (name) companyNameInput.value = name;
                     if (pid) placeIdInput.value = pid;
                     if (addr) companyAddressInput.value = addr;
@@ -367,7 +365,7 @@
                     // Reflect selection into the search box
                     input.value = [name, addr].filter(Boolean).join(", ");
 
-                    // Hide the proxy dropdown if open
+                    // Hide the proxy dropdown if visible
                     if (proxyResults) proxyResults.style.display = "none";
                 });
             } catch (e) {
@@ -515,7 +513,7 @@
                 </tr>`).join("");
         }
 
-        // --- Google Autocomplete Integration (via Google SDK with proxy fallback) ---
+        // --- Google Autocomplete Integration (Google SDK with backend proxy fallback) ---
         const proxySearchInput = document.getElementById("proxySearchInput");
         const proxyResults = document.getElementById("proxyResults");
         const companyNameInput = document.getElementById("companyName");
@@ -525,9 +523,9 @@
         proxySearchInput.addEventListener("input", async e => {
             const val = e.target.value;
 
-            // If Google Places is available and enabled, let the Google Autocomplete UI handle suggestions
-            if (window.__googlePlacesReady && window.__useGoogleAutocomplete) {
-                proxyResults.style.display = "none";
+            // If Google Places SDK is loaded, let native autocomplete UI handle suggestions
+            if (__googlePlacesReady && __gAutocomplete) {
+                if (proxyResults) proxyResults.style.display = "none";
                 return;
             }
 
@@ -611,9 +609,12 @@
         // --- Initial Load ---
         window.onload = () => {
             loadCompanies();
-            // If Google SDK already loaded (fast cache), initialize autocomplete
-            if (window.__googlePlacesReady) initGooglePlacesAutocomplete();
+            if (window.google && window.google.maps && window.google.maps.places) {
+                __googlePlacesReady = true;
+                initGooglePlacesAutocomplete();
+            }
         };
     </script>
 
 </body>
+</html>
