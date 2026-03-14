@@ -10,35 +10,57 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
 <style>
-:root { --transition-speed:.3s }
+:root{--transition-speed:.3s;}
 
 body{
 padding:24px;
-transition:background-color var(--transition-speed),color var(--transition-speed)
+transition:background-color var(--transition-speed),color var(--transition-speed);
 }
 
-[data-theme="dark"]{background:#121212;color:#e6e6e6}
-[data-theme="dark"] .card{background:#1f1f1f;color:#e6e6e6;border-color:#333}
-[data-theme="dark"] .table{color:#e6e6e6}
+[data-theme="dark"]{
+background:#121212;
+color:#e6e6e6;
+}
 
-.kpi-card{min-height:120px;border:none;transition:transform .2s}
-.kpi-card:hover{transform:translateY(-5px)}
+[data-theme="dark"] .card{
+background:#1f1f1f;
+color:#e6e6e6;
+border-color:#333;
+}
+
+[data-theme="dark"] .table{
+color:#e6e6e6;
+}
+
+.kpi-card{
+min-height:120px;
+border:none;
+transition:transform .2s;
+}
+
+.kpi-card:hover{
+transform:translateY(-5px);
+}
 
 .sent-pos{color:#198754;font-weight:600}
 .sent-neu{color:#6c757d;font-weight:600}
 .sent-neg{color:#dc3545;font-weight:600}
 
 #loadingSpinner{display:none}
+
 .cursor-pointer{cursor:pointer}
 
 .alert-placeholder{
 min-height:0;
 position:sticky;
 top:10px;
-z-index:1050
+z-index:1050;
 }
 
-.chart-wrapper{min-height:280px;position:relative}
+.chart-wrapper{
+min-height:280px;
+position:relative;
+}
 
 .autocomplete-dropdown{
 position:absolute;
@@ -49,17 +71,19 @@ border:1px solid #ddd;
 max-height:200px;
 overflow-y:auto;
 display:none;
-box-shadow:0 4px 12px rgba(0,0,0,.15)
+box-shadow:0 4px 12px rgba(0,0,0,.15);
 }
 
 .autocomplete-item{
 padding:10px;
 cursor:pointer;
 border-bottom:1px solid #eee;
-color:#333
+color:#333;
 }
 
-.autocomplete-item:hover{background:#f8f9fa}
+.autocomplete-item:hover{
+background:#f8f9fa;
+}
 </style>
 </head>
 
@@ -74,6 +98,7 @@ Review SaaS Dashboard
 </span>
 
 <div class="d-flex gap-2">
+
 <button id="toggleTheme" class="btn btn-light btn-sm">
 <i class="bi bi-moon-stars"></i>
 Theme
@@ -84,10 +109,11 @@ Theme
 <form action="/logout" method="post">
 <button class="btn btn-danger btn-sm">Logout</button>
 </form>
-</div>
 
 </div>
+</div>
 </nav>
+
 
 <div class="container-fluid">
 
@@ -145,6 +171,7 @@ Add Company
 
 </div>
 
+
 <div class="row g-3 mb-4">
 
 <div class="col-md-2 col-6">
@@ -194,6 +221,7 @@ Add Company
 
 </div>
 
+
 <div class="row g-4">
 
 <div class="col-lg-6">
@@ -225,54 +253,99 @@ Add Company
 
 </div>
 
-<div class="card mt-4 mb-5 shadow-sm">
 
+<div class="card mt-4 mb-5 shadow-sm">
 <div class="card-body">
 
 <h5 class="fw-bold">Recent Reviews</h5>
 
 <div class="table-responsive">
-
 <table class="table table-hover table-striped table-bordered align-middle">
 
 <thead class="table-light">
-
 <tr>
 <th>Author</th>
-<th class="cursor-pointer">Rating</th>
+<th class="cursor-pointer" data-sort="rating">Rating</th>
 <th>Sentiment</th>
-<th class="cursor-pointer">Date</th>
+<th class="cursor-pointer" data-sort="date">Date</th>
 <th>Review</th>
 </tr>
-
 </thead>
 
 <tbody id="reviewsTable">
-
 <tr>
-<td colspan="5" class="text-center text-muted">
-No data loaded.
-</td>
+<td colspan="5" class="text-center text-muted">No data loaded.</td>
 </tr>
-
 </tbody>
 
 </table>
+</div>
 
+</div>
 </div>
 
 </div>
 
+
+<!-- ADD COMPANY MODAL -->
+
+<div class="modal fade" id="addCompanyModal">
+<div class="modal-dialog modal-lg">
+
+<form id="addCompanyForm" class="modal-content">
+
+<div class="modal-header bg-success text-white">
+<h5 class="modal-title">Register New Business</h5>
+<button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+</div>
+
+<div class="modal-body">
+
+<div class="mb-3 position-relative">
+<label class="form-label">Smart Search (Google Powered)</label>
+<input id="proxySearchInput" class="form-control" placeholder="Type business name">
+<div id="proxyResults" class="autocomplete-dropdown"></div>
+</div>
+
+<div class="row g-3">
+
+<div class="col-12">
+<label class="form-label">Company Name</label>
+<input id="companyName" class="form-control" required>
+</div>
+
+<div class="col-md-6">
+<label class="form-label">Google Place ID</label>
+<input id="placeId" class="form-control" required readonly>
+</div>
+
+<div class="col-md-6">
+<label class="form-label">Address</label>
+<input id="companyAddress" class="form-control">
 </div>
 
 </div>
+</div>
+
+<div class="modal-footer">
+<button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+<button class="btn btn-success" type="submit">Add Business</button>
+</div>
+
+</form>
+</div>
+</div>
+
+
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
 
-let cachedReviews=[]
+const GOOGLE_API_KEY="{{ google_api_key }}";
+
 let chartInstances={}
+let cachedReviews=[]
 let isLoadingReviews=false
 
 function notify(msg,type="danger"){
@@ -281,14 +354,16 @@ host.innerHTML=`<div class="alert alert-${type} alert-dismissible fade show">${m
 }
 
 async function apiRequest(url,options={}){
-
+try{
 const res=await fetch(url,{...options,credentials:"include"})
-
-if(!res.ok)throw new Error(res.status)
-
-return res.json()
-
+if(!res.ok) throw new Error(res.status)
+return await res.json()
+}catch(e){
+notify("API request failed: "+e.message)
+throw e
 }
+}
+
 
 async function loadCompanies(){
 
@@ -300,55 +375,35 @@ const sel=document.getElementById("companySelect")
 
 sel.innerHTML=data.map(c=>`<option value="${c.id}">${c.name}</option>`).join("")
 
-if(data.length>0)loadReviews()
+if(data.length>0) loadReviews()
 
 }catch{
-
 notify("Failed to load companies")
-
 }
 
 }
 
-async function ingestReviews(companyId,start,end){
 
-const params=new URLSearchParams()
-
-if(start)params.append("start",start)
-if(end)params.append("end",end)
-
-await fetch(`/api/reviews/ingest/${companyId}?${params}`,{
-method:"POST",
-credentials:"include"
-})
-
-}
 
 async function loadReviews(){
 
-if(isLoadingReviews)return
+if(isLoadingReviews) return
 
 const companyId=document.getElementById("companySelect").value
-
-if(!companyId)return
+if(!companyId) return
 
 isLoadingReviews=true
 
 document.getElementById("loadingSpinner").style.display="inline-block"
 
-try{
-
-const start=document.getElementById("startDate").value
-const end=document.getElementById("endDate").value
-
-await ingestReviews(companyId,start,end)
-
 const params=new URLSearchParams({
 company_id:companyId,
-start:start,
-end:end,
+start:document.getElementById("startDate").value,
+end:document.getElementById("endDate").value,
 limit:document.getElementById("limitSelect").value
 })
+
+try{
 
 const res=await apiRequest("/api/reviews?"+params)
 
@@ -356,17 +411,20 @@ cachedReviews=res.feed||[]
 
 updateDashboardUI()
 
-}catch(e){
-
+}catch{
 notify("Review load failed")
-
 }
+finally{
 
 document.getElementById("loadingSpinner").style.display="none"
 
 isLoadingReviews=false
 
 }
+
+}
+
+
 
 function updateDashboardUI(){
 
@@ -389,6 +447,7 @@ renderTable()
 
 }
 
+
 function renderCharts(){
 
 Object.values(chartInstances).forEach(c=>c.destroy())
@@ -398,7 +457,7 @@ const dist=[1,2,3,4,5].map(x=>cachedReviews.filter(r=>Math.round(r.rating)==x).l
 
 chartInstances.dist=new Chart(document.getElementById("chartDistribution"),{
 type:"bar",
-data:{labels:["1★","2★","3★","4★","5★"],datasets:[{data:dist}]},
+data:{labels:["1★","2★","3★","4★","5★"],datasets:[{label:'Reviews',data:dist,backgroundColor:'#0d6efd'}]},
 options:{responsive:true,maintainAspectRatio:false}
 })
 
@@ -406,7 +465,7 @@ const dates=[...new Set(cachedReviews.map(r=>r.review_time))].sort()
 
 chartInstances.trend=new Chart(document.getElementById("chartTrend"),{
 type:"line",
-data:{labels:dates,datasets:[{data:dates.map(d=>cachedReviews.filter(r=>r.review_time==d).length)}]},
+data:{labels:dates,datasets:[{label:'Review Count',data:dates.map(d=>cachedReviews.filter(r=>r.review_time==d).length),borderColor:'#0dcaf0',tension:.1}]},
 options:{responsive:true,maintainAspectRatio:false}
 })
 
@@ -418,25 +477,25 @@ cachedReviews.filter(r=>r.sentiment_score<0).length
 
 chartInstances.sent=new Chart(document.getElementById("chartSentiment"),{
 type:"doughnut",
-data:{labels:["Positive","Neutral","Negative"],datasets:[{data:sent}]},
+data:{labels:["Positive","Neutral","Negative"],datasets:[{data:sent,backgroundColor:['#198754','#6c757d','#dc3545']}]},
 options:{responsive:true,maintainAspectRatio:false}
 })
 
 }
 
+
 function renderTable(){
 
-const table=document.getElementById("reviewsTable")
+const reviewsTable=document.getElementById("reviewsTable")
 
 if(cachedReviews.length===0){
 
-table.innerHTML='<tr><td colspan="5" class="text-center text-muted">No data found.</td></tr>'
+reviewsTable.innerHTML='<tr><td colspan="5" class="text-center text-muted">No data found for selected filters.</td></tr>'
 
 return
-
 }
 
-table.innerHTML=cachedReviews.map(r=>`
+reviewsTable.innerHTML=cachedReviews.map(r=>`
 <tr>
 <td>${r.author_name}</td>
 <td>${r.rating} ★</td>
@@ -445,19 +504,66 @@ ${r.sentiment_score>0?"Positive":r.sentiment_score<0?"Negative":"Neutral"}
 </td>
 <td>${r.review_time}</td>
 <td class="small">${r.text||""}</td>
-</tr>`).join("")
+</tr>
+`).join("")
 
 }
+
+
 
 document.getElementById("loadBtn").onclick=loadReviews
 document.getElementById("companySelect").onchange=loadReviews
 
+
 document.getElementById("toggleTheme").onclick=()=>{
+
 const theme=document.documentElement.getAttribute("data-theme")
+
 const next=theme==="light"?"dark":"light"
+
 document.documentElement.setAttribute("data-theme",next)
+
 localStorage.setItem("theme",next)
+
 }
+
+
+
+document.getElementById("addCompanyForm").onsubmit=async e=>{
+
+e.preventDefault()
+
+const payload={
+name:document.getElementById("companyName").value,
+place_id:document.getElementById("placeId").value,
+address:document.getElementById("companyAddress").value
+}
+
+try{
+
+await apiRequest("/api/companies",{
+method:"POST",
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify(payload)
+})
+
+notify("Company added successfully","success")
+
+loadCompanies()
+
+const modal=bootstrap.Modal.getInstance(document.getElementById('addCompanyModal'))
+
+modal.hide()
+
+e.target.reset()
+
+}catch{
+notify("Failed adding company")
+}
+
+}
+
+
 
 window.onload=loadCompanies
 
