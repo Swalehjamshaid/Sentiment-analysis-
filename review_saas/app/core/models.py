@@ -1,6 +1,8 @@
 # filename: app/core/models.py
 from __future__ import annotations
 from datetime import datetime
+from typing import List, Optional, Dict, Any
+
 from sqlalchemy import (
     Column,
     Integer,
@@ -17,17 +19,20 @@ from sqlalchemy.orm import declarative_base, relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
 
 # ---------------------------------------------------
-# Base
+# Base Configuration
 # ---------------------------------------------------
 Base = declarative_base()
 
-# SCHEMA VERSION (updated for new tables)
+# SCHEMA VERSION (Crucial for app/main.py lifecycle checks)
 SCHEMA_VERSION = "15.0.5-new-tables-added"
 
 # ---------------------------------------------------
-# Users
+# Users Table
 # ---------------------------------------------------
 class User(Base):
+    """
+    Represents the system users/administrators.
+    """
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -37,7 +42,7 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    profile_pic: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    profile_pic: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     role: Mapped[str] = mapped_column(String(50), default="editor")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -45,58 +50,61 @@ class User(Base):
     companies = relationship("Company", back_populates="owner")
 
 # ---------------------------------------------------
-# Companies
+# Companies Table
 # ---------------------------------------------------
 class Company(Base):
+    """
+    Represents business locations being tracked for reviews and competition.
+    """
     __tablename__ = "companies"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    owner_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    owner_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
 
     # Basic info
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    address: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    address: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
 
     # Google Identifiers
-    google_place_id: Mapped[str | None] = mapped_column(String(512), unique=True, index=True)
-    internal_place_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    google_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    google_place_id: Mapped[Optional[str]] = mapped_column(String(512), unique=True, index=True)
+    internal_place_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    google_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Location Details
-    full_address: Mapped[str | None] = mapped_column(String(1000))
-    city: Mapped[str | None] = mapped_column(String(255))
-    state: Mapped[str | None] = mapped_column(String(255))
-    postal_code: Mapped[str | None] = mapped_column(String(50))
-    country: Mapped[str | None] = mapped_column(String(100))
-    lat: Mapped[float | None] = mapped_column(Float)
-    lng: Mapped[float | None] = mapped_column(Float)
+    full_address: Mapped[Optional[str]] = mapped_column(String(1000))
+    city: Mapped[Optional[str]] = mapped_column(String(255))
+    state: Mapped[Optional[str]] = mapped_column(String(255))
+    postal_code: Mapped[Optional[str]] = mapped_column(String(50))
+    country: Mapped[Optional[str]] = mapped_column(String(100))
+    lat: Mapped[Optional[float]] = mapped_column(Float)
+    lng: Mapped[Optional[float]] = mapped_column(Float)
 
     # Contact
-    phone: Mapped[str | None] = mapped_column(String(255))
-    website: Mapped[str | None] = mapped_column(String(512))
-    email: Mapped[str | None] = mapped_column(String(255))
+    phone: Mapped[Optional[str]] = mapped_column(String(255))
+    website: Mapped[Optional[str]] = mapped_column(String(512))
+    email: Mapped[Optional[str]] = mapped_column(String(255))
 
     # Categories & Stats
-    category: Mapped[str | None] = mapped_column(String(255))
-    sub_categories: Mapped[list | None] = mapped_column(JSON)
-    type: Mapped[list | None] = mapped_column(JSON)
-    business_status: Mapped[str | None] = mapped_column(String(50))
+    category: Mapped[Optional[str]] = mapped_column(String(255))
+    sub_categories: Mapped[Optional[List[Any]]] = mapped_column(JSON)
+    type: Mapped[Optional[List[Any]]] = mapped_column(JSON)
+    business_status: Mapped[Optional[str]] = mapped_column(String(50))
     permanently_closed: Mapped[bool] = mapped_column(Boolean, default=False)
     rating: Mapped[float] = mapped_column(Float, default=0.0)
     reviews_count: Mapped[int] = mapped_column(Integer, default=0)
 
     # Media & Hours
-    photos: Mapped[list | None] = mapped_column(JSON)
-    working_hours: Mapped[dict | None] = mapped_column(JSON)
-    popular_times: Mapped[dict | None] = mapped_column(JSON)
-    business_attributes: Mapped[dict | None] = mapped_column(JSON)
+    photos: Mapped[Optional[List[Any]]] = mapped_column(JSON)
+    working_hours: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON)
+    popular_times: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON)
+    business_attributes: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON)
 
     # URLs
-    google_maps_url: Mapped[str | None] = mapped_column(String(1000))
-    place_url: Mapped[str | None] = mapped_column(String(1000))
+    google_maps_url: Mapped[Optional[str]] = mapped_column(String(1000))
+    place_url: Mapped[Optional[str]] = mapped_column(String(1000))
 
     # Sync tracking
-    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -106,9 +114,12 @@ class Company(Base):
     competitors = relationship("Competitor", back_populates="company", cascade="all, delete-orphan")
 
 # ---------------------------------------------------
-# Reviews
+# Reviews Table
 # ---------------------------------------------------
 class Review(Base):
+    """
+    Persisted review records with deep metadata for sentiment and aspect analysis.
+    """
     __tablename__ = "reviews"
     __table_args__ = (
         UniqueConstraint("company_id", "google_review_id", name="_company_review_uc"),
@@ -119,60 +130,60 @@ class Review(Base):
 
     # Identifiers
     google_review_id: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
-    review_url: Mapped[str | None] = mapped_column(String(1000))
+    review_url: Mapped[Optional[str]] = mapped_column(String(1000))
 
     # Reviewer Info
-    author_name: Mapped[str | None] = mapped_column(String(255))
-    author_id: Mapped[str | None] = mapped_column(String(255))
-    author_url: Mapped[str | None] = mapped_column(String(1000))
-    profile_photo_url: Mapped[str | None] = mapped_column(String(1000))
-    author_profile_photo: Mapped[str | None] = mapped_column(String(1000))
-    author_reviews_count: Mapped[int | None] = mapped_column(Integer)
-    author_level: Mapped[int | None] = mapped_column(Integer)
-    author_location: Mapped[str | None] = mapped_column(String(255))
-    author_contributions: Mapped[int | None] = mapped_column(Integer)
+    author_name: Mapped[Optional[str]] = mapped_column(String(255))
+    author_id: Mapped[Optional[str]] = mapped_column(String(255))
+    author_url: Mapped[Optional[str]] = mapped_column(String(1000))
+    profile_photo_url: Mapped[Optional[str]] = mapped_column(String(1000))
+    author_profile_photo: Mapped[Optional[str]] = mapped_column(String(1000))
+    author_reviews_count: Mapped[Optional[int]] = mapped_column(Integer)
+    author_level: Mapped[Optional[int]] = mapped_column(Integer)
+    author_location: Mapped[Optional[str]] = mapped_column(String(255))
+    author_contributions: Mapped[Optional[int]] = mapped_column(Integer)
 
     # Review Content
-    rating: Mapped[int | None] = mapped_column(Integer)
-    text: Mapped[str | None] = mapped_column(Text)
-    review_language: Mapped[str | None] = mapped_column(String(50))
-    google_review_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rating: Mapped[Optional[int]] = mapped_column(Integer)
+    text: Mapped[Optional[str]] = mapped_column(Text)
+    review_language: Mapped[Optional[str]] = mapped_column(String(50))
+    google_review_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     # Competitor & Source
-    competitor_name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
-    source_platform: Mapped[str | None] = mapped_column(String(100), default="Google")
+    competitor_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    source_platform: Mapped[Optional[str]] = mapped_column(String(100), default="Google")
 
     # Response / Reply
-    owner_answer: Mapped[str | None] = mapped_column(Text)
-    owner_answer_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    review_reply_text: Mapped[str | None] = mapped_column(Text)
+    owner_answer: Mapped[Optional[str]] = mapped_column(Text)
+    owner_answer_timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    review_reply_text: Mapped[Optional[str]] = mapped_column(Text)
 
     # Media
-    review_photos: Mapped[list | None] = mapped_column(JSON)
-    review_videos: Mapped[list | None] = mapped_column(JSON)
+    review_photos: Mapped[Optional[List[Any]]] = mapped_column(JSON)
+    review_videos: Mapped[Optional[List[Any]]] = mapped_column(JSON)
 
     # AI & Metrics
     review_likes: Mapped[int] = mapped_column(Integer, default=0)
     is_local_guide: Mapped[bool] = mapped_column(Boolean, default=False)
-    sentiment_label: Mapped[str | None] = mapped_column(String(50))
+    sentiment_label: Mapped[Optional[str]] = mapped_column(String(50))
     sentiment_score: Mapped[float] = mapped_column(Float, default=0.0)
-    keywords: Mapped[list | None] = mapped_column(JSON)
-    topic_tags: Mapped[list | None] = mapped_column(JSON)
-    spam_score: Mapped[float | None] = mapped_column(Float)
+    keywords: Mapped[Optional[List[Any]]] = mapped_column(JSON)
+    topic_tags: Mapped[Optional[List[Any]]] = mapped_column(JSON)
+    spam_score: Mapped[Optional[float]] = mapped_column(Float)
     is_complaint: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_praise: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
     # Aspect Scores
-    aspect_rooms: Mapped[float | None] = mapped_column(Float)
-    aspect_staff: Mapped[float | None] = mapped_column(Float)
-    aspect_location: Mapped[float | None] = mapped_column(Float)
-    aspect_value: Mapped[float | None] = mapped_column(Float)
-    aspect_cleanliness: Mapped[float | None] = mapped_column(Float)
-    aspect_food: Mapped[float | None] = mapped_column(Float)
-    aspect_service: Mapped[float | None] = mapped_column(Float)
-    aspect_amenities: Mapped[float | None] = mapped_column(Float)
-    aspect_price: Mapped[float | None] = mapped_column(Float)
-    aspect_atmosphere: Mapped[float | None] = mapped_column(Float)
+    aspect_rooms: Mapped[Optional[float]] = mapped_column(Float)
+    aspect_staff: Mapped[Optional[float]] = mapped_column(Float)
+    aspect_location: Mapped[Optional[float]] = mapped_column(Float)
+    aspect_value: Mapped[Optional[float]] = mapped_column(Float)
+    aspect_cleanliness: Mapped[Optional[float]] = mapped_column(Float)
+    aspect_food: Mapped[Optional[float]] = mapped_column(Float)
+    aspect_service: Mapped[Optional[float]] = mapped_column(Float)
+    aspect_amenities: Mapped[Optional[float]] = mapped_column(Float)
+    aspect_price: Mapped[Optional[float]] = mapped_column(Float)
+    aspect_atmosphere: Mapped[Optional[float]] = mapped_column(Float)
 
     # Sync Tracking
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -182,31 +193,37 @@ class Review(Base):
     company: Mapped["Company"] = relationship("Company", back_populates="reviews")
 
 # ---------------------------------------------------
-# Competitors
+# Competitors Table
 # ---------------------------------------------------
 class Competitor(Base):
+    """
+    Represents local business competitors discovered near a company location.
+    """
     __tablename__ = "competitors"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    place_id: Mapped[str | None] = mapped_column(String(512))
-    rating: Mapped[float | None] = mapped_column(Float)
-    reviews_count: Mapped[int | None] = mapped_column(Integer)
-    distance_km: Mapped[float | None] = mapped_column(Float)
-    lat: Mapped[float | None] = mapped_column(Float)
-    lng: Mapped[float | None] = mapped_column(Float)
-    google_maps_url: Mapped[str | None] = mapped_column(String(1000))
+    place_id: Mapped[Optional[str]] = mapped_column(String(512))
+    rating: Mapped[Optional[float]] = mapped_column(Float)
+    reviews_count: Mapped[Optional[int]] = mapped_column(Integer)
+    distance_km: Mapped[Optional[float]] = mapped_column(Float)
+    lat: Mapped[Optional[float]] = mapped_column(Float)
+    lng: Mapped[Optional[float]] = mapped_column(Float)
+    google_maps_url: Mapped[Optional[str]] = mapped_column(String(1000))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     # Relationship
     company = relationship("Company", back_populates="competitors")
 
 # ---------------------------------------------------
-# Notifications
+# Notifications Table
 # ---------------------------------------------------
 class Notification(Base):
+    """
+    User alerts for new reviews, low ratings, or system events.
+    """
     __tablename__ = "notifications"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
@@ -216,21 +233,27 @@ class Notification(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 # ---------------------------------------------------
-# Audit Logs
+# Audit Logs Table
 # ---------------------------------------------------
 class AuditLog(Base):
+    """
+    Records sensitive system changes and user actions for security compliance.
+    """
     __tablename__ = "audit_logs"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
     action: Mapped[str] = mapped_column(String(255), nullable=False)
-    meta: Mapped[dict] = mapped_column(JSON, default={})
-    ip_address: Mapped[str | None] = mapped_column(String(100))
+    meta: Mapped[Dict[str, Any]] = mapped_column(JSON, default={})
+    ip_address: Mapped[Optional[str]] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 # ---------------------------------------------------
-# Config
+# Config Table
 # ---------------------------------------------------
 class Config(Base):
+    """
+    General system settings and version tracking metadata.
+    """
     __tablename__ = "config"
     key: Mapped[str] = mapped_column(String(255), primary_key=True)
-    value: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    value: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
