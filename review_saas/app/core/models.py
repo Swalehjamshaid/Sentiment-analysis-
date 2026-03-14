@@ -24,7 +24,7 @@ from sqlalchemy.sql import func
 Base = declarative_base()
 
 # SCHEMA VERSION (Crucial for app/main.py lifecycle checks)
-SCHEMA_VERSION = "15.0.5-new-tables-added"
+SCHEMA_VERSION = "16.0.5-new-tables-added"
 
 # ---------------------------------------------------
 # Users Table
