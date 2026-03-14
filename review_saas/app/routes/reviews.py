@@ -1,256 +1,196 @@
-# filename: app/services/google_reviews.py
+# filename: app/routes/reviews.py
+
 from __future__ import annotations
 
+import os
 import logging
-from dataclasses import dataclass, field
+from typing import List, Dict, Any, Optional
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Union
 
 import httpx
-from sqlalchemy import and_, select
+from fastapi import APIRouter, Query, HTTPException
 
-from app.core.db import get_session
-from app.core.models import Review
+router = APIRouter()
 
-logger = logging.getLogger("app.google_reviews")
+logger = logging.getLogger(__name__)
 
-OUTSCRAPER_ENDPOINT = "https://api.app.outscraper.com/maps/reviews-v3"
-
-
-# ─────────────────────────────────────────────────────────────
-# Data Models
-# ─────────────────────────────────────────────────────────────
-
-@dataclass
-class ReviewData:
-    company_id: int
-    author_name: str
-    rating: float
-    text: str
-    review_time: datetime
-    profile_photo_url: str = ""
-    external_review_id: Optional[str] = None
-    source_platform: str = "Google"
-    sentiment_score: Optional[float] = None
-    additional_fields: Dict[str, Any] = field(default_factory=dict)
+GOOGLE_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")
 
 
-@dataclass
-class CompanyReviews:
-    company_id: int
-    reviews: List[ReviewData] = field(default_factory=list)
+# ---------------------------------------------------------
+# Simple sentiment analyzer
+# ---------------------------------------------------------
 
-    @property
-    def count(self) -> int:
-        return len(self.reviews)
+POSITIVE_WORDS = {
+    "good","great","excellent","amazing","awesome","love",
+    "nice","perfect","friendly","best","happy","fast","clean"
+}
 
-
-# ─────────────────────────────────────────────────────────────
-# Normalization
-# ─────────────────────────────────────────────────────────────
-
-def _coerce_datetime(value: Any) -> Optional[datetime]:
-    if value is None:
-        return None
-
-    if isinstance(value, datetime):
-        return value.replace(tzinfo=None)
-
-    try:
-        if isinstance(value, (int, float)):
-            return datetime.utcfromtimestamp(float(value))
-    except Exception:
-        pass
-
-    if isinstance(value, str):
-        for fmt in (
-            "%Y-%m-%dT%H:%M:%S.%fZ",
-            "%Y-%m-%dT%H:%M:%SZ",
-            "%Y-%m-%d %H:%M:%S",
-            "%Y-%m-%d",
-        ):
-            try:
-                return datetime.strptime(value, fmt)
-            except Exception:
-                continue
-
-    return None
+NEGATIVE_WORDS = {
+    "bad","terrible","worst","slow","dirty","hate",
+    "poor","awful","disappointed","problem","issue"
+}
 
 
-class OutscraperReviewsService:
+def sentiment_score(text: str) -> int:
+    if not text:
+        return 0
 
-    def __init__(self, api_key: str, source_platform: str = "Google"):
-        self.api_key = api_key
-        self.source_platform = source_platform
+    text = text.lower()
 
-    async def fetch_reviews(self, place_id: str, limit: int = 100) -> List[Dict]:
+    score = 0
 
-        params = {
-            "query": place_id,
-            "limit": limit,
-            "async": "false"
-        }
+    for word in POSITIVE_WORDS:
+        if word in text:
+            score += 1
 
-        headers = {
-            "X-API-KEY": self.api_key
-        }
+    for word in NEGATIVE_WORDS:
+        if word in text:
+            score -= 1
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.get(OUTSCRAPER_ENDPOINT, params=params, headers=headers)
+    if score > 0:
+        return 1
+    if score < 0:
+        return -1
 
-        if r.status_code != 200:
-            logger.error("❌ Outscraper API Error %s: %s", r.status_code, r.text)
-            return []
-
-        data = r.json()
-
-        if not isinstance(data, list):
-            return []
-
-        reviews: List[Dict] = []
-
-        for block in data:
-            reviews.extend(block.get("reviews_data", []))
-
-        logger.info("Fetched %s raw reviews", len(reviews))
-        return reviews
-
-    def normalize(self, raw: Dict[str, Any], company_id: int) -> Optional[ReviewData]:
-
-        author = raw.get("author_title") or raw.get("author_name") or "Anonymous"
-        rating = raw.get("review_rating") or raw.get("rating") or 0
-        text = raw.get("review_text") or raw.get("text") or ""
-        review_time = raw.get("review_datetime_utc")
-
-        dt = _coerce_datetime(review_time) or datetime.utcnow()
-
-        external_id = raw.get("review_id")
-
-        return ReviewData(
-            company_id=company_id,
-            author_name=str(author),
-            rating=float(rating),
-            text=str(text),
-            review_time=dt,
-            profile_photo_url=str(raw.get("author_image", "")),
-            external_review_id=str(external_id) if external_id else None,
-            source_platform=self.source_platform,
-        )
+    return 0
 
 
-# ─────────────────────────────────────────────────────────────
-# Fetch + Normalize
-# ─────────────────────────────────────────────────────────────
+# ---------------------------------------------------------
+# GOOGLE AUTOCOMPLETE PROXY
+# ---------------------------------------------------------
 
-async def ingest_company_reviews(
-    client: Any,
-    company: Any,
-    start: Optional[datetime] = None,
-    end: Optional[datetime] = None,
-    max_reviews: Optional[int] = None,
-    source_platform: str = "Google",
-) -> CompanyReviews:
+@router.get("/api/google_autocomplete")
+async def google_autocomplete(input: str):
 
-    cid = int(getattr(company, "id"))
+    if not GOOGLE_API_KEY:
+        raise HTTPException(500, "Google API key missing")
 
-    place_id = getattr(company, "google_place_id", None)
+    url = "https://maps.googleapis.com/maps/api/place/autocomplete/json"
 
-    service = OutscraperReviewsService(client.api_key)
+    params = {
+        "input": input,
+        "key": GOOGLE_API_KEY
+    }
 
-    raw_reviews = await service.fetch_reviews(place_id, max_reviews or 100)
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url, params=params)
 
-    result = CompanyReviews(company_id=cid)
+    data = r.json()
 
-    for r in raw_reviews:
-
-        rd = service.normalize(r, company_id=cid)
-
-        if not rd:
-            continue
-
-        if start and rd.review_time < start:
-            continue
-
-        if end and rd.review_time > end:
-            continue
-
-        result.reviews.append(rd)
-
-    logger.info("Normalized %s reviews for company %s", len(result.reviews), cid)
-
-    return result
+    return {
+        "predictions": data.get("predictions", [])
+    }
 
 
-# ─────────────────────────────────────────────────────────────
-# Save to Database
-# ─────────────────────────────────────────────────────────────
+# ---------------------------------------------------------
+# GOOGLE PLACE DETAILS PROXY
+# ---------------------------------------------------------
 
-async def run_batch_review_ingestion(
-    client: Any,
-    entities: Iterable[Any],
-    start: Optional[datetime] = None,
-    end: Optional[datetime] = None,
-    max_reviews: Optional[int] = None,
-    source_platform: str = "Google",
+@router.get("/api/google/place/details")
+async def google_place_details(place_id: str):
+
+    if not GOOGLE_API_KEY:
+        raise HTTPException(500, "Google API key missing")
+
+    url = "https://maps.googleapis.com/maps/api/place/details/json"
+
+    params = {
+        "place_id": place_id,
+        "fields": "name,formatted_address,reviews,rating",
+        "key": GOOGLE_API_KEY
+    }
+
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url, params=params)
+
+    data = r.json()
+
+    result = data.get("result", {})
+
+    return {
+        "name": result.get("name"),
+        "address": result.get("formatted_address"),
+        "rating": result.get("rating"),
+        "reviews": result.get("reviews", [])
+    }
+
+
+# ---------------------------------------------------------
+# MAIN REVIEWS API
+# ---------------------------------------------------------
+
+@router.get("/api/reviews")
+async def get_reviews(
+    company_id: int = Query(...),
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    limit: int = 50
 ):
 
-    summary = {"companies": []}
+    """
+    Returns processed review feed for dashboard
+    """
 
-    for ent in entities:
+    # Normally you would fetch place_id from DB using company_id
+    # Here we assume place_id is same as company_id for demo
+    place_id = str(company_id)
 
-        cid = int(getattr(ent, "id"))
+    if not GOOGLE_API_KEY:
+        raise HTTPException(500, "Google API key missing")
 
-        company_reviews = await ingest_company_reviews(
-            client,
-            ent,
-            start=start,
-            end=end,
-            max_reviews=max_reviews,
-        )
+    url = "https://maps.googleapis.com/maps/api/place/details/json"
 
-        new_count = 0
+    params = {
+        "place_id": place_id,
+        "fields": "name,reviews",
+        "key": GOOGLE_API_KEY
+    }
 
-        async with get_session() as session:
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url, params=params)
 
-            for rd in company_reviews.reviews:
+    data = r.json()
 
-                q = select(Review.id).where(
-                    and_(
-                        Review.company_id == cid,
-                        Review.external_review_id == rd.external_review_id,
-                    )
-                )
+    reviews = data.get("result", {}).get("reviews", [])
 
-                exists = (await session.execute(q)).first()
+    processed: List[Dict[str, Any]] = []
 
-                if exists:
-                    continue
+    for r in reviews[:limit]:
 
-                session.add(
-                    Review(
-                        company_id=cid,
-                        author_name=rd.author_name,
-                        rating=rd.rating,
-                        text=rd.text,
-                        google_review_time=rd.review_time,
-                        profile_photo_url=rd.profile_photo_url,
-                        external_review_id=rd.external_review_id,
-                        source_platform=rd.source_platform,
-                    )
-                )
+        text = r.get("text", "")
 
-                new_count += 1
+        score = sentiment_score(text)
 
-            await session.commit()
+        ts = r.get("time")
 
-        logger.info("Committed %s new reviews for company %s", new_count, cid)
+        if ts:
+            dt = datetime.fromtimestamp(ts)
+            review_time = dt.strftime("%Y-%m-%d")
+        else:
+            review_time = ""
 
-        summary["companies"].append(
-            {
-                "company_id": cid,
-                "fetched": len(company_reviews.reviews),
-                "saved": new_count,
-            }
-        )
+        processed.append({
+            "author_name": r.get("author_name"),
+            "rating": r.get("rating"),
+            "sentiment_score": score,
+            "review_time": review_time,
+            "text": text
+        })
 
-    return summary
+    # Optional filtering
+    if start:
+        processed = [
+            r for r in processed
+            if r["review_time"] >= start
+        ]
+
+    if end:
+        processed = [
+            r for r in processed
+            if r["review_time"] <= end
+        ]
+
+    return {
+        "feed": processed
+    }
