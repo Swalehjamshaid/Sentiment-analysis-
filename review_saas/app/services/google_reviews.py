@@ -1,301 +1,225 @@
-# filename: google_reviews_service.py
+# filename: app/services/google_reviews.py
+
 from __future__ import annotations
 
 import os
-import logging
 import hashlib
-import httpx
-import asyncio
-from datetime import datetime, date, timedelta
-from typing import Any, Dict, List, Optional, Union, Iterable
-from contextlib import asynccontextmanager
+import logging
+from dataclasses import dataclass, field
+from datetime import datetime, date
+from typing import Any, Dict, Iterable, List, Optional, Union
 
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import Column, Integer, String, Float, Text, DateTime, ForeignKey, UniqueConstraint, and_, cast, Date, desc, select
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import declarative_base, relationship, Mapped, mapped_column
-from pydantic import BaseModel
+from sqlalchemy import and_, select, cast, Date
+from sqlalchemy.ext.asyncio import create_async_engine
 
-# ---------------------------------------------------------
-# 1. LOGGING & CONFIGURATION
-# ---------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
+from app.core.db import get_session
+from app.core.models import Review
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.google_reviews")
 
-# Environment variables for production-readiness
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/reviews_db")
-GOOGLE_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc")
-HTTPX_TIMEOUT = 30.0
+# ──────────────────────────────────────────────────────────────────────────────
+# DATABASE CONFIGURATION & ASYNC DRIVER FIX
+# ──────────────────────────────────────────────────────────────────────────────
 
-# ---------------------------------------------------------
-# 2. DATABASE SCHEMA (models.py)
-# ---------------------------------------------------------
-Base = declarative_base()
-
-class Company(Base):
+def get_async_url() -> str:
     """
-    Represents a business entity registered in the system.
+    Ensures the connection string uses the asyncpg driver to avoid
+    ModuleNotFoundError: No module named 'psycopg2' and libpq.so.5 errors.
     """
-    __tablename__ = "companies"
+    url = os.getenv("DATABASE_URL", "")
+    if not url:
+        # Fallback for local development if env is missing
+        return "postgresql+asyncpg://postgres:postgres@localhost:5432/postgres"
     
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    address: Mapped[str | None] = mapped_column(String(1000))
-    google_place_id: Mapped[str | None] = mapped_column(String(512), unique=True, index=True)
+    # Railway/Heroku sometimes provide 'postgres://', SQLAlchemy needs 'postgresql://'
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif url.startswith("postgresql://") and "+asyncpg" not in url:
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
     
-    reviews = relationship("Review", back_populates="company", cascade="all, delete-orphan")
+    return url
 
-class Review(Base):
-    """
-    Persisted review records retrieved from Google/Outscraper.
-    Unique constraint on company + google_review_id prevents duplicates.
-    """
-    __tablename__ = "reviews"
-    __table_args__ = (UniqueConstraint("company_id", "google_review_id", name="_company_review_uc"),)
+DATABASE_URL = get_async_url()
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    company_id: Mapped[int] = mapped_column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
-    google_review_id: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
-    author_name: Mapped[str | None] = mapped_column(String(255))
-    rating: Mapped[float] = mapped_column(Float, default=0.0)
-    text: Mapped[str | None] = mapped_column(Text)
-    google_review_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    sentiment_score: Mapped[float] = mapped_column(Float, default=0.0)
-    profile_photo_url: Mapped[str | None] = mapped_column(String(1000))
-    
-    company = relationship("Company", back_populates="reviews")
+# Create the Async Engine with production-optimized pooling
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=20,
+    future=True
+)
 
-# ---------------------------------------------------------
-# 3. DATABASE SESSION MANAGEMENT (db.py)
-# ---------------------------------------------------------
-engine = create_async_engine(DATABASE_URL, echo=False)
-AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+# ──────────────────────────────────────────────────────────────────────────────
+# Data models for normalized review ingestion/analytics
+# ──────────────────────────────────────────────────────────────────────────────
 
-async def get_session():
-    """Dependency for providing database sessions to routes."""
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+@dataclass
+class ReviewData:
+    """Normalized data structure for a single review."""
+    company_id: int
+    author_name: str
+    rating: float
+    text: str
+    review_time: datetime
+    profile_photo_url: str = ""
+    external_review_id: Optional[str] = None
+    source_platform: str = "Google"
+    sentiment_score: Optional[float] = None
+    additional_fields: Dict[str, Any] = field(default_factory=dict)
 
-# ---------------------------------------------------------
-# 4. NORMALIZATION & ANALYTICS SERVICE (google_reviews.py)
-# ---------------------------------------------------------
-class OutscraperReviewsService:
-    """
-    Handles data transformation from raw scraper responses to 
-    standardized database objects.
-    """
-    @staticmethod
-    def _coerce_datetime(value: Any) -> datetime:
-        if isinstance(value, datetime):
-            return value
-        try:
-            if isinstance(value, (int, float)):
-                # Handle milliseconds vs seconds
-                if value > 10_000_000_000:
-                    return datetime.utcfromtimestamp(value / 1000.0)
-                return datetime.utcfromtimestamp(value)
-            if isinstance(value, str):
-                return datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except Exception:
-            pass
-        return datetime.utcnow()
+@dataclass
+class CompanyReviews:
+    """Container for a collection of reviews for a specific company."""
+    company_id: int
+    reviews: List[ReviewData] = field(default_factory=list)
 
-    @staticmethod
-    def _calculate_sentiment(rating: float) -> float:
-        """Simple mapping of 1-5 stars to -1.0 to 1.0 sentiment score."""
-        r = max(1.0, min(5.0, float(rating)))
+    @property
+    def avg_rating(self) -> float:
+        if not self.reviews: return 0.0
+        return round(sum(r.rating for r in self.reviews) / len(self.reviews), 2)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Normalization helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _coerce_datetime(value: Any) -> Optional[datetime]:
+    """Universal date parser for various timestamp and string formats."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None)
+    try:
+        if isinstance(value, (int, float)):
+            # Handle milliseconds vs seconds
+            if float(value) > 10_000_000_000:  
+                return datetime.utcfromtimestamp(float(value) / 1000.0)
+            return datetime.utcfromtimestamp(float(value))
+    except Exception:
+        pass
+    if isinstance(value, str):
+        for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%SZ",
+                    "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(value, fmt)
+            except Exception:
+                continue
+    return None
+
+def _sentiment_from_rating(r: Optional[float]) -> float:
+    """Converts a 1-5 star rating to a -1.0 to 1.0 sentiment score."""
+    if r is None: return 0.0
+    try:
+        r = max(1.0, min(5.0, float(r)))
         return round((r - 3.0) / 2.0, 2)
+    except Exception:
+        return 0.0
 
-    def normalize(self, raw: Dict[str, Any], company_id: int) -> Dict[str, Any]:
-        """Normalizes heterogeneous keys from different scraper versions."""
+def _stable_hash_id(author: str, text: str, dt: datetime) -> str:
+    """Generates a stable ID if Google doesn't provide one."""
+    base = f"{author}{text}{dt.isoformat()}"
+    return hashlib.md5(base.encode()).hexdigest()
+
+class OutscraperReviewsService:
+    """Logic for transforming raw scraper data into normalized ReviewData."""
+    def __init__(self, source_platform: str = "Google") -> None:
+        self.source_platform = source_platform
+
+    def normalize(self, raw: Dict[str, Any], company_id: int) -> Optional[ReviewData]:
+        if not raw: return None
+        
+        author = raw.get("author_name") or raw.get("author_title") or "Anonymous"
+        text = raw.get("review_text") or raw.get("text") or ""
         rating = float(raw.get("review_rating") or raw.get("rating") or 0.0)
-        ts_val = raw.get("review_timestamp") or raw.get("time") or raw.get("review_datetime_utc")
         
-        return {
-            "company_id": company_id,
-            "google_review_id": str(raw.get("review_id") or raw.get("google_review_id")),
-            "author_name": str(raw.get("author_title") or raw.get("author_name") or "Anonymous"),
-            "rating": rating,
-            "text": str(raw.get("review_text") or raw.get("text") or ""),
-            "google_review_time": self._coerce_datetime(ts_val),
-            "sentiment_score": float(raw.get("sentiment_score") or self._calculate_sentiment(rating)),
-            "profile_photo_url": str(raw.get("author_image") or raw.get("profile_photo_url") or "")
-        }
+        when = raw.get("review_timestamp") or raw.get("time") or raw.get("review_datetime_utc")
+        dt = _coerce_datetime(when) or datetime.utcnow()
+        
+        profile = raw.get("author_image") or raw.get("profile_photo_url") or ""
+        external_id = raw.get("review_id") or raw.get("google_review_id") or _stable_hash_id(author, text, dt)
+        
+        sent = raw.get("sentiment_score")
+        
+        return ReviewData(
+            company_id=company_id,
+            author_name=str(author)[:255],
+            rating=rating,
+            text=str(text),
+            review_time=dt,
+            profile_photo_url=str(profile),
+            external_review_id=str(external_id),
+            source_platform=self.source_platform,
+            sentiment_score=float(sent) if sent is not None else _sentiment_from_rating(rating)
+        )
 
-async def run_batch_review_ingestion(client: Any, entities: List[Company], start: datetime, end: datetime):
+# ──────────────────────────────────────────────────────────────────────────────
+# MAIN INGESTION ENGINE
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def run_batch_review_ingestion(
+    client: Any, 
+    entities: Iterable[Any], 
+    start: Optional[datetime] = None, 
+    end: Optional[datetime] = None, 
+    max_reviews: Optional[int] = None, 
+    source_platform: str = "Google"
+) -> Dict[str, Any]:
     """
-    Main ingestion engine. Orchestrates fetching, deduplication, and persistence.
+    Fetches reviews from external source, checks for duplicates in PostgreSQL, 
+    and saves new records.
     """
-    service = OutscraperReviewsService()
-    total_saved = 0
+    summary = {"total_saved": 0, "companies": []}
+    service = OutscraperReviewsService(source_platform=source_platform)
     
-    for company in entities:
-        logger.info(f"Syncing company: {company.name} (Place ID: {company.google_place_id})")
-        
-        # Real-world Outscraper client call happens here
+    for ent in entities:
         try:
-            raw_data = await client.fetch_reviews(company)
-        except Exception as e:
-            logger.error(f"Failed fetching reviews for {company.name}: {e}")
+            cid_int = int(getattr(ent, "id", 0))
+            # Outscraper client call
+            raw_reviews = await client.fetch_reviews(ent, max_reviews=max_reviews)
+            logger.info(f"Fetched {len(raw_reviews)} reviews for company {cid_int}")
+        except Exception as ex:
+            logger.error(f"Ingestion failed for entity {ent}: {ex}")
             continue
 
-        async with AsyncSessionLocal() as session:
-            for raw in raw_data:
-                norm = service.normalize(raw, company.id)
+        new_count = 0
+        async with get_session() as session:
+            for raw in raw_reviews:
+                rd = service.normalize(raw, company_id=cid_int)
+                if not rd: continue
                 
-                # Filter by logical window (Scenario 1 & 2)
-                if not (start <= norm["google_review_time"] <= end):
+                # Date filtering (Scenario 1 & 2)
+                if start and rd.review_time < start: continue
+                if end and rd.review_time > end: continue
+
+                # Strict Deduplication Check
+                exists_q = select(Review.id).where(
+                    and_(Review.company_id == cid_int, Review.google_review_id == rd.external_review_id)
+                ).limit(1)
+                
+                exists_res = await session.execute(exists_q)
+                if exists_res.first():
                     continue
 
-                # Check for existing record to prevent UniqueConstraint violations
-                exists_stmt = select(Review.id).where(
-                    and_(Review.company_id == company.id, Review.google_review_id == norm["google_review_id"])
-                )
-                result = await session.execute(exists_stmt)
-                if result.first():
-                    continue
+                # Add new review to session
+                session.add(Review(
+                    company_id=cid_int,
+                    google_review_id=rd.external_review_id,
+                    author_name=rd.author_name,
+                    rating=rd.rating,
+                    text=rd.text,
+                    google_review_time=rd.review_time,
+                    sentiment_score=rd.sentiment_score,
+                    profile_photo_url=rd.profile_photo_url
+                ))
+                new_count += 1
 
-                session.add(Review(**norm))
-                total_saved += 1
-            
             await session.commit()
-            
-    return {"total_saved": total_saved}
+            logger.info(f"Successfully saved {new_count} new reviews for company {cid_int}")
 
-# ---------------------------------------------------------
-# 5. API ROUTES (reviews.py)
-# ---------------------------------------------------------
-router = APIRouter(tags=["Reviews"])
+        summary["total_saved"] += new_count
+        summary["companies"].append({"company_id": cid_int, "saved": new_count})
 
-@asynccontextmanager
-async def _httpx_client():
-    async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
-        yield client
-
-def _resolve_date_range(start: Optional[str], end: Optional[str]):
-    """
-    Scenario 1: No dates -> Last 15 days.
-    Scenario 2: Range provided -> Exact window.
-    """
-    try:
-        e_dt = datetime.strptime(end, "%Y-%m-%d").date() if end else date.today()
-        if start:
-            s_dt = datetime.strptime(start, "%Y-%m-%d").date()
-        else:
-            s_dt = e_dt - timedelta(days=14)
-        return s_dt, e_dt
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Dates must be in YYYY-MM-DD format")
-
-@router.get("/api/google_autocomplete")
-async def google_autocomplete(input: str):
-    """Proxy for Google Places Autocomplete SDK."""
-    url = "https://maps.googleapis.com/maps/api/place/autocomplete/json"
-    params = {"input": input, "key": GOOGLE_API_KEY}
-    async with _httpx_client() as client:
-        r = await client.get(url, params=params)
-        return r.json()
-
-@router.get("/api/reviews")
-async def get_dashboard_reviews(
-    company_id: int = Query(...),
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-    limit: int = 50,
-    session: AsyncSession = Depends(get_session)
-):
-    """Retrieves analytics-ready reviews from PostgreSQL."""
-    s_date, e_date = _resolve_date_range(start, end)
-    
-    stmt = (
-        select(Review)
-        .where(
-            and_(
-                Review.company_id == company_id,
-                cast(Review.google_review_time, Date) >= s_date,
-                cast(Review.google_review_time, Date) <= e_date
-            )
-        )
-        .order_by(desc(Review.google_review_time))
-        .limit(limit)
-    )
-    
-    result = await session.execute(stmt)
-    rows = result.scalars().all()
-    
-    return {
-        "feed": [
-            {
-                "author_name": r.author_name,
-                "rating": r.rating,
-                "sentiment_score": r.sentiment_score,
-                "review_time": r.google_review_time.date().isoformat(),
-                "text": r.text
-            } for r in rows
-        ],
-        "count": len(rows)
-    }
-
-@router.post("/api/reviews/ingest/{company_id}")
-async def sync_company_reviews(
-    request: Request,
-    company_id: int,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-    session: AsyncSession = Depends(get_session)
-):
-    """Triggers external sync and persists to database."""
-    company = await session.get(Company, company_id)
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
-        
-    client = getattr(request.app.state, "reviews_client", None)
-    s_date, e_date = _resolve_date_range(start, end)
-    
-    summary = await run_batch_review_ingestion(
-        client=client,
-        entities=[company],
-        start=datetime.combine(s_date, datetime.min.time()),
-        end=datetime.combine(e_date, datetime.max.time())
-    )
-    
-    return {"status": "success", "total_added": summary["total_saved"]}
-
-# ---------------------------------------------------------
-# 6. MAIN APP INITIALIZATION
-# ---------------------------------------------------------
-app = FastAPI(title="Review SaaS Backend")
-app.include_router(router)
-
-class MockOutscraperClient:
-    """Mock client used to demonstrate structure without valid API keys."""
-    async def fetch_reviews(self, company: Company):
-        # Simulated return data from Outscraper
-        return [
-            {
-                "review_id": f"rev_{hash(company.google_place_id)}_{i}",
-                "author_name": f"User {i}",
-                "rating": 4.0 if i % 2 == 0 else 2.0,
-                "text": "Simulated review content",
-                "time": datetime.utcnow().timestamp() - (i * 86400)
-            } for i in range(5)
-        ]
-
-@app.on_event("startup")
-async def startup_event():
-    """Initializes external clients and database tables."""
-    app.state.reviews_client = MockOutscraperClient()
-    async with engine.begin() as conn:
-        # Warning: In production use Alembic migrations instead
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Application started and database initialized.")
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    return summary
