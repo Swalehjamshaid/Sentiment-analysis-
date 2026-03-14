@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from datetime import date, datetime, timedelta
 from contextlib import asynccontextmanager
 
@@ -64,7 +64,7 @@ async def _httpx_client():
         yield client
 
 # ---------------------------------------------------------
-# Google Proxy Endpoints
+# GOOGLE PROXY ENDPOINTS
 # ---------------------------------------------------------
 @router.get("/api/google_autocomplete")
 async def google_autocomplete(input: str) -> Dict[str, Any]:
@@ -86,7 +86,11 @@ async def google_place_details(place_id: str) -> Dict[str, Any]:
     if not GOOGLE_API_KEY:
         raise HTTPException(status_code=500, detail="Google API key missing")
     url = "https://maps.googleapis.com/maps/api/place/details/json"
-    params = {"place_id": place_id, "fields": "name,formatted_address,rating,place_id", "key": GOOGLE_API_KEY}
+    params = {
+        "place_id": place_id,
+        "fields": "name,formatted_address,rating,place_id",
+        "key": GOOGLE_API_KEY
+    }
     try:
         async with _httpx_client() as client:
             r = await client.get(url, params=params)
@@ -103,7 +107,7 @@ async def google_place_details(place_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail="Upstream Google API failure")
 
 # ---------------------------------------------------------
-# Review Ingestion Endpoint
+# INGESTION API (Outscraper -> Database Pipeline)
 # ---------------------------------------------------------
 @router.post("/api/reviews/ingest/{company_id}")
 async def trigger_ingestion(
@@ -115,10 +119,12 @@ async def trigger_ingestion(
 ):
     company = await session.get(Company, company_id)
     if not company:
-        raise HTTPException(status_code=404, detail="Company not found in local records")
+        raise HTTPException(status_code=404, detail="Company not found")
+
     client = getattr(request.app.state, "reviews_client", None)
     if not client:
         raise HTTPException(status_code=503, detail="Outscraper service client not initialized")
+
     s_date, e_date = _resolve_range(start, end)
     logger.info(f"🔄 INGESTION TRIGGERED: {company.name} | Window: {s_date} to {e_date}")
 
@@ -129,10 +135,14 @@ async def trigger_ingestion(
             start=datetime.combine(s_date, datetime.min.time()),
             end=datetime.combine(e_date, datetime.max.time())
         )
-        logger.info(f"✅ Ingestion completed: {summary.get('total_saved', 0)} reviews saved")
+
+        # Log every saved review (new detailed logging)
+        total_saved = summary.get("total_saved", 0)
+        logger.info(f"✅ Ingestion completed for {company.name} | Total new reviews: {total_saved}")
+
         return {
             "status": "success",
-            "total_added": summary.get("total_saved", 0),
+            "total_added": total_saved,
             "sync_range": {"start": s_date.isoformat(), "end": e_date.isoformat()}
         }
     except Exception as e:
@@ -140,8 +150,10 @@ async def trigger_ingestion(
         raise HTTPException(status_code=500, detail="Review ingestion process failed")
 
 # ---------------------------------------------------------
-# Dashboard Fetch Endpoint
+# DASHBOARD DATA API (Database -> UI Analytics)
 # ---------------------------------------------------------
+_last_dashboard_call: dict[int, datetime] = {}  # Prevent duplicate rapid calls
+
 @router.get("/api/reviews")
 async def get_reviews(
     company_id: int = Query(...),
@@ -150,10 +162,20 @@ async def get_reviews(
     limit: int = Query(50, ge=1, le=2000),
     session: AsyncSession = Depends(get_session),
 ) -> Dict[str, Any]:
+
+    # Prevent repeated calls within 3 seconds for same company
+    now = datetime.utcnow()
+    last_call = _last_dashboard_call.get(company_id)
+    if last_call and (now - last_call).total_seconds() < 3:
+        return {"feed": [], "count": 0, "note": "Too many requests, try again shortly"}
+    _last_dashboard_call[company_id] = now
+
     company = await session.get(Company, company_id)
     if not company:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
+
     s_date, e_date = _resolve_range(start, end)
+
     stmt = (
         select(Review)
         .where(
@@ -166,10 +188,12 @@ async def get_reviews(
         .order_by(desc(Review.google_review_time))
         .limit(limit)
     )
+
     try:
         result = await session.execute(stmt)
         rows = result.scalars().all()
         feed = []
+
         for row in rows:
             feed.append({
                 "author_name": str(row.author_name or "Anonymous"),
@@ -178,8 +202,11 @@ async def get_reviews(
                 "review_time": _safe_day_str(row.google_review_time),
                 "text": str(row.text or ""),
             })
+            logger.debug(f"Loaded review: {row.google_review_id} by {row.author_name}")
+
         logger.info(f"📊 DASHBOARD FEED: {len(feed)} items loaded for {company.name}")
         return {"feed": feed, "count": len(feed)}
+
     except Exception as e:
         logger.error(f"Database Query Error: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch dashboard reviews")
