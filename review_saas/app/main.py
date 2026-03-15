@@ -1,5 +1,4 @@
 # filename: app/main.py
-
 from __future__ import annotations
 import logging
 import os
@@ -7,7 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional, List
 
 import httpx
-from fastapi import FastAPI, Request, Depends, HTTPException, status
+from fastapi import FastAPI, Request, Depends, HTTPException, status, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
@@ -57,14 +56,11 @@ class OutscraperClient:
             response = await self.client.get(self.BASE_URL, params=params, headers=headers)
             response.raise_for_status()
             data = response.json()
-
             if isinstance(data, list) and len(data) > 0:
                 reviews = data[0].get("reviews_data", [])
                 logger.info("✅ Fetched %s reviews from Outscraper", len(reviews))
                 return {"reviews": reviews}
-
             return {"reviews": []}
-
         except Exception as e:
             logger.error("🚨 Outscraper API Error: %s", e, exc_info=True)
             return {"reviews": []}
@@ -79,7 +75,6 @@ class OutscraperClient:
 
     async def close(self):
         await self.client.aclose()
-
 
 # ---------------------------
 # Lifespan & App Setup
@@ -109,7 +104,6 @@ async def lifespan(app: FastAPI):
     if hasattr(app.state, "reviews_client"):
         await app.state.reviews_client.close()
 
-
 # ---------------------------
 # FastAPI App Initialization
 # ---------------------------
@@ -126,27 +120,31 @@ app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
-
 # ---------------------------
 # Auth Helper
 # ---------------------------
 def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
 
-
 # ---------------------------
 # Routes
 # ---------------------------
-
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 async def root():
-    return RedirectResponse(url="/dashboard")
+    return RedirectResponse(url="/login")
 
+@app.get("/login", response_class=HTMLResponse)
+async def login_get(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
 
-@app.get("/health")
-async def health():
-    return {"status": "ok", "database": "connected", "schema": SCHEMA_VERSION}
-
+@app.post("/login")
+async def login_post(request: Request, email: str = Form(...), password: str = Form(...)):
+    # Simple authentication example
+    if email == "admin@example.com" and password == "password123":
+        user = {"id": 1, "email": email, "name": "Admin"}
+        request.session["user"] = user
+        return RedirectResponse(url="/dashboard", status_code=303)
+    return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"})
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
@@ -158,14 +156,9 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
         "google_api_key": settings.GOOGLE_API_KEY
     })
 
-
-@app.post("/login")
-async def login_post(request: Request):
-    # Mock login for demo
-    user = {"id": 1, "email": "roy.jamshaid@gmail.com", "name": "Swaleh"}
-    request.session["user"] = user
-    return RedirectResponse(url="/dashboard", status_code=303)
-
+@app.get("/health")
+async def health():
+    return {"status": "ok", "database": "connected", "schema": SCHEMA_VERSION}
 
 # Include routers
 app.include_router(auth_routes.router)
@@ -174,7 +167,6 @@ app.include_router(dashboard_routes.router)
 app.include_router(reviews_routes.router)
 app.include_router(exports_routes.router)
 app.include_router(google_routes.router)
-
 
 # ---------------------------
 # Main
