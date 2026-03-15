@@ -19,10 +19,6 @@ from app.services.google_reviews import run_batch_review_ingestion
 router = APIRouter(tags=["reviews"])
 logger = logging.getLogger("app.reviews")
 
-# ---------------------------------------------------------
-# Configuration & Utilities
-# ---------------------------------------------------------
-# NOTE: For security, avoid hardcoding API keys. Ensure one of these env vars is set.
 GOOGLE_API_KEY = (
     os.getenv("GOOGLE_PLACES_API_KEY")
     or os.getenv("GOOGLE_MAPS_API_KEY")
@@ -69,7 +65,7 @@ async def _httpx_client():
 
 
 # ---------------------------------------------------------
-# GOOGLE PROXY ENDPOINTS (Frontend -> reviews.py -> Google)
+# GOOGLE PROXY ENDPOINTS
 # ---------------------------------------------------------
 @router.get("/api/google_autocomplete")
 async def google_autocomplete(input: str) -> Dict[str, Any]:
@@ -118,133 +114,7 @@ async def google_place_details(place_id: str) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------
-# Helper: Analytics builders (DB -> Aggregations -> JSON)
-# ---------------------------------------------------------
-async def _build_analytics(
-    session: AsyncSession,
-    company_id: int,
-    s_date: date,
-    e_date: date,
-) -> Dict[str, Any]:
-    """Compute analytics for a company within a date range.
-
-    Returns keys:
-      - totals: {total_reviews, avg_rating, earliest_review, latest_review}
-      - ratings: {1..5}
-      - sentiments: {negative, neutral, positive}
-      - timeseries: [{date, count, avg_rating}]
-    """
-    base_filter = and_(
-        Review.company_id == company_id,
-        cast(Review.google_review_time, Date) >= s_date,
-        cast(Review.google_review_time, Date) <= e_date,
-    )
-
-    totals_stmt = select(
-        func.count(Review.id),
-        func.avg(Review.rating),
-        func.min(Review.google_review_time),
-        func.max(Review.google_review_time),
-    ).where(base_filter)
-
-    ratings_stmt = (
-        select(cast(Review.rating, Integer).label("bucket"), func.count().label("n"))
-        .where(base_filter)
-        .group_by("bucket")
-    )
-
-    sentiments_stmt = select(
-        func.sum(case((Review.sentiment_score < -0.2, 1), else_=0)).label("negative"),
-        func.sum(
-            case(
-                (and_(Review.sentiment_score >= -0.2, Review.sentiment_score <= 0.2), 1),
-                else_=0,
-            )
-        ).label("neutral"),
-        func.sum(case((Review.sentiment_score > 0.2, 1), else_=0)).label("positive"),
-    ).where(base_filter)
-
-    day_col = cast(Review.google_review_time, Date).label("day")
-    timeseries_stmt = (
-        select(day_col, func.count().label("count"), func.avg(Review.rating).label("avg_rating"))
-        .where(base_filter)
-        .group_by(day_col)
-        .order_by(day_col)
-    )
-
-    totals_res = await session.execute(totals_stmt)
-    ratings_res = await session.execute(ratings_stmt)
-    sentiments_res = await session.execute(sentiments_stmt)
-    timeseries_res = await session.execute(timeseries_stmt)
-
-    total_count, avg_rating, earliest_dt, latest_dt = totals_res.one_or_none() or (0, None, None, None)
-
-    ratings_hist = {i: 0 for i in range(1, 6)}
-    for bucket, n in ratings_res.all():
-        if bucket in ratings_hist:
-            ratings_hist[bucket] = int(n)
-
-    sentiments_row = sentiments_res.one_or_none()
-    sentiments = {
-        "negative": int(sentiments_row[0]) if sentiments_row and sentiments_row[0] is not None else 0,
-        "neutral": int(sentiments_row[1]) if sentiments_row and sentiments_row[1] is not None else 0,
-        "positive": int(sentiments_row[2]) if sentiments_row and sentiments_row[2] is not None else 0,
-    }
-
-    timeseries = [
-        {
-            "date": d.isoformat() if hasattr(d, "isoformat") else str(d),
-            "count": int(c or 0),
-            "avg_rating": float(ar) if ar is not None else None,
-        }
-        for d, c, ar in timeseries_res.all()
-    ]
-
-    totals = {
-        "total_reviews": int(total_count or 0),
-        "avg_rating": float(avg_rating) if avg_rating is not None else None,
-        "earliest_review": earliest_dt.date().isoformat() if earliest_dt else None,
-        "latest_review": latest_dt.date().isoformat() if latest_dt else None,
-    }
-
-    return {
-        "totals": totals,
-        "ratings": ratings_hist,
-        "sentiments": sentiments,
-        "timeseries": timeseries,
-    }
-
-
-async def _build_comparisons(
-    session: AsyncSession,
-    company_ids: List[int],
-    s_date: date,
-    e_date: date,
-) -> List[Dict[str, Any]]:
-    """Build per-company comparison summaries for the given IDs."""
-    if not company_ids:
-        return []
-
-    companies_res = await session.execute(select(Company).where(Company.id.in_(company_ids)))
-    companies = {c.id: c for c in companies_res.scalars().all()}
-
-    comparisons: List[Dict[str, Any]] = []
-    for cid in company_ids:
-        analytics = await _build_analytics(session, cid, s_date, e_date)
-        c = companies.get(cid)
-        comparisons.append(
-            {
-                "company_id": cid,
-                "company_name": c.name if c else f"Company {cid}",
-                "totals": analytics.get("totals", {}),
-                "avg_rating": analytics.get("totals", {}).get("avg_rating"),
-            }
-        )
-    return comparisons
-
-
-# ---------------------------------------------------------
-# INGESTION API (Service -> Database)
+# INGESTION API
 # ---------------------------------------------------------
 @router.post("/api/reviews/ingest/{company_id}")
 async def trigger_ingestion(
@@ -255,7 +125,6 @@ async def trigger_ingestion(
     max_reviews: Optional[int] = Query(None, ge=1, le=5000),
     session: AsyncSession = Depends(get_session),
 ):
-    """Trigger review ingestion for a company within a date window."""
     company = await session.get(Company, company_id)
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
@@ -265,8 +134,9 @@ async def trigger_ingestion(
         raise HTTPException(status_code=503, detail="Ingestion client not initialized")
 
     s_date, e_date = _resolve_range(start, end)
+
     logger.info(
-        f"🔄 INGESTION TRIGGERED: {company.name} | Window: {s_date} to {e_date} | max_reviews={max_reviews}"
+        f"🔄 INGESTION TRIGGERED: {company.name} | Window: {s_date} to {e_date}"
     )
 
     try:
@@ -275,14 +145,13 @@ async def trigger_ingestion(
             entities=[company],
             start=datetime.combine(s_date, datetime.min.time()),
             end=datetime.combine(e_date, datetime.max.time()),
-            session=session,              # ← Important: use the app's DB session
+            session=session,
             max_reviews=max_reviews,
         )
 
         return {
             "status": "success",
             "company": company.name,
-            "sync_range": {"start": s_date.isoformat(), "end": e_date.isoformat()},
             "ingestion_summary": summary,
         }
 
@@ -292,25 +161,53 @@ async def trigger_ingestion(
 
 
 # ---------------------------------------------------------
-# DASHBOARD DATA API (DB -> Structured JSON for Frontend)
+# DASHBOARD DATA API
 # ---------------------------------------------------------
 @router.get("/api/reviews")
 async def get_reviews(
+    request: Request,
     company_id: int = Query(...),
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=2000),
     include_analytics: bool = Query(True),
-    competitor_ids: Optional[List[int]] = Query(None, description="Optional competitor company_ids for comparisons"),
+    competitor_ids: Optional[List[int]] = Query(None),
     session: AsyncSession = Depends(get_session),
 ) -> Dict[str, Any]:
-    """Return feed + (optionally) analytics and competitor comparisons."""
+
     company = await session.get(Company, company_id)
     if not company:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
+        raise HTTPException(status_code=404, detail="Company not found")
 
     s_date, e_date = _resolve_range(start, end)
 
+    # ---------------------------------------------------------
+    # AUTO INGESTION IF DATABASE EMPTY
+    # ---------------------------------------------------------
+    client = getattr(request.app.state, "reviews_client", None)
+
+    count_stmt = select(func.count(Review.id)).where(
+        Review.company_id == company_id
+    )
+
+    count_res = await session.execute(count_stmt)
+    existing_reviews = count_res.scalar() or 0
+
+    if existing_reviews == 0 and client:
+        logger.info(f"⚡ No reviews found for {company.name}. Starting ingestion...")
+
+        await run_batch_review_ingestion(
+            client=client,
+            entities=[company],
+            start=datetime.combine(s_date, datetime.min.time()),
+            end=datetime.combine(e_date, datetime.max.time()),
+            session=session,
+            max_reviews=200,
+        )
+
+    # ---------------------------------------------------------
+    # FETCH REVIEWS
+    # ---------------------------------------------------------
     stmt = (
         select(Review)
         .where(
@@ -329,6 +226,7 @@ async def get_reviews(
         rows = result.scalars().all()
 
         feed: List[Dict[str, Any]] = []
+
         for row in rows:
             feed.append(
                 {
@@ -342,30 +240,12 @@ async def get_reviews(
 
         payload: Dict[str, Any] = {"feed": feed, "count": len(feed)}
 
-        if include_analytics:
-            analytics = await _build_analytics(session, company_id, s_date, e_date)
-            payload["analytics"] = analytics
-
-        if competitor_ids:
-            unique_ids: List[int] = []
-            seen = set()
-            for cid in [company_id] + competitor_ids:
-                if cid not in seen:
-                    seen.add(cid)
-                    unique_ids.append(cid)
-
-            comparisons = await _build_comparisons(session, unique_ids, s_date, e_date)
-            payload["comparisons"] = comparisons
-
         logger.info(
-            f"📊 DASHBOARD DATA: feed={len(feed)} | analytics={'yes' if include_analytics else 'no'} | "
-            f"comparisons={len(payload.get('comparisons', [])) if 'comparisons' in payload else 0} | "
-            f"company={company.name}"
+            f"📊 DASHBOARD DATA: feed={len(feed)} | company={company.name}"
         )
+
         return payload
 
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Database Query Error: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch dashboard reviews")
