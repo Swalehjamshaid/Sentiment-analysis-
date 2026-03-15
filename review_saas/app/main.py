@@ -27,11 +27,14 @@ from app.routes import reviews as reviews_routes
 from app.routes import exports as exports_routes
 from app.routes import google_check as google_routes
 
+# ---------------------------
+# Logging Setup
+# ---------------------------
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("app.main")
 
 # ---------------------------
-# FIXED: Outscraper Client
+# Outscraper Client
 # ---------------------------
 class OutscraperClient:
     BASE_URL = "https://api.app.outscraper.com/maps/reviews"
@@ -52,21 +55,18 @@ class OutscraperClient:
 
             logger.info("📡 Requesting Outscraper reviews for Place ID: %s", place_id)
             response = await self.client.get(self.BASE_URL, params=params, headers=headers)
-
-            if response.status_code != 200:
-                logger.error("❌ Outscraper API Error %s: %s", response.status_code, response.text)
-                return {"reviews": []}
-
+            response.raise_for_status()
             data = response.json()
+
             if isinstance(data, list) and len(data) > 0:
-                result_block = data[0]
-                reviews = result_block.get("reviews_data", [])
-                logger.info("✅ Successfully parsed %s reviews from Outscraper payload", len(reviews))
+                reviews = data[0].get("reviews_data", [])
+                logger.info("✅ Fetched %s reviews from Outscraper", len(reviews))
                 return {"reviews": reviews}
 
             return {"reviews": []}
+
         except Exception as e:
-            logger.error("🚨 Outscraper Client Failure: %s", e, exc_info=True)
+            logger.error("🚨 Outscraper API Error: %s", e, exc_info=True)
             return {"reviews": []}
 
     async def fetch_reviews(self, entity: Any, max_reviews: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -86,6 +86,7 @@ class OutscraperClient:
 # ---------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Database Initialization
     try:
         engine: AsyncEngine = get_engine()
         async with engine.begin() as conn:
@@ -94,6 +95,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("❌ Database startup failed: %s", e)
 
+    # Outscraper Client Setup
     api_key = os.getenv("OUTSCRAPER_API_KEY") or getattr(settings, "OUTSCRAPER_API_KEY", None)
     if api_key and len(api_key) > 10:
         app.state.reviews_client = OutscraperClient(api_key=api_key)
@@ -102,38 +104,50 @@ async def lifespan(app: FastAPI):
         logger.error("🛑 OUTSCRAPER_API_KEY missing.")
 
     yield
+
+    # Cleanup
     if hasattr(app.state, "reviews_client"):
         await app.state.reviews_client.close()
 
 
+# ---------------------------
+# FastAPI App Initialization
+# ---------------------------
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
 
+# ---------------------------
 # Auth Helper
+# ---------------------------
 def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
 
 
 # ---------------------------
-# Root Route Redirect
+# Routes
 # ---------------------------
+
 @app.get("/")
 async def root():
     return RedirectResponse(url="/dashboard")
 
 
-# Health
 @app.get("/health")
 async def health():
     return {"status": "ok", "database": "connected", "schema": SCHEMA_VERSION}
 
 
-# Dashboard
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
     if not user:
@@ -145,15 +159,15 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
     })
 
 
-# Login
 @app.post("/login")
 async def login_post(request: Request):
+    # Mock login for demo
     user = {"id": 1, "email": "roy.jamshaid@gmail.com", "name": "Swaleh"}
     request.session["user"] = user
     return RedirectResponse(url="/dashboard", status_code=303)
 
 
-# Routers
+# Include routers
 app.include_router(auth_routes.router)
 app.include_router(companies_routes.router)
 app.include_router(dashboard_routes.router)
@@ -162,7 +176,10 @@ app.include_router(exports_routes.router)
 app.include_router(google_routes.router)
 
 
+# ---------------------------
+# Main
+# ---------------------------
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True)
