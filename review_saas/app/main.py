@@ -1,4 +1,5 @@
 # filename: app/main.py
+
 from __future__ import annotations
 import logging
 import os
@@ -56,11 +57,14 @@ class OutscraperClient:
             response = await self.client.get(self.BASE_URL, params=params, headers=headers)
             response.raise_for_status()
             data = response.json()
+
             if isinstance(data, list) and len(data) > 0:
                 reviews = data[0].get("reviews_data", [])
                 logger.info("✅ Fetched %s reviews from Outscraper", len(reviews))
                 return {"reviews": reviews}
+
             return {"reviews": []}
+
         except Exception as e:
             logger.error("🚨 Outscraper API Error: %s", e, exc_info=True)
             return {"reviews": []}
@@ -75,6 +79,7 @@ class OutscraperClient:
 
     async def close(self):
         await self.client.aclose()
+
 
 # ---------------------------
 # Lifespan & App Setup
@@ -104,6 +109,7 @@ async def lifespan(app: FastAPI):
     if hasattr(app.state, "reviews_client"):
         await app.state.reviews_client.close()
 
+
 # ---------------------------
 # FastAPI App Initialization
 # ---------------------------
@@ -120,31 +126,65 @@ app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
+
 # ---------------------------
-# Auth Helper
+# Auth Helpers
 # ---------------------------
 def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
 
+
 # ---------------------------
-# Routes
+# Web Routes
 # ---------------------------
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 async def root():
     return RedirectResponse(url="/login")
 
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "database": "connected", "schema": SCHEMA_VERSION}
+
+
 @app.get("/login", response_class=HTMLResponse)
-async def login_get(request: Request):
+async def login_page(request: Request):
+    user = get_current_user(request)
+    if user:
+        return RedirectResponse(url="/dashboard", status_code=303)
     return templates.TemplateResponse("login.html", {"request": request})
+
 
 @app.post("/login")
 async def login_post(request: Request, email: str = Form(...), password: str = Form(...)):
-    # Simple authentication example
-    if email == "admin@example.com" and password == "password123":
-        user = {"id": 1, "email": email, "name": "Admin"}
+    # Simple authentication logic (replace with DB validation)
+    if email and password:
+        user = {"id": 1, "email": email, "name": email.split("@")[0]}
         request.session["user"] = user
         return RedirectResponse(url="/dashboard", status_code=303)
     return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"})
+
+
+@app.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request):
+    user = get_current_user(request)
+    if user:
+        return RedirectResponse(url="/dashboard", status_code=303)
+    return templates.TemplateResponse("register.html", {"request": request})
+
+
+@app.post("/register")
+async def register_post(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    name: str = Form(...),
+):
+    # Here you can implement DB save for registration
+    user = {"id": 2, "email": email, "name": name}
+    request.session["user"] = user
+    return RedirectResponse(url="/dashboard", status_code=303)
+
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
@@ -156,17 +196,23 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
         "google_api_key": settings.GOOGLE_API_KEY
     })
 
-@app.get("/health")
-async def health():
-    return {"status": "ok", "database": "connected", "schema": SCHEMA_VERSION}
 
-# Include routers
+@app.get("/logout")
+async def logout(request: Request):
+    request.session.pop("user", None)
+    return RedirectResponse(url="/login", status_code=303)
+
+
+# ---------------------------
+# Include API Routers
+# ---------------------------
 app.include_router(auth_routes.router)
 app.include_router(companies_routes.router)
 app.include_router(dashboard_routes.router)
 app.include_router(reviews_routes.router)
 app.include_router(exports_routes.router)
 app.include_router(google_routes.router)
+
 
 # ---------------------------
 # Main
