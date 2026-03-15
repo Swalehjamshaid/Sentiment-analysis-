@@ -18,6 +18,7 @@ from app.services.google_reviews import run_batch_review_ingestion
 
 router = APIRouter(tags=["reviews"])
 logger = logging.getLogger("app.reviews")
+logging.basicConfig(level=logging.INFO)
 
 GOOGLE_API_KEY = (
     os.getenv("GOOGLE_PLACES_API_KEY")
@@ -26,6 +27,7 @@ GOOGLE_API_KEY = (
 )
 
 HTTPX_TIMEOUT = 30.0
+
 
 # ---------------------------------------------------------
 # DATE HELPERS
@@ -43,11 +45,13 @@ def _parse_date(s: Optional[str]) -> Optional[date]:
     except Exception:
         return None
 
+
 def _resolve_range(start: Optional[str], end: Optional[str]) -> Tuple[date, date]:
     today = date.today()
     e_dt = _parse_date(end) or today
     s_dt = _parse_date(start) or (e_dt - timedelta(days=14))
     return s_dt, e_dt
+
 
 def _safe_day_str(dt: Optional[datetime]) -> str:
     if not dt:
@@ -57,6 +61,7 @@ def _safe_day_str(dt: Optional[datetime]) -> str:
     except Exception:
         return ""
 
+
 # ---------------------------------------------------------
 # HTTP CLIENT
 # ---------------------------------------------------------
@@ -64,6 +69,7 @@ def _safe_day_str(dt: Optional[datetime]) -> str:
 async def _httpx_client():
     async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
         yield client
+
 
 # ---------------------------------------------------------
 # GOOGLE AUTOCOMPLETE
@@ -80,10 +86,13 @@ async def google_autocomplete(input: str) -> Dict[str, Any]:
         async with _httpx_client() as client:
             r = await client.get(url, params=params)
             r.raise_for_status()
-            return {"predictions": r.json().get("predictions", [])}
+            predictions = r.json().get("predictions", [])
+            logger.info("Autocomplete fetched %d predictions for input: %s", len(predictions), input)
+            return {"predictions": predictions}
     except Exception as e:
-        logger.error(f"Autocomplete Error: {str(e)}", exc_info=True)
+        logger.error(f"Autocomplete Error: {str(e)}")
         raise HTTPException(status_code=502, detail="Upstream Google API failure")
+
 
 # ---------------------------------------------------------
 # GOOGLE PLACE DETAILS
@@ -94,11 +103,7 @@ async def google_place_details(place_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail="Google API key missing")
 
     url = "https://maps.googleapis.com/maps/api/place/details/json"
-    params = {
-        "place_id": place_id,
-        "fields": "name,formatted_address,rating,place_id",
-        "key": GOOGLE_API_KEY,
-    }
+    params = {"place_id": place_id, "fields": "name,formatted_address,rating,place_id", "key": GOOGLE_API_KEY}
 
     try:
         async with _httpx_client() as client:
@@ -112,8 +117,9 @@ async def google_place_details(place_id: str) -> Dict[str, Any]:
                 "place_id": res.get("place_id"),
             }
     except Exception as e:
-        logger.error(f"Details Error: {str(e)}", exc_info=True)
+        logger.error(f"Details Error: {str(e)}")
         raise HTTPException(status_code=502, detail="Upstream Google API failure")
+
 
 # ---------------------------------------------------------
 # REVIEW INGESTION ENDPOINT
@@ -136,7 +142,7 @@ async def trigger_ingestion(
         raise HTTPException(status_code=503, detail="Ingestion client not initialized")
 
     s_date, e_date = _resolve_range(start, end)
-    logger.info(f"🔄 INGESTION TRIGGERED: {company.name} | Window: {s_date} to {e_date}")
+    logger.info("🔄 INGESTION TRIGGERED for %s | Place ID: %s | Window: %s to %s", company.name, company.google_place_id, s_date, e_date)
 
     summary = await run_batch_review_ingestion(
         client=client,
@@ -147,7 +153,9 @@ async def trigger_ingestion(
         max_reviews=max_reviews,
     )
 
+    logger.info("✅ Ingestion summary: %s", summary)
     return {"status": "success", "company": company.name, "ingestion_summary": summary}
+
 
 # ---------------------------------------------------------
 # DASHBOARD REVIEWS ENDPOINT
@@ -170,23 +178,15 @@ async def get_reviews(
     s_date, e_date = _resolve_range(start, end)
     client = getattr(request.app.state, "reviews_client", None)
 
-    # ---------------------------------------------------------
-    # CHECK LAST REVIEW TIME
-    # ---------------------------------------------------------
+    # Check last review time
     latest_stmt = select(func.max(Review.google_review_time)).where(Review.company_id == company_id)
     latest_res = await session.execute(latest_stmt)
     latest_review_time = latest_res.scalar()
 
-    should_sync = False
-    if latest_review_time is None:
-        should_sync = True
-    else:
-        hours_since = (datetime.utcnow() - latest_review_time).total_seconds() / 3600
-        if hours_since > 24:
-            should_sync = True
+    should_sync = latest_review_time is None or ((datetime.utcnow() - latest_review_time).total_seconds() / 3600 > 24)
 
     if should_sync and client:
-        logger.info(f"⚡ Reviews stale/missing for {company.name}. Running ingestion...")
+        logger.info("⚡ Reviews stale or missing for %s. Running ingestion...", company.name)
         await run_batch_review_ingestion(
             client=client,
             entities=[company],
@@ -196,9 +196,7 @@ async def get_reviews(
             max_reviews=200,
         )
 
-    # ---------------------------------------------------------
-    # FETCH REVIEWS
-    # ---------------------------------------------------------
+    # Fetch reviews
     stmt = (
         select(Review)
         .where(
@@ -211,6 +209,7 @@ async def get_reviews(
         .order_by(desc(Review.google_review_time))
         .limit(limit)
     )
+
     result = await session.execute(stmt)
     rows = result.scalars().all()
 
@@ -226,6 +225,5 @@ async def get_reviews(
             }
         )
 
-    payload: Dict[str, Any] = {"feed": feed, "count": len(feed)}
-    logger.info(f"📊 DASHBOARD DATA: feed={len(feed)} | company={company.name}")
-    return payload
+    logger.info("📊 DASHBOARD DATA: feed=%s | company=%s", len(feed), company.name)
+    return {"feed": feed, "count": len(feed)}
