@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import hashlib
 import logging
+import asyncio  # Moved to top-level to fix UnboundLocalError
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
@@ -29,6 +30,8 @@ def get_async_url() -> str:
     url = os.getenv("DATABASE_URL", "")
     if not url:
         return "postgresql+asyncpg://postgres:postgres@localhost:5432/postgres"
+    
+    # Railway/Heroku standard fix for postgres:// vs postgresql://
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+asyncpg://", 1)
     elif url.startswith("postgresql://") and "+asyncpg" not in url:
@@ -86,14 +89,20 @@ def _coerce_datetime(value: Any) -> Optional[datetime]:
         return value.replace(tzinfo=None)
     try:
         if isinstance(value, (int, float)):
-            if float(value) > 10_000_000_000:  # ms
+            # Handle milliseconds vs seconds
+            if float(value) > 10_000_000_000:  
                 return datetime.utcfromtimestamp(float(value) / 1000.0)
             return datetime.utcfromtimestamp(float(value))
     except Exception:
         pass
+    
     if isinstance(value, str):
-        for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%SZ",
-                    "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        formats = (
+            "%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%S.%f", 
+            "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S", 
+            "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"
+        )
+        for fmt in formats:
             try:
                 return datetime.strptime(value, fmt)
             except Exception:
@@ -101,8 +110,9 @@ def _coerce_datetime(value: Any) -> Optional[datetime]:
     return None
 
 def _sentiment_from_rating(r: Optional[float]) -> float:
-    """Convert 1-5 star rating to -1.0 to 1.0 sentiment."""
-    if r is None: return 0.0
+    """Convert 1-5 star rating to -1.0 to 1.0 sentiment score."""
+    if r is None: 
+        return 0.0
     try:
         r = max(1.0, min(5.0, float(r)))
         return round((r - 3.0) / 2.0, 2)
@@ -110,7 +120,7 @@ def _sentiment_from_rating(r: Optional[float]) -> float:
         return 0.0
 
 def _stable_hash_id(author: str, text: str, dt: datetime) -> str:
-    """Generate stable ID if no external ID."""
+    """Generate stable MD5 ID if no external ID is provided by scraper."""
     base = f"{author}{text}{dt.isoformat()}"
     return hashlib.md5(base.encode()).hexdigest()
 
@@ -118,20 +128,26 @@ def _stable_hash_id(author: str, text: str, dt: datetime) -> str:
 # Outscraper Review Service
 # ──────────────────────────────────────────────────────────────────────────────
 class OutscraperReviewsService:
-    """Normalize raw scraper data into ReviewData."""
+    """Normalize raw scraper data into ReviewData objects."""
     def __init__(self, source_platform: str = "Google") -> None:
         self.source_platform = source_platform
 
     def normalize(self, raw: Dict[str, Any], company_id: int) -> Optional[ReviewData]:
         if not raw:
             return None
+        
         author = raw.get("author_name") or raw.get("author_title") or "Anonymous"
         text = raw.get("review_text") or raw.get("text") or ""
         rating = float(raw.get("review_rating") or raw.get("rating") or 0.0)
+        
         when = raw.get("review_timestamp") or raw.get("time") or raw.get("review_datetime_utc")
         dt = _coerce_datetime(when) or datetime.utcnow()
+        
         profile = raw.get("author_image") or raw.get("profile_photo_url") or ""
+        
+        # Determine unique ID for deduplication
         external_id = raw.get("review_id") or raw.get("google_review_id") or _stable_hash_id(author, text, dt)
+        
         sent = raw.get("sentiment_score")
 
         return ReviewData(
@@ -157,53 +173,58 @@ async def run_batch_review_ingestion(
     max_reviews: Optional[int] = None,
     source_platform: str = "Google"
 ) -> Dict[str, Any]:
-    """Fetch from Outscraper, dedupe, save to PostgreSQL, return summary."""
+    """
+    Fetches reviews from Outscraper, normalizes them, 
+    deduplicates against existing DB records, and saves to PostgreSQL.
+    """
     summary = {"total_saved": 0, "companies": []}
     service = OutscraperReviewsService(source_platform=source_platform)
 
     for ent in entities:
+        new_count = 0
         try:
             cid_int = int(getattr(ent, "id", 0))
             logger.info(f"Fetching reviews for company {cid_int}...")
             
-            # Support async or sync client
+            # Use the top-level asyncio to safely handle sync vs async clients
             if asyncio.iscoroutinefunction(client.fetch_reviews):
                 raw_reviews = await client.fetch_reviews(ent, max_reviews=max_reviews)
             else:
-                import asyncio
+                # Runs the synchronous Outscraper SDK in a separate thread to keep the loop free
                 raw_reviews = await asyncio.to_thread(client.fetch_reviews, ent, max_reviews=max_reviews)
             
             logger.info(f"Fetched {len(raw_reviews)} raw reviews for company {cid_int}")
-            logger.debug(f"Raw review data: {raw_reviews}")
+            
         except Exception as ex:
             logger.error(f"Ingestion failed for entity {ent}: {ex}")
             continue
 
-        new_count = 0
         async with get_session() as session:
             for raw in raw_reviews:
                 rd = service.normalize(raw, company_id=cid_int)
                 if not rd:
-                    logger.warning(f"Skipping empty/invalid review: {raw}")
                     continue
 
-                # Date filter
+                # Filter by provided date range
                 if start and rd.review_time < start:
                     continue
                 if end and rd.review_time > end:
                     continue
 
-                # Deduplication check
+                # Deduplication: Check if review already exists for this company
                 exists_q = select(Review.id).where(
-                    and_(Review.company_id == cid_int, Review.google_review_id == rd.external_review_id)
+                    and_(
+                        Review.company_id == cid_int, 
+                        Review.google_review_id == rd.external_review_id
+                    )
                 ).limit(1)
+                
                 exists_res = await session.execute(exists_q)
                 if exists_res.first():
-                    logger.debug(f"Duplicate review skipped: {rd.external_review_id}")
                     continue
 
-                # Add review
-                session.add(Review(
+                # Create new Review object
+                new_review = Review(
                     company_id=cid_int,
                     google_review_id=rd.external_review_id,
                     author_name=rd.author_name,
@@ -212,15 +233,19 @@ async def run_batch_review_ingestion(
                     google_review_time=rd.review_time,
                     sentiment_score=rd.sentiment_score,
                     profile_photo_url=rd.profile_photo_url
-                ))
-                logger.info(f"Adding review {rd.external_review_id} for company {cid_int}")
+                )
+                
+                session.add(new_review)
                 new_count += 1
 
             try:
-                await session.commit()
-                logger.info(f"Saved {new_count} new reviews for company {cid_int}")
+                if new_count > 0:
+                    await session.commit()
+                    logger.info(f"Successfully committed {new_count} reviews for company {cid_int}")
             except Exception as e:
+                await session.rollback()
                 logger.error(f"Failed to commit reviews for company {cid_int}: {e}")
+                new_count = 0  # Reset count if commit failed
 
         summary["total_saved"] += new_count
         summary["companies"].append({"company_id": cid_int, "saved": new_count})
