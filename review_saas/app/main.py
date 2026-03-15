@@ -4,20 +4,21 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Any, Dict, Optional, List
+from typing import Any, Optional, List
 
 import httpx
-from fastapi import FastAPI, Request, Depends, HTTPException, status, Form
+from fastapi import FastAPI, Request, Depends, Form, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.future import select
 
 from app.core.config import settings
-from app.core.db import get_engine
-from app.core.models import Base, SCHEMA_VERSION, Company, Review
+from app.core.db import get_engine, get_session
+from app.core.models import Base, SCHEMA_VERSION, User
 
 # Routers
 from app.routes import auth as auth_routes
@@ -43,33 +44,22 @@ class OutscraperClient:
         self.api_key = api_key
         self.client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=30.0))
 
-    async def get_reviews(self, place_id: str, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
+    async def get_reviews(self, place_id: str, limit: int = 100, offset: int = 0) -> dict[str, Any]:
         try:
-            params = {
-                "query": place_id,
-                "limit": limit,
-                "offset": offset,
-                "async": "false"
-            }
+            params = {"query": place_id, "limit": limit, "offset": offset, "async": "false"}
             headers = {"X-API-KEY": self.api_key}
-
-            logger.info("📡 Requesting Outscraper reviews for Place ID: %s", place_id)
             response = await self.client.get(self.BASE_URL, params=params, headers=headers)
             response.raise_for_status()
             data = response.json()
-
             if isinstance(data, list) and len(data) > 0:
                 reviews = data[0].get("reviews_data", [])
-                logger.info("✅ Fetched %s reviews from Outscraper", len(reviews))
                 return {"reviews": reviews}
-
             return {"reviews": []}
-
         except Exception as e:
-            logger.error("🚨 Outscraper API Error: %s", e, exc_info=True)
+            logger.error("Outscraper API Error: %s", e, exc_info=True)
             return {"reviews": []}
 
-    async def fetch_reviews(self, entity: Any, max_reviews: Optional[int] = None) -> List[Dict[str, Any]]:
+    async def fetch_reviews(self, entity: Any, max_reviews: Optional[int] = None) -> List[dict[str, Any]]:
         place_id = getattr(entity, "google_place_id", entity if isinstance(entity, str) else None)
         if not place_id:
             return []
@@ -79,7 +69,6 @@ class OutscraperClient:
 
     async def close(self):
         await self.client.aclose()
-
 
 # ---------------------------
 # Lifespan & App Setup
@@ -109,7 +98,6 @@ async def lifespan(app: FastAPI):
     if hasattr(app.state, "reviews_client"):
         await app.state.reviews_client.close()
 
-
 # ---------------------------
 # FastAPI App Initialization
 # ---------------------------
@@ -126,66 +114,79 @@ app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
-
 # ---------------------------
 # Auth Helpers
 # ---------------------------
 def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
 
+# ---------------------------
+# Routes
+# ---------------------------
 
-# ---------------------------
-# Web Routes
-# ---------------------------
-@app.get("/")
-async def root():
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request):
+    user = get_current_user(request)
+    if user:
+        return RedirectResponse(url="/dashboard")
     return RedirectResponse(url="/login")
 
-
-@app.get("/health")
-async def health():
-    return {"status": "ok", "database": "connected", "schema": SCHEMA_VERSION}
-
-
+# ---------------------------
+# LOGIN
+# ---------------------------
 @app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
-    user = get_current_user(request)
-    if user:
-        return RedirectResponse(url="/dashboard", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request})
-
+async def login_get(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request, "user": None})
 
 @app.post("/login")
-async def login_post(request: Request, email: str = Form(...), password: str = Form(...)):
-    # Simple authentication logic (replace with DB validation)
-    if email and password:
-        user = {"id": 1, "email": email, "name": email.split("@")[0]}
-        request.session["user"] = user
+async def login_post(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    session_db: AsyncEngine = Depends(get_session),
+):
+    async with session_db() as session:
+        result = await session.execute(select(User).where(User.email == email))
+        user = result.scalars().first()
+        if not user or not user.check_password(password):
+            return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"})
+        # Save session
+        request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
         return RedirectResponse(url="/dashboard", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"})
 
-
+# ---------------------------
+# REGISTRATION
+# ---------------------------
 @app.get("/register", response_class=HTMLResponse)
-async def register_page(request: Request):
-    user = get_current_user(request)
-    if user:
-        return RedirectResponse(url="/dashboard", status_code=303)
-    return templates.TemplateResponse("register.html", {"request": request})
-
+async def register_get(request: Request):
+    return templates.TemplateResponse("register.html", {"request": request, "user": None})
 
 @app.post("/register")
 async def register_post(
     request: Request,
+    name: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
-    name: str = Form(...),
+    session_db: AsyncEngine = Depends(get_session),
 ):
-    # Here you can implement DB save for registration
-    user = {"id": 2, "email": email, "name": name}
-    request.session["user"] = user
-    return RedirectResponse(url="/dashboard", status_code=303)
+    async with session_db() as session:
+        # Check if user exists
+        result = await session.execute(select(User).where(User.email == email))
+        existing = result.scalars().first()
+        if existing:
+            return templates.TemplateResponse("register.html", {"request": request, "error": "Email already registered"})
+        # Create user
+        user = User(name=name, email=email)
+        user.set_password(password)
+        session.add(user)
+        await session.commit()
+        # Save session
+        request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
+        return RedirectResponse(url="/dashboard", status_code=303)
 
-
+# ---------------------------
+# DASHBOARD
+# ---------------------------
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
     if not user:
@@ -196,15 +197,16 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
         "google_api_key": settings.GOOGLE_API_KEY
     })
 
-
+# ---------------------------
+# Logout
+# ---------------------------
 @app.get("/logout")
 async def logout(request: Request):
-    request.session.pop("user", None)
+    request.session.clear()
     return RedirectResponse(url="/login", status_code=303)
 
-
 # ---------------------------
-# Include API Routers
+# Include routers
 # ---------------------------
 app.include_router(auth_routes.router)
 app.include_router(companies_routes.router)
@@ -212,7 +214,6 @@ app.include_router(dashboard_routes.router)
 app.include_router(reviews_routes.router)
 app.include_router(exports_routes.router)
 app.include_router(google_routes.router)
-
 
 # ---------------------------
 # Main
