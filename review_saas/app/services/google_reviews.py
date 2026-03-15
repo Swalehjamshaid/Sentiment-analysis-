@@ -1,7 +1,6 @@
 # filename: review_saas/app/services/google_reviews.py
 from __future__ import annotations
 
-import os
 import hashlib
 import logging
 import asyncio
@@ -15,11 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.models import Review
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Logging setup
+# Logging
 # ──────────────────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.google_reviews")
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Data structures
@@ -51,19 +49,18 @@ class CompanyReviews:
             return 0.0
         return round(sum(r.rating for r in self.reviews) / len(self.reviews), 2)
 
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 def _coerce_datetime(value: Any) -> Optional[datetime]:
-    """Universal parser for timestamps or strings."""
+    """Universal parser for timestamps or date strings to naive UTC datetime."""
     if value is None:
         return None
     if isinstance(value, datetime):
         return value.replace(tzinfo=None)
     try:
         if isinstance(value, (int, float)):
-            # Handle milliseconds vs seconds
+            # milliseconds vs seconds
             if float(value) > 10_000_000_000:
                 return datetime.utcfromtimestamp(float(value) / 1000.0)
             return datetime.utcfromtimestamp(float(value))
@@ -88,7 +85,7 @@ def _coerce_datetime(value: Any) -> Optional[datetime]:
 
 
 def _sentiment_from_rating(r: Optional[float]) -> float:
-    """Convert 1-5 star rating to -1.0 to 1.0 sentiment score."""
+    """Convert 1-5 star rating to -1.0 .. 1.0 sentiment score."""
     if r is None:
         return 0.0
     try:
@@ -99,13 +96,12 @@ def _sentiment_from_rating(r: Optional[float]) -> float:
 
 
 def _stable_hash_id(author: str, text: str, dt: datetime) -> str:
-    """Generate stable MD5 ID if no external ID is provided by scraper."""
+    """Generate stable MD5 ID when scraper doesn't provide one."""
     base = f"{author}{text}{dt.isoformat()}"
     return hashlib.md5(base.encode()).hexdigest()
 
-
 # ──────────────────────────────────────────────────────────────────────────────
-# Outscraper Review Service
+# Normalization Service
 # ──────────────────────────────────────────────────────────────────────────────
 class OutscraperReviewsService:
     """Normalize raw scraper data into ReviewData objects."""
@@ -127,7 +123,11 @@ class OutscraperReviewsService:
         profile = raw.get("author_image") or raw.get("profile_photo_url") or ""
 
         # Determine unique ID for deduplication
-        external_id = raw.get("review_id") or raw.get("google_review_id") or _stable_hash_id(author, text, dt)
+        external_id = (
+            raw.get("review_id")
+            or raw.get("google_review_id")
+            or _stable_hash_id(author, text, dt)
+        )
 
         sent = raw.get("sentiment_score")
 
@@ -143,9 +143,8 @@ class OutscraperReviewsService:
             sentiment_score=float(sent) if sent is not None else _sentiment_from_rating(rating),
         )
 
-
 # ──────────────────────────────────────────────────────────────────────────────
-# Main ingestion engine
+# Ingestion (uses the app's AsyncSession — no internal engine)
 # ──────────────────────────────────────────────────────────────────────────────
 async def run_batch_review_ingestion(
     client: Any,
@@ -158,12 +157,10 @@ async def run_batch_review_ingestion(
     source_platform: str = "Google",
 ) -> Dict[str, Any]:
     """
-    Fetch reviews from Outscraper, normalize, deduplicate against existing DB records,
-    and save to PostgreSQL using the provided AsyncSession.
+    Fetch reviews via client, normalize, de-duplicate, and persist using the
+    provided AsyncSession (same DB as the FastAPI app).
 
-    NOTE:
-      - `session` is REQUIRED (aligned with FastAPI dependency in reviews.py).
-      - `max_reviews` is forwarded to the client to limit payload size.
+    This fixes: data not saving because a separate engine/session was used.
     """
     summary: Dict[str, Any] = {"total_saved": 0, "companies": []}
     service = OutscraperReviewsService(source_platform=source_platform)
@@ -175,65 +172,74 @@ async def run_batch_review_ingestion(
             logger.info(f"Fetching reviews for company {cid_int}...")
 
             # Support both async and sync clients
-            if asyncio.iscoroutinefunction(getattr(client, "fetch_reviews", None)):
-                raw_reviews = await client.fetch_reviews(ent, max_reviews=max_reviews)
+            fetch = getattr(client, "fetch_reviews", None)
+            if asyncio.iscoroutinefunction(fetch):
+                raw_reviews = await fetch(ent, max_reviews=max_reviews)
             else:
-                raw_reviews = await asyncio.to_thread(client.fetch_reviews, ent, max_reviews=max_reviews)
+                raw_reviews = await asyncio.to_thread(fetch, ent, max_reviews=max_reviews)
 
             raw_reviews = raw_reviews or []
             logger.info(f"Fetched {len(raw_reviews)} raw reviews for company {cid_int}")
 
         except Exception as ex:
             logger.error(f"Ingestion failed for entity {ent}: {ex}")
-            summary["companies"].append({"company_id": int(getattr(ent, "id", 0)), "saved": 0, "error": str(ex)})
+            summary["companies"].append({
+                "company_id": int(getattr(ent, "id", 0)),
+                "saved": 0,
+                "error": str(ex),
+            })
             continue
 
-        # Persist reviews using the provided session
+        # Persist via the shared session
         for raw in raw_reviews:
             rd = service.normalize(raw, company_id=cid_int)
             if not rd:
                 continue
 
-            # Filter by provided date range
+            # Date filter
             if start and rd.review_time < start:
                 continue
             if end and rd.review_time > end:
                 continue
 
-            # Deduplication: Check if review already exists for this company
+            # Deduplicate on (company_id, google_review_id)
             exists_q = (
                 select(Review.id)
-                .where(and_(Review.company_id == cid_int, Review.google_review_id == rd.external_review_id))
+                .where(
+                    and_(
+                        Review.company_id == cid_int,
+                        Review.google_review_id == rd.external_review_id,
+                    )
+                )
                 .limit(1)
             )
-
             exists_res = await session.execute(exists_q)
             if exists_res.first():
                 continue
 
-            # Create new Review object
-            new_review = Review(
-                company_id=cid_int,
-                google_review_id=rd.external_review_id,
-                author_name=rd.author_name,
-                rating=rd.rating,
-                text=rd.text,
-                google_review_time=rd.review_time,
-                sentiment_score=rd.sentiment_score,
-                profile_photo_url=rd.profile_photo_url,
+            # Insert
+            session.add(
+                Review(
+                    company_id=cid_int,
+                    google_review_id=rd.external_review_id,
+                    author_name=rd.author_name,
+                    rating=rd.rating,
+                    text=rd.text,
+                    google_review_time=rd.review_time,
+                    sentiment_score=rd.sentiment_score,
+                    profile_photo_url=rd.profile_photo_url,
+                )
             )
-
-            session.add(new_review)
             new_count += 1
 
         try:
             if new_count > 0:
                 await session.commit()
-                logger.info(f"Successfully committed {new_count} reviews for company {cid_int}")
+                logger.info(f"Committed {new_count} reviews for company {cid_int}")
         except Exception as e:
             await session.rollback()
-            logger.error(f"Failed to commit reviews for company {cid_int}: {e}")
-            new_count = 0  # Reset count if commit failed
+            logger.error(f"Commit failed for company {cid_int}: {e}")
+            new_count = 0
 
         summary["total_saved"] += new_count
         summary["companies"].append({"company_id": cid_int, "saved": new_count})
