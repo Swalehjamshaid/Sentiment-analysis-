@@ -1,30 +1,31 @@
 # filename: review_saas/app/services/google_reviews.py
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
-import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from app.core.models import Review
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Logging
 # ──────────────────────────────────────────────────────────────────────────────
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.google_reviews")
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Data structures
 # ──────────────────────────────────────────────────────────────────────────────
 @dataclass
 class ReviewData:
-    """Normalized single review."""
+    """Normalized single review from any scraper/client."""
     company_id: int
     author_name: str
     rating: float
@@ -39,7 +40,7 @@ class ReviewData:
 
 @dataclass
 class CompanyReviews:
-    """Collection of reviews for a company."""
+    """A collection of normalized reviews for a company."""
     company_id: int
     reviews: List[ReviewData] = field(default_factory=list)
 
@@ -49,24 +50,28 @@ class CompanyReviews:
             return 0.0
         return round(sum(r.rating for r in self.reviews) / len(self.reviews), 2)
 
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 def _coerce_datetime(value: Any) -> Optional[datetime]:
-    """Universal parser for timestamps or date strings to naive UTC datetime."""
+    """Parse common timestamp formats to naive UTC datetime."""
     if value is None:
         return None
     if isinstance(value, datetime):
         return value.replace(tzinfo=None)
+
+    # Unix seconds / milliseconds
     try:
         if isinstance(value, (int, float)):
-            # milliseconds vs seconds
-            if float(value) > 10_000_000_000:
-                return datetime.utcfromtimestamp(float(value) / 1000.0)
-            return datetime.utcfromtimestamp(float(value))
+            v = float(value)
+            if v > 10_000_000_000:  # milliseconds
+                return datetime.utcfromtimestamp(v / 1000.0)
+            return datetime.utcfromtimestamp(v)
     except Exception:
         pass
 
+    # ISO / common string formats
     if isinstance(value, str):
         formats = (
             "%Y-%m-%dT%H:%M:%S.%fZ",
@@ -85,7 +90,7 @@ def _coerce_datetime(value: Any) -> Optional[datetime]:
 
 
 def _sentiment_from_rating(r: Optional[float]) -> float:
-    """Convert 1-5 star rating to -1.0 .. 1.0 sentiment score."""
+    """Map 1–5 star rating to a rough sentiment in [-1, 1]."""
     if r is None:
         return 0.0
     try:
@@ -96,15 +101,16 @@ def _sentiment_from_rating(r: Optional[float]) -> float:
 
 
 def _stable_hash_id(author: str, text: str, dt: datetime) -> str:
-    """Generate stable MD5 ID when scraper doesn't provide one."""
+    """Generate a stable hash when the scraper does not provide a unique id."""
     base = f"{author}{text}{dt.isoformat()}"
     return hashlib.md5(base.encode()).hexdigest()
 
+
 # ──────────────────────────────────────────────────────────────────────────────
-# Normalization Service
+# Normalizer
 # ──────────────────────────────────────────────────────────────────────────────
 class OutscraperReviewsService:
-    """Normalize raw scraper data into ReviewData objects."""
+    """Turns raw scraper dicts into our normalized ReviewData."""
 
     def __init__(self, source_platform: str = "Google") -> None:
         self.source_platform = source_platform
@@ -122,11 +128,11 @@ class OutscraperReviewsService:
 
         profile = raw.get("author_image") or raw.get("profile_photo_url") or ""
 
-        # Determine unique ID for deduplication
+        # Prefer explicit IDs, else fall back to a stable hash
         external_id = (
             raw.get("review_id")
             or raw.get("google_review_id")
-            or _stable_hash_id(author, text, dt)
+            or _stable_hash_id(str(author), str(text), dt)
         )
 
         sent = raw.get("sentiment_score")
@@ -143,106 +149,132 @@ class OutscraperReviewsService:
             sentiment_score=float(sent) if sent is not None else _sentiment_from_rating(rating),
         )
 
+
 # ──────────────────────────────────────────────────────────────────────────────
-# Ingestion (uses the app's AsyncSession — no internal engine)
+# Main ingestion (uses the SAME AsyncSession as FastAPI -> fixes “not saving”)
 # ──────────────────────────────────────────────────────────────────────────────
 async def run_batch_review_ingestion(
     client: Any,
     entities: Iterable[Any],
     *,
-    session: AsyncSession,
+    session: AsyncSession,                 # ← REQUIRED: use app session (no separate engine)
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
     max_reviews: Optional[int] = None,
     source_platform: str = "Google",
 ) -> Dict[str, Any]:
     """
-    Fetch reviews via client, normalize, de-duplicate, and persist using the
-    provided AsyncSession (same DB as the FastAPI app).
+    Fetch reviews via `client.fetch_reviews(entity, max_reviews=...)`,
+    normalize, de-duplicate, and persist using the provided AsyncSession.
 
-    This fixes: data not saving because a separate engine/session was used.
+    Returns:
+      {
+        "total_saved": int,
+        "total_fetched": int,
+        "total_duplicates": int,
+        "companies": [
+          {"company_id": int, "fetched": int, "saved": int, "duplicates": int}
+        ]
+      }
     """
-    summary: Dict[str, Any] = {"total_saved": 0, "companies": []}
     service = OutscraperReviewsService(source_platform=source_platform)
+    summary: Dict[str, Any] = {
+        "total_saved": 0,
+        "total_fetched": 0,
+        "total_duplicates": 0,
+        "companies": [],
+    }
 
     for ent in entities:
-        new_count = 0
-        try:
-            cid_int = int(getattr(ent, "id", 0))
-            logger.info(f"Fetching reviews for company {cid_int}...")
+        company_id = int(getattr(ent, "id", 0))
+        company_saved = 0
+        company_dupes = 0
+        company_fetched = 0
 
-            # Support both async and sync clients
-            fetch = getattr(client, "fetch_reviews", None)
-            if asyncio.iscoroutinefunction(fetch):
-                raw_reviews = await fetch(ent, max_reviews=max_reviews)
+        try:
+            # Support both async & sync clients
+            fetch_fn = getattr(client, "fetch_reviews", None)
+            if fetch_fn is None:
+                raise RuntimeError("Client does not expose fetch_reviews(...)")
+
+            if asyncio.iscoroutinefunction(fetch_fn):
+                raw_reviews = await fetch_fn(ent, max_reviews=max_reviews)
             else:
-                raw_reviews = await asyncio.to_thread(fetch, ent, max_reviews=max_reviews)
+                raw_reviews = await asyncio.to_thread(fetch_fn, ent, max_reviews=max_reviews)
 
             raw_reviews = raw_reviews or []
-            logger.info(f"Fetched {len(raw_reviews)} raw reviews for company {cid_int}")
+            company_fetched = len(raw_reviews)
+            summary["total_fetched"] += company_fetched
+            logger.info(f"[Ingest] Fetched {company_fetched} raw reviews for company {company_id}")
 
         except Exception as ex:
-            logger.error(f"Ingestion failed for entity {ent}: {ex}")
-            summary["companies"].append({
-                "company_id": int(getattr(ent, "id", 0)),
-                "saved": 0,
-                "error": str(ex),
-            })
+            logger.exception(f"[Ingest] Fetch failed for company {company_id}: {ex}")
+            summary["companies"].append(
+                {"company_id": company_id, "fetched": 0, "saved": 0, "duplicates": 0, "error": str(ex)}
+            )
             continue
 
-        # Persist via the shared session
+        # Normalize + persist
         for raw in raw_reviews:
-            rd = service.normalize(raw, company_id=cid_int)
+            rd = service.normalize(raw, company_id=company_id)
             if not rd:
                 continue
 
-            # Date filter
+            # Date window filter (inclusive)
             if start and rd.review_time < start:
                 continue
             if end and rd.review_time > end:
                 continue
 
-            # Deduplicate on (company_id, google_review_id)
+            # De-dup using google_review_id (or stable hash fallback)
             exists_q = (
                 select(Review.id)
-                .where(
-                    and_(
-                        Review.company_id == cid_int,
-                        Review.google_review_id == rd.external_review_id,
-                    )
-                )
+                .where(and_(Review.company_id == company_id, Review.google_review_id == rd.external_review_id))
                 .limit(1)
             )
-            exists_res = await session.execute(exists_q)
-            if exists_res.first():
+            res = await session.execute(exists_q)
+            if res.first():
+                company_dupes += 1
                 continue
 
-            # Insert
-            session.add(
-                Review(
-                    company_id=cid_int,
-                    google_review_id=rd.external_review_id,
-                    author_name=rd.author_name,
-                    rating=rd.rating,
-                    text=rd.text,
-                    google_review_time=rd.review_time,
-                    sentiment_score=rd.sentiment_score,
-                    profile_photo_url=rd.profile_photo_url,
-                )
+            # Build ORM object (align fields with your Review model)
+            obj = Review(
+                company_id=company_id,
+                google_review_id=rd.external_review_id,
+                author_name=rd.author_name,
+                rating=rd.rating,
+                text=rd.text,
+                google_review_time=rd.review_time,
+                sentiment_score=rd.sentiment_score,
+                profile_photo_url=rd.profile_photo_url,
             )
-            new_count += 1
+            session.add(obj)
+            company_saved += 1
 
+        # Commit batch for this company
         try:
-            if new_count > 0:
+            if company_saved > 0:
                 await session.commit()
-                logger.info(f"Committed {new_count} reviews for company {cid_int}")
+            else:
+                # Ensure the session stays clean between entities
+                await session.flush()
+        except IntegrityError as ie:
+            # If DB has a unique index on (company_id, google_review_id)
+            await session.rollback()
+            logger.warning(f"[Ingest] IntegrityError for company {company_id}: {ie}")
         except Exception as e:
             await session.rollback()
-            logger.error(f"Commit failed for company {cid_int}: {e}")
-            new_count = 0
+            logger.exception(f"[Ingest] Commit failed for company {company_id}: {e}")
 
-        summary["total_saved"] += new_count
-        summary["companies"].append({"company_id": cid_int, "saved": new_count})
+        summary["total_saved"] += company_saved
+        summary["total_duplicates"] += company_dupes
+        summary["companies"].append(
+            {"company_id": company_id, "fetched": company_fetched, "saved": company_saved, "duplicates": company_dupes}
+        )
 
-    logger.info(f"Batch ingestion complete: {summary}")
+        logger.info(
+            f"[Ingest] Company {company_id}: fetched={company_fetched}, saved={company_saved}, dupes={company_dupes}"
+        )
+
+    logger.info(f"[Ingest] Batch complete: {summary}")
     return summary
