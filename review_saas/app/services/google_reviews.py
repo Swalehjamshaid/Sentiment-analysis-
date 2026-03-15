@@ -14,18 +14,20 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.models import Review
 
-# ───────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────
 # Logging setup
-# ───────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.google_reviews")
 
-# ───────────────────────────────────────────────────────────────
+
+# ──────────────────────────────────────────────────────────────
 # Data structures
-# ───────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────
 @dataclass
 class ReviewData:
     """Normalized single review."""
+
     company_id: int
     author_name: str
     rating: float
@@ -41,6 +43,7 @@ class ReviewData:
 @dataclass
 class CompanyReviews:
     """Collection of reviews for a company."""
+
     company_id: int
     reviews: List[ReviewData] = field(default_factory=list)
 
@@ -50,18 +53,19 @@ class CompanyReviews:
             return 0.0
         return round(sum(r.rating for r in self.reviews) / len(self.reviews), 2)
 
-# ───────────────────────────────────────────────────────────────
+
+# ──────────────────────────────────────────────────────────────
 # Helpers
-# ───────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────
 def _coerce_datetime(value: Any) -> Optional[datetime]:
-    """Universal parser for timestamps or strings, returns naive UTC."""
+    """Universal parser for timestamps or strings (naive UTC)."""
     if value is None:
         return None
     if isinstance(value, datetime):
         return value.replace(tzinfo=None)
     try:
         if isinstance(value, (int, float)):
-            if float(value) > 10_000_000_000:  # milliseconds
+            if float(value) > 10_000_000_000:
                 return datetime.utcfromtimestamp(float(value) / 1000.0)
             return datetime.utcfromtimestamp(float(value))
     except Exception:
@@ -82,29 +86,35 @@ def _coerce_datetime(value: Any) -> Optional[datetime]:
                 continue
     return None
 
+
 def _coerce_rating(x: Any) -> float:
     try:
         return float(x)
     except Exception:
         return 0.0
 
+
 def _sentiment_from_rating(r: Optional[float]) -> float:
-    """Convert 1-5 rating to -1 to 1 sentiment score."""
     if r is None:
         return 0.0
-    r = max(1.0, min(5.0, float(r)))
-    return round((r - 3.0) / 2.0, 2)
+    try:
+        r = max(1.0, min(5.0, float(r)))
+        return round((r - 3.0) / 2.0, 2)
+    except Exception:
+        return 0.0
+
 
 def _stable_hash_id(company_id: int, author: str, text: str, dt: datetime) -> str:
-    """Generate stable MD5 ID if no external ID exists."""
+    """Stable MD5 for deduplication."""
     a = (author or "").strip().lower()
     t = " ".join((text or "").split())
     base = f"{company_id}|{a}|{t}|{dt.isoformat()}"
     return hashlib.md5(base.encode("utf-8")).hexdigest()
 
-# ───────────────────────────────────────────────────────────────
+
+# ──────────────────────────────────────────────────────────────
 # Outscraper Review Service
-# ───────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────
 class OutscraperReviewsService:
     """Normalize raw scraper data into ReviewData objects."""
 
@@ -118,6 +128,7 @@ class OutscraperReviewsService:
         author = raw.get("author_name") or raw.get("author_title") or "Anonymous"
         text = raw.get("review_text") or raw.get("text") or ""
         rating = _coerce_rating(raw.get("review_rating") or raw.get("rating"))
+
         when = raw.get("review_timestamp") or raw.get("time") or raw.get("review_datetime_utc")
         dt = _coerce_datetime(when)
         time_inferred = False
@@ -125,10 +136,15 @@ class OutscraperReviewsService:
             logger.warning("Unparseable review time; using utcnow() for company %s", company_id)
             dt = datetime.utcnow()
             time_inferred = True
-        profile = raw.get("author_image") or raw.get("profile_photo_url") or ""
-        external_id = raw.get("review_id") or raw.get("google_review_id") or _stable_hash_id(company_id, author, text, dt)
-        sent = raw.get("sentiment_score")
 
+        profile = raw.get("author_image") or raw.get("profile_photo_url") or ""
+        external_id = (
+            raw.get("review_id")
+            or raw.get("google_review_id")
+            or _stable_hash_id(company_id, author, text, dt)
+        )
+
+        sent = raw.get("sentiment_score")
         return ReviewData(
             company_id=company_id,
             author_name=str(author)[:255],
@@ -142,9 +158,10 @@ class OutscraperReviewsService:
             additional_fields={"time_inferred": time_inferred},
         )
 
-# ───────────────────────────────────────────────────────────────
+
+# ──────────────────────────────────────────────────────────────
 # Main ingestion engine
-# ───────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────
 async def run_batch_review_ingestion(
     client: Any,
     entities: Iterable[Any],
@@ -155,10 +172,6 @@ async def run_batch_review_ingestion(
     max_reviews: Optional[int] = None,
     source_platform: str = "Google",
 ) -> Dict[str, Any]:
-    """
-    Fetch, normalize, deduplicate, and save reviews to PostgreSQL.
-    Returns a summary dict with counts and errors.
-    """
     summary: Dict[str, Any] = {"total_saved": 0, "companies": []}
     service = OutscraperReviewsService(source_platform=source_platform)
 
@@ -172,9 +185,9 @@ async def run_batch_review_ingestion(
             else:
                 raw_reviews = await asyncio.to_thread(client.fetch_reviews, ent, max_reviews=max_reviews)
             raw_reviews = raw_reviews or []
-            logger.info("Fetched %d raw reviews for company %s", len(raw_reviews), cid_int)
+            logger.info("Fetched %d reviews for company %s", len(raw_reviews), cid_int)
         except Exception as ex:
-            logger.error("Ingestion failed for entity %s: %s", ent, ex)
+            logger.error("Failed fetching reviews for %s: %s", cid_int, ex)
             summary["companies"].append({"company_id": cid_int, "saved": 0, "error": str(ex)})
             continue
 
@@ -191,16 +204,14 @@ async def run_batch_review_ingestion(
 
         if not normalized:
             summary["companies"].append({"company_id": cid_int, "saved": 0})
-            logger.info("No reviews to save for company %s after filtering.", cid_int)
+            logger.info("No reviews to save for company %s after filtering", cid_int)
             continue
 
         incoming_ids = [r.external_review_id for r in normalized if r.external_review_id]
         existing_ids: set[str] = set()
         if incoming_ids:
             res = await session.execute(
-                select(Review.google_review_id).where(
-                    and_(Review.company_id == cid_int, Review.google_review_id.in_(incoming_ids))
-                )
+                select(Review.google_review_id).where(and_(Review.company_id == cid_int, Review.google_review_id.in_(incoming_ids)))
             )
             existing_ids = set(res.scalars().all())
 
