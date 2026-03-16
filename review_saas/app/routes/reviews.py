@@ -1,136 +1,67 @@
-# filename: app/services/review.py
+# filename: app/routes/reviews.py
 
-from __future__ import annotations
-
-import logging
-from typing import Any, Dict, List, Optional
-from datetime import datetime
-
-import httpx
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from typing import List, Dict, Any
 
-from app.core.config import settings
-from app.core.models import Review, Company
 from app.core.db import get_session
+from app.core.models import Company, Review
+from app.services.review import ingest_outscraper_reviews
 
-logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
-
-class OutscraperReviewsClient:
+@router.get("/")
+async def get_reviews(
+    company_id: int,
+    start: str = "",
+    end: str = "",
+    limit: int = 50,
+    session: AsyncSession = Depends(get_session),
+):
     """
-    Async client for Outscraper Maps Reviews API (reviews-v3).
-    Fetches raw review payloads for ingestion.
-
-    Docs:
-      • https://outscraper.com/maps-reviews-api/
+    Fetch stored reviews for a company from the database.
+    Supports optional start/end dates and limit.
     """
+    query = select(Review).where(Review.company_id == company_id).limit(limit)
+    result = await session.execute(query)
+    reviews = result.scalars().all()
+    return {"company_id": company_id, "reviews": [r.to_dict() for r in reviews]}
 
-    def __init__(self, *, base_url: Optional[str] = None, api_key: Optional[str] = None) -> None:
-        self.base_url = (base_url or settings.OUTSCRAPER_BASE_URL).rstrip("/")
-        self.api_key = (api_key or settings.OUTSCRAPER_API_KEY).strip()
-        self.reviews_endpoint = f"{self.base_url}/maps/reviews-v3"
-
-    async def fetch_reviews(
-        self,
-        company_obj: Company,
-        *,
-        max_reviews: int = 200
-    ) -> List[Dict[str, Any]]:
-        """
-        Fetch raw Outscraper reviews for a company.
-
-        Parameters:
-            company_obj: SQLAlchemy Company model instance.
-            max_reviews: Limit for Outscraper (default 200).
-
-        Returns:
-            A list of normalized review dictionaries.
-        """
-        if not self.api_key:
-            raise RuntimeError("OUTSCRAPER_API_KEY is missing. Set it in environment variables or .env")
-
-        query = getattr(company_obj, "google_place_id", None) or getattr(company_obj, "name", None)
-        if not query:
-            raise ValueError("Company object must have either google_place_id or name set.")
-
-        if getattr(company_obj, "address", None) and query == company_obj.name:
-            query = f"{company_obj.name}, {company_obj.address}"
-
-        params = {
-            "query": query,
-            "reviewsLimit": max_reviews,
-            "async": "false",  # synchronous mode returns JSON immediately
-        }
-        headers = {"X-API-KEY": self.api_key}
-        timeout = httpx.Timeout(20.0, read=60.0)
-
-        logger.info("Fetching Outscraper reviews for '%s'", query)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.get(self.reviews_endpoint, params=params, headers=headers)
-        try:
-            response.raise_for_status()
-        except Exception as exc:
-            logger.error("Outscraper request failed: %s", exc)
-            raise
-
-        data = response.json()
-
-        # Normalize data: always return a list of review dicts
-        reviews_list: List[Dict[str, Any]] = []
-        if isinstance(data, list):
-            for block in data:
-                reviews_list.extend(block.get("reviews_data", []) if isinstance(block, dict) else [])
-        elif isinstance(data, dict):
-            reviews_list.extend(data.get("data", []))
-        return reviews_list
-
-
-async def ingest_outscraper_reviews(
-    company_obj: Company,
-    session: Optional[AsyncSession] = None,
-    client: Optional[OutscraperReviewsClient] = None,
-    max_reviews: int = 200,
-) -> List[Review]:
+@router.post("/ingest/{company_id}")
+async def ingest_reviews_for_company(
+    company_id: int,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+):
     """
-    Fetch Outscraper reviews and save them to the database.
-
-    Parameters:
-        company_obj: SQLAlchemy Company instance.
-        session: Optional AsyncSession; will create if not provided.
-        client: Optional OutscraperReviewsClient; will create if not provided.
-        max_reviews: Maximum number of reviews to fetch.
-
-    Returns:
-        List of created Review objects.
+    Trigger Outscraper ingestion for a specific company.
+    Runs ingestion in the background.
     """
-    close_session = False
-    if session is None:
-        session = await get_session().__aenter__()
-        close_session = True
+    result = await session.execute(select(Company).where(Company.id == company_id))
+    company = result.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
 
-    try:
-        if client is None:
-            client = OutscraperReviewsClient()
+    # Add ingestion to background tasks
+    background_tasks.add_task(ingest_outscraper_reviews, company, session)
+    return {"status": "ingestion started", "company_id": company_id}
 
-        raw_reviews = await client.fetch_reviews(company_obj, max_reviews=max_reviews)
-        saved_reviews: List[Review] = []
+@router.post("/ingest_all")
+async def ingest_reviews_for_all(
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Trigger Outscraper ingestion for all companies.
+    Each company is ingested in a background task.
+    """
+    result = await session.execute(select(Company))
+    companies: List[Company] = result.scalars().all()
+    if not companies:
+        raise HTTPException(status_code=404, detail="No companies found")
 
-        for r in raw_reviews:
-            review = Review(
-                company_id=company_obj.id,
-                reviewer_name=r.get("author_name"),
-                reviewer_profile_url=r.get("author_url"),
-                rating=int(r.get("rating", 0)),
-                text=r.get("text", ""),
-                time=datetime.fromtimestamp(int(r.get("time", 0))) if r.get("time") else None,
-                raw_data=r,
-            )
-            session.add(review)
-            saved_reviews.append(review)
+    for company in companies:
+        background_tasks.add_task(ingest_outscraper_reviews, company, session)
 
-        await session.commit()
-        logger.info("Saved %d reviews for company '%s'", len(saved_reviews), company_obj.name)
-        return saved_reviews
-    finally:
-        if close_session:
-            await session.__aexit__(None, None, None)
+    return {"status": "ingestion started for all companies", "count": len(companies)}
