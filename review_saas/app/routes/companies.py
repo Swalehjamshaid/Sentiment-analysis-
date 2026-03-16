@@ -30,6 +30,26 @@ logger = logging.getLogger("app.companies")
 
 # ─────────────────────────────────────────
 
+# Background wrapper for ingestion
+
+# ─────────────────────────────────────────
+
+async def background_review_ingestion(client, companies):
+
+```
+if not run_batch_review_ingestion:
+    return
+
+async with get_session() as session:
+    await run_batch_review_ingestion(
+        client,
+        companies,
+        session=session
+    )
+```
+
+# ─────────────────────────────────────────
+
 # JSON Schema for Adding Company
 
 # ─────────────────────────────────────────
@@ -54,7 +74,7 @@ detail="Unauthorized"
 
 # ─────────────────────────────────────────
 
-# Lightweight Google Places REST client
+# Google Places Client
 
 # ─────────────────────────────────────────
 
@@ -220,59 +240,6 @@ except Exception as ex:
 
 # ─────────────────────────────────────────
 
-# Google Place Details
-
-# ─────────────────────────────────────────
-
-@router.get("/google/place/details")
-async def google_place_details(
-request: Request,
-place_id: str = Query(..., min_length=5),
-):
-
-```
-_require_user(request)
-
-client = _get_gmaps_client()
-
-if not client:
-    raise HTTPException(
-        status_code=503,
-        detail="Google Places client not configured",
-    )
-
-try:
-
-    data = await asyncio.to_thread(
-        client.place_details,
-        place_id
-    )
-
-    result = data.get("result", {})
-
-    return {
-        "name": result.get("name"),
-        "place_id": result.get("place_id"),
-        "address": result.get("formatted_address"),
-        "rating": result.get("rating"),
-        "user_ratings_total": result.get("user_ratings_total"),
-        "website": result.get("website"),
-        "url": result.get("url"),
-        "location": (result.get("geometry") or {}).get("location", {}),
-    }
-
-except Exception as ex:
-
-    logger.exception("Google place details failed: %s", ex)
-
-    raise HTTPException(
-        status_code=502,
-        detail=f"Google place lookup failed: {str(ex)}",
-    )
-```
-
-# ─────────────────────────────────────────
-
 # Companies List API
 
 # ─────────────────────────────────────────
@@ -383,11 +350,11 @@ async with get_session() as session:
 
 client = getattr(request.app.state, "reviews_client", None)
 
-if run_batch_review_ingestion and client:
+if client:
     background.add_task(
-        run_batch_review_ingestion,
-        client=client,
-        companies=[c],
+        background_review_ingestion,
+        client,
+        [c],
     )
 
 return {
