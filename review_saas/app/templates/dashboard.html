@@ -15,6 +15,7 @@
         [data-theme="dark"]{ background:#121212; color:#e6e6e6; }
         [data-theme="dark"] .card{ background:#1f1f1f; color:#e6e6e6; border-color:#333; }
         [data-theme="dark"] .table{ color:#e6e6e6; }
+        [data-theme="dark"] .form-label { color: #e6e6e6; }
         .kpi-card{ min-height:120px; border:none; transition:transform .2s; }
         .kpi-card:hover{ transform:translateY(-5px); }
         .sent-pos{color:#198754;font-weight:600}
@@ -24,15 +25,9 @@
         .cursor-pointer{cursor:pointer}
         .alert-placeholder{ min-height:0; position:sticky; top:10px; z-index:1050; }
         .chart-wrapper{ min-height:280px; position:relative; }
-        .autocomplete-dropdown{ position:absolute; z-index:2000; background:white; width:100%; border:1px solid #ddd; max-height:200px; overflow-y:auto; display:none; box-shadow:0 4px 12px rgba(0,0,0,.15); }
-        .autocomplete-item{ padding:10px; cursor:pointer; border-bottom:1px solid #eee; color: #333; }
-        .autocomplete-item:hover{ background:#f8f9fa; }
-        .pac-container { z-index: 2000 !important; }
-
-        /* Progress Bar Styles */
-        #ingestProgressContainer { display: none; margin-bottom: 20px; }
         .spin { animation: spin 2s linear infinite; display: inline-block; }
         @keyframes spin { 100% { transform: rotate(360deg); } }
+        #ingestProgressContainer { display: none; margin-bottom: 20px; }
     </style>
 </head>
 
@@ -55,8 +50,8 @@
     <div id="ingestProgressContainer" class="card shadow-sm border-warning">
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-2">
-                <h6 class="fw-bold mb-0 text-warning"><i class="bi bi-gear-wide-connected spin"></i> Streaming Reviews...</h6>
-                <span id="progressStats" class="badge bg-warning text-dark">0 / 250 (0%)</span>
+                <h6 class="fw-bold mb-0 text-warning"><i class="bi bi-gear-wide-connected spin"></i> Streaming Live Data...</h6>
+                <span id="progressStats" class="badge bg-warning text-dark">0 reviews</span>
             </div>
             <div class="progress" style="height: 10px;">
                 <div id="ingestProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning" role="progressbar" style="width: 0%"></div>
@@ -124,7 +119,7 @@
         <form id="addCompanyForm" class="modal-content">
             <div class="modal-header bg-success text-white"><h5 class="modal-title">Register New Business</h5><button class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
-                <div class="mb-3 position-relative"><label class="form-label">Smart Search (Google Powered)</label><input id="proxySearchInput" class="form-control" placeholder="Type business name"></div>
+                <div class="mb-3 position-relative"><label class="form-label">Search Business (Google Maps)</label><input id="proxySearchInput" class="form-control" placeholder="Type business name"></div>
                 <div class="row g-3">
                     <div class="col-12"><label class="form-label">Company Name</label><input id="companyName" class="form-control" required></div>
                     <div class="col-md-6"><label class="form-label">Google Place ID</label><input id="placeId" class="form-control" required readonly></div>
@@ -145,7 +140,7 @@ let chartInstances = {};
 let cachedReviews = [];
 let eventSource = null;
 
-// Google Places Logic
+// Google Places Integration
 function initGoogleAutocomplete() {
     const input = document.getElementById('proxySearchInput');
     const autocomplete = new google.maps.places.Autocomplete(input, { fields: ["name", "place_id", "formatted_address"], types: ["establishment"] });
@@ -158,18 +153,22 @@ function initGoogleAutocomplete() {
 }
 window.addEventListener('load', initGoogleAutocomplete);
 
-// API Helpers
+// UI Messaging
 function notify(msg, type = "danger") {
     const host = document.getElementById("alertHost");
     host.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show">${msg}<button class="btn-close" data-bs-dismiss="alert"></button></div>`;
 }
 
+// Global API Fetcher
 async function apiRequest(url, options = {}) {
     try {
-        const res = await fetch(url, { ...options });
-        if (!res.ok) throw new Error(res.status);
+        const res = await fetch(url, options);
+        if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
         return await res.json();
-    } catch (e) { notify("API request failed: " + e.message); throw e; }
+    } catch (e) { 
+        console.error("API Error:", e);
+        throw e; 
+    }
 }
 
 async function loadCompanies() {
@@ -181,7 +180,7 @@ async function loadCompanies() {
     } catch { notify("Failed to load companies"); }
 }
 
-// SERVER-SENT EVENTS (SSE) STREAMING
+// SERVER-SENT EVENTS (SSE) - Live Streaming Logic
 function streamReviews() {
     const companyId = document.getElementById("companySelect").value;
     const start = document.getElementById("startDate").value;
@@ -195,23 +194,25 @@ function streamReviews() {
     const progressStats = document.getElementById("progressStats");
     
     progressContainer.style.display = "block";
-    cachedReviews = []; // Clear current list for live stream
+    progressBar.style.width = "0%";
+    cachedReviews = []; 
     updateDashboardUI();
 
-    const params = new URLSearchParams({ company_id: companyId, start, end, limit: INGEST_LIMIT });
+    const params = new URLSearchParams({ company_id: companyId, limit: INGEST_LIMIT });
+    if(start) params.append("start", start);
+    if(end) params.append("end", end);
+
     eventSource = new EventSource(`/api/reviews/stream?${params}`);
 
     eventSource.addEventListener('review', (e) => {
         const review = JSON.parse(e.data);
         cachedReviews.push(review);
         
-        // Update Progress UI
         const count = cachedReviews.length;
         const percent = Math.min(Math.round((count / INGEST_LIMIT) * 100), 100);
         progressBar.style.width = `${percent}%`;
-        progressStats.innerText = `${count} reviews received`;
+        progressStats.innerText = `${count} reviews processed`;
         
-        // Incremental Update
         updateDashboardUI();
     });
 
@@ -221,40 +222,43 @@ function streamReviews() {
         setTimeout(() => progressContainer.style.display = "none", 3000);
     });
 
-    eventSource.onerror = () => {
+    eventSource.onerror = (err) => {
+        console.error("SSE Error:", err);
         eventSource.close();
-        notify("Stream disconnected.");
         progressContainer.style.display = "none";
     };
 }
 
+// Standard Static Loading Logic
 async function loadReviews() {
     const companyId = document.getElementById("companySelect").value;
     if (!companyId) return;
 
     document.getElementById("loadingSpinner").style.display = "inline-block";
 
-    const params = new URLSearchParams({
-        company_id: companyId,
-        start: document.getElementById("startDate").value,
-        end: document.getElementById("endDate").value,
-        limit: 100
-    });
+    const params = new URLSearchParams({ company_id: companyId, limit: 100 });
+    const start = document.getElementById("startDate").value;
+    const end = document.getElementById("endDate").value;
+    if(start) params.append("start", start);
+    if(end) params.append("end", end);
 
     try {
         const res = await apiRequest("/api/reviews?" + params);
-        // Backend returns the list directly based on your Python code
-        cachedReviews = res || []; 
+        // Backend returns a List directly (checked against Python route)
+        cachedReviews = Array.isArray(res) ? res : [];
         updateDashboardUI();
-    } catch { notify("Review load failed"); }
-    finally { document.getElementById("loadingSpinner").style.display = "none"; }
+    } catch (e) { 
+        notify("Review load failed. Check server connection."); 
+    } finally { 
+        document.getElementById("loadingSpinner").style.display = "none"; 
+    }
 }
 
 function updateDashboardUI() {
     const total = cachedReviews.length;
     const avg = total ? cachedReviews.reduce((a, b) => a + b.rating, 0) / total : 0;
     const pos = cachedReviews.filter(r => r.sentiment_score > 0).length;
-    const neu = cachedReviews.filter(r => r.sentiment_score == 0).length;
+    const neu = cachedReviews.filter(r => r.sentiment_score === 0).length;
     const neg = cachedReviews.filter(r => r.sentiment_score < 0).length;
 
     document.getElementById("kpiTotal").textContent = total;
@@ -270,58 +274,58 @@ function updateDashboardUI() {
 function renderCharts() {
     Object.values(chartInstances).forEach(c => c.destroy());
     
-    // Distribution
-    const dist = [1, 2, 3, 4, 5].map(x => cachedReviews.filter(r => Math.round(r.rating) == x).length);
+    // 1. Rating Distribution
+    const dist = [1, 2, 3, 4, 5].map(x => cachedReviews.filter(r => Math.round(r.rating) === x).length);
     chartInstances.dist = new Chart(document.getElementById("chartDistribution"), {
         type: "bar",
         data: { labels: ["1★", "2★", "3★", "4★", "5★"], datasets: [{ label: 'Reviews', data: dist, backgroundColor: '#0d6efd' }] },
         options: { responsive: true, maintainAspectRatio: false, animation: false }
     });
 
-    // Trend (Last 10 entries for clarity)
+    // 2. Review Trend (Last 15 entries)
     const sorted = [...cachedReviews].sort((a,b) => new Date(a.google_review_time) - new Date(b.google_review_time));
-    const labels = sorted.map(r => new Date(r.google_review_time).toLocaleDateString()).slice(-10);
-    const dataPoints = sorted.map(r => r.rating).slice(-10);
+    const labels = sorted.map(r => new Date(r.google_review_time).toLocaleDateString()).slice(-15);
+    const dataPoints = sorted.map(r => r.rating).slice(-15);
 
     chartInstances.trend = new Chart(document.getElementById("chartTrend"), {
         type: "line",
-        data: { labels: labels, datasets: [{ label: 'Rating Trend', data: dataPoints, borderColor: '#0dcaf0', tension: .3 }] },
+        data: { labels: labels, datasets: [{ label: 'Rating Trend', data: dataPoints, borderColor: '#0dcaf0', fill: true, backgroundColor: 'rgba(13, 202, 240, 0.1)', tension: .3 }] },
         options: { responsive: true, maintainAspectRatio: false, animation: false }
     });
 
-    // Sentiment
-    const sent = [
+    // 3. Sentiment Doughnut
+    const sentData = [
         cachedReviews.filter(r => r.sentiment_score > 0).length,
-        cachedReviews.filter(r => r.sentiment_score == 0).length,
+        cachedReviews.filter(r => r.sentiment_score === 0).length,
         cachedReviews.filter(r => r.sentiment_score < 0).length
     ];
     chartInstances.sent = new Chart(document.getElementById("chartSentiment"), {
         type: "doughnut",
-        data: { labels: ["Positive", "Neutral", "Negative"], datasets: [{ data: sent, backgroundColor: ['#198754', '#6c757d', '#dc3545'] }] },
+        data: { labels: ["Positive", "Neutral", "Negative"], datasets: [{ data: sentData, backgroundColor: ['#198754', '#6c757d', '#dc3545'] }] },
         options: { responsive: true, maintainAspectRatio: false, animation: false }
     });
 }
 
 function renderTable() {
-    const reviewsTable = document.getElementById("reviewsTable");
-    if (cachedReviews.length === 0) {
-        reviewsTable.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No data.</td></tr>';
+    const tableBody = document.getElementById("reviewsTable");
+    if (!cachedReviews || cachedReviews.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No reviews found.</td></tr>';
         return;
     }
-    // We reverse the array to show the most recent reviews (added via stream) at the top
-    reviewsTable.innerHTML = [...cachedReviews].reverse().slice(0, 50).map(r => `
+
+    tableBody.innerHTML = [...cachedReviews].reverse().slice(0, 50).map(r => `
         <tr>
-            <td>${r.author_name || 'Anonymous'}</td>
-            <td>${r.rating} ★</td>
+            <td class="fw-bold">${r.author_name || 'Guest'}</td>
+            <td><span class="badge bg-primary">${r.rating} ★</span></td>
             <td class="${r.sentiment_score > 0 ? 'sent-pos' : r.sentiment_score < 0 ? 'sent-neg' : 'sent-neu'}">
                 ${r.sentiment_score > 0 ? "Positive" : r.sentiment_score < 0 ? "Negative" : "Neutral"}
             </td>
-            <td class="small">${r.google_review_time ? new Date(r.google_review_time).toLocaleDateString() : 'N/A'}</td>
-            <td class="small">${r.text || '<span class="text-muted">No text</span>'}</td>
+            <td>${r.google_review_time ? new Date(r.google_review_time).toLocaleDateString() : 'N/A'}</td>
+            <td class="small text-wrap" style="max-width: 300px;">${r.text || '<i class="text-muted">No comment provided.</i>'}</td>
         </tr>`).join("");
 }
 
-// Bind Events
+// Event Listeners
 document.getElementById("loadBtn").onclick = loadReviews;
 document.getElementById("ingestBtn").onclick = streamReviews;
 document.getElementById("companySelect").onchange = loadReviews;
@@ -338,13 +342,18 @@ document.getElementById("addCompanyForm").onsubmit = async e => {
         address: document.getElementById("companyAddress").value
     };
     try {
-        await apiRequest("/api/companies", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-        notify("Company added!", "success");
+        await apiRequest("/api/companies", { 
+            method: "POST", 
+            headers: { "Content-Type": "application/json" }, 
+            body: JSON.stringify(payload) 
+        });
+        notify("Company successfully added!", "success");
         loadCompanies();
         bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
-    } catch { notify("Error adding company"); }
+    } catch { notify("Error adding business to database."); }
 };
 
+// Initial Init
 window.onload = loadCompanies;
 </script>
 </body>
