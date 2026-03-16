@@ -1,100 +1,65 @@
-# filename: app/services/review.py
+# filename: app/routes/reviews.py
 
 from __future__ import annotations
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Optional, List
+from datetime import date
 
-import httpx
-from app.core.config import settings
+from fastapi import APIRouter, Depends, Query, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from pydantic import BaseModel, ConfigDict
+
+from app.core.db import get_session
+from app.core.models import Company, Review
+from app.services.review import ingest_outscraper_reviews
 
 logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
+# --------------------------- Pydantic Schema ---------------------------
+class ReviewSchema(BaseModel):
+    """Schema to safely serialize SQLAlchemy models to JSON"""
+    id: int
+    company_id: int
+    content: Optional[str] = None
+    rating: Optional[int] = None
+    author_name: Optional[str] = None
+    date: Optional[date] = None
+    
+    model_config = ConfigDict(from_attributes=True)
 
-class OutscraperReviewsClient:
-    """
-    Async client for Outscraper Maps Reviews API (reviews-v3).
-    Fetches raw review payloads for ingestion.
+# --------------------------- Fetch Reviews API ---------------------------
+@router.get("/", response_model=List[ReviewSchema])
+async def get_reviews(
+    company_id: int = Query(...),
+    start: Optional[date] = Query(None),
+    end: Optional[date] = Query(None),
+    limit: int = Query(50),
+    session: AsyncSession = Depends(get_session),
+):
+    query = select(Review).where(Review.company_id == company_id)
+    
+    if start:
+        query = query.where(Review.date >= start)
+    if end:
+        query = query.where(Review.date <= end)
+    
+    result = await session.execute(query.limit(limit))
+    return result.scalars().all()
 
-    Docs:
-      • https://outscraper.com/maps-reviews-api/
-      • Endpoint used: /maps/reviews-v3
-    """
+# --------------------------- Ingest Reviews API ---------------------------
+@router.post("/ingest/{company_id}")
+async def ingest_reviews(
+    company_id: int,
+    max_reviews: int = Query(200),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(select(Company).where(Company.id == company_id))
+    company = result.scalars().first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
 
-    def __init__(self, *, base_url: Optional[str] = None, api_key: Optional[str] = None) -> None:
-        self.base_url = (base_url or settings.OUTSCRAPER_BASE_URL).rstrip("/")
-        self.api_key = (api_key or settings.OUTSCRAPER_API_KEY).strip()
-        self.reviews_endpoint = f"{self.base_url}/maps/reviews-v3"
-
-    async def fetch_reviews(
-        self,
-        company_obj: Any,
-        *,
-        max_reviews: Optional[int] = 200
-    ) -> List[Dict[str, Any]]:
-        """
-        Fetch raw Outscraper reviews for a company.
-
-        Parameters:
-            company_obj: SQLAlchemy Company model instance.
-            max_reviews: Limit for Outscraper (default 200).
-
-        Returns:
-            A list of dictionaries representing raw Outscraper payload blocks.
-        """
-        if not self.api_key:
-            raise RuntimeError(
-                "OUTSCRAPER_API_KEY is missing. "
-                "Set it in environment variables or .env"
-            )
-
-        query = getattr(company_obj, "google_place_id", None) or getattr(company_obj, "name", None)
-        if not query:
-            raise ValueError("Company object must have either google_place_id or name set.")
-
-        if getattr(company_obj, "address", None) and query == company_obj.name:
-            query = f"{company_obj.name}, {company_obj.address}"
-
-        params = {
-            "query": query,
-            "reviewsLimit": max_reviews or 200,
-            "async": "false",
-        }
-
-        headers = {
-            "X-API-KEY": self.api_key
-        }
-
-        timeout = httpx.Timeout(20.0, read=60.0)
-
-        logger.info("Outscraper request: GET %s params=%s", self.reviews_endpoint, params)
-
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.get(
-                self.reviews_endpoint,
-                params=params,
-                headers=headers
-            )
-
-        try:
-            response.raise_for_status()
-        except Exception as exc:
-            logger.error("Outscraper request failed: %s", exc)
-            raise
-
-        data = response.json()
-
-        if isinstance(data, list):
-            return data
-
-        return [data]
-
-
-# ===== Added function for main.py =====
-async def ingest_outscraper_reviews(company_obj: Any, max_reviews: int = 200) -> List[Dict[str, Any]]:
-    """
-    Fetch reviews using OutscraperReviewsClient and return for ingestion.
-    """
-    client = OutscraperReviewsClient()
-    reviews = await client.fetch_reviews(company_obj, max_reviews=max_reviews)
-    # Optional: insert DB saving logic here
-    return reviews
+    # The service function now handles the database commit
+    new_count = await ingest_outscraper_reviews(company, session, max_reviews=max_reviews)
+    return {"message": f"✅ Stored {new_count} new reviews for {company.name}"}
