@@ -2,9 +2,9 @@
 asyncpg==0.31.0
 aiosqlite==0.20.0
 SQLAlchemy>=2.0.35
-# Psycopg 3 is the modern, faster replacement for psycopg2 and 
-# 'binary' includes the libpq library so you don't get the .so error.
 psycopg[binary]==3.2.4
+# Added psycopg2-binary as a fallback to satisfy legacy SQLAlchemy defaults
+psycopg2-binary==2.9.10
 alembic==1.18.4
 greenlet>=3.1.1
 
