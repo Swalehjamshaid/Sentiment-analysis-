@@ -40,8 +40,6 @@ class OutscraperReviewsClient:
 
         Returns:
             A list of dictionaries representing raw Outscraper payload blocks.
-            These blocks are consumed by:
-                app/services/google_reviews.py → ingest_outscraper_reviews()
         """
         if not self.api_key:
             raise RuntimeError(
@@ -49,19 +47,17 @@ class OutscraperReviewsClient:
                 "Set it in environment variables or .env"
             )
 
-        # Prefer place_id when known
         query = getattr(company_obj, "google_place_id", None) or getattr(company_obj, "name", None)
         if not query:
             raise ValueError("Company object must have either google_place_id or name set.")
 
-        # If we only have a name, enrich with address to improve accuracy
         if getattr(company_obj, "address", None) and query == company_obj.name:
             query = f"{company_obj.name}, {company_obj.address}"
 
         params = {
             "query": query,
             "reviewsLimit": max_reviews or 200,
-            "async": "false",   # synchronous mode returns JSON immediately
+            "async": "false",
         }
 
         headers = {
@@ -87,12 +83,18 @@ class OutscraperReviewsClient:
 
         data = response.json()
 
-        # Outscraper may return:
-        #   - [{"data":[ ... ]}]
-        #   - {"data":[ ... ]}
-        #   - raw lists or dict
-        # Normalize to a list of blocks for the ingestion pipeline
         if isinstance(data, list):
             return data
 
         return [data]
+
+
+# ===== Added function for main.py =====
+async def ingest_outscraper_reviews(company_obj: Any, max_reviews: int = 200) -> List[Dict[str, Any]]:
+    """
+    Fetch reviews using OutscraperReviewsClient and return for ingestion.
+    """
+    client = OutscraperReviewsClient()
+    reviews = await client.fetch_reviews(company_obj, max_reviews=max_reviews)
+    # Optional: insert DB saving logic here
+    return reviews
