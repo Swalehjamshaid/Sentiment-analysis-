@@ -143,16 +143,17 @@ Theme
 <input id="endDate" type="date" class="form-control">
 </div>
 
-<div class="col-md-2">
-<label class="form-label fw-semibold">Review Limit</label>
+<div class="col-md-1">
+<label class="form-label fw-semibold">Limit</label>
 <select id="limitSelect" class="form-select">
 <option value="10">10</option>
 <option value="50" selected>50</option>
 <option value="100">100</option>
+<option value="200">200</option>
 </select>
 </div>
 
-<div class="col-md-2">
+<div class="col-md-1">
 <label class="form-label fw-semibold">Group</label>
 <select id="groupBy" class="form-select">
 <option value="day">Daily</option>
@@ -161,8 +162,13 @@ Theme
 </select>
 </div>
 
-<div class="col-md-1">
-<button id="loadBtn" class="btn btn-primary w-100">Load</button>
+<div class="col-md-3">
+    <div class="d-flex gap-2">
+        <button id="loadBtn" class="btn btn-primary w-50">Load</button>
+        <button id="ingestBtn" class="btn btn-warning w-50">
+            <i class="bi bi-cloud-download me-1"></i>Ingest
+        </button>
+    </div>
 </div>
 
 </div>
@@ -409,7 +415,7 @@ function resolveFirstMatchingPlace(query) {
 window.addEventListener('load', initGoogleAutocomplete);
 
 /* ------------------------------------------------------------------
-   DASHBOARD CORE LOGIC
+    DASHBOARD CORE LOGIC
    ------------------------------------------------------------------ */
 
 function notify(msg, type = "danger") {
@@ -436,6 +442,27 @@ async function loadCompanies() {
         if (data.length > 0) loadReviews();
     } catch {
         notify("Failed to load companies");
+    }
+}
+
+async function ingestReviews() {
+    const companyId = document.getElementById("companySelect").value;
+    if (!companyId) return;
+
+    const limit = document.getElementById("limitSelect").value;
+    document.getElementById("loadingSpinner").style.display = "inline-block";
+    notify("Fetching new reviews from Google... please wait.", "info");
+
+    try {
+        const res = await apiRequest(`/api/reviews/ingest/${companyId}?max_reviews=${limit}`, {
+            method: "POST"
+        });
+        notify(res.message || "Ingestion complete!", "success");
+        loadReviews(); // Refresh display
+    } catch (e) {
+        notify("Ingestion failed: " + e.message);
+    } finally {
+        document.getElementById("loadingSpinner").style.display = "none";
     }
 }
 
@@ -533,6 +560,7 @@ function renderTable() {
 
 // Bind Buttons
 document.getElementById("loadBtn").onclick = loadReviews;
+document.getElementById("ingestBtn").onclick = ingestReviews;
 document.getElementById("companySelect").onchange = loadReviews;
 
 document.getElementById("toggleTheme").onclick = () => {
