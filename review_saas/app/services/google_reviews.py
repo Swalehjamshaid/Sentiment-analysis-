@@ -14,11 +14,20 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.models import Review
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Logging setup
+# ──────────────────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.google_reviews")
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Data structures
+# ──────────────────────────────────────────────────────────────────────────────
 @dataclass
 class ReviewData:
+    """Normalized single review."""
+
     company_id: int
     author_name: str
     rating: float
@@ -33,6 +42,8 @@ class ReviewData:
 
 @dataclass
 class CompanyReviews:
+    """Collection of reviews for a company."""
+
     company_id: int
     reviews: List[ReviewData] = field(default_factory=list)
 
@@ -43,18 +54,29 @@ class CompanyReviews:
         return round(sum(r.rating for r in self.reviews) / len(self.reviews), 2)
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
 def _coerce_datetime(value: Any) -> Optional[datetime]:
+    """Universal parser for timestamps or strings.
+
+    NOTE: returns **naive UTC** datetimes to avoid aware/naive comparison issues.
+    Ensure that any `start`/`end` parameters are also naive UTC.
+    """
     if value is None:
         return None
     if isinstance(value, datetime):
         return value.replace(tzinfo=None)
     try:
         if isinstance(value, (int, float)):
+            # Handle milliseconds vs seconds
             if float(value) > 10_000_000_000:
                 return datetime.utcfromtimestamp(float(value) / 1000.0)
             return datetime.utcfromtimestamp(float(value))
     except Exception:
         pass
+
     if isinstance(value, str):
         formats = (
             "%Y-%m-%dT%H:%M:%S.%fZ",
@@ -73,6 +95,7 @@ def _coerce_datetime(value: Any) -> Optional[datetime]:
 
 
 def _coerce_rating(x: Any) -> float:
+    """Safely coerce rating to float, defaulting to 0.0 on failure."""
     try:
         return float(x)
     except Exception:
@@ -80,6 +103,7 @@ def _coerce_rating(x: Any) -> float:
 
 
 def _sentiment_from_rating(r: Optional[float]) -> float:
+    """Convert 1-5 star rating to -1.0 to 1.0 sentiment score."""
     if r is None:
         return 0.0
     try:
@@ -90,13 +114,23 @@ def _sentiment_from_rating(r: Optional[float]) -> float:
 
 
 def _stable_hash_id(company_id: int, author: str, text: str, dt: datetime) -> str:
+    """Generate stable MD5 ID if no external ID is provided by scraper.
+
+    Includes company_id, normalized text (collapsed whitespace) and lowercased
+    author to minimize cross-company or formatting collisions.
+    """
     a = (author or "").strip().lower()
     t = " ".join((text or "").split())
     base = f"{company_id}|{a}|{t}|{dt.isoformat()}"
     return hashlib.md5(base.encode("utf-8")).hexdigest()
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Outscraper Review Service
+# ──────────────────────────────────────────────────────────────────────────────
 class OutscraperReviewsService:
+    """Normalize raw scraper data into ReviewData objects."""
+
     def __init__(self, source_platform: str = "Google") -> None:
         self.source_platform = source_platform
 
@@ -107,6 +141,7 @@ class OutscraperReviewsService:
         author = raw.get("author_name") or raw.get("author_title") or "Anonymous"
         text = raw.get("review_text") or raw.get("text") or ""
         rating = _coerce_rating(raw.get("review_rating") or raw.get("rating"))
+
         when = raw.get("review_timestamp") or raw.get("time") or raw.get("review_datetime_utc")
         dt = _coerce_datetime(when)
         time_inferred = False
@@ -116,11 +151,14 @@ class OutscraperReviewsService:
             time_inferred = True
 
         profile = raw.get("author_image") or raw.get("profile_photo_url") or ""
+
+        # Determine unique ID for deduplication
         external_id = (
             raw.get("review_id")
             or raw.get("google_review_id")
             or _stable_hash_id(company_id, author, text, dt)
         )
+
         sent = raw.get("sentiment_score")
 
         return ReviewData(
@@ -137,6 +175,9 @@ class OutscraperReviewsService:
         )
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Main ingestion engine
+# ──────────────────────────────────────────────────────────────────────────────
 async def run_batch_review_ingestion(
     client: Any,
     entities: Iterable[Any],
@@ -147,7 +188,18 @@ async def run_batch_review_ingestion(
     max_reviews: Optional[int] = None,
     source_platform: str = "Google",
 ) -> Dict[str, Any]:
+    """
+    Fetch reviews from Outscraper, normalize, deduplicate against existing DB records,
+    and save to PostgreSQL using the provided AsyncSession.
 
+    NOTE:
+      - `session` is REQUIRED (aligned with FastAPI dependency in reviews.py).
+      - `max_reviews` is forwarded to the client to limit payload size.
+      - Timestamps are treated as **naive UTC**.
+
+    Returns:
+      A summary dict: {"total_saved": int, "companies": [{"company_id": int, "saved": int, "error"?: str}]}
+    """
     summary: Dict[str, Any] = {"total_saved": 0, "companies": []}
     service = OutscraperReviewsService(source_platform=source_platform)
 
@@ -156,6 +208,8 @@ async def run_batch_review_ingestion(
         new_count = 0
         try:
             logger.info("Fetching reviews for company %s (source=%s, max=%s)...", cid_int, source_platform, max_reviews)
+
+            # Support both async and sync clients
             if asyncio.iscoroutinefunction(getattr(client, "fetch_reviews", None)):
                 raw_reviews = await client.fetch_reviews(ent, max_reviews=max_reviews)
             else:
@@ -169,6 +223,7 @@ async def run_batch_review_ingestion(
             summary["companies"].append({"company_id": cid_int, "saved": 0, "error": str(ex)})
             continue
 
+        # Normalize and apply date range filter early
         normalized: List[ReviewData] = []
         for raw in raw_reviews:
             rd = service.normalize(raw, company_id=cid_int)
@@ -185,6 +240,7 @@ async def run_batch_review_ingestion(
             logger.info("No reviews to save for company %s after filtering.", cid_int)
             continue
 
+        # Preload existing IDs to avoid N+1 EXISTS queries
         incoming_ids = [r.external_review_id for r in normalized if r.external_review_id]
         existing_ids: set[str] = set()
         if incoming_ids:
@@ -195,30 +251,41 @@ async def run_batch_review_ingestion(
             )
             existing_ids = set(res.scalars().all())
 
+        # Create new Review objects for non-existing IDs
         for rd in normalized:
             if rd.external_review_id in existing_ids:
                 continue
+
             new_review = Review(
                 company_id=cid_int,
-                google_review_id=(rd.external_review_id or "")[:255],
+                google_review_id=(rd.external_review_id or "")[:255],  # trim if column is length-limited
                 author_name=(rd.author_name or "")[:255],
                 rating=rd.rating,
                 text=rd.text,
                 google_review_time=rd.review_time,
                 sentiment_score=rd.sentiment_score,
                 profile_photo_url=rd.profile_photo_url,
+                # source_platform=rd.source_platform,  # Uncomment if your model has this field
+                # extra=rd.additional_fields,          # Uncomment if you store JSONB extras
             )
+
             session.add(new_review)
             new_count += 1
 
+        # Single commit per company
         try:
             if new_count > 0:
                 await session.commit()
                 logger.info("Successfully committed %d reviews for company %s", new_count, cid_int)
         except IntegrityError as ie:
+            # In case a concurrent process inserted same reviews between preload and commit
             await session.rollback()
-            logger.warning("IntegrityError committing reviews for company %s: %s", cid_int, ie)
-            new_count = 0
+            logger.warning(
+                "IntegrityError while committing reviews for company %s (possible duplicates). Error: %s",
+                cid_int,
+                ie,
+            )
+            new_count = 0  # do not count uncertain inserts
         except Exception as e:
             await session.rollback()
             logger.error("Failed to commit reviews for company %s: %s", cid_int, e)
