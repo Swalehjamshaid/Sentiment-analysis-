@@ -30,7 +30,14 @@ class OutscraperReviewsClient:
             response = await client.get(self.reviews_endpoint, params=params, headers=headers)
             response.raise_for_status()
             data = response.json()
-            return data[0].get("reviews_data", []) if data else []
+            
+            # FIXED: Check if data is a list before accessing index 0 to avoid KeyError: 0
+            if isinstance(data, list) and len(data) > 0:
+                return data[0].get("reviews_data", [])
+            
+            # Log the unexpected response to help with debugging
+            logger.error(f"Unexpected Outscraper response structure: {data}")
+            return []
 
 async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max_reviews: int = 200) -> int:
     client = OutscraperReviewsClient()
@@ -40,6 +47,9 @@ async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max
     for raw in raw_reviews:
         # 1. Deduplication using your 'google_review_id' column
         ext_id = raw.get("review_id")
+        if not ext_id:
+            continue
+            
         stmt = select(Review).where(
             (Review.company_id == company_obj.id) & 
             (Review.google_review_id == ext_id)
@@ -53,7 +63,10 @@ async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max
         raw_ts = raw.get("review_datetime_utc")
         dt_obj = None
         if raw_ts:
-            dt_obj = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+            try:
+                dt_obj = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+            except ValueError:
+                logger.warning(f"Could not parse timestamp: {raw_ts}")
 
         # 3. Create Review record using your specific model fields
         new_review = Review(
