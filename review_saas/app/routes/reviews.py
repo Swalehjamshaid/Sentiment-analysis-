@@ -8,45 +8,54 @@ from app.core.models import Review, Company
 
 router = APIRouter(prefix="/api/reviews")
 
-# --- Helper function to save reviews ---
-async def save_reviews_to_db(session: AsyncSession, company_id: str, reviews: list[dict]):
+async def save_reviews_to_db(session: AsyncSession, company_id: int, reviews: list[dict]):
     print(f"DEBUG STEP 4: Inside save_reviews_to_db with {len(reviews)} reviews")
-    saved = []
 
+    if not reviews:
+        print("DEBUG: No reviews fetched to save")
+        return []
+
+    saved = []
     for r in reviews:
-        # Try both keys for review ID
+        # Check for review_id
         ext_id = r.get("review_id") or r.get("id")
         if not ext_id:
-            print("DEBUG: Skipping review - no review_id found")
+            print(f"DEBUG: Skipping review, no review_id found in {r}")
             continue
 
-        # Avoid duplicates
+        # Check duplicates
         existing = await session.execute(
             select(Review).where(Review.google_review_id == ext_id)
         )
         if existing.scalars().first():
+            print(f"DEBUG: Skipping duplicate review with id {ext_id}")
             continue
 
         # Parse review date
         review_date_str = r.get("review_time") or r.get("time")
         try:
             review_date = datetime.fromisoformat(review_date_str.replace("Z", "+00:00")) if review_date_str else datetime.utcnow()
-        except:
+        except Exception as e:
+            print(f"DEBUG: Failed parsing date {review_date_str}, using utcnow. Error: {e}")
             review_date = datetime.utcnow()
 
+        # Create Review object
         new_review = Review(
-            company_id=int(company_id),
+            company_id=company_id,
             google_review_id=ext_id,
             author_name=r.get("author_title") or r.get("author_name") or "Anonymous",
             rating=int(r.get("review_rating") or r.get("rating") or 0),
             text=r.get("review_text") or r.get("text") or "",
             google_review_time=review_date,
-            sentiment_score=float(r.get("sentiment_score") or 0),
+            sentiment_score=float(r.get("sentiment_score", 0)),
             source_platform="Google"
         )
+
         session.add(new_review)
         saved.append(new_review)
+        print(f"DEBUG: Prepared review {ext_id} for saving")
 
+    # Commit to DB
     if saved:
         try:
             await session.commit()
@@ -57,50 +66,51 @@ async def save_reviews_to_db(session: AsyncSession, company_id: str, reviews: li
             await session.rollback()
             print(f"DEBUG ERROR: Commit failed: {e}")
     else:
-        print("DEBUG: No new reviews to save (0 fetched or all duplicates)")
+        print("DEBUG: No new reviews to commit (all duplicates or none fetched)")
 
     return saved
 
-# --- Main route to fetch and save reviews ---
+
 @router.get("/")
 async def get_reviews(
     request: Request,
-    company_id: str,
+    company_id: int,
     start: Optional[str] = None,
     end: Optional[str] = None,
     limit: int = 50,
     session: AsyncSession = Depends(get_session),
 ):
-    print(f"DEBUG STEP 1: Request received for company_id {company_id}")
+    print(f"DEBUG STEP 1: Request received for company_id {company_id}, start={start}, end={end}, limit={limit}")
 
+    # Ensure client exists
     client = getattr(request.app.state, "reviews_client", None)
     if not client:
-        print("DEBUG ERROR: Client not found in app.state")
-        raise HTTPException(status_code=500, detail="Client not configured")
+        print("DEBUG ERROR: reviews_client not initialized in app.state")
+        raise HTTPException(status_code=500, detail="Reviews client not configured")
 
-    # Get company from DB
-    result = await session.execute(select(Company).where(Company.id == int(company_id)))
+    # Fetch company
+    result = await session.execute(select(Company).where(Company.id == company_id))
     company = result.scalars().first()
     if not company:
         print(f"DEBUG ERROR: Company {company_id} not found in DB")
         raise HTTPException(status_code=404, detail="Company not found")
 
-    print(f"DEBUG STEP 2: Fetching from Outscraper for Place ID: {company.google_place_id}")
+    print(f"DEBUG STEP 2: Found company {company_id} with Place ID: {company.google_place_id}")
 
     # Fetch reviews from Outscraper
     try:
         raw_reviews = await client.fetch_reviews(company.google_place_id, max_reviews=limit)
         print(f"DEBUG STEP 3: Outscraper returned {len(raw_reviews)} reviews")
     except Exception as e:
-        print(f"DEBUG ERROR: Outscraper call failed: {e}")
-        raise HTTPException(status_code=502, detail=str(e))
+        print(f"DEBUG ERROR: Outscraper fetch failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Outscraper API error: {e}")
 
-    # Optional date filtering
+    # Date filtering
     start_date = datetime.fromisoformat(start) if start else None
     end_date = datetime.fromisoformat(end) if end else None
 
     if start_date or end_date:
-        filtered = []
+        filtered_reviews = []
         for r in raw_reviews:
             rt_str = r.get("review_time") or r.get("time")
             if not rt_str:
@@ -111,12 +121,14 @@ async def get_reviews(
                     continue
                 if end_date and rt > end_date:
                     continue
-                filtered.append(r)
-            except:
+                filtered_reviews.append(r)
+            except Exception as e:
+                print(f"DEBUG: Failed filtering review date {rt_str}, skipping. Error: {e}")
                 continue
-        raw_reviews = filtered
+        raw_reviews = filtered_reviews
         print(f"DEBUG STEP 3.1: After filtering, {len(raw_reviews)} reviews remain")
 
+    # Save to DB
     saved_reviews = await save_reviews_to_db(session, company_id, raw_reviews)
 
     return {
