@@ -20,7 +20,6 @@ from app.services.review import ingest_outscraper_reviews
 logger = logging.getLogger(__name__)
 
 # CRITICAL FIX: redirect_slashes=False stops the 307 Temporary Redirect loop on Railway
-# This ensures /api/reviews and /api/reviews/ both work without triggering a browser-blocked redirect
 router = APIRouter(prefix="/api/reviews", tags=["reviews"], redirect_slashes=False)
 
 # --------------------------- Pydantic Schema ---------------------------
@@ -41,8 +40,8 @@ class ReviewSchema(BaseModel):
 async def review_streamer(company_id: int, start: Optional[date], end: Optional[date], limit: int, session: AsyncSession):
     """
     Query the database and yield reviews one-by-one as SSE events.
-    This allows the dashboard to 'pop' reviews into the UI in real-time.
     """
+    # Order by time descending to show newest first in the live feed
     query = select(Review).where(Review.company_id == company_id).order_by(desc(Review.google_review_time))
     
     if start:
@@ -54,16 +53,15 @@ async def review_streamer(company_id: int, start: Optional[date], end: Optional[
     reviews = result.scalars().all()
 
     for review in reviews:
-        # Convert Pydantic model to JSON string
         review_data = ReviewSchema.model_validate(review).model_dump_json()
         
         # Format as Server-Sent Event (SSE)
         yield f"event: review\ndata: {review_data}\n\n"
         
-        # Artificial delay for smooth UI animation on the dashboard
-        await asyncio.sleep(0.02)
+        # Small delay for smooth UI animation (adjusted for speed)
+        await asyncio.sleep(0.01)
 
-    # Signal completion to the frontend eventSource listener
+    # Signal completion
     yield "event: done\ndata: completed\n\n"
 
 # --------------------------- Fetch Reviews API ---------------------------
@@ -72,12 +70,14 @@ async def get_reviews(
     company_id: int = Query(...),
     start: Optional[date] = Query(None),
     end: Optional[date] = Query(None),
-    limit: int = Query(1000), # Higher limit for better comprehensive analysis
+    # INCREASED DEFAULT LIMIT: Set to 10,000 to ensure small and large datasets 
+    # are analyzed fully without being cut off.
+    limit: int = Query(10000), 
     session: AsyncSession = Depends(get_session),
 ):
     """
     Standard GET endpoint for static review loading.
-    Returns a flat JSON list [...] which matches the dashboard's expected format.
+    Analysis in the dashboard will be based on all reviews returned here.
     """
     query = select(Review).where(Review.company_id == company_id).order_by(desc(Review.google_review_time))
     
@@ -95,7 +95,7 @@ async def stream_reviews(
     company_id: int = Query(...),
     start: Optional[date] = Query(None),
     end: Optional[date] = Query(None),
-    limit: int = Query(500), # Stream up to 500 reviews for live sync
+    limit: int = Query(5000), # Allow streaming large amounts of data
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -114,7 +114,7 @@ async def ingest_reviews(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Trigger the background ingestion service via Outscraper to fetch new Google reviews.
+    Trigger the background ingestion service via Outscraper.
     """
     result = await session.execute(select(Company).where(Company.id == company_id))
     company = result.scalars().first()
