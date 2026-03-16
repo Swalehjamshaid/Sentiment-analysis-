@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 
 from sqlalchemy import (
-    Column,
     Integer,
     String,
     Float,
@@ -15,16 +14,16 @@ from sqlalchemy import (
     ForeignKey,
     UniqueConstraint,
 )
-from sqlalchemy.orm import declarative_base, relationship, Mapped, mapped_column
+from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
 
-# ---------------------------------------------------
-# Base Configuration
-# ---------------------------------------------------
-Base = declarative_base()
+# Use the shared Base from the DB module to ensure the same metadata/engine
+from app.core.db import Base
 
+# ---------------------------------------------------
 # SCHEMA VERSION (Crucial for app/main.py lifecycle checks)
-SCHEMA_VERSION = "16.0.5-new-tables-added"
+# ---------------------------------------------------
+SCHEMA_VERSION = "17.0.5-new-tables-added"
 
 # ---------------------------------------------------
 # Users Table
