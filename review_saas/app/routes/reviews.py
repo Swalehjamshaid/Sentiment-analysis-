@@ -9,39 +9,52 @@ from app.core.models import Review, Company
 router = APIRouter(prefix="/api/reviews")
 
 async def save_reviews_to_db(session: AsyncSession, company_id: str, reviews: list[dict]):
-    """Save reviews to PostgreSQL, avoid duplicates by review_id"""
+    """
+    Save reviews to PostgreSQL. 
+    Matches attributes exactly with Review class in models.py
+    """
     saved = []
     for r in reviews:
-        # Check if review already exists to avoid Unique Constraint errors
-        review_id = r.get("review_id")
-        if not review_id:
+        # 1. Get the Unique Identifier from Outscraper data
+        # Outscraper usually provides 'review_id'
+        ext_id = r.get("review_id")
+        if not ext_id:
             continue
             
+        # 2. Check for duplicates using the attribute 'google_review_id' from models.py
         existing = await session.execute(
-            select(Review).where(Review.review_id == review_id)
+            select(Review).where(Review.google_review_id == ext_id)
         )
         if existing.scalars().first():
             continue
 
-        # Parse date
+        # 3. Handle the date for the 'google_review_time' column
         review_date_str = r.get("review_time")
         if review_date_str:
             try:
-                # Robust parsing for ISO strings
-                review_date = datetime.fromisoformat(review_date_str.replace("Z", "+00:00").split("T")[0])
+                # Robust parsing for ISO strings from API
+                review_date = datetime.fromisoformat(review_date_str.replace("Z", "+00:00"))
             except Exception:
                 review_date = datetime.utcnow()
         else:
             review_date = datetime.utcnow()
 
+        # 4. Create the Review object
+        # All keys below match the 'class Review' in your models.py exactly
         new_review = Review(
-            company_id=company_id,
-            review_id=review_id,
-            author_name=r.get("author_name", "Anonymous"),
-            rating=float(r.get("rating", 0)),
-            text=r.get("text", ""),
-            review_time=review_date,
+            company_id=int(company_id),
+            google_review_id=ext_id,
+            review_url=r.get("review_link"),
+            author_name=r.get("author_title") or r.get("author_name", "Anonymous"),
+            author_id=r.get("author_id"),
+            author_url=r.get("author_link"),
+            rating=int(r.get("review_rating") or r.get("rating") or 0),
+            text=r.get("review_text") or r.get("text", ""),
+            google_review_time=review_date,
             sentiment_score=float(r.get("sentiment_score", 0)),
+            source_platform="Google",
+            review_likes=int(r.get("review_likes", 0)),
+            owner_answer=r.get("owner_answer")
         )
         session.add(new_review)
         saved.append(new_review)
@@ -49,12 +62,12 @@ async def save_reviews_to_db(session: AsyncSession, company_id: str, reviews: li
     if saved:
         try:
             await session.commit()
-            # Refresh to ensure objects are loaded with DB state for the return statement
+            # Refresh allows us to access the DB-generated fields (like .id) for the response
             for r in saved:
                 await session.refresh(r)
         except Exception as e:
             await session.rollback()
-            print(f"Database Error: {e}")
+            print(f"❌ DATABASE ERROR: {e}")
             raise HTTPException(status_code=500, detail="Failed to save reviews to database")
             
     return saved
@@ -70,28 +83,27 @@ async def get_reviews(
 ):
     """Fetch reviews from Outscraper, save to DB, and return them"""
     
-    # 1. Get Outscraper client from app state
+    # 1. Verify Outscraper client setup
     client = getattr(request.app.state, "reviews_client", None)
     if not client:
         raise HTTPException(status_code=500, detail="Reviews client not configured")
 
-    # 2. Fetch company to get the Google Place ID
-    result = await session.execute(select(Company).where(Company.id == company_id))
+    # 2. Fetch company to get the google_place_id for the scraper
+    result = await session.execute(select(Company).where(Company.id == int(company_id)))
     company = result.scalars().first()
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
 
-    # 3. Fetch reviews from Outscraper API
+    # 3. Fetch data from Outscraper API
     try:
         raw_reviews = await client.fetch_reviews(company.google_place_id, max_reviews=limit)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Outscraper error: {str(e)}")
 
-    # 4. Optional: parse start/end dates for filtering
+    # 4. Date filtering logic
     start_date = datetime.fromisoformat(start) if start else None
     end_date = datetime.fromisoformat(end) if end else None
 
-    # 5. Filter reviews if dates are provided
     if start_date or end_date:
         filtered = []
         for r in raw_reviews:
@@ -99,6 +111,7 @@ async def get_reviews(
             if not rt_str:
                 continue
             try:
+                # Use split to handle date comparison without time-zone issues
                 rt = datetime.fromisoformat(rt_str.split("T")[0])
             except Exception:
                 rt = datetime.utcnow()
@@ -110,20 +123,21 @@ async def get_reviews(
             filtered.append(r)
         raw_reviews = filtered
 
-    # 6. Save to DB and get the instances back
+    # 5. Persist to Postgres and return the newly saved objects
     saved_reviews = await save_reviews_to_db(session, company_id, raw_reviews)
 
-    # 7. Return the feed
+    # 6. Construct JSON response using the integrated model names
     return {
         "status": "success",
         "count": len(saved_reviews),
         "feed": [
             {
-                "review_id": r.review_id,
+                "id": r.id,
+                "google_review_id": r.google_review_id,
                 "author_name": r.author_name,
                 "rating": r.rating,
                 "text": r.text,
-                "review_time": r.review_time.isoformat() if r.review_time else None,
+                "review_time": r.google_review_time.isoformat() if r.google_review_time else None,
                 "sentiment_score": r.sentiment_score
             } for r in saved_reviews
         ]
