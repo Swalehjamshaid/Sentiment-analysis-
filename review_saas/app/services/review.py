@@ -32,6 +32,7 @@ class OutscraperReviewsClient:
         }
         headers = {"X-API-KEY": self.api_key}
         try:
+            # Shortened timeout for connection, kept long for read
             response = await client.get(self.reviews_endpoint, params=params, headers=headers)
             response.raise_for_status()
             data = response.json().get("data", [])
@@ -44,31 +45,50 @@ async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max
     client_wrapper = OutscraperReviewsClient()
     query = getattr(company_obj, "google_place_id", None) or getattr(company_obj, "name", None)
 
-    # Load existing review IDs
+    # 1. Faster ID Loading
     stmt = select(Review.google_review_id).where(Review.company_id == company_obj.id)
     result = await session.execute(stmt)
     existing_ids = set(result.scalars().all())
 
     batch_size = 250
-    concurrency_limit = 20  # Increased for max throughput
-    queue: asyncio.Queue = asyncio.Queue(maxsize=concurrency_limit*5)
+    # Increase producer concurrency: fire multiple requests to Google at once
+    fetch_concurrency = 10 
+    queue: asyncio.Queue = asyncio.Queue(maxsize=50)
     total_new = 0
+    
+    # Semaphore to limit simultaneous outgoing requests to Google
+    fetch_sem = asyncio.Semaphore(fetch_concurrency)
+
+    async def fetch_worker(client: httpx.AsyncClient, skip: int):
+        """Worker to fetch and put into queue"""
+        if company_obj.id in cancel_requests:
+            return
+
+        async with fetch_sem:
+            batch = await client_wrapper.fetch_batch(client, query, batch_size, skip)
+            if batch:
+                await queue.put(batch)
 
     async def producer():
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=300.0)) as client:
+        """Fires off multiple fetch workers concurrently"""
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(10.0, read=300.0),
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10)
+        ) as client:
+            tasks = []
             for skip in range(0, max_reviews, batch_size):
                 if company_obj.id in cancel_requests:
                     logger.info(f"🛑 Manual stop triggered for {company_obj.name}")
-                    cancel_requests.remove(company_obj.id)
+                    # We don't remove here, consumer will handle cleanup if needed
                     break
+                
+                tasks.append(asyncio.create_task(fetch_worker(client, skip)))
+            
+            # Wait for all fetch tasks to complete
+            await asyncio.gather(*tasks)
 
-                batch = await client_wrapper.fetch_batch(client, query, batch_size, skip)
-                if not batch:
-                    break
-                await queue.put(batch)
-
-        # Signal consumers that production is done
-        for _ in range(concurrency_limit):
+        # Signal all consumers that we are done
+        for _ in range(5): # Fewer consumers needed because DB is the bottleneck now
             await queue.put(None)
 
     async def consumer():
@@ -76,6 +96,7 @@ async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max
         while True:
             batch = await queue.get()
             if batch is None:
+                queue.task_done()
                 break
 
             to_insert = []
@@ -104,13 +125,18 @@ async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max
                 existing_ids.add(rid)
 
             if to_insert:
+                # Bulk insert is much faster than individual adds
                 await session.execute(insert(Review), to_insert)
                 await session.commit()
                 total_new += len(to_insert)
+            
+            queue.task_done()
 
-    # Run producer + multiple consumers concurrently
-    consumers = [asyncio.create_task(consumer()) for _ in range(concurrency_limit)]
-    await asyncio.gather(producer(), *consumers)
+    # Launch everything
+    await asyncio.gather(producer(), asyncio.create_task(consumer()))
 
-    logger.info(f"✅ Ingested {total_new} new reviews for {company_obj.name}")
+    if company_obj.id in cancel_requests:
+        cancel_requests.remove(company_obj.id)
+
+    logger.info(f"✅ Turbo Ingested {total_new} new reviews for {company_obj.name}")
     return total_new
