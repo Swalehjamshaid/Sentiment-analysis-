@@ -29,14 +29,16 @@ class OutscraperReviewsClient:
         async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, read=60.0)) as client:
             response = await client.get(self.reviews_endpoint, params=params, headers=headers)
             response.raise_for_status()
-            data = response.json()
+            full_response = response.json()
             
-            # FIXED: Check if data is a list before accessing index 0 to avoid KeyError: 0
-            if isinstance(data, list) and len(data) > 0:
-                return data[0].get("reviews_data", [])
+            # Navigate the nested dictionary structure seen in the logs
+            # Structure: {"data": [{"reviews_data": [...]}]}
+            results_list = full_response.get("data", [])
             
-            # Log the unexpected response to help with debugging
-            logger.error(f"Unexpected Outscraper response structure: {data}")
+            if isinstance(results_list, list) and len(results_list) > 0:
+                return results_list[0].get("reviews_data", [])
+            
+            logger.warning(f"No reviews found or unexpected structure for {query}: {full_response}")
             return []
 
 async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max_reviews: int = 200) -> int:
@@ -65,7 +67,7 @@ async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max
         if raw_ts:
             try:
                 dt_obj = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
-            except ValueError:
+            except (ValueError, TypeError):
                 logger.warning(f"Could not parse timestamp: {raw_ts}")
 
         # 3. Create Review record using your specific model fields
@@ -74,7 +76,7 @@ async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max
             google_review_id=ext_id,
             author_name=raw.get("author_title"),
             rating=raw.get("review_rating"),
-            text=raw.get("review_text"), # Matches 'text' in models.py
+            text=raw.get("review_text"), 
             google_review_time=dt_obj,
             review_url=raw.get("review_link"),
             source_platform="Google"
