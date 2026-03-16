@@ -10,7 +10,7 @@ from datetime import datetime, date
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, func
+from sqlalchemy import select, desc
 from pydantic import BaseModel, ConfigDict
 
 from app.core.db import get_session
@@ -19,12 +19,12 @@ from app.services.review import ingest_outscraper_reviews
 
 logger = logging.getLogger(__name__)
 
-# Fixed pathing for Railway deployments
+# CRITICAL FIX: redirect_slashes=False stops the 307 Temporary Redirect loop on Railway
 router = APIRouter(prefix="/api/reviews", tags=["reviews"], redirect_slashes=False)
 
 # --------------------------- Pydantic Schema ---------------------------
 class ReviewSchema(BaseModel):
-    """Full Review model for deep analysis"""
+    """Matches the SQLAlchemy Review model exactly for JSON serialization"""
     id: int
     company_id: int
     google_review_id: str
@@ -39,7 +39,8 @@ class ReviewSchema(BaseModel):
 # --------------------------- Streaming Helper ---------------------------
 async def review_streamer(company_id: int, start: Optional[date], end: Optional[date], limit: int, session: AsyncSession):
     """
-    Streams the complete database content for real-time dashboard population.
+    Query the database and yield reviews one-by-one as SSE events.
+    Order by time descending to show newest first.
     """
     query = select(Review).where(Review.company_id == company_id).order_by(desc(Review.google_review_time))
     
@@ -48,14 +49,20 @@ async def review_streamer(company_id: int, start: Optional[date], end: Optional[
     if end:
         query = query.where(Review.google_review_time <= end)
     
+    # Executing with a massive limit to ensure everything is captured
     result = await session.execute(query.limit(limit))
     reviews = result.scalars().all()
 
     for review in reviews:
         review_data = ReviewSchema.model_validate(review).model_dump_json()
+        
+        # Format as Server-Sent Event (SSE)
         yield f"event: review\ndata: {review_data}\n\n"
-        await asyncio.sleep(0.005) # Increased speed for high-volume analysis
+        
+        # Reduced delay for high-volume streaming
+        await asyncio.sleep(0.005)
 
+    # Signal completion
     yield "event: done\ndata: completed\n\n"
 
 # --------------------------- Fetch Reviews API ---------------------------
@@ -64,13 +71,13 @@ async def get_reviews(
     company_id: int = Query(...),
     start: Optional[date] = Query(None),
     end: Optional[date] = Query(None),
-    # Set to a massive limit to ensure 100% of the database is captured for analysis
+    # UNRESTRICTED: Set to 50,000 to ensure 100% of data is fetched for analysis
     limit: int = Query(50000), 
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Returns the complete interaction history for a company. 
-    Use this to calculate full-scale KPIs and Trends.
+    Standard GET endpoint for static review loading.
+    Fetches the entire company history for the dashboard's KPIs and charts.
     """
     query = select(Review).where(Review.company_id == company_id).order_by(desc(Review.google_review_time))
     
@@ -88,11 +95,12 @@ async def stream_reviews(
     company_id: int = Query(...),
     start: Optional[date] = Query(None),
     end: Optional[date] = Query(None),
+    # UNRESTRICTED: Match the static limit to stream the whole database
     limit: int = Query(50000), 
     session: AsyncSession = Depends(get_session),
 ):
     """
-    SSE Endpoint to sync the frontend with the entire database content.
+    SSE Endpoint for live streaming data to the dashboard.
     """
     return StreamingResponse(
         review_streamer(company_id, start, end, limit, session),
@@ -103,11 +111,11 @@ async def stream_reviews(
 @router.post("/ingest/{company_id}")
 async def ingest_reviews(
     company_id: int,
-    max_reviews: int = Query(500), # Increased ingestion ceiling
+    max_reviews: int = Query(500), # Increased ceiling for fresh ingestion
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Triggers Outscraper and returns the fresh sync count.
+    Trigger the background ingestion service via Outscraper.
     """
     result = await session.execute(select(Company).where(Company.id == company_id))
     company = result.scalars().first()
@@ -116,20 +124,11 @@ async def ingest_reviews(
         raise HTTPException(status_code=404, detail="Company not found")
 
     try:
-        # result should return a dict with 'new_count' and 'total_fetched' 
-        # for proper dashboard tracking.
         new_count = await ingest_outscraper_reviews(company, session, max_reviews=max_reviews)
-        
-        # Verify total database count after ingestion
-        count_query = select(func.count()).select_from(Review).where(Review.company_id == company_id)
-        total_res = await session.execute(count_query)
-        total_in_db = total_res.scalar()
-
         return {
             "status": "success",
-            "message": f"Sync complete. Found {new_count} new items.",
-            "total_database_count": total_in_db
+            "message": f"✅ Stored {new_count} new reviews for {company.name}"
         }
     except Exception as e:
         logger.error(f"Ingestion Error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Service sync failed.")
+        raise HTTPException(status_code=500, detail="Outscraper service failed or timed out.")
