@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Any, Optional, List
+from typing import Any, Optional, Tuple
 
 import httpx
 from fastapi import FastAPI, Request, Depends, Form, HTTPException, status
@@ -14,12 +14,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
-from sqlalchemy import select  # SQLAlchemy 2.x style
+from sqlalchemy import select, update  # SQLAlchemy 2.x style
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.db import init_models, get_session  # unified DB init & session dependency
-from app.core.models import User  # keep as is; assumes methods on model for auth
+from app.core.db import init_models, get_session, SessionLocal  # DB init, dependency, and factory
+from app.core.models import User  # your auth model
+from app.core.models import SCHEMA_VERSION  # current code schema version
+from app.core.models import Config as ConfigModel  # key/value config storage
 
 # ---------------------------
 # Logging Setup
@@ -30,14 +32,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger("app.main")
 
+
 # ---------------------------
 # Outscraper Client (scoped)
 # ---------------------------
 class OutscraperClient:
     """
     Minimal async client to fetch reviews from Outscraper.
-    NOTE: The endpoint here uses '/maps/reviews' to match your existing code.
-          If you standardize on v3 elsewhere, consider switching to '/maps/reviews-v3'.
+    NOTE: Endpoint uses '/maps/reviews' to match older usage.
+          If you standardize on v3 elsewhere, switch to '/maps/reviews-v3'.
     """
     BASE_URL = "https://api.app.outscraper.com/maps/reviews"
 
@@ -60,7 +63,7 @@ class OutscraperClient:
             logger.error("Outscraper API Error: %s", e, exc_info=True)
             return {"reviews": []}
 
-    async def fetch_reviews(self, entity: Any, max_reviews: Optional[int] = None) -> List[dict[str, Any]]:
+    async def fetch_reviews(self, entity: Any, max_reviews: Optional[int] = None) -> list[dict[str, Any]]:
         place_id = getattr(entity, "google_place_id", entity if isinstance(entity, str) else None)
         if not place_id:
             return []
@@ -71,19 +74,103 @@ class OutscraperClient:
     async def close(self):
         await self.client.aclose()
 
+
+# ---------------------------
+# Schema Version Helpers
+# ---------------------------
+async def _get_stored_schema_version(session: AsyncSession) -> Optional[str]:
+    """
+    Looks up the persisted schema version from the config table.
+    Uses key 'SCHEMA_VERSION' (primary) and falls back to 'schema_version' if present.
+    """
+    res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
+    row = res.scalar_one_or_none()
+    if row and row.value:
+        return row.value
+
+    # Fallback legacy key if used previously
+    res2 = await session.execute(select(ConfigModel).where(ConfigModel.key == "schema_version"))
+    row2 = res2.scalar_one_or_none()
+    if row2 and row2.value:
+        return row2.value
+
+    return None
+
+
+async def _set_stored_schema_version(session: AsyncSession, new_value: str) -> None:
+    """
+    Persists the current SCHEMA_VERSION to the config table under key 'SCHEMA_VERSION'.
+    Creates or updates as needed.
+    """
+    res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
+    row = res.scalar_one_or_none()
+    if row:
+        row.value = new_value
+    else:
+        row = ConfigModel(key="SCHEMA_VERSION", value=new_value)
+        session.add(row)
+    await session.commit()
+
+
+async def detect_and_apply_schema_version_change() -> Tuple[bool, Optional[str], str]:
+    """
+    Compare code SCHEMA_VERSION with DB-stored one. If changed, update DB value.
+    Returns: (changed, old_version, new_version)
+    """
+    async with SessionLocal() as session:
+        try:
+            old_version = await _get_stored_schema_version(session)
+            new_version = str(SCHEMA_VERSION)
+
+            if old_version is None:
+                # First-time initialization of schema version
+                await _set_stored_schema_version(session, new_version)
+                logger.info("📦 Initialized SCHEMA_VERSION in DB: %s", new_version)
+                return (False, None, new_version)
+
+            if old_version != new_version:
+                # Version change detected — update stored version
+                await _set_stored_schema_version(session, new_version)
+                logger.warning(
+                    "🧩 SCHEMA_VERSION changed: %s -> %s",
+                    old_version, new_version
+                )
+                # TODO: Place any one-off data migrations or reindexing logic here
+                # e.g., await run_custom_migrations(old_version, new_version, session)
+                return (True, old_version, new_version)
+
+            # No change
+            logger.info("✅ SCHEMA_VERSION verified: %s", new_version)
+            return (False, old_version, new_version)
+
+        except Exception as ex:
+            logger.error("Failed to check/update SCHEMA_VERSION: %s", ex, exc_info=True)
+            # Fail-safe: report unknown
+            return (False, None, str(SCHEMA_VERSION))
+
+
 # ---------------------------
 # Lifespan & App Setup
 # ---------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize database schema (prefer Alembic in production)
+    # 1) Initialize database schema (prefer Alembic in production)
     try:
         await init_models()
         logger.info("✅ Database schema initialized.")
     except Exception as e:
         logger.error("❌ Database startup failed: %s", e, exc_info=True)
 
-    # Outscraper client (optional)
+    # 2) Detect & record schema version changes
+    changed, old_v, new_v = await detect_and_apply_schema_version_change()
+    app.state.schema_version = new_v
+    app.state.schema_changed = changed
+    app.state.schema_prev = old_v
+
+    if changed:
+        logger.warning("⚠️  Detected SCHEMA_VERSION change (%s -> %s). Review migration steps.", old_v, new_v)
+
+    # 3) Outscraper client (optional)
     api_key = (
         os.getenv("OUTSCRAPER_API_KEY")
         or getattr(settings, "OUTSCRAPER_API_KEY", None)
@@ -93,7 +180,7 @@ async def lifespan(app: FastAPI):
         app.state.reviews_client = OutscraperClient(api_key=api_key)
         logger.info("🚀 Outscraper Client: CONNECTED")
     else:
-        logger.warning("ℹ️ OUTSCRAPER_API_KEY not provided; review sync endpoints may be disabled.")
+        logger.info("ℹ️ OUTSCRAPER_API_KEY not provided; review sync endpoints may be disabled.")
 
     # App is ready
     yield
@@ -104,6 +191,7 @@ async def lifespan(app: FastAPI):
             await app.state.reviews_client.close()
         except Exception:
             logger.warning("Failed to close Outscraper client gracefully.", exc_info=True)
+
 
 # ---------------------------
 # FastAPI App Initialization
@@ -131,11 +219,13 @@ app.add_middleware(SessionMiddleware, secret_key=_secret_key)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
+
 # ---------------------------
 # Auth Helpers
 # ---------------------------
 def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
+
 
 # ---------------------------
 # Views
@@ -147,9 +237,11 @@ async def root(request: Request):
         return RedirectResponse(url="/dashboard")
     return RedirectResponse(url="/login")
 
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_get(request: Request):
     return templates.TemplateResponse("login.html", {"request": request, "user": None})
+
 
 @app.post("/login")
 async def login_post(
@@ -167,9 +259,11 @@ async def login_post(
     request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
     return RedirectResponse(url="/dashboard", status_code=303)
 
+
 @app.get("/register", response_class=HTMLResponse)
 async def register_get(request: Request):
     return templates.TemplateResponse("register.html", {"request": request, "user": None})
+
 
 @app.post("/register")
 async def register_post(
@@ -197,6 +291,7 @@ async def register_post(
     request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
     return RedirectResponse(url="/dashboard", status_code=303)
 
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
     if not user:
@@ -212,13 +307,32 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
             "request": request,
             "user": user,
             "google_api_key": google_api_key,
+            # Useful to surface schema info in templates if needed
+            "schema_version": getattr(request.app.state, "schema_version", None),
+            "schema_changed": getattr(request.app.state, "schema_changed", False),
+            "schema_prev": getattr(request.app.state, "schema_prev", None),
         },
     )
+
 
 @app.get("/logout")
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/login", status_code=303)
+
+
+# ---------------------------
+# Health & Diagnostics
+# ---------------------------
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "schema_version": getattr(app.state, "schema_version", None),
+        "schema_changed": getattr(app.state, "schema_changed", False),
+        "schema_prev": getattr(app.state, "schema_prev", None),
+    }
+
 
 # ---------------------------
 # Include Routers (fault-tolerant)
@@ -235,6 +349,7 @@ def _include_router_safe(module_path: str, attr: str = "router") -> None:
     except Exception as e:
         logger.warning("Skipping router %s due to import error: %s", module_path, e)
 
+
 # Core routers you mentioned; included if present in your codebase
 _include_router_safe("app.routes.auth")
 _include_router_safe("app.routes.companies")
@@ -242,6 +357,7 @@ _include_router_safe("app.routes.dashboard")
 _include_router_safe("app.routes.reviews")
 _include_router_safe("app.routes.exports")
 _include_router_safe("app.routes.google_check")
+
 
 # ---------------------------
 # Main
