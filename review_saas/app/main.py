@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Optional, List
 
 import httpx
-from fastapi import FastAPI, Request, Form, Depends
+from fastapi import FastAPI, Request, Depends, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
@@ -15,8 +15,18 @@ from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import Column, Integer, String, select
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.future import select
+
+from app.core.config import settings
+from app.core.models import Base, SCHEMA_VERSION, User
+
+# Routers
+from app.routes import auth as auth_routes
+from app.routes import companies as companies_routes
+from app.routes import dashboard as dashboard_routes
+from app.routes import reviews as reviews_routes
+from app.routes import exports as exports_routes
+from app.routes import google_check as google_routes
 
 # ---------------------------
 # Logging Setup
@@ -25,48 +35,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 logger = logging.getLogger("app.main")
 
 # ---------------------------
-# Settings
+# Database Setup (Async with asyncpg)
 # ---------------------------
-class Settings:
-    APP_NAME = "MyApp"
-    SECRET_KEY = os.getenv("SECRET_KEY", "supersecretkey")
-    OUTSCRAPER_API_KEY = os.getenv("OUTSCRAPER_API_KEY", "")
-    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-
-settings = Settings()
-
-# ---------------------------
-# Database Setup
-# ---------------------------
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/postgres")
+DATABASE_URL = getattr(settings, "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/postgres")
 engine: AsyncEngine = create_async_engine(DATABASE_URL, echo=False, future=True)
-SessionLocal = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-Base = declarative_base()
+AsyncSessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
-# ---------------------------
-# Models
-# ---------------------------
-class User(Base):
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    email = Column(String, unique=True, nullable=False, index=True)
-    password_hash = Column(String, nullable=False)
-
-    def set_password(self, password: str):
-        import hashlib
-        self.password_hash = hashlib.sha256(password.encode()).hexdigest()
-
-    def check_password(self, password: str) -> bool:
-        import hashlib
-        return self.password_hash == hashlib.sha256(password.encode()).hexdigest()
-
-# ---------------------------
-# Database Session Dependency
-# ---------------------------
 async def get_session() -> AsyncSession:
-    async with SessionLocal() as session:
+    async with AsyncSessionLocal() as session:
         yield session
 
 # ---------------------------
@@ -87,12 +63,19 @@ class OutscraperClient:
             response.raise_for_status()
             data = response.json()
             if isinstance(data, list) and len(data) > 0:
-                reviews = data[0].get("reviews_data", [])
-                return {"reviews": reviews}
+                return {"reviews": data[0].get("reviews_data", [])}
             return {"reviews": []}
         except Exception as e:
             logger.error("Outscraper API Error: %s", e, exc_info=True)
             return {"reviews": []}
+
+    async def fetch_reviews(self, entity: Any, max_reviews: Optional[int] = None) -> List[dict[str, Any]]:
+        place_id = getattr(entity, "google_place_id", entity if isinstance(entity, str) else None)
+        if not place_id:
+            return []
+        limit = max_reviews or 100
+        result = await self.get_reviews(place_id, limit=limit)
+        return result.get("reviews", [])
 
     async def close(self):
         await self.client.aclose()
@@ -102,20 +85,21 @@ class OutscraperClient:
 # ---------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize DB
+    # Database Initialization
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-            logger.info("✅ Database initialized")
+            logger.info("✅ Database Schema v%s verified.", SCHEMA_VERSION)
     except Exception as e:
         logger.error("❌ Database startup failed: %s", e)
 
-    # Outscraper client
-    if settings.OUTSCRAPER_API_KEY and len(settings.OUTSCRAPER_API_KEY) > 10:
-        app.state.reviews_client = OutscraperClient(settings.OUTSCRAPER_API_KEY)
-        logger.info("🚀 Outscraper Client connected")
+    # Outscraper Client Setup
+    api_key = os.getenv("OUTSCRAPER_API_KEY") or getattr(settings, "OUTSCRAPER_API_KEY", None)
+    if api_key and len(api_key) > 10:
+        app.state.reviews_client = OutscraperClient(api_key=api_key)
+        logger.info("🚀 Outscraper Client: CONNECTED")
     else:
-        logger.error("🛑 OUTSCRAPER_API_KEY missing")
+        logger.error("🛑 OUTSCRAPER_API_KEY missing.")
 
     yield
 
@@ -148,7 +132,6 @@ def get_current_user(request: Request) -> Optional[dict]:
 # ---------------------------
 # Routes
 # ---------------------------
-
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     user = get_current_user(request)
@@ -156,38 +139,52 @@ async def root(request: Request):
         return RedirectResponse(url="/dashboard")
     return RedirectResponse(url="/login")
 
-# Login/Register
+# LOGIN
 @app.get("/login", response_class=HTMLResponse)
 async def login_get(request: Request):
     return templates.TemplateResponse("login.html", {"request": request, "user": None})
 
 @app.post("/login")
-async def login_post(request: Request, email: str = Form(...), password: str = Form(...), session_db: AsyncSession = Depends(get_session)):
-    result = await session_db.execute(select(User).where(User.email == email))
-    user = result.scalars().first()
-    if not user or not user.check_password(password):
-        return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"})
-    request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
-    return RedirectResponse(url="/dashboard", status_code=303)
+async def login_post(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    session_db: AsyncSession = Depends(get_session),
+):
+    async with session_db as session:
+        result = await session.execute(select(User).where(User.email == email))
+        user = result.scalars().first()
+        if not user or not user.check_password(password):
+            return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"})
+        request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
+        return RedirectResponse(url="/dashboard", status_code=303)
 
+# REGISTRATION
 @app.get("/register", response_class=HTMLResponse)
 async def register_get(request: Request):
     return templates.TemplateResponse("register.html", {"request": request, "user": None})
 
 @app.post("/register")
-async def register_post(request: Request, name: str = Form(...), email: str = Form(...), password: str = Form(...), session_db: AsyncSession = Depends(get_session)):
-    result = await session_db.execute(select(User).where(User.email == email))
-    existing = result.scalars().first()
-    if existing:
-        return templates.TemplateResponse("register.html", {"request": request, "error": "Email already registered"})
-    user = User(name=name, email=email)
-    user.set_password(password)
-    session_db.add(user)
-    await session_db.commit()
-    request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
-    return RedirectResponse(url="/dashboard", status_code=303)
+async def register_post(
+    request: Request,
+    name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    session_db: AsyncSession = Depends(get_session),
+):
+    async with session_db as session:
+        result = await session.execute(select(User).where(User.email == email))
+        existing = result.scalars().first()
+        if existing:
+            return templates.TemplateResponse("register.html", {"request": request, "error": "Email already registered"})
+        user = User(name=name, email=email)
+        user.set_password(password)
+        session.add(user)
+        await session.commit()
+        request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
+        return RedirectResponse(url="/dashboard", status_code=303)
 
-# Dashboard
+# DASHBOARD
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
     if not user:
@@ -198,21 +195,21 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
         "google_api_key": settings.GOOGLE_API_KEY
     })
 
-# Logout
+# LOGOUT
 @app.get("/logout")
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/login", status_code=303)
 
-# Reviews Route Example
-@app.get("/reviews")
-async def get_reviews(request: Request):
-    client: OutscraperClient = app.state.reviews_client
-    place_id = request.query_params.get("place_id")
-    if not place_id:
-        return {"reviews": []}
-    reviews = await client.get_reviews(place_id)
-    return reviews
+# ---------------------------
+# Include routers
+# ---------------------------
+app.include_router(auth_routes.router)
+app.include_router(companies_routes.router)
+app.include_router(dashboard_routes.router)
+app.include_router(reviews_routes.router)
+app.include_router(exports_routes.router)
+app.include_router(google_routes.router)
 
 # ---------------------------
 # Main
@@ -220,4 +217,4 @@ async def get_reviews(request: Request):
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True)
