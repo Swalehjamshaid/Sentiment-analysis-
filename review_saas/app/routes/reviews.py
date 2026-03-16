@@ -1,46 +1,50 @@
 from datetime import datetime
 from typing import Optional
+import logging
 from fastapi import APIRouter, Request, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.db import get_session
 from app.core.models import Review, Company
 
+# Setup logging
+logger = logging.getLogger("app.api.reviews")
 router = APIRouter(prefix="/api/reviews")
 
 async def save_reviews_to_db(session: AsyncSession, company_id: str, reviews: list[dict]):
     """
     Save reviews to PostgreSQL. 
-    Matches attributes exactly with Review class in models.py
+    Synchronized with Review class in models.py
     """
     saved = []
+    logger.info(f"📊 Processing {len(reviews)} reviews for company_id: {company_id}")
+
     for r in reviews:
-        # 1. Get the Unique Identifier from Outscraper data
-        # Outscraper usually provides 'review_id'
+        # 1. Get unique ID from Outscraper (usually 'review_id')
         ext_id = r.get("review_id")
         if not ext_id:
+            logger.warning("⚠️ Review skipped: No review_id found in data")
             continue
             
-        # 2. Check for duplicates using the attribute 'google_review_id' from models.py
+        # 2. Check for duplicates using google_review_id
         existing = await session.execute(
             select(Review).where(Review.google_review_id == ext_id)
         )
         if existing.scalars().first():
             continue
 
-        # 3. Handle the date for the 'google_review_time' column
+        # 3. Handle the date for google_review_time
         review_date_str = r.get("review_time")
         if review_date_str:
             try:
-                # Robust parsing for ISO strings from API
+                # Standardizing ISO format
                 review_date = datetime.fromisoformat(review_date_str.replace("Z", "+00:00"))
             except Exception:
                 review_date = datetime.utcnow()
         else:
             review_date = datetime.utcnow()
 
-        # 4. Create the Review object
-        # All keys below match the 'class Review' in your models.py exactly
+        # 4. Map Outscraper data to models.py fields
         new_review = Review(
             company_id=int(company_id),
             google_review_id=ext_id,
@@ -62,13 +66,15 @@ async def save_reviews_to_db(session: AsyncSession, company_id: str, reviews: li
     if saved:
         try:
             await session.commit()
-            # Refresh allows us to access the DB-generated fields (like .id) for the response
+            logger.info(f"✅ Successfully saved {len(saved)} reviews to database")
             for r in saved:
                 await session.refresh(r)
         except Exception as e:
             await session.rollback()
-            print(f"❌ DATABASE ERROR: {e}")
-            raise HTTPException(status_code=500, detail="Failed to save reviews to database")
+            logger.error(f"❌ Database commit failed: {e}")
+            raise HTTPException(status_code=500, detail="Database error occurred")
+    else:
+        logger.info("ℹ️ No new reviews were added (all exist or no data found)")
             
     return saved
 
@@ -83,24 +89,26 @@ async def get_reviews(
 ):
     """Fetch reviews from Outscraper, save to DB, and return them"""
     
-    # 1. Verify Outscraper client setup
+    # 1. Check client
     client = getattr(request.app.state, "reviews_client", None)
     if not client:
         raise HTTPException(status_code=500, detail="Reviews client not configured")
 
-    # 2. Fetch company to get the google_place_id for the scraper
+    # 2. Find company to get Google Place ID
     result = await session.execute(select(Company).where(Company.id == int(company_id)))
     company = result.scalars().first()
     if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+        raise HTTPException(status_code=404, detail=f"Company {company_id} not found")
 
-    # 3. Fetch data from Outscraper API
+    # 3. Call Outscraper
     try:
+        logger.info(f"🔎 Fetching reviews for Place ID: {company.google_place_id}")
         raw_reviews = await client.fetch_reviews(company.google_place_id, max_reviews=limit)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Outscraper error: {str(e)}")
+        logger.error(f"❌ Outscraper error: {e}")
+        raise HTTPException(status_code=502, detail="External API error")
 
-    # 4. Date filtering logic
+    # 4. Filtering logic
     start_date = datetime.fromisoformat(start) if start else None
     end_date = datetime.fromisoformat(end) if end else None
 
@@ -108,25 +116,19 @@ async def get_reviews(
         filtered = []
         for r in raw_reviews:
             rt_str = r.get("review_time")
-            if not rt_str:
-                continue
+            if not rt_str: continue
             try:
-                # Use split to handle date comparison without time-zone issues
                 rt = datetime.fromisoformat(rt_str.split("T")[0])
-            except Exception:
-                rt = datetime.utcnow()
-                
-            if start_date and rt < start_date:
+                if start_date and rt < start_date: continue
+                if end_date and rt > end_date: continue
+                filtered.append(r)
+            except:
                 continue
-            if end_date and rt > end_date:
-                continue
-            filtered.append(r)
         raw_reviews = filtered
 
-    # 5. Persist to Postgres and return the newly saved objects
+    # 5. Save and Return
     saved_reviews = await save_reviews_to_db(session, company_id, raw_reviews)
 
-    # 6. Construct JSON response using the integrated model names
     return {
         "status": "success",
         "count": len(saved_reviews),
