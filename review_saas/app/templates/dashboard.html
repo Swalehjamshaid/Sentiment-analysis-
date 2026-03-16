@@ -5,41 +5,117 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Review SaaS Dashboard</title>
 
+    <!-- Bootstrap & Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
     <style>
-        :root{ --transition-speed:.3s; --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-        body{ background-color: #f8f9fa; padding:24px; transition:background-color var(--transition-speed),color var(--transition-speed); font-family: 'Inter', sans-serif; }
-        
-        [data-theme="dark"]{ background:#121212; color:#e6e6e6; }
-        [data-theme="dark"] .card{ background:#1f1f1f; color:#e6e6e6; border-color:#333; }
-        [data-theme="dark"] .table{ color:#e6e6e6; }
-        [data-theme="dark"] .bg-light { background-color: #1f1f1f !important; border-color: #333 !important; }
-
-        .chart-wrapper { height: 320px; width: 100%; position: relative; margin-top: 10px; }
-        
-        .kpi-card { 
-            min-height: 120px; border: none; transition: transform .2s; border-radius: 16px; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        :root {
+            --transition-speed: .3s;
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
-        .kpi-card:hover { transform: translateY(-5px); }
-        
-        .navbar { background: var(--primary-gradient) !important; border: none; border-radius: 15px !important; }
-        
-        .sent-pos { color: #10b981; font-weight: 600; }
-        .sent-neu { color: #6b7280; font-weight: 600; }
-        .sent-neg { color: #ef4444; font-weight: 600; }
-        
-        .progress { border-radius: 10px; background-color: rgba(0,0,0,0.05); }
-        #loadingSpinner { display: none; }
-        .spin { animation: spin 2s linear infinite; display: inline-block; }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
-        
-        #ingestProgressContainer { display: none; margin-bottom: 20px; border-radius: 15px; }
-        .table-responsive { border-radius: 12px; }
-        .form-select, .form-control { border-radius: 10px; border: 1px solid #e5e7eb; }
+
+        body {
+            background-color: #f8f9fa;
+            padding: 24px;
+            transition: background-color var(--transition-speed), color var(--transition-speed);
+            font-family: 'Inter', sans-serif;
+        }
+
+        [data-theme="dark"] {
+            background: #121212;
+            color: #e6e6e6;
+        }
+
+        [data-theme="dark"] .card {
+            background: #1f1f1f;
+            color: #e6e6e6;
+            border-color: #333;
+        }
+
+        [data-theme="dark"] .table {
+            color: #e6e6e6;
+        }
+
+        [data-theme="dark"] .bg-light {
+            background-color: #1f1f1f !important;
+            border-color: #333 !important;
+        }
+
+        .chart-wrapper {
+            height: 320px;
+            width: 100%;
+            position: relative;
+            margin-top: 10px;
+        }
+
+        .kpi-card {
+            min-height: 120px;
+            border: none;
+            transition: transform .2s;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        .kpi-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .navbar {
+            background: var(--primary-gradient) !important;
+            border: none;
+            border-radius: 15px !important;
+        }
+
+        .sent-pos {
+            color: #10b981;
+            font-weight: 600;
+        }
+
+        .sent-neu {
+            color: #6b7280;
+            font-weight: 600;
+        }
+
+        .sent-neg {
+            color: #ef4444;
+            font-weight: 600;
+        }
+
+        .progress {
+            border-radius: 10px;
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+
+        #loadingSpinner {
+            display: none;
+        }
+
+        .spin {
+            animation: spin 2s linear infinite;
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            100% { transform: rotate(360deg); }
+        }
+
+        #ingestProgressContainer {
+            display: none;
+            margin-bottom: 20px;
+            border-radius: 15px;
+        }
+
+        .table-responsive {
+            border-radius: 12px;
+        }
+
+        .form-select,
+        .form-control {
+            border-radius: 10px;
+            border: 1px solid #e5e7eb;
+        }
     </style>
 </head>
 
@@ -50,7 +126,9 @@
         <span class="navbar-brand fw-bold"><i class="bi bi-stars me-2"></i>Review Intelligence AI</span>
         <div class="d-flex gap-2">
             <button id="toggleTheme" class="btn btn-light btn-sm rounded-pill px-3">Theme</button>
-            <form action="/logout" method="post"><button class="btn btn-danger btn-sm rounded-pill px-3">Logout</button></form>
+            <form action="/logout" method="post">
+                <button class="btn btn-danger btn-sm rounded-pill px-3">Logout</button>
+            </form>
         </div>
     </div>
 </nav>
@@ -70,6 +148,7 @@
         </div>
     </div>
 
+    <!-- Filter Section -->
     <div class="row g-3 align-items-end mb-4 p-4 bg-white rounded-4 shadow-sm border-0">
         <div class="col-md-3">
             <label class="form-label fw-bold text-muted small">SELECT COMPANY</label>
@@ -93,33 +172,107 @@
         </div>
     </div>
 
+    <!-- KPI Section -->
     <div class="row g-3 mb-4">
-        <div class="col-md-2 col-6"><div class="card kpi-card shadow-sm"><div class="card-body text-center"><div class="text-muted small fw-bold">TOTAL</div><div id="kpiTotal" class="h2 fw-bold mb-0">–</div></div></div></div>
-        <div class="col-md-2 col-6"><div class="card kpi-card shadow-sm"><div class="card-body text-center"><div class="text-muted small fw-bold">AVG RATING</div><div id="kpiRating" class="h2 fw-bold mb-0 text-primary">–</div></div></div></div>
-        <div class="col-md-2 col-4"><div class="card kpi-card shadow-sm"><div class="card-body text-center"><div class="text-muted small fw-bold">POSITIVE</div><div id="kpiPos" class="h2 fw-bold mb-0 sent-pos">–</div></div></div></div>
-        <div class="col-md-2 col-4"><div class="card kpi-card shadow-sm"><div class="card-body text-center"><div class="text-muted small fw-bold">NEUTRAL</div><div id="kpiNeu" class="h2 fw-bold mb-0 sent-neu">–</div></div></div></div>
-        <div class="col-md-2 col-4"><div class="card kpi-card shadow-sm"><div class="card-body text-center"><div class="text-muted small fw-bold">NEGATIVE</div><div id="kpiNeg" class="h2 fw-bold mb-0 sent-neg">–</div></div></div></div>
+        <div class="col-md-2 col-6">
+            <div class="card kpi-card shadow-sm">
+                <div class="card-body text-center">
+                    <div class="text-muted small fw-bold">TOTAL</div>
+                    <div id="kpiTotal" class="h2 fw-bold mb-0">–</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2 col-6">
+            <div class="card kpi-card shadow-sm">
+                <div class="card-body text-center">
+                    <div class="text-muted small fw-bold">AVG RATING</div>
+                    <div id="kpiRating" class="h2 fw-bold mb-0 text-primary">–</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2 col-4">
+            <div class="card kpi-card shadow-sm">
+                <div class="card-body text-center">
+                    <div class="text-muted small fw-bold">POSITIVE</div>
+                    <div id="kpiPos" class="h2 fw-bold mb-0 sent-pos">–</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2 col-4">
+            <div class="card kpi-card shadow-sm">
+                <div class="card-body text-center">
+                    <div class="text-muted small fw-bold">NEUTRAL</div>
+                    <div id="kpiNeu" class="h2 fw-bold mb-0 sent-neu">–</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2 col-4">
+            <div class="card kpi-card shadow-sm">
+                <div class="card-body text-center">
+                    <div class="text-muted small fw-bold">NEGATIVE</div>
+                    <div id="kpiNeg" class="h2 fw-bold mb-0 sent-neg">–</div>
+                </div>
+            </div>
+        </div>
     </div>
 
+    <!-- Charts Section -->
     <div class="row g-4 mb-4">
-        <div class="col-lg-4"><div class="card shadow-sm border-0 rounded-4"><div class="card-body"><h6 class="fw-bold text-muted mb-3">Rating Distribution</h6><div class="chart-wrapper"><canvas id="chartDistribution"></canvas></div></div></div></div>
-        <div class="col-lg-4"><div class="card shadow-sm border-0 rounded-4"><div class="card-body"><h6 class="fw-bold text-muted mb-3">Volume Trend</h6><div class="chart-wrapper"><canvas id="chartTrend"></canvas></div></div></div></div>
-        <div class="col-lg-4"><div class="card shadow-sm border-0 rounded-4"><div class="card-body"><h6 class="fw-bold text-muted mb-3">Sentiment Breakdown</h6><div class="chart-wrapper"><canvas id="chartSentiment"></canvas></div></div></div></div>
+        <div class="col-lg-4">
+            <div class="card shadow-sm border-0 rounded-4">
+                <div class="card-body">
+                    <h6 class="fw-bold text-muted mb-3">Rating Distribution</h6>
+                    <div class="chart-wrapper">
+                        <canvas id="chartDistribution"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card shadow-sm border-0 rounded-4">
+                <div class="card-body">
+                    <h6 class="fw-bold text-muted mb-3">Volume Trend</h6>
+                    <div class="chart-wrapper">
+                        <canvas id="chartTrend"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card shadow-sm border-0 rounded-4">
+                <div class="card-body">
+                    <h6 class="fw-bold text-muted mb-3">Sentiment Breakdown</h6>
+                    <div class="chart-wrapper">
+                        <canvas id="chartSentiment"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
+    <!-- Latest Reviews Table -->
     <div class="card border-0 shadow-sm rounded-4 mb-5">
         <div class="card-body p-4">
             <h5 class="fw-bold mb-4">Latest Interactions</h5>
             <div class="table-responsive">
                 <table class="table table-hover align-middle border-0">
                     <thead class="bg-light">
-                        <tr class="text-muted small"><th>AUTHOR</th><th>RATING</th><th>SENTIMENT</th><th>DATE</th><th>FEEDBACK</th></tr>
+                        <tr class="text-muted small">
+                            <th>AUTHOR</th>
+                            <th>RATING</th>
+                            <th>SENTIMENT</th>
+                            <th>DATE</th>
+                            <th>FEEDBACK</th>
+                        </tr>
                     </thead>
-                    <tbody id="reviewsTable" class="border-0"><tr><td colspan="5" class="text-center py-5 text-muted">Awaiting data...</td></tr></tbody>
+                    <tbody id="reviewsTable" class="border-0">
+                        <tr><td colspan="5" class="text-center py-5 text-muted">Awaiting data...</td></tr>
+                    </tbody>
                 </table>
             </div>
         </div>
     </div>
+
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
@@ -128,34 +281,39 @@
 let chartInstances = {};
 let cachedReviews = [];
 
-function notify(msg, type = "danger") {
+// Notification
+function notify(msg, type="danger") {
     const host = document.getElementById("alertHost");
-    host.innerHTML = `<div class="alert alert-${type} alert-dismissible border-0 shadow-sm fade show">${msg}<button class="btn-close" data-bs-dismiss="alert"></button></div>`;
+    host.innerHTML = `<div class="alert alert-${type} alert-dismissible border-0 shadow-sm fade show">
+        ${msg}<button class="btn-close" data-bs-dismiss="alert"></button></div>`;
 }
 
+// API Request Wrapper
 async function apiRequest(url) {
     const res = await fetch(url);
     if (!res.ok) throw new Error("API Failure");
     return await res.json();
 }
 
+// Load companies dropdown
 async function loadCompanies() {
     try {
         const data = await apiRequest("/api/companies");
         const sel = document.getElementById("companySelect");
         sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
-        if (data.length > 0) loadReviews();
+        if(data.length > 0) loadReviews();
     } catch { notify("Startup Error: Backend unreachable"); }
 }
 
+// Stream reviews progress
 function streamReviews() {
     const companyId = document.getElementById("companySelect").value;
-    if (!companyId) return;
+    if(!companyId) return;
 
     const progressContainer = document.getElementById("ingestProgressContainer");
     const progressBar = document.getElementById("ingestProgressBar");
     const progressStats = document.getElementById("progressStats");
-    
+
     progressContainer.style.display = "block";
     cachedReviews = [];
     updateDashboardUI();
@@ -164,41 +322,42 @@ function streamReviews() {
 
     es.addEventListener('review', (e) => {
         cachedReviews.push(JSON.parse(e.data));
-        progressBar.style.width = `${Math.min((cachedReviews.length/500)*100, 100)}%`;
+        progressBar.style.width = `${Math.min((cachedReviews.length/500)*100,100)}%`;
         progressStats.innerText = `${cachedReviews.length} records`;
         updateDashboardUI();
     });
 
-    es.addEventListener('done', () => { 
-        es.close(); 
-        notify("Database sync complete", "success"); 
-        setTimeout(() => progressContainer.style.display = "none", 2000);
+    es.addEventListener('done', () => {
+        es.close();
+        notify("Database sync complete","success");
+        setTimeout(()=> progressContainer.style.display="none",2000);
     });
 
     es.onerror = () => es.close();
 }
 
+// Load Reviews from backend
 async function loadReviews() {
     const companyId = document.getElementById("companySelect").value;
-    if (!companyId) return;
-    
+    if(!companyId) return;
+
     const start = document.getElementById("startDate").value;
     const end = document.getElementById("endDate").value;
-    
+
     try {
-        // Fetches ALL available data from the route for full analysis
         const res = await apiRequest(`/api/reviews?company_id=${companyId}&limit=1000&start=${start}&end=${end}`);
-        cachedReviews = Array.isArray(res) ? res : [];
+        cachedReviews = Array.isArray(res)? res: [];
         updateDashboardUI();
     } catch { notify("Data fetch failed"); }
 }
 
+// Update UI
 function updateDashboardUI() {
     const total = cachedReviews.length;
-    const avg = total ? cachedReviews.reduce((a, b) => a + b.rating, 0) / total : 0;
-    const pos = cachedReviews.filter(r => r.sentiment_score > 0).length;
-    const neu = cachedReviews.filter(r => r.sentiment_score === 0).length;
-    const neg = cachedReviews.filter(r => r.sentiment_score < 0).length;
+    const avg = total? cachedReviews.reduce((a,b)=>a+b.rating,0)/total : 0;
+    const pos = cachedReviews.filter(r=>r.sentiment_score>0).length;
+    const neu = cachedReviews.filter(r=>r.sentiment_score===0).length;
+    const neg = cachedReviews.filter(r=>r.sentiment_score<0).length;
 
     document.getElementById("kpiTotal").textContent = total;
     document.getElementById("kpiRating").textContent = avg.toFixed(1);
@@ -210,93 +369,80 @@ function updateDashboardUI() {
     renderTable();
 }
 
+// Render Charts
 function renderCharts() {
-    Object.values(chartInstances).forEach(c => c.destroy());
-    
+    Object.values(chartInstances).forEach(c=>c.destroy());
+
     const ctxDist = document.getElementById("chartDistribution").getContext("2d");
     const ctxTrend = document.getElementById("chartTrend").getContext("2d");
     const ctxSent = document.getElementById("chartSentiment").getContext("2d");
 
-    // 1. Distribution Chart (Beautiful Purples)
-    chartInstances.dist = new Chart(ctxDist, {
-        type: "bar",
-        data: {
-            labels: ["1★", "2★", "3★", "4★", "5★"],
-            datasets: [{
-                data: [1, 2, 3, 4, 5].map(x => cachedReviews.filter(r => Math.round(r.rating) === x).length),
-                backgroundColor: ['#f87171', '#fb923c', '#fbbf24', '#818cf8', '#6366f1'],
-                borderRadius: 8
+    // Distribution Chart
+    chartInstances.dist = new Chart(ctxDist,{
+        type:"bar",
+        data:{
+            labels:["1★","2★","3★","4★","5★"],
+            datasets:[{
+                data:[1,2,3,4,5].map(x=>cachedReviews.filter(r=>Math.round(r.rating)===x).length),
+                backgroundColor:['#f87171','#fb923c','#fbbf24','#818cf8','#6366f1'],
+                borderRadius:8
             }]
         },
-        options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+        options:{responsive:true, maintainAspectRatio:false, animation:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}}}
     });
 
-    // 2. Volume Trend (Smooth Area Chart)
-    const sorted = [...cachedReviews].sort((a,b) => new Date(a.google_review_time) - new Date(b.google_review_time));
-    const labels = sorted.map(r => new Date(r.google_review_time).toLocaleDateString()).slice(-20);
-    const data = sorted.map(r => r.rating).slice(-20);
+    // Volume Trend
+    const sorted = [...cachedReviews].sort((a,b)=>new Date(a.google_review_time)-new Date(b.google_review_time));
+    const labels = sorted.map(r=>new Date(r.google_review_time).toLocaleDateString()).slice(-20);
+    const data = sorted.map(r=>r.rating).slice(-20);
 
-    chartInstances.trend = new Chart(ctxTrend, {
-        type: "line",
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Rating',
-                data: data,
-                borderColor: '#6366f1',
-                backgroundColor: 'rgba(99, 102, 241, 0.1)',
-                fill: true,
-                tension: 0.4,
-                pointRadius: 4
-            }]
-        },
-        options: { responsive: true, maintainAspectRatio: false, animation: false, scales: { y: { min: 1, max: 5 } } }
+    chartInstances.trend = new Chart(ctxTrend,{
+        type:"line",
+        data:{labels, datasets:[{label:'Rating',data, borderColor:'#6366f1', backgroundColor:'rgba(99,102,241,.1)', fill:true, tension:.4, pointRadius:4}]},
+        options:{responsive:true, maintainAspectRatio:false, animation:false, scales:{y:{min:1,max:5}}}
     });
 
-    // 3. Sentiment (Custom Dashboard Colors)
-    chartInstances.sent = new Chart(ctxSent, {
-        type: "doughnut",
-        data: {
-            labels: ["Positive", "Neutral", "Negative"],
-            datasets: [{
-                data: [
-                    cachedReviews.filter(r => r.sentiment_score > 0).length,
-                    cachedReviews.filter(r => r.sentiment_score === 0).length,
-                    cachedReviews.filter(r => r.sentiment_score < 0).length
-                ],
-                backgroundColor: ['#10b981', '#94a3b8', '#ef4444'],
-                hoverOffset: 10,
-                borderWidth: 0
+    // Sentiment
+    chartInstances.sent = new Chart(ctxSent,{
+        type:"doughnut",
+        data:{
+            labels:["Positive","Neutral","Negative"],
+            datasets:[{
+                data:[cachedReviews.filter(r=>r.sentiment_score>0).length, cachedReviews.filter(r=>r.sentiment_score===0).length, cachedReviews.filter(r=>r.sentiment_score<0).length],
+                backgroundColor:['#10b981','#94a3b8','#ef4444'],
+                hoverOffset:10,
+                borderWidth:0
             }]
         },
-        options: { responsive: true, maintainAspectRatio: false, animation: false, cutout: '70%' }
+        options:{responsive:true, maintainAspectRatio:false, animation:false, cutout:'70%'}
     });
 }
 
+// Render Reviews Table
 function renderTable() {
     const tableBody = document.getElementById("reviewsTable");
-    if (cachedReviews.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="5" class="text-center py-5">No records found</td></tr>';
+    if(cachedReviews.length===0){
+        tableBody.innerHTML='<tr><td colspan="5" class="text-center py-5">No records found</td></tr>';
         return;
     }
-    // Analysis is based on ALL data, but table shows top 50 for performance
-    tableBody.innerHTML = [...cachedReviews].reverse().slice(0, 50).map(r => `
+    tableBody.innerHTML = [...cachedReviews].reverse().slice(0,50).map(r=>`
         <tr class="border-bottom">
             <td class="fw-bold text-dark">${r.author_name || 'Guest'}</td>
             <td><span class="badge rounded-pill bg-primary px-3">${r.rating} ★</span></td>
-            <td class="${r.sentiment_score > 0 ? 'sent-pos' : r.sentiment_score < 0 ? 'sent-neg' : 'sent-neu'}">
-                <i class="bi bi-circle-fill small me-1"></i> ${r.sentiment_score > 0 ? "Positive" : r.sentiment_score < 0 ? "Negative" : "Neutral"}
+            <td class="${r.sentiment_score>0?'sent-pos':r.sentiment_score<0?'sent-neg':'sent-neu'}">
+                <i class="bi bi-circle-fill small me-1"></i> ${r.sentiment_score>0?"Positive":r.sentiment_score<0?"Negative":"Neutral"}
             </td>
-            <td class="text-muted small">${r.google_review_time ? new Date(r.google_review_time).toLocaleDateString() : 'N/A'}</td>
-            <td class="small text-secondary" style="max-width: 300px;">${r.text || '...'}</td>
+            <td class="text-muted small">${r.google_review_time?new Date(r.google_review_time).toLocaleDateString():'N/A'}</td>
+            <td class="small text-secondary" style="max-width:300px;">${r.text||'...'}</td>
         </tr>`).join("");
 }
 
+// Event Bindings
 document.getElementById("loadBtn").onclick = loadReviews;
 document.getElementById("ingestBtn").onclick = streamReviews;
-document.getElementById("toggleTheme").onclick = () => {
-    const theme = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
-    document.documentElement.setAttribute("data-theme", theme);
+document.getElementById("toggleTheme").onclick = ()=>{
+    const theme = document.documentElement.getAttribute("data-theme")==="light"?"dark":"light";
+    document.documentElement.setAttribute("data-theme",theme);
 };
 
 window.onload = loadCompanies;
