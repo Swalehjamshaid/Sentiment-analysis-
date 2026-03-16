@@ -1,229 +1,77 @@
 # filename: app/routes/reviews.py
-from __future__ import annotations
 
-import os
-import logging
-from typing import Any, Dict, List, Optional, Tuple
-from datetime import date, datetime, timedelta
-from contextlib import asynccontextmanager
-
-import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import and_, cast, Date, desc, select, func
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from sqlalchemy.future import select
+from typing import Optional
 from app.core.db import get_session
-from app.core.models import Company, Review
-from app.services.google_reviews import run_batch_review_ingestion
+from app.core.models import Review, Company
+from app.main import app  # to access app.state.reviews_client
 
-router = APIRouter(tags=["reviews"])
-logger = logging.getLogger("app.reviews")
-logging.basicConfig(level=logging.INFO)
-
-GOOGLE_API_KEY = (
-    os.getenv("GOOGLE_PLACES_API_KEY")
-    or os.getenv("GOOGLE_MAPS_API_KEY")
-    or os.getenv("GOOGLE_API_KEY")
-)
-
-HTTPX_TIMEOUT = 30.0
+router = APIRouter()
 
 
-# ---------------------------------------------------------
-# DATE HELPERS
-# ---------------------------------------------------------
-def _parse_date(s: Optional[str]) -> Optional[date]:
-    if not s:
-        return None
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d"):
-        try:
-            return datetime.strptime(s, fmt).date()
-        except Exception:
-            continue
-    try:
-        return datetime.fromisoformat(s).date()
-    except Exception:
-        return None
-
-
-def _resolve_range(start: Optional[str], end: Optional[str]) -> Tuple[date, date]:
-    today = date.today()
-    e_dt = _parse_date(end) or today
-    s_dt = _parse_date(start) or (e_dt - timedelta(days=14))
-    return s_dt, e_dt
-
-
-def _safe_day_str(dt: Optional[datetime]) -> str:
-    if not dt:
-        return ""
-    try:
-        return dt.date().isoformat()
-    except Exception:
-        return ""
-
-
-# ---------------------------------------------------------
-# HTTP CLIENT
-# ---------------------------------------------------------
-@asynccontextmanager
-async def _httpx_client():
-    async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
-        yield client
-
-
-# ---------------------------------------------------------
-# GOOGLE AUTOCOMPLETE
-# ---------------------------------------------------------
-@router.get("/api/google_autocomplete")
-async def google_autocomplete(input: str) -> Dict[str, Any]:
-    if not GOOGLE_API_KEY:
-        raise HTTPException(status_code=500, detail="Google API key missing")
-
-    url = "https://maps.googleapis.com/maps/api/place/autocomplete/json"
-    params = {"input": input, "key": GOOGLE_API_KEY}
-
-    try:
-        async with _httpx_client() as client:
-            r = await client.get(url, params=params)
-            r.raise_for_status()
-            predictions = r.json().get("predictions", [])
-            logger.info("Autocomplete fetched %d predictions for input: %s", len(predictions), input)
-            return {"predictions": predictions}
-    except Exception as e:
-        logger.error(f"Autocomplete Error: {str(e)}")
-        raise HTTPException(status_code=502, detail="Upstream Google API failure")
-
-
-# ---------------------------------------------------------
-# GOOGLE PLACE DETAILS
-# ---------------------------------------------------------
-@router.get("/api/google/place/details")
-async def google_place_details(place_id: str) -> Dict[str, Any]:
-    if not GOOGLE_API_KEY:
-        raise HTTPException(status_code=500, detail="Google API key missing")
-
-    url = "https://maps.googleapis.com/maps/api/place/details/json"
-    params = {"place_id": place_id, "fields": "name,formatted_address,rating,place_id", "key": GOOGLE_API_KEY}
-
-    try:
-        async with _httpx_client() as client:
-            r = await client.get(url, params=params)
-            r.raise_for_status()
-            res = r.json().get("result", {}) or {}
-            return {
-                "name": res.get("name"),
-                "address": res.get("formatted_address"),
-                "rating": res.get("rating"),
-                "place_id": res.get("place_id"),
-            }
-    except Exception as e:
-        logger.error(f"Details Error: {str(e)}")
-        raise HTTPException(status_code=502, detail="Upstream Google API failure")
-
-
-# ---------------------------------------------------------
-# REVIEW INGESTION ENDPOINT
-# ---------------------------------------------------------
-@router.post("/api/reviews/ingest/{company_id}")
-async def trigger_ingestion(
-    request: Request,
-    company_id: int,
-    start: Optional[str] = Query(None),
-    end: Optional[str] = Query(None),
-    max_reviews: Optional[int] = Query(None, ge=1, le=5000),
-    session: AsyncSession = Depends(get_session),
-):
-    company = await session.get(Company, company_id)
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
-
-    client = getattr(request.app.state, "reviews_client", None)
-    if not client:
-        raise HTTPException(status_code=503, detail="Ingestion client not initialized")
-
-    s_date, e_date = _resolve_range(start, end)
-    logger.info("🔄 INGESTION TRIGGERED for %s | Place ID: %s | Window: %s to %s", company.name, company.google_place_id, s_date, e_date)
-
-    summary = await run_batch_review_ingestion(
-        client=client,
-        entities=[company],
-        start=datetime.combine(s_date, datetime.min.time()),
-        end=datetime.combine(e_date, datetime.max.time()),
-        session=session,
-        max_reviews=max_reviews,
-    )
-
-    logger.info("✅ Ingestion summary: %s", summary)
-    return {"status": "success", "company": company.name, "ingestion_summary": summary}
-
-
-# ---------------------------------------------------------
-# DASHBOARD REVIEWS ENDPOINT
-# ---------------------------------------------------------
 @router.get("/api/reviews")
 async def get_reviews(
-    request: Request,
-    company_id: int = Query(...),
+    company_id: str = Query(...),
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
-    limit: int = Query(50, ge=1, le=2000),
-    include_analytics: bool = Query(True),
-    competitor_ids: Optional[List[int]] = Query(None),
+    limit: int = Query(50),
     session: AsyncSession = Depends(get_session),
-) -> Dict[str, Any]:
-    company = await session.get(Company, company_id)
+):
+    """Fetch reviews from Outscraper and save them to the database."""
+    # 1️⃣ Fetch the company
+    result = await session.execute(select(Company).where(Company.id == company_id))
+    company = result.scalars().first()
     if not company:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
+        return {"feed": [], "saved_count": 0}
 
-    s_date, e_date = _resolve_range(start, end)
-    client = getattr(request.app.state, "reviews_client", None)
+    # 2️⃣ Fetch reviews from Outscraper
+    reviews_client = getattr(app.state, "reviews_client", None)
+    if not reviews_client:
+        return {"feed": [], "saved_count": 0}
 
-    # Check last review time
-    latest_stmt = select(func.max(Review.google_review_time)).where(Review.company_id == company_id)
-    latest_res = await session.execute(latest_stmt)
-    latest_review_time = latest_res.scalar()
+    reviews_data = await reviews_client.fetch_reviews(company, max_reviews=limit)
 
-    should_sync = latest_review_time is None or ((datetime.utcnow() - latest_review_time).total_seconds() / 3600 > 24)
+    # 3️⃣ Filter by start/end date if provided
+    if start or end:
+        def in_range(r):
+            date = r.get("review_time")
+            if not date:
+                return False
+            if start and date < start:
+                return False
+            if end and date > end:
+                return False
+            return True
+        reviews_data = [r for r in reviews_data if in_range(r)]
 
-    if should_sync and client:
-        logger.info("⚡ Reviews stale or missing for %s. Running ingestion...", company.name)
-        await run_batch_review_ingestion(
-            client=client,
-            entities=[company],
-            start=datetime.combine(s_date, datetime.min.time()),
-            end=datetime.combine(e_date, datetime.max.time()),
-            session=session,
-            max_reviews=200,
-        )
-
-    # Fetch reviews
-    stmt = (
-        select(Review)
-        .where(
-            and_(
-                Review.company_id == company_id,
-                cast(Review.google_review_time, Date) >= s_date,
-                cast(Review.google_review_time, Date) <= e_date,
+    # 4️⃣ Save new reviews to database
+    saved_count = 0
+    for r in reviews_data:
+        # Avoid duplicates
+        existing = await session.execute(
+            select(Review).where(
+                Review.company_id == company.id,
+                Review.review_time == r.get("review_time"),
+                Review.author_name == r.get("author_name"),
             )
         )
-        .order_by(desc(Review.google_review_time))
-        .limit(limit)
-    )
+        if existing.scalars().first():
+            continue
 
-    result = await session.execute(stmt)
-    rows = result.scalars().all()
-
-    feed: List[Dict[str, Any]] = []
-    for row in rows:
-        feed.append(
-            {
-                "author_name": str(row.author_name or "Anonymous"),
-                "rating": float(row.rating or 0.0),
-                "sentiment_score": float(row.sentiment_score or 0.0),
-                "review_time": _safe_day_str(row.google_review_time),
-                "text": str(row.text or ""),
-            }
+        review = Review(
+            company_id=company.id,
+            author_name=r.get("author_name"),
+            rating=r.get("rating"),
+            text=r.get("text"),
+            review_time=r.get("review_time"),
+            sentiment_score=r.get("sentiment_score", 0),
         )
+        session.add(review)
+        saved_count += 1
 
-    logger.info("📊 DASHBOARD DATA: feed=%s | company=%s", len(feed), company.name)
-    return {"feed": feed, "count": len(feed)}
+    if saved_count > 0:
+        await session.commit()
+
+    return {"feed": reviews_data, "saved_count": saved_count}
