@@ -50,7 +50,11 @@ class OutscraperReviewsClient:
             )
 
         # Prefer place_id when known
-        query = company_obj.google_place_id or company_obj.name
+        query = getattr(company_obj, "google_place_id", None) or getattr(company_obj, "name", None)
+        if not query:
+            raise ValueError("Company object must have either google_place_id or name set.")
+
+        # If we only have a name, enrich with address to improve accuracy
         if getattr(company_obj, "address", None) and query == company_obj.name:
             query = f"{company_obj.name}, {company_obj.address}"
 
@@ -86,8 +90,8 @@ class OutscraperReviewsClient:
         # Outscraper may return:
         #   - [{"data":[ ... ]}]
         #   - {"data":[ ... ]}
-        #   - raw lists
-        # We normalize to a list of blocks
+        #   - raw lists or dict
+        # Normalize to a list of blocks for the ingestion pipeline
         if isinstance(data, list):
             return data
 
