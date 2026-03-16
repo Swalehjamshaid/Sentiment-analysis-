@@ -14,9 +14,10 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.db import get_session, engine
+from app.core.db import engine, async_session
 from app.core.models import Base, SCHEMA_VERSION, User
 
 # Routers
@@ -110,6 +111,13 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
 # ---------------------------
+# Database Session Dependency
+# ---------------------------
+async def get_session() -> AsyncSession:
+    async with async_session() as session:
+        yield session
+
+# ---------------------------
 # Auth Helpers
 # ---------------------------
 def get_current_user(request: Request) -> Optional[dict]:
@@ -134,7 +142,7 @@ async def login_post(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
-    session_db=Depends(get_session),
+    session_db: AsyncSession = Depends(get_session),
 ):
     async with session_db as session:
         result = await session.execute(select(User).where(User.email == email))
@@ -154,7 +162,7 @@ async def register_post(
     name: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
-    session_db=Depends(get_session),
+    session_db: AsyncSession = Depends(get_session),
 ):
     async with session_db as session:
         result = await session.execute(select(User).where(User.email == email))
