@@ -21,6 +21,7 @@ class OutscraperReviewsClient:
         self.reviews_endpoint = f"{self.base_url}/maps/reviews-v3"
 
     async def fetch_reviews(self, company_obj: Any, max_reviews: int = 200) -> List[Dict[str, Any]]:
+        # Use google_place_id first as it's more accurate
         query = getattr(company_obj, "google_place_id", None) or getattr(company_obj, "name", None)
         params = {"query": query, "reviewsLimit": max_reviews, "async": "false"}
         headers = {"X-API-KEY": self.api_key}
@@ -29,7 +30,6 @@ class OutscraperReviewsClient:
             response = await client.get(self.reviews_endpoint, params=params, headers=headers)
             response.raise_for_status()
             data = response.json()
-            # Extracting the list of reviews from the first result block
             return data[0].get("reviews_data", []) if data else []
 
 async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max_reviews: int = 200) -> int:
@@ -38,22 +38,33 @@ async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max
     
     new_count = 0
     for raw in raw_reviews:
-        # Deduplication check (ensure your Review model has review_id_external)
+        # 1. Deduplication using your 'google_review_id' column
         ext_id = raw.get("review_id")
-        stmt = select(Review).where(Review.review_id_external == ext_id)
+        stmt = select(Review).where(
+            (Review.company_id == company_obj.id) & 
+            (Review.google_review_id == ext_id)
+        )
         existing = await session.execute(stmt)
         
         if existing.scalars().first():
             continue
 
-        # Create and add the new record
+        # 2. Parse Timestamp for 'google_review_time'
+        raw_ts = raw.get("review_datetime_utc")
+        dt_obj = None
+        if raw_ts:
+            dt_obj = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+
+        # 3. Create Review record using your specific model fields
         new_review = Review(
             company_id=company_obj.id,
-            review_id_external=ext_id,
+            google_review_id=ext_id,
             author_name=raw.get("author_title"),
-            content=raw.get("review_text"),
             rating=raw.get("review_rating"),
-            date=datetime.fromisoformat(raw.get("review_datetime_utc").replace("Z", "+00:00")).date()
+            text=raw.get("review_text"), # Matches 'text' in models.py
+            google_review_time=dt_obj,
+            review_url=raw.get("review_link"),
+            source_platform="Google"
         )
         session.add(new_review)
         new_count += 1
