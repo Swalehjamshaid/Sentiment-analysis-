@@ -13,30 +13,32 @@
         :root{ 
             --primary-grad: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
             --ai-grad: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
+            --success-grad: linear-gradient(135deg, #10b981 0%, #059669 100%);
         }
         body{ background-color: #f8fafc; padding:24px; font-family: 'Inter', sans-serif; transition: background 0.3s; }
         
-        /* Layout Components */
         .navbar { background: var(--primary-grad) !important; border-radius: 15px !important; border: none; margin-bottom: 25px; }
         .chart-wrapper { height: 320px; width: 100%; position: relative; }
         
-        /* KPI Cards */
+        /* KPI & Card Styling */
         .card { border: none; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: transform 0.2s; }
         .total-review-card { background: var(--primary-grad); color: white; border-radius: 24px; margin-bottom: 2rem; }
-        .total-review-card .opacity-75 { color: rgba(255,255,255,0.7) !important; }
-
+        
         .ai-badge { background: var(--ai-grad); color: white; padding: 5px 15px; border-radius: 10px; font-size: 0.75rem; font-weight: bold; margin-bottom: 10px; display: inline-block; }
         
-        /* Table & Lists */
-        .table-responsive { border-radius: 15px; max-height: 600px; }
-        .badge-rating { background-color: #6366f1; color: white; }
+        /* Buttons */
+        .btn-pill { border-radius: 50px; padding: 10px 20px; font-weight: 600; }
+        .btn-fetch { background: var(--success-grad); color: white; border: none; }
+        .btn-fetch:hover { opacity: 0.9; color: white; }
 
-        /* Google Autocomplete Styling */
-        .pac-container { z-index: 1100 !important; border-radius: 8px; border: none; box-shadow: 0 4px 20px rgba(0,0,0,0.15); font-family: 'Inter', sans-serif; }
-        .modal-content { border-radius: 25px; border: none; }
+        .table-responsive { border-radius: 15px; max-height: 600px; }
+        .pac-container { z-index: 1100 !important; border-radius: 8px; border: none; box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
         
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
         [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
+        
+        .spin { animation: spin 2s linear infinite; display: inline-block; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
     </style>
 </head>
 
@@ -58,35 +60,52 @@
 <div class="container-fluid">
     <div id="alertHost"></div>
 
-    <div class="row g-3 align-items-end mb-4 p-4 bg-white rounded-4 shadow-sm border-0">
-        <div class="col-md-4">
-            <label class="form-label fw-bold text-muted small">ACTIVE BUSINESS</label>
+    <div id="ingestProgressContainer" class="card shadow-lg border-0 mb-4 bg-white">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="fw-bold text-primary mb-0"><i class="bi bi-arrow-repeat spin me-2"></i>Syncing Reviews From Google...</h6>
+                <span id="progressStats" class="badge bg-primary rounded-pill">0 items</span>
+            </div>
+            <div class="progress" style="height: 10px; border-radius: 10px;">
+                <div id="ingestProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 0%"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 align-items-end mb-4 p-4 bg-white rounded-4 shadow-sm">
+        <div class="col-md-3">
+            <label class="form-label fw-bold text-muted small">ACTIVE ENTITY</label>
             <select id="companySelect" class="form-select border-0 bg-light py-2 shadow-none"></select>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-2">
             <label class="form-label fw-bold text-muted small">START</label>
-            <input id="startDate" type="date" class="form-control border-0 bg-light">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label fw-bold text-muted small">END</label>
-            <input id="endDate" type="date" class="form-control border-0 bg-light">
+            <input id="startDate" type="date" class="form-control border-0 bg-light shadow-none">
         </div>
         <div class="col-md-2">
-            <button id="loadBtn" class="btn btn-primary w-100 rounded-pill py-2 fw-bold shadow-sm">Analyze</button>
+            <label class="form-label fw-bold text-muted small">END</label>
+            <input id="endDate" type="date" class="form-control border-0 bg-light shadow-none">
+        </div>
+        <div class="col-md-5">
+            <div class="d-flex gap-2">
+                <button id="loadBtn" class="btn btn-primary w-50 btn-pill shadow-sm">Analyze Database</button>
+                <button id="fetchBtn" class="btn btn-fetch w-50 btn-pill shadow-sm">
+                    <i class="bi bi-cloud-download me-1"></i> Sync Live Data
+                </button>
+            </div>
         </div>
     </div>
 
     <div class="row mb-4">
         <div class="col-12 text-center">
             <div class="card total-review-card shadow-lg p-4">
-                <div class="text-uppercase small fw-bold opacity-75">Total Database Records</div>
+                <div class="text-uppercase small fw-bold opacity-75">Absolute Total Database Records</div>
                 <div id="kpiTotal" class="display-2 fw-bold">0</div>
-                <div class="small opacity-75">Comprehensive history fetched for this entity</div>
+                <div class="small opacity-75">Total reviews successfully fetched and analyzed for this company</div>
             </div>
         </div>
     </div>
 
-    <div class="ai-badge">AI INSIGHTS</div>
+    <div class="ai-badge">AI INSIGHT LAYER</div>
     <div class="row g-3 mb-4 text-center">
         <div class="col"><div class="card border-0 shadow-sm py-3"><div class="text-muted small fw-bold">REP. SCORE</div><div id="aiReputation" class="h2 fw-bold text-primary">–</div></div></div>
         <div class="col"><div class="card border-0 shadow-sm py-3"><div class="text-muted small fw-bold">CSAT %</div><div id="aiCSAT" class="h2 fw-bold text-success">–</div></div></div>
@@ -99,22 +118,22 @@
             <div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div>
         </div></div></div>
         <div class="col-lg-4"><div class="card border-0 shadow-sm rounded-4 h-100"><div class="card-body">
-            <h6 class="fw-bold text-muted">Satisfaction Over Time</h6>
+            <h6 class="fw-bold text-muted">Satisfaction Trend</h6>
             <div class="chart-wrapper"><canvas id="chartTrend"></canvas></div>
         </div></div></div>
         <div class="col-lg-4"><div class="card border-0 shadow-sm rounded-4 h-100"><div class="card-body">
             <h6 class="fw-bold text-muted">AI Staff Monitoring</h6>
             <div id="aiStaffBox" class="p-3 bg-light rounded-3 mt-2" style="height: 250px; overflow-y: auto;">
-                <p class="text-center text-muted mt-5">Select business to view AI feedback</p>
+                <p class="text-center text-muted mt-5">Awaiting Analysis...</p>
             </div>
         </div></div></div>
     </div>
 
     <div class="card border-0 shadow-sm rounded-4 mb-5">
         <div class="card-body p-4">
-            <h5 class="fw-bold mb-4">Complete Review History</h5>
+            <h5 class="fw-bold mb-4">Complete Historical Records</h5>
             <div class="table-responsive">
-                <table class="table table-hover align-middle">
+                <table class="table table-hover align-middle border-0">
                     <thead class="bg-light sticky-top"><tr class="text-muted small"><th>AUTHOR</th><th>RATING</th><th>SENTIMENT</th><th>DATE</th><th>FEEDBACK TEXT</th></tr></thead>
                     <tbody id="reviewsTable"></tbody>
                 </table>
@@ -127,35 +146,26 @@
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <form id="addCompanyForm" class="modal-content shadow-lg">
             <div class="modal-header border-0 bg-success text-white p-4">
-                <h5 class="modal-title fw-bold"><i class="bi bi-google me-2"></i>Link New Google Entity</h5>
+                <h5 class="modal-title fw-bold"><i class="bi bi-google me-2"></i>Link New Google Business</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4">
                 <div class="mb-4">
-                    <label class="form-label fw-bold">Find Business on Google Maps</label>
+                    <label class="form-label fw-bold">Search Business (Google Powered)</label>
                     <div class="input-group">
                         <span class="input-group-text bg-light border-0"><i class="bi bi-search"></i></span>
-                        <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0" placeholder="Start typing business name...">
+                        <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0" placeholder="Type business name...">
                     </div>
                 </div>
                 <div class="row g-3 p-3 bg-light rounded-4">
-                    <div class="col-md-8">
-                        <label class="form-label small fw-bold text-muted">BUSINESS NAME</label>
-                        <input id="companyName" class="form-control border-0" required readonly>
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label small fw-bold text-muted">PLACE ID</label>
-                        <input id="placeId" class="form-control border-0" required readonly>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label small fw-bold text-muted">FORMATTED ADDRESS</label>
-                        <input id="companyAddress" class="form-control border-0" readonly>
-                    </div>
+                    <div class="col-md-8"><label class="form-label small fw-bold text-muted">NAME</label><input id="companyName" class="form-control border-0" required readonly></div>
+                    <div class="col-md-4"><label class="form-label small fw-bold text-muted">PLACE ID</label><input id="placeId" class="form-control border-0" required readonly></div>
+                    <div class="col-12"><label class="form-label small fw-bold text-muted">ADDRESS</label><input id="companyAddress" class="form-control border-0" readonly></div>
                 </div>
             </div>
             <div class="modal-footer border-0 p-4">
                 <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
-                <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm">Save & Track</button>
+                <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold">Save Business</button>
             </div>
         </form>
     </div>
@@ -168,7 +178,7 @@
 let chartInstances = {};
 let cachedReviews = [];
 
-// 1. Core Loader
+// 1. Initial Data Load
 async function loadCompanies() {
     try {
         const res = await fetch("/api/companies");
@@ -178,25 +188,23 @@ async function loadCompanies() {
             sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
             triggerAllLoads();
         }
-    } catch { console.error("DB connection error"); }
+    } catch { console.error("Database connection lost"); }
 }
 
-// 2. Google Autocomplete Engine
+// 2. Google Autocomplete Logic
 function initGoogleAutocomplete() {
     const input = document.getElementById('googleSearchInput');
     const autocomplete = new google.maps.places.Autocomplete(input);
-    
     autocomplete.addListener('place_changed', function() {
         const place = autocomplete.getPlace();
         if (!place.place_id) return;
-        
         document.getElementById('companyName').value = place.name;
         document.getElementById('placeId').value = place.place_id;
         document.getElementById('companyAddress').value = place.formatted_address;
     });
 }
 
-// 3. Save New Business
+// 3. Add Company Submission
 document.getElementById('addCompanyForm').onsubmit = async function(e) {
     e.preventDefault();
     const payload = {
@@ -204,37 +212,65 @@ document.getElementById('addCompanyForm').onsubmit = async function(e) {
         place_id: document.getElementById('placeId').value,
         address: document.getElementById('companyAddress').value
     };
-
     try {
         const res = await fetch('/api/companies', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(payload)
         });
-        if (res.ok) {
-            location.reload(); 
-        }
-    } catch (err) { alert("Failed to save entity"); }
+        if (res.ok) location.reload();
+    } catch { alert("Error saving business"); }
 };
 
-// 4. Data Fetching
+// 4. Ingest Logic (The Fetch Button)
+function streamIngest() {
+    const cid = document.getElementById("companySelect").value;
+    if (!cid) return;
+    document.getElementById("ingestProgressContainer").style.display = "block";
+    cachedReviews = [];
+    
+    // Using EventSource for real-time progress
+    const es = new EventSource(`/api/reviews/stream?company_id=${cid}&limit=50000`);
+    es.addEventListener('review', (e) => {
+        cachedReviews.push(JSON.parse(e.data));
+        document.getElementById("progressStats").innerText = `${cachedReviews.length} records`;
+        document.getElementById("ingestProgressBar").style.width = `${Math.min((cachedReviews.length/100)*100, 100)}%`;
+        updateUI();
+    });
+    es.addEventListener('done', () => { 
+        es.close(); 
+        setTimeout(() => document.getElementById("ingestProgressContainer").style.display = "none", 3000); 
+    });
+    es.onerror = () => es.close();
+}
+
+// 5. Main Loading Logic
 async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
     if (!cid) return;
+    
+    const start = document.getElementById("startDate").value;
+    const end = document.getElementById("endDate").value;
+    const params = new URLSearchParams({ company_id: cid, limit: 50000 });
+    if (start) params.append("start", start);
+    if (end) params.append("end", end);
 
-    // Fetch unlimited reviews (up to 50k)
-    const res = await fetch(`/api/reviews?company_id=${cid}&limit=50000`);
+    const res = await fetch(`/api/reviews?${params.toString()}`);
     const data = await res.json();
     cachedReviews = Array.isArray(data) ? data : [];
     
     document.getElementById("kpiTotal").innerText = cachedReviews.length;
-    renderTable();
-    loadAIInsights(cid);
+    updateUI();
+    loadAIInsights(cid, start, end);
 }
 
-async function loadAIInsights(cid) {
+async function loadAIInsights(cid, start, end) {
     try {
-        const res = await fetch(`/api/ai/insights?company_id=${cid}`);
+        let url = `/api/ai/insights?company_id=${cid}`;
+        if(start) url += `&start=${start}`;
+        if(end) url += `&end=${end}`;
+
+        const res = await fetch(url);
         const ai = await res.json();
 
         document.getElementById("aiReputation").innerText = ai.kpi_metrics.reputation_score;
@@ -243,16 +279,23 @@ async function loadAIInsights(cid) {
 
         const staff = ai.visualizations.staff_insights;
         document.getElementById("aiStaffBox").innerHTML = `
-            <div class="badge bg-success w-100 mb-2 p-2 text-start">Staff Positives: ${staff.positive}</div>
-            <div class="badge bg-danger w-100 mb-3 p-2 text-start">Staff Negatives: ${staff.negative}</div>
-            <div class="p-2 bg-white border rounded shadow-sm small text-dark">
-                <strong>AI Recommendation:</strong><br>${ai.ai_analysis.improvement_suggestion}
-            </div>
+            <div class="badge bg-success w-100 mb-2 p-2 text-start">Positives Mentions: ${staff.positive}</div>
+            <div class="badge bg-danger w-100 mb-3 p-2 text-start">Negatives Mentions: ${staff.negative}</div>
+            <div class="p-2 bg-white border rounded small"><strong>AI Advice:</strong><br>${ai.ai_analysis.improvement_suggestion}</div>
         `;
 
         renderRadar(ai.visualizations.emotion_radar);
-        renderTrend();
-    } catch (e) { console.error("AI Insights Error", e); }
+    } catch (e) { console.error("AI Error", e); }
+}
+
+function updateUI() {
+    const total = cachedReviews.length;
+    const pos = cachedReviews.filter(r => r.sentiment_score > 0).length;
+    const neu = cachedReviews.filter(r => r.sentiment_score === 0).length;
+    const neg = cachedReviews.filter(r => r.sentiment_score < 0).length;
+
+    renderTrend();
+    renderTable();
 }
 
 function renderRadar(emotionData) {
@@ -261,13 +304,7 @@ function renderRadar(emotionData) {
         type: 'radar',
         data: {
             labels: Object.keys(emotionData),
-            datasets: [{ 
-                label: 'Emotional Frequency', 
-                data: Object.values(emotionData), 
-                backgroundColor: 'rgba(168, 85, 247, 0.2)', 
-                borderColor: '#a855f7',
-                pointBackgroundColor: '#a855f7'
-            }]
+            datasets: [{ label: 'Tone', data: Object.values(emotionData), backgroundColor: 'rgba(168, 85, 247, 0.2)', borderColor: '#a855f7' }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
@@ -280,13 +317,7 @@ function renderTrend() {
         type: "line",
         data: { 
             labels: sorted.map(r => new Date(r.google_review_time).toLocaleDateString()).slice(-15), 
-            datasets: [{ 
-                data: sorted.map(r => r.rating).slice(-15), 
-                borderColor: '#6366f1', 
-                tension: 0.4,
-                fill: true,
-                backgroundColor: 'rgba(99, 102, 241, 0.05)'
-            }] 
+            datasets: [{ data: sorted.map(r => r.rating).slice(-15), borderColor: '#4f46e5', tension: 0.4, fill: true, backgroundColor: 'rgba(79, 70, 229, 0.05)' }] 
         },
         options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 1, max: 5 } } }
     });
@@ -297,10 +328,8 @@ function renderTable() {
     body.innerHTML = [...cachedReviews].reverse().map(r => `
         <tr class="border-bottom">
             <td class="fw-bold text-dark">${r.author_name || 'Guest'}</td>
-            <td><span class="badge badge-rating rounded-pill px-3">${r.rating} ★</span></td>
-            <td class="small fw-bold ${r.sentiment_score > 0 ? 'text-success' : 'text-muted'}">
-                ${r.sentiment_score > 0 ? 'Positive' : 'Neutral'}
-            </td>
+            <td><span class="badge bg-primary rounded-pill px-3">${r.rating} ★</span></td>
+            <td>${r.sentiment_score > 0 ? 'Positive' : 'Neutral'}</td>
             <td class="small text-muted">${new Date(r.google_review_time).toLocaleDateString()}</td>
             <td class="small text-secondary" style="max-width: 400px;">${r.text || '...'}</td>
         </tr>
@@ -312,6 +341,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initGoogleAutocomplete();
 });
 document.getElementById("loadBtn").onclick = triggerAllLoads;
+document.getElementById("fetchBtn").onclick = streamIngest;
 </script>
 </body>
 </html>
