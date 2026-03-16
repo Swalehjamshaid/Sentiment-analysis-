@@ -1,29 +1,37 @@
-# filename: review_saas/app/services/review.py
+# filename: app/services/review.py
 
 from __future__ import annotations
 
 import os
-import logging
 import hashlib
-from typing import Any, Dict, List, Optional
+import logging
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.models import Company, Review
 
-# Configure logging
+# -------------------------------
+# Logging
+# -------------------------------
 logger = logging.getLogger("review_service")
 logger.setLevel(logging.INFO)
 
+# -------------------------------
+# Google API Config
+# -------------------------------
 GOOGLE_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "")
 GOOGLE_PLACE_DETAILS_URL = "https://maps.googleapis.com/maps/api/place/details/json"
 GOOGLE_PLACE_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
 
-
+# -------------------------------
+# Fetch Google Place ID
+# -------------------------------
 async def fetch_google_place_id(company_name: str, address: str) -> Optional[str]:
     """Fetch Google Place ID for a company using name and address."""
     params = {
@@ -43,7 +51,9 @@ async def fetch_google_place_id(company_name: str, address: str) -> Optional[str
             return None
         return candidates[0].get("place_id")
 
-
+# -------------------------------
+# Fetch Google Place Details
+# -------------------------------
 async def fetch_google_place_details(place_id: str) -> Optional[Dict[str, Any]]:
     """Fetch detailed information of a company from Google Places API."""
     params = {
@@ -59,7 +69,9 @@ async def fetch_google_place_details(place_id: str) -> Optional[Dict[str, Any]]:
         result = resp.json().get("result")
         return result
 
-
+# -------------------------------
+# Update Company from Google
+# -------------------------------
 async def update_company_from_google(company: Company, session: AsyncSession) -> None:
     """Fetch Google data for a company and update DB."""
     try:
@@ -88,7 +100,9 @@ async def update_company_from_google(company: Company, session: AsyncSession) ->
     except Exception as e:
         logger.error(f"Error updating company {company.name}: {e}")
 
-
+# -------------------------------
+# Add Review
+# -------------------------------
 async def add_review(company_id: int, author_name: str, text: str, rating: float, session: AsyncSession) -> Review:
     """Add a new review to the database."""
     review_hash = hashlib.sha256(f"{company_id}{author_name}{text}{datetime.utcnow()}".encode()).hexdigest()
@@ -105,9 +119,11 @@ async def add_review(company_id: int, author_name: str, text: str, rating: float
     logger.info(f"Added review for company_id {company_id}")
     return review
 
-
+# -------------------------------
+# Sync all Companies with Google
+# -------------------------------
 async def sync_all_companies_with_google() -> None:
-    """Update all companies in the database with Google data."""
+    """Update all inactive companies in the database with Google data."""
     async with get_session() as session:
         result = await session.execute(select(Company).where(Company.is_active == False))
         companies: List[Company] = result.scalars().all()
@@ -115,7 +131,8 @@ async def sync_all_companies_with_google() -> None:
             await update_company_from_google(company, session)
         logger.info("Finished syncing all companies.")
 
-
+# -------------------------------
 # Example usage:
+# -------------------------------
 # import asyncio
 # asyncio.run(sync_all_companies_with_google())
