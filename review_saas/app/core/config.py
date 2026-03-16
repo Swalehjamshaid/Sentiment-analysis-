@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     OUTSCRAPER_API_KEY: Optional[str] = None
     # Fallback to the typo version so existing Railway variables don't break
     OUTSCAPTER_KEY: Optional[str] = None
+    # Added missing attribute to fix AttributeError: 'Settings' object has no attribute 'OUTSCRAPER_BASE_URL'
+    OUTSCRAPER_BASE_URL: Optional[str] = "https://api.outscraper.com"
 
     # --- Database Settings ---
     DATABASE_URL: str
