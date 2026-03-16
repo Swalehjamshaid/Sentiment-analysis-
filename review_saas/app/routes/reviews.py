@@ -1,144 +1,121 @@
+# filename: review_saas/app/services/review.py
+
+from __future__ import annotations
+
+import os
+import logging
+import hashlib
+from typing import Any, Dict, List, Optional
 from datetime import datetime
-from typing import Optional
-from fastapi import APIRouter, Request, HTTPException, Depends
+
+import httpx
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+
 from app.core.db import get_session
-from app.core.models import Review, Company
+from app.core.models import Company, Review
 
-router = APIRouter(prefix="/api/reviews")
+# Configure logging
+logger = logging.getLogger("review_service")
+logger.setLevel(logging.INFO)
 
-async def save_reviews_to_db(session: AsyncSession, company_id: int, reviews: list[dict]):
-    print(f"DEBUG STEP 4: Inside save_reviews_to_db with {len(reviews)} reviews")
-
-    if not reviews:
-        print("DEBUG: No reviews fetched to save")
-        return []
-
-    saved = []
-    for r in reviews:
-        # Check for review_id
-        ext_id = r.get("review_id") or r.get("id")
-        if not ext_id:
-            print(f"DEBUG: Skipping review, no review_id found in {r}")
-            continue
-
-        # Check duplicates
-        existing = await session.execute(
-            select(Review).where(Review.google_review_id == ext_id)
-        )
-        if existing.scalars().first():
-            print(f"DEBUG: Skipping duplicate review with id {ext_id}")
-            continue
-
-        # Parse review date
-        review_date_str = r.get("review_time") or r.get("time")
-        try:
-            review_date = datetime.fromisoformat(review_date_str.replace("Z", "+00:00")) if review_date_str else datetime.utcnow()
-        except Exception as e:
-            print(f"DEBUG: Failed parsing date {review_date_str}, using utcnow. Error: {e}")
-            review_date = datetime.utcnow()
-
-        # Create Review object
-        new_review = Review(
-            company_id=company_id,
-            google_review_id=ext_id,
-            author_name=r.get("author_title") or r.get("author_name") or "Anonymous",
-            rating=int(r.get("review_rating") or r.get("rating") or 0),
-            text=r.get("review_text") or r.get("text") or "",
-            google_review_time=review_date,
-            sentiment_score=float(r.get("sentiment_score", 0)),
-            source_platform="Google"
-        )
-
-        session.add(new_review)
-        saved.append(new_review)
-        print(f"DEBUG: Prepared review {ext_id} for saving")
-
-    # Commit to DB
-    if saved:
-        try:
-            await session.commit()
-            print(f"DEBUG STEP 5: Successfully committed {len(saved)} reviews")
-            for r in saved:
-                await session.refresh(r)
-        except Exception as e:
-            await session.rollback()
-            print(f"DEBUG ERROR: Commit failed: {e}")
-    else:
-        print("DEBUG: No new reviews to commit (all duplicates or none fetched)")
-
-    return saved
+GOOGLE_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "")
+GOOGLE_PLACE_DETAILS_URL = "https://maps.googleapis.com/maps/api/place/details/json"
+GOOGLE_PLACE_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
 
 
-@router.get("/")
-async def get_reviews(
-    request: Request,
-    company_id: int,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-    limit: int = 50,
-    session: AsyncSession = Depends(get_session),
-):
-    print(f"DEBUG STEP 1: Request received for company_id {company_id}, start={start}, end={end}, limit={limit}")
-
-    # Ensure client exists
-    client = getattr(request.app.state, "reviews_client", None)
-    if not client:
-        print("DEBUG ERROR: reviews_client not initialized in app.state")
-        raise HTTPException(status_code=500, detail="Reviews client not configured")
-
-    # Fetch company
-    result = await session.execute(select(Company).where(Company.id == company_id))
-    company = result.scalars().first()
-    if not company:
-        print(f"DEBUG ERROR: Company {company_id} not found in DB")
-        raise HTTPException(status_code=404, detail="Company not found")
-
-    print(f"DEBUG STEP 2: Found company {company_id} with Place ID: {company.google_place_id}")
-
-    # Fetch reviews from Outscraper
-    try:
-        raw_reviews = await client.fetch_reviews(company.google_place_id, max_reviews=limit)
-        print(f"DEBUG STEP 3: Outscraper returned {len(raw_reviews)} reviews")
-    except Exception as e:
-        print(f"DEBUG ERROR: Outscraper fetch failed: {e}")
-        raise HTTPException(status_code=502, detail=f"Outscraper API error: {e}")
-
-    # Date filtering
-    start_date = datetime.fromisoformat(start) if start else None
-    end_date = datetime.fromisoformat(end) if end else None
-
-    if start_date or end_date:
-        filtered_reviews = []
-        for r in raw_reviews:
-            rt_str = r.get("review_time") or r.get("time")
-            if not rt_str:
-                continue
-            try:
-                rt = datetime.fromisoformat(rt_str.split("T")[0])
-                if start_date and rt < start_date:
-                    continue
-                if end_date and rt > end_date:
-                    continue
-                filtered_reviews.append(r)
-            except Exception as e:
-                print(f"DEBUG: Failed filtering review date {rt_str}, skipping. Error: {e}")
-                continue
-        raw_reviews = filtered_reviews
-        print(f"DEBUG STEP 3.1: After filtering, {len(raw_reviews)} reviews remain")
-
-    # Save to DB
-    saved_reviews = await save_reviews_to_db(session, company_id, raw_reviews)
-
-    return {
-        "status": "success",
-        "count": len(saved_reviews),
-        "feed": [
-            {
-                "google_review_id": r.google_review_id,
-                "author_name": r.author_name,
-                "text": r.text
-            } for r in saved_reviews
-        ]
+async def fetch_google_place_id(company_name: str, address: str) -> Optional[str]:
+    """Fetch Google Place ID for a company using name and address."""
+    params = {
+        "input": f"{company_name} {address}",
+        "inputtype": "textquery",
+        "fields": "place_id",
+        "key": GOOGLE_API_KEY,
     }
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(GOOGLE_PLACE_SEARCH_URL, params=params)
+        if resp.status_code != 200:
+            logger.error(f"Google Place Search failed: {resp.text}")
+            return None
+        data = resp.json()
+        candidates = data.get("candidates")
+        if not candidates:
+            return None
+        return candidates[0].get("place_id")
+
+
+async def fetch_google_place_details(place_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch detailed information of a company from Google Places API."""
+    params = {
+        "place_id": place_id,
+        "fields": "name,formatted_address,geometry,formatted_phone_number,website,rating,user_ratings_total",
+        "key": GOOGLE_API_KEY,
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(GOOGLE_PLACE_DETAILS_URL, params=params)
+        if resp.status_code != 200:
+            logger.error(f"Google Place Details failed: {resp.text}")
+            return None
+        result = resp.json().get("result")
+        return result
+
+
+async def update_company_from_google(company: Company, session: AsyncSession) -> None:
+    """Fetch Google data for a company and update DB."""
+    try:
+        place_id = await fetch_google_place_id(company.name, company.address)
+        if not place_id:
+            logger.warning(f"No Google Place ID found for {company.name}")
+            return
+
+        details = await fetch_google_place_details(place_id)
+        if not details:
+            logger.warning(f"No details returned for Place ID {place_id}")
+            return
+
+        company.google_place_id = place_id
+        company.latitude = details.get("geometry", {}).get("location", {}).get("lat")
+        company.longitude = details.get("geometry", {}).get("location", {}).get("lng")
+        company.phone = details.get("formatted_phone_number")
+        company.website = details.get("website")
+        company.rating = details.get("rating")
+        company.reviews_count = details.get("user_ratings_total", 0)
+        company.is_active = True
+
+        session.add(company)
+        await session.commit()
+        logger.info(f"Updated company {company.name} with Google data.")
+    except Exception as e:
+        logger.error(f"Error updating company {company.name}: {e}")
+
+
+async def add_review(company_id: int, author_name: str, text: str, rating: float, session: AsyncSession) -> Review:
+    """Add a new review to the database."""
+    review_hash = hashlib.sha256(f"{company_id}{author_name}{text}{datetime.utcnow()}".encode()).hexdigest()
+    review = Review(
+        company_id=company_id,
+        author_name=author_name,
+        text=text,
+        rating=rating,
+        review_hash=review_hash,
+        created_at=datetime.utcnow(),
+    )
+    session.add(review)
+    await session.commit()
+    logger.info(f"Added review for company_id {company_id}")
+    return review
+
+
+async def sync_all_companies_with_google() -> None:
+    """Update all companies in the database with Google data."""
+    async with get_session() as session:
+        result = await session.execute(select(Company).where(Company.is_active == False))
+        companies: List[Company] = result.scalars().all()
+        for company in companies:
+            await update_company_from_google(company, session)
+        logger.info("Finished syncing all companies.")
+
+
+# Example usage:
+# import asyncio
+# asyncio.run(sync_all_companies_with_google())
