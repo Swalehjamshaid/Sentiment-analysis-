@@ -20,34 +20,42 @@ class OutscraperReviewsClient:
         self.api_key = (api_key or settings.OUTSCRAPER_API_KEY).strip()
         self.reviews_endpoint = f"{self.base_url}/maps/reviews-v3"
 
-    async def fetch_reviews(self, company_obj: Any, max_reviews: int = 200) -> List[Dict[str, Any]]:
-        # Use google_place_id first as it's more accurate
+    async def fetch_reviews(self, company_obj: Any, start_date: Optional[datetime] = None) -> List[Dict[str, Any]]:
+        """
+        Fetches reviews based on a start date rather than a hard limit.
+        """
         query = getattr(company_obj, "google_place_id", None) or getattr(company_obj, "name", None)
-        params = {"query": query, "reviewsLimit": max_reviews, "async": "false"}
+        
+        # Outscraper uses Unix timestamps for date filtering
+        # If no start_date is provided, we default to a very old timestamp to get all data
+        timestamp = int(start_date.timestamp()) if start_date else 0
+        
+        params = {
+            "query": query,
+            "lastReviewTimestamp": timestamp, # Fetch reviews newer than this
+            "async": "false"
+        }
         headers = {"X-API-KEY": self.api_key}
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, read=60.0)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, read=120.0)) as client:
             response = await client.get(self.reviews_endpoint, params=params, headers=headers)
             response.raise_for_status()
             full_response = response.json()
             
-            # Navigate the nested dictionary structure seen in the logs
-            # Structure: {"data": [{"reviews_data": [...]}]}
             results_list = full_response.get("data", [])
             
             if isinstance(results_list, list) and len(results_list) > 0:
                 return results_list[0].get("reviews_data", [])
             
-            logger.warning(f"No reviews found or unexpected structure for {query}: {full_response}")
+            logger.warning(f"No reviews found for {query} since {start_date}")
             return []
 
-async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max_reviews: int = 200) -> int:
+async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, start_date: Optional[datetime] = None) -> int:
     client = OutscraperReviewsClient()
-    raw_reviews = await client.fetch_reviews(company_obj, max_reviews=max_reviews)
+    raw_reviews = await client.fetch_reviews(company_obj, start_date=start_date)
     
     new_count = 0
     for raw in raw_reviews:
-        # 1. Deduplication using your 'google_review_id' column
         ext_id = raw.get("review_id")
         if not ext_id:
             continue
@@ -61,21 +69,17 @@ async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max
         if existing.scalars().first():
             continue
 
-        # 2. Parse Timestamp for 'google_review_time'
         raw_ts = raw.get("review_datetime_utc")
         dt_obj = None
         if raw_ts:
             try:
-                # Updated parsing logic to match 'MM/DD/YYYY HH:MM:SS' format
                 dt_obj = datetime.strptime(raw_ts, "%m/%d/%Y %H:%M:%S")
             except (ValueError, TypeError):
-                # Fallback check if the API ever switches back to ISO format
                 try:
                     dt_obj = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
                 except (ValueError, TypeError):
                     logger.warning(f"Could not parse timestamp: {raw_ts}")
 
-        # 3. Create Review record using your specific model fields
         new_review = Review(
             company_id=company_obj.id,
             google_review_id=ext_id,
