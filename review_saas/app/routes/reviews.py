@@ -50,7 +50,7 @@ def _normalized_text(text: str) -> str:
 
 
 def _coerce_datetime(value: Any) -> datetime:
-    """Parse Outscraper timestamps safely."""
+    """Parse Outscraper timestamps safely; fall back to now(UTC)."""
     from app.services.google_reviews import _coerce_datetime as conv
     return conv(value) or _now_utc()
 
@@ -66,8 +66,8 @@ def _sentiment_from_rating(r: Optional[float]) -> float:
     if r is None:
         return 0.0
     try:
-        r = max(1, min(5, float(r)))
-        return round((r - 3) / 2, 2)
+        r = max(1.0, min(5.0, float(r)))
+        return round((r - 3.0) / 2.0, 2)  # 1..5 -> -1..1
     except Exception:
         return 0.0
 
@@ -75,8 +75,8 @@ def _sentiment_from_rating(r: Optional[float]) -> float:
 # -------------------------------------------------------------------------
 # HTTP CALLS (RESILIENT)
 # -------------------------------------------------------------------------
-async def _request(client: httpx.AsyncClient, method: str, url: str, *, params=None) -> Any:
-    """Retries with exponential backoff."""
+async def _request(client: httpx.AsyncClient, method: str, url: str, *, params: Dict[str, Any] | None = None) -> Any:
+    """Retries with exponential backoff for transient errors."""
     headers = {"X-API-KEY": OUTSCRAPER_API_KEY}
     attempt = 0
     backoff = 1.0
@@ -165,6 +165,7 @@ async def fetch_reviews_from_outscraper(query: str, limit: int = 200) -> List[Di
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         data = await _request(client, "GET", OUTSCRAPER_REVIEWS_URL, params=params)
 
+    # Flatten to the list of review dicts
     from app.services.google_reviews import _extract_reviews_from_outscraper_payload
     return _extract_reviews_from_outscraper_payload(data)
 
@@ -172,7 +173,7 @@ async def fetch_reviews_from_outscraper(query: str, limit: int = 200) -> List[Di
 # -------------------------------------------------------------------------
 # MAIN SYNC METHOD (COMPANY DETAILS + REVIEWS)
 # -------------------------------------------------------------------------
-async def update_company_from_outscraper(company: Company, session: AsyncSession):
+async def update_company_from_outscraper(company: Company, session: AsyncSession) -> None:
     """
     Sync a company's details AND reviews.
     Uses google_place_id if available, otherwise name+address.
@@ -193,9 +194,21 @@ async def update_company_from_outscraper(company: Company, session: AsyncSession
             company.full_address = details.get("full_address") or company.full_address
             company.phone = details.get("phone") or company.phone
             company.website = details.get("site") or company.website
-            company.rating = details.get("rating") or company.rating
-            company.reviews_count = details.get("reviews_count") or company.reviews_count
 
+            # rating/reviews_count may be None or number
+            if details.get("rating") is not None:
+                try:
+                    company.rating = float(details["rating"])
+                except Exception:
+                    pass
+
+            if details.get("reviews_count") is not None:
+                try:
+                    company.reviews_count = int(details["reviews_count"])
+                except Exception:
+                    pass
+
+            # persist place_id if we didn't have it
             if details.get("place_id") and not company.google_place_id:
                 company.google_place_id = details["place_id"]
 
@@ -223,39 +236,56 @@ async def save_outscraper_reviews(
     raw_reviews: List[Dict[str, Any]],
     session: AsyncSession,
 ) -> int:
+    """
+    Normalize raw Outscraper reviews and upsert into Postgres.
+    De-duplicates on (company_id, google_review_id).
+    """
+    normalized: List[Dict[str, Any]] = []
 
-    normalized = []
     for r in raw_reviews:
+        # External id when available
         ext_id = (
             r.get("review_id")
             or r.get("google_review_id")
+            or r.get("reviewId")
             or r.get("id")
         )
 
+        # Fallback synthetic ID if missing: company_id + author + time + text snippet
         if not ext_id:
-            # fallback synthetic ID
-            ext_id = hashlib.md5(
-                f"{company.id}|{r.get('author_name')}|{r.get('text')}".encode()
-            ).hexdigest()
+            author = (r.get("author_title") or r.get("author_name") or "").strip().lower()
+            text = _normalized_text(r.get("review_text") or r.get("text") or "")
+            ts = r.get("review_timestamp") or r.get("time") or r.get("review_datetime_utc") or ""
+            base = f"{company.id}|{author}|{ts}|{text[:48]}"
+            ext_id = hashlib.md5(base.encode("utf-8")).hexdigest()
 
-        rating = _coerce_rating(r.get("rating"))
-        dt = _coerce_datetime(r.get("created_at"))
+        # Normalize rating/time/text/profile
+        rating = _coerce_rating(r.get("review_rating") or r.get("rating"))
+        when = r.get("review_timestamp") or r.get("time") or r.get("review_datetime_utc")
+        dt = _coerce_datetime(when)
+        text = _normalized_text(r.get("review_text") or r.get("text") or "")
+        profile = r.get("author_image") or r.get("profile_photo_url") or ""
+
+        # Author
+        author_name = r.get("author_title") or r.get("author_name") or "Anonymous"
 
         normalized.append(
             dict(
                 google_review_id=str(ext_id)[:512],
-                author_name=r.get("author_name") or "Anonymous",
+                author_name=str(author_name)[:255],
                 rating=int(rating) if rating else None,
-                text=_normalized_text(r.get("text") or ""),
+                text=text,
                 google_review_time=dt,
-                profile_photo_url="",
+                profile_photo_url=str(profile),
                 sentiment_score=_sentiment_from_rating(rating),
             )
         )
 
-    # preload to avoid duplicates
-    incoming_ids = [n["google_review_id"] for n in normalized]
+    if not normalized:
+        return 0
 
+    # Preload existing ids to avoid duplicates
+    incoming_ids = [n["google_review_id"] for n in normalized]
     res = await session.execute(
         select(Review.google_review_id).where(
             and_(
@@ -267,12 +297,10 @@ async def save_outscraper_reviews(
     existing = set(res.scalars().all())
 
     count = 0
-
-    for r in normalized:
-        if r["google_review_id"] in existing:
+    for item in normalized:
+        if item["google_review_id"] in existing:
             continue
-
-        session.add(Review(company_id=company.id, **r))
+        session.add(Review(company_id=company.id, **item))
         count += 1
 
     if count:
