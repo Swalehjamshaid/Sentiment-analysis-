@@ -1,36 +1,44 @@
-# filename: app/core/db.py
-
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
 import os
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import DeclarativeBase
 
-# -------------------------------
-# Database URL (Postgres example)
-# -------------------------------
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://user:password@localhost:5432/mydb"
-)
+# 1. Get the URL from environment variables
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# -------------------------------
-# Create Async Engine
-# -------------------------------
+# 2. FAIL-SAFE: Auto-correct the URL prefix for Async compatibility
+if DATABASE_URL:
+    # Handle 'postgres://' (Common in Railway/Heroku)
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+    # Handle 'postgresql://' (The SQLAlchemy default)
+    elif DATABASE_URL.startswith("postgresql://") and "+asyncpg" not in DATABASE_URL:
+        DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+# 3. Create the Async Engine
+# We use the 'postgresql+asyncpg' dialect to avoid the psycopg2 error
 engine = create_async_engine(
     DATABASE_URL,
-    echo=True,  # Optional: logs SQL queries
+    echo=True,       # Set to False in production to reduce log noise
     future=True,
+    pool_size=10,
+    max_overflow=20
 )
 
-# -------------------------------
-# Create Async Session Factory
-# -------------------------------
-async_session = sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
+# 4. Create the Session Factory
+async_session = async_sessionmaker(
+    engine, 
+    expire_on_commit=False, 
+    class_=AsyncSession
 )
 
-# -------------------------------
-# Base for Models
-# -------------------------------
-Base = declarative_base()
+# 5. Base class for models
+class Base(DeclarativeBase):
+    pass
+
+# 6. Dependency for FastAPI routes
+async def get_session():
+    async with async_session() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
