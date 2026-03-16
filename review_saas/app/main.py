@@ -1,5 +1,4 @@
 # filename: app/main.py
-
 from __future__ import annotations
 
 import logging
@@ -14,11 +13,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
-from sqlalchemy import select, update  # SQLAlchemy 2.x style
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.db import init_models, get_session, SessionLocal  # DB init, dependency, and factory
+from app.core.db import init_models, get_session, SessionLocal, engine  # add engine for drop/create
+from app.core import models  # import models to access Base metadata
 from app.core.models import User  # your auth model
 from app.core.models import SCHEMA_VERSION  # current code schema version
 from app.core.models import Config as ConfigModel  # key/value config storage
@@ -112,9 +112,9 @@ async def _set_stored_schema_version(session: AsyncSession, new_value: str) -> N
     await session.commit()
 
 
-async def detect_and_apply_schema_version_change() -> Tuple[bool, Optional[str], str]:
+async def check_schema_version_change() -> Tuple[bool, Optional[str], str]:
     """
-    Compare code SCHEMA_VERSION with DB-stored one. If changed, update DB value.
+    Compare code SCHEMA_VERSION with DB-stored one.
     Returns: (changed, old_version, new_version)
     """
     async with SessionLocal() as session:
@@ -129,24 +129,39 @@ async def detect_and_apply_schema_version_change() -> Tuple[bool, Optional[str],
                 return (False, None, new_version)
 
             if old_version != new_version:
-                # Version change detected — update stored version
-                await _set_stored_schema_version(session, new_version)
-                logger.warning(
-                    "🧩 SCHEMA_VERSION changed: %s -> %s",
-                    old_version, new_version
-                )
-                # TODO: Place any one-off data migrations or reindexing logic here
-                # e.g., await run_custom_migrations(old_version, new_version, session)
+                logger.warning("🧩 SCHEMA_VERSION changed: %s -> %s", old_version, new_version)
                 return (True, old_version, new_version)
 
-            # No change
             logger.info("✅ SCHEMA_VERSION verified: %s", new_version)
             return (False, old_version, new_version)
 
         except Exception as ex:
-            logger.error("Failed to check/update SCHEMA_VERSION: %s", ex, exc_info=True)
+            logger.error("Failed to check SCHEMA_VERSION: %s", ex, exc_info=True)
             # Fail-safe: report unknown
             return (False, None, str(SCHEMA_VERSION))
+
+
+async def reset_database_schema() -> None:
+    """
+    DANGER: Drops all tables and recreates the schema.
+
+    This is destructive. You asked to do this automatically whenever SCHEMA_VERSION changes.
+    If later you want safety, gate this behind an env var, e.g.:
+        if os.getenv("ALLOW_SCHEMA_RESET_ON_VERSION_CHANGE", "false").lower() != "true":
+            raise RuntimeError("Schema reset blocked without explicit approval")
+    """
+    try:
+        async with engine.begin() as conn:
+            # Drop everything
+            await conn.run_sync(models.Base.metadata.drop_all)
+            logger.warning("🧨 Dropped all tables.")
+
+            # Recreate everything
+            await conn.run_sync(models.Base.metadata.create_all)
+            logger.info("🧱 Recreated all tables.")
+    except Exception as ex:
+        logger.error("Schema reset failed: %s", ex, exc_info=True)
+        raise
 
 
 # ---------------------------
@@ -157,18 +172,27 @@ async def lifespan(app: FastAPI):
     # 1) Initialize database schema (prefer Alembic in production)
     try:
         await init_models()
-        logger.info("✅ Database schema initialized.")
+        logger.info("✅ Database schema initialized (create_all).")
     except Exception as e:
         logger.error("❌ Database startup failed: %s", e, exc_info=True)
 
-    # 2) Detect & record schema version changes
-    changed, old_v, new_v = await detect_and_apply_schema_version_change()
+    # 2) Detect schema version change
+    changed, old_v, new_v = await check_schema_version_change()
+
+    if changed:
+        # 2a) Drop & recreate on version change (as requested)
+        await reset_database_schema()
+
+        # 2b) Persist the new version in the (recreated) Config table
+        async with SessionLocal() as session:
+            await _set_stored_schema_version(session, new_v)
+
+        logger.warning("⚠️  Schema reset complete due to SCHEMA_VERSION change (%s -> %s).", old_v, new_v)
+
+    # Expose on app.state
     app.state.schema_version = new_v
     app.state.schema_changed = changed
     app.state.schema_prev = old_v
-
-    if changed:
-        logger.warning("⚠️  Detected SCHEMA_VERSION change (%s -> %s). Review migration steps.", old_v, new_v)
 
     # 3) Outscraper client (optional)
     api_key = (
@@ -250,10 +274,8 @@ async def login_post(
     password: str = Form(...),
     session_db: AsyncSession = Depends(get_session),
 ):
-    # Using the DB dependency directly (no nested 'async with'; the dependency handles scope)
     result = await session_db.execute(select(User).where(User.email == email))
     user = result.scalars().first()
-    # Expecting your User model to implement 'check_password'
     if not user or not getattr(user, "check_password", lambda *_: False)(password):
         return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"})
     request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
@@ -278,15 +300,12 @@ async def register_post(
     if existing:
         return templates.TemplateResponse("register.html", {"request": request, "error": "Email already registered"})
     user = User(name=name, email=email)
-    # Expecting your User model to implement 'set_password'
     if hasattr(user, "set_password"):
         user.set_password(password)
     else:
-        # Fallback (DO NOT use in production; ensure proper password hashing in your model)
-        user.hashed_password = password
+        user.hashed_password = password  # WARNING: for demo only
     session_db.add(user)
     await session_db.commit()
-    # reload id
     await session_db.refresh(user)
     request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
     return RedirectResponse(url="/dashboard", status_code=303)
@@ -307,7 +326,6 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
             "request": request,
             "user": user,
             "google_api_key": google_api_key,
-            # Useful to surface schema info in templates if needed
             "schema_version": getattr(request.app.state, "schema_version", None),
             "schema_changed": getattr(request.app.state, "schema_changed", False),
             "schema_prev": getattr(request.app.state, "schema_prev", None),
@@ -317,7 +335,7 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
 
 @app.get("/logout")
 async def logout(request: Request):
-    request.session.clear()
+    request.session.clear
     return RedirectResponse(url="/login", status_code=303)
 
 
@@ -350,7 +368,6 @@ def _include_router_safe(module_path: str, attr: str = "router") -> None:
         logger.warning("Skipping router %s due to import error: %s", module_path, e)
 
 
-# Core routers you mentioned; included if present in your codebase
 _include_router_safe("app.routes.auth")
 _include_router_safe("app.routes.companies")
 _include_router_safe("app.routes.dashboard")
@@ -364,6 +381,5 @@ _include_router_safe("app.routes.google_check")
 # ---------------------------
 if __name__ == "__main__":
     import uvicorn
-
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True)
