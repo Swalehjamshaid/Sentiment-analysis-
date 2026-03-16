@@ -19,7 +19,7 @@ from app.services.review import ingest_outscraper_reviews
 
 logger = logging.getLogger(__name__)
 
-# The redirect_slashes=False ensures that /api/reviews and /api/reviews/ are treated the same
+# CRITICAL FIX: redirect_slashes=False stops the 307 Temporary Redirect loop on Railway
 router = APIRouter(prefix="/api/reviews", tags=["reviews"], redirect_slashes=False)
 
 # --------------------------- Pydantic Schema ---------------------------
@@ -61,11 +61,11 @@ async def review_streamer(company_id: int, start: Optional[date], end: Optional[
         # Small delay for smooth UI animation
         await asyncio.sleep(0.02)
 
-    # Signal completion to the frontend eventSource listener
+    # Signal completion
     yield "event: done\ndata: completed\n\n"
 
 # --------------------------- Fetch Reviews API ---------------------------
-# Note: Using "" instead of "/" to match /api/reviews exactly
+# Using "" instead of "/" ensures /api/reviews works without the trailing slash
 @router.get("", response_model=List[ReviewSchema])
 async def get_reviews(
     company_id: int = Query(...),
@@ -76,7 +76,7 @@ async def get_reviews(
 ):
     """
     Standard GET endpoint for static review loading.
-    Returns a flat JSON list.
+    Returns a flat JSON list [...] which matches the frontend expectations.
     """
     query = select(Review).where(Review.company_id == company_id).order_by(desc(Review.google_review_time))
     
@@ -113,7 +113,7 @@ async def ingest_reviews(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Trigger the background ingestion service.
+    Trigger the background ingestion service via Outscraper.
     """
     result = await session.execute(select(Company).where(Company.id == company_id))
     company = result.scalars().first()
