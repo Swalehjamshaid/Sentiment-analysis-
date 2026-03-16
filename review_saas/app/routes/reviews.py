@@ -1,67 +1,70 @@
 # filename: app/routes/reviews.py
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from __future__ import annotations
+import logging
+from typing import Optional, List
+from datetime import date
+
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List, Dict, Any
 
 from app.core.db import get_session
 from app.core.models import Company, Review
 from app.services.review import ingest_outscraper_reviews
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
-@router.get("/")
+# --------------------------- Fetch Reviews API ---------------------------
+@router.get("/", response_model=List[Review])
 async def get_reviews(
-    company_id: int,
-    start: str = "",
-    end: str = "",
-    limit: int = 50,
+    company_id: int = Query(...),
+    start: Optional[date] = Query(None),
+    end: Optional[date] = Query(None),
+    limit: int = Query(50),
     session: AsyncSession = Depends(get_session),
 ):
-    """
-    Fetch stored reviews for a company from the database.
-    Supports optional start/end dates and limit.
-    """
-    query = select(Review).where(Review.company_id == company_id).limit(limit)
-    result = await session.execute(query)
+    result = await session.execute(select(Review).where(Review.company_id == company_id))
     reviews = result.scalars().all()
-    return {"company_id": company_id, "reviews": [r.to_dict() for r in reviews]}
 
+    # Filter by date if requested
+    if start:
+        reviews = [r for r in reviews if r.date >= start]
+    if end:
+        reviews = [r for r in reviews if r.date <= end]
+
+    return reviews[:limit]
+
+
+# --------------------------- Ingest Reviews API ---------------------------
 @router.post("/ingest/{company_id}")
-async def ingest_reviews_for_company(
+async def ingest_reviews(
     company_id: int,
-    background_tasks: BackgroundTasks,
+    max_reviews: int = Query(200, description="Maximum number of reviews to fetch"),
     session: AsyncSession = Depends(get_session),
 ):
-    """
-    Trigger Outscraper ingestion for a specific company.
-    Runs ingestion in the background.
-    """
     result = await session.execute(select(Company).where(Company.id == company_id))
-    company = result.scalar_one_or_none()
+    company = result.scalars().first()
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
 
-    # Add ingestion to background tasks
-    background_tasks.add_task(ingest_outscraper_reviews, company, session)
-    return {"status": "ingestion started", "company_id": company_id}
+    new_count = await ingest_outscraper_reviews(company, session, max_reviews=max_reviews)
+    return {"message": f"✅ Stored {new_count} new reviews for company_id={company_id}"}
 
+
+# --------------------------- Ingest All Companies ---------------------------
 @router.post("/ingest_all")
-async def ingest_reviews_for_all(
-    background_tasks: BackgroundTasks,
+async def ingest_all_reviews(
+    max_reviews: int = Query(200, description="Maximum number of reviews per company"),
     session: AsyncSession = Depends(get_session),
 ):
-    """
-    Trigger Outscraper ingestion for all companies.
-    Each company is ingested in a background task.
-    """
     result = await session.execute(select(Company))
-    companies: List[Company] = result.scalars().all()
-    if not companies:
-        raise HTTPException(status_code=404, detail="No companies found")
+    companies = result.scalars().all()
+    total_new = 0
 
     for company in companies:
-        background_tasks.add_task(ingest_outscraper_reviews, company, session)
+        new_count = await ingest_outscraper_reviews(company, session, max_reviews=max_reviews)
+        total_new += new_count
 
-    return {"status": "ingestion started for all companies", "count": len(companies)}
+    return {"message": f"✅ Stored {total_new} new reviews for all companies"}
