@@ -1,5 +1,6 @@
-from __future__ import annotations
+# filename: review_saas/app/services/google_reviews.py
 
+from __future__ import annotations
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -13,37 +14,37 @@ from app.core.models import Review
 logger = logging.getLogger("app.google_reviews")
 
 
-# -------------------------------------------------------
-# TIME & VALUE NORMALIZATION
-# -------------------------------------------------------
+# ---------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------
 
 def _coerce_datetime(value: Any) -> Optional[datetime]:
-    """Convert many timestamp formats (ISO, ms, seconds, etc.) into naive UTC datetime."""
+    """Convert Outscraper timestamps into a Python datetime."""
     if value is None:
         return None
 
     if isinstance(value, datetime):
         return value.replace(tzinfo=None)
 
-    # Numeric timestamps
     try:
         if isinstance(value, (int, float)):
-            # Milliseconds
+            # Handle epoch in ms or seconds
             if float(value) > 10_000_000_000:
                 return datetime.utcfromtimestamp(float(value) / 1000)
-            # Seconds
             return datetime.utcfromtimestamp(float(value))
     except Exception:
         pass
 
-    # String timestamps
     if isinstance(value, str):
-        formats = (
+        formats = [
             "%Y-%m-%dT%H:%M:%S.%fZ",
             "%Y-%m-%dT%H:%M:%S.%f",
             "%Y-%m-%dT%H:%M:%SZ",
             "%Y-%m-%dT%H:%M:%S",
-            "%Y-% in formats:
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d",
+        ]
+        for fmt in formats:
             try:
                 return datetime.strptime(value, fmt)
             except Exception:
@@ -52,59 +53,54 @@ def _coerce_datetime(value: Any) -> Optional[datetime]:
     return None
 
 
-def _coerce_rating(value: Any) -> float:
+def _coerce_rating(x: Any) -> float:
+    """Always return a float rating (0.0 fallback)."""
     try:
-        return float(value)
+        return float(x)
     except Exception:
         return 0.0
 
 
-def _sentiment_from_rating(stars: Optional[float]) -> float:
-    """
-    Convert rating 1..5 to sentiment -1..1.
-    """
-    if stars is None:
+def _sentiment_from_rating(r: Optional[float]) -> float:
+    """Convert 1..5 stars into sentiment score -1..1."""
+    if r is None:
         return 0.0
     try:
-        stars = max(1.0, min(5.0, float(stars)))
-        return round((stars - 3.0) / 2.0, 2)
+        r = max(1.0, min(5.0, float(r)))
+        return round((r - 3.0) / 2.0, 2)
     except Exception:
         return 0.0
 
 
-# -------------------------------------------------------
-# OUTSCRAPER DATA FLATTENING
-# -------------------------------------------------------
+# ---------------------------------------------------------
+# Extract reviews from Outscraper payload
+# ---------------------------------------------------------
 
-def _extract_outscraper_reviews(raw: Any) -> List[Dict[str, Any]]:
+def _extract_reviews_from_outscraper_payload(payload: Any) -> List[Dict[str, Any]]:
     """
-    Outscraper responses vary deeply. This function finds all review objects
-    inside ANY nested container.
+    Outscraper returns deeply nested structures; this digs out "reviews_data".
     """
-    reviews: List[Dict[str, Any]] = []
+    results: List[Dict[str, Any]] = []
 
-    def scan(obj: Any):
-        if isinstance(obj, dict):
-            # Direct match
-            if isinstance(obj.get("reviews_data"), list):
-                for r in obj["reviews_data"]:
+    def walk(node: Any):
+        if isinstance(node, dict):
+            if "reviews_data" in node and isinstance(node["reviews_data"], list):
+                for r in node["reviews_data"]:
                     if isinstance(r, dict):
-                        reviews.append(r)
-            # Continue scanning nested
-            for v in obj.values():
-                scan(v)
+                        results.append(r)
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
 
-        elif isinstance(obj, list):
-            for item in obj:
-                scan(item)
-
-    scan(raw)
-    return reviews
+    walk(payload)
+    return results
 
 
-# -------------------------------------------------------
-# INGESTION LOGIC
-# -------------------------------------------------------
+# ---------------------------------------------------------
+# MAIN INGESTION FUNCTION
+# ---------------------------------------------------------
 
 async def ingest_outscraper_reviews(
     *,
@@ -113,60 +109,59 @@ async def ingest_outscraper_reviews(
     raw_payloads: List[Dict[str, Any]],
 ) -> int:
     """
-    Normalizes Outscraper results and inserts new reviews into DB.
-    Enforces deduplication via the unique constraint on:
-        (company_id, google_review_id)
+    Normalizes review payloads, deduplicates, and inserts into PostgreSQL.
+    Returns number of NEW saved reviews.
     """
-    # Flatten nested payloads into review list
-    extracted: List[Dict[str, Any]] = []
-    for payload in raw_payloads:
-        extracted.extend(_extract_outscraper_reviews(payload))
+    flattened_reviews: List[Dict[str, Any]] = []
 
-    if not extracted:
-        logger.info("No Outscraper reviews found for company %s", company_id)
-        return 0
+    # Flatten all Outscraper responses
+    for block in raw_payloads:
+        flattened_reviews.extend(_extract_reviews_from_outscraper_payload(block))
 
     normalized: List[Dict[str, Any]] = []
     incoming_ids: List[str] = []
 
-    for raw in extracted:
-        # unique ID (Outscraper sometimes uses many different keys)
+    # Normalize each review
+    for r in flattened_reviews:
+
+        # Choose Outscraper review identifier
         ext_id = (
-            raw.get("review_id")
-            or raw.get("google_review_id")
-            or raw.get("reviewId")
-            or raw.get("id")
+            r.get("review_id")
+            or r.get("google_review_id")
+            or r.get("reviewId")
+            or r.get("id")
         )
 
-        # fallback ID
+        # If missing, generate fallback synthetic ID for dedupe
         if not ext_id:
-            author = raw.get("author_name") or raw.get("author_title") or "Anonymous"
-            text = raw.get("review_text") or raw.get("text") or ""
-            ts = raw.get("review_timestamp") or raw.get("review_datetime_utc") or ""
-            ext_id = f"{author}|{ts}|{text[:30]}"
+            author = (r.get("author_name") or r.get("author_title") or "Anonymous")
+            text = (r.get("review_text") or r.get("text") or "")
+            ts = r.get("review_timestamp") or r.get("time") or r.get("review_datetime_utc") or ""
+            ext_id = f"{author}|{ts}|{text[:40]}"
 
-        author_name = raw.get("author_name") or raw.get("author_title") or "Anonymous"
-        rating = _coerce_rating(raw.get("rating") or raw.get("review_rating"))
+        rating = _coerce_rating(r.get("review_rating") or r.get("rating"))
         dt = _coerce_datetime(
-            raw.get("review_datetime_utc")
-            or raw.get("datetime_utc")
-            or raw.get("review_timestamp")
-            or raw.get("time")
+            r.get("review_timestamp")
+            or r.get("time")
+            or r.get("review_datetime_utc")
         ) or datetime.utcnow()
 
         normalized.append({
             "google_review_id": str(ext_id)[:512],
-            "author_name": str(author_name)[:255],
+            "author_name": (r.get("author_name") or r.get("author_title") or "Anonymous")[:255],
             "rating": int(rating) if rating else None,
-            "text": str(raw.get("review_text") or raw.get("text") or ""),
+            "text": (r.get("review_text") or r.get("text") or "").strip(),
             "google_review_time": dt,
-            "profile_photo_url": str(raw.get("profile_photo_url") or raw.get("author_image") or ""),
+            "profile_photo_url": str(r.get("author_image") or r.get("profile_photo_url") or ""),
             "sentiment_score": _sentiment_from_rating(rating),
         })
 
         incoming_ids.append(str(ext_id)[:512])
 
-    # Load existing IDs to prevent duplicate inserts
+    # ---------------------------------------------------------
+    # Deduplicate against existing review IDs
+    # ---------------------------------------------------------
+
     existing_ids: set[str] = set()
 
     if incoming_ids:
@@ -180,28 +175,26 @@ async def ingest_outscraper_reviews(
         )
         existing_ids = set(res.scalars().all())
 
-    # Insert new reviews
+    # ---------------------------------------------------------
+    # Insert only NEW reviews
+    # ---------------------------------------------------------
+
     new_count = 0
 
-    for data in normalized:
-        if data["google_review_id"] in existing_ids:
+    for item in normalized:
+        if item["google_review_id"] in existing_ids:
             continue
 
-        session.add(
-            Review(
-                company_id=company_id,
-                **data
-            )
-        )
+        session.add(Review(company_id=company_id, **item))
         new_count += 1
 
-    # Commit safely
-    try:
-        if new_count > 0:
+    # Commit
+    if new_count > 0:
+        try:
             await session.commit()
-    except IntegrityError:
-        await session.rollback()
-        logger.warning("Possible race condition duplicate")
-        new_count = 0
+        except IntegrityError:
+            await session.rollback()
+            new_count = 0
+            logger.warning("IntegrityError: duplicate detected during commit.")
 
     return new_count
