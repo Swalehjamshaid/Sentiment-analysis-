@@ -38,23 +38,26 @@ class OutscraperClient:
         import httpx
         self.client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=30.0))
 
-    async def get_reviews(self, place_id: str, limit: int = 100, offset: int = 0) -> dict[str, Any]:
+    async def get_reviews(self, place_id: str, limit: int = 200) -> list[dict]:
+        """Fetch reviews using Outscraper API"""
         try:
-            params = {"query": place_id, "limit": limit, "offset": offset, "async": "false"}
+            params = {"query": place_id, "reviewsLimit": limit, "async": "false"}
             headers = {"X-API-KEY": self.api_key}
             resp = await self.client.get(self.BASE_URL, params=params, headers=headers)
             resp.raise_for_status()
             data = resp.json()
-            if isinstance(data, list) and len(data) > 0:
-                reviews = data[0].get("reviews_data", [])
-                return {"reviews": reviews}
-            return {"reviews": []}
+            if isinstance(data, list):
+                return data
+            elif isinstance(data, dict) and "data" in data:
+                return data["data"]
+            return []
         except Exception as e:
             logger.error("Outscraper API Error: %s", e, exc_info=True)
-            return {"reviews": []}
+            return []
 
     async def close(self):
         await self.client.aclose()
+
 
 # --------------------------- SCHEMA_VERSION helpers ---------------------------
 async def _get_stored_schema_version(session: AsyncSession) -> Optional[str]:
@@ -97,6 +100,7 @@ async def reset_database_schema() -> None:
         logger.error("Schema reset failed: %s", ex, exc_info=True)
         raise
 
+
 # --------------------------- Lifespan ---------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -129,6 +133,7 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.warning("Failed to close Outscraper client gracefully.", exc_info=True)
 
+
 # --------------------------- App Initialization ---------------------------
 app = FastAPI(title=getattr(settings, "APP_NAME", "ReviewSaaS API"), lifespan=lifespan)
 
@@ -146,9 +151,11 @@ app.add_middleware(SessionMiddleware, secret_key=_secret_key)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
+
 # --------------------------- Auth Helpers ---------------------------
 def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
+
 
 # --------------------------- Views ---------------------------
 @app.get("/", response_class=HTMLResponse)
@@ -158,9 +165,11 @@ async def root(request: Request):
         return RedirectResponse(url="/dashboard")
     return RedirectResponse(url="/login")
 
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_get(request: Request):
     return templates.TemplateResponse("login.html", {"request": request, "user": None})
+
 
 @app.post("/login")
 async def login_post(
@@ -176,9 +185,11 @@ async def login_post(
     request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
     return RedirectResponse(url="/dashboard", status_code=303)
 
+
 @app.get("/register", response_class=HTMLResponse)
 async def register_get(request: Request):
     return templates.TemplateResponse("register.html", {"request": request, "user": None})
+
 
 @app.post("/register")
 async def register_post(
@@ -203,6 +214,7 @@ async def register_post(
     request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
     return RedirectResponse(url="/dashboard", status_code=303)
 
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
     if not user:
@@ -220,10 +232,12 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
         },
     )
 
+
 @app.get("/logout")
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/login", status_code=303)
+
 
 @app.get("/health")
 async def health():
@@ -233,6 +247,7 @@ async def health():
         "schema_changed": getattr(app.state, "schema_changed", False),
         "schema_prev": getattr(app.state, "schema_prev", None),
     }
+
 
 # --------------------------- Include Routers ---------------------------
 def _include_router_safe(module_path: str, attr: str = "router") -> None:
@@ -247,12 +262,14 @@ def _include_router_safe(module_path: str, attr: str = "router") -> None:
     except Exception as e:
         logger.warning("Skipping router %s due to import error: %s", module_path, e)
 
+
 _include_router_safe("app.routes.auth")
 _include_router_safe("app.routes.companies")
 _include_router_safe("app.routes.dashboard")
 _include_router_safe("app.routes.reviews")
 _include_router_safe("app.routes.exports")
 _include_router_safe("app.routes.google_check")
+
 
 # --------------------------- Main ---------------------------
 if __name__ == "__main__":
