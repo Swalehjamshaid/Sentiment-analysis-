@@ -69,6 +69,7 @@
             <div class="progress" style="height: 10px; border-radius: 10px;">
                 <div id="ingestProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 0%"></div>
             </div>
+            <small class="text-muted mt-2 d-block">Fetching in bags of 500 reviews sequentially.</small>
         </div>
     </div>
 
@@ -78,11 +79,11 @@
             <select id="companySelect" class="form-select border-0 bg-light py-2 shadow-none"></select>
         </div>
         <div class="col-md-2">
-            <label class="form-label fw-bold text-muted small">START</label>
+            <label class="form-label fw-bold text-muted small">START DATE</label>
             <input id="startDate" type="date" class="form-control border-0 bg-light shadow-none">
         </div>
         <div class="col-md-2">
-            <label class="form-label fw-bold text-muted small">END</label>
+            <label class="form-label fw-bold text-muted small">END DATE</label>
             <input id="endDate" type="date" class="form-control border-0 bg-light shadow-none">
         </div>
         <div class="col-md-5">
@@ -178,7 +179,7 @@
 let chartInstances = {};
 let cachedReviews = [];
 
-// 1. Initial Data Load
+// 1. Core initialization
 async function loadCompanies() {
     try {
         const res = await fetch("/api/companies");
@@ -191,7 +192,6 @@ async function loadCompanies() {
     } catch { console.error("Database connection lost"); }
 }
 
-// 2. Google Autocomplete Logic
 function initGoogleAutocomplete() {
     const input = document.getElementById('googleSearchInput');
     const autocomplete = new google.maps.places.Autocomplete(input);
@@ -204,7 +204,7 @@ function initGoogleAutocomplete() {
     });
 }
 
-// 3. Add Company Submission
+// 2. Add Business Submission
 document.getElementById('addCompanyForm').onsubmit = async function(e) {
     e.preventDefault();
     const payload = {
@@ -222,36 +222,51 @@ document.getElementById('addCompanyForm').onsubmit = async function(e) {
     } catch { alert("Error saving business"); }
 };
 
-// 4. Ingest Logic (The Fetch Button)
-function streamIngest() {
+// 3. Sequential Sync (Fetch Button)
+async function streamIngest() {
     const cid = document.getElementById("companySelect").value;
     if (!cid) return;
+
     document.getElementById("ingestProgressContainer").style.display = "block";
-    cachedReviews = [];
     
-    // Using EventSource for real-time progress
-    const es = new EventSource(`/api/reviews/stream?company_id=${cid}&limit=50000`);
-    es.addEventListener('review', (e) => {
-        cachedReviews.push(JSON.parse(e.data));
-        document.getElementById("progressStats").innerText = `${cachedReviews.length} records`;
-        document.getElementById("ingestProgressBar").style.width = `${Math.min((cachedReviews.length/100)*100, 100)}%`;
-        updateUI();
-    });
-    es.addEventListener('done', () => { 
-        es.close(); 
-        setTimeout(() => document.getElementById("ingestProgressContainer").style.display = "none", 3000); 
-    });
-    es.onerror = () => es.close();
+    try {
+        // Trigger Ingestion on backend (10,000 target in bags of 500)
+        const ingestRes = await fetch(`/api/reviews/ingest/${cid}?max_reviews=10000`, { method: 'POST' });
+        
+        if (ingestRes.ok) {
+            cachedReviews = [];
+            // Stream the freshly saved reviews into UI
+            const es = new EventSource(`/api/reviews/stream?company_id=${cid}&limit=10000`);
+            
+            es.addEventListener('review', (e) => {
+                const review = JSON.parse(e.data);
+                cachedReviews.push(review);
+                document.getElementById("progressStats").innerText = `${cachedReviews.length} records synchronized`;
+                document.getElementById("ingestProgressBar").style.width = `${Math.min((cachedReviews.length/10000)*100, 100)}%`;
+                updateUI();
+            });
+
+            es.addEventListener('done', () => { 
+                es.close(); 
+                setTimeout(() => document.getElementById("ingestProgressContainer").style.display = "none", 3000); 
+                triggerAllLoads(); // Refresh analysis with full dataset
+            });
+
+            es.onerror = () => es.close();
+        }
+    } catch (err) {
+        console.error("Fetch failed", err);
+    }
 }
 
-// 5. Main Loading Logic
+// 4. Main Loading Logic
 async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
     if (!cid) return;
     
     const start = document.getElementById("startDate").value;
     const end = document.getElementById("endDate").value;
-    const params = new URLSearchParams({ company_id: cid, limit: 50000 });
+    const params = new URLSearchParams({ company_id: cid, limit: 10000 });
     if (start) params.append("start", start);
     if (end) params.append("end", end);
 
@@ -273,27 +288,23 @@ async function loadAIInsights(cid, start, end) {
         const res = await fetch(url);
         const ai = await res.json();
 
-        document.getElementById("aiReputation").innerText = ai.kpi_metrics.reputation_score;
-        document.getElementById("aiCSAT").innerText = ai.kpi_metrics.csat + "%";
-        document.getElementById("aiBenchmark").innerText = ai.kpi_metrics.benchmark.your_avg + " / " + ai.kpi_metrics.benchmark.category_avg;
+        if(ai.kpi_metrics) {
+            document.getElementById("aiReputation").innerText = ai.kpi_metrics.reputation_score;
+            document.getElementById("aiCSAT").innerText = ai.kpi_metrics.csat + "%";
+            document.getElementById("aiBenchmark").innerText = ai.kpi_metrics.benchmark.your_avg + " / " + ai.kpi_metrics.benchmark.category_avg;
 
-        const staff = ai.visualizations.staff_insights;
-        document.getElementById("aiStaffBox").innerHTML = `
-            <div class="badge bg-success w-100 mb-2 p-2 text-start">Positives Mentions: ${staff.positive}</div>
-            <div class="badge bg-danger w-100 mb-3 p-2 text-start">Negatives Mentions: ${staff.negative}</div>
-            <div class="p-2 bg-white border rounded small"><strong>AI Advice:</strong><br>${ai.ai_analysis.improvement_suggestion}</div>
-        `;
-
-        renderRadar(ai.visualizations.emotion_radar);
+            const staff = ai.visualizations.staff_insights;
+            document.getElementById("aiStaffBox").innerHTML = `
+                <div class="badge bg-success w-100 mb-2 p-2 text-start">Positives Mentions: ${staff.positive}</div>
+                <div class="badge bg-danger w-100 mb-3 p-2 text-start">Negatives Mentions: ${staff.negative}</div>
+                <div class="p-2 bg-white border rounded shadow-sm small text-dark"><strong>AI Suggestion:</strong><br>${ai.ai_analysis.suggestion}</div>
+            `;
+            renderRadar(ai.visualizations.emotion_radar);
+        }
     } catch (e) { console.error("AI Error", e); }
 }
 
 function updateUI() {
-    const total = cachedReviews.length;
-    const pos = cachedReviews.filter(r => r.sentiment_score > 0).length;
-    const neu = cachedReviews.filter(r => r.sentiment_score === 0).length;
-    const neg = cachedReviews.filter(r => r.sentiment_score < 0).length;
-
     renderTrend();
     renderTable();
 }
@@ -340,8 +351,13 @@ document.addEventListener("DOMContentLoaded", () => {
     loadCompanies();
     initGoogleAutocomplete();
 });
+
 document.getElementById("loadBtn").onclick = triggerAllLoads;
 document.getElementById("fetchBtn").onclick = streamIngest;
+document.getElementById("toggleTheme").onclick = () => {
+    const theme = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", theme);
+};
 </script>
 </body>
 </html>
