@@ -66,9 +66,14 @@ async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max
         dt_obj = None
         if raw_ts:
             try:
-                dt_obj = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+                # Updated parsing logic to match 'MM/DD/YYYY HH:MM:SS' format
+                dt_obj = datetime.strptime(raw_ts, "%m/%d/%Y %H:%M:%S")
             except (ValueError, TypeError):
-                logger.warning(f"Could not parse timestamp: {raw_ts}")
+                # Fallback check if the API ever switches back to ISO format
+                try:
+                    dt_obj = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    logger.warning(f"Could not parse timestamp: {raw_ts}")
 
         # 3. Create Review record using your specific model fields
         new_review = Review(
