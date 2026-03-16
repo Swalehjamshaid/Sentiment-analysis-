@@ -1,144 +1,138 @@
-# filename: app/core/db.py
+# filename: app/services/review.py
+
 from __future__ import annotations
-from contextlib import asynccontextmanager
-from typing import AsyncIterator, Optional
+
 import os
+import hashlib
 import logging
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from sqlalchemy.ext.asyncio import (
-    AsyncEngine,
-    create_async_engine,
-    async_sessionmaker,
-    AsyncSession
-)
-from sqlalchemy.engine.url import make_url
-from sqlalchemy.exc import SQLAlchemyError
-from app.core.config import settings
-from app.core.models import Base  # Make sure Base includes all models like Review
+import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-# --------------------
-# Setup logger
-# --------------------
-logger = logging.getLogger("app.db")
-logging.basicConfig(level=logging.INFO)
+from app.core.db import get_session
+from app.core.models import Company, Review
 
-# --------------------
-# Global instances for reuse
-# --------------------
-_engine: Optional[AsyncEngine] = None
-_sessionmaker: Optional[async_sessionmaker[AsyncSession]] = None
+# -------------------------------
+# Logging
+# -------------------------------
+logger = logging.getLogger("review_service")
+logger.setLevel(logging.INFO)
 
-# --------------------
-# URL NORMALIZATION
-# --------------------
-def _normalize_async_url(raw_url: str) -> str:
-    """
-    Ensures DATABASE_URL is compatible with SQLAlchemy async drivers.
-    Converts postgres:// to postgresql+asyncpg://
-    """
-    if not raw_url or not raw_url.strip():
-        return 'sqlite+aiosqlite:///./app.db'
+# -------------------------------
+# Google API Config
+# -------------------------------
+GOOGLE_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "")
+GOOGLE_PLACE_DETAILS_URL = "https://maps.googleapis.com/maps/api/place/details/json"
+GOOGLE_PLACE_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
 
-    v = raw_url.strip().strip('"').strip("'")
+# -------------------------------
+# Fetch Google Place ID
+# -------------------------------
+async def fetch_google_place_id(company_name: str, address: str) -> Optional[str]:
+    """Fetch Google Place ID for a company using name and address."""
+    params = {
+        "input": f"{company_name} {address}",
+        "inputtype": "textquery",
+        "fields": "place_id",
+        "key": GOOGLE_API_KEY,
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(GOOGLE_PLACE_SEARCH_URL, params=params)
+        if resp.status_code != 200:
+            logger.error(f"Google Place Search failed: {resp.text}")
+            return None
+        data = resp.json()
+        candidates = data.get("candidates")
+        if not candidates:
+            return None
+        return candidates[0].get("place_id")
 
-    # Convert old-style postgres URL
-    if v.startswith('postgres://'):
-        v = v.replace('postgres://', 'postgresql://', 1)
-    if v.startswith('postgresql://') and 'asyncpg' not in v:
-        v = v.replace('postgresql://', 'postgresql+asyncpg://', 1)
+# -------------------------------
+# Fetch Google Place Details
+# -------------------------------
+async def fetch_google_place_details(place_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch detailed information of a company from Google Places API."""
+    params = {
+        "place_id": place_id,
+        "fields": "name,formatted_address,geometry,formatted_phone_number,website,rating,user_ratings_total",
+        "key": GOOGLE_API_KEY,
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(GOOGLE_PLACE_DETAILS_URL, params=params)
+        if resp.status_code != 200:
+            logger.error(f"Google Place Details failed: {resp.text}")
+            return None
+        result = resp.json().get("result")
+        return result
 
+# -------------------------------
+# Update Company from Google
+# -------------------------------
+async def update_company_from_google(company: Company, session: AsyncSession) -> None:
+    """Fetch Google data for a company and update DB."""
     try:
-        url = make_url(v)
-        if url.drivername in ('postgresql', 'postgres'):
-            v = str(url.set(drivername='postgresql+asyncpg'))
-    except Exception as exc:
-        raise ValueError(f'Invalid DATABASE_URL provided: {raw_url}') from exc
+        place_id = await fetch_google_place_id(company.name, company.address)
+        if not place_id:
+            logger.warning(f"No Google Place ID found for {company.name}")
+            return
 
-    return v
+        details = await fetch_google_place_details(place_id)
+        if not details:
+            logger.warning(f"No details returned for Place ID {place_id}")
+            return
 
+        company.google_place_id = place_id
+        company.latitude = details.get("geometry", {}).get("location", {}).get("lat")
+        company.longitude = details.get("geometry", {}).get("location", {}).get("lng")
+        company.phone = details.get("formatted_phone_number")
+        company.website = details.get("website")
+        company.rating = details.get("rating")
+        company.reviews_count = details.get("user_ratings_total", 0)
+        company.is_active = True
 
-def get_database_url() -> str:
-    """Returns normalized DATABASE_URL from settings or environment."""
-    env_url = getattr(settings, "DATABASE_URL", os.getenv("DATABASE_URL", ""))
-    return _normalize_async_url(env_url)
+        session.add(company)
+        await session.commit()
+        logger.info(f"Updated company {company.name} with Google data.")
+    except Exception as e:
+        logger.error(f"Error updating company {company.name}: {e}")
 
-# --------------------
-# ENGINE & SESSION
-# --------------------
-def get_engine() -> AsyncEngine:
-    """Returns global AsyncEngine, initializing if needed."""
-    global _engine, _sessionmaker
-    if _engine is None:
-        url = get_database_url()
-        logger.info(f"Initializing AsyncEngine with URL: {url}")
-        _engine = create_async_engine(
-            url,
-            echo=getattr(settings, "DEBUG", False),
-            future=True,
-            pool_pre_ping=True,
-            pool_size=10,
-            max_overflow=20
-        )
-        _sessionmaker = async_sessionmaker(
-            bind=_engine,
-            expire_on_commit=False,
-            class_=AsyncSession
-        )
-    return _engine
+# -------------------------------
+# Add Review
+# -------------------------------
+async def add_review(company_id: int, author_name: str, text: str, rating: float, session: AsyncSession) -> Review:
+    """Add a new review to the database."""
+    review_hash = hashlib.sha256(f"{company_id}{author_name}{text}{datetime.utcnow()}".encode()).hexdigest()
+    review = Review(
+        company_id=company_id,
+        author_name=author_name,
+        text=text,
+        rating=rating,
+        review_hash=review_hash,
+        created_at=datetime.utcnow(),
+    )
+    session.add(review)
+    await session.commit()
+    logger.info(f"Added review for company_id {company_id}")
+    return review
 
+# -------------------------------
+# Sync all Companies with Google
+# -------------------------------
+async def sync_all_companies_with_google() -> None:
+    """Update all inactive companies in the database with Google data."""
+    async with get_session() as session:
+        result = await session.execute(select(Company).where(Company.is_active == False))
+        companies: List[Company] = result.scalars().all()
+        for company in companies:
+            await update_company_from_google(company, session)
+        logger.info("Finished syncing all companies.")
 
-def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
-    """Returns global session factory."""
-    global _sessionmaker
-    if _sessionmaker is None:
-        get_engine()
-    return _sessionmaker
-
-
-@asynccontextmanager
-async def get_session() -> AsyncIterator[AsyncSession]:
-    """
-    Provides a transactional scope for the database session.
-    Commits if successful, rolls back if exception occurs.
-    """
-    session_factory = get_sessionmaker()
-    async with session_factory() as session:
-        try:
-            yield session
-            await session.commit()
-            logger.info("✅ Session committed successfully.")
-        except Exception as e:
-            await session.rollback()
-            logger.error(f"⚠ Session rollback due to error: {e}")
-            raise
-        finally:
-            await session.close()
-            logger.info("Session closed.")
-
-
-# --------------------
-# SAFE DATABASE INIT (no auto-drop)
-# --------------------
-async def init_database():
-    """
-    Safe initialization: creates missing tables only.
-    Does NOT drop existing tables or data.
-    Logs schema version for awareness.
-    """
-    from app.core.models import SCHEMA_VERSION  # Avoid circular import
-
-    engine = get_engine()
-    async with engine.begin() as conn:
-        try:
-            # Create missing tables
-            await conn.run_sync(Base.metadata.create_all)
-            logger.info("✅ Database tables ensured (safe create - no data loss)")
-            logger.info(f"Schema version in code: {SCHEMA_VERSION}")
-        except SQLAlchemyError as e:
-            logger.error(f"⚠ Error initializing database: {e}")
-            raise
-
-# --------------------
-# SESSION FACTORY FOR BACKGROUND TASKS
-# --------------------
-AsyncSessionLocal: async_sessionmaker[AsyncSession] = get_sessionmaker()
+# -------------------------------
+# Example usage:
+# -------------------------------
+# import asyncio
+# asyncio.run(sync_all_companies_with_google())
