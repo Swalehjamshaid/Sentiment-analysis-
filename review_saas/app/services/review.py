@@ -1,65 +1,63 @@
-# filename: app/routes/reviews.py
+# filename: app/services/review.py
 
 from __future__ import annotations
 import logging
-from typing import Optional, List
-from datetime import date
+from typing import Any, Dict, List, Optional
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from pydantic import BaseModel, ConfigDict
 
-from app.core.db import get_session
-from app.core.models import Company, Review
-from app.services.review import ingest_outscraper_reviews
+from app.core.config import settings
+from app.core.models import Review 
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
-# --------------------------- Pydantic Schema ---------------------------
-class ReviewSchema(BaseModel):
-    """Schema to safely serialize SQLAlchemy models to JSON"""
-    id: int
-    company_id: int
-    content: Optional[str] = None
-    rating: Optional[int] = None
-    author_name: Optional[str] = None
-    date: Optional[date] = None
+class OutscraperReviewsClient:
+    def __init__(self, *, base_url: Optional[str] = None, api_key: Optional[str] = None) -> None:
+        self.base_url = (base_url or settings.OUTSCRAPER_BASE_URL).rstrip("/")
+        self.api_key = (api_key or settings.OUTSCRAPER_API_KEY).strip()
+        self.reviews_endpoint = f"{self.base_url}/maps/reviews-v3"
+
+    async def fetch_reviews(self, company_obj: Any, max_reviews: int = 200) -> List[Dict[str, Any]]:
+        query = getattr(company_obj, "google_place_id", None) or getattr(company_obj, "name", None)
+        params = {"query": query, "reviewsLimit": max_reviews, "async": "false"}
+        headers = {"X-API-KEY": self.api_key}
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, read=60.0)) as client:
+            response = await client.get(self.reviews_endpoint, params=params, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            # Extracting the list of reviews from the first result block
+            return data[0].get("reviews_data", []) if data else []
+
+async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max_reviews: int = 200) -> int:
+    client = OutscraperReviewsClient()
+    raw_reviews = await client.fetch_reviews(company_obj, max_reviews=max_reviews)
     
-    model_config = ConfigDict(from_attributes=True)
+    new_count = 0
+    for raw in raw_reviews:
+        # Deduplication check (ensure your Review model has review_id_external)
+        ext_id = raw.get("review_id")
+        stmt = select(Review).where(Review.review_id_external == ext_id)
+        existing = await session.execute(stmt)
+        
+        if existing.scalars().first():
+            continue
 
-# --------------------------- Fetch Reviews API ---------------------------
-@router.get("/", response_model=List[ReviewSchema])
-async def get_reviews(
-    company_id: int = Query(...),
-    start: Optional[date] = Query(None),
-    end: Optional[date] = Query(None),
-    limit: int = Query(50),
-    session: AsyncSession = Depends(get_session),
-):
-    query = select(Review).where(Review.company_id == company_id)
-    
-    if start:
-        query = query.where(Review.date >= start)
-    if end:
-        query = query.where(Review.date <= end)
-    
-    result = await session.execute(query.limit(limit))
-    return result.scalars().all()
+        # Create and add the new record
+        new_review = Review(
+            company_id=company_obj.id,
+            review_id_external=ext_id,
+            author_name=raw.get("author_title"),
+            content=raw.get("review_text"),
+            rating=raw.get("review_rating"),
+            date=datetime.fromisoformat(raw.get("review_datetime_utc").replace("Z", "+00:00")).date()
+        )
+        session.add(new_review)
+        new_count += 1
 
-# --------------------------- Ingest Reviews API ---------------------------
-@router.post("/ingest/{company_id}")
-async def ingest_reviews(
-    company_id: int,
-    max_reviews: int = Query(200),
-    session: AsyncSession = Depends(get_session),
-):
-    result = await session.execute(select(Company).where(Company.id == company_id))
-    company = result.scalars().first()
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
-
-    # The service function now handles the database commit
-    new_count = await ingest_outscraper_reviews(company, session, max_reviews=max_reviews)
-    return {"message": f"✅ Stored {new_count} new reviews for {company.name}"}
+    if new_count > 0:
+        await session.commit() 
+    return new_count
