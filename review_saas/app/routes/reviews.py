@@ -3,7 +3,7 @@
 from __future__ import annotations
 import logging
 from typing import Optional, List
-from datetime import date
+from datetime import datetime, date
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,13 +19,14 @@ router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
 # --------------------------- Pydantic Schema ---------------------------
 class ReviewSchema(BaseModel):
-    """Schema to safely serialize SQLAlchemy models to JSON"""
+    """Matches your SQLAlchemy Review model exactly"""
     id: int
     company_id: int
-    content: Optional[str] = None
-    rating: Optional[int] = None
+    google_review_id: str  # Updated to match your model
     author_name: Optional[str] = None
-    date: Optional[date] = None
+    rating: Optional[int] = None
+    text: Optional[str] = None # Matches your 'text' column
+    google_review_time: Optional[datetime] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -40,10 +41,11 @@ async def get_reviews(
 ):
     query = select(Review).where(Review.company_id == company_id)
     
+    # Filtering using your google_review_time column
     if start:
-        query = query.where(Review.date >= start)
+        query = query.where(Review.google_review_time >= start)
     if end:
-        query = query.where(Review.date <= end)
+        query = query.where(Review.google_review_time <= end)
     
     result = await session.execute(query.limit(limit))
     return result.scalars().all()
@@ -60,6 +62,5 @@ async def ingest_reviews(
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
 
-    # The service function now handles the database commit
     new_count = await ingest_outscraper_reviews(company, session, max_reviews=max_reviews)
     return {"message": f"✅ Stored {new_count} new reviews for {company.name}"}
