@@ -1,298 +1,172 @@
-# filename: review_saas/app/services/google_reviews.py
-from __future__ import annotations
-
-import asyncio
-import hashlib
 import logging
-from dataclasses import dataclass, field
+import hashlib
+import os
+from typing import Dict, List, Optional
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional
 
-from sqlalchemy import and_, select
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert
 
-from app.core.models import Review
+# Import your models from your core models file
+# Ensure these match your existing database schema
+from app.models import Company, Review 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Logging setup
-# ──────────────────────────────────────────────────────────────────────────────
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("app.google_reviews")
+# Configuration
+OUTSCRAPER_API_KEY = os.getenv("OUTSCRAPER_API_KEY")
+OUTSCRAPER_URL = "https://api.app.outscraper.com/maps/search-v2"
 
+logger = logging.getLogger(__name__)
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Data structures
-# ──────────────────────────────────────────────────────────────────────────────
-@dataclass
-class ReviewData:
-    """Normalized single review."""
+def generate_review_hash(author_name: str, text: str, rating: int) -> str:
+    """Creates a unique hash for a review to prevent duplicates."""
+    raw_str = f"{author_name}|{text}|{rating}"
+    return hashlib.md5(raw_str.encode('utf-8')).hexdigest()
 
-    company_id: int
-    author_name: str
-    rating: float
-    text: str
-    review_time: datetime
-    profile_photo_url: str = ""
-    external_review_id: Optional[str] = None
-    source_platform: str = "Google"
-    sentiment_score: Optional[float] = None
-    additional_fields: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class CompanyReviews:
-    """Collection of reviews for a company."""
-
-    company_id: int
-    reviews: List[ReviewData] = field(default_factory=list)
-
-    @property
-    def avg_rating(self) -> float:
-        if not self.reviews:
-            return 0.0
-        return round(sum(r.rating for r in self.reviews) / len(self.reviews), 2)
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────────────────────────────────────
-
-def _coerce_datetime(value: Any) -> Optional[datetime]:
-    """Universal parser for timestamps or strings.
-
-    NOTE: returns **naive UTC** datetimes to avoid aware/naive comparison issues.
-    Ensure that any `start`/`end` parameters are also naive UTC.
+async def fetch_company_from_outscaper(query: str) -> List[Dict]:
     """
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.replace(tzinfo=None)
-    try:
-        if isinstance(value, (int, float)):
-            # Handle milliseconds vs seconds
-            if float(value) > 10_000_000_000:
-                return datetime.utcfromtimestamp(float(value) / 1000.0)
-            return datetime.utcfromtimestamp(float(value))
-    except Exception:
-        pass
-
-    if isinstance(value, str):
-        formats = (
-            "%Y-%m-%dT%H:%M:%S.%fZ",
-            "%Y-%m-%dT%H:%M:%S.%f",
-            "%Y-%m-%dT%H:%M:%SZ",
-            "%Y-%m-%dT%H:%M:%S",
-            "%Y-%m-%d %H:%M:%S",
-            "%Y-%m-%d",
-        )
-        for fmt in formats:
-            try:
-                return datetime.strptime(value, fmt)
-            except Exception:
-                continue
-    return None
-
-
-def _coerce_rating(x: Any) -> float:
-    """Safely coerce rating to float, defaulting to 0.0 on failure."""
-    try:
-        return float(x)
-    except Exception:
-        return 0.0
-
-
-def _sentiment_from_rating(r: Optional[float]) -> float:
-    """Convert 1-5 star rating to -1.0 to 1.0 sentiment score."""
-    if r is None:
-        return 0.0
-    try:
-        r = max(1.0, min(5.0, float(r)))
-        return round((r - 3.0) / 2.0, 2)
-    except Exception:
-        return 0.0
-
-
-def _stable_hash_id(company_id: int, author: str, text: str, dt: datetime) -> str:
-    """Generate stable MD5 ID if no external ID is provided by scraper.
-
-    Includes company_id, normalized text (collapsed whitespace) and lowercased
-    author to minimize cross-company or formatting collisions.
+    Fetches exact business data from Outscraper API.
+    Replaces Google Autocomplete/Details logic.
     """
-    a = (author or "").strip().lower()
-    t = " ".join((text or "").split())
-    base = f"{company_id}|{a}|{t}|{dt.isoformat()}"
-    return hashlib.md5(base.encode("utf-8")).hexdigest()
+    params = {
+        "query": query,
+        "limit": 1,  # Adjust if you want to return a list for selection
+        "async": "false",
+    }
+    headers = {"X-API-KEY": OUTSCRAPER_API_KEY}
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Outscraper Review Service
-# ──────────────────────────────────────────────────────────────────────────────
-class OutscraperReviewsService:
-    """Normalize raw scraper data into ReviewData objects."""
-
-    def __init__(self, source_platform: str = "Google") -> None:
-        self.source_platform = source_platform
-
-    def normalize(self, raw: Dict[str, Any], company_id: int) -> Optional[ReviewData]:
-        if not raw:
-            return None
-
-        author = raw.get("author_name") or raw.get("author_title") or "Anonymous"
-        text = raw.get("review_text") or raw.get("text") or ""
-        rating = _coerce_rating(raw.get("review_rating") or raw.get("rating"))
-
-        when = raw.get("review_timestamp") or raw.get("time") or raw.get("review_datetime_utc")
-        dt = _coerce_datetime(when)
-        time_inferred = False
-        if not dt:
-            logger.warning("Unparseable review time; using utcnow() for company %s", company_id)
-            dt = datetime.utcnow()
-            time_inferred = True
-
-        profile = raw.get("author_image") or raw.get("profile_photo_url") or ""
-
-        # Determine unique ID for deduplication
-        external_id = (
-            raw.get("review_id")
-            or raw.get("google_review_id")
-            or _stable_hash_id(company_id, author, text, dt)
-        )
-
-        sent = raw.get("sentiment_score")
-
-        return ReviewData(
-            company_id=company_id,
-            author_name=str(author)[:255],
-            rating=rating,
-            text=str(text),
-            review_time=dt,
-            profile_photo_url=str(profile),
-            external_review_id=str(external_id),
-            source_platform=self.source_platform,
-            sentiment_score=float(sent) if sent is not None else _sentiment_from_rating(rating),
-            additional_fields={"time_inferred": time_inferred},
-        )
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Main ingestion engine
-# ──────────────────────────────────────────────────────────────────────────────
-async def run_batch_review_ingestion(
-    client: Any,
-    entities: Iterable[Any],
-    *,
-    session: AsyncSession,
-    start: Optional[datetime] = None,
-    end: Optional[datetime] = None,
-    max_reviews: Optional[int] = None,
-    source_platform: str = "Google",
-) -> Dict[str, Any]:
-    """
-    Fetch reviews from Outscraper, normalize, deduplicate against existing DB records,
-    and save to PostgreSQL using the provided AsyncSession.
-
-    NOTE:
-      - `session` is REQUIRED (aligned with FastAPI dependency in reviews.py).
-      - `max_reviews` is forwarded to the client to limit payload size.
-      - Timestamps are treated as **naive UTC**.
-
-    Returns:
-      A summary dict: {"total_saved": int, "companies": [{"company_id": int, "saved": int, "error"?: str}]}
-    """
-    summary: Dict[str, Any] = {"total_saved": 0, "companies": []}
-    service = OutscraperReviewsService(source_platform=source_platform)
-
-    for ent in entities:
-        cid_int = int(getattr(ent, "id", 0))
-        new_count = 0
+    async with httpx.AsyncClient(timeout=30.0) as client:
         try:
-            logger.info("Fetching reviews for company %s (source=%s, max=%s)...", cid_int, source_platform, max_reviews)
-
-            # Support both async and sync clients
-            if asyncio.iscoroutinefunction(getattr(client, "fetch_reviews", None)):
-                raw_reviews = await client.fetch_reviews(ent, max_reviews=max_reviews)
-            else:
-                raw_reviews = await asyncio.to_thread(client.fetch_reviews, ent, max_reviews=max_reviews)
-
-            raw_reviews = raw_reviews or []
-            logger.info("Fetched %d raw reviews for company %s", len(raw_reviews), cid_int)
-
-        except Exception as ex:
-            logger.error("Ingestion failed for entity %s: %s", ent, ex)
-            summary["companies"].append({"company_id": cid_int, "saved": 0, "error": str(ex)})
-            continue
-
-        # Normalize and apply date range filter early
-        normalized: List[ReviewData] = []
-        for raw in raw_reviews:
-            rd = service.normalize(raw, company_id=cid_int)
-            if not rd:
-                continue
-            if start and rd.review_time < start:
-                continue
-            if end and rd.review_time > end:
-                continue
-            normalized.append(rd)
-
-        if not normalized:
-            summary["companies"].append({"company_id": cid_int, "saved": 0})
-            logger.info("No reviews to save for company %s after filtering.", cid_int)
-            continue
-
-        # Preload existing IDs to avoid N+1 EXISTS queries
-        incoming_ids = [r.external_review_id for r in normalized if r.external_review_id]
-        existing_ids: set[str] = set()
-        if incoming_ids:
-            res = await session.execute(
-                select(Review.google_review_id).where(
-                    and_(Review.company_id == cid_int, Review.google_review_id.in_(incoming_ids))
-                )
-            )
-            existing_ids = set(res.scalars().all())
-
-        # Create new Review objects for non-existing IDs
-        for rd in normalized:
-            if rd.external_review_id in existing_ids:
-                continue
-
-            new_review = Review(
-                company_id=cid_int,
-                google_review_id=(rd.external_review_id or "")[:255],  # trim if column is length-limited
-                author_name=(rd.author_name or "")[:255],
-                rating=rd.rating,
-                text=rd.text,
-                google_review_time=rd.review_time,
-                sentiment_score=rd.sentiment_score,
-                profile_photo_url=rd.profile_photo_url,
-                # source_platform=rd.source_platform,  # Uncomment if your model has this field
-                # extra=rd.additional_fields,          # Uncomment if you store JSONB extras
-            )
-
-            session.add(new_review)
-            new_count += 1
-
-        # Single commit per company
-        try:
-            if new_count > 0:
-                await session.commit()
-                logger.info("Successfully committed %d reviews for company %s", new_count, cid_int)
-        except IntegrityError as ie:
-            # In case a concurrent process inserted same reviews between preload and commit
-            await session.rollback()
-            logger.warning(
-                "IntegrityError while committing reviews for company %s (possible duplicates). Error: %s",
-                cid_int,
-                ie,
-            )
-            new_count = 0  # do not count uncertain inserts
+            response = await client.get(OUTSCRAPER_URL, params=params, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            
+            # Outscraper returns a list of results inside 'data'
+            return data.get("data", [])[0] if data.get("data") else {}
         except Exception as e:
-            await session.rollback()
-            logger.error("Failed to commit reviews for company %s: %s", cid_int, e)
-            new_count = 0
+            logger.error(f"Outscraper API error for query '{query}': {e}")
+            return {}
 
-        summary["total_saved"] += new_count
-        summary["companies"].append({"company_id": cid_int, "saved": new_count})
+async def update_company_from_outscaper(company: Company, session: AsyncSession):
+    """
+    Syncs a specific company's details and reviews from Outscraper to PostgreSQL.
+    """
+    try:
+        # 1. Fetch fresh data from API
+        external_data = await fetch_company_from_outscaper(company.name)
+        if not external_data:
+            logger.warning(f"No data found for company: {company.name}")
+            return
 
-    logger.info("Batch ingestion complete: %s", summary)
-    return summary
+        # 2. Update Company Details
+        company.address = external_data.get("full_address", company.address)
+        company.phone = external_data.get("phone", company.phone)
+        company.website = external_data.get("site", company.website)
+        company.rating = external_data.get("rating", company.rating)
+        company.reviews_count = external_data.get("reviews_count", company.reviews_count)
+        company.latitude = external_data.get("latitude", company.latitude)
+        company.longitude = external_data.get("longitude", company.longitude)
+        company.updated_at = datetime.utcnow()
+
+        # 3. Sync Reviews
+        api_reviews = external_data.get("reviews_data", [])
+        for r in api_reviews:
+            author = r.get("author_title", "Anonymous")
+            text = r.get("review_text", "")
+            rating = r.get("review_rating", 0)
+            
+            await add_review(
+                company_id=company.id,
+                author_name=author,
+                text=text,
+                rating=rating,
+                session=session
+            )
+
+        await session.commit()
+        logger.info(f"Successfully synced company and reviews for: {company.name}")
+
+    except Exception as e:
+        await session.rollback()
+        logger.error(f"Failed to update company {company.id}: {e}")
+
+async def add_review(company_id: int, author_name: str, text: str, rating: int, session: AsyncSession):
+    """
+    Inserts a review into PostgreSQL if it doesn't already exist (based on hash).
+    """
+    review_hash = generate_review_hash(author_name, text, rating)
+    
+    # Use PostgreSQL UPSERT logic to avoid duplicates
+    stmt = insert(Review).values(
+        company_id=company_id,
+        author_name=author_name,
+        text=text,
+        rating=rating,
+        review_hash=review_hash,
+        created_at=datetime.utcnow()
+    ).on_conflict_do_nothing(index_elements=['review_hash'])
+    
+    await session.execute(stmt)
+
+async def sync_all_companies_with_outscaper(session: AsyncSession):
+    """
+    Global sync function: iterates through all active companies and refreshes data.
+    """
+    logger.info("Starting global Outscraper sync...")
+    
+    # Fetch all active companies
+    result = await session.execute(select(Company).where(Company.is_active == True))
+    companies = result.scalars().all()
+    
+    if not companies:
+        logger.info("No active companies found for sync.")
+        return
+
+    for company in companies:
+        logger.info(f"Syncing: {company.name}")
+        await update_company_from_outscaper(company, session)
+    
+    logger.info("Global sync completed.")
+
+# Helper for the frontend search to replace Google Autocomplete
+async def search_and_save_new_business(query: str, session: AsyncSession):
+    """
+    Logic for when a user searches for a new business on the dashboard.
+    """
+    business_data = await fetch_company_from_outscaper(query)
+    if not business_data:
+        return None
+
+    place_id = business_data.get("place_id")
+    
+    # Check if exists
+    stmt = select(Company).where(Company.place_id == place_id)
+    result = await session.execute(stmt)
+    existing = result.scalar_one_or_none()
+
+    if existing:
+        await update_company_from_outscaper(existing, session)
+        return existing
+
+    # Create new if not exists
+    new_company = Company(
+        name=business_data.get("name"),
+        address=business_data.get("full_address"),
+        place_id=place_id,
+        phone=business_data.get("phone"),
+        website=business_data.get("site"),
+        rating=business_data.get("rating"),
+        reviews_count=business_data.get("reviews_count"),
+        latitude=business_data.get("latitude"),
+        longitude=business_data.get("longitude"),
+        is_active=True,
+        created_at=datetime.utcnow()
+    )
+    
+    session.add(new_company)
+    await session.flush() # Get ID
+    
+    # Sync initial reviews
+    await update_company_from_outscaper(new_company, session)
+    return new_company
