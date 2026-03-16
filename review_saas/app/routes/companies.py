@@ -1,9 +1,11 @@
 # filename: app/routes/companies.py
+
 from __future__ import annotations
 
 import logging
 import asyncio
 import httpx
+import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -48,7 +50,7 @@ def _require_user(request: Request) -> None:
 
 
 # ─────────────────────────────────────────
-# Outscraper REST client (Replaces GMapsClient)
+# Outscraper REST client
 # ─────────────────────────────────────────
 class OutscraperClient:
     BASE_URL = "https://api.app.outscraper.com/maps"
@@ -60,90 +62,137 @@ class OutscraperClient:
         self.headers = {"X-API-KEY": self.api_key}
 
     async def search_business(self, query: str) -> List[Dict[str, Any]]:
-        """Replaces Google Autocomplete using Outscraper search."""
         params = {
             "query": query,
             "limit": 5,
             "async": "false"
         }
+
         async with httpx.AsyncClient(timeout=20.0) as client:
             try:
-                resp = await client.get(f"{self.BASE_URL}/search-v2", params=params, headers=self.headers)
+                resp = await client.get(
+                    f"{self.BASE_URL}/search-v2",
+                    params=params,
+                    headers=self.headers
+                )
+
                 resp.raise_for_status()
                 data = resp.json()
                 return data.get("data", [])
+
             except Exception as e:
                 logger.error(f"Outscraper search failed: {e}")
                 return []
 
     async def get_details(self, place_id: str) -> Dict[str, Any]:
-        """Fetches exact business details via Outscraper."""
+
         params = {
-            "query": place_id, # Outscraper accepts place_id as a query
+            "query": place_id,
             "limit": 1,
             "async": "false"
         }
+
         async with httpx.AsyncClient(timeout=20.0) as client:
             try:
-                resp = await client.get(f"{self.BASE_URL}/search-v2", params=params, headers=self.headers)
+                resp = await client.get(
+                    f"{self.BASE_URL}/search-v2",
+                    params=params,
+                    headers=self.headers
+                )
+
                 resp.raise_for_status()
+
                 results = resp.json().get("data", [])
+
                 return results[0] if results else {}
+
             except Exception as e:
                 logger.error(f"Outscraper details lookup failed: {e}")
                 return {}
 
 
 def _get_outscraper_client() -> Optional[OutscraperClient]:
+
     key = os.getenv("OUTSCRAPER_API_KEY") or getattr(settings, "OUTSCRAPER_API_KEY", None)
+
     if not key:
         logger.warning("Outscraper API key not configured")
         return None
+
     return OutscraperClient(api_key=key)
 
 
 # ─────────────────────────────────────────
-# Search Endpoint (Mapped to existing frontend ID)
+# Search Endpoint
 # ─────────────────────────────────────────
 @router.get("/google_autocomplete")
-async def google_autocomplete(request: Request, input: str = Query(..., min_length=1, max_length=120)):
-    """Maintain original endpoint name for frontend compatibility but use Outscraper."""
+async def google_autocomplete(
+    request: Request,
+    input: str = Query(..., min_length=1, max_length=120)
+):
+
     _require_user(request)
+
     client = _get_outscraper_client()
+
     if not client:
-        return JSONResponse(status_code=503, content={"error": "Search client not configured"})
-    
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Search client not configured"}
+        )
+
     try:
         res = await client.search_business(input)
-        # Map Outscraper results back to the frontend's expected format
+
         predictions = [
             {
-                "description": f"{p.get('name')} - {p.get('full_address')}", 
+                "description": f"{p.get('name')} - {p.get('full_address')}",
                 "place_id": p.get("place_id")
-            } for p in res
+            }
+            for p in res
         ]
+
         return {"predictions": predictions}
+
     except Exception as ex:
+
         logger.exception("Autocomplete failed: %s", ex)
-        return JSONResponse(status_code=502, content={"error": "Search service error"})
+
+        return JSONResponse(
+            status_code=502,
+            content={"error": "Search service error"}
+        )
 
 
 # ─────────────────────────────────────────
-# Details Endpoint (Mapped to existing frontend ID)
+# Details Endpoint
 # ─────────────────────────────────────────
 @router.get("/google/place/details")
-async def google_place_details(request: Request, place_id: str = Query(..., min_length=5)):
-    """Maintain original endpoint name but use Outscraper."""
+async def google_place_details(
+    request: Request,
+    place_id: str = Query(..., min_length=5)
+):
+
     _require_user(request)
+
     client = _get_outscraper_client()
+
     if not client:
-        raise HTTPException(status_code=503, detail="Search client not configured")
-    
+        raise HTTPException(
+            status_code=503,
+            detail="Search client not configured"
+        )
+
     try:
+
         data = await client.get_details(place_id)
+
         if not data:
-            raise HTTPException(status_code=404, detail="Business not found")
-            
+            raise HTTPException(
+                status_code=404,
+                detail="Business not found"
+            )
+
         return {
             "name": data.get("name"),
             "place_id": data.get("place_id"),
@@ -157,35 +206,65 @@ async def google_place_details(request: Request, place_id: str = Query(..., min_
                 "lng": data.get("longitude")
             }
         }
+
     except Exception as ex:
+
         logger.exception("Place details lookup failed: %s", ex)
-        raise HTTPException(status_code=502, detail="Business details lookup failed")
+
+        raise HTTPException(
+            status_code=502,
+            detail="Business details lookup failed"
+        )
 
 
 # ─────────────────────────────────────────
 # Companies List API
 # ─────────────────────────────────────────
 @router.get("/companies")
-async def companies_list(request: Request, page: int = 1, size: int = 20, q: Optional[str] = None):
+async def companies_list(
+    request: Request,
+    page: int = 1,
+    size: int = 20,
+    q: Optional[str] = None
+):
+
     _require_user(request)
+
     page = max(1, page)
     size = max(1, min(100, size))
-    async with get_session() as session:
+
+    async for session in get_session():
+
         stmt = select(Company)
+
         if q:
-            stmt = stmt.where(Company.name.ilike(f"%{q}%"))
+            stmt = stmt.where(
+                Company.name.ilike(f"%{q}%")
+            )
+
         stmt = stmt.order_by(desc(Company.created_at))
-        
-        result = await session.execute(stmt.offset((page - 1) * size).limit(size))
+
+        result = await session.execute(
+            stmt.offset((page - 1) * size).limit(size)
+        )
+
         rows = result.scalars().all()
-        
+
         data = []
+
         for c in rows:
-            # Stats calculation for dashboard cards
-            stats_stmt = select(func.count(Review.id), func.avg(Review.rating)).where(Review.company_id == c.id)
+
+            stats_stmt = select(
+                func.count(Review.id),
+                func.avg(Review.rating)
+            ).where(
+                Review.company_id == c.id
+            )
+
             stats_res = await session.execute(stats_stmt)
+
             stats = stats_res.first()
-            
+
             data.append({
                 "id": int(c.id),
                 "name": c.name,
@@ -194,69 +273,108 @@ async def companies_list(request: Request, page: int = 1, size: int = 20, q: Opt
                 "review_count": int(stats[0] or 0),
                 "avg_rating": round(float(stats[1] or 0), 2),
             })
+
         return data
 
 
 # ─────────────────────────────────────────
-# Add/Sync Company
+# Add Company
 # ─────────────────────────────────────────
 @router.post("/companies")
-async def add_company(request: Request, background: BackgroundTasks, company_in: CompanyCreate):
+async def add_company(
+    request: Request,
+    background: BackgroundTasks,
+    company_in: CompanyCreate
+):
+
     _require_user(request)
-    async with get_session() as session:
-        # Check if already exists in local DB
+
+    async for session in get_session():
+
         stmt = select(Company).where(
-            (Company.place_id == company_in.place_id) | 
-            (getattr(Company, "google_place_id", None) == company_in.place_id)
+            (Company.place_id == company_in.place_id)
         )
+
         existing = await session.execute(stmt)
+
         existing_company = existing.scalar_one_or_none()
 
         if existing_company:
-            # Trigger background sync for existing company
-            if update_company_from_outscaper:
-                background.add_task(update_company_from_outscaper, existing_company, session)
-            
-            return {"status": "exists", "company": {
-                "id": int(existing_company.id),
-                "name": existing_company.name,
-                "place_id": company_in.place_id,
-                "address": existing_company.address,
-            }}
 
-        # Create new company record
+            if update_company_from_outscaper:
+                background.add_task(
+                    update_company_from_outscaper,
+                    existing_company,
+                    session
+                )
+
+            return {
+                "status": "exists",
+                "company": {
+                    "id": int(existing_company.id),
+                    "name": existing_company.name,
+                    "place_id": company_in.place_id,
+                    "address": existing_company.address,
+                }
+            }
+
         new_comp = Company(
-            name=company_in.name.strip(), 
-            place_id=company_in.place_id.strip(), 
+            name=company_in.name.strip(),
+            place_id=company_in.place_id.strip(),
             address=company_in.address or "",
             is_active=True
         )
+
         session.add(new_comp)
+
         await session.commit()
+
         await session.refresh(new_comp)
 
-        # Trigger first-time review fetch and detail update via Outscraper
         if update_company_from_outscaper:
-            background.add_task(update_company_from_outscaper, new_comp, session)
+            background.add_task(
+                update_company_from_outscaper,
+                new_comp,
+                session
+            )
 
-    return {"status": "ok", "company": {
-        "id": int(new_comp.id),
-        "name": new_comp.name,
-        "place_id": new_comp.place_id,
-        "address": new_comp.address,
-    }}
+        return {
+            "status": "ok",
+            "company": {
+                "id": int(new_comp.id),
+                "name": new_comp.name,
+                "place_id": new_comp.place_id,
+                "address": new_comp.address,
+            }
+        }
 
 
 # ─────────────────────────────────────────
 # Delete Company
 # ─────────────────────────────────────────
 @router.post("/companies/{company_id}/delete")
-async def delete_company(request: Request, company_id: int):
+async def delete_company(
+    request: Request,
+    company_id: int
+):
+
     _require_user(request)
-    async with get_session() as session:
+
+    async for session in get_session():
+
         comp = await session.get(Company, company_id)
+
         if not comp:
-            raise HTTPException(status_code=404, detail="Company not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Company not found"
+            )
+
         await session.delete(comp)
+
         await session.commit()
-    return RedirectResponse(url="/dashboard", status_code=302)
+
+    return RedirectResponse(
+        url="/dashboard",
+        status_code=302
+    )
