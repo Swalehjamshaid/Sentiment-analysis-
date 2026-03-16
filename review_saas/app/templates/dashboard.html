@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Review SaaS Dashboard</title>
 
-    <!-- Bootstrap & Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -68,38 +67,14 @@
             border-radius: 15px !important;
         }
 
-        .sent-pos {
-            color: #10b981;
-            font-weight: 600;
-        }
+        .sent-pos { color: #10b981; font-weight: 600; }
+        .sent-neu { color: #6b7280; font-weight: 600; }
+        .sent-neg { color: #ef4444; font-weight: 600; }
 
-        .sent-neu {
-            color: #6b7280;
-            font-weight: 600;
-        }
-
-        .sent-neg {
-            color: #ef4444;
-            font-weight: 600;
-        }
-
-        .progress {
-            border-radius: 10px;
-            background-color: rgba(0, 0, 0, 0.05);
-        }
-
-        #loadingSpinner {
-            display: none;
-        }
-
-        .spin {
-            animation: spin 2s linear infinite;
-            display: inline-block;
-        }
-
-        @keyframes spin {
-            100% { transform: rotate(360deg); }
-        }
+        .progress { border-radius: 10px; background-color: rgba(0, 0, 0, 0.05); }
+        #loadingSpinner { display: none; }
+        .spin { animation: spin 2s linear infinite; display: inline-block; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
 
         #ingestProgressContainer {
             display: none;
@@ -107,15 +82,8 @@
             border-radius: 15px;
         }
 
-        .table-responsive {
-            border-radius: 12px;
-        }
-
-        .form-select,
-        .form-control {
-            border-radius: 10px;
-            border: 1px solid #e5e7eb;
-        }
+        .table-responsive { border-radius: 12px; }
+        .form-select, .form-control { border-radius: 10px; border: 1px solid #e5e7eb; }
     </style>
 </head>
 
@@ -148,7 +116,6 @@
         </div>
     </div>
 
-    <!-- Filter Section -->
     <div class="row g-3 align-items-end mb-4 p-4 bg-white rounded-4 shadow-sm border-0">
         <div class="col-md-3">
             <label class="form-label fw-bold text-muted small">SELECT COMPANY</label>
@@ -172,98 +139,27 @@
         </div>
     </div>
 
-    <!-- KPI Section -->
     <div class="row g-3 mb-4">
-        <div class="col-md-2 col-6">
-            <div class="card kpi-card shadow-sm">
-                <div class="card-body text-center">
-                    <div class="text-muted small fw-bold">TOTAL</div>
-                    <div id="kpiTotal" class="h2 fw-bold mb-0">–</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2 col-6">
-            <div class="card kpi-card shadow-sm">
-                <div class="card-body text-center">
-                    <div class="text-muted small fw-bold">AVG RATING</div>
-                    <div id="kpiRating" class="h2 fw-bold mb-0 text-primary">–</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2 col-4">
-            <div class="card kpi-card shadow-sm">
-                <div class="card-body text-center">
-                    <div class="text-muted small fw-bold">POSITIVE</div>
-                    <div id="kpiPos" class="h2 fw-bold mb-0 sent-pos">–</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2 col-4">
-            <div class="card kpi-card shadow-sm">
-                <div class="card-body text-center">
-                    <div class="text-muted small fw-bold">NEUTRAL</div>
-                    <div id="kpiNeu" class="h2 fw-bold mb-0 sent-neu">–</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2 col-4">
-            <div class="card kpi-card shadow-sm">
-                <div class="card-body text-center">
-                    <div class="text-muted small fw-bold">NEGATIVE</div>
-                    <div id="kpiNeg" class="h2 fw-bold mb-0 sent-neg">–</div>
-                </div>
-            </div>
-        </div>
+        <div class="col-md-2 col-6"><div class="card kpi-card shadow-sm"><div class="card-body text-center"><div class="text-muted small fw-bold">TOTAL</div><div id="kpiTotal" class="h2 fw-bold mb-0">–</div></div></div></div>
+        <div class="col-md-2 col-6"><div class="card kpi-card shadow-sm"><div class="card-body text-center"><div class="text-muted small fw-bold">AVG RATING</div><div id="kpiRating" class="h2 fw-bold mb-0 text-primary">–</div></div></div></div>
+        <div class="col-md-2 col-4"><div class="card kpi-card shadow-sm"><div class="card-body text-center"><div class="text-muted small fw-bold text-success">POSITIVE</div><div id="kpiPos" class="h2 fw-bold mb-0 sent-pos">–</div></div></div></div>
+        <div class="col-md-2 col-4"><div class="card kpi-card shadow-sm"><div class="card-body text-center"><div class="text-muted small fw-bold text-secondary">NEUTRAL</div><div id="kpiNeu" class="h2 fw-bold mb-0 sent-neu">–</div></div></div></div>
+        <div class="col-md-2 col-4"><div class="card kpi-card shadow-sm"><div class="card-body text-center"><div class="text-muted small fw-bold text-danger">NEGATIVE</div><div id="kpiNeg" class="h2 fw-bold mb-0 sent-neg">–</div></div></div></div>
     </div>
 
-    <!-- Charts Section -->
     <div class="row g-4 mb-4">
-        <div class="col-lg-4">
-            <div class="card shadow-sm border-0 rounded-4">
-                <div class="card-body">
-                    <h6 class="fw-bold text-muted mb-3">Rating Distribution</h6>
-                    <div class="chart-wrapper">
-                        <canvas id="chartDistribution"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-4">
-            <div class="card shadow-sm border-0 rounded-4">
-                <div class="card-body">
-                    <h6 class="fw-bold text-muted mb-3">Volume Trend</h6>
-                    <div class="chart-wrapper">
-                        <canvas id="chartTrend"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-4">
-            <div class="card shadow-sm border-0 rounded-4">
-                <div class="card-body">
-                    <h6 class="fw-bold text-muted mb-3">Sentiment Breakdown</h6>
-                    <div class="chart-wrapper">
-                        <canvas id="chartSentiment"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <div class="col-lg-4"><div class="card shadow-sm border-0 rounded-4"><div class="card-body"><h6 class="fw-bold text-muted mb-3">Rating Distribution</h6><div class="chart-wrapper"><canvas id="chartDistribution"></canvas></div></div></div></div>
+        <div class="col-lg-4"><div class="card shadow-sm border-0 rounded-4"><div class="card-body"><h6 class="fw-bold text-muted mb-3">Volume Trend</h6><div class="chart-wrapper"><canvas id="chartTrend"></canvas></div></div></div></div>
+        <div class="col-lg-4"><div class="card shadow-sm border-0 rounded-4"><div class="card-body"><h6 class="fw-bold text-muted mb-3">Sentiment Breakdown</h6><div class="chart-wrapper"><canvas id="chartSentiment"></canvas></div></div></div></div>
     </div>
 
-    <!-- Latest Reviews Table -->
     <div class="card border-0 shadow-sm rounded-4 mb-5">
         <div class="card-body p-4">
-            <h5 class="fw-bold mb-4">Latest Interactions</h5>
+            <h5 class="fw-bold mb-4">Latest Interactions Feed</h5>
             <div class="table-responsive">
                 <table class="table table-hover align-middle border-0">
                     <thead class="bg-light">
-                        <tr class="text-muted small">
-                            <th>AUTHOR</th>
-                            <th>RATING</th>
-                            <th>SENTIMENT</th>
-                            <th>DATE</th>
-                            <th>FEEDBACK</th>
-                        </tr>
+                        <tr class="text-muted small"><th>AUTHOR</th><th>RATING</th><th>SENTIMENT</th><th>DATE</th><th>FEEDBACK</th></tr>
                     </thead>
                     <tbody id="reviewsTable" class="border-0">
                         <tr><td colspan="5" class="text-center py-5 text-muted">Awaiting data...</td></tr>
@@ -281,21 +177,17 @@
 let chartInstances = {};
 let cachedReviews = [];
 
-// Notification
 function notify(msg, type="danger") {
     const host = document.getElementById("alertHost");
-    host.innerHTML = `<div class="alert alert-${type} alert-dismissible border-0 shadow-sm fade show">
-        ${msg}<button class="btn-close" data-bs-dismiss="alert"></button></div>`;
+    host.innerHTML = `<div class="alert alert-${type} alert-dismissible border-0 shadow-sm fade show">${msg}<button class="btn-close" data-bs-dismiss="alert"></button></div>`;
 }
 
-// API Request Wrapper
 async function apiRequest(url) {
     const res = await fetch(url);
     if (!res.ok) throw new Error("API Failure");
     return await res.json();
 }
 
-// Load companies dropdown
 async function loadCompanies() {
     try {
         const data = await apiRequest("/api/companies");
@@ -305,7 +197,6 @@ async function loadCompanies() {
     } catch { notify("Startup Error: Backend unreachable"); }
 }
 
-// Stream reviews progress
 function streamReviews() {
     const companyId = document.getElementById("companySelect").value;
     if(!companyId) return;
@@ -336,11 +227,9 @@ function streamReviews() {
     es.onerror = () => es.close();
 }
 
-// Load Reviews from backend
 async function loadReviews() {
     const companyId = document.getElementById("companySelect").value;
     if(!companyId) return;
-
     const start = document.getElementById("startDate").value;
     const end = document.getElementById("endDate").value;
 
@@ -351,10 +240,9 @@ async function loadReviews() {
     } catch { notify("Data fetch failed"); }
 }
 
-// Update UI
 function updateDashboardUI() {
     const total = cachedReviews.length;
-    const avg = total? cachedReviews.reduce((a,b)=>a+b.rating,0)/total : 0;
+    const avg = total ? cachedReviews.reduce((a,b)=>a+b.rating,0)/total : 0;
     const pos = cachedReviews.filter(r=>r.sentiment_score>0).length;
     const neu = cachedReviews.filter(r=>r.sentiment_score===0).length;
     const neg = cachedReviews.filter(r=>r.sentiment_score<0).length;
@@ -369,7 +257,6 @@ function updateDashboardUI() {
     renderTable();
 }
 
-// Render Charts
 function renderCharts() {
     Object.values(chartInstances).forEach(c=>c.destroy());
 
@@ -377,7 +264,7 @@ function renderCharts() {
     const ctxTrend = document.getElementById("chartTrend").getContext("2d");
     const ctxSent = document.getElementById("chartSentiment").getContext("2d");
 
-    // Distribution Chart
+    // Distribution Chart - with suggestedMax to handle small numbers gracefully
     chartInstances.dist = new Chart(ctxDist,{
         type:"bar",
         data:{
@@ -388,10 +275,16 @@ function renderCharts() {
                 borderRadius:8
             }]
         },
-        options:{responsive:true, maintainAspectRatio:false, animation:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}}}
+        options:{
+            responsive:true, 
+            maintainAspectRatio:false, 
+            animation:false, 
+            plugins:{legend:{display:false}}, 
+            scales:{y:{beginAtZero:true, suggestedMax: 5}}
+        }
     });
 
-    // Volume Trend
+    // Volume Trend - with fixed range for rating
     const sorted = [...cachedReviews].sort((a,b)=>new Date(a.google_review_time)-new Date(b.google_review_time));
     const labels = sorted.map(r=>new Date(r.google_review_time).toLocaleDateString()).slice(-20);
     const data = sorted.map(r=>r.rating).slice(-20);
@@ -408,9 +301,12 @@ function renderCharts() {
         data:{
             labels:["Positive","Neutral","Negative"],
             datasets:[{
-                data:[cachedReviews.filter(r=>r.sentiment_score>0).length, cachedReviews.filter(r=>r.sentiment_score===0).length, cachedReviews.filter(r=>r.sentiment_score<0).length],
+                data:[
+                    cachedReviews.filter(r=>r.sentiment_score > 0).length, 
+                    cachedReviews.filter(r=>r.sentiment_score === 0).length, 
+                    cachedReviews.filter(r=>r.sentiment_score < 0).length
+                ],
                 backgroundColor:['#10b981','#94a3b8','#ef4444'],
-                hoverOffset:10,
                 borderWidth:0
             }]
         },
@@ -418,7 +314,6 @@ function renderCharts() {
     });
 }
 
-// Render Reviews Table
 function renderTable() {
     const tableBody = document.getElementById("reviewsTable");
     if(cachedReviews.length===0){
@@ -437,7 +332,6 @@ function renderTable() {
         </tr>`).join("");
 }
 
-// Event Bindings
 document.getElementById("loadBtn").onclick = loadReviews;
 document.getElementById("ingestBtn").onclick = streamReviews;
 document.getElementById("toggleTheme").onclick = ()=>{
