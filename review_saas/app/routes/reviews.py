@@ -20,6 +20,7 @@ from app.services.review import ingest_outscraper_reviews
 logger = logging.getLogger(__name__)
 
 # CRITICAL FIX: redirect_slashes=False stops the 307 Temporary Redirect loop on Railway
+# This ensures /api/reviews and /api/reviews/ both work without triggering a browser-blocked redirect
 router = APIRouter(prefix="/api/reviews", tags=["reviews"], redirect_slashes=False)
 
 # --------------------------- Pydantic Schema ---------------------------
@@ -40,6 +41,7 @@ class ReviewSchema(BaseModel):
 async def review_streamer(company_id: int, start: Optional[date], end: Optional[date], limit: int, session: AsyncSession):
     """
     Query the database and yield reviews one-by-one as SSE events.
+    This allows the dashboard to 'pop' reviews into the UI in real-time.
     """
     query = select(Review).where(Review.company_id == company_id).order_by(desc(Review.google_review_time))
     
@@ -58,25 +60,24 @@ async def review_streamer(company_id: int, start: Optional[date], end: Optional[
         # Format as Server-Sent Event (SSE)
         yield f"event: review\ndata: {review_data}\n\n"
         
-        # Small delay for smooth UI animation
+        # Artificial delay for smooth UI animation on the dashboard
         await asyncio.sleep(0.02)
 
-    # Signal completion
+    # Signal completion to the frontend eventSource listener
     yield "event: done\ndata: completed\n\n"
 
 # --------------------------- Fetch Reviews API ---------------------------
-# Using "" instead of "/" ensures /api/reviews works without the trailing slash
 @router.get("", response_model=List[ReviewSchema])
 async def get_reviews(
     company_id: int = Query(...),
     start: Optional[date] = Query(None),
     end: Optional[date] = Query(None),
-    limit: int = Query(100),
+    limit: int = Query(1000), # Higher limit for better comprehensive analysis
     session: AsyncSession = Depends(get_session),
 ):
     """
     Standard GET endpoint for static review loading.
-    Returns a flat JSON list [...] which matches the frontend expectations.
+    Returns a flat JSON list [...] which matches the dashboard's expected format.
     """
     query = select(Review).where(Review.company_id == company_id).order_by(desc(Review.google_review_time))
     
@@ -94,7 +95,7 @@ async def stream_reviews(
     company_id: int = Query(...),
     start: Optional[date] = Query(None),
     end: Optional[date] = Query(None),
-    limit: int = Query(250),
+    limit: int = Query(500), # Stream up to 500 reviews for live sync
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -109,11 +110,11 @@ async def stream_reviews(
 @router.post("/ingest/{company_id}")
 async def ingest_reviews(
     company_id: int,
-    max_reviews: int = Query(200),
+    max_reviews: int = Query(250),
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Trigger the background ingestion service via Outscraper.
+    Trigger the background ingestion service via Outscraper to fetch new Google reviews.
     """
     result = await session.execute(select(Company).where(Company.id == company_id))
     company = result.scalars().first()
