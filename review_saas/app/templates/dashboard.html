@@ -14,33 +14,29 @@
             --primary-grad: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
             --ai-grad: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
         }
-        body{ background-color: #f8fafc; padding:24px; font-family: 'Inter', sans-serif; }
+        body{ background-color: #f8fafc; padding:24px; font-family: 'Inter', sans-serif; transition: background 0.3s; }
         
         /* Layout Components */
         .navbar { background: var(--primary-grad) !important; border-radius: 15px !important; border: none; margin-bottom: 25px; }
-        .chart-wrapper { height: 320px; width: 100%; position: relative; overflow: hidden; }
+        .chart-wrapper { height: 320px; width: 100%; position: relative; }
         
-        /* Card Styling */
-        .card { border: none; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); background: #fff; transition: transform 0.2s; }
-        .card:hover { transform: translateY(-3px); }
-        .kpi-card { min-height: 120px; display: flex; flex-direction: column; justify-content: center; text-align: center; }
+        /* KPI Cards */
+        .card { border: none; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: transform 0.2s; }
+        .total-review-card { background: var(--primary-grad); color: white; border-radius: 24px; margin-bottom: 2rem; }
+        .total-review-card .opacity-75 { color: rgba(255,255,255,0.7) !important; }
+
+        .ai-badge { background: var(--ai-grad); color: white; padding: 5px 15px; border-radius: 10px; font-size: 0.75rem; font-weight: bold; margin-bottom: 10px; display: inline-block; }
         
-        /* AI Feature Highlight */
-        .ai-header { background: var(--ai-grad); color: white; padding: 10px 20px; border-radius: 12px; display: inline-block; margin-bottom: 15px; font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
-        .ai-card { border-left: 5px solid #a855f7 !important; }
+        /* Table & Lists */
+        .table-responsive { border-radius: 15px; max-height: 600px; }
+        .badge-rating { background-color: #6366f1; color: white; }
 
-        /* Typography & Colors */
-        .sent-pos { color: #10b981; font-weight: 800; }
-        .sent-neu { color: #6b7280; font-weight: 800; }
-        .sent-neg { color: #ef4444; font-weight: 800; }
-        .text-indigo { color: #6366f1; }
-
-        /* Progress Bar */
-        #ingestProgressContainer { display: none; margin-bottom: 20px; border-radius: 15px; }
-        .table-responsive { border-radius: 15px; max-height: 500px; }
+        /* Google Autocomplete Styling */
+        .pac-container { z-index: 1100 !important; border-radius: 8px; border: none; box-shadow: 0 4px 20px rgba(0,0,0,0.15); font-family: 'Inter', sans-serif; }
+        .modal-content { border-radius: 25px; border: none; }
         
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
-        [data-theme="dark"] .card { background: #1e293b; color: #f8fafc; border: 1px solid #334155; }
+        [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
     </style>
 </head>
 
@@ -50,6 +46,9 @@
     <div class="container-fluid">
         <span class="navbar-brand fw-bold fs-4"><i class="bi bi-robot me-2"></i>Review Intel AI</span>
         <div class="d-flex gap-2">
+            <button class="btn btn-success btn-sm rounded-pill px-4 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+                <i class="bi bi-plus-circle me-1"></i> Add Business
+            </button>
             <button id="toggleTheme" class="btn btn-light btn-sm rounded-pill px-3">Theme</button>
             <form action="/logout" method="post"><button class="btn btn-danger btn-sm rounded-pill px-3">Logout</button></form>
         </div>
@@ -59,103 +58,64 @@
 <div class="container-fluid">
     <div id="alertHost"></div>
 
-    <div id="ingestProgressContainer" class="card shadow-lg">
-        <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <h6 class="fw-bold text-primary mb-0">Streaming Intelligence Data...</h6>
-                <span id="progressStats" class="badge bg-primary rounded-pill">0 items</span>
-            </div>
-            <div class="progress" style="height: 10px; border-radius: 10px;">
-                <div id="ingestProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 0%"></div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row g-3 align-items-end mb-4 p-4 bg-white rounded-4 shadow-sm">
-        <div class="col-md-3">
-            <label class="form-label fw-bold text-muted small">COMPANY</label>
+    <div class="row g-3 align-items-end mb-4 p-4 bg-white rounded-4 shadow-sm border-0">
+        <div class="col-md-4">
+            <label class="form-label fw-bold text-muted small">ACTIVE BUSINESS</label>
             <select id="companySelect" class="form-select border-0 bg-light py-2 shadow-none"></select>
         </div>
-        <div class="col-md-2">
-            <label class="form-label fw-bold text-muted small">START DATE</label>
-            <input id="startDate" type="date" class="form-control border-0 bg-light shadow-none">
+        <div class="col-md-3">
+            <label class="form-label fw-bold text-muted small">START</label>
+            <input id="startDate" type="date" class="form-control border-0 bg-light">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label fw-bold text-muted small">END</label>
+            <input id="endDate" type="date" class="form-control border-0 bg-light">
         </div>
         <div class="col-md-2">
-            <label class="form-label fw-bold text-muted small">END DATE</label>
-            <input id="endDate" type="date" class="form-control border-0 bg-light shadow-none">
+            <button id="loadBtn" class="btn btn-primary w-100 rounded-pill py-2 fw-bold shadow-sm">Analyze</button>
         </div>
-        <div class="col-md-5">
-            <div class="d-flex gap-2">
-                <button id="loadBtn" class="btn btn-primary w-50 rounded-pill py-2 fw-bold">Load Intelligence</button>
-                <button id="ingestBtn" class="btn btn-warning w-50 rounded-pill py-2 text-dark fw-bold">Ingest Live Feed</button>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12 text-center">
+            <div class="card total-review-card shadow-lg p-4">
+                <div class="text-uppercase small fw-bold opacity-75">Total Database Records</div>
+                <div id="kpiTotal" class="display-2 fw-bold">0</div>
+                <div class="small opacity-75">Comprehensive history fetched for this entity</div>
             </div>
         </div>
     </div>
 
-    <div class="ai-header"><i class="bi bi-cpu me-2"></i>AI Insight Layer</div>
-    <div class="row g-3 mb-4">
-        <div class="col"><div class="card kpi-card ai-card shadow-sm"><div class="card-body"><div class="text-muted small fw-bold">REPUTATION SCORE</div><div id="aiReputation" class="display-6 fw-bold text-indigo">–</div></div></div></div>
-        <div class="col"><div class="card kpi-card ai-card shadow-sm"><div class="card-body"><div class="text-muted small fw-bold">CSAT %</div><div id="aiCSAT" class="display-6 fw-bold text-success">–</div></div></div></div>
-        <div class="col"><div class="card kpi-card ai-card shadow-sm"><div class="card-body"><div class="text-muted small fw-bold">LOYAL CUSTOMERS</div><div id="aiLoyalty" class="display-6 fw-bold text-warning">–</div></div></div></div>
-        <div class="col"><div class="card kpi-card ai-card shadow-sm"><div class="card-body"><div class="text-muted small fw-bold">CAT. BENCHMARK</div><div id="aiBenchmark" class="display-6 fw-bold text-secondary">–</div></div></div></div>
+    <div class="ai-badge">AI INSIGHTS</div>
+    <div class="row g-3 mb-4 text-center">
+        <div class="col"><div class="card border-0 shadow-sm py-3"><div class="text-muted small fw-bold">REP. SCORE</div><div id="aiReputation" class="h2 fw-bold text-primary">–</div></div></div>
+        <div class="col"><div class="card border-0 shadow-sm py-3"><div class="text-muted small fw-bold">CSAT %</div><div id="aiCSAT" class="h2 fw-bold text-success">–</div></div></div>
+        <div class="col"><div class="card border-0 shadow-sm py-3"><div class="text-muted small fw-bold">CAT. BENCHMARK</div><div id="aiBenchmark" class="h2 fw-bold text-secondary">–</div></div></div>
     </div>
 
     <div class="row g-4 mb-4">
-        <div class="col-lg-4">
-            <div class="card border-0 shadow-sm rounded-4">
-                <div class="card-body">
-                    <h6 class="fw-bold text-muted">Customer Emotion Radar</h6>
-                    <div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div>
-                </div>
+        <div class="col-lg-4"><div class="card border-0 shadow-sm rounded-4 h-100"><div class="card-body">
+            <h6 class="fw-bold text-muted">Customer Emotion Radar</h6>
+            <div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div>
+        </div></div></div>
+        <div class="col-lg-4"><div class="card border-0 shadow-sm rounded-4 h-100"><div class="card-body">
+            <h6 class="fw-bold text-muted">Satisfaction Over Time</h6>
+            <div class="chart-wrapper"><canvas id="chartTrend"></canvas></div>
+        </div></div></div>
+        <div class="col-lg-4"><div class="card border-0 shadow-sm rounded-4 h-100"><div class="card-body">
+            <h6 class="fw-bold text-muted">AI Staff Monitoring</h6>
+            <div id="aiStaffBox" class="p-3 bg-light rounded-3 mt-2" style="height: 250px; overflow-y: auto;">
+                <p class="text-center text-muted mt-5">Select business to view AI feedback</p>
             </div>
-        </div>
-        <div class="col-lg-4">
-            <div class="card border-0 shadow-sm rounded-4">
-                <div class="card-body">
-                    <h6 class="fw-bold text-muted">Satisfaction Trend</h6>
-                    <div class="chart-wrapper"><canvas id="chartTrend"></canvas></div>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-4">
-            <div class="card border-0 shadow-sm rounded-4">
-                <div class="card-body">
-                    <h6 class="fw-bold text-muted">AI Staff Insights</h6>
-                    <div id="aiStaffBox" class="p-3 bg-light rounded-3 mt-2" style="height: 250px; overflow-y: auto;">
-                        <p class="text-center text-muted mt-5 italic">Analyze data to see staff performance</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row g-4 mb-4">
-        <div class="col-lg-6">
-            <div class="card border-0 shadow-sm rounded-4">
-                <div class="card-body">
-                    <h6 class="fw-bold text-muted">Rating Distribution</h6>
-                    <div class="chart-wrapper"><canvas id="chartDistribution"></canvas></div>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-6">
-            <div class="card border-0 shadow-sm rounded-4">
-                <div class="card-body">
-                    <h6 class="fw-bold text-muted">Sentiment Share</h6>
-                    <div class="chart-wrapper"><canvas id="chartSentiment"></canvas></div>
-                </div>
-            </div>
-        </div>
+        </div></div></div>
     </div>
 
     <div class="card border-0 shadow-sm rounded-4 mb-5">
         <div class="card-body p-4">
-            <h5 class="fw-bold mb-4">Total Interaction History</h5>
+            <h5 class="fw-bold mb-4">Complete Review History</h5>
             <div class="table-responsive">
-                <table class="table table-hover align-middle border-0">
-                    <thead class="bg-light sticky-top">
-                        <tr class="text-muted small"><th>AUTHOR</th><th>RATING</th><th>SENTIMENT</th><th>DATE</th><th>TEXT</th></tr>
-                    </thead>
+                <table class="table table-hover align-middle">
+                    <thead class="bg-light sticky-top"><tr class="text-muted small"><th>AUTHOR</th><th>RATING</th><th>SENTIMENT</th><th>DATE</th><th>FEEDBACK TEXT</th></tr></thead>
                     <tbody id="reviewsTable"></tbody>
                 </table>
             </div>
@@ -163,15 +123,52 @@
     </div>
 </div>
 
+<div class="modal fade" id="addCompanyModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <form id="addCompanyForm" class="modal-content shadow-lg">
+            <div class="modal-header border-0 bg-success text-white p-4">
+                <h5 class="modal-title fw-bold"><i class="bi bi-google me-2"></i>Link New Google Entity</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="mb-4">
+                    <label class="form-label fw-bold">Find Business on Google Maps</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light border-0"><i class="bi bi-search"></i></span>
+                        <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0" placeholder="Start typing business name...">
+                    </div>
+                </div>
+                <div class="row g-3 p-3 bg-light rounded-4">
+                    <div class="col-md-8">
+                        <label class="form-label small fw-bold text-muted">BUSINESS NAME</label>
+                        <input id="companyName" class="form-control border-0" required readonly>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold text-muted">PLACE ID</label>
+                        <input id="placeId" class="form-control border-0" required readonly>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-bold text-muted">FORMATTED ADDRESS</label>
+                        <input id="companyAddress" class="form-control border-0" readonly>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-0 p-4">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm">Save & Track</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
+
 <script>
 let chartInstances = {};
 let cachedReviews = [];
 
-function notify(msg, type="success") {
-    document.getElementById("alertHost").innerHTML = `<div class="alert alert-${type} alert-dismissible fade show rounded-3 shadow-sm">${msg}<button class="btn-close" data-bs-dismiss="alert"></button></div>`;
-}
-
-// 1. Initial Load
+// 1. Core Loader
 async function loadCompanies() {
     try {
         const res = await fetch("/api/companies");
@@ -181,127 +178,117 @@ async function loadCompanies() {
             sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
             triggerAllLoads();
         }
-    } catch { console.error("Database connection lost"); }
+    } catch { console.error("DB connection error"); }
 }
 
-// 2. Load RAW Data (Table & Basic Charts)
-async function loadReviews() {
+// 2. Google Autocomplete Engine
+function initGoogleAutocomplete() {
+    const input = document.getElementById('googleSearchInput');
+    const autocomplete = new google.maps.places.Autocomplete(input);
+    
+    autocomplete.addListener('place_changed', function() {
+        const place = autocomplete.getPlace();
+        if (!place.place_id) return;
+        
+        document.getElementById('companyName').value = place.name;
+        document.getElementById('placeId').value = place.place_id;
+        document.getElementById('companyAddress').value = place.formatted_address;
+    });
+}
+
+// 3. Save New Business
+document.getElementById('addCompanyForm').onsubmit = async function(e) {
+    e.preventDefault();
+    const payload = {
+        name: document.getElementById('companyName').value,
+        place_id: document.getElementById('placeId').value,
+        address: document.getElementById('companyAddress').value
+    };
+
+    try {
+        const res = await fetch('/api/companies', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+            location.reload(); 
+        }
+    } catch (err) { alert("Failed to save entity"); }
+};
+
+// 4. Data Fetching
+async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
-    const start = document.getElementById("startDate").value;
-    const end = document.getElementById("endDate").value;
     if (!cid) return;
 
-    const params = new URLSearchParams({ company_id: cid, limit: 50000 });
-    if (start) params.append("start", start);
-    if (end) params.append("end", end);
-
-    try {
-        const res = await fetch(`/api/reviews?${params.toString()}`);
-        const data = await res.json();
-        cachedReviews = Array.isArray(data) ? data : [];
-        updateUI();
-    } catch { notify("Failed to load records", "danger"); }
+    // Fetch unlimited reviews (up to 50k)
+    const res = await fetch(`/api/reviews?company_id=${cid}&limit=50000`);
+    const data = await res.json();
+    cachedReviews = Array.isArray(data) ? data : [];
+    
+    document.getElementById("kpiTotal").innerText = cachedReviews.length;
+    renderTable();
+    loadAIInsights(cid);
 }
 
-// 3. Load AI Data (Insights & Radar)
-async function loadAIInsights() {
-    const cid = document.getElementById("companySelect").value;
-    const start = document.getElementById("startDate").value;
-    const end = document.getElementById("endDate").value;
-    
-    const params = new URLSearchParams({ company_id: cid });
-    if (start) params.append("start", start);
-    if (end) params.append("end", end);
-
+async function loadAIInsights(cid) {
     try {
-        const res = await fetch(`/api/ai/insights?${params.toString()}`);
+        const res = await fetch(`/api/ai/insights?company_id=${cid}`);
         const ai = await res.json();
 
-        if (!ai.kpi_metrics) return;
-
-        // Update AI KPI cards
         document.getElementById("aiReputation").innerText = ai.kpi_metrics.reputation_score;
         document.getElementById("aiCSAT").innerText = ai.kpi_metrics.csat + "%";
-        document.getElementById("aiLoyalty").innerText = ai.kpi_metrics.loyalty_count;
         document.getElementById("aiBenchmark").innerText = ai.kpi_metrics.benchmark.your_avg + " / " + ai.kpi_metrics.benchmark.category_avg;
 
-        // Render AI Staff Insight Box
         const staff = ai.visualizations.staff_insights;
         document.getElementById("aiStaffBox").innerHTML = `
-            <div class="mb-2"><span class="badge bg-success me-2">Positive Staff Mentions: ${staff.positive}</span></div>
-            <div class="mb-3"><span class="badge bg-danger me-2">Negative Staff Mentions: ${staff.negative}</span></div>
-            <div class="small p-2 bg-white rounded border">
+            <div class="badge bg-success w-100 mb-2 p-2 text-start">Staff Positives: ${staff.positive}</div>
+            <div class="badge bg-danger w-100 mb-3 p-2 text-start">Staff Negatives: ${staff.negative}</div>
+            <div class="p-2 bg-white border rounded shadow-sm small text-dark">
                 <strong>AI Recommendation:</strong><br>${ai.ai_analysis.improvement_suggestion}
             </div>
-            <div class="mt-3 small text-muted"><strong>Top Discussed Topics:</strong><br> ${ai.ai_analysis.top_topics.join(", ")}</div>
         `;
 
-        renderRadarChart(ai.visualizations.emotion_radar);
-    } catch (e) { console.error("AI Insight Error:", e); }
+        renderRadar(ai.visualizations.emotion_radar);
+        renderTrend();
+    } catch (e) { console.error("AI Insights Error", e); }
 }
 
-function updateUI() {
-    const total = cachedReviews.length;
-    const avg = total ? (cachedReviews.reduce((a, b) => a + b.rating, 0) / total).toFixed(1) : "0.0";
-    const pos = cachedReviews.filter(r => r.sentiment_score > 0).length;
-    const neu = cachedReviews.filter(r => r.sentiment_score === 0).length;
-    const neg = cachedReviews.filter(r => r.sentiment_score < 0).length;
-
-    renderMainCharts(pos, neu, neg);
-    renderTable();
-}
-
-function renderMainCharts(pos, neu, neg) {
-    Object.values(chartInstances).forEach(c => { if(c.canvas.id !== 'chartEmotions') c.destroy(); });
-
-    // Bar Distribution
-    chartInstances.dist = new Chart(document.getElementById("chartDistribution"), {
-        type: "bar",
-        data: {
-            labels: ["1★", "2★", "3★", "4★", "5★"],
-            datasets: [{ 
-                data: [1,2,3,4,5].map(x => cachedReviews.filter(r => Math.round(r.rating) === x).length), 
-                backgroundColor: ['#ef4444', '#f59e0b', '#fbbf24', '#818cf8', '#6366f1'],
-                borderRadius: 8
-            }]
-        },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
-    });
-
-    // Trend
-    const sorted = [...cachedReviews].sort((a,b) => new Date(a.google_review_time) - new Date(b.google_review_time));
-    chartInstances.trend = new Chart(document.getElementById("chartTrend"), {
-        type: "line",
-        data: { 
-            labels: sorted.map(r => new Date(r.google_review_time).toLocaleDateString()).slice(-20), 
-            datasets: [{ data: sorted.map(r => r.rating).slice(-20), borderColor: '#4f46e5', tension: 0.4, fill: true, backgroundColor: 'rgba(79, 70, 229, 0.1)' }] 
-        },
-        options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 1, max: 5 } }, plugins: { legend: { display: false } } }
-    });
-
-    // Sentiment
-    chartInstances.sent = new Chart(document.getElementById("chartSentiment"), {
-        type: "doughnut",
-        data: { labels: ["Pos", "Neu", "Neg"], datasets: [{ data: [pos, neu, neg], backgroundColor: ['#10b981', '#94a3b8', '#ef4444'], cutout: '70%' }] },
-        options: { responsive: true, maintainAspectRatio: false }
-    });
-}
-
-function renderRadarChart(emotionData) {
+function renderRadar(emotionData) {
     if(chartInstances.emotions) chartInstances.emotions.destroy();
     chartInstances.emotions = new Chart(document.getElementById("chartEmotions"), {
         type: 'radar',
         data: {
             labels: Object.keys(emotionData),
-            datasets: [{
-                label: 'Emotional Tone',
-                data: Object.values(emotionData),
-                backgroundColor: 'rgba(168, 85, 247, 0.2)',
+            datasets: [{ 
+                label: 'Emotional Frequency', 
+                data: Object.values(emotionData), 
+                backgroundColor: 'rgba(168, 85, 247, 0.2)', 
                 borderColor: '#a855f7',
                 pointBackgroundColor: '#a855f7'
             }]
         },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        options: { responsive: true, maintainAspectRatio: false }
+    });
+}
+
+function renderTrend() {
+    if(chartInstances.trend) chartInstances.trend.destroy();
+    const sorted = [...cachedReviews].sort((a,b) => new Date(a.google_review_time) - new Date(b.google_review_time));
+    chartInstances.trend = new Chart(document.getElementById("chartTrend"), {
+        type: "line",
+        data: { 
+            labels: sorted.map(r => new Date(r.google_review_time).toLocaleDateString()).slice(-15), 
+            datasets: [{ 
+                data: sorted.map(r => r.rating).slice(-15), 
+                borderColor: '#6366f1', 
+                tension: 0.4,
+                fill: true,
+                backgroundColor: 'rgba(99, 102, 241, 0.05)'
+            }] 
+        },
+        options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 1, max: 5 } } }
     });
 }
 
@@ -309,10 +296,10 @@ function renderTable() {
     const body = document.getElementById("reviewsTable");
     body.innerHTML = [...cachedReviews].reverse().map(r => `
         <tr class="border-bottom">
-            <td class="fw-bold">${r.author_name || 'Guest'}</td>
-            <td><span class="badge bg-primary rounded-pill px-3">${r.rating} ★</span></td>
-            <td class="${r.sentiment_score > 0 ? 'sent-pos' : r.sentiment_score < 0 ? 'sent-neg' : 'sent-neu'}">
-                ${r.sentiment_score > 0 ? 'Positive' : r.sentiment_score < 0 ? 'Negative' : 'Neutral'}
+            <td class="fw-bold text-dark">${r.author_name || 'Guest'}</td>
+            <td><span class="badge badge-rating rounded-pill px-3">${r.rating} ★</span></td>
+            <td class="small fw-bold ${r.sentiment_score > 0 ? 'text-success' : 'text-muted'}">
+                ${r.sentiment_score > 0 ? 'Positive' : 'Neutral'}
             </td>
             <td class="small text-muted">${new Date(r.google_review_time).toLocaleDateString()}</td>
             <td class="small text-secondary" style="max-width: 400px;">${r.text || '...'}</td>
@@ -320,17 +307,11 @@ function renderTable() {
     `).join("");
 }
 
-function triggerAllLoads() {
-    loadReviews();
-    loadAIInsights();
-}
-
-document.addEventListener("DOMContentLoaded", loadCompanies);
+document.addEventListener("DOMContentLoaded", () => {
+    loadCompanies();
+    initGoogleAutocomplete();
+});
 document.getElementById("loadBtn").onclick = triggerAllLoads;
-document.getElementById("toggleTheme").onclick = () => {
-    const theme = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
-    document.documentElement.setAttribute("data-theme", theme);
-};
 </script>
 </body>
 </html>
