@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import asyncio
-import urllib.parse
-import urllib.request
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -36,6 +34,11 @@ class CompanyCreate(BaseModel):
     name: str
     place_id: str
     address: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    phone: Optional[str] = None
+    website: Optional[str] = None
+    categories: Optional[List[str]] = None
 
 
 # ─────────────────────────────────────────
@@ -50,112 +53,7 @@ def _require_user(request: Request) -> None:
 
 
 # ─────────────────────────────────────────
-# Lightweight Google Places REST client
-# ─────────────────────────────────────────
-class _GMapsClient:
-    BASE = "https://maps.googleapis.com/maps/api/place"
-
-    def __init__(self, api_key: str, language: Optional[str] = None, region: Optional[str] = None, timeout: int = 10):
-        if not api_key:
-            raise RuntimeError("Google API key is missing")
-        self.api_key = api_key
-        self.language = language
-        self.region = region
-        self.timeout = timeout
-
-    def _get_json(self, path: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        params["key"] = self.api_key
-        if self.language:
-            params["language"] = self.language
-        if self.region:
-            params["region"] = self.region
-        url = f"{self.BASE}/{path}?{urllib.parse.urlencode(params)}"
-        req = urllib.request.Request(url, headers={"User-Agent": "ReviewSaaS/1.0"})
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                payload = json.loads(resp.read().decode("utf-8"))
-        except Exception as ex:
-            raise RuntimeError(f"Network error contacting Google Places: {ex}")
-        status_val = payload.get("status")
-        if status_val not in ("OK", "ZERO_RESULTS"):
-            msg = payload.get("error_message", status_val)
-            raise RuntimeError(f"Google Places error: {msg}")
-        return payload
-
-    def places_autocomplete(self, input_text: str) -> List[Dict[str, Any]]:
-        data = self._get_json("autocomplete/json", {"input": input_text, "types": "establishment"})
-        return data.get("predictions", [])
-
-    def place_details(self, place_id: str) -> Dict[str, Any]:
-        fields = ",".join([
-            "place_id", "name", "formatted_address", "geometry/location",
-            "website", "url", "rating", "user_ratings_total"
-        ])
-        data = self._get_json("details/json", {"place_id": place_id, "fields": fields})
-        return data
-
-
-def _get_gmaps_client() -> Optional[_GMapsClient]:
-    key = settings.GOOGLE_API_KEY
-    if not key:
-        logger.warning("Google API key not configured")
-        return None
-    language = getattr(settings, "GOOGLE_PLACES_LANGUAGE", None)
-    region = getattr(settings, "GOOGLE_PLACES_REGION", None)
-    try:
-        return _GMapsClient(api_key=key, language=language, region=region)
-    except Exception as ex:
-        logger.warning("Failed to initialize Google Places client: %s", ex)
-        return None
-
-
-# ─────────────────────────────────────────
-# Google Autocomplete Endpoint
-# ─────────────────────────────────────────
-@router.get("/google_autocomplete")
-async def google_autocomplete(request: Request, input: str = Query(..., min_length=1, max_length=120)):
-    _require_user(request)
-    client = _get_gmaps_client()
-    if not client:
-        return JSONResponse(status_code=503, content={"error": "Google Places client not configured"})
-    try:
-        res = await asyncio.to_thread(client.places_autocomplete, input)
-        predictions = [{"description": p.get("description"), "place_id": p.get("place_id")} for p in res]
-        return {"predictions": predictions}
-    except Exception as ex:
-        logger.exception("Google autocomplete failed: %s", ex)
-        return JSONResponse(status_code=502, content={"error": f"Autocomplete service error: {str(ex)}"})
-
-
-# ─────────────────────────────────────────
-# Google Place Details
-# ─────────────────────────────────────────
-@router.get("/google/place/details")
-async def google_place_details(request: Request, place_id: str = Query(..., min_length=5)):
-    _require_user(request)
-    client = _get_gmaps_client()
-    if not client:
-        raise HTTPException(status_code=503, detail="Google Places client not configured")
-    try:
-        data = await asyncio.to_thread(client.place_details, place_id)
-        result = data.get("result", {})
-        return {
-            "name": result.get("name"),
-            "place_id": result.get("place_id"),
-            "address": result.get("formatted_address"),
-            "rating": result.get("rating"),
-            "user_ratings_total": result.get("user_ratings_total"),
-            "website": result.get("website"),
-            "url": result.get("url"),
-            "location": (result.get("geometry") or {}).get("location", {}),
-        }
-    except Exception as ex:
-        logger.exception("Google place details failed: %s", ex)
-        raise HTTPException(status_code=502, detail=f"Google place lookup failed: {str(ex)}")
-
-
-# ─────────────────────────────────────────
-# Companies List API
+# Companies List API (with Outscaper fields)
 # ─────────────────────────────────────────
 @router.get("/companies")
 async def companies_list(request: Request, page: int = 1, size: int = 20, q: Optional[str] = None):
@@ -168,6 +66,7 @@ async def companies_list(request: Request, page: int = 1, size: int = 20, q: Opt
             stmt = stmt.where(Company.name.ilike(f"%{q}%"))
         stmt = stmt.order_by(desc(Company.created_at))
         rows = (await session.execute(stmt.offset((page - 1) * size).limit(size))).scalars().all()
+
         data = []
         for c in rows:
             stats = (await session.execute(
@@ -176,8 +75,13 @@ async def companies_list(request: Request, page: int = 1, size: int = 20, q: Opt
             data.append({
                 "id": int(c.id),
                 "name": c.name,
-                "place_id": getattr(c, "google_place_id", ""),
+                "place_id": getattr(c, "place_id", ""),
                 "address": getattr(c, "address", ""),
+                "lat": getattr(c, "lat", None),
+                "lng": getattr(c, "lng", None),
+                "phone": getattr(c, "phone", ""),
+                "website": getattr(c, "website", ""),
+                "categories": getattr(c, "categories", []),
                 "review_count": int(stats[0] or 0),
                 "avg_rating": round(float(stats[1] or 0), 2),
             })
@@ -185,19 +89,18 @@ async def companies_list(request: Request, page: int = 1, size: int = 20, q: Opt
 
 
 # ─────────────────────────────────────────
-# Add Company
+# Add Company (with Outscaper integration)
 # ─────────────────────────────────────────
 @router.post("/companies")
 async def add_company(request: Request, background: BackgroundTasks, company_in: CompanyCreate):
     _require_user(request)
     async with get_session() as session:
-        existing = await session.execute(select(Company).where(Company.google_place_id == company_in.place_id))
+        existing = await session.execute(select(Company).where(Company.place_id == company_in.place_id))
         existing_company = existing.scalar_one_or_none()
         if existing_company:
             # Existing company: fetch incremental reviews from last review
             client = getattr(request.app.state, "reviews_client", None)
             if run_batch_review_ingestion and client:
-                # Find latest review
                 latest_review = await session.execute(
                     select(Review).where(Review.company_id == existing_company.id).order_by(desc(Review.google_review_time))
                 )
@@ -207,16 +110,29 @@ async def add_company(request: Request, background: BackgroundTasks, company_in:
                 background.add_task(
                     run_batch_review_ingestion, client, [existing_company], session=session, start=start_date, end=end_date
                 )
-
             return {"status": "exists", "company": {
                 "id": int(existing_company.id),
                 "name": existing_company.name,
-                "place_id": existing_company.google_place_id,
+                "place_id": existing_company.place_id,
                 "address": existing_company.address,
+                "lat": existing_company.lat,
+                "lng": existing_company.lng,
+                "phone": existing_company.phone,
+                "website": existing_company.website,
+                "categories": existing_company.categories or [],
             }}
 
-        # New company: save and fetch full history
-        c = Company(name=company_in.name.strip(), google_place_id=company_in.place_id.strip(), address=company_in.address or "")
+        # New company: save full Outscaper data
+        c = Company(
+            name=company_in.name.strip(),
+            place_id=company_in.place_id.strip(),
+            address=company_in.address or "",
+            lat=company_in.lat,
+            lng=company_in.lng,
+            phone=company_in.phone,
+            website=company_in.website,
+            categories=company_in.categories or [],
+        )
         session.add(c)
         await session.commit()
         await session.refresh(c)
@@ -230,8 +146,13 @@ async def add_company(request: Request, background: BackgroundTasks, company_in:
     return {"status": "ok", "company": {
         "id": int(c.id),
         "name": c.name,
-        "place_id": c.google_place_id,
+        "place_id": c.place_id,
         "address": c.address,
+        "lat": c.lat,
+        "lng": c.lng,
+        "phone": c.phone,
+        "website": c.website,
+        "categories": c.categories,
     }}
 
 
