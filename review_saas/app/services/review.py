@@ -20,24 +20,19 @@ class OutscraperReviewsClient:
         self.api_key = (api_key or settings.OUTSCRAPER_API_KEY).strip()
         self.reviews_endpoint = f"{self.base_url}/maps/reviews-v3"
 
-    async def fetch_reviews(self, company_obj: Any, start_date: Optional[datetime] = None) -> List[Dict[str, Any]]:
-        """
-        Fetches reviews based on a start date rather than a hard limit.
-        """
+    async def fetch_reviews(self, company_obj: Any, max_reviews: int = 10000) -> List[Dict[str, Any]]:
         query = getattr(company_obj, "google_place_id", None) or getattr(company_obj, "name", None)
         
-        # Outscraper uses Unix timestamps for date filtering
-        # If no start_date is provided, we default to a very old timestamp to get all data
-        timestamp = int(start_date.timestamp()) if start_date else 0
-        
+        # We use reviewsLimit for the count-based approach
         params = {
-            "query": query,
-            "lastReviewTimestamp": timestamp, # Fetch reviews newer than this
+            "query": query, 
+            "reviewsLimit": max_reviews, 
             "async": "false"
         }
         headers = {"X-API-KEY": self.api_key}
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, read=120.0)) as client:
+        # Increased timeout for large data sets
+        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, read=300.0)) as client:
             response = await client.get(self.reviews_endpoint, params=params, headers=headers)
             response.raise_for_status()
             full_response = response.json()
@@ -47,12 +42,12 @@ class OutscraperReviewsClient:
             if isinstance(results_list, list) and len(results_list) > 0:
                 return results_list[0].get("reviews_data", [])
             
-            logger.warning(f"No reviews found for {query} since {start_date}")
+            logger.warning(f"No reviews found or unexpected structure for {query}")
             return []
 
-async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, start_date: Optional[datetime] = None) -> int:
+async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max_reviews: int = 10000) -> int:
     client = OutscraperReviewsClient()
-    raw_reviews = await client.fetch_reviews(company_obj, start_date=start_date)
+    raw_reviews = await client.fetch_reviews(company_obj, max_reviews=max_reviews)
     
     new_count = 0
     for raw in raw_reviews:
