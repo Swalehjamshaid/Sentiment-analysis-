@@ -18,13 +18,12 @@
         body{ background-color: #f8fafc; padding:24px; font-family: 'Inter', sans-serif; transition: background 0.3s; }
         .navbar { background: var(--primary-grad) !important; border-radius: 15px !important; margin-bottom: 25px; }
         .chart-wrapper { height: 320px; width: 100%; position: relative; }
-        .card { border: none; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: transform 0.2s; }
+        .card { border: none; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
         .total-review-card { background: var(--primary-grad); color: white; border-radius: 24px; margin-bottom: 2rem; }
         .ai-badge { background: var(--ai-grad); color: white; padding: 5px 15px; border-radius: 10px; font-size: 0.75rem; font-weight: bold; margin-bottom: 10px; display: inline-block; }
         .btn-pill { border-radius: 50px; padding: 10px 20px; font-weight: 600; }
         .btn-fetch { background: var(--success-grad); color: white; border: none; }
         .btn-stop { border-radius: 50px; font-weight: 600; display: none; }
-        .table-responsive { border-radius: 15px; max-height: 600px; }
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
         [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
         #ingestProgressContainer { display: none; }
@@ -50,10 +49,10 @@
     <div id="ingestProgressContainer" class="card shadow-lg border-0 mb-4 bg-white">
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-2">
-                <h6 class="fw-bold text-primary mb-0"><i class="bi bi-lightning-charge-fill me-2"></i>Live Syncing Data...</h6>
+                <h6 class="fw-bold text-primary mb-0"><i class="bi bi-lightning-charge-fill me-2"></i>Live Syncing...</h6>
                 <div class="d-flex align-items-center gap-3">
                     <span id="progressStats" class="badge bg-primary rounded-pill">0 items</span>
-                    <button id="stopBtn" class="btn btn-danger btn-sm btn-stop">STOP FETCHING</button>
+                    <button id="stopBtn" class="btn btn-danger btn-sm btn-stop">STOP</button>
                 </div>
             </div>
             <div class="progress" style="height: 12px; border-radius: 10px;">
@@ -78,9 +77,7 @@
         <div class="col-md-5">
             <div class="d-flex gap-2">
                 <button id="loadBtn" class="btn btn-primary w-50 btn-pill shadow-sm">Analyze Database</button>
-                <button id="fetchBtn" class="btn btn-fetch w-50 btn-pill shadow-sm">
-                    <i class="bi bi-cloud-download me-1"></i> Sync Live Data
-                </button>
+                <button id="fetchBtn" class="btn btn-fetch w-50 btn-pill shadow-sm">Sync Live Data</button>
             </div>
         </div>
     </div>
@@ -120,7 +117,7 @@
 
     <div class="card border-0 shadow-sm rounded-4 mb-5">
         <div class="card-body p-4">
-            <h5 class="fw-bold mb-4">Complete Historical Records</h5>
+            <h5 class="fw-bold mb-4">Review History</h5>
             <div class="table-responsive">
                 <table class="table table-hover align-middle border-0">
                     <thead class="bg-light sticky-top"><tr class="text-muted small"><th>AUTHOR</th><th>RATING</th><th>SENTIMENT</th><th>DATE</th><th>FEEDBACK</th></tr></thead>
@@ -133,21 +130,19 @@
 
 <div class="modal fade" id="addCompanyModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
-        <form id="addCompanyForm" class="modal-content shadow-lg">
-            <div class="modal-header bg-success text-white border-0">
-                <h5 class="modal-title fw-bold">Link New Business</h5>
+        <form id="addCompanyForm" class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">Link New Business</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body p-4">
-                <input id="googleSearchInput" class="form-control mb-3" placeholder="Search Business...">
-                <div class="bg-light p-3 rounded-4">
-                    <input id="companyName" class="form-control border-0 mb-2" placeholder="Name" readonly>
-                    <input id="placeId" class="form-control border-0 mb-2" placeholder="Place ID" readonly>
-                    <input id="companyAddress" class="form-control border-0" placeholder="Address" readonly>
-                </div>
+            <div class="modal-body">
+                <input id="googleSearchInput" class="form-control mb-3" placeholder="Search Google Maps...">
+                <input id="companyName" class="form-control mb-2" placeholder="Name" readonly>
+                <input id="placeId" class="form-control mb-2" placeholder="Place ID" readonly>
+                <input id="companyAddress" class="form-control" placeholder="Address" readonly>
             </div>
-            <div class="modal-footer border-0">
-                <button type="submit" class="btn btn-success rounded-pill px-4">Save</button>
+            <div class="modal-footer">
+                <button type="submit" class="btn btn-success">Save Business</button>
             </div>
         </form>
     </div>
@@ -160,7 +155,6 @@
 let chartInstances = {};
 let cachedReviews = [];
 
-// Initial Load
 async function loadCompanies() {
     try {
         const res = await fetch("/api/companies");
@@ -170,7 +164,7 @@ async function loadCompanies() {
             sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
             triggerAllLoads();
         }
-    } catch { console.error("Database connection error"); }
+    } catch { console.error("API error"); }
 }
 
 function initGoogleAutocomplete() {
@@ -184,7 +178,6 @@ function initGoogleAutocomplete() {
     });
 }
 
-// Live Stream Ingestion (Producer/Consumer Logic)
 async function streamIngest() {
     const cid = document.getElementById("companySelect").value;
     const progressContainer = document.getElementById("ingestProgressContainer");
@@ -192,8 +185,7 @@ async function streamIngest() {
     
     progressContainer.style.display = "block";
     stopBtn.style.display = "inline-block";
-    stopBtn.innerText = "STOP FETCHING";
-
+    
     try {
         await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
         const es = new EventSource(`/api/reviews/stream?company_id=${cid}`);
@@ -214,7 +206,6 @@ async function streamIngest() {
     } catch (err) { console.error("Stream failed", err); }
 }
 
-// Load AI Analytics
 async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
     const start = document.getElementById("startDate").value;
@@ -239,29 +230,33 @@ async function loadAIInsights(cid, start, end) {
         const res = await fetch(url);
         const ai = await res.json();
 
-        // Map KPIs from dashboard.py
+        // ALIGNED WITH dashboard.py response structure
         if(ai.kpis) {
-            document.getElementById("aiReputation").innerText = ai.kpis.reputation_score;
-            document.getElementById("aiCSAT").innerText = ai.kpis.csat + "%";
-            document.getElementById("aiBenchmark").innerText = `${ai.kpis.benchmark.your_avg} / ${ai.kpis.benchmark.category_avg}`;
+            document.getElementById("aiReputation").innerText = ai.kpis.reputation_score || '0';
+            document.getElementById("aiCSAT").innerText = (ai.kpis.csat || '0') + "%";
+            const bench = ai.kpis.benchmark || {your_avg: 0, category_avg: 0};
+            document.getElementById("aiBenchmark").innerText = `${bench.your_avg} / ${bench.category_avg}`;
         }
 
-        // Map Visualizations
         if(ai.visualizations) {
-            renderRadar(ai.visualizations.emotions);
-            renderSentimentTrend(ai.visualizations.sentiment_trend);
+            renderRadar(ai.visualizations.emotions || {});
+            renderSentimentTrend(ai.visualizations.sentiment_trend || []);
         }
 
-        // Map AI Staff Monitoring Card
         if(ai.ai_insights) {
             document.getElementById("aiStaffBox").innerHTML = `
-                <div class="badge bg-primary w-100 mb-2 p-2 text-start">Summary Report</div>
-                <div class="p-2 mb-3 bg-white border rounded shadow-sm small">${ai.ai_insights.summary}</div>
-                <div class="badge bg-secondary w-100 mb-2 p-2 text-start">Detected Key Terms</div>
-                <div class="p-1">${ai.ai_insights.topics.map(t => `<span class="badge bg-light text-dark border m-1">${t}</span>`).join('')}</div>
+                <div class="p-3 bg-white border rounded shadow-sm mb-3">
+                    <h6 class="fw-bold"><i class="bi bi-robot me-2"></i>AI Analysis</h6>
+                    <small>${ai.ai_insights.summary}</small>
+                </div>
+                <div class="p-3 bg-white border rounded shadow-sm">
+                    <h6 class="fw-bold">Staff Highlights</h6>
+                    <div class="badge bg-light text-dark border m-1">Detected Spam: ${ai.ai_insights.spam_detected}</div>
+                    ${ai.ai_insights.topics.map(t => `<span class="badge bg-primary-subtle text-primary border m-1">#${t}</span>`).join('')}
+                </div>
             `;
         }
-    } catch (e) { console.error("AI Insights Error", e); }
+    } catch (e) { console.error("Insight Error", e); }
 }
 
 function renderRadar(emotionData) {
@@ -270,7 +265,7 @@ function renderRadar(emotionData) {
         type: 'radar',
         data: {
             labels: Object.keys(emotionData),
-            datasets: [{ label: 'Tone', data: Object.values(emotionData), backgroundColor: 'rgba(168, 85, 247, 0.2)', borderColor: '#a855f7' }]
+            datasets: [{ label: 'Tone', data: Object.values(emotionData), backgroundColor: 'rgba(99, 102, 241, 0.2)', borderColor: '#6366f1' }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
@@ -283,9 +278,9 @@ function renderSentimentTrend(trendData) {
         data: { 
             labels: trendData.map(d => d.week), 
             datasets: [{ 
-                label: 'Score', 
+                label: 'Satisfaction', 
                 data: trendData.map(d => d.avg), 
-                borderColor: '#6366f1', 
+                borderColor: '#4338ca', 
                 fill: true, 
                 backgroundColor: 'rgba(99, 102, 241, 0.05)', 
                 tension: 0.4 
@@ -297,13 +292,13 @@ function renderSentimentTrend(trendData) {
 
 function updateUI() {
     const body = document.getElementById("reviewsTable");
-    body.innerHTML = [...cachedReviews].reverse().slice(0, 30).map(r => `
+    body.innerHTML = [...cachedReviews].reverse().slice(0, 50).map(r => `
         <tr class="border-bottom">
             <td class="fw-bold">${r.author_name || 'Guest'}</td>
             <td><span class="badge bg-primary">${r.rating} ★</span></td>
-            <td>${r.sentiment_score > 0 ? '🟢 Pos' : '⚪ Neu'}</td>
+            <td>${r.rating >= 4 ? '🟢 Pos' : '🔴 Neg'}</td>
             <td class="small">${new Date(r.google_review_time).toLocaleDateString()}</td>
-            <td class="small text-secondary">${(r.text || '').substring(0, 150)}...</td>
+            <td class="small text-muted">${(r.text || '').substring(0, 100)}...</td>
         </tr>
     `).join("");
 }
