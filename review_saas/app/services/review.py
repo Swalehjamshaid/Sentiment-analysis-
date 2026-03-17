@@ -20,12 +20,18 @@ cancel_requests: Set[int] = set()
 logger = logging.getLogger(__name__)
 
 class OutscraperReviewsClient:
+    """
+    Client to interact with the Outscraper API for Google Maps reviews.
+    """
     def __init__(self, *, base_url: Optional[str] = None, api_key: Optional[str] = None) -> None:
         self.base_url = (base_url or settings.OUTSCRAPER_BASE_URL).rstrip("/")
         self.api_key = (api_key or settings.OUTSCRAPER_API_KEY).strip()
         self.reviews_endpoint = f"{self.base_url}/maps/reviews-v3"
 
     async def fetch_batch(self, client: httpx.AsyncClient, query: str, limit: int, skip: int) -> List[Dict[str, Any]]:
+        """
+        Fetches a single batch of reviews from Outscraper.
+        """
         params = {
             "query": query,
             "reviewsLimit": limit,
@@ -52,6 +58,10 @@ async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max
     """
     client_wrapper = OutscraperReviewsClient()
     query = getattr(company_obj, "google_place_id", None) or getattr(company_obj, "name", None)
+
+    if not query:
+        logger.error(f"No search query or Place ID found for company: {company_obj.name}")
+        return 0
 
     # 1. In-Memory ID Loading for O(1) duplicate checking
     stmt = select(Review.google_review_id).where(Review.company_id == company_obj.id)
@@ -109,6 +119,7 @@ async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max
             to_insert = []
             for raw in batch:
                 rid = raw.get("review_id")
+                # Skip if already exists or invalid ID
                 if not rid or rid in existing_ids:
                     continue
 
@@ -116,8 +127,9 @@ async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max
                 raw_ts = raw.get("review_datetime_utc")
                 if raw_ts:
                     try:
+                        # Normalize date format from Google Maps
                         dt_obj = datetime.strptime(raw_ts, "%m/%d/%Y %H:%M:%S")
-                    except: 
+                    except Exception: 
                         pass
 
                 to_insert.append({
@@ -129,10 +141,11 @@ async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max
                     "google_review_time": dt_obj,
                     "source_platform": "Google"
                 })
+                # Add to set to prevent duplicates within the same run
                 existing_ids.add(rid)
 
             if to_insert:
-                # SQLAlchemy Core insert() is 50-100x faster than session.add()
+                # SQLAlchemy Core insert() is significantly faster than session.add()
                 await session.execute(insert(Review), to_insert)
                 await session.commit()
                 total_new += len(to_insert)
@@ -140,9 +153,10 @@ async def ingest_outscraper_reviews(company_obj: Any, session: AsyncSession, max
             queue.task_done()
 
     # Execute Producer and Consumer concurrently
+    # This runs the fetching logic and the DB saving logic at the same time
     await asyncio.gather(producer(), asyncio.create_task(consumer()))
 
-    # Cleanup stop signal
+    # Cleanup stop signal if it was present
     if company_obj.id in cancel_requests:
         cancel_requests.remove(company_obj.id)
 
