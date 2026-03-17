@@ -27,6 +27,8 @@
         [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
         #ingestProgressContainer { display: none; }
         .pac-container { z-index: 2000 !important; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        .review-text-cell { max-width: 400px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+        .review-text-cell:hover { white-space: normal; }
     </style>
 </head>
 
@@ -36,6 +38,9 @@
     <div class="container-fluid">
         <span class="navbar-brand fw-bold fs-4"><i class="bi bi-robot me-2"></i>Review Intel AI</span>
         <div class="d-flex gap-2">
+            <button id="exportPdfBtn" class="btn btn-light btn-sm rounded-pill px-3 fw-bold text-primary">
+                <i class="bi bi-file-pdf me-1"></i> Export PDF
+            </button>
             <button class="btn btn-success btn-sm rounded-pill px-4 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
                 <i class="bi bi-plus-circle me-1"></i> Add Business
             </button>
@@ -52,7 +57,7 @@
             <div class="progress" style="height: 12px; border-radius: 10px;">
                 <div id="ingestProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 100%"></div>
             </div>
-            <small class="text-muted mt-2 d-block">This usually takes less than 60 seconds.</small>
+            <small class="text-muted mt-2 d-block">Generating month-wise trends and executive summary.</small>
         </div>
     </div>
 
@@ -99,15 +104,42 @@
             <div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div>
         </div></div></div>
         <div class="col-lg-4"><div class="card border-0 shadow-sm rounded-4 h-100"><div class="card-body">
-            <h6 class="fw-bold text-muted">Satisfaction Trend</h6>
-            <div class="chart-wrapper"><canvas id="chartTrend"></canvas></div>
+            <h6 class="fw-bold text-muted">Month-Wise Analysis</h6>
+            <div class="chart-wrapper"><canvas id="chartMonthly"></canvas></div>
         </div></div></div>
         <div class="col-lg-4"><div class="card border-0 shadow-sm rounded-4 h-100"><div class="card-body">
-            <h6 class="fw-bold text-muted">AI Business Monitoring</h6>
-            <div id="aiStaffBox" class="p-3 bg-light rounded-3 mt-2" style="height: 250px; overflow-y: auto;">
-                <p class="text-center text-muted mt-5">Select a business to begin AI analysis...</p>
+            <h6 class="fw-bold text-muted">Comprehensive AI Summary</h6>
+            <div id="aiSummaryBox" class="p-3 bg-light rounded-3 mt-2" style="height: 250px; overflow-y: auto;">
+                <p class="text-center text-muted mt-5">Select business for executive analysis...</p>
             </div>
         </div></div></div>
+    </div>
+
+    <div class="row mt-5 mb-5">
+        <div class="col-12">
+            <div class="card border-0 shadow-sm rounded-4">
+                <div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-center">
+                    <h5 class="fw-bold mb-0"><i class="bi bi-list-stars me-2 text-primary"></i>Latest 100 Database Records</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="bg-light sticky-top">
+                                <tr>
+                                    <th class="px-4">Date</th>
+                                    <th>Author</th>
+                                    <th>Rating</th>
+                                    <th>Review Text</th>
+                                    <th class="px-4 text-end">Sentiment</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reviewsTableBody">
+                                </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -147,12 +179,11 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
 
 <script>
 let chartInstances = {};
 
-// Load Companies on Page Start
 async function loadCompanies() {
     try {
         const res = await fetch("/api/companies");
@@ -162,10 +193,9 @@ async function loadCompanies() {
             sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
             triggerAllLoads();
         }
-    } catch (e) { console.error("Database connection failed", e); }
+    } catch (e) { console.error(e); }
 }
 
-// Google Places Autocomplete
 function initAutocomplete() {
     const input = document.getElementById('googleSearchInput');
     const autocomplete = new google.maps.places.Autocomplete(input);
@@ -178,7 +208,6 @@ function initAutocomplete() {
     });
 }
 
-// MAIN ANALYZE FUNCTION (Refined for new API structure)
 async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
     const start = document.getElementById("startDate").value;
@@ -188,55 +217,38 @@ async function triggerAllLoads() {
     document.getElementById("ingestProgressContainer").style.display = "block";
 
     try {
-        // A. Fetch AI Insights from dashboard.py route
         let url = `/api/ai/insights?company_id=${cid}`;
         if(start) url += `&start=${start}`;
         if(end) url += `&end=${end}`;
 
         const res = await fetch(url);
-        const ai = await res.json();
+        const data = await res.json();
 
-        if(ai && ai.kpis) {
-            // Update Absolute Total Count (from metadata)
-            document.getElementById("kpiTotal").innerText = ai.metadata.processed_count || '0';
-            
-            // Map AI Metrics
-            document.getElementById("aiReputation").innerText = ai.kpis.reputation_score || '0';
-            document.getElementById("aiCSAT").innerText = (ai.kpis.csat || '0') + "%";
-            
-            const bench = ai.kpis.benchmark || {your_avg: 0, category_avg: 0};
-            document.getElementById("aiBenchmark").innerText = `${bench.your_avg} / ${bench.category_avg}`;
+        if(data && data.kpis) {
+            document.getElementById("kpiTotal").innerText = data.metadata.processed_count || '0';
+            document.getElementById("aiReputation").innerText = data.kpis.reputation_score || '0';
+            document.getElementById("aiCSAT").innerText = (data.kpis.csat || '0') + "%";
+            document.getElementById("aiBenchmark").innerText = `${data.kpis.benchmark.your_avg} / ${data.kpis.benchmark.category_avg}`;
 
-            // Render Charts
-            renderRadar(ai.visualizations.emotions);
-            renderTrend(ai.visualizations.sentiment_trend);
+            renderRadar(data.visualizations.emotions);
+            renderMonthly(data.visualizations.monthly_analytics);
 
-            // Render AI Monitoring (OpenAI Output)
-            if(ai.ai_insights) {
-                document.getElementById("aiStaffBox").innerHTML = `
-                    <div class="p-3 bg-white border rounded shadow-sm mb-3">
-                        <h6 class="fw-bold text-primary small">AI SUMMARY</h6>
-                        <div class="small text-muted">${ai.ai_insights.summary}</div>
-                    </div>
-                    <div class="p-3 bg-white border rounded shadow-sm">
-                        <h6 class="fw-bold text-success small">TRENDING TOPICS</h6>
-                        <div class="mt-2">
-                        ${ai.ai_insights.topics.map(t => `<span class="badge bg-light text-primary border me-1">#${t}</span>`).join('')}
-                        </div>
-                    </div>
-                `;
-            }
+            document.getElementById("aiSummaryBox").innerHTML = `
+                <div class="small text-muted" style="line-height:1.6">
+                    ${data.ai_insights.summary.replace(/\n/g, '<br>')}
+                </div>
+            `;
+
+            renderTable(data.recent_reviews);
         }
     } catch (e) { 
-        console.error("Dashboard Analysis Failed", e); 
+        console.error(e); 
     } finally {
         document.getElementById("ingestProgressContainer").style.display = "none";
     }
 }
 
-// Chart Rendering Helpers
 function renderRadar(emotionData) {
-    if(!emotionData) return;
     const ctx = document.getElementById("chartEmotions");
     if(chartInstances.emotions) chartInstances.emotions.destroy();
     chartInstances.emotions = new Chart(ctx, {
@@ -244,47 +256,54 @@ function renderRadar(emotionData) {
         data: {
             labels: Object.keys(emotionData),
             datasets: [{ 
-                label: 'Emotional Tone', 
-                data: Object.values(emotionData), 
-                backgroundColor: 'rgba(168, 85, 247, 0.2)', 
-                borderColor: '#a855f7',
-                pointBackgroundColor: '#a855f7'
+                label: 'Tone', data: Object.values(emotionData), 
+                backgroundColor: 'rgba(168, 85, 247, 0.2)', borderColor: '#a855f7' 
             }]
         },
-        options: { 
-            responsive: true, 
-            maintainAspectRatio: false,
-            scales: { r: { beginAtZero: true, grid: { color: '#e2e8f0' } } }
-        }
+        options: { responsive: true, maintainAspectRatio: false }
     });
 }
 
-function renderTrend(trendData) {
-    if(!trendData) return;
-    const ctx = document.getElementById("chartTrend");
-    if(chartInstances.trend) chartInstances.trend.destroy();
-    chartInstances.trend = new Chart(ctx, {
-        type: "line",
-        data: { 
-            labels: trendData.map(d => d.week), 
-            datasets: [{ 
-                label: 'Avg Sentiment', 
-                data: trendData.map(d => d.avg), 
-                borderColor: '#4338ca', 
-                backgroundColor: 'rgba(99, 102, 241, 0.1)', 
-                fill: true, 
-                tension: 0.4 
-            }] 
+function renderMonthly(monthlyData) {
+    const ctx = document.getElementById("chartMonthly");
+    if(chartInstances.monthly) chartInstances.monthly.destroy();
+    chartInstances.monthly = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: monthlyData.map(d => d.month),
+            datasets: [{
+                label: 'Month-Wise Sentiment',
+                data: monthlyData.map(d => d.avg_sentiment),
+                backgroundColor: '#6366f1',
+                borderRadius: 8
+            }]
         },
-        options: { 
-            responsive: true, 
-            maintainAspectRatio: false,
-            scales: { y: { beginAtZero: false, grid: { color: '#e2e8f0' } } }
-        }
+        options: { responsive: true, maintainAspectRatio: false }
     });
 }
 
-// EVENT HANDLERS
+function renderTable(reviews) {
+    const body = document.getElementById("reviewsTableBody");
+    if(!reviews || reviews.length === 0) {
+        body.innerHTML = '<tr><td colspan="5" class="text-center py-4">No data found.</td></tr>';
+        return;
+    }
+    body.innerHTML = reviews.map(r => `
+        <tr>
+            <td class="px-4 text-muted small">${r.date}</td>
+            <td class="fw-bold">${r.author}</td>
+            <td class="text-warning">${'★'.repeat(r.rating)}</td>
+            <td class="review-text-cell text-muted small">${r.text}</td>
+            <td class="px-4 text-end">
+                <span class="badge ${r.sentiment_label === 'Positive' ? 'bg-success' : (r.sentiment_label === 'Negative' ? 'bg-danger' : 'bg-secondary')}">
+                    ${r.sentiment_label}
+                </span>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// Event Listeners
 document.addEventListener("DOMContentLoaded", () => {
     loadCompanies();
     initAutocomplete();
@@ -294,31 +313,26 @@ document.getElementById("loadBtn").onclick = triggerAllLoads;
 
 document.getElementById("fetchBtn").onclick = async () => {
     const cid = document.getElementById("companySelect").value;
-    if(!cid) return;
-
     const btn = document.getElementById("fetchBtn");
     btn.disabled = true;
-    btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Syncing...`;
     document.getElementById("ingestProgressContainer").style.display = "block";
-
     try {
-        // Calls the new FastScraper-integrated route
-        const response = await fetch(`/api/reviews/ingest/${cid}?limit=100`, { method: 'POST' });
-        const result = await response.json();
-        
-        console.log("Ingestion result:", result);
-        // Delay slightly for database to settle then re-analyze
-        setTimeout(() => { 
-            triggerAllLoads(); 
-            btn.disabled = false;
-            btn.innerHTML = "Sync Live Data";
-        }, 2000);
-    } catch (e) {
-        console.error("Sync Failed", e);
-        document.getElementById("ingestProgressContainer").style.display = "none";
+        await fetch(`/api/reviews/ingest/${cid}?limit=1000`, { method: 'POST' });
+        setTimeout(() => { triggerAllLoads(); btn.disabled = false; }, 2000);
+    } catch (e) { 
         btn.disabled = false;
-        btn.innerHTML = "Sync Live Data";
+        document.getElementById("ingestProgressContainer").style.display = "none";
     }
+};
+
+document.getElementById("exportPdfBtn").onclick = () => {
+    const cid = document.getElementById("companySelect").value;
+    const start = document.getElementById("startDate").value;
+    const end = document.getElementById("endDate").value;
+    let url = `/api/ai/insights?company_id=${cid}&pdf=true`;
+    if(start) url += `&start=${start}`;
+    if(end) url += `&end=${end}`;
+    window.location.href = url;
 };
 
 document.getElementById("toggleTheme").onclick = () => {
@@ -333,14 +347,12 @@ document.getElementById('addCompanyForm').onsubmit = async function(e) {
         place_id: document.getElementById('placeId').value,
         address: document.getElementById('companyAddress').value
     };
-    try {
-        const res = await fetch('/api/companies', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        });
-        if (res.ok) window.location.reload();
-    } catch(e) { console.error("Could not add business", e); }
+    const res = await fetch('/api/companies', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    });
+    if (res.ok) window.location.reload();
 };
 </script>
 </body>
