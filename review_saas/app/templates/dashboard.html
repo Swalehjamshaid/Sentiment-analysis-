@@ -10,12 +10,12 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
     <style>
-        :root{ 
+        :root { 
             --primary-grad: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
             --ai-grad: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
             --success-grad: linear-gradient(135deg, #10b981 0%, #059669 100%);
         }
-        body{ background-color: #f8fafc; padding:24px; font-family: 'Inter', sans-serif; transition: background 0.3s; }
+        body { background-color: #f8fafc; padding:24px; font-family: 'Inter', sans-serif; transition: background 0.3s; }
         .navbar { background: var(--primary-grad) !important; border-radius: 15px !important; margin-bottom: 25px; border: none; }
         .chart-wrapper { height: 320px; width: 100%; position: relative; }
         .card { border: none; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
@@ -26,7 +26,7 @@
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
         [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
         #ingestProgressContainer { display: none; }
-        .pac-container { z-index: 2000 !important; border-radius: 10px; border: none; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        .pac-container { z-index: 2000 !important; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
     </style>
 </head>
 
@@ -48,9 +48,9 @@
 <div class="container-fluid">
     <div id="ingestProgressContainer" class="card shadow-lg border-0 mb-4 bg-white">
         <div class="card-body text-center">
-            <h6 class="fw-bold text-primary mb-3"><i class="bi bi-cpu-fill me-2"></i>AI is Analyzing Dashboard Data...</h6>
+            <h6 class="fw-bold text-primary mb-3"><i class="bi bi-cpu-fill me-2"></i>Processing Database Analysis...</h6>
             <div class="progress" style="height: 12px; border-radius: 10px;">
-                <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 100%"></div>
+                <div id="ingestProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 100%"></div>
             </div>
         </div>
     </div>
@@ -118,7 +118,7 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4">
-                <label class="form-label fw-bold">Search Google Maps</label>
+                <label class="form-label fw-bold small text-muted">SEARCH GOOGLE MAPS</label>
                 <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Type business name...">
                 
                 <div class="p-3 bg-light rounded-3">
@@ -132,7 +132,7 @@
                             <input id="placeId" class="form-control border-0 bg-transparent" readonly required>
                         </div>
                         <div class="col-12">
-                            <label class="small fw-bold text-muted">FULL ADDRESS</label>
+                            <label class="small fw-bold text-muted">ADDRESS</label>
                             <input id="companyAddress" class="form-control border-0 bg-transparent" readonly>
                         </div>
                     </div>
@@ -151,7 +151,7 @@
 <script>
 let chartInstances = {};
 
-// 1. Initial Load - Get Company List
+// Initial Load
 async function loadCompanies() {
     try {
         const res = await fetch("/api/companies");
@@ -164,7 +164,7 @@ async function loadCompanies() {
     } catch (e) { console.error("Database connection failed", e); }
 }
 
-// 2. Google Autocomplete for Add Business
+// Google Places Autocomplete
 function initAutocomplete() {
     const input = document.getElementById('googleSearchInput');
     const autocomplete = new google.maps.places.Autocomplete(input);
@@ -177,30 +177,13 @@ function initAutocomplete() {
     });
 }
 
-// 3. Save Business to Database
-document.getElementById('addCompanyForm').onsubmit = async function(e) {
-    e.preventDefault();
-    const payload = {
-        name: document.getElementById('companyName').value,
-        place_id: document.getElementById('placeId').value,
-        address: document.getElementById('companyAddress').value
-    };
-    const res = await fetch('/api/companies', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-    });
-    if (res.ok) location.reload();
-};
-
-// 4. Main Data Logic - Connected to dashboard.py
+// MAIN ANALYZE FUNCTION (Aligned with dashboard.py)
 async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
     const start = document.getElementById("startDate").value;
     const end = document.getElementById("endDate").value;
     if (!cid) return;
 
-    // Show progress bar during fetch
     document.getElementById("ingestProgressContainer").style.display = "block";
 
     try {
@@ -213,17 +196,17 @@ async function triggerAllLoads() {
         const ai = await res.json();
 
         if(ai && ai.kpis) {
-            // Mapping KPI Scores from dashboard.py
+            // Map Scores
             document.getElementById("aiReputation").innerText = ai.kpis.reputation_score || '0';
             document.getElementById("aiCSAT").innerText = (ai.kpis.csat || '0') + "%";
             const bench = ai.kpis.benchmark || {your_avg: 0, category_avg: 0};
             document.getElementById("aiBenchmark").innerText = `${bench.your_avg} / ${bench.category_avg}`;
 
-            // Rendering Charts from dashboard.py visualizations
+            // Render Charts
             renderRadar(ai.visualizations.emotions);
             renderTrend(ai.visualizations.sentiment_trend);
 
-            // Rendering AI Summary & Topics
+            // Render AI Monitoring
             if(ai.ai_insights) {
                 document.getElementById("aiStaffBox").innerHTML = `
                     <div class="p-3 bg-white border rounded shadow-sm mb-3">
@@ -231,21 +214,20 @@ async function triggerAllLoads() {
                         <div class="small text-muted">${ai.ai_insights.summary}</div>
                     </div>
                     <div class="p-3 bg-white border rounded shadow-sm">
-                        <h6 class="fw-bold text-success small">TOP TRENDING TOPICS</h6>
+                        <h6 class="fw-bold text-success small">TRENDING KEYWORDS</h6>
                         ${ai.ai_insights.topics.map(t => `<span class="badge bg-light text-primary border me-1">#${t}</span>`).join('')}
-                        <div class="mt-2 small text-danger">Spam Detected: ${ai.ai_insights.spam_detected}</div>
                     </div>
                 `;
             }
         }
 
-        // B. Fetch Review Total
+        // B. Update Total Count
         const countRes = await fetch(`/api/reviews?company_id=${cid}`);
         const countData = await countRes.json();
         document.getElementById("kpiTotal").innerText = countData.length || 0;
 
     } catch (e) { 
-        console.error("Data fetch failed", e); 
+        console.error("Analysis Failed", e); 
     } finally {
         document.getElementById("ingestProgressContainer").style.display = "none";
     }
@@ -285,7 +267,7 @@ function renderTrend(trendData) {
     });
 }
 
-// 5. App Startup & Listeners
+// Lifecycle
 document.addEventListener("DOMContentLoaded", () => {
     loadCompanies();
     initAutocomplete();
@@ -298,17 +280,29 @@ document.getElementById("fetchBtn").onclick = async () => {
     document.getElementById("ingestProgressContainer").style.display = "block";
     try {
         await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
-        setTimeout(() => {
-            triggerAllLoads();
-        }, 3000);
-    } catch { 
-        document.getElementById("ingestProgressContainer").style.display = "none";
-    }
+        setTimeout(() => { triggerAllLoads(); }, 3000);
+    } catch { document.getElementById("ingestProgressContainer").style.display = "none"; }
 };
 
 document.getElementById("toggleTheme").onclick = () => {
     const theme = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
     document.documentElement.setAttribute("data-theme", theme);
+};
+
+// Handle Modal Form
+document.getElementById('addCompanyForm').onsubmit = async function(e) {
+    e.preventDefault();
+    const payload = {
+        name: document.getElementById('companyName').value,
+        place_id: document.getElementById('placeId').value,
+        address: document.getElementById('companyAddress').value
+    };
+    const res = await fetch('/api/companies', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    });
+    if (res.ok) location.reload();
 };
 </script>
 </body>
