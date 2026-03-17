@@ -16,30 +16,18 @@
             --success-grad: linear-gradient(135deg, #10b981 0%, #059669 100%);
         }
         body{ background-color: #f8fafc; padding:24px; font-family: 'Inter', sans-serif; transition: background 0.3s; }
-        
-        .navbar { background: var(--primary-grad) !important; border-radius: 15px !important; border: none; margin-bottom: 25px; }
+        .navbar { background: var(--primary-grad) !important; border-radius: 15px !important; margin-bottom: 25px; }
         .chart-wrapper { height: 320px; width: 100%; position: relative; }
-        
-        /* KPI & Card Styling */
         .card { border: none; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: transform 0.2s; }
         .total-review-card { background: var(--primary-grad); color: white; border-radius: 24px; margin-bottom: 2rem; }
-        
         .ai-badge { background: var(--ai-grad); color: white; padding: 5px 15px; border-radius: 10px; font-size: 0.75rem; font-weight: bold; margin-bottom: 10px; display: inline-block; }
-        
-        /* Buttons */
         .btn-pill { border-radius: 50px; padding: 10px 20px; font-weight: 600; }
         .btn-fetch { background: var(--success-grad); color: white; border: none; }
-        .btn-fetch:hover { opacity: 0.9; color: white; }
         .btn-stop { border-radius: 50px; font-weight: 600; display: none; }
-
         .table-responsive { border-radius: 15px; max-height: 600px; }
-        .pac-container { z-index: 1100 !important; border-radius: 8px; border: none; box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
-        
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
         [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
-        
-        .spin { animation: spin 2s linear infinite; display: inline-block; }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
+        #ingestProgressContainer { display: none; }
     </style>
 </head>
 
@@ -59,12 +47,10 @@
 </nav>
 
 <div class="container-fluid">
-    <div id="alertHost"></div>
-
     <div id="ingestProgressContainer" class="card shadow-lg border-0 mb-4 bg-white">
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-2">
-                <h6 class="fw-bold text-primary mb-0"><i class="bi bi-lightning-charge-fill me-2"></i>High-Speed Producer/Consumer Sync...</h6>
+                <h6 class="fw-bold text-primary mb-0"><i class="bi bi-lightning-charge-fill me-2"></i>Live Syncing Data...</h6>
                 <div class="d-flex align-items-center gap-3">
                     <span id="progressStats" class="badge bg-primary rounded-pill">0 items</span>
                     <button id="stopBtn" class="btn btn-danger btn-sm btn-stop">STOP FETCHING</button>
@@ -73,7 +59,6 @@
             <div class="progress" style="height: 12px; border-radius: 10px;">
                 <div id="ingestProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 0%"></div>
             </div>
-            <small class="text-muted mt-2 d-block">Utilizing 20 parallel consumers for maximum throughput.</small>
         </div>
     </div>
 
@@ -105,7 +90,6 @@
             <div class="card total-review-card shadow-lg p-4">
                 <div class="text-uppercase small fw-bold opacity-75">Absolute Total Database Records</div>
                 <div id="kpiTotal" class="display-2 fw-bold">0</div>
-                <div class="small opacity-75">Full historical records synced and analyzed</div>
             </div>
         </div>
     </div>
@@ -139,7 +123,7 @@
             <h5 class="fw-bold mb-4">Complete Historical Records</h5>
             <div class="table-responsive">
                 <table class="table table-hover align-middle border-0">
-                    <thead class="bg-light sticky-top"><tr class="text-muted small"><th>AUTHOR</th><th>RATING</th><th>SENTIMENT</th><th>DATE</th><th>FEEDBACK TEXT</th></tr></thead>
+                    <thead class="bg-light sticky-top"><tr class="text-muted small"><th>AUTHOR</th><th>RATING</th><th>SENTIMENT</th><th>DATE</th><th>FEEDBACK</th></tr></thead>
                     <tbody id="reviewsTable"></tbody>
                 </table>
             </div>
@@ -150,27 +134,20 @@
 <div class="modal fade" id="addCompanyModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <form id="addCompanyForm" class="modal-content shadow-lg">
-            <div class="modal-header border-0 bg-success text-white p-4">
-                <h5 class="modal-title fw-bold"><i class="bi bi-google me-2"></i>Link New Google Business</h5>
+            <div class="modal-header bg-success text-white border-0">
+                <h5 class="modal-title fw-bold">Link New Business</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4">
-                <div class="mb-4">
-                    <label class="form-label fw-bold">Search Business (Google Powered)</label>
-                    <div class="input-group">
-                        <span class="input-group-text bg-light border-0"><i class="bi bi-search"></i></span>
-                        <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0" placeholder="Type business name...">
-                    </div>
-                </div>
-                <div class="row g-3 p-3 bg-light rounded-4">
-                    <div class="col-md-8"><label class="form-label small fw-bold text-muted">NAME</label><input id="companyName" class="form-control border-0" required readonly></div>
-                    <div class="col-md-4"><label class="form-label small fw-bold text-muted">PLACE ID</label><input id="placeId" class="form-control border-0" required readonly></div>
-                    <div class="col-12"><label class="form-label small fw-bold text-muted">ADDRESS</label><input id="companyAddress" class="form-control border-0" readonly></div>
+                <input id="googleSearchInput" class="form-control mb-3" placeholder="Search Business...">
+                <div class="bg-light p-3 rounded-4">
+                    <input id="companyName" class="form-control border-0 mb-2" placeholder="Name" readonly>
+                    <input id="placeId" class="form-control border-0 mb-2" placeholder="Place ID" readonly>
+                    <input id="companyAddress" class="form-control border-0" placeholder="Address" readonly>
                 </div>
             </div>
-            <div class="modal-footer border-0 p-4">
-                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
-                <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold">Save Business</button>
+            <div class="modal-footer border-0">
+                <button type="submit" class="btn btn-success rounded-pill px-4">Save</button>
             </div>
         </form>
     </div>
@@ -183,7 +160,7 @@
 let chartInstances = {};
 let cachedReviews = [];
 
-// 1. Initial Load
+// Initial Load
 async function loadCompanies() {
     try {
         const res = await fetch("/api/companies");
@@ -193,7 +170,7 @@ async function loadCompanies() {
             sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
             triggerAllLoads();
         }
-    } catch { console.error("Database connection lost"); }
+    } catch { console.error("Database connection error"); }
 }
 
 function initGoogleAutocomplete() {
@@ -201,107 +178,56 @@ function initGoogleAutocomplete() {
     const autocomplete = new google.maps.places.Autocomplete(input);
     autocomplete.addListener('place_changed', function() {
         const place = autocomplete.getPlace();
-        if (!place.place_id) return;
         document.getElementById('companyName').value = place.name;
         document.getElementById('placeId').value = place.place_id;
         document.getElementById('companyAddress').value = place.formatted_address;
     });
 }
 
-// 2. Add Business
-document.getElementById('addCompanyForm').onsubmit = async function(e) {
-    e.preventDefault();
-    const payload = {
-        name: document.getElementById('companyName').value,
-        place_id: document.getElementById('placeId').value,
-        address: document.getElementById('companyAddress').value
-    };
-    try {
-        const res = await fetch('/api/companies', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        });
-        if (res.ok) location.reload();
-    } catch { alert("Error saving business"); }
-};
-
-// 3. High-Speed Sync Logic
+// Live Stream Ingestion (Producer/Consumer Logic)
 async function streamIngest() {
     const cid = document.getElementById("companySelect").value;
-    if (!cid) return;
-
     const progressContainer = document.getElementById("ingestProgressContainer");
     const stopBtn = document.getElementById("stopBtn");
     
     progressContainer.style.display = "block";
     stopBtn.style.display = "inline-block";
-    stopBtn.disabled = false;
     stopBtn.innerText = "STOP FETCHING";
 
     try {
-        // Trigger high-speed ingestion
-        const ingestRes = await fetch(`/api/reviews/ingest/${cid}?max_reviews=10000`, { method: 'POST' });
+        await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
+        const es = new EventSource(`/api/reviews/stream?company_id=${cid}`);
         
-        if (ingestRes.ok) {
-            cachedReviews = [];
-            const es = new EventSource(`/api/reviews/stream?company_id=${cid}&limit=10000`);
-            
-            es.addEventListener('review', (e) => {
-                const review = JSON.parse(e.data);
-                cachedReviews.push(review);
-                document.getElementById("progressStats").innerText = `${cachedReviews.length} records synchronized`;
-                document.getElementById("ingestProgressBar").style.width = `${Math.min((cachedReviews.length/10000)*100, 100)}%`;
-                updateUI();
-            });
+        es.addEventListener('review', (e) => {
+            const review = JSON.parse(e.data);
+            cachedReviews.push(review);
+            document.getElementById("progressStats").innerText = `${cachedReviews.length} synced`;
+            document.getElementById("ingestProgressBar").style.width = `100%`;
+            updateUI();
+        });
 
-            es.addEventListener('done', () => { 
-                es.close(); 
-                stopBtn.style.display = "none";
-                setTimeout(() => progressContainer.style.display = "none", 3000); 
-                triggerAllLoads();
-            });
-
-            es.onerror = () => es.close();
-        }
-    } catch (err) {
-        console.error("Fetch failed", err);
-    }
+        es.addEventListener('done', () => { 
+            es.close();
+            stopBtn.style.display = "none";
+            triggerAllLoads();
+        });
+    } catch (err) { console.error("Stream failed", err); }
 }
 
-// 4. Manual Stop Signal
-document.getElementById("stopBtn").onclick = async function() {
-    const cid = document.getElementById("companySelect").value;
-    if (!cid) return;
-    
-    this.disabled = true;
-    this.innerText = "STOPPING...";
-    
-    try {
-        await fetch(`/api/reviews/stop-ingest/${cid}`, { method: 'POST' });
-    } catch (err) {
-        console.error("Stop signal failed", err);
-    }
-};
-
-// 5. Analysis & Visualization
+// Load AI Analytics
 async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
-    if (!cid) return;
-    
     const start = document.getElementById("startDate").value;
     const end = document.getElementById("endDate").value;
-    const params = new URLSearchParams({ company_id: cid, limit: 10000 });
-    if (start) params.append("start", start);
-    if (end) params.append("end", end);
+    if (!cid) return;
 
-    const res = await fetch(`/api/reviews?${params.toString()}`);
-    const data = await res.json();
-    cachedReviews = Array.isArray(data) ? data : [];
+    loadAIInsights(cid, start, end);
     
+    const res = await fetch(`/api/reviews?company_id=${cid}`);
+    const data = await res.json();
+    cachedReviews = data || [];
     document.getElementById("kpiTotal").innerText = cachedReviews.length;
     updateUI();
-    loadAIInsights(cid, start, end);
 }
 
 async function loadAIInsights(cid, start, end) {
@@ -313,25 +239,29 @@ async function loadAIInsights(cid, start, end) {
         const res = await fetch(url);
         const ai = await res.json();
 
-        if(ai.kpi_metrics) {
-            document.getElementById("aiReputation").innerText = ai.kpi_metrics.reputation_score;
-            document.getElementById("aiCSAT").innerText = ai.kpi_metrics.csat + "%";
-            document.getElementById("aiBenchmark").innerText = ai.kpi_metrics.benchmark.your_avg + " / " + ai.kpi_metrics.benchmark.category_avg;
-
-            const staff = ai.visualizations.staff_insights;
-            document.getElementById("aiStaffBox").innerHTML = `
-                <div class="badge bg-success w-100 mb-2 p-2 text-start">Positives Mentions: ${staff.positive}</div>
-                <div class="badge bg-danger w-100 mb-3 p-2 text-start">Negatives Mentions: ${staff.negative}</div>
-                <div class="p-2 bg-white border rounded shadow-sm small text-dark"><strong>AI Suggestion:</strong><br>${ai.ai_analysis.suggestion}</div>
-            `;
-            renderRadar(ai.visualizations.emotion_radar);
+        // Map KPIs from dashboard.py
+        if(ai.kpis) {
+            document.getElementById("aiReputation").innerText = ai.kpis.reputation_score;
+            document.getElementById("aiCSAT").innerText = ai.kpis.csat + "%";
+            document.getElementById("aiBenchmark").innerText = `${ai.kpis.benchmark.your_avg} / ${ai.kpis.benchmark.category_avg}`;
         }
-    } catch (e) { console.error("AI Error", e); }
-}
 
-function updateUI() {
-    renderTrend();
-    renderTable();
+        // Map Visualizations
+        if(ai.visualizations) {
+            renderRadar(ai.visualizations.emotions);
+            renderSentimentTrend(ai.visualizations.sentiment_trend);
+        }
+
+        // Map AI Staff Monitoring Card
+        if(ai.ai_insights) {
+            document.getElementById("aiStaffBox").innerHTML = `
+                <div class="badge bg-primary w-100 mb-2 p-2 text-start">Summary Report</div>
+                <div class="p-2 mb-3 bg-white border rounded shadow-sm small">${ai.ai_insights.summary}</div>
+                <div class="badge bg-secondary w-100 mb-2 p-2 text-start">Detected Key Terms</div>
+                <div class="p-1">${ai.ai_insights.topics.map(t => `<span class="badge bg-light text-dark border m-1">${t}</span>`).join('')}</div>
+            `;
+        }
+    } catch (e) { console.error("AI Insights Error", e); }
 }
 
 function renderRadar(emotionData) {
@@ -346,28 +276,34 @@ function renderRadar(emotionData) {
     });
 }
 
-function renderTrend() {
+function renderSentimentTrend(trendData) {
     if(chartInstances.trend) chartInstances.trend.destroy();
-    const sorted = [...cachedReviews].sort((a,b) => new Date(a.google_review_time) - new Date(b.google_review_time));
     chartInstances.trend = new Chart(document.getElementById("chartTrend"), {
         type: "line",
         data: { 
-            labels: sorted.map(r => new Date(r.google_review_time).toLocaleDateString()).slice(-15), 
-            datasets: [{ data: sorted.map(r => r.rating).slice(-15), borderColor: '#4f46e5', tension: 0.4, fill: true, backgroundColor: 'rgba(79, 70, 229, 0.05)' }] 
+            labels: trendData.map(d => d.week), 
+            datasets: [{ 
+                label: 'Score', 
+                data: trendData.map(d => d.avg), 
+                borderColor: '#6366f1', 
+                fill: true, 
+                backgroundColor: 'rgba(99, 102, 241, 0.05)', 
+                tension: 0.4 
+            }] 
         },
-        options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 1, max: 5 } } }
+        options: { responsive: true, maintainAspectRatio: false }
     });
 }
 
-function renderTable() {
+function updateUI() {
     const body = document.getElementById("reviewsTable");
-    body.innerHTML = [...cachedReviews].reverse().map(r => `
+    body.innerHTML = [...cachedReviews].reverse().slice(0, 30).map(r => `
         <tr class="border-bottom">
-            <td class="fw-bold text-dark">${r.author_name || 'Guest'}</td>
-            <td><span class="badge bg-primary rounded-pill px-3">${r.rating} ★</span></td>
-            <td>${r.sentiment_score > 0 ? 'Positive' : 'Neutral'}</td>
-            <td class="small text-muted">${new Date(r.google_review_time).toLocaleDateString()}</td>
-            <td class="small text-secondary" style="max-width: 400px;">${r.text || '...'}</td>
+            <td class="fw-bold">${r.author_name || 'Guest'}</td>
+            <td><span class="badge bg-primary">${r.rating} ★</span></td>
+            <td>${r.sentiment_score > 0 ? '🟢 Pos' : '⚪ Neu'}</td>
+            <td class="small">${new Date(r.google_review_time).toLocaleDateString()}</td>
+            <td class="small text-secondary">${(r.text || '').substring(0, 150)}...</td>
         </tr>
     `).join("");
 }
