@@ -1,32 +1,23 @@
+# filename: app/routes/dashboard.py
+
 from __future__ import annotations
-import os
 import logging
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Any
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
-from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from sklearn.feature_extraction.text import TfidfVectorizer
-
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
-
-try:
-    from openai import OpenAI
-    openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-except:
-    openai_client = None
 
 from app.core.db import get_session
 from app.core.models import Company, Review
 
-router = APIRouter(prefix="/api/ai", tags=["AI Dashboard"])
+router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
+
 logger = logging.getLogger(__name__)
 analyzer = SentimentIntensityAnalyzer()
 
@@ -34,7 +25,7 @@ POS_THRESHOLD = 0.05
 NEG_THRESHOLD = -0.05
 
 
-# ---------------- HELPERS ----------------
+# ---------------- HELPER FUNCTIONS ----------------
 
 def safe_date(val, default):
     try:
@@ -54,23 +45,22 @@ def sentiment_label(score):
     return "Neutral"
 
 
-def generate_pdf(summary):
-    from io import BytesIO
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer)
-    styles = getSampleStyleSheet()
+def detect_intent(question: str):
+    q = question.lower()
 
-    story = []
-    for line in summary.split("\n"):
-        story.append(Paragraph(line, styles["Normal"]))
-        story.append(Spacer(1, 10))
+    if "rating" in q:
+        return "rating"
+    if "issue" in q or "problem" in q:
+        return "issues"
+    if "improve" in q or "better" in q:
+        return "improve"
+    if "good" in q or "strength" in q:
+        return "strengths"
 
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
+    return "general"
 
 
-# ---------------- CORE ANALYSIS FUNCTION ----------------
+# ---------------- CORE ANALYSIS ----------------
 
 async def analyze_company(session, company_id, start_d, end_d):
     stmt = select(Review).where(
@@ -88,6 +78,7 @@ async def analyze_company(session, company_id, start_d, end_d):
         return None
 
     sentiments, ratings, texts = [], [], []
+    monthly = defaultdict(list)
 
     for r in reviews:
         text = (r.text or "")
@@ -97,14 +88,26 @@ async def analyze_company(session, company_id, start_d, end_d):
         ratings.append(r.rating)
         texts.append(text)
 
-    avg_rating = sum(ratings) / len(ratings)
-    sentiment_avg = sum(sentiments) / len(sentiments)
+        if r.google_review_time:
+            key = r.google_review_time.strftime("%Y-%m")
+            monthly[key].append(score)
+
+    avg_rating = round(sum(ratings) / len(ratings), 2)
+    sentiment_avg = round(sum(sentiments) / len(sentiments), 2)
+
+    monthly_data = [
+        {"month": m, "sentiment": round(sum(v)/len(v), 2)}
+        for m, v in sorted(monthly.items())
+    ]
 
     return {
-        "avg_rating": round(avg_rating, 2),
-        "sentiment": round(sentiment_avg, 2),
+        "avg_rating": avg_rating,
+        "sentiment": sentiment_avg,
         "total_reviews": len(reviews),
-        "texts": texts[:200]
+        "texts": texts[:300],
+        "monthly": monthly_data,
+        "ratings": ratings,
+        "sentiments": sentiments
     }
 
 
@@ -115,38 +118,44 @@ async def dashboard(
     company_id: int,
     start: Optional[str] = None,
     end: Optional[str] = None,
-    pdf: Optional[bool] = False,
     session: AsyncSession = Depends(get_session)
 ):
     start_d = safe_date(start, datetime.now(timezone.utc) - timedelta(days=365))
     end_d = safe_date(end, datetime.now(timezone.utc))
 
     data = await analyze_company(session, company_id, start_d, end_d)
+
     if not data:
         return {"status": "no_data"}
 
-    risk_score = max(0, (1 - data["sentiment"]) * 50)
+    risk = round((1 - data["sentiment"]) * 100, 2)
 
-    summary = f"""
-    Business Rating: {data['avg_rating']}
-    Total Reviews: {data['total_reviews']}
-    Risk Score: {risk_score}
-    """
-
-    if pdf:
-        return StreamingResponse(generate_pdf(summary), media_type="application/pdf")
+    emotions = [
+        "Happy" if s > 0.5 else
+        "Angry" if s < -0.3 else
+        "Neutral"
+        for s in data["sentiments"]
+    ]
 
     return JSONResponse(content={
-        "kpis": data,
-        "risk_score": risk_score,
-        "summary": summary
+        "kpis": {
+            "rating": data["avg_rating"],
+            "reviews": data["total_reviews"],
+            "sentiment": data["sentiment"],
+            "risk": risk
+        },
+        "charts": {
+            "monthly": data["monthly"],
+            "emotions": dict(Counter(emotions)),
+            "ratings": dict(Counter(data["ratings"]))
+        }
     })
 
 
-# ---------------- 🤖 AI CHATBOT ----------------
+# ---------------- 🤖 FREE AI CHATBOT ----------------
 
 @router.post("/chat")
-async def ai_chat(
+async def chatbot(
     company_id: int,
     question: str = Body(...),
     session: AsyncSession = Depends(get_session)
@@ -159,33 +168,38 @@ async def ai_chat(
     )
 
     if not data:
-        raise HTTPException(404, "No data")
+        return {"answer": "No data available"}
 
-    context = f"""
-    Rating: {data['avg_rating']}
-    Reviews: {data['total_reviews']}
-    Sentiment: {data['sentiment']}
-    """
+    intent = detect_intent(question)
 
-    if openai_client:
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a business consultant"},
-                {"role": "user", "content": context + "\n" + question}
-            ]
-        )
-        answer = response.choices[0].message.content
+    words = " ".join(data["texts"]).lower().split()
+    common = Counter([w for w in words if len(w) > 4]).most_common(6)
+
+    issues = [w for w, _ in common[:3]]
+    strengths = [w for w, _ in common[3:]]
+
+    if intent == "rating":
+        answer = f"Your rating is {data['avg_rating']}. Main issues: {', '.join(issues)}"
+
+    elif intent == "issues":
+        answer = f"Top issues: {', '.join(issues)}"
+
+    elif intent == "strengths":
+        answer = f"Strengths: {', '.join(strengths)}"
+
+    elif intent == "improve":
+        answer = f"Improve by fixing: {', '.join(issues)} and focusing on customer experience."
+
     else:
-        answer = "AI not configured"
+        answer = f"Rating: {data['avg_rating']}, Reviews: {data['total_reviews']}"
 
     return {"answer": answer}
 
 
-# ---------------- 🥊 COMPETITOR COMPARISON ----------------
+# ---------------- 🥊 COMPETITOR ----------------
 
 @router.post("/compare")
-async def compare_companies(
+async def compare(
     company_ids: List[int] = Body(...),
     session: AsyncSession = Depends(get_session)
 ):
@@ -199,23 +213,19 @@ async def compare_companies(
             datetime.now(timezone.utc)
         )
         if data:
-            results.append({"company_id": cid, **data})
+            results.append({
+                "company_id": cid,
+                "rating": data["avg_rating"],
+                "reviews": data["total_reviews"]
+            })
 
-    best = max(results, key=lambda x: x["avg_rating"]) if results else None
-
-    return {
-        "comparison": results,
-        "leader": best
-    }
+    return {"comparison": results}
 
 
-# ---------------- 💰 REVENUE PREDICTION ----------------
+# ---------------- 💰 REVENUE ----------------
 
-@router.get("/revenue-risk")
-async def revenue_prediction(
-    company_id: int,
-    session: AsyncSession = Depends(get_session)
-):
+@router.get("/revenue")
+async def revenue(company_id: int, session: AsyncSession = Depends(get_session)):
     data = await analyze_company(
         session,
         company_id,
@@ -228,41 +238,19 @@ async def revenue_prediction(
 
     risk = (1 - data["sentiment"]) * 100
 
-    impact = "LOW"
-    if risk > 60:
-        impact = "HIGH"
-    elif risk > 30:
-        impact = "MEDIUM"
-
     return {
-        "risk_percentage": round(risk, 2),
-        "impact_level": impact,
-        "estimated_revenue_loss": f"{round(risk * 1000)} USD"
+        "risk_percent": round(risk, 2),
+        "impact": "HIGH" if risk > 50 else "MEDIUM" if risk > 25 else "LOW"
     }
 
 
 # ---------------- ✍️ AUTO REPLY ----------------
 
-@router.post("/auto-reply")
-async def auto_reply(
-    review_text: str = Body(...),
-):
+@router.post("/reply")
+async def reply(review_text: str = Body(...)):
     score = analyzer.polarity_scores(review_text)["compound"]
 
-    if openai_client:
-        prompt = f"Generate a professional reply to this review:\n{review_text}"
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        reply = response.choices[0].message.content
+    if score > 0:
+        return {"reply": "Thank you for your positive feedback!"}
     else:
-        if score > 0:
-            reply = "Thank you for your positive feedback!"
-        else:
-            reply = "We apologize and will improve."
-
-    return {
-        "sentiment": sentiment_label(score),
-        "reply": reply
-    }
+        return {"reply": "We apologize and will improve your experience."}
