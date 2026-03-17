@@ -14,6 +14,7 @@
             --primary-grad: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
             --ai-grad: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
             --success-grad: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --danger-grad: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
         }
         body { background-color: #f8fafc; padding:24px; font-family: 'Inter', sans-serif; transition: background 0.3s; }
         .navbar { background: var(--primary-grad) !important; border-radius: 15px !important; margin-bottom: 25px; border: none; }
@@ -21,6 +22,7 @@
         .card { border: none; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
         .total-review-card { background: var(--primary-grad); color: white; border-radius: 24px; margin-bottom: 2rem; }
         .ai-badge { background: var(--ai-grad); color: white; padding: 5px 15px; border-radius: 10px; font-size: 0.75rem; font-weight: bold; margin-bottom: 10px; display: inline-block; }
+        .risk-badge { background: var(--danger-grad); color: white; padding: 5px 15px; border-radius: 10px; font-size: 0.75rem; font-weight: bold; margin-bottom: 10px; display: inline-block; }
         .btn-pill { border-radius: 50px; padding: 10px 20px; font-weight: 600; }
         .btn-fetch { background: var(--success-grad); color: white; border: none; }
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
@@ -28,6 +30,10 @@
         #ingestProgressContainer { display: none; }
         .review-text-cell { max-width: 400px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
         .review-text-cell:hover { white-space: normal; }
+        #chatWindow { height: 350px; overflow-y: auto; background: #f1f5f9; border-radius: 15px; padding: 15px; font-size: 0.9rem; }
+        .chat-msg { margin-bottom: 10px; padding: 10px; border-radius: 10px; max-width: 80%; }
+        .chat-ai { background: white; border: 1px solid #e2e8f0; align-self: flex-start; }
+        .chat-user { background: #6366f1; color: white; align-self: flex-end; margin-left: auto; }
     </style>
 </head>
 
@@ -37,6 +43,9 @@
     <div class="container-fluid">
         <span class="navbar-brand fw-bold fs-4"><i class="bi bi-robot me-2"></i>Review Intel AI</span>
         <div class="d-flex gap-2">
+            <button id="exportPdfBtn" class="btn btn-light btn-sm rounded-pill px-3 fw-bold text-primary">
+                <i class="bi bi-file-pdf me-1"></i> Export PDF
+            </button>
             <button class="btn btn-success btn-sm rounded-pill px-4 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
                 <i class="bi bi-plus-circle me-1"></i> Add Business
             </button>
@@ -53,7 +62,6 @@
             <div class="progress" style="height: 12px; border-radius: 10px;">
                 <div id="ingestProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 100%"></div>
             </div>
-            <small class="text-muted mt-2 d-block">Analyzing unlimited records and generating 20-sentence report.</small>
         </div>
     </div>
 
@@ -78,37 +86,68 @@
         </div>
     </div>
 
-    <div class="row mb-4">
-        <div class="col-12 text-center">
+    <div class="row g-3 mb-4 text-center">
+        <div class="col-md-4">
             <div class="card total-review-card shadow-lg p-4">
-                <div class="text-uppercase small fw-bold opacity-75">Absolute Total Processed Records</div>
-                <div id="kpiTotal" class="display-2 fw-bold">0</div>
+                <div class="text-uppercase small fw-bold opacity-75">Absolute Total Records</div>
+                <div id="kpiTotal" class="display-4 fw-bold">0</div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card p-4 h-100 shadow-sm">
+                <div class="text-muted small fw-bold">REP. SCORE</div>
+                <div id="aiReputation" class="display-6 fw-bold text-primary">—</div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card p-4 h-100 shadow-sm bg-danger text-white">
+                <div class="small fw-bold opacity-75 text-uppercase">Financial Revenue Risk</div>
+                <div id="revenueRiskVal" class="display-6 fw-bold">—</div>
+                <small id="revenueImpactLevel" class="fw-bold"></small>
             </div>
         </div>
     </div>
 
-    <div class="ai-badge">AI INSIGHT LAYER</div>
-    <div class="row g-3 mb-4 text-center">
-        <div class="col"><div class="card border-0 shadow-sm py-3"><div class="text-muted small fw-bold">REP. SCORE</div><div id="aiReputation" class="h2 fw-bold text-primary">—</div></div></div>
-        <div class="col"><div class="card border-0 shadow-sm py-3"><div class="text-muted small fw-bold">CSAT %</div><div id="aiCSAT" class="h2 fw-bold text-success">—</div></div></div>
-        <div class="col"><div class="card border-0 shadow-sm py-3"><div class="text-muted small fw-bold">CAT. BENCHMARK</div><div id="aiBenchmark" class="h2 fw-bold text-secondary">—</div></div></div>
-    </div>
-
     <div class="row g-4 mb-4">
-        <div class="col-lg-4"><div class="card border-0 shadow-sm rounded-4 h-100"><div class="card-body">
-            <h6 class="fw-bold text-muted">Customer Emotion Radar</h6>
-            <div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div>
-        </div></div></div>
-        <div class="col-lg-4"><div class="card border-0 shadow-sm rounded-4 h-100"><div class="card-body">
-            <h6 class="fw-bold text-muted">Rating Distribution</h6>
-            <div class="chart-wrapper"><canvas id="chartRatings"></canvas></div>
-        </div></div></div>
-        <div class="col-lg-4"><div class="card border-0 shadow-sm rounded-4 h-100"><div class="card-body">
-            <h6 class="fw-bold text-muted">Strategic AI Insight (20 Sentences)</h6>
-            <div id="aiSummaryBox" class="p-3 bg-light rounded-3 mt-2" style="height: 250px; overflow-y: auto; font-size: 0.9rem;">
-                <p class="text-center text-muted mt-5">Select business for executive analysis...</p>
+        <div class="col-lg-8">
+            <div class="ai-badge">AI INSIGHT LAYER</div>
+            <div class="row g-3 mb-4">
+                <div class="col-lg-6"><div class="card border-0 shadow-sm rounded-4"><div class="card-body">
+                    <h6 class="fw-bold text-muted">Customer Emotion Radar</h6>
+                    <div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div>
+                </div></div></div>
+                <div class="col-lg-6"><div class="card border-0 shadow-sm rounded-4"><div class="card-body">
+                    <h6 class="fw-bold text-muted">Rating Distribution</h6>
+                    <div class="chart-wrapper"><canvas id="chartRatings"></canvas></div>
+                </div></div></div>
             </div>
-        </div></div></div>
+            
+            <div class="ai-badge">COMPREHENSIVE AI SUMMARY</div>
+            <div class="card border-0 shadow-sm rounded-4">
+                <div class="card-body">
+                    <div id="aiSummaryBox" class="p-3 bg-light rounded-3" style="max-height: 400px; overflow-y: auto;">
+                        <p class="text-center text-muted">Select business to generate report...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="ai-badge">STRATEGY CONSULTANT (AI CHAT)</div>
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body d-flex flex-column">
+                    <div id="chatWindow" class="d-flex flex-column">
+                        <div class="chat-msg chat-ai">Hello Manager! Ask me anything about your reviews, operational steps, or how to improve your score.</div>
+                    </div>
+                    <div class="mt-auto pt-3">
+                        <div class="input-group">
+                            <input type="text" id="chatInput" class="form-control border-0 bg-light" placeholder="Ask a question...">
+                            <button id="chatBtn" class="btn btn-primary"><i class="bi bi-send"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="row mt-5 mb-5">
@@ -173,7 +212,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_KEY&libraries=places"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_KEY&libraries=places"></script>
 
 <script>
 let chartInstances = {};
@@ -199,6 +238,7 @@ async function triggerAllLoads() {
     document.getElementById("ingestProgressContainer").style.display = "block";
 
     try {
+        // 1. Dashboard Insights (Matches new backend)
         let url = `/api/ai/insights?company_id=${cid}`;
         if(start) url += `&start=${start}`;
         if(end) url += `&end=${end}`;
@@ -206,45 +246,40 @@ async function triggerAllLoads() {
         const res = await fetch(url);
         const data = await res.json();
 
-        if(data && data.kpis) {
-            document.getElementById("kpiTotal").innerText = data.metadata.processed_count || '0';
-            document.getElementById("aiReputation").innerText = data.kpis.reputation_score || '0';
-            document.getElementById("aiCSAT").innerText = (data.kpis.csat || '0') + "%";
-            document.getElementById("aiBenchmark").innerText = `${data.kpis.benchmark.your_avg} / ${data.kpis.benchmark.category_avg}`;
-
-            renderRadar(data.visualizations.emotions);
-            renderRatingDist(data.visualizations.rating_distribution); // Star Rating Chart
-
-            // Formats the 20-sentence summary into readable paragraphs
-            document.getElementById("aiSummaryBox").innerHTML = `
-                <div class="text-muted" style="line-height:1.8">
-                    ${data.ai_insights.summary.replace(/(\d+\.)/g, '<br><br><strong>$1</strong>')}
-                </div>
-            `;
-
-            renderTable(data.recent_reviews);
+        if(data && data.status !== "no_data") {
+            document.getElementById("kpiTotal").innerText = data.kpis.total_reviews || data.kpis.processed_count || '0';
+            document.getElementById("aiReputation").innerText = data.kpis.avg_rating || '0';
+            document.getElementById("aiSummaryBox").innerHTML = `<div class='text-muted' style='line-height:1.8'>${data.summary.replace(/\n/g, '<br>')}</div>`;
+            
+            renderRadar(data.kpis.texts); // Simplified text analysis for emotions if radar data exists
+            // If backend provides specific visuals, use them:
+            if(data.visualizations) {
+                renderRatingDist(data.visualizations.rating_distribution);
+                renderRadar(data.visualizations.emotions);
+            }
         }
-    } catch (e) { 
-        console.error(e);
-        document.getElementById("aiSummaryBox").innerHTML = "<p class='text-danger'>Error loading AI insights.</p>";
-    } finally {
-        document.getElementById("ingestProgressContainer").style.display = "none";
-    }
+
+        // 2. Revenue Risk (New Backend Route)
+        const riskRes = await fetch(`/api/ai/revenue-risk?company_id=${cid}`);
+        const riskData = await riskRes.json();
+        document.getElementById("revenueRiskVal").innerText = riskData.risk_percentage + "%";
+        document.getElementById("revenueImpactLevel").innerText = "Impact: " + riskData.impact_level + " (" + riskData.estimated_revenue_loss + ")";
+
+    } catch (e) { console.error(e); } 
+    finally { document.getElementById("ingestProgressContainer").style.display = "none"; }
 }
 
 function renderRadar(emotionData) {
     const ctx = document.getElementById("chartEmotions");
     if(chartInstances.emotions) chartInstances.emotions.destroy();
+    if(!emotionData) return;
     chartInstances.emotions = new Chart(ctx, {
         type: 'radar',
         data: {
             labels: Object.keys(emotionData),
             datasets: [{ 
-                label: 'Customer Sentiment', 
-                data: Object.values(emotionData), 
-                backgroundColor: 'rgba(99, 102, 241, 0.2)', 
-                borderColor: '#6366f1',
-                pointBackgroundColor: '#6366f1'
+                label: 'Tone', data: Object.values(emotionData), 
+                backgroundColor: 'rgba(168, 85, 247, 0.2)', borderColor: '#a855f7' 
             }]
         },
         options: { responsive: true, maintainAspectRatio: false }
@@ -254,77 +289,57 @@ function renderRadar(emotionData) {
 function renderRatingDist(ratingData) {
     const ctx = document.getElementById("chartRatings");
     if(chartInstances.ratings) chartInstances.ratings.destroy();
-    
-    const labels = ["1★", "2★", "3★", "4★", "5★"];
-    const values = [1, 2, 3, 4, 5].map(star => ratingData[star] || 0);
-
+    if(!ratingData) return;
     chartInstances.ratings = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: labels,
+            labels: ["1★", "2★", "3★", "4★", "5★"],
             datasets: [{
-                label: 'Total Reviews',
-                data: values,
-                backgroundColor: ['#ef4444', '#f97316', '#eab308', '#84cc16', '#10b981'],
-                borderRadius: 8
+                label: 'Reviews',
+                data: [1, 2, 3, 4, 5].map(s => ratingData[s] || 0),
+                backgroundColor: ['#ef4444', '#f97316', '#eab308', '#84cc16', '#10b981']
             }]
         },
-        options: { 
-            responsive: true, 
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true, grid: { display: false } } }
-        }
+        options: { responsive: true, maintainAspectRatio: false }
     });
 }
 
-function renderTable(reviews) {
-    const body = document.getElementById("reviewsTableBody");
-    if(!reviews || reviews.length === 0) {
-        body.innerHTML = '<tr><td colspan="5" class="text-center py-4">No data found.</td></tr>';
-        return;
-    }
-    body.innerHTML = reviews.map(r => `
-        <tr>
-            <td class="px-4 text-muted small">${r.date}</td>
-            <td class="fw-bold">${r.author}</td>
-            <td class="text-warning">${'★'.repeat(r.rating)}</td>
-            <td class="review-text-cell text-muted small">${r.text}</td>
-            <td class="px-4 text-end">
-                <span class="badge ${r.sentiment_label === 'Positive' ? 'bg-success' : (r.sentiment_label === 'Negative' ? 'bg-danger' : 'bg-secondary')}">
-                    ${r.sentiment_label}
-                </span>
-            </td>
-        </tr>
-    `).join('');
-}
-
-// Event Listeners
-document.addEventListener("DOMContentLoaded", () => {
-    loadCompanies();
-});
-
-document.getElementById("loadBtn").onclick = triggerAllLoads;
-
-document.getElementById("fetchBtn").onclick = async () => {
+// AI Chat Feature
+document.getElementById("chatBtn").onclick = async () => {
+    const input = document.getElementById("chatInput");
     const cid = document.getElementById("companySelect").value;
-    const btn = document.getElementById("fetchBtn");
-    btn.disabled = true;
-    document.getElementById("ingestProgressContainer").style.display = "block";
+    const msg = input.value;
+    if(!msg) return;
+
+    const win = document.getElementById("chatWindow");
+    win.innerHTML += `<div class="chat-msg chat-user">${msg}</div>`;
+    input.value = "";
+
     try {
-        // Now requests 5,000 to cross the 250 wall
-        await fetch(`/api/reviews/ingest/${cid}?limit=5000`, { method: 'POST' });
-        setTimeout(() => { triggerAllLoads(); btn.disabled = false; }, 2000);
-    } catch (e) { 
-        btn.disabled = false;
-        document.getElementById("ingestProgressContainer").style.display = "none";
-    }
+        const res = await fetch(`/api/ai/chat?company_id=${cid}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(msg)
+        });
+        const data = await res.json();
+        win.innerHTML += `<div class="chat-msg chat-ai">${data.answer}</div>`;
+        win.scrollTop = win.scrollHeight;
+    } catch (e) { win.innerHTML += `<div class="chat-msg chat-ai text-danger">Error connecting to AI.</div>`; }
 };
 
+// PDF Export
+document.getElementById("exportPdfBtn").onclick = () => {
+    const cid = document.getElementById("companySelect").value;
+    window.location.href = `/api/ai/insights?company_id=${cid}&pdf=true`;
+};
+
+document.getElementById("loadBtn").onclick = triggerAllLoads;
 document.getElementById("toggleTheme").onclick = () => {
     const theme = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
     document.documentElement.setAttribute("data-theme", theme);
 };
+
+document.addEventListener("DOMContentLoaded", loadCompanies);
 </script>
 </body>
 </html>
