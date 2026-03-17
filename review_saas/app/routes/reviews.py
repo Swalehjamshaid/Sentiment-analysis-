@@ -10,6 +10,7 @@ from app.core.models import Company, Review
 from app.services.scraper import FastGoogleScraper
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
+# Prefix must match the dashboard's fetch calls
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 logger = logging.getLogger(__name__)
 analyzer = SentimentIntensityAnalyzer()
@@ -85,7 +86,12 @@ async def ingest_reviews(
 
     # 2. Fetch data using the Fast Scraper
     logger.info(f"🚀 Starting ingestion for {company.name} (Limit: {limit})")
-    scraped_data = await scraper.get_reviews(data_id=data_id, limit=limit)
+    
+    try:
+        scraped_data = await scraper.get_reviews(data_id=data_id, limit=limit)
+    except Exception as e:
+        logger.error(f"Scraper execution failed: {e}")
+        raise HTTPException(status_code=500, detail="Scraper failed to connect to Google.")
     
     if not scraped_data:
         logger.warning(f"No data returned for {company.name}. Check if ID is valid.")
@@ -109,7 +115,7 @@ async def ingest_reviews(
             elif sentiment_score < -0.05: label = "Negative"
 
             # 5. Create Database Object 
-            # Note: Using keys from the updated scraper.py (author_title, review_datetime_utc)
+            # Note: Using keys from the updated scraper.py
             new_review = Review(
                 company_id=company_id,
                 google_review_id=item["review_id"],
@@ -131,7 +137,7 @@ async def ingest_reviews(
     except Exception as e:
         await session.rollback()
         logger.error(f"Database Error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to save reviews")
+        raise HTTPException(status_code=500, detail="Failed to save reviews to database.")
 
     return {
         "status": "success",
