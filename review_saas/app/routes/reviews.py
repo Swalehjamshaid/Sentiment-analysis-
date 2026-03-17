@@ -42,6 +42,7 @@ async def review_streamer(company_id: int, start: Optional[date], end: Optional[
     Query the database and yield reviews one-by-one as SSE events.
     Order by time descending to show newest first.
     """
+    # Fetch all reviews for the specific company
     query = select(Review).where(Review.company_id == company_id).order_by(desc(Review.google_review_time))
     
     if start:
@@ -49,7 +50,7 @@ async def review_streamer(company_id: int, start: Optional[date], end: Optional[
     if end:
         query = query.where(Review.google_review_time <= end)
     
-    # Executing with a massive limit to ensure everything is captured
+    # Use the high limit to ensure no data is truncated
     result = await session.execute(query.limit(limit))
     reviews = result.scalars().all()
 
@@ -59,8 +60,8 @@ async def review_streamer(company_id: int, start: Optional[date], end: Optional[
         # Format as Server-Sent Event (SSE)
         yield f"event: review\ndata: {review_data}\n\n"
         
-        # Reduced delay for high-volume streaming
-        await asyncio.sleep(0.005)
+        # Minimized delay for high-volume streaming
+        await asyncio.sleep(0.001)
 
     # Signal completion
     yield "event: done\ndata: completed\n\n"
@@ -71,7 +72,7 @@ async def get_reviews(
     company_id: int = Query(...),
     start: Optional[date] = Query(None),
     end: Optional[date] = Query(None),
-    # UNRESTRICTED: Set to 50,000 to ensure 100% of data is fetched for analysis
+    # Set to 50,000 to ensure 100% of data is fetched for full analysis
     limit: int = Query(50000), 
     session: AsyncSession = Depends(get_session),
 ):
@@ -95,7 +96,7 @@ async def stream_reviews(
     company_id: int = Query(...),
     start: Optional[date] = Query(None),
     end: Optional[date] = Query(None),
-    # UNRESTRICTED: Match the static limit to stream the whole database
+    # Match the high limit to stream the entire company dataset
     limit: int = Query(50000), 
     session: AsyncSession = Depends(get_session),
 ):
@@ -111,7 +112,8 @@ async def stream_reviews(
 @router.post("/ingest/{company_id}")
 async def ingest_reviews(
     company_id: int,
-    max_reviews: int = Query(500), # Increased ceiling for fresh ingestion
+    # Ceiling increased to 1000 for broader initial ingestion
+    max_reviews: int = Query(1000), 
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -124,6 +126,7 @@ async def ingest_reviews(
         raise HTTPException(status_code=404, detail="Company not found")
 
     try:
+        # Calls the logic from app/services/review.py
         new_count = await ingest_outscraper_reviews(company, session, max_reviews=max_reviews)
         return {
             "status": "success",
@@ -131,4 +134,4 @@ async def ingest_reviews(
         }
     except Exception as e:
         logger.error(f"Ingestion Error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Outscraper service failed or timed out.")
+        raise HTTPException(status_code=500, detail=f"Ingestion service error: {str(e)}")
