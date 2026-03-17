@@ -48,10 +48,11 @@
 <div class="container-fluid">
     <div id="ingestProgressContainer" class="card shadow-lg border-0 mb-4 bg-white">
         <div class="card-body text-center">
-            <h6 class="fw-bold text-primary mb-3"><i class="bi bi-cpu-fill me-2"></i>Processing Database Analysis...</h6>
+            <h6 class="fw-bold text-primary mb-3"><i class="bi bi-cpu-fill me-2"></i>AI Analysis in Progress...</h6>
             <div class="progress" style="height: 12px; border-radius: 10px;">
                 <div id="ingestProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 100%"></div>
             </div>
+            <small class="text-muted mt-2 d-block">This usually takes less than 60 seconds.</small>
         </div>
     </div>
 
@@ -146,18 +147,18 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places"></script>
 
 <script>
 let chartInstances = {};
 
-// Initial Load
+// Load Companies on Page Start
 async function loadCompanies() {
     try {
         const res = await fetch("/api/companies");
         const data = await res.json();
         const sel = document.getElementById("companySelect");
-        if (data.length > 0) {
+        if (data && data.length > 0) {
             sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
             triggerAllLoads();
         }
@@ -177,7 +178,7 @@ function initAutocomplete() {
     });
 }
 
-// MAIN ANALYZE FUNCTION (Aligned with dashboard.py)
+// MAIN ANALYZE FUNCTION (Refined for new API structure)
 async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
     const start = document.getElementById("startDate").value;
@@ -187,7 +188,7 @@ async function triggerAllLoads() {
     document.getElementById("ingestProgressContainer").style.display = "block";
 
     try {
-        // A. Fetch AI Insights
+        // A. Fetch AI Insights from dashboard.py route
         let url = `/api/ai/insights?company_id=${cid}`;
         if(start) url += `&start=${start}`;
         if(end) url += `&end=${end}`;
@@ -196,9 +197,13 @@ async function triggerAllLoads() {
         const ai = await res.json();
 
         if(ai && ai.kpis) {
-            // Map Scores
+            // Update Absolute Total Count (from metadata)
+            document.getElementById("kpiTotal").innerText = ai.metadata.processed_count || '0';
+            
+            // Map AI Metrics
             document.getElementById("aiReputation").innerText = ai.kpis.reputation_score || '0';
             document.getElementById("aiCSAT").innerText = (ai.kpis.csat || '0') + "%";
+            
             const bench = ai.kpis.benchmark || {your_avg: 0, category_avg: 0};
             document.getElementById("aiBenchmark").innerText = `${bench.your_avg} / ${bench.category_avg}`;
 
@@ -206,7 +211,7 @@ async function triggerAllLoads() {
             renderRadar(ai.visualizations.emotions);
             renderTrend(ai.visualizations.sentiment_trend);
 
-            // Render AI Monitoring
+            // Render AI Monitoring (OpenAI Output)
             if(ai.ai_insights) {
                 document.getElementById("aiStaffBox").innerHTML = `
                     <div class="p-3 bg-white border rounded shadow-sm mb-3">
@@ -214,25 +219,22 @@ async function triggerAllLoads() {
                         <div class="small text-muted">${ai.ai_insights.summary}</div>
                     </div>
                     <div class="p-3 bg-white border rounded shadow-sm">
-                        <h6 class="fw-bold text-success small">TRENDING KEYWORDS</h6>
+                        <h6 class="fw-bold text-success small">TRENDING TOPICS</h6>
+                        <div class="mt-2">
                         ${ai.ai_insights.topics.map(t => `<span class="badge bg-light text-primary border me-1">#${t}</span>`).join('')}
+                        </div>
                     </div>
                 `;
             }
         }
-
-        // B. Update Total Count
-        const countRes = await fetch(`/api/reviews?company_id=${cid}`);
-        const countData = await countRes.json();
-        document.getElementById("kpiTotal").innerText = countData.length || 0;
-
     } catch (e) { 
-        console.error("Analysis Failed", e); 
+        console.error("Dashboard Analysis Failed", e); 
     } finally {
         document.getElementById("ingestProgressContainer").style.display = "none";
     }
 }
 
+// Chart Rendering Helpers
 function renderRadar(emotionData) {
     if(!emotionData) return;
     const ctx = document.getElementById("chartEmotions");
@@ -241,9 +243,19 @@ function renderRadar(emotionData) {
         type: 'radar',
         data: {
             labels: Object.keys(emotionData),
-            datasets: [{ label: 'Tone', data: Object.values(emotionData), backgroundColor: 'rgba(168, 85, 247, 0.2)', borderColor: '#a855f7' }]
+            datasets: [{ 
+                label: 'Emotional Tone', 
+                data: Object.values(emotionData), 
+                backgroundColor: 'rgba(168, 85, 247, 0.2)', 
+                borderColor: '#a855f7',
+                pointBackgroundColor: '#a855f7'
+            }]
         },
-        options: { responsive: true, maintainAspectRatio: false }
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false,
+            scales: { r: { beginAtZero: true, grid: { color: '#e2e8f0' } } }
+        }
     });
 }
 
@@ -256,18 +268,23 @@ function renderTrend(trendData) {
         data: { 
             labels: trendData.map(d => d.week), 
             datasets: [{ 
-                label: 'Satisfaction Trend', 
+                label: 'Avg Sentiment', 
                 data: trendData.map(d => d.avg), 
                 borderColor: '#4338ca', 
-                backgroundColor: 'rgba(99, 102, 241, 0.05)', 
-                fill: true, tension: 0.4 
+                backgroundColor: 'rgba(99, 102, 241, 0.1)', 
+                fill: true, 
+                tension: 0.4 
             }] 
         },
-        options: { responsive: true, maintainAspectRatio: false }
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false,
+            scales: { y: { beginAtZero: false, grid: { color: '#e2e8f0' } } }
+        }
     });
 }
 
-// Lifecycle
+// EVENT HANDLERS
 document.addEventListener("DOMContentLoaded", () => {
     loadCompanies();
     initAutocomplete();
@@ -277,11 +294,31 @@ document.getElementById("loadBtn").onclick = triggerAllLoads;
 
 document.getElementById("fetchBtn").onclick = async () => {
     const cid = document.getElementById("companySelect").value;
+    if(!cid) return;
+
+    const btn = document.getElementById("fetchBtn");
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Syncing...`;
     document.getElementById("ingestProgressContainer").style.display = "block";
+
     try {
-        await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
-        setTimeout(() => { triggerAllLoads(); }, 3000);
-    } catch { document.getElementById("ingestProgressContainer").style.display = "none"; }
+        // Calls the new FastScraper-integrated route
+        const response = await fetch(`/api/reviews/ingest/${cid}?limit=100`, { method: 'POST' });
+        const result = await response.json();
+        
+        console.log("Ingestion result:", result);
+        // Delay slightly for database to settle then re-analyze
+        setTimeout(() => { 
+            triggerAllLoads(); 
+            btn.disabled = false;
+            btn.innerHTML = "Sync Live Data";
+        }, 2000);
+    } catch (e) {
+        console.error("Sync Failed", e);
+        document.getElementById("ingestProgressContainer").style.display = "none";
+        btn.disabled = false;
+        btn.innerHTML = "Sync Live Data";
+    }
 };
 
 document.getElementById("toggleTheme").onclick = () => {
@@ -289,7 +326,6 @@ document.getElementById("toggleTheme").onclick = () => {
     document.documentElement.setAttribute("data-theme", theme);
 };
 
-// Handle Modal Form
 document.getElementById('addCompanyForm').onsubmit = async function(e) {
     e.preventDefault();
     const payload = {
@@ -297,12 +333,14 @@ document.getElementById('addCompanyForm').onsubmit = async function(e) {
         place_id: document.getElementById('placeId').value,
         address: document.getElementById('companyAddress').value
     };
-    const res = await fetch('/api/companies', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-    });
-    if (res.ok) location.reload();
+    try {
+        const res = await fetch('/api/companies', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        if (res.ok) window.location.reload();
+    } catch(e) { console.error("Could not add business", e); }
 };
 </script>
 </body>
