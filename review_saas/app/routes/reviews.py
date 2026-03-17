@@ -41,8 +41,9 @@ async def review_streamer(company_id: int, start: Optional[date], end: Optional[
     """
     Query the database and yield reviews one-by-one as SSE events.
     Order by time descending to show newest first.
+    This helper is used by the /stream endpoint to push all data to the UI.
     """
-    # Fetch all reviews for the specific company
+    # Build the query to fetch all reviews for the specific company
     query = select(Review).where(Review.company_id == company_id).order_by(desc(Review.google_review_time))
     
     if start:
@@ -50,20 +51,21 @@ async def review_streamer(company_id: int, start: Optional[date], end: Optional[
     if end:
         query = query.where(Review.google_review_time <= end)
     
-    # Use the high limit to ensure no data is truncated
+    # Executing with a high limit to ensure the entire database history is captured
     result = await session.execute(query.limit(limit))
     reviews = result.scalars().all()
 
     for review in reviews:
+        # Convert SQLAlchemy object to Pydantic and then to JSON string
         review_data = ReviewSchema.model_validate(review).model_dump_json()
         
-        # Format as Server-Sent Event (SSE)
+        # Format as Server-Sent Event (SSE) for real-time frontend consumption
         yield f"event: review\ndata: {review_data}\n\n"
         
-        # Minimized delay for high-volume streaming
+        # Minimized delay for high-volume streaming to prevent UI lag
         await asyncio.sleep(0.001)
 
-    # Signal completion
+    # Signal completion so the frontend knows the "Load" process is finished
     yield "event: done\ndata: completed\n\n"
 
 # --------------------------- Fetch Reviews API ---------------------------
@@ -72,13 +74,13 @@ async def get_reviews(
     company_id: int = Query(...),
     start: Optional[date] = Query(None),
     end: Optional[date] = Query(None),
-    # Set to 50,000 to ensure 100% of data is fetched for full analysis
+    # INCREASED DEFAULT: Set to 50,000 to ensure 100% of data is fetched for the dashboard
     limit: int = Query(50000), 
     session: AsyncSession = Depends(get_session),
 ):
     """
     Standard GET endpoint for static review loading.
-    Fetches the entire company history for the dashboard's KPIs and charts.
+    Used for calculating KPIs, charts, and initial data tables.
     """
     query = select(Review).where(Review.company_id == company_id).order_by(desc(Review.google_review_time))
     
@@ -96,12 +98,13 @@ async def stream_reviews(
     company_id: int = Query(...),
     start: Optional[date] = Query(None),
     end: Optional[date] = Query(None),
-    # Match the high limit to stream the entire company dataset
+    # MATCHING LIMIT: Ensures the stream doesn't cut off earlier than the static API
     limit: int = Query(50000), 
     session: AsyncSession = Depends(get_session),
 ):
     """
-    SSE Endpoint for live streaming data to the dashboard.
+    SSE Endpoint for live streaming data. 
+    When you press "Load" on the dashboard, this handles the sequential display of all reviews.
     """
     return StreamingResponse(
         review_streamer(company_id, start, end, limit, session),
@@ -112,12 +115,13 @@ async def stream_reviews(
 @router.post("/ingest/{company_id}")
 async def ingest_reviews(
     company_id: int,
-    # Ceiling increased to 1000 for broader initial ingestion
+    # Ceiling for how many NEW reviews to pull from Google Maps via Outscraper
     max_reviews: int = Query(1000), 
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Trigger the background ingestion service via Outscraper.
+    Trigger the background ingestion service. 
+    This adds new reviews to the database without deleting existing ones.
     """
     result = await session.execute(select(Company).where(Company.id == company_id))
     company = result.scalars().first()
@@ -126,7 +130,7 @@ async def ingest_reviews(
         raise HTTPException(status_code=404, detail="Company not found")
 
     try:
-        # Calls the logic from app/services/review.py
+        # Calls the Producer-Consumer logic in app/services/review.py
         new_count = await ingest_outscraper_reviews(company, session, max_reviews=max_reviews)
         return {
             "status": "success",
@@ -134,4 +138,4 @@ async def ingest_reviews(
         }
     except Exception as e:
         logger.error(f"Ingestion Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Ingestion service error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ingestion service failure: {str(e)}")
