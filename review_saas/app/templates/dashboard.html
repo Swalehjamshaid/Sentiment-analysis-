@@ -26,7 +26,6 @@
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
         [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
         #ingestProgressContainer { display: none; }
-        .pac-container { z-index: 2000 !important; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
         .review-text-cell { max-width: 400px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
         .review-text-cell:hover { white-space: normal; }
     </style>
@@ -38,14 +37,11 @@
     <div class="container-fluid">
         <span class="navbar-brand fw-bold fs-4"><i class="bi bi-robot me-2"></i>Review Intel AI</span>
         <div class="d-flex gap-2">
-            <button id="exportPdfBtn" class="btn btn-light btn-sm rounded-pill px-3 fw-bold text-primary">
-                <i class="bi bi-file-pdf me-1"></i> Export PDF
-            </button>
             <button class="btn btn-success btn-sm rounded-pill px-4 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
                 <i class="bi bi-plus-circle me-1"></i> Add Business
             </button>
             <button id="toggleTheme" class="btn btn-light btn-sm rounded-pill px-3">Theme</button>
-            <form action="/logout" method="post"><button class="btn btn-danger btn-sm rounded-pill px-3">Logout</button></form>
+            <form action="/logout" method="post" class="m-0"><button class="btn btn-danger btn-sm rounded-pill px-3">Logout</button></form>
         </div>
     </div>
 </nav>
@@ -53,11 +49,11 @@
 <div class="container-fluid">
     <div id="ingestProgressContainer" class="card shadow-lg border-0 mb-4 bg-white">
         <div class="card-body text-center">
-            <h6 class="fw-bold text-primary mb-3"><i class="bi bi-cpu-fill me-2"></i>AI Analysis in Progress...</h6>
+            <h6 class="fw-bold text-primary mb-3"><i class="bi bi-cpu-fill me-2"></i>AI Strategic Engine Running...</h6>
             <div class="progress" style="height: 12px; border-radius: 10px;">
                 <div id="ingestProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 100%"></div>
             </div>
-            <small class="text-muted mt-2 d-block">Generating month-wise trends and executive summary.</small>
+            <small class="text-muted mt-2 d-block">Analyzing unlimited records and generating 20-sentence report.</small>
         </div>
     </div>
 
@@ -85,7 +81,7 @@
     <div class="row mb-4">
         <div class="col-12 text-center">
             <div class="card total-review-card shadow-lg p-4">
-                <div class="text-uppercase small fw-bold opacity-75">Absolute Total Database Records</div>
+                <div class="text-uppercase small fw-bold opacity-75">Absolute Total Processed Records</div>
                 <div id="kpiTotal" class="display-2 fw-bold">0</div>
             </div>
         </div>
@@ -104,12 +100,12 @@
             <div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div>
         </div></div></div>
         <div class="col-lg-4"><div class="card border-0 shadow-sm rounded-4 h-100"><div class="card-body">
-            <h6 class="fw-bold text-muted">Month-Wise Analysis</h6>
-            <div class="chart-wrapper"><canvas id="chartMonthly"></canvas></div>
+            <h6 class="fw-bold text-muted">Rating Distribution</h6>
+            <div class="chart-wrapper"><canvas id="chartRatings"></canvas></div>
         </div></div></div>
         <div class="col-lg-4"><div class="card border-0 shadow-sm rounded-4 h-100"><div class="card-body">
-            <h6 class="fw-bold text-muted">Comprehensive AI Summary</h6>
-            <div id="aiSummaryBox" class="p-3 bg-light rounded-3 mt-2" style="height: 250px; overflow-y: auto;">
+            <h6 class="fw-bold text-muted">Strategic AI Insight (20 Sentences)</h6>
+            <div id="aiSummaryBox" class="p-3 bg-light rounded-3 mt-2" style="height: 250px; overflow-y: auto; font-size: 0.9rem;">
                 <p class="text-center text-muted mt-5">Select business for executive analysis...</p>
             </div>
         </div></div></div>
@@ -119,10 +115,10 @@
         <div class="col-12">
             <div class="card border-0 shadow-sm rounded-4">
                 <div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-center">
-                    <h5 class="fw-bold mb-0"><i class="bi bi-list-stars me-2 text-primary"></i>Latest 100 Database Records</h5>
+                    <h5 class="fw-bold mb-0"><i class="bi bi-list-stars me-2 text-primary"></i>Latest Database Records</h5>
                 </div>
                 <div class="card-body p-0">
-                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                    <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
                         <table class="table table-hover align-middle mb-0">
                             <thead class="bg-light sticky-top">
                                 <tr>
@@ -133,8 +129,7 @@
                                     <th class="px-4 text-end">Sentiment</th>
                                 </tr>
                             </thead>
-                            <tbody id="reviewsTableBody">
-                                </tbody>
+                            <tbody id="reviewsTableBody"></tbody>
                         </table>
                     </div>
                 </div>
@@ -151,35 +146,34 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4">
-                <label class="form-label fw-bold small text-muted">SEARCH GOOGLE MAPS</label>
-                <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Type business name...">
-                
+                <label class="form-label fw-bold small text-muted">GOOGLE MAPS SEARCH</label>
+                <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Search for business...">
                 <div class="p-3 bg-light rounded-3">
                     <div class="row g-3">
-                        <div class="col-md-8">
-                            <label class="small fw-bold text-muted">NAME</label>
-                            <input id="companyName" class="form-control border-0 bg-transparent" readonly required>
+                        <div class="col-md-12">
+                            <label class="small fw-bold text-muted">BUSINESS NAME</label>
+                            <input id="companyName" class="form-control border-0 bg-transparent fw-bold" readonly required>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-12">
                             <label class="small fw-bold text-muted">PLACE ID</label>
                             <input id="placeId" class="form-control border-0 bg-transparent" readonly required>
                         </div>
-                        <div class="col-12">
-                            <label class="small fw-bold text-muted">ADDRESS</label>
+                        <div class="col-md-12">
+                            <label class="small fw-bold text-muted">FORMATTED ADDRESS</label>
                             <input id="companyAddress" class="form-control border-0 bg-transparent" readonly>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="modal-footer border-0 p-4">
-                <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold">Add to Database</button>
+                <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold w-100">Add to Intelligence Dashboard</button>
             </div>
         </form>
     </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_KEY&libraries=places"></script>
 
 <script>
 let chartInstances = {};
@@ -194,18 +188,6 @@ async function loadCompanies() {
             triggerAllLoads();
         }
     } catch (e) { console.error(e); }
-}
-
-function initAutocomplete() {
-    const input = document.getElementById('googleSearchInput');
-    const autocomplete = new google.maps.places.Autocomplete(input);
-    autocomplete.addListener('place_changed', function() {
-        const place = autocomplete.getPlace();
-        if (!place.place_id) return;
-        document.getElementById('companyName').value = place.name;
-        document.getElementById('placeId').value = place.place_id;
-        document.getElementById('companyAddress').value = place.formatted_address;
-    });
 }
 
 async function triggerAllLoads() {
@@ -231,18 +213,20 @@ async function triggerAllLoads() {
             document.getElementById("aiBenchmark").innerText = `${data.kpis.benchmark.your_avg} / ${data.kpis.benchmark.category_avg}`;
 
             renderRadar(data.visualizations.emotions);
-            renderMonthly(data.visualizations.monthly_analytics);
+            renderRatingDist(data.visualizations.rating_distribution); // Star Rating Chart
 
+            // Formats the 20-sentence summary into readable paragraphs
             document.getElementById("aiSummaryBox").innerHTML = `
-                <div class="small text-muted" style="line-height:1.6">
-                    ${data.ai_insights.summary.replace(/\n/g, '<br>')}
+                <div class="text-muted" style="line-height:1.8">
+                    ${data.ai_insights.summary.replace(/(\d+\.)/g, '<br><br><strong>$1</strong>')}
                 </div>
             `;
 
             renderTable(data.recent_reviews);
         }
     } catch (e) { 
-        console.error(e); 
+        console.error(e);
+        document.getElementById("aiSummaryBox").innerHTML = "<p class='text-danger'>Error loading AI insights.</p>";
     } finally {
         document.getElementById("ingestProgressContainer").style.display = "none";
     }
@@ -256,29 +240,41 @@ function renderRadar(emotionData) {
         data: {
             labels: Object.keys(emotionData),
             datasets: [{ 
-                label: 'Tone', data: Object.values(emotionData), 
-                backgroundColor: 'rgba(168, 85, 247, 0.2)', borderColor: '#a855f7' 
+                label: 'Customer Sentiment', 
+                data: Object.values(emotionData), 
+                backgroundColor: 'rgba(99, 102, 241, 0.2)', 
+                borderColor: '#6366f1',
+                pointBackgroundColor: '#6366f1'
             }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
 }
 
-function renderMonthly(monthlyData) {
-    const ctx = document.getElementById("chartMonthly");
-    if(chartInstances.monthly) chartInstances.monthly.destroy();
-    chartInstances.monthly = new Chart(ctx, {
+function renderRatingDist(ratingData) {
+    const ctx = document.getElementById("chartRatings");
+    if(chartInstances.ratings) chartInstances.ratings.destroy();
+    
+    const labels = ["1★", "2★", "3★", "4★", "5★"];
+    const values = [1, 2, 3, 4, 5].map(star => ratingData[star] || 0);
+
+    chartInstances.ratings = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: monthlyData.map(d => d.month),
+            labels: labels,
             datasets: [{
-                label: 'Month-Wise Sentiment',
-                data: monthlyData.map(d => d.avg_sentiment),
-                backgroundColor: '#6366f1',
+                label: 'Total Reviews',
+                data: values,
+                backgroundColor: ['#ef4444', '#f97316', '#eab308', '#84cc16', '#10b981'],
                 borderRadius: 8
             }]
         },
-        options: { responsive: true, maintainAspectRatio: false }
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, grid: { display: false } } }
+        }
     });
 }
 
@@ -306,7 +302,6 @@ function renderTable(reviews) {
 // Event Listeners
 document.addEventListener("DOMContentLoaded", () => {
     loadCompanies();
-    initAutocomplete();
 });
 
 document.getElementById("loadBtn").onclick = triggerAllLoads;
@@ -317,7 +312,8 @@ document.getElementById("fetchBtn").onclick = async () => {
     btn.disabled = true;
     document.getElementById("ingestProgressContainer").style.display = "block";
     try {
-        await fetch(`/api/reviews/ingest/${cid}?limit=1000`, { method: 'POST' });
+        // Now requests 5,000 to cross the 250 wall
+        await fetch(`/api/reviews/ingest/${cid}?limit=5000`, { method: 'POST' });
         setTimeout(() => { triggerAllLoads(); btn.disabled = false; }, 2000);
     } catch (e) { 
         btn.disabled = false;
@@ -325,34 +321,9 @@ document.getElementById("fetchBtn").onclick = async () => {
     }
 };
 
-document.getElementById("exportPdfBtn").onclick = () => {
-    const cid = document.getElementById("companySelect").value;
-    const start = document.getElementById("startDate").value;
-    const end = document.getElementById("endDate").value;
-    let url = `/api/ai/insights?company_id=${cid}&pdf=true`;
-    if(start) url += `&start=${start}`;
-    if(end) url += `&end=${end}`;
-    window.location.href = url;
-};
-
 document.getElementById("toggleTheme").onclick = () => {
     const theme = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
     document.documentElement.setAttribute("data-theme", theme);
-};
-
-document.getElementById('addCompanyForm').onsubmit = async function(e) {
-    e.preventDefault();
-    const payload = {
-        name: document.getElementById('companyName').value,
-        place_id: document.getElementById('placeId').value,
-        address: document.getElementById('companyAddress').value
-    };
-    const res = await fetch('/api/companies', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-    });
-    if (res.ok) window.location.reload();
 };
 </script>
 </body>
