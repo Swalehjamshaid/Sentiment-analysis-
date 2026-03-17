@@ -18,16 +18,15 @@
         body{ background-color: #f8fafc; padding:24px; font-family: 'Inter', sans-serif; transition: background 0.3s; }
         .navbar { background: var(--primary-grad) !important; border-radius: 15px !important; margin-bottom: 25px; border: none; }
         .chart-wrapper { height: 320px; width: 100%; position: relative; }
-        .card { border: none; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: transform 0.2s; }
+        .card { border: none; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
         .total-review-card { background: var(--primary-grad); color: white; border-radius: 24px; margin-bottom: 2rem; }
         .ai-badge { background: var(--ai-grad); color: white; padding: 5px 15px; border-radius: 10px; font-size: 0.75rem; font-weight: bold; margin-bottom: 10px; display: inline-block; }
         .btn-pill { border-radius: 50px; padding: 10px 20px; font-weight: 600; }
         .btn-fetch { background: var(--success-grad); color: white; border: none; }
-        .btn-stop { border-radius: 50px; font-weight: 600; display: none; }
-        .table-responsive { border-radius: 15px; max-height: 500px; }
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
         [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
         #ingestProgressContainer { display: none; }
+        .pac-container { z-index: 2000 !important; border-radius: 10px; border: none; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
     </style>
 </head>
 
@@ -48,16 +47,10 @@
 
 <div class="container-fluid">
     <div id="ingestProgressContainer" class="card shadow-lg border-0 mb-4 bg-white">
-        <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <h6 class="fw-bold text-primary mb-0"><i class="bi bi-lightning-charge-fill me-2"></i>High-Speed Producer/Consumer Sync...</h6>
-                <div class="d-flex align-items-center gap-3">
-                    <span id="progressStats" class="badge bg-primary rounded-pill">0 items</span>
-                    <button id="stopBtn" class="btn btn-danger btn-sm btn-stop">STOP FETCHING</button>
-                </div>
-            </div>
+        <div class="card-body text-center">
+            <h6 class="fw-bold text-primary mb-3"><i class="bi bi-cpu-fill me-2"></i>AI is Analyzing Dashboard Data...</h6>
             <div class="progress" style="height: 12px; border-radius: 10px;">
-                <div id="ingestProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 0%"></div>
+                <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 100%"></div>
             </div>
         </div>
     </div>
@@ -78,9 +71,7 @@
         <div class="col-md-5">
             <div class="d-flex gap-2">
                 <button id="loadBtn" class="btn btn-primary w-50 btn-pill shadow-sm">Analyze Database</button>
-                <button id="fetchBtn" class="btn btn-fetch w-50 btn-pill shadow-sm">
-                    <i class="bi bi-cloud-download me-1"></i> Sync Live Data
-                </button>
+                <button id="fetchBtn" class="btn btn-fetch w-50 btn-pill shadow-sm">Sync Live Data</button>
             </div>
         </div>
     </div>
@@ -90,7 +81,6 @@
             <div class="card total-review-card shadow-lg p-4">
                 <div class="text-uppercase small fw-bold opacity-75">Absolute Total Database Records</div>
                 <div id="kpiTotal" class="display-2 fw-bold">0</div>
-                <div class="small opacity-75">Full historical records synced and analyzed</div>
             </div>
         </div>
     </div>
@@ -112,45 +102,44 @@
             <div class="chart-wrapper"><canvas id="chartTrend"></canvas></div>
         </div></div></div>
         <div class="col-lg-4"><div class="card border-0 shadow-sm rounded-4 h-100"><div class="card-body">
-            <h6 class="fw-bold text-muted">AI Staff Monitoring</h6>
+            <h6 class="fw-bold text-muted">AI Business Monitoring</h6>
             <div id="aiStaffBox" class="p-3 bg-light rounded-3 mt-2" style="height: 250px; overflow-y: auto;">
-                <p class="text-center text-muted mt-5">Awaiting Analysis...</p>
+                <p class="text-center text-muted mt-5">Select a business to begin AI analysis...</p>
             </div>
         </div></div></div>
-    </div>
-
-    <div class="card border-0 shadow-sm rounded-4 mb-5">
-        <div class="card-body p-4">
-            <h5 class="fw-bold mb-4">Complete Historical Records</h5>
-            <div class="table-responsive">
-                <table class="table table-hover align-middle border-0">
-                    <thead class="bg-light sticky-top"><tr class="text-muted small"><th>AUTHOR</th><th>RATING</th><th>SENTIMENT</th><th>DATE</th><th>FEEDBACK TEXT</th></tr></thead>
-                    <tbody id="reviewsTable"></tbody>
-                </table>
-            </div>
-        </div>
     </div>
 </div>
 
 <div class="modal fade" id="addCompanyModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <form id="addCompanyForm" class="modal-content shadow-lg border-0">
-            <div class="modal-header bg-success text-white p-4 border-0">
+            <div class="modal-header bg-success text-white p-4">
                 <h5 class="modal-title fw-bold"><i class="bi bi-google me-2"></i>Link New Business</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4">
-                <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Search business name...">
-                <div class="p-3 bg-light rounded-4">
+                <label class="form-label fw-bold">Search Google Maps</label>
+                <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Type business name...">
+                
+                <div class="p-3 bg-light rounded-3">
                     <div class="row g-3">
-                        <div class="col-md-8"><label class="small fw-bold text-muted">NAME</label><input id="companyName" class="form-control border-0" readonly required></div>
-                        <div class="col-md-4"><label class="small fw-bold text-muted">PLACE ID</label><input id="placeId" class="form-control border-0" readonly required></div>
-                        <div class="col-12"><label class="small fw-bold text-muted">ADDRESS</label><input id="companyAddress" class="form-control border-0" readonly></div>
+                        <div class="col-md-8">
+                            <label class="small fw-bold text-muted">NAME</label>
+                            <input id="companyName" class="form-control border-0 bg-transparent" readonly required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small fw-bold text-muted">PLACE ID</label>
+                            <input id="placeId" class="form-control border-0 bg-transparent" readonly required>
+                        </div>
+                        <div class="col-12">
+                            <label class="small fw-bold text-muted">FULL ADDRESS</label>
+                            <input id="companyAddress" class="form-control border-0 bg-transparent" readonly>
+                        </div>
                     </div>
                 </div>
             </div>
             <div class="modal-footer border-0 p-4">
-                <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold">Save Business</button>
+                <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold">Add to Database</button>
             </div>
         </form>
     </div>
@@ -161,9 +150,8 @@
 
 <script>
 let chartInstances = {};
-let cachedReviews = [];
 
-// 1. Initial Load & Company List
+// 1. Initial Load - Get Company List
 async function loadCompanies() {
     try {
         const res = await fetch("/api/companies");
@@ -173,10 +161,11 @@ async function loadCompanies() {
             sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
             triggerAllLoads();
         }
-    } catch { console.error("Database connection lost"); }
+    } catch (e) { console.error("Database connection failed", e); }
 }
 
-function initGoogleAutocomplete() {
+// 2. Google Autocomplete for Add Business
+function initAutocomplete() {
     const input = document.getElementById('googleSearchInput');
     const autocomplete = new google.maps.places.Autocomplete(input);
     autocomplete.addListener('place_changed', function() {
@@ -188,143 +177,135 @@ function initGoogleAutocomplete() {
     });
 }
 
-// 2. High-Speed Sync Logic (Producer/Consumer)
-async function streamIngest() {
-    const cid = document.getElementById("companySelect").value;
-    const progressContainer = document.getElementById("ingestProgressContainer");
-    const stopBtn = document.getElementById("stopBtn");
-    
-    progressContainer.style.display = "block";
-    stopBtn.style.display = "inline-block";
-    stopBtn.innerText = "STOP FETCHING";
+// 3. Save Business to Database
+document.getElementById('addCompanyForm').onsubmit = async function(e) {
+    e.preventDefault();
+    const payload = {
+        name: document.getElementById('companyName').value,
+        place_id: document.getElementById('placeId').value,
+        address: document.getElementById('companyAddress').value
+    };
+    const res = await fetch('/api/companies', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    });
+    if (res.ok) location.reload();
+};
 
-    try {
-        await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
-        const es = new EventSource(`/api/reviews/stream?company_id=${cid}`);
-        
-        es.addEventListener('review', (e) => {
-            const review = JSON.parse(e.data);
-            cachedReviews.push(review);
-            document.getElementById("progressStats").innerText = `${cachedReviews.length} records synchronized`;
-            document.getElementById("ingestProgressBar").style.width = `100%`;
-            updateTable();
-        });
-
-        es.addEventListener('done', () => { 
-            es.close();
-            stopBtn.style.display = "none";
-            triggerAllLoads();
-        });
-
-        es.onerror = () => es.close();
-    } catch (err) { console.error("Sync failed", err); }
-}
-
-// 3. AI Analytics Engine (Aligned with dashboard.py)
+// 4. Main Data Logic - Connected to dashboard.py
 async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
     const start = document.getElementById("startDate").value;
     const end = document.getElementById("endDate").value;
     if (!cid) return;
 
-    // Load AI Layer
+    // Show progress bar during fetch
+    document.getElementById("ingestProgressContainer").style.display = "block";
+
     try {
+        // A. Fetch AI Insights
         let url = `/api/ai/insights?company_id=${cid}`;
         if(start) url += `&start=${start}`;
         if(end) url += `&end=${end}`;
 
-        const aiRes = await fetch(url);
-        const ai = await aiRes.json();
+        const res = await fetch(url);
+        const ai = await res.json();
 
-        // Map KPI Cards (Matches dashboard.py keys)
-        if(ai.kpis) {
-            document.getElementById("aiReputation").innerText = ai.kpis.reputation_score;
-            document.getElementById("aiCSAT").innerText = ai.kpis.csat + "%";
-            document.getElementById("aiBenchmark").innerText = `${ai.kpis.benchmark.your_avg} / ${ai.kpis.benchmark.category_avg}`;
-        }
+        if(ai && ai.kpis) {
+            // Mapping KPI Scores from dashboard.py
+            document.getElementById("aiReputation").innerText = ai.kpis.reputation_score || '0';
+            document.getElementById("aiCSAT").innerText = (ai.kpis.csat || '0') + "%";
+            const bench = ai.kpis.benchmark || {your_avg: 0, category_avg: 0};
+            document.getElementById("aiBenchmark").innerText = `${bench.your_avg} / ${bench.category_avg}`;
 
-        // Map Visuals
-        if(ai.visualizations) {
+            // Rendering Charts from dashboard.py visualizations
             renderRadar(ai.visualizations.emotions);
-            renderTrendChart(ai.visualizations.sentiment_trend);
+            renderTrend(ai.visualizations.sentiment_trend);
+
+            // Rendering AI Summary & Topics
+            if(ai.ai_insights) {
+                document.getElementById("aiStaffBox").innerHTML = `
+                    <div class="p-3 bg-white border rounded shadow-sm mb-3">
+                        <h6 class="fw-bold text-primary small">AI SUMMARY</h6>
+                        <div class="small text-muted">${ai.ai_insights.summary}</div>
+                    </div>
+                    <div class="p-3 bg-white border rounded shadow-sm">
+                        <h6 class="fw-bold text-success small">TOP TRENDING TOPICS</h6>
+                        ${ai.ai_insights.topics.map(t => `<span class="badge bg-light text-primary border me-1">#${t}</span>`).join('')}
+                        <div class="mt-2 small text-danger">Spam Detected: ${ai.ai_insights.spam_detected}</div>
+                    </div>
+                `;
+            }
         }
 
-        // Map Staff & Insights
-        if(ai.ai_insights) {
-            document.getElementById("aiStaffBox").innerHTML = `
-                <div class="p-3 bg-white border rounded shadow-sm mb-3">
-                    <h6 class="fw-bold text-primary"><i class="bi bi-cpu me-2"></i>AI Business Summary</h6>
-                    <p class="small text-muted mb-0">${ai.ai_insights.summary}</p>
-                </div>
-                <div class="p-3 bg-white border rounded shadow-sm">
-                    <h6 class="fw-bold text-secondary">Identified Key Topics</h6>
-                    ${ai.ai_insights.topics.map(t => `<span class="badge bg-light text-primary border m-1">#${t}</span>`).join('')}
-                    <div class="mt-2 small text-danger">Spam Detected: ${ai.ai_insights.spam_detected}</div>
-                </div>
-            `;
-        }
-    } catch (e) { console.error("Insight engine error", e); }
+        // B. Fetch Review Total
+        const countRes = await fetch(`/api/reviews?company_id=${cid}`);
+        const countData = await countRes.json();
+        document.getElementById("kpiTotal").innerText = countData.length || 0;
 
-    // Load Table Data
-    const res = await fetch(`/api/reviews?company_id=${cid}`);
-    const data = await res.json();
-    cachedReviews = data || [];
-    document.getElementById("kpiTotal").innerText = cachedReviews.length;
-    updateTable();
+    } catch (e) { 
+        console.error("Data fetch failed", e); 
+    } finally {
+        document.getElementById("ingestProgressContainer").style.display = "none";
+    }
 }
 
 function renderRadar(emotionData) {
+    if(!emotionData) return;
+    const ctx = document.getElementById("chartEmotions");
     if(chartInstances.emotions) chartInstances.emotions.destroy();
-    chartInstances.emotions = new Chart(document.getElementById("chartEmotions"), {
+    chartInstances.emotions = new Chart(ctx, {
         type: 'radar',
         data: {
             labels: Object.keys(emotionData),
-            datasets: [{ label: 'Customer Tone', data: Object.values(emotionData), backgroundColor: 'rgba(168, 85, 247, 0.2)', borderColor: '#a855f7' }]
+            datasets: [{ label: 'Tone', data: Object.values(emotionData), backgroundColor: 'rgba(168, 85, 247, 0.2)', borderColor: '#a855f7' }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
 }
 
-function renderTrendChart(trendData) {
+function renderTrend(trendData) {
+    if(!trendData) return;
+    const ctx = document.getElementById("chartTrend");
     if(chartInstances.trend) chartInstances.trend.destroy();
-    chartInstances.trend = new Chart(document.getElementById("chartTrend"), {
+    chartInstances.trend = new Chart(ctx, {
         type: "line",
         data: { 
             labels: trendData.map(d => d.week), 
             datasets: [{ 
-                label: 'Customer Satisfaction Score', 
+                label: 'Satisfaction Trend', 
                 data: trendData.map(d => d.avg), 
                 borderColor: '#4338ca', 
-                fill: true, 
                 backgroundColor: 'rgba(99, 102, 241, 0.05)', 
-                tension: 0.4 
+                fill: true, tension: 0.4 
             }] 
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
 }
 
-function updateTable() {
-    const body = document.getElementById("reviewsTable");
-    body.innerHTML = [...cachedReviews].reverse().slice(0, 50).map(r => `
-        <tr class="border-bottom">
-            <td class="fw-bold text-dark">${r.author_name || 'Guest'}</td>
-            <td><span class="badge bg-primary rounded-pill px-3">${r.rating} ★</span></td>
-            <td><span class="small">${r.sentiment_score > 0 ? '🟢 Positive' : '⚪ Neutral'}</span></td>
-            <td class="small text-muted">${new Date(r.google_review_time).toLocaleDateString()}</td>
-            <td class="small text-secondary" style="max-width: 400px;">${(r.text || '...').substring(0, 120)}...</td>
-        </tr>
-    `).join("");
-}
-
-// 4. Initialization
+// 5. App Startup & Listeners
 document.addEventListener("DOMContentLoaded", () => {
     loadCompanies();
-    initGoogleAutocomplete();
+    initAutocomplete();
 });
 
 document.getElementById("loadBtn").onclick = triggerAllLoads;
-document.getElementById("fetchBtn").onclick = streamIngest;
+
+document.getElementById("fetchBtn").onclick = async () => {
+    const cid = document.getElementById("companySelect").value;
+    document.getElementById("ingestProgressContainer").style.display = "block";
+    try {
+        await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
+        setTimeout(() => {
+            triggerAllLoads();
+        }, 3000);
+    } catch { 
+        document.getElementById("ingestProgressContainer").style.display = "none";
+    }
+};
+
 document.getElementById("toggleTheme").onclick = () => {
     const theme = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
     document.documentElement.setAttribute("data-theme", theme);
