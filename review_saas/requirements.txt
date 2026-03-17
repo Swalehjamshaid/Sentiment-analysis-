@@ -15,12 +15,13 @@ nltk>=3.9
 spacy==3.7.2
 scikit-learn==1.3.2
 
-# AI, ML & NLP (NEW ADDITIONS)
+# AI, ML & NLP
+# Note: torch is pinned to CPU version for Railway memory efficiency
 sentence-transformers==3.0.1
 openai==1.51.0
 torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu
 
-# HTTP / Requests
+# HTTP / Requests & Scraping (Fast Scraper dependencies)
 requests==2.32.3
 urllib3>=2.3.0
 chardet==5.2.0
@@ -50,6 +51,7 @@ pyotp==2.9.0
 # Utilities
 bleach==6.1.0
 itsdangerous>=2.1.2
+tenacity==9.0.0
 
 # Reporting & Documents
 reportlab==4.1.0
@@ -63,11 +65,8 @@ openpyxl==3.1.5
 # Scheduling
 apscheduler==3.10.4
 
-# Google API / Scraping
+# Google API
 googlemaps>=4.10.0
 google-api-python-client>=2.150.0
 google-auth>=2.35.0
 google-auth-oauthlib>=1.2.1
-tenacity==9.0.0
-outscraper>=6.0.2
-google-search-results>=2.4.2
