@@ -1,52 +1,75 @@
-# filename: app/routes/reviews.py
-from fastapi import APIRouter, HTTPException, Depends
+import logging
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
+from sqlalchemy import select, and_
+from datetime import datetime, timezone
 
 from app.core.db import get_session
-from app.core.models import Review
+from app.core.models import Company, Review
 from app.services.scraper import FastGoogleScraper
-from sqlalchemy import select
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-router = APIRouter(prefix="/api/reviews", tags=["Reviews"])
+router = APIRouter(prefix="/api/reviews", tags=["reviews"])
+logger = logging.getLogger(__name__)
+analyzer = SentimentIntensityAnalyzer()
 scraper = FastGoogleScraper()
 
 @router.post("/ingest/{company_id}")
-async def ingest_reviews(company_id: int, limit: Optional[int] = 100, session: AsyncSession = Depends(get_session)):
-    """
-    Fetch reviews for a company and store in DB.
-    Uses FastGoogleScraper.
-    """
-    # Placeholder: For now, use company_id as place_id
-    place_id = str(company_id)
+async def ingest_reviews(
+    company_id: int, 
+    limit: int = 10000, 
+    session: AsyncSession = Depends(get_session)
+):
+    # 1. Verify Company
+    company = await session.get(Company, company_id)
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    if not company.google_id:
+        raise HTTPException(status_code=400, detail="Company is missing Google ID (0x...)")
 
-    reviews = await scraper.get_reviews(place_id, limit=limit)
+    # 2. Fetch Data
+    logger.info(f"🚀 Syncing {company.name}...")
+    scraped_data = await scraper.get_reviews(data_id=company.google_id, limit=limit)
+    
+    if not scraped_data:
+        return {"status": "success", "message": "No new reviews found."}
 
-    if not reviews:
-        raise HTTPException(status_code=500, detail="No reviews fetched")
+    new_count = 0
+    for item in scraped_data:
+        # 3. Prevent Duplicates
+        stmt = select(Review).where(
+            and_(Review.company_id == company_id, Review.google_review_id == item["review_id"])
+        )
+        existing = (await session.execute(stmt)).scalar_one_or_none()
+        
+        if not existing:
+            # 4. Sentiment Analysis
+            text = item["text"]
+            score = analyzer.polarity_scores(text)["compound"]
+            label = "Positive" if score > 0.05 else ("Negative" if score < -0.05 else "Neutral")
 
-    # Fetch existing review_ids for this company to avoid duplicates
-    existing_stmt = select(Review.review_id).where(Review.company_id == company_id)
-    result = await session.execute(existing_stmt)
-    existing_ids = set([r[0] for r in result.fetchall()])
-
-    # Insert new reviews
-    new_reviews = []
-    for r in reviews:
-        if r["review_id"] not in existing_ids:
-            new_reviews.append(
-                Review(
-                    company_id=company_id,
-                    review_id=r["review_id"],
-                    rating=r["rating"],
-                    text=r["text"],
-                    author_title=r["author_title"],
-                    google_review_time=r["review_datetime_utc"]
-                )
+            # 5. Save to DB
+            new_review = Review(
+                company_id=company_id,
+                google_review_id=item["review_id"],
+                author_name=item["author_title"],
+                rating=item["rating"],
+                text=text,
+                google_review_time=datetime.fromisoformat(item["review_datetime_utc"]),
+                sentiment_score=score,
+                sentiment_label=label,
+                source_platform="Google"
             )
+            session.add(new_review)
+            new_count += 1
 
-    if new_reviews:
-        session.add_all(new_reviews)
-        await session.commit()
-
-    return {"status": "success", "ingested": len(new_reviews)}
+    await session.commit()
+    logger.info(f"✅ Added {new_count} reviews for {company.name}")
+    
+    return {
+        "status": "success",
+        "new_reviews_added": new_count,
+        "total_scraped": len(scraped_data)
+    }
