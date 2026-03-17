@@ -1,139 +1,83 @@
 # filename: app/routes/reviews.py
-
-from __future__ import annotations
 import logging
-import json
-import asyncio
-from typing import Optional, List
-from datetime import datetime, date
-
-from fastapi import APIRouter, Depends, Query, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
-from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
+from datetime import datetime
 
 from app.core.db import get_session
 from app.core.models import Company, Review
-from app.services.review import ingest_outscraper_reviews
+from app.services.scraper_service import FastGoogleScraper
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
+router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 logger = logging.getLogger(__name__)
+analyzer = SentimentIntensityAnalyzer()
+scraper = FastGoogleScraper()
 
-# CRITICAL: redirect_slashes=False ensures Railway deployments don't loop on 307 redirects
-router = APIRouter(prefix="/api/reviews", tags=["reviews"], redirect_slashes=False)
-
-# --------------------------- Pydantic Schema ---------------------------
-class ReviewSchema(BaseModel):
-    """Matches the SQLAlchemy Review model for JSON response serialization"""
-    id: int
-    company_id: int
-    google_review_id: str
-    author_name: Optional[str] = None
-    rating: Optional[int] = None
-    text: Optional[str] = None
-    google_review_time: Optional[datetime] = None
-    sentiment_score: Optional[float] = 0.0
-    
-    model_config = ConfigDict(from_attributes=True)
-
-# --------------------------- Streaming Helper ---------------------------
-async def review_streamer(company_id: int, start: Optional[date], end: Optional[date], limit: int, session: AsyncSession):
-    """
-    Worker for the /stream endpoint.
-    Fetches ALL existing data for the company and yields it to the dashboard.
-    """
-    # Query all stored reviews for this company ordered by newest first
-    query = select(Review).where(Review.company_id == company_id).order_by(desc(Review.google_review_time))
-    
-    if start:
-        query = query.where(Review.google_review_time >= start)
-    if end:
-        query = query.where(Review.google_review_time <= end)
-    
-    # We execute with the provided limit (default 50,000) to capture the full history
-    result = await session.execute(query.limit(limit))
-    reviews = result.scalars().all()
-
-    for review in reviews:
-        review_data = ReviewSchema.model_validate(review).model_dump_json()
-        
-        # Stream each review as a Server-Sent Event (SSE)
-        yield f"event: review\ndata: {review_data}\n\n"
-        
-        # High speed streaming for large datasets
-        await asyncio.sleep(0.001)
-
-    # Signal completion to the frontend to finalize charts/analysis
-    yield "event: done\ndata: completed\n\n"
-
-# --------------------------- Fetch Reviews API ---------------------------
-@router.get("", response_model=List[ReviewSchema])
-async def get_reviews(
-    company_id: int = Query(...),
-    start: Optional[date] = Query(None),
-    end: Optional[date] = Query(None),
-    # INCREASED LIMIT: Default set to 50,000 to ensure full database is fetched for analysis
-    limit: int = Query(50000), 
-    session: AsyncSession = Depends(get_session),
-):
-    """
-    Standard GET endpoint for the Analysis button. 
-    Retrieves all reviews from Postgres for the specified company.
-    """
-    query = select(Review).where(Review.company_id == company_id).order_by(desc(Review.google_review_time))
-    
-    if start:
-        query = query.where(Review.google_review_time >= start)
-    if end:
-        query = query.where(Review.google_review_time <= end)
-    
-    result = await session.execute(query.limit(limit))
-    return result.scalars().all()
-
-# --------------------------- Streaming API ---------------------------
-@router.get("/stream")
-async def stream_reviews(
-    company_id: int = Query(...),
-    start: Optional[date] = Query(None),
-    end: Optional[date] = Query(None),
-    # High limit to match the GET endpoint
-    limit: int = Query(50000), 
-    session: AsyncSession = Depends(get_session),
-):
-    """
-    Real-time endpoint that streams all database reviews to the UI.
-    """
-    return StreamingResponse(
-        review_streamer(company_id, start, end, limit, session),
-        media_type="text/event-stream"
-    )
-
-# --------------------------- Ingest Reviews API ---------------------------
 @router.post("/ingest/{company_id}")
-async def ingest_reviews(
-    company_id: int,
-    # How many NEW reviews to fetch from Google Maps via Outscraper
-    max_reviews: int = Query(1000), 
-    session: AsyncSession = Depends(get_session),
-):
-    """
-    Trigger ingestion of new reviews. 
-    Duplicates are filtered in the service layer using existing DB records.
-    """
-    result = await session.execute(select(Company).where(Company.id == company_id))
-    company = result.scalars().first()
-    
+async def ingest_reviews(company_id: int, limit: int = 50, session: AsyncSession = Depends(get_session)):
+    # 1. Verify Company and get Google Data ID
+    company = await session.get(Company, company_id)
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
+    
+    # Assuming your company model stores the Google ID/CID in a field called 'google_id'
+    # If it's stored in the URL, you'll need to parse it first
+    data_id = company.google_id 
+    if not data_id:
+        raise HTTPException(status_code=400, detail="Company does not have a valid Google Data ID")
 
+    # 2. Fetch data using the Fast Scraper
+    logger.info(f"🚀 Starting fast scrape for {company.name} (Limit: {limit})")
+    scraped_data = await scraper.get_reviews(data_id=data_id, limit=limit)
+    
+    if not scraped_data:
+        return {"status": "success", "message": "No new reviews found or scraper blocked."}
+
+    new_count = 0
+    for item in scraped_data:
+        # 3. Check if review already exists to avoid duplicates
+        stmt = select(Review).where(Review.google_review_id == item["review_id"])
+        existing = (await session.execute(stmt)).scalar_one_or_none()
+        
+        if not existing:
+            # 4. Perform local Sentiment Analysis before saving
+            sentiment_score = analyzer.polarity_scores(item["text"])["compound"]
+            
+            label = "Neutral"
+            if sentiment_score > 0.05: label = "Positive"
+            elif sentiment_score < -0.05: label = "Negative"
+
+            # 5. Create Database Object
+            new_review = Review(
+                company_id=company_id,
+                google_review_id=item["review_id"],
+                author_name=item["author_title"],
+                rating=item["rating"],
+                text=item["text"],
+                google_review_time=datetime.fromisoformat(item["review_datetime_utc"]),
+                sentiment_score=sentiment_score,
+                sentiment_label=label,
+                # Add extra fields if your model supports them:
+                # author_image=item["author_image"],
+                # owner_response=item["owner_answer"]
+            )
+            session.add(new_review)
+            new_count += 1
+
+    # 6. Commit all changes
     try:
-        # Calls the Producer-Consumer logic in app/services/review.py
-        # Starting skip is calculated based on current DB count in the service
-        new_count = await ingest_outscraper_reviews(company, session, max_reviews=max_reviews)
-        return {
-            "status": "success",
-            "message": f"✅ Processed {new_count} new reviews for {company.name}"
-        }
+        await session.commit()
+        logger.info(f"✅ Ingested {new_count} new reviews for {company.name}")
     except Exception as e:
-        logger.error(f"Ingestion Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Scraper error: {str(e)}")
+        await session.rollback()
+        logger.error(f"Database Error during ingestion: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save reviews to database")
+
+    return {
+        "status": "success",
+        "company": company.name,
+        "new_reviews_added": new_count,
+        "total_scraped": len(scraped_data)
+    }
