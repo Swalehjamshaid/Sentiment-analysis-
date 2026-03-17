@@ -14,12 +14,19 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 from app.core.db import get_session
 from app.core.models import Company, Review
-from app.services.scraper import FastGoogleScraper
+
+# Safety Import for Scraper
+try:
+    from app.services.scraper import FastGoogleScraper
+    scraper = FastGoogleScraper()
+except ImportError:
+    logger = logging.getLogger(__name__)
+    logger.error("Scraper module not found. Sync features will be disabled.")
+    scraper = None
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 logger = logging.getLogger(__name__)
 analyzer = SentimentIntensityAnalyzer()
-scraper = FastGoogleScraper()
 
 POS_THRESHOLD = 0.05
 NEG_THRESHOLD = -0.05
@@ -55,13 +62,15 @@ def detect_intent(question: str):
 
 # ---------------- CORE ANALYSIS ----------------
 async def analyze_company(session, company_id, start_d, end_d):
+    # Removed the .limit(100) to ensure you see ALL synchronized data
     stmt = select(Review).where(
         and_(
             Review.company_id == company_id,
             Review.google_review_time >= start_d,
             Review.google_review_time <= end_d
         )
-    ).order_by(Review.google_review_time.desc()).limit(100)  # last 100 reviews
+    ).order_by(Review.google_review_time.desc())
+    
     res = await session.execute(stmt)
     reviews = res.scalars().all()
 
@@ -82,8 +91,10 @@ async def analyze_company(session, company_id, start_d, end_d):
             key = r.google_review_time.strftime("%Y-%m")
             monthly[key].append(score)
 
-    avg_rating = round(sum(ratings) / len(ratings), 2)
-    sentiment_avg = round(sum(sentiments) / len(sentiments), 2)
+    total_count = len(reviews)
+    avg_rating = round(sum(ratings) / total_count, 2)
+    sentiment_avg = round(sum(sentiments) / total_count, 2)
+    
     monthly_data = [
         {"month": m, "sentiment": round(sum(v)/len(v), 2)}
         for m, v in sorted(monthly.items())
@@ -92,8 +103,8 @@ async def analyze_company(session, company_id, start_d, end_d):
     return {
         "avg_rating": avg_rating,
         "sentiment": sentiment_avg,
-        "total_reviews": len(reviews),
-        "texts": texts[:300],
+        "total_reviews": total_count,
+        "texts": texts,  # Returning all texts for full AI analysis
         "monthly": monthly_data,
         "ratings": ratings,
         "sentiments": sentiments
@@ -157,15 +168,15 @@ async def chatbot(
     strengths = [w for w, _ in common[3:]]
 
     if intent == "rating":
-        answer = f"Your rating is {data['avg_rating']}. Main issues: {', '.join(issues)}"
+        answer = f"Your average rating is {data['avg_rating']}. Based on feedback, primary drivers are {', '.join(issues)}."
     elif intent == "issues":
-        answer = f"Top issues: {', '.join(issues)}"
+        answer = f"Identified concerns include: {', '.join(issues)}. Customers often mention these in negative contexts."
     elif intent == "strengths":
-        answer = f"Strengths: {', '.join(strengths)}"
+        answer = f"Your business strengths include: {', '.join(strengths)}. These are frequently mentioned in high-rating reviews."
     elif intent == "improve":
-        answer = f"Improve by fixing: {', '.join(issues)} and focusing on customer experience."
+        answer = f"To improve, focus on addressing {', '.join(issues)}. Strengthening operations in these areas will likely boost your CSAT."
     else:
-        answer = f"Rating: {data['avg_rating']}, Reviews: {data['total_reviews']}"
+        answer = f"Overview: Rating {data['avg_rating']} across {data['total_reviews']} total reviews."
 
     return {"answer": answer}
 
@@ -213,6 +224,6 @@ async def revenue(company_id: int, session: AsyncSession = Depends(get_session))
 async def reply(review_text: str = Body(...)):
     score = analyzer.polarity_scores(review_text)["compound"]
     if score > 0:
-        return {"reply": "Thank you for your positive feedback!"}
+        return {"reply": "Thank you for your kind words! We are thrilled you enjoyed your experience."}
     else:
-        return {"reply": "We apologize and will improve your experience."}
+        return {"reply": "We are sorry to hear about your experience. Please reach out to our management so we can make this right."}
