@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 async def fetch_reviews(place_id: str, limit: int = 300, skip: int = 0) -> List[Dict[str, Any]]:
     reviews = []
-    # Using the most reliable Google Maps Direct URL format
+    # Use the more standard Maps URL which is less likely to trigger bot detection
     place_url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
 
     try:
@@ -19,67 +19,85 @@ async def fetch_reviews(place_id: str, limit: int = 300, skip: int = 0) -> List[
                 args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
             )
             
+            # FORCE English locale. If Google sees a different language, 
+            # aria-labels like "Reviews" will be "Rezensionen" or "Reseñas".
             context = await browser.new_context(
                 viewport={'width': 1280, 'height': 900},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                locale="en-US"
             )
             
             page = await context.new_page()
             logger.info(f"🚀 Navigating to Place ID: {place_id}")
 
-            # 1. Load Page
-            await page.goto(place_url, wait_until="domcontentloaded", timeout=60000)
+            # 1. Load Page with a longer timeout
+            await page.goto(place_url, wait_until="networkidle", timeout=60000)
 
-            # 2. BREAK THE CONSENT WALL (Crucial for Railway/Cloud IPs)
+            # 2. BREAK THE CONSENT WALL (More aggressive)
             try:
-                # Look for "Accept all" or "Agree" buttons
-                consent_btn = page.get_by_role("button", name=re.compile(r"Accept all|Agree|Allow|Accept", re.IGNORECASE)).first
-                if await consent_btn.is_visible(timeout=5000):
-                    await consent_btn.click()
-                    logger.info("✅ Bypassed Google Consent Wall")
-                    await page.wait_for_timeout(2000)
-            except:
-                logger.info("No consent wall detected or already bypassed.")
+                # Some regions have a mandatory "Accept all" button
+                consent_selectors = ["Accept all", "Agree", "Allow", "Accept"]
+                for btn_text in consent_selectors:
+                    btn = page.get_by_role("button", name=re.compile(btn_text, re.IGNORECASE)).first
+                    if await btn.is_visible(timeout=3000):
+                        await btn.click()
+                        logger.info(f"✅ Bypassed Consent with: {btn_text}")
+                        await page.wait_for_timeout(2000)
+                        break
+            except Exception:
+                logger.info("Consent wall not found; proceeding.")
 
-            # 3. TRIGGER THE REVIEWS PANEL
-            try:
-                # Target the button that explicitly mentions "Reviews" or the review count
-                review_tab = page.locator('button[aria-label*="Reviews"]').first
-                await review_tab.click()
-                await page.wait_for_timeout(3000)
-                logger.info("✅ Reviews panel opened")
-            except Exception as e:
-                logger.warning(f"Could not find specific Reviews button: {e}. Attempting direct scroll.")
+            # 3. TRIGGER THE REVIEWS PANEL (Multiple Fallbacks)
+            review_triggered = False
+            # Try specific aria-label, then text, then common class
+            review_locators = [
+                'button[aria-label*="Reviews"]',
+                'button:has-text("Reviews")',
+                'div[role="tab"]:has-text("Reviews")',
+                '.hh7Vgc' # Google's internal class for the review tab
+            ]
 
-            # 4. TARGETED INTERNAL SCROLLING
-            # We target multiple possible scroll containers used by Google
+            for selector in review_locators:
+                try:
+                    target = page.locator(selector).first
+                    if await target.is_visible(timeout=5000):
+                        await target.click()
+                        review_triggered = True
+                        logger.info(f"✅ Reviews panel opened via {selector}")
+                        # Wait for the scrollable container to appear
+                        await page.wait_for_selector('div.jftiEf', timeout=10000)
+                        break
+                except Exception:
+                    continue
+
+            if not review_triggered:
+                logger.warning("Could not find 'Reviews' tab. The page might be in a different layout.")
+
+            # 4. ROBUST INTERNAL SCROLLING
             last_count = 0
             for i in range(30):
+                # We inject JS to scroll the specific panel where reviews live
                 await page.evaluate('''
-                    const selectors = [
-                        'div[role="main"] div[tabindex="-1"]',
-                        '.m67Hec',
-                        'div[aria-label*="Reviews"]',
-                        'div[role="main"]'
-                    ];
-                    for (const s of selectors) {
-                        const el = document.querySelector(s);
-                        if (el && el.scrollHeight > el.clientHeight) {
-                            el.scrollTop = el.scrollHeight;
-                        }
+                    const scrollable = document.querySelector('div[role="main"] div[tabindex="-1"]') 
+                                    || document.querySelector('.m67Hec') 
+                                    || document.querySelector('div[aria-label*="Reviews"]');
+                    if (scrollable) {
+                        scrollable.scrollTop = scrollable.scrollHeight;
+                    } else {
+                        window.scrollBy(0, 1000);
                     }
                 ''')
                 
                 await page.wait_for_timeout(2000)
                 
-                # Check for review card elements
                 elements = await page.query_selector_all('div.jftiEf')
                 current_count = len(elements)
                 logger.info(f"🔄 Loop {i+1}: Found {current_count} reviews")
                 
                 if current_count >= limit:
                     break
-                if current_count == last_count and i > 10:
+                # If we've been stuck for 5 loops, exit
+                if current_count == last_count and i > 5:
                     break
                 last_count = current_count
 
@@ -89,24 +107,24 @@ async def fetch_reviews(place_id: str, limit: int = 300, skip: int = 0) -> List[
 
             for r in final_elements[:limit]:
                 try:
-                    # Click "More" to expand long text
+                    # Expand long text
                     more_btn = await r.query_selector('button:has-text("More")')
-                    if more_btn: await more_btn.click()
+                    if more_btn: 
+                        await more_btn.click()
+                        await page.wait_for_timeout(200)
 
                     text_el = await r.query_selector('.wiI7pd')
                     author_el = await r.query_selector('.d4r55')
                     rating_el = await r.query_selector('span.kvMYJc')
                     
-                    if not text_el and not author_el:
-                        continue
+                    if not author_el: continue
 
-                    # Clean extraction
-                    text = await text_el.inner_text() if text_el else "No comment"
+                    text = await text_el.inner_text() if text_el else ""
                     author = await author_el.inner_text() if author_el else "Google User"
                     
-                    # Rating extraction from aria-label (e.g., "5 stars")
                     rating_raw = await rating_el.get_attribute("aria-label") if rating_el else "0"
-                    rating = int(re.search(r'\d+', rating_raw).group()) if rating_raw else 0
+                    rating_match = re.search(r'(\d+)', rating_raw)
+                    rating = int(rating_match.group(1)) if rating_match else 0
 
                     reviews.append({
                         "review_id": f"pw_{hash(text + author + str(datetime.now().timestamp()))}",
@@ -115,11 +133,12 @@ async def fetch_reviews(place_id: str, limit: int = 300, skip: int = 0) -> List[
                         "author_name": author,
                         "google_review_time": datetime.utcnow().isoformat()
                     })
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Row skip: {e}")
                     continue
             
             await browser.close()
-            logger.info(f"✨ MISSION COMPLETE: Collected {len(reviews)} reviews for Postgres.")
+            logger.info(f"✨ MISSION COMPLETE: Collected {len(reviews)} reviews.")
 
     except Exception as e:
         logger.error(f"❌ Scraper Critical Failure: {str(e)}")
