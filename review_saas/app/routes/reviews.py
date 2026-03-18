@@ -6,9 +6,14 @@ from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 from datetime import datetime
 
-# Import your database models and scraper service
-from app.db.database import get_db
-from app.db import models
+# ✅ SAFE IMPORT FIX (supports both structures: app.db OR app.core)
+try:
+    from app.db.database import get_db
+    from app.db import models
+except ModuleNotFoundError:
+    from app.core.db import get_session as get_db
+    from app.core import models
+
 from app.services.scraper import fetch_reviews
 
 router = APIRouter(prefix="/api/reviews", tags=["Reviews"])
@@ -37,12 +42,12 @@ async def ingest_reviews(company_id: int, db: Session = Depends(get_db)):
         total_processed = 0
         skip = 0
         batch_size = 200
-        MAX_BATCHES = 10  # safety limit (prevents infinite loop)
+        MAX_BATCHES = 10  # safety limit
 
+        # ✅ LOOP FOR CONTINUOUS FETCHING
         for batch in range(MAX_BATCHES):
             logger.info(f"📦 Fetching batch {batch + 1} (skip={skip})")
 
-            # 2. Call Scraper Service (batch of 200)
             scraped_data = await fetch_reviews(
                 place_id=company.place_id,
                 limit=batch_size,
@@ -55,7 +60,7 @@ async def ingest_reviews(company_id: int, db: Session = Depends(get_db)):
 
             new_count = 0
 
-            # 3. Save to Database (Upsert Logic)
+            # 3. Save to Database (NO CHANGE IN LOGIC)
             for item in scraped_data:
                 try:
                     existing = db.query(models.Review).filter(
@@ -76,20 +81,18 @@ async def ingest_reviews(company_id: int, db: Session = Depends(get_db)):
                         )
                         db.add(new_review)
                         new_count += 1
-
                 except Exception:
                     continue
 
             db.commit()
 
-            logger.info(f"✅ Batch {batch + 1}: {new_count} new reviews saved")
-
             total_new_reviews += new_count
             total_processed += len(scraped_data)
 
-            # If less than batch size → no more data
+            logger.info(f"✅ Batch {batch + 1}: {new_count} new reviews saved")
+
             if len(scraped_data) < batch_size:
-                logger.info("📭 Reached end of available reviews.")
+                logger.info("📭 End of available reviews.")
                 break
 
             skip += batch_size
