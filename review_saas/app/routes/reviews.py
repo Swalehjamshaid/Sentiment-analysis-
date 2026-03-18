@@ -2,11 +2,12 @@
 
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 from datetime import datetime
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-# ✅ SAFE IMPORT FIX (supports both structures: app.db OR app.core)
+# ✅ SAFE IMPORT FIX
 try:
     from app.db.database import get_db
     from app.db import models
@@ -21,32 +22,32 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/ingest/{company_id}")
-async def ingest_reviews(company_id: int, db: Session = Depends(get_db)):
+async def ingest_reviews(company_id: int, db: AsyncSession = Depends(get_db)):
     """
-    Endpoint to trigger the Playwright scraper for a specific company.
-    It fetches reviews from Google Maps and saves them to the Postgres database.
+    Fetch reviews and store in Postgres (Async-safe)
     """
 
-    # 1. Verify Company Exists
-    company = db.query(models.Company).filter(models.Company.id == company_id).first()
+    # ✅ FIXED (Async way)
+    result = await db.execute(
+        select(models.Company).where(models.Company.id == company_id)
+    )
+    company = result.scalar_one_or_none()
+
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
 
     if not company.place_id:
         raise HTTPException(status_code=400, detail="Company missing Google Place ID")
 
-    logger.info(f"🚀 Manual Sync Triggered for: {company.name} (ID: {company_id})")
+    logger.info(f"🚀 Sync Triggered: {company.name}")
 
     try:
         total_new_reviews = 0
         total_processed = 0
         skip = 0
         batch_size = 200
-        MAX_BATCHES = 10  # safety limit
 
-        # ✅ LOOP FOR CONTINUOUS FETCHING
-        for batch in range(MAX_BATCHES):
-            logger.info(f"📦 Fetching batch {batch + 1} (skip={skip})")
+        for batch in range(10):
 
             scraped_data = await fetch_reviews(
                 place_id=company.place_id,
@@ -55,19 +56,21 @@ async def ingest_reviews(company_id: int, db: Session = Depends(get_db)):
             )
 
             if not scraped_data:
-                logger.info("✅ No more data available from scraper.")
                 break
 
             new_count = 0
 
-            # 3. Save to Database (NO CHANGE IN LOGIC)
             for item in scraped_data:
                 try:
-                    existing = db.query(models.Review).filter(
-                        models.Review.text == item["text"],
-                        models.Review.author_name == item["author_name"],
-                        models.Review.company_id == company_id
-                    ).first()
+                    # ✅ Async duplicate check
+                    existing_result = await db.execute(
+                        select(models.Review).where(
+                            models.Review.text == item["text"],
+                            models.Review.author_name == item["author_name"],
+                            models.Review.company_id == company_id
+                        )
+                    )
+                    existing = existing_result.scalar_one_or_none()
 
                     if not existing:
                         new_review = models.Review(
@@ -81,23 +84,19 @@ async def ingest_reviews(company_id: int, db: Session = Depends(get_db)):
                         )
                         db.add(new_review)
                         new_count += 1
+
                 except Exception:
                     continue
 
-            db.commit()
+            await db.commit()
 
             total_new_reviews += new_count
             total_processed += len(scraped_data)
 
-            logger.info(f"✅ Batch {batch + 1}: {new_count} new reviews saved")
-
             if len(scraped_data) < batch_size:
-                logger.info("📭 End of available reviews.")
                 break
 
             skip += batch_size
-
-        logger.info(f"🎯 Total new reviews added: {total_new_reviews}")
 
         return {
             "status": "success",
@@ -107,18 +106,24 @@ async def ingest_reviews(company_id: int, db: Session = Depends(get_db)):
         }
 
     except Exception as e:
-        db.rollback()
-        logger.error(f"❌ Ingestion Error for Company {company_id}: {str(e)}")
+        await db.rollback()
+        logger.error(f"❌ Error: {str(e)}")
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal Scraper Error: {str(e)}"
+            detail=str(e)
         )
 
 
 @router.get("/list/{company_id}", response_model=List[Dict[str, Any]])
-async def get_company_reviews(company_id: int, db: Session = Depends(get_db)):
+async def get_company_reviews(company_id: int, db: AsyncSession = Depends(get_db)):
     """
-    Returns all stored reviews for a specific company.
+    Get all reviews (Async)
     """
-    reviews = db.query(models.Review).filter(models.Review.company_id == company_id).all()
+
+    result = await db.execute(
+        select(models.Review).where(models.Review.company_id == company_id)
+    )
+    reviews = result.scalars().all()
+
     return reviews
