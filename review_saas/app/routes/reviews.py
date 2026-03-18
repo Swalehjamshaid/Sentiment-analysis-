@@ -1,129 +1,169 @@
-# filename: app/routes/reviews.py
+from __future__ import annotations
 
+import asyncio
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
-from typing import List, Dict, Any
 from datetime import datetime
-from sqlalchemy import select
+from typing import Optional, List
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
-# ✅ SAFE IMPORT FIX
-try:
-    from app.db.database import get_db
-    from app.db import models
-except ModuleNotFoundError:
-    from app.core.db import get_session as get_db
-    from app.core import models
+from app.core.db import get_session
+from app.core import models
 
-from app.services.scraper import fetch_reviews
+# 🔥 Playwright for scraping
+from playwright.async_api import async_playwright
 
 router = APIRouter(prefix="/api/reviews", tags=["Reviews"])
+
 logger = logging.getLogger(__name__)
 
 
-@router.post("/ingest/{company_id}")
-async def ingest_reviews(company_id: int, db: AsyncSession = Depends(get_db)):
-    """
-    Fetch reviews and store in Postgres (Async-safe)
-    """
+# ---------------------------------------------------
+# 🔥 HELPER: Scrape reviews using Playwright
+# ---------------------------------------------------
+async def scrape_reviews(place_id: str, max_reviews: int = 200):
+    reviews = []
 
-    # ✅ FIXED (Async way)
-    result = await db.execute(
-        select(models.Company).where(models.Company.id == company_id)
-    )
-    company = result.scalar_one_or_none()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
 
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+        url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+        await page.goto(url, timeout=60000)
 
-    if not company.place_id:
-        raise HTTPException(status_code=400, detail="Company missing Google Place ID")
+        # Open reviews tab
+        await page.wait_for_selector('button[jsaction="pane.reviewChart.moreReviews"]', timeout=15000)
+        await page.click('button[jsaction="pane.reviewChart.moreReviews"]')
 
-    logger.info(f"🚀 Sync Triggered: {company.name}")
+        await page.wait_for_selector('div[role="article"]')
 
-    try:
-        total_new_reviews = 0
-        total_processed = 0
-        skip = 0
-        batch_size = 200
+        last_height = 0
 
-        for batch in range(10):
+        while len(reviews) < max_reviews:
+            cards = await page.query_selector_all('div[role="article"]')
 
-            scraped_data = await fetch_reviews(
-                place_id=company.place_id,
-                limit=batch_size,
-                skip=skip
-            )
-
-            if not scraped_data:
-                break
-
-            new_count = 0
-
-            for item in scraped_data:
+            for card in cards:
                 try:
-                    # ✅ Async duplicate check
-                    existing_result = await db.execute(
-                        select(models.Review).where(
-                            models.Review.text == item["text"],
-                            models.Review.author_name == item["author_name"],
-                            models.Review.company_id == company_id
-                        )
-                    )
-                    existing = existing_result.scalar_one_or_none()
+                    text_el = await card.query_selector('span[jsname="bN97Pc"]')
+                    text = await text_el.inner_text() if text_el else ""
 
-                    if not existing:
-                        new_review = models.Review(
-                            company_id=company_id,
-                            review_id=item["review_id"],
-                            rating=item["rating"],
-                            text=item["text"],
-                            author_name=item["author_name"],
-                            google_review_time=item["google_review_time"],
-                            created_at=datetime.utcnow()
-                        )
-                        db.add(new_review)
-                        new_count += 1
+                    rating_el = await card.query_selector('span[aria-label*="star"]')
+                    rating = 0
+                    if rating_el:
+                        rating_text = await rating_el.get_attribute("aria-label")
+                        rating = int(rating_text[0])
+
+                    time_el = await card.query_selector('span.rsqaWe')
+                    review_time = datetime.utcnow()  # fallback
+
+                    reviews.append({
+                        "google_review_id": hash(text + str(rating)),
+                        "text": text,
+                        "rating": rating,
+                        "time": review_time
+                    })
 
                 except Exception:
                     continue
 
-            await db.commit()
+                if len(reviews) >= max_reviews:
+                    break
 
-            total_new_reviews += new_count
-            total_processed += len(scraped_data)
+            await page.mouse.wheel(0, 5000)
+            await asyncio.sleep(2)
 
-            if len(scraped_data) < batch_size:
+            new_height = len(cards)
+            if new_height == last_height:
                 break
+            last_height = new_height
 
-            skip += batch_size
-
-        return {
-            "status": "success",
-            "company": company.name,
-            "reviews_count": total_new_reviews,
-            "total_processed": total_processed
-        }
-
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"❌ Error: {str(e)}")
-
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
-
-
-@router.get("/list/{company_id}", response_model=List[Dict[str, Any]])
-async def get_company_reviews(company_id: int, db: AsyncSession = Depends(get_db)):
-    """
-    Get all reviews (Async)
-    """
-
-    result = await db.execute(
-        select(models.Review).where(models.Review.company_id == company_id)
-    )
-    reviews = result.scalars().all()
+        await browser.close()
 
     return reviews
+
+
+# ---------------------------------------------------
+# 🚀 MAIN API: Ingest Reviews
+# ---------------------------------------------------
+@router.post("/ingest/{company_id}")
+async def ingest_reviews(
+    company_id: int,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    db: AsyncSession = Depends(get_session),
+):
+    # ✅ Get company (ASYNC FIX)
+    result = await db.execute(
+        select(models.Company).where(models.Company.id == company_id)
+    )
+    company = result.scalars().first()
+
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    # ✅ FIXED: Use correct field
+    if not company.google_place_id:
+        raise HTTPException(status_code=400, detail="No Google Place ID found")
+
+    place_id = company.google_place_id
+
+    total_saved = 0
+    batch_size = 200
+    has_more = True
+    page_count = 0
+
+    while has_more:
+        page_count += 1
+        logger.info(f"Fetching batch {page_count}")
+
+        scraped_reviews = await scrape_reviews(place_id, max_reviews=batch_size)
+
+        if not scraped_reviews:
+            break
+
+        for r in scraped_reviews:
+            review_time = r["time"]
+
+            # ✅ Date filtering
+            if start_date and review_time < start_date:
+                has_more = False
+                break
+            if end_date and review_time > end_date:
+                continue
+
+            # ✅ Check duplicate
+            existing = await db.execute(
+                select(models.Review).where(
+                    models.Review.google_review_id == str(r["google_review_id"]),
+                    models.Review.company_id == company_id,
+                )
+            )
+            if existing.scalars().first():
+                continue
+
+            # ✅ Save review
+            new_review = models.Review(
+                company_id=company_id,
+                google_review_id=str(r["google_review_id"]),
+                rating=r["rating"],
+                text=r["text"],
+                google_review_time=review_time,
+                source_platform="Google",
+            )
+
+            db.add(new_review)
+            total_saved += 1
+
+        await db.commit()
+
+        # Stop if less than batch
+        if len(scraped_reviews) < batch_size:
+            has_more = False
+
+    return {
+        "status": "success",
+        "company_id": company_id,
+        "reviews_saved": total_saved
+    }
