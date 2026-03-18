@@ -23,7 +23,7 @@ from app.core.db import Base
 # ---------------------------------------------------
 # SCHEMA VERSION (Crucial for app/main.py lifecycle checks)
 # ---------------------------------------------------
-SCHEMA_VERSION = "21.0.5-new-tables-added"
+SCHEMA_VERSION = "22.0.5-new-tables-added"
 
 # ---------------------------------------------------
 # Users Table
