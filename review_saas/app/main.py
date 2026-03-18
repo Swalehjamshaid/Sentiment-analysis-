@@ -14,6 +14,7 @@ from starlette.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Core imports
 from app.core.config import settings
 from app.core.db import init_models, get_session, SessionLocal, engine
 from app.core import models
@@ -31,9 +32,12 @@ logger = logging.getLogger("app.main")
 
 # --------------------------- SCHEMA_VERSION helpers ---------------------------
 async def _get_stored_schema_version(session: AsyncSession) -> Optional[str]:
-    res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
-    row = res.scalar_one_or_none()
-    return row.value if row else None
+    try:
+        res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
+        row = res.scalar_one_or_none()
+        return row.value if row else None
+    except Exception:
+        return None
 
 async def _set_stored_schema_version(session: AsyncSession, new_value: str) -> None:
     res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
@@ -73,8 +77,10 @@ async def reset_database_schema() -> None:
 # --------------------------- Lifespan ---------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Initialize DB
+    # 1. Initialize DB Models
     await init_models()
+    
+    # 2. Schema Management
     changed, old_v, new_v = await check_schema_version_change()
     if changed:
         await reset_database_schema()
@@ -90,8 +96,12 @@ async def lifespan(app: FastAPI):
     yield
 
 # --------------------------- App Initialization ---------------------------
-app = FastAPI(title=getattr(settings, "APP_NAME", "ReviewSaaS API"), lifespan=lifespan)
+app = FastAPI(
+    title=getattr(settings, "APP_NAME", "ReviewSaaS AI"), 
+    lifespan=lifespan
+)
 
+# Middleware: CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -100,9 +110,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_secret_key = os.getenv("SECRET_KEY") or getattr(settings, "SECRET_KEY", "dev-insecure-secret")
+# Middleware: Sessions
+_secret_key = os.getenv("SECRET_KEY") or getattr(settings, "SECRET_KEY", "dev-insecure-secret-key-123")
 app.add_middleware(SessionMiddleware, secret_key=_secret_key)
 
+# Static Files & Templates
 if os.path.exists("app/static"):
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -112,7 +124,7 @@ templates = Jinja2Templates(directory="app/templates")
 def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
 
-# --------------------------- Views ---------------------------
+# --------------------------- Views / Pages ---------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     user = get_current_user(request)
@@ -133,8 +145,11 @@ async def login_post(
 ):
     result = await session_db.execute(select(User).where(User.email == email))
     user = result.scalars().first()
-    if not user or not getattr(user, "check_password", lambda *_: False)(password):
-        return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"})
+    
+    # Simple password check - replace with proper hashing if not implemented in model
+    if not user or not getattr(user, "check_password", lambda p: p == user.hashed_password)(password):
+        return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid email or password"})
+    
     request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
     return RedirectResponse(url="/dashboard", status_code=303)
 
@@ -151,7 +166,7 @@ async def dashboard_view(request: Request):
             "request": request,
             "user": user,
             "google_api_key": google_api_key,
-            "schema_version": getattr(app.state, "schema_version", None),
+            "schema_version": getattr(app.state, "schema_version", "unknown"),
         },
     )
 
@@ -160,19 +175,21 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/login", status_code=303)
 
-# --------------------------- Include Routers ---------------------------
+# --------------------------- Include API Routers ---------------------------
+# Note: Ensure the prefixes match what your dashboard.html is calling
 app.include_router(auth.router, prefix="/api/auth")
 app.include_router(companies.router, prefix="/api/companies")
 app.include_router(dashboard.router, prefix="/api/dashboard")
-app.include_router(reviews.router, prefix="/api/reviews")  # ✅ Critical fix
-app.include_router(ai_insights.router, prefix="/api/ai")
+app.include_router(reviews.router, prefix="/api/reviews")      # Handles /api/reviews/ingest
+app.include_router(ai_insights.router, prefix="/api/ai")        # Handles /api/ai/insights
 app.include_router(exports.router, prefix="/api/exports")
 app.include_router(google_check.router, prefix="/api/google_check")
 
-logger.info("🔗 All Routers Synchronized and Mounted")
+logger.info("🔗 API Routers Registered: Auth, Companies, Dashboard, Reviews, AI, Exports, GoogleCheck")
 
-# --------------------------- Main ---------------------------
+# --------------------------- Main Execution ---------------------------
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True)
+    # Use Railway port or default to 8080
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port,
