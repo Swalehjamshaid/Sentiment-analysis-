@@ -1,51 +1,57 @@
 # filename: app/services/scraper.py
-import httpx
-import json
-import logging
-from datetime import datetime
+import random
+from datetime import datetime, timedelta
 from typing import List, Dict, Any
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from textblob import TextBlob
 
-logger = logging.getLogger(__name__)
+analyzer = SentimentIntensityAnalyzer()
 
 async def fetch_reviews(place_id: str, limit: int = 300, skip: int = 0) -> List[Dict[str, Any]]:
     """
-    High-speed Google Review extraction.
-    !1i{skip} is the starting point, !2i{limit} is how many to get.
+    Dummy Python-based review generator to simulate Google Reviews.
+    Returns realistic reviews with sentiment analysis using Python libraries.
     """
-    url = "https://www.google.com/maps/preview/review/listentitiesreviews"
-    pb = f"!1m1!1s{place_id}!2m2!1i{skip}!2i{limit}!3e1!4m5!4b1!5b1!6b1!7b1!11m1!4b1"
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
-        "Referer": "https://www.google.com/"
-    }
-    
-    params = {"authuser": "0", "hl": "en", "gl": "us", "pb": pb}
-    reviews_list = []
-    
-    async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
-        try:
-            response = await client.get(url, params=params)
-            content = response.text
-            if content.startswith(")]}'"):
-                content = content[4:].strip()
+    dummy_texts = [
+        "Excellent service and friendly staff.",
+        "Average experience, nothing special.",
+        "Very poor service, will not return.",
+        "Great ambiance, highly recommend!",
+        "Okay experience, could be better.",
+        "Terrible food, extremely disappointed.",
+        "Loved it, five stars!",
+        "Not bad, but not great either."
+    ]
 
-            data = json.loads(content)
-            if not data or not isinstance(data, list) or len(data) < 3:
-                return []
+    reviews_list: List[Dict[str, Any]] = []
 
-            raw_reviews = data[2] if data[2] else []
-            for r in raw_reviews:
-                try:
-                    reviews_list.append({
-                        "review_id": str(r[0]),
-                        "rating": int(r[4]) if len(r) > 4 else 0,
-                        "text": r[3] if len(r) > 3 and r[3] else "",
-                        "author_name": r[0][1] if (r[0] and len(r[0]) > 1) else "Google User",
-                        "google_review_time": datetime.fromtimestamp(r[27]/1000).isoformat() if (len(r) > 27 and r[27]) else datetime.utcnow().isoformat()
-                    })
-                except: continue
-        except Exception as e:
-            logger.error(f"Scraper Error: {e}")
-            return []
+    for i in range(skip, skip + limit):
+        text = random.choice(dummy_texts)
+        rating = random.randint(1, 5)
+
+        # Sentiment using Vader
+        vader_score = analyzer.polarity_scores(text)["compound"]
+        # Sentiment using TextBlob
+        tb_score = TextBlob(text).sentiment.polarity
+        # Combine for simple score
+        score = (vader_score + tb_score) / 2
+
+        # Determine label
+        if score > 0.05:
+            label = "Positive"
+        elif score < -0.05:
+            label = "Negative"
+        else:
+            label = "Neutral"
+
+        reviews_list.append({
+            "review_id": f"{place_id}_review_{i+1}",
+            "author_name": f"User_{i+1}",
+            "rating": rating,
+            "text": text,
+            "google_review_time": (datetime.utcnow() - timedelta(days=i)).isoformat(),
+            "sentiment_score": score,
+            "sentiment_label": label
+        })
+
     return reviews_list
