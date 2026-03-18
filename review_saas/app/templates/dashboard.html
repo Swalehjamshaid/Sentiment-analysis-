@@ -1,70 +1,333 @@
-import httpx
-import json
-import logging
-from datetime import datetime
-from typing import List, Dict, Any
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Review Intelligence AI Dashboard</title>
 
-logger = logging.getLogger(__name__)
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
-class FastGoogleScraper:
-    """
-    High-speed Google Review scraper using direct request emulation.
-    """
-    def __init__(self):
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
-            "Accept": "*/*",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Referer": "https://www.google.com/",
+    <style>
+        :root { 
+            --primary-grad: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
+            --ai-grad: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
+            --danger-grad: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
         }
+        body { background-color: #f8fafc; padding:24px; font-family: 'Inter', sans-serif; transition: background 0.3s; }
+        .navbar { background: var(--primary-grad) !important; border-radius: 15px !important; margin-bottom: 25px; border: none; }
+        .card { border: none; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .total-review-card { background: var(--primary-grad); color: white; border-radius: 24px; }
+        .risk-card { background: var(--danger-grad); color: white; border-radius: 24px; }
+        .ai-badge { background: var(--ai-grad); color: white; padding: 5px 15px; border-radius: 10px; font-size: 0.75rem; font-weight: bold; margin-bottom: 10px; display: inline-block; }
+        #chatWindow { height: 350px; overflow-y: auto; background: #f1f5f9; border-radius: 15px; padding: 20px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; }
+        .chat-msg { margin-bottom: 15px; padding: 10px 15px; border-radius: 15px; max-width: 85%; }
+        .chat-ai { background: white; color: #1e293b; border: 1px solid #e2e8f0; align-self: flex-start; }
+        .chat-user { background: #6366f1; color: white; align-self: flex-end; }
+        .chart-wrapper { height: 280px; position: relative; }
+        .btn-pill { border-radius: 50px; padding: 10px 25px; font-weight: 600; }
+        [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
+        [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
+        .pac-container { z-index: 9999 !important; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); border: none; }
+    </style>
+</head>
 
-    async def get_reviews(self, data_id: str, limit: int = 50) -> List[Dict[str, Any]]:
-        url = "https://www.google.com/maps/preview/review/listentitiesreviews"
-        
-        # Protobuf-style string for request parameters
-        pb = f"!1m1!1s{data_id}!2m2!1i0!2i{limit}!3e1!4m5!4b1!5b1!6b1!7b1!11m1!4b1"
-        
-        params = {
-            "authuser": "0",
-            "hl": "en",
-            "gl": "us",
-            "pb": pb
-        }
+<body>
 
-        reviews_list = []
-        
-        async with httpx.AsyncClient(headers=self.headers, timeout=25.0) as client:
-            try:
-                response = await client.get(url, params=params)
-                content = response.text
+<nav class="navbar navbar-expand-lg navbar-dark p-3 shadow-lg">
+    <div class="container-fluid">
+        <span class="navbar-brand fw-bold fs-4"><i class="bi bi-robot me-2"></i>Review Intel AI</span>
+        <div class="d-flex gap-2">
+            <button class="btn btn-success btn-sm rounded-pill px-4 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+                <i class="bi bi-plus-circle me-1"></i> Add Business
+            </button>
+            <button id="toggleTheme" class="btn btn-light btn-sm rounded-pill px-3">Theme</button>
+            <form action="/logout" method="post" class="m-0"><button class="btn btn-danger btn-sm rounded-pill px-3">Logout</button></form>
+        </div>
+    </div>
+</nav>
+
+<div class="container-fluid">
+    <div class="row g-3 align-items-end mb-4 p-4 bg-white rounded-4 shadow-sm">
+        <div class="col-md-3">
+            <label class="form-label fw-bold text-muted small">ACTIVE ENTITY</label>
+            <select id="companySelect" class="form-select border-0 bg-light py-2 shadow-none"></select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label fw-bold text-muted small">START DATE</label>
+            <input id="startDate" type="date" class="form-control border-0 bg-light shadow-none">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label fw-bold text-muted small">END DATE</label>
+            <input id="endDate" type="date" class="form-control border-0 bg-light shadow-none">
+        </div>
+        <div class="col-md-5">
+            <div class="d-flex gap-2">
+                <button id="loadBtn" class="btn btn-primary w-50 btn-pill shadow-sm">Analyze Business</button>
+                <button id="syncBtn" class="btn btn-success w-50 btn-pill shadow-sm">Sync Live Data</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4 text-center">
+        <div class="col-md-3">
+            <div class="card total-review-card p-4 h-100 shadow-sm">
+                <div class="text-uppercase small fw-bold opacity-75">Absolute Total Records</div>
+                <div id="kpiTotal" class="display-4 fw-bold">0</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card p-4 h-100 shadow-sm border-start border-primary border-4">
+                <div class="text-muted small fw-bold">AVG RATING</div>
+                <div id="kpiRating" class="display-4 fw-bold text-primary">—</div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card risk-card p-4 h-100 shadow-lg">
+                <div class="small fw-bold opacity-75 text-uppercase">Revenue Risk Monitoring</div>
+                <div class="d-flex justify-content-around align-items-center mt-2">
+                    <div><small class="d-block">Loss Probability</small><span id="riskPct" class="h2 fw-bold">—</span></div>
+                    <div><small class="d-block">Impact Level</small><span id="riskImpact" class="h2 fw-bold">—</span></div>
+                    <div><small class="d-block">Sentiment Score</small><span id="riskSentiment" class="h2 fw-bold">—</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-lg-8">
+            <div class="row g-4">
+                <div class="col-md-6">
+                    <div class="ai-badge">CUSTOMER EMOTION RADAR</div>
+                    <div class="card p-3 shadow-sm"><div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div></div>
+                </div>
+                <div class="col-md-6">
+                    <div class="ai-badge">MONTHLY SENTIMENT TREND</div>
+                    <div class="card p-3 shadow-sm"><div class="chart-wrapper"><canvas id="chartMonthly"></canvas></div></div>
+                </div>
+                <div class="col-12">
+                    <div class="ai-badge">RATING DISTRIBUTION</div>
+                    <div class="card p-3 shadow-sm"><div class="chart-wrapper"><canvas id="chartRatings"></canvas></div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="ai-badge">STRATEGY CONSULTANT (AI CHAT)</div>
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body d-flex flex-column">
+                    <div id="chatWindow" class="mb-3">
+                        <div class="chat-msg chat-ai">Connected to Scraper API. Add a business via Google Maps to start sync.</div>
+                    </div>
+                    <div class="input-group mt-auto">
+                        <input type="text" id="chatInput" class="form-control border-0 bg-light p-3" placeholder="Type question...">
+                        <button id="chatBtn" class="btn btn-primary px-4"><i class="bi bi-send"></i></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="addCompanyModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <form id="addCompanyForm" class="modal-content shadow-lg border-0">
+            <div class="modal-header bg-success text-white p-4">
+                <h5 class="modal-title fw-bold"><i class="bi bi-google me-2"></i>Link New Business</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <label class="form-label fw-bold small text-muted">GOOGLE SEARCH</label>
+                <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Search business (e.g. Starbucks London)...">
                 
-                # Strip Google security prefix
-                if content.startswith(")]}'"):
-                    content = content[4:].strip()
+                <div class="p-4 bg-light rounded-4">
+                    <div class="row g-3">
+                        <div class="col-md-12">
+                            <label class="small fw-bold text-muted">NAME</label>
+                            <input id="companyName" class="form-control border-0 bg-white fw-bold" readonly required>
+                        </div>
+                        <div class="col-md-12">
+                            <label class="small fw-bold text-muted">PLACE ID</label>
+                            <input id="placeId" class="form-control border-0 bg-white" readonly required>
+                        </div>
+                        <div class="col-md-12">
+                            <label class="small fw-bold text-muted">ADDRESS</label>
+                            <input id="companyAddress" class="form-control border-0 bg-white" readonly>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-0 p-4">
+                <button type="submit" class="btn btn-success rounded-pill px-5 fw-bold w-100">Save & Initialize AI Sync</button>
+            </div>
+        </form>
+    </div>
+</div>
 
-                data = json.loads(content)
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
-                if not data or not isinstance(data, list) or len(data) < 3:
-                    return []
+<script>
+let chartInstances = {};
 
-                # Reviews are located in index 2 of the response list
-                raw_reviews = data[2] if data[2] else []
+// 1. Google Places Autocomplete
+function initGoogleAutocomplete() {
+    const input = document.getElementById('googleSearchInput');
+    const autocomplete = new google.maps.places.Autocomplete(input);
+    autocomplete.addListener('place_changed', function() {
+        const place = autocomplete.getPlace();
+        if (!place.place_id) return;
+        document.getElementById('companyName').value = place.name;
+        document.getElementById('placeId').value = place.place_id;
+        document.getElementById('companyAddress').value = place.formatted_address || "";
+    });
+}
 
-                for r in raw_reviews:
-                    try:
-                        review_item = {
-                            "review_id": str(r[0]),
-                            "rating": int(r[4]) if len(r) > 4 else 0,
-                            "text": r[3] if len(r) > 3 and r[3] else "",
-                            "author_name": r[0][1] if (r[0] and len(r[0]) > 1) else "User",
-                            "google_review_time": datetime.fromtimestamp(r[27]/1000).isoformat() if (len(r) > 27 and r[27]) else datetime.now().isoformat(),
-                        }
-                        reviews_list.append(review_item)
-                    except Exception:
-                        continue
+// 2. Load Entities
+async function loadCompanies() {
+    try {
+        const res = await fetch("/api/companies");
+        const data = await res.json();
+        const sel = document.getElementById("companySelect");
+        if (data && data.length > 0) {
+            sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+            triggerAllLoads();
+        }
+    } catch (e) { console.error(e); }
+}
 
-            except Exception as e:
-                logger.error(f"Scraper Error: {str(e)}")
-                return []
+// 3. Analytics Trigger
+async function triggerAllLoads() {
+    const cid = document.getElementById("companySelect").value;
+    const start = document.getElementById("startDate").value;
+    const end = document.getElementById("endDate").value;
+    if (!cid) return;
 
-        return reviews_list
+    try {
+        let insightUrl = `/api/dashboard/insights?company_id=${cid}`;
+        if(start) insightUrl += `&start=${start}`;
+        if(end) insightUrl += `&end=${end}`;
+        
+        const res = await fetch(insightUrl);
+        const data = await res.json();
+
+        if (data.kpis) {
+            document.getElementById("kpiTotal").innerText = data.kpis.reviews;
+            document.getElementById("kpiRating").innerText = data.kpis.rating;
+            document.getElementById("riskSentiment").innerText = data.kpis.sentiment;
+            renderCharts(data.charts);
+        }
+
+        const revRes = await fetch(`/api/dashboard/revenue?company_id=${cid}`);
+        const revData = await revRes.json();
+        document.getElementById("riskPct").innerText = revData.risk_percent + "%";
+        document.getElementById("riskImpact").innerText = revData.impact;
+
+    } catch (e) { console.error(e); }
+}
+
+// 4. Charting
+function renderCharts(charts) {
+    const ctxR = document.getElementById("chartRatings");
+    if(chartInstances.ratings) chartInstances.ratings.destroy();
+    chartInstances.ratings = new Chart(ctxR, {
+        type: 'bar',
+        data: {
+            labels: Object.keys(charts.ratings).map(k => k + "★"),
+            datasets: [{ label: 'Total', data: Object.values(charts.ratings), backgroundColor: '#6366f1' }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    const ctxM = document.getElementById("chartMonthly");
+    if(chartInstances.monthly) chartInstances.monthly.destroy();
+    chartInstances.monthly = new Chart(ctxM, {
+        type: 'line',
+        data: {
+            labels: charts.monthly.map(d => d.month),
+            datasets: [{ label: 'Sentiment', data: charts.monthly.map(d => d.sentiment), borderColor: '#10b981', tension: 0.3 }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    const ctxE = document.getElementById("chartEmotions");
+    if(chartInstances.emotions) chartInstances.emotions.destroy();
+    chartInstances.emotions = new Chart(ctxE, {
+        type: 'radar',
+        data: {
+            labels: Object.keys(charts.emotions),
+            datasets: [{ label: 'Intensity', data: Object.values(charts.emotions), backgroundColor: 'rgba(168, 85, 247, 0.2)', borderColor: '#a855f7' }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
+}
+
+// 5. Chat & Sync
+document.getElementById("chatBtn").onclick = async () => {
+    const input = document.getElementById("chatInput");
+    const cid = document.getElementById("companySelect").value;
+    const msg = input.value;
+    if(!msg) return;
+
+    const win = document.getElementById("chatWindow");
+    win.innerHTML += `<div class="chat-msg chat-user">${msg}</div>`;
+    input.value = "";
+    win.scrollTop = win.scrollHeight;
+
+    const res = await fetch(`/api/dashboard/chat?company_id=${cid}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(msg)
+    });
+    const data = await res.json();
+    win.innerHTML += `<div class="chat-msg chat-ai"><strong>Consultant:</strong> ${data.answer}</div>`;
+    win.scrollTop = win.scrollHeight;
+};
+
+// Sync Logic using FastGoogleScraper backend
+document.getElementById("syncBtn").onclick = async () => {
+    const cid = document.getElementById("companySelect").value;
+    const btn = document.getElementById("syncBtn");
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> AI Syncing...`;
+    
+    // Calls the router that triggers get_reviews in FastGoogleScraper
+    await fetch(`/api/reviews/ingest/${cid}?limit=50`, { method: 'POST' });
+    
+    setTimeout(() => { 
+        triggerAllLoads(); 
+        btn.disabled = false; 
+        btn.innerHTML = "Sync Live Data"; 
+    }, 3000);
+};
+
+// 6. Business Creation
+document.getElementById('addCompanyForm').onsubmit = async function(e) {
+    e.preventDefault();
+    const payload = {
+        name: document.getElementById('companyName').value,
+        place_id: document.getElementById('placeId').value,
+        address: document.getElementById('companyAddress').value
+    };
+    const res = await fetch('/api/companies', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    });
+    if (res.ok) window.location.reload();
+};
+
+document.getElementById("toggleTheme").onclick = () => {
+    const theme = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", theme);
+};
+
+document.addEventListener("DOMContentLoaded", () => {
+    loadCompanies();
+    initGoogleAutocomplete();
+});
+document.getElementById("loadBtn").onclick = triggerAllLoads;
+</script>
+</body>
+</html>
