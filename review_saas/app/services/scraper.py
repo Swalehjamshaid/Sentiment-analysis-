@@ -2,25 +2,26 @@
 import httpx
 import json
 import logging
+import asyncio
 from datetime import datetime
 from typing import List, Dict, Any
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=4, max=10))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=4, max=15))
 async def fetch_reviews(place_id: str, limit: int = 300, skip: int = 0) -> List[Dict[str, Any]]:
-    # Using the most stable direct Google Maps URL
-    url = "https://www.google.com/maps/preview/review/listentitiesreviews"
+    # 2026 Most Stable Google Maps Review Endpoint
+    url = "https://www.google.com/maps/rpc/listentitiesreviews"
     
-    # This 'pb' parameter is the secret key. I've updated the structure.
+    # Updated 'pb' structure specifically for Place IDs
     pb = f"!1m1!1s{place_id}!2m2!1i{skip}!2i{limit}!3e1!4m5!4b1!5b1!6b1!7b1!11m1!4b1"
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "*/*",
-        "Referer": f"https://www.google.com/maps/search/{place_id}",
-        "x-requested-with": "XMLHttpRequest"
+        "Referer": f"https://www.google.com/maps/place/?q=place_id:{place_id}",
+        "x-goog-maps-rit-id": "1"
     }
     
     params = {
@@ -36,8 +37,9 @@ async def fetch_reviews(place_id: str, limit: int = 300, skip: int = 0) -> List[
         try:
             response = await client.get(url, params=params)
             
+            # If Google still refuses, we log the specific reason
             if response.status_code != 200:
-                logger.error(f"Google API Refused (Status {response.status_code}). Trying to bypass...")
+                logger.error(f"Google API Refusal: {response.status_code}. Path attempted: {url}")
                 return []
 
             content = response.text
@@ -65,5 +67,5 @@ async def fetch_reviews(place_id: str, limit: int = 300, skip: int = 0) -> List[
             return reviews_list
 
         except Exception as e:
-            logger.error(f"Scraper hard failure for {place_id}: {e}")
+            logger.error(f"Critical Scraper Failure: {e}")
             raise
