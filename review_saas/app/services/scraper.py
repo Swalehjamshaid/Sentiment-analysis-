@@ -2,36 +2,57 @@
 import httpx
 import json
 import logging
+import asyncio
 from datetime import datetime
 from typing import List, Dict, Any
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 async def fetch_reviews(place_id: str, limit: int = 300, skip: int = 0) -> List[Dict[str, Any]]:
-    """
-    High-speed extraction. 
-    !1i{skip} is the offset (where to start).
-    !2i{limit} is the batch size (how many to get).
-    """
     url = "https://www.google.com/maps/preview/review/listentitiesreviews"
+    
+    # Advanced pb parameter for Google's internal API
     pb = f"!1m1!1s{place_id}!2m2!1i{skip}!2i{limit}!3e1!4m5!4b1!5b1!6b1!7b1!11m1!4b1"
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15.0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
-        "Referer": "https://www.google.com/"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.google.com/maps",
+        "Accept": "*/*"
     }
     
-    params = {"authuser": "0", "hl": "en", "gl": "us", "pb": pb}
+    params = {
+        "authuser": "0",
+        "hl": "en",
+        "gl": "us",
+        "pb": pb
+    }
+    
     reviews_list = []
     
-    async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
+    async with httpx.AsyncClient(headers=headers, timeout=30.0, follow_redirects=True) as client:
         try:
             response = await client.get(url, params=params)
+            
+            # Check if Google blocked us
+            if response.status_code != 200:
+                logger.error(f"Google returned status {response.status_code}")
+                return []
+
             content = response.text
+            # Google's API prepends )]}' to JSON
             if content.startswith(")]}'"):
                 content = content[4:].strip()
 
+            if not content:
+                logger.warning("Google returned empty content")
+                return []
+
             data = json.loads(content)
+            
+            # Navigate Google's nested list structure
             if not data or not isinstance(data, list) or len(data) < 3:
                 return []
 
@@ -47,8 +68,12 @@ async def fetch_reviews(place_id: str, limit: int = 300, skip: int = 0) -> List[
                     })
                 except Exception:
                     continue
+                    
+            return reviews_list
+
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse JSON from Google for {place_id}. Might be a temporary block.")
+            raise # Triggers the retry
         except Exception as e:
-            logger.error(f"Scraper Logic Error for {place_id}: {e}")
+            logger.error(f"Scraper error: {e}")
             return []
-            
-    return reviews_list
