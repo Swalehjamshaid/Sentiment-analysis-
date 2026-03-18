@@ -14,6 +14,8 @@ router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 logger = logging.getLogger(__name__)
 analyzer = SentimentIntensityAnalyzer()
 
+BATCH_SIZE = 200  # Number of reviews to fetch per sync
+
 @router.post("/ingest/{company_id}", response_model=None)
 async def ingest_reviews(
     company_id: int, 
@@ -34,13 +36,13 @@ async def ingest_reviews(
             detail="Google Place ID is missing. Please re-add this business."
         )
 
-    # 3. Pagination Logic
+    # 3. Pagination Logic: Count how many reviews already exist
     count_stmt = select(func.count(Review.id)).where(Review.company_id == company_id)
     result = await session.execute(count_stmt)
     existing_count = result.scalar() or 0
 
-    # 4. Fetch from Scraper
-    scraped_data = await fetch_reviews(place_id=place_id, limit=300, skip=existing_count)
+    # 4. Fetch the next batch of reviews using BATCH_SIZE
+    scraped_data = await fetch_reviews(place_id=place_id, limit=BATCH_SIZE, skip=existing_count)
 
     if not scraped_data:
         return {"status": "success", "new_reviews_added": 0}
@@ -78,4 +80,5 @@ async def ingest_reviews(
             continue
 
     await session.commit()
+    logger.info(f"✅ Company {company_id}: Added {new_count} new reviews (batch of {BATCH_SIZE})")
     return {"status": "success", "new_reviews_added": new_count}
