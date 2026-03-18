@@ -262,11 +262,18 @@ def _include_router_safe(module_path: str, attr: str = "router") -> None:
     except Exception as e:
         logger.warning("Skipping router %s due to import error: %s", module_path, e)
 
-
+# Core routers
 _include_router_safe("app.routes.auth")
 _include_router_safe("app.routes.companies")
 _include_router_safe("app.routes.dashboard")
+
+# Reviews router (will mount when app/services/scraper.py exists)
 _include_router_safe("app.routes.reviews")
+
+# Compatibility router to satisfy legacy /api/ai/insights calls
+_include_router_safe("app.routes.ai_insights")
+
+# Remaining routers
 _include_router_safe("app.routes.exports")
 _include_router_safe("app.routes.google_check")
 
