@@ -27,8 +27,11 @@
         .chat-user { background: #6366f1; color: white; align-self: flex-end; }
         .chart-wrapper { height: 280px; position: relative; }
         .btn-pill { border-radius: 50px; padding: 10px 25px; font-weight: 600; }
+        
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
         [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
+        [data-theme="dark"] .bg-light { background: #334155 !important; color: white; }
+        
         .pac-container { z-index: 9999 !important; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); border: none; }
     </style>
 </head>
@@ -64,7 +67,7 @@
         </div>
         <div class="col-md-5">
             <div class="d-flex gap-2">
-                <button id="loadBtn" class="btn btn-primary w-50 btn-pill shadow-sm">Analyze Business</button>
+                <button id="loadBtn" onclick="triggerAllLoads()" class="btn btn-primary w-50 btn-pill shadow-sm">Analyze Business</button>
                 <button id="syncBtn" class="btn btn-success w-50 btn-pill shadow-sm">Sync Live Data</button>
             </div>
         </div>
@@ -138,15 +141,17 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4">
-                <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Search Google Maps...">
+                <label class="small fw-bold text-muted mb-2">SEARCH GOOGLE MAPS</label>
+                <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Enter business name or address...">
+                
                 <div class="p-4 bg-light rounded-4">
                     <div class="mb-3">
                         <label class="small fw-bold text-muted">BUSINESS NAME</label>
-                        <input id="companyName" class="form-control border-0" readonly placeholder="...">
+                        <input id="companyName" class="form-control border-0" readonly placeholder="Waiting for selection...">
                     </div>
                     <div class="mb-3">
                         <label class="small fw-bold text-muted">GOOGLE PLACE ID (CRITICAL)</label>
-                        <input id="placeId" class="form-control border-0" readonly placeholder="...">
+                        <input id="placeId" class="form-control border-0" readonly placeholder="Will auto-fill...">
                     </div>
                     <div class="mb-3">
                         <label class="small fw-bold text-muted">FORMATTED ADDRESS</label>
@@ -167,6 +172,7 @@
 <script>
 let chartInstances = {};
 
+// 1. Google Autocomplete Integration
 function initGoogleAutocomplete() {
     const input = document.getElementById('googleSearchInput');
     const autocomplete = new google.maps.places.Autocomplete(input);
@@ -182,6 +188,7 @@ function initGoogleAutocomplete() {
     });
 }
 
+// 2. Load Company List
 async function loadCompanies() {
     try {
         const res = await fetch("/api/companies");
@@ -190,27 +197,33 @@ async function loadCompanies() {
         if (data && data.length > 0) {
             sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
             triggerAllLoads();
-        } else sel.innerHTML = `<option value="">No businesses added</option>`;
+        } else {
+            sel.innerHTML = `<option value="">No businesses added</option>`;
+        }
     } catch (e) { console.error("Load Failed:", e); }
 }
 
+// 3. Main Data Fetch (KPIs + Revenue + AI)
 async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
-    const start = document.getElementById("startDate").value;
-    const end = document.getElementById("endDate").value;
+    const start = document.getElementById("startDate").value || "2023-01-01";
+    const end = document.getElementById("endDate").value || new Date().toISOString().split('T')[0];
+    
     if (!cid) return;
 
     try {
+        // Fetch AI Insights & Metadata
         const res = await fetch(`/api/ai/insights?company_id=${cid}&start=${start}&end=${end}`);
         const data = await res.json();
 
-        if (data.kpis) {
+        if (data.visualizations) {
             document.getElementById("kpiTotal").innerText = data.metadata.total_reviews || 0;
             document.getElementById("kpiRating").innerText = data.kpis.benchmark.your_avg || "0.0";
             document.getElementById("riskSentiment").innerText = data.kpis.reputation_score || "0";
             renderCharts(data.visualizations);
         }
 
+        // Fetch Revenue Risk
         const revRes = await fetch(`/api/dashboard/revenue?company_id=${cid}`);
         const revData = await revRes.json();
         document.getElementById("riskPct").innerText = (revData.risk_percent || 0) + "%";
@@ -218,42 +231,63 @@ async function triggerAllLoads() {
     } catch (e) { console.error("Dashboard Load Error:", e); }
 }
 
+// 4. Chart Rendering
 function renderCharts(vis) {
+    // Radar Chart: Emotions
     const radarCtx = document.getElementById("chartEmotions");
     if(chartInstances.emotions) chartInstances.emotions.destroy();
     chartInstances.emotions = new Chart(radarCtx, {
         type: 'radar',
         data: {
-            labels: Object.keys(vis.emotions),
-            datasets: [{ label: 'Intensity', data: Object.values(vis.emotions), backgroundColor: 'rgba(168, 85, 247, 0.2)', borderColor: '#a855f7' }]
+            labels: Object.keys(vis.emotions || {}),
+            datasets: [{ 
+                label: 'Intensity', 
+                data: Object.values(vis.emotions || {}), 
+                backgroundColor: 'rgba(168, 85, 247, 0.2)', 
+                borderColor: '#a855f7' 
+            }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
 
+    // Line Chart: Sentiment Trend
     const lineCtx = document.getElementById("chartMonthly");
     if(chartInstances.monthly) chartInstances.monthly.destroy();
     chartInstances.monthly = new Chart(lineCtx, {
         type: 'line',
         data: {
-            labels: vis.sentiment_trend.map(d => d.week),
-            datasets: [{ label: 'Avg Sentiment', data: vis.sentiment_trend.map(d => d.avg), borderColor: '#10b981', tension: 0.3 }]
+            labels: (vis.sentiment_trend || []).map(d => d.week || d.date),
+            datasets: [{ 
+                label: 'Avg Sentiment', 
+                data: (vis.sentiment_trend || []).map(d => d.avg), 
+                borderColor: '#10b981', 
+                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                fill: true,
+                tension: 0.3 
+            }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
 
+    // Bar Chart: Ratings
     const barCtx = document.getElementById("chartRatings");
     if(chartInstances.ratings) chartInstances.ratings.destroy();
     chartInstances.ratings = new Chart(barCtx, {
         type: 'bar',
         data: {
             labels: ['1★', '2★', '3★', '4★', '5★'],
-            datasets: [{ label: 'Reviews', data: vis.ratings ? Object.values(vis.ratings) : [0,0,0,0,0], backgroundColor: '#6366f1' }]
+            datasets: [{ 
+                label: 'Reviews', 
+                data: vis.ratings ? Object.values(vis.ratings) : [0,0,0,0,0], 
+                backgroundColor: '#6366f1',
+                borderRadius: 8
+            }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
 }
 
-// ✅ Fetch / Sync Button now fully functional
+// 5. Sync Button (Playwright Scraper)
 document.getElementById("syncBtn").onclick = async () => {
     const cid = document.getElementById("companySelect").value;
     const btn = document.getElementById("syncBtn");
@@ -265,18 +299,22 @@ document.getElementById("syncBtn").onclick = async () => {
     try {
         const res = await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
         const result = await res.json();
-        console.log("Sync Result:", result);
+        
+        // Give the DB a moment to process before reloading
         setTimeout(() => { 
             triggerAllLoads(); 
             btn.disabled = false; 
             btn.innerHTML = "Sync Live Data"; 
-        }, 2000);
+            alert(`Sync Complete! Found ${result.reviews_count || 0} reviews.`);
+        }, 1500);
     } catch (e) {
+        alert("Sync failed. Check server logs.");
         btn.disabled = false;
         btn.innerHTML = "Sync Live Data";
     }
 };
 
+// 6. Add Company Form
 document.getElementById('addCompanyForm').onsubmit = async (e) => {
     e.preventDefault();
     const payload = {
@@ -284,37 +322,64 @@ document.getElementById('addCompanyForm').onsubmit = async (e) => {
         place_id: document.getElementById('placeId').value,
         address: document.getElementById('companyAddress').value
     };
+    
     if (!payload.place_id) {
-        alert("Critical Error: Missing Place ID. Please search for the business again.");
+        alert("Please search and select a business first.");
         return;
     }
+
     try {
-        const res = await fetch('/api/companies', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-        if (res.ok) location.reload();
-    } catch (e) { console.error("Save Business Failed:", e); }
+        const res = await fetch('/api/companies', { 
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'}, 
+            body: JSON.stringify(payload) 
+        });
+        if (res.ok) {
+            alert("Business Linked Successfully!");
+            location.reload();
+        }
+    } catch (e) { console.error("Save Failed:", e); }
 };
 
+// 7. AI Chat Integration
 document.getElementById("chatBtn").onclick = async () => {
     const input = document.getElementById("chatInput");
     const msg = input.value;
     const cid = document.getElementById("companySelect").value;
-    if(!msg) return;
+    if(!msg || !cid) return;
+
     const win = document.getElementById("chatWindow");
     win.innerHTML += `<div class="chat-msg chat-user">${msg}</div>`;
     input.value = "";
     win.scrollTop = win.scrollHeight;
-    const res = await fetch(`/api/dashboard/chat?company_id=${cid}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(msg) });
-    const data = await res.json();
-    win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI:</strong> ${data.answer}</div>`;
-    win.scrollTop = win.scrollHeight;
+
+    try {
+        const res = await fetch(`/api/dashboard/chat?company_id=${cid}`, { 
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'}, 
+            body: JSON.stringify(msg) 
+        });
+        const data = await res.json();
+        win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Expert:</strong> ${data.answer}</div>`;
+        win.scrollTop = win.scrollHeight;
+    } catch (e) {
+        win.innerHTML += `<div class="chat-msg chat-ai text-danger">Error connecting to AI.</div>`;
+    }
 };
 
+// 8. Theme Toggle
 document.getElementById("toggleTheme").onclick = () => {
-    const theme = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
-    document.documentElement.setAttribute("data-theme", theme);
+    const current = document.documentElement.getAttribute("data-theme");
+    const target = current === "light" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", target);
 };
 
+// Initial Setup
 document.addEventListener("DOMContentLoaded", () => {
     loadCompanies();
     initGoogleAutocomplete();
 });
+</script>
+
+</body>
+</html>
