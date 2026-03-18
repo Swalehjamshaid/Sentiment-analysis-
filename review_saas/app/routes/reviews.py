@@ -1,104 +1,104 @@
-# filename: app/routes/reviews.py
-from __future__ import annotations
-import logging
-from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
-
-from fastapi import APIRouter, HTTPException, Depends, Path
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-
+from sqlalchemy import select, delete
+from typing import List, Optional
 from app.core.db import get_session
-from app.core.models import Company, Review
+from app.core.models import Review, Company
+from pydantic import BaseModel
 
-router = APIRouter(prefix="/reviews", tags=["Reviews"])
-logger = logging.getLogger("app.routes.reviews")
+router = APIRouter()
 
+# --------------------------- Pydantic Schemas ---------------------------
+class ReviewCreate(BaseModel):
+    company_id: int
+    google_review_id: str
+    author_name: str
+    rating: int
+    text: str
 
-BATCH_SIZE = 200  # Number of reviews per batch
+class ReviewResponse(BaseModel):
+    id: int
+    company_id: int
+    google_review_id: str
+    author_name: str
+    rating: int
+    text: str
 
+    class Config:
+        orm_mode = True
 
-async def fetch_google_reviews(company: Company, last_synced: Optional[datetime] = None) -> List[Dict[str, Any]]:
+# --------------------------- Ingest Reviews (Batch) ---------------------------
+@router.post("/ingest/{batch_id}", response_model=dict)
+async def ingest_reviews(batch_id: int, session: AsyncSession = Depends(get_session)):
     """
-    Placeholder for actual Google reviews fetching logic.
-    This should return a list of review dictionaries.
+    Simulates fetching and saving a batch of reviews.
+    Replace this logic with real Google API fetch if needed.
     """
-    # Replace this with your Google Places / API logic
-    # Each review dict should match the Review model fields
-    # Example:
-    reviews = [
-        {
-            "google_review_id": f"rev_{i}",
-            "author_name": f"Author {i}",
-            "rating": 5,
-            "text": f"Review text {i}",
-            "google_review_time": datetime.now(timezone.utc),
-            "review_url": f"https://reviews.com/{i}",
-        }
-        for i in range(1, 1001)  # Simulate 1000 reviews
-    ]
+    try:
+        print(f"Fetching batch {batch_id}...")  # Debug log
 
-    # Filter by last_synced if provided
-    if last_synced:
-        reviews = [r for r in reviews if r["google_review_time"] > last_synced]
+        # Example batch of reviews
+        new_reviews = [
+            Review(
+                company_id=1,
+                google_review_id=f"rev-{batch_id}-001",
+                author_name="John Doe",
+                rating=5,
+                text="Excellent service!"
+            ),
+            Review(
+                company_id=1,
+                google_review_id=f"rev-{batch_id}-002",
+                author_name="Jane Doe",
+                rating=4,
+                text="Good experience!"
+            ),
+        ]
 
-    return reviews
+        session.add_all(new_reviews)
+        await session.commit()
 
+        return {"status": "success", "batch_id": batch_id, "count": len(new_reviews)}
+    except Exception as ex:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=str(ex))
 
-@router.post("/ingest/{company_id}")
-async def ingest_reviews(
-    company_id: int = Path(..., description="ID of the company to fetch reviews for"),
-    db: AsyncSession = Depends(get_session),
+# --------------------------- List Reviews ---------------------------
+@router.get("/", response_model=List[ReviewResponse])
+async def list_reviews(
+    company_id: Optional[int] = Query(None),
+    session: AsyncSession = Depends(get_session)
 ):
-    # Fetch company
-    result = await db.execute(select(Company).where(Company.id == company_id))
-    company: Optional[Company] = result.scalars().first()
+    try:
+        query = select(Review)
+        if company_id:
+            query = query.where(Review.company_id == company_id)
+        result = await session.execute(query)
+        reviews = result.scalars().all()
+        return reviews
+    except Exception as ex:
+        raise HTTPException(status_code=500, detail=str(ex))
 
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+# --------------------------- Delete Review ---------------------------
+@router.delete("/{review_id}", response_model=dict)
+async def delete_review(review_id: int, session: AsyncSession = Depends(get_session)):
+    try:
+        query = delete(Review).where(Review.id == review_id)
+        result = await session.execute(query)
+        await session.commit()
+        return {"status": "success", "deleted_id": review_id}
+    except Exception as ex:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=str(ex))
 
-    if not company.google_place_id:
-        raise HTTPException(status_code=400, detail="Company does not have a Google Place ID")
-
-    logger.info(f"Fetching reviews for company {company.name} (ID {company.id})")
-
-    last_synced = company.last_synced_at
-    reviews_data = await fetch_google_reviews(company, last_synced=last_synced)
-
-    if not reviews_data:
-        return {"message": "No new reviews found"}
-
-    total_reviews = len(reviews_data)
-    logger.info(f"Total new reviews to ingest: {total_reviews}")
-
-    # Batch insertion
-    for i in range(0, total_reviews, BATCH_SIZE):
-        batch = reviews_data[i:i + BATCH_SIZE]
-        logger.info(f"Processing batch {i // BATCH_SIZE + 1}")
-
-        review_objects = []
-        for r in batch:
-            review_objects.append(
-                Review(
-                    company_id=company.id,
-                    google_review_id=r["google_review_id"],
-                    author_name=r.get("author_name"),
-                    rating=r.get("rating"),
-                    text=r.get("text"),
-                    google_review_time=r.get("google_review_time"),
-                    review_url=r.get("review_url"),
-                    review_photos=r.get("review_photos"),
-                    review_videos=r.get("review_videos"),
-                )
-            )
-
-        db.add_all(review_objects)
-        await db.commit()
-
-    # Update last_synced_at
-    company.last_synced_at = datetime.now(timezone.utc)
-    db.add(company)
-    await db.commit()
-
-    logger.info(f"Successfully ingested {total_reviews} reviews for company {company.name}")
-    return {"message": f"Successfully ingested {total_reviews} reviews"}
+# --------------------------- Fetch Single Review ---------------------------
+@router.get("/{review_id}", response_model=ReviewResponse)
+async def get_review(review_id: int, session: AsyncSession = Depends(get_session)):
+    try:
+        result = await session.execute(select(Review).where(Review.id == review_id))
+        review = result.scalars().first()
+        if not review:
+            raise HTTPException(status_code=404, detail="Review not found")
+        return review
+    except Exception as ex:
+        raise HTTPException(status_code=500, detail=str(ex))
