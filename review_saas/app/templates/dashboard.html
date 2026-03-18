@@ -167,7 +167,6 @@
 <script>
 let chartInstances = {};
 
-// Initialize Autocomplete
 function initGoogleAutocomplete() {
     const input = document.getElementById('googleSearchInput');
     const autocomplete = new google.maps.places.Autocomplete(input);
@@ -183,7 +182,6 @@ function initGoogleAutocomplete() {
     });
 }
 
-// Load Companies into Select
 async function loadCompanies() {
     try {
         const res = await fetch("/api/companies");
@@ -192,13 +190,10 @@ async function loadCompanies() {
         if (data && data.length > 0) {
             sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
             triggerAllLoads();
-        } else {
-            sel.innerHTML = `<option value="">No businesses added</option>`;
-        }
+        } else sel.innerHTML = `<option value="">No businesses added</option>`;
     } catch (e) { console.error("Load Failed:", e); }
 }
 
-// Analyze Business Trigger
 async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
     const start = document.getElementById("startDate").value;
@@ -223,7 +218,6 @@ async function triggerAllLoads() {
     } catch (e) { console.error("Dashboard Load Error:", e); }
 }
 
-// Chart Rendering
 function renderCharts(vis) {
     const radarCtx = document.getElementById("chartEmotions");
     if(chartInstances.emotions) chartInstances.emotions.destroy();
@@ -253,17 +247,13 @@ function renderCharts(vis) {
         type: 'bar',
         data: {
             labels: ['1★', '2★', '3★', '4★', '5★'],
-            datasets: [{ 
-                label: 'Reviews', 
-                data: vis.ratings ? Object.values(vis.ratings) : [0,0,0,0,0], 
-                backgroundColor: '#6366f1' 
-            }]
+            datasets: [{ label: 'Reviews', data: vis.ratings ? Object.values(vis.ratings) : [0,0,0,0,0], backgroundColor: '#6366f1' }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
 }
 
-// Sync Live Data
+// ✅ Fetch / Sync Button now fully functional
 document.getElementById("syncBtn").onclick = async () => {
     const cid = document.getElementById("companySelect").value;
     const btn = document.getElementById("syncBtn");
@@ -271,13 +261,11 @@ document.getElementById("syncBtn").onclick = async () => {
 
     btn.disabled = true;
     btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Syncing...`;
-    
+
     try {
         const res = await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
         const result = await res.json();
         console.log("Sync Result:", result);
-        
-        // Wait 2 seconds for DB consistency then refresh
         setTimeout(() => { 
             triggerAllLoads(); 
             btn.disabled = false; 
@@ -289,7 +277,6 @@ document.getElementById("syncBtn").onclick = async () => {
     }
 };
 
-// Add Business Form Submission
 document.getElementById('addCompanyForm').onsubmit = async (e) => {
     e.preventDefault();
     const payload = {
@@ -297,48 +284,31 @@ document.getElementById('addCompanyForm').onsubmit = async (e) => {
         place_id: document.getElementById('placeId').value,
         address: document.getElementById('companyAddress').value
     };
-
     if (!payload.place_id) {
         alert("Critical Error: Missing Place ID. Please search for the business again.");
         return;
     }
-
     try {
-        const res = await fetch('/api/companies', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        });
-        
-        if (res.ok) {
-            location.reload();
-        }
+        const res = await fetch('/api/companies', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+        if (res.ok) location.reload();
     } catch (e) { console.error("Save Business Failed:", e); }
 };
 
-// Chat Functionality
 document.getElementById("chatBtn").onclick = async () => {
     const input = document.getElementById("chatInput");
     const msg = input.value;
     const cid = document.getElementById("companySelect").value;
     if(!msg) return;
-
     const win = document.getElementById("chatWindow");
     win.innerHTML += `<div class="chat-msg chat-user">${msg}</div>`;
     input.value = "";
     win.scrollTop = win.scrollHeight;
-
-    const res = await fetch(`/api/dashboard/chat?company_id=${cid}`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(msg)
-    });
+    const res = await fetch(`/api/dashboard/chat?company_id=${cid}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(msg) });
     const data = await res.json();
     win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI:</strong> ${data.answer}</div>`;
     win.scrollTop = win.scrollHeight;
 };
 
-// Theme Toggle
 document.getElementById("toggleTheme").onclick = () => {
     const theme = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
     document.documentElement.setAttribute("data-theme", theme);
@@ -348,7 +318,3 @@ document.addEventListener("DOMContentLoaded", () => {
     loadCompanies();
     initGoogleAutocomplete();
 });
-document.getElementById("loadBtn").onclick = triggerAllLoads;
-</script>
-</body>
-</html>
