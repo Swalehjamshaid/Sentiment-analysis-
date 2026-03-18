@@ -169,13 +169,15 @@ function initGoogleAutocomplete() {
 }
 
 async function loadCompanies() {
-    const res = await fetch("/api/companies");
-    const data = await res.json();
-    const sel = document.getElementById("companySelect");
-    if (data.length > 0) {
-        sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
-        triggerAllLoads();
-    }
+    try {
+        const res = await fetch("/api/companies");
+        const data = await res.json();
+        const sel = document.getElementById("companySelect");
+        if (data.length > 0) {
+            sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+            triggerAllLoads();
+        }
+    } catch (e) { console.error("Load Companies Error:", e); }
 }
 
 async function triggerAllLoads() {
@@ -189,8 +191,8 @@ async function triggerAllLoads() {
         const res = await fetch(`/api/ai/insights?company_id=${cid}&start=${start}&end=${end}`);
         const data = await res.json();
 
-        if (data.kpis) {
-            // Mapping from backend logic: data.metadata and data.kpis
+        if (data && data.kpis) {
+            // Updated mappings to match your latest backend JSON structure
             document.getElementById("kpiTotal").innerText = data.metadata.total_reviews || 0;
             document.getElementById("kpiRating").innerText = data.kpis.benchmark.your_avg || "0.0";
             document.getElementById("riskSentiment").innerText = data.kpis.reputation_score || "0";
@@ -208,7 +210,7 @@ async function triggerAllLoads() {
 }
 
 function renderCharts(vis) {
-    // Emotions Radar
+    // 1. Emotions Radar
     const ctxE = document.getElementById("chartEmotions");
     if(chartInstances.emotions) chartInstances.emotions.destroy();
     chartInstances.emotions = new Chart(ctxE, {
@@ -220,7 +222,7 @@ function renderCharts(vis) {
         options: { responsive: true, maintainAspectRatio: false }
     });
 
-    // Sentiment Trend Line
+    // 2. Sentiment Trend Line
     const ctxM = document.getElementById("chartMonthly");
     if(chartInstances.monthly) chartInstances.monthly.destroy();
     chartInstances.monthly = new Chart(ctxM, {
@@ -232,14 +234,19 @@ function renderCharts(vis) {
         options: { responsive: true, maintainAspectRatio: false }
     });
 
-    // Rating Distribution Bar
+    // 3. Rating Distribution Bar (Dynamic mapping)
     const ctxR = document.getElementById("chartRatings");
     if(chartInstances.ratings) chartInstances.ratings.destroy();
+    
+    // Map visualizations ratings if available, otherwise use placeholders
+    const ratingLabels = ['1★', '2★', '3★', '4★', '5★'];
+    const ratingData = vis.ratings ? Object.values(vis.ratings) : [0, 0, 0, 0, 0];
+
     chartInstances.ratings = new Chart(ctxR, {
         type: 'bar',
         data: {
-            labels: ['1★', '2★', '3★', '4★', '5★'],
-            datasets: [{ label: 'Total Reviews', data: [10, 5, 8, 20, 50], backgroundColor: '#6366f1' }] // Placeholder or map from vis if available
+            labels: ratingLabels,
+            datasets: [{ label: 'Total Reviews', data: ratingData, backgroundColor: '#6366f1' }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
@@ -251,14 +258,21 @@ document.getElementById("syncBtn").onclick = async () => {
     btn.disabled = true;
     btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Syncing...`;
     
-    // Hits the 300-batch pagination route in reviews.py
-    await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
-    
-    setTimeout(() => { 
-        triggerAllLoads(); 
-        btn.disabled = false; 
-        btn.innerHTML = "Sync Live Data"; 
-    }, 2000);
+    try {
+        // Hits the 300-batch pagination route in reviews.py
+        await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
+        
+        // Wait a moment for DB commit before reloading
+        setTimeout(() => { 
+            triggerAllLoads(); 
+            btn.disabled = false; 
+            btn.innerHTML = "Sync Live Data"; 
+        }, 2500);
+    } catch (e) {
+        console.error("Sync Error:", e);
+        btn.disabled = false;
+        btn.innerHTML = "Sync Live Data";
+    }
 };
 
 document.getElementById("chatBtn").onclick = async () => {
@@ -272,14 +286,16 @@ document.getElementById("chatBtn").onclick = async () => {
     input.value = "";
     win.scrollTop = win.scrollHeight;
 
-    const res = await fetch(`/api/dashboard/chat?company_id=${cid}`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(msg)
-    });
-    const data = await res.json();
-    win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI:</strong> ${data.answer}</div>`;
-    win.scrollTop = win.scrollHeight;
+    try {
+        const res = await fetch(`/api/dashboard/chat?company_id=${cid}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(msg)
+        });
+        const data = await res.json();
+        win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI:</strong> ${data.answer}</div>`;
+        win.scrollTop = win.scrollHeight;
+    } catch (e) { console.error("Chat Error:", e); }
 };
 
 document.getElementById('addCompanyForm').onsubmit = async (e) => {
@@ -289,12 +305,18 @@ document.getElementById('addCompanyForm').onsubmit = async (e) => {
         place_id: document.getElementById('placeId').value,
         address: document.getElementById('companyAddress').value
     };
-    await fetch('/api/companies', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-    });
-    location.reload();
+    try {
+        const res = await fetch('/api/companies', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('addCompanyModal'));
+            modal.hide();
+            location.reload();
+        }
+    } catch (e) { console.error("Add Company Error:", e); }
 };
 
 document.getElementById("toggleTheme").onclick = () => {
