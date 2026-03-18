@@ -1,13 +1,11 @@
-# filename: app/main.py
-
 from __future__ import annotations
 
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Any, Optional, Tuple
+from typing import Optional, Tuple
 
-from fastapi import FastAPI, Request, Depends, Form, HTTPException
+from fastapi import FastAPI, Request, Depends, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
@@ -21,7 +19,7 @@ from app.core.db import init_models, get_session, SessionLocal, engine
 from app.core import models
 from app.core.models import User, SCHEMA_VERSION, Config as ConfigModel
 
-# Import Routers explicitly to ensure they load
+# Routers
 from app.routes import auth, companies, dashboard, reviews, ai_insights, exports, google_check
 
 # --------------------------- Logging ---------------------------
@@ -87,7 +85,7 @@ async def lifespan(app: FastAPI):
     app.state.schema_version = new_v
     app.state.schema_changed = changed
     app.state.schema_prev = old_v
-    
+
     logger.info("🚀 Application Startup Sequence Complete")
     yield
 
@@ -105,7 +103,6 @@ app.add_middleware(
 _secret_key = os.getenv("SECRET_KEY") or getattr(settings, "SECRET_KEY", "dev-insecure-secret")
 app.add_middleware(SessionMiddleware, secret_key=_secret_key)
 
-# Ensure directories exist before mounting
 if os.path.exists("app/static"):
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -164,14 +161,13 @@ async def logout(request: Request):
     return RedirectResponse(url="/login", status_code=303)
 
 # --------------------------- Include Routers ---------------------------
-# Explicitly including routers to prevent the "No module named" / 404 issue
-app.include_router(auth.router)
-app.include_router(companies.router)
-app.include_router(dashboard.router)
-app.include_router(reviews.router) # This is the critical sync/ingest router
-app.include_router(ai_insights.router)
-app.include_router(exports.router)
-app.include_router(google_check.router)
+app.include_router(auth.router, prefix="/api/auth")
+app.include_router(companies.router, prefix="/api/companies")
+app.include_router(dashboard.router, prefix="/api/dashboard")
+app.include_router(reviews.router, prefix="/api/reviews")  # ✅ Critical fix
+app.include_router(ai_insights.router, prefix="/api/ai")
+app.include_router(exports.router, prefix="/api/exports")
+app.include_router(google_check.router, prefix="/api/google_check")
 
 logger.info("🔗 All Routers Synchronized and Mounted")
 
