@@ -118,7 +118,7 @@
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body d-flex flex-column">
                     <div id="chatWindow" class="mb-3">
-                        <div class="chat-msg chat-ai">Dashboard connected. Click "Analyze" to refresh data visualization.</div>
+                        <div class="chat-msg chat-ai">Dashboard connected. Select a business and click "Analyze".</div>
                     </div>
                     <div class="input-group mt-auto">
                         <input type="text" id="chatInput" class="form-control border-0 bg-light p-3" placeholder="Type question...">
@@ -140,13 +140,22 @@
             <div class="modal-body p-4">
                 <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Search Google Maps...">
                 <div class="p-4 bg-light rounded-4">
-                    <input id="companyName" class="form-control mb-2" readonly placeholder="Name">
-                    <input id="placeId" class="form-control mb-2" readonly placeholder="Place ID">
-                    <input id="companyAddress" class="form-control" readonly placeholder="Address">
+                    <div class="mb-3">
+                        <label class="small fw-bold text-muted">BUSINESS NAME</label>
+                        <input id="companyName" class="form-control border-0" readonly placeholder="...">
+                    </div>
+                    <div class="mb-3">
+                        <label class="small fw-bold text-muted">GOOGLE PLACE ID (CRITICAL)</label>
+                        <input id="placeId" class="form-control border-0" readonly placeholder="...">
+                    </div>
+                    <div class="mb-3">
+                        <label class="small fw-bold text-muted">FORMATTED ADDRESS</label>
+                        <input id="companyAddress" class="form-control border-0" readonly placeholder="...">
+                    </div>
                 </div>
             </div>
             <div class="modal-footer border-0 p-4">
-                <button type="submit" class="btn btn-success w-100 rounded-pill fw-bold">Save Business</button>
+                <button type="submit" class="btn btn-success w-100 rounded-pill fw-bold py-3 shadow">Verify & Save Business</button>
             </div>
         </form>
     </div>
@@ -158,28 +167,38 @@
 <script>
 let chartInstances = {};
 
+// Initialize Autocomplete
 function initGoogleAutocomplete() {
-    const autocomplete = new google.maps.places.Autocomplete(document.getElementById('googleSearchInput'));
+    const input = document.getElementById('googleSearchInput');
+    const autocomplete = new google.maps.places.Autocomplete(input);
     autocomplete.addListener('place_changed', function() {
         const place = autocomplete.getPlace();
-        document.getElementById('companyName').value = place.name;
-        document.getElementById('placeId').value = place.place_id;
-        document.getElementById('companyAddress').value = place.formatted_address;
+        if (!place.place_id) {
+            alert("Please select a business from the dropdown list.");
+            return;
+        }
+        document.getElementById('companyName').value = place.name || "";
+        document.getElementById('placeId').value = place.place_id || "";
+        document.getElementById('companyAddress').value = place.formatted_address || "";
     });
 }
 
+// Load Companies into Select
 async function loadCompanies() {
     try {
         const res = await fetch("/api/companies");
         const data = await res.json();
         const sel = document.getElementById("companySelect");
-        if (data.length > 0) {
+        if (data && data.length > 0) {
             sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
             triggerAllLoads();
+        } else {
+            sel.innerHTML = `<option value="">No businesses added</option>`;
         }
-    } catch (e) { console.error("Load Companies Error:", e); }
+    } catch (e) { console.error("Load Failed:", e); }
 }
 
+// Analyze Business Trigger
 async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
     const start = document.getElementById("startDate").value;
@@ -187,33 +206,28 @@ async function triggerAllLoads() {
     if (!cid) return;
 
     try {
-        // 1. Fetch AI Insights (KPIs + Charts)
         const res = await fetch(`/api/ai/insights?company_id=${cid}&start=${start}&end=${end}`);
         const data = await res.json();
 
-        if (data && data.kpis) {
-            // Updated mappings to match your latest backend JSON structure
+        if (data.kpis) {
             document.getElementById("kpiTotal").innerText = data.metadata.total_reviews || 0;
             document.getElementById("kpiRating").innerText = data.kpis.benchmark.your_avg || "0.0";
             document.getElementById("riskSentiment").innerText = data.kpis.reputation_score || "0";
-            
             renderCharts(data.visualizations);
         }
 
-        // 2. Fetch Revenue Risk
         const revRes = await fetch(`/api/dashboard/revenue?company_id=${cid}`);
         const revData = await revRes.json();
         document.getElementById("riskPct").innerText = (revData.risk_percent || 0) + "%";
         document.getElementById("riskImpact").innerText = revData.impact || "N/A";
-
-    } catch (e) { console.error("Analyze Business Failed:", e); }
+    } catch (e) { console.error("Dashboard Load Error:", e); }
 }
 
+// Chart Rendering
 function renderCharts(vis) {
-    // 1. Emotions Radar
-    const ctxE = document.getElementById("chartEmotions");
+    const radarCtx = document.getElementById("chartEmotions");
     if(chartInstances.emotions) chartInstances.emotions.destroy();
-    chartInstances.emotions = new Chart(ctxE, {
+    chartInstances.emotions = new Chart(radarCtx, {
         type: 'radar',
         data: {
             labels: Object.keys(vis.emotions),
@@ -222,10 +236,9 @@ function renderCharts(vis) {
         options: { responsive: true, maintainAspectRatio: false }
     });
 
-    // 2. Sentiment Trend Line
-    const ctxM = document.getElementById("chartMonthly");
+    const lineCtx = document.getElementById("chartMonthly");
     if(chartInstances.monthly) chartInstances.monthly.destroy();
-    chartInstances.monthly = new Chart(ctxM, {
+    chartInstances.monthly = new Chart(lineCtx, {
         type: 'line',
         data: {
             labels: vis.sentiment_trend.map(d => d.week),
@@ -234,47 +247,76 @@ function renderCharts(vis) {
         options: { responsive: true, maintainAspectRatio: false }
     });
 
-    // 3. Rating Distribution Bar (Dynamic mapping)
-    const ctxR = document.getElementById("chartRatings");
+    const barCtx = document.getElementById("chartRatings");
     if(chartInstances.ratings) chartInstances.ratings.destroy();
-    
-    // Map visualizations ratings if available, otherwise use placeholders
-    const ratingLabels = ['1★', '2★', '3★', '4★', '5★'];
-    const ratingData = vis.ratings ? Object.values(vis.ratings) : [0, 0, 0, 0, 0];
-
-    chartInstances.ratings = new Chart(ctxR, {
+    chartInstances.ratings = new Chart(barCtx, {
         type: 'bar',
         data: {
-            labels: ratingLabels,
-            datasets: [{ label: 'Total Reviews', data: ratingData, backgroundColor: '#6366f1' }]
+            labels: ['1★', '2★', '3★', '4★', '5★'],
+            datasets: [{ 
+                label: 'Reviews', 
+                data: vis.ratings ? Object.values(vis.ratings) : [0,0,0,0,0], 
+                backgroundColor: '#6366f1' 
+            }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
 }
 
+// Sync Live Data
 document.getElementById("syncBtn").onclick = async () => {
     const cid = document.getElementById("companySelect").value;
     const btn = document.getElementById("syncBtn");
+    if (!cid) return;
+
     btn.disabled = true;
     btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Syncing...`;
     
     try {
-        // Hits the 300-batch pagination route in reviews.py
-        await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
+        const res = await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
+        const result = await res.json();
+        console.log("Sync Result:", result);
         
-        // Wait a moment for DB commit before reloading
+        // Wait 2 seconds for DB consistency then refresh
         setTimeout(() => { 
             triggerAllLoads(); 
             btn.disabled = false; 
             btn.innerHTML = "Sync Live Data"; 
-        }, 2500);
+        }, 2000);
     } catch (e) {
-        console.error("Sync Error:", e);
         btn.disabled = false;
         btn.innerHTML = "Sync Live Data";
     }
 };
 
+// Add Business Form Submission
+document.getElementById('addCompanyForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const payload = {
+        name: document.getElementById('companyName').value,
+        place_id: document.getElementById('placeId').value,
+        address: document.getElementById('companyAddress').value
+    };
+
+    if (!payload.place_id) {
+        alert("Critical Error: Missing Place ID. Please search for the business again.");
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/companies', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        
+        if (res.ok) {
+            location.reload();
+        }
+    } catch (e) { console.error("Save Business Failed:", e); }
+};
+
+// Chat Functionality
 document.getElementById("chatBtn").onclick = async () => {
     const input = document.getElementById("chatInput");
     const msg = input.value;
@@ -286,39 +328,17 @@ document.getElementById("chatBtn").onclick = async () => {
     input.value = "";
     win.scrollTop = win.scrollHeight;
 
-    try {
-        const res = await fetch(`/api/dashboard/chat?company_id=${cid}`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(msg)
-        });
-        const data = await res.json();
-        win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI:</strong> ${data.answer}</div>`;
-        win.scrollTop = win.scrollHeight;
-    } catch (e) { console.error("Chat Error:", e); }
+    const res = await fetch(`/api/dashboard/chat?company_id=${cid}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(msg)
+    });
+    const data = await res.json();
+    win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI:</strong> ${data.answer}</div>`;
+    win.scrollTop = win.scrollHeight;
 };
 
-document.getElementById('addCompanyForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const payload = {
-        name: document.getElementById('companyName').value,
-        place_id: document.getElementById('placeId').value,
-        address: document.getElementById('companyAddress').value
-    };
-    try {
-        const res = await fetch('/api/companies', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        });
-        if (res.ok) {
-            const modal = bootstrap.Modal.getInstance(document.getElementById('addCompanyModal'));
-            modal.hide();
-            location.reload();
-        }
-    } catch (e) { console.error("Add Company Error:", e); }
-};
-
+// Theme Toggle
 document.getElementById("toggleTheme").onclick = () => {
     const theme = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
     document.documentElement.setAttribute("data-theme", theme);
