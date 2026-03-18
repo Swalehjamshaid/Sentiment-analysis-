@@ -1,11 +1,12 @@
 # Async & DB
 asyncpg==0.31.0
 aiosqlite==0.20.0
-SQLAlchemy>=2.0.35
+SQLAlchemy>=2.0.48
 psycopg[binary]==3.2.4
 psycopg2-binary==2.9.10
 alembic==1.18.4
-greenlet>=3.1.1
+# We let pip choose the version to avoid conflicts with Playwright
+greenlet
 
 # Language Detection & Sentiment Analysis
 textblob==0.18.0.post0
@@ -24,13 +25,13 @@ torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu
 requests==2.32.3
 urllib3>=2.3.0
 chardet==5.2.0
-charset_normalizer>=3.4.0
+charset_normalizer>=3.4.6
 httpx[http2]==0.27.2
 python-dateutil==2.9.0.post0
 
-# NEW: Playwright for Browser-Based Scraping (To fix 400/404 errors)
-playwright==1.42.0
-pytest-playwright==0.4.4
+# Playwright (Updated for Python 3.12 Compatibility)
+playwright==1.49.0
+pytest-playwright==0.5.0
 
 # Web Framework & Server
 fastapi==0.115.0
@@ -53,7 +54,7 @@ pyotp==2.9.0
 
 # Utilities
 bleach==6.1.0
-itsdangerous>=2.1.2
+itsdangerous>=2.2.0
 tenacity==9.0.0
 
 # Reporting & Documents
