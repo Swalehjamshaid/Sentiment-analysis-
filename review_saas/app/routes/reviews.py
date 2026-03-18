@@ -1,73 +1,112 @@
+# filename: app/routes/reviews.py
+
 import logging
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
-from datetime import datetime, timezone
+from datetime import datetime
 
 from app.core.db import get_session
 from app.core.models import Company, Review
-from app.services.scraper import FastGoogleScraper
+from app.services.scraper import fetch_reviews
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 logger = logging.getLogger(__name__)
+
 analyzer = SentimentIntensityAnalyzer()
-scraper = FastGoogleScraper()
+
 
 @router.post("/ingest/{company_id}")
 async def ingest_reviews(
-    company_id: int, 
-    limit: int = 10000, 
+    company_id: int,
+    limit: int = 10000,
     session: AsyncSession = Depends(get_session)
 ):
-    # 1. Verify Company
+    # 1️⃣ Validate Company
     company = await session.get(Company, company_id)
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
-    
-    if not company.google_id:
-        raise HTTPException(status_code=400, detail="Company is missing Google ID (0x...)")
 
-    # 2. Fetch Data
-    logger.info(f"🚀 Syncing {company.name}...")
-    scraped_data = await scraper.get_reviews(data_id=company.google_id, limit=limit)
-    
+    # ✅ FIX: Use place_id if google_id is missing
+    place_id = company.google_id or company.place_id
+    if not place_id:
+        raise HTTPException(status_code=400, detail="Missing Google Place ID")
+
+    logger.info(f"🚀 Syncing reviews for {company.name}")
+
+    # 2️⃣ Fetch Reviews
+    scraped_data = await fetch_reviews(place_id=place_id, limit=limit)
+
     if not scraped_data:
-        return {"status": "success", "message": "No new reviews found."}
+        return {
+            "status": "success",
+            "message": "No reviews fetched (empty response)",
+            "new_reviews_added": 0
+        }
 
     new_count = 0
-    for item in scraped_data:
-        # 3. Prevent Duplicates
-        stmt = select(Review).where(
-            and_(Review.company_id == company_id, Review.google_review_id == item["review_id"])
-        )
-        existing = (await session.execute(stmt)).scalar_one_or_none()
-        
-        if not existing:
-            # 4. Sentiment Analysis
-            text = item["text"]
-            score = analyzer.polarity_scores(text)["compound"]
-            label = "Positive" if score > 0.05 else ("Negative" if score < -0.05 else "Neutral")
 
-            # 5. Save to DB
+    for item in scraped_data:
+        try:
+            review_id = item.get("review_id")
+            if not review_id:
+                continue
+
+            # 3️⃣ Duplicate Check
+            stmt = select(Review).where(
+                and_(
+                    Review.company_id == company_id,
+                    Review.google_review_id == review_id
+                )
+            )
+            existing = (await session.execute(stmt)).scalar_one_or_none()
+
+            if existing:
+                continue
+
+            # 4️⃣ Sentiment
+            text = item.get("text", "")
+            score = analyzer.polarity_scores(text)["compound"]
+
+            if score > 0.05:
+                label = "Positive"
+            elif score < -0.05:
+                label = "Negative"
+            else:
+                label = "Neutral"
+
+            # 5️⃣ Time Parsing (FIXED)
+            raw_time = item.get("google_review_time")
+            try:
+                review_time = datetime.fromisoformat(raw_time) if raw_time else datetime.utcnow()
+            except Exception:
+                review_time = datetime.utcnow()
+
+            # 6️⃣ Save Review (FIXED FIELD NAMES)
             new_review = Review(
                 company_id=company_id,
-                google_review_id=item["review_id"],
-                author_name=item["author_title"],
-                rating=item["rating"],
+                google_review_id=review_id,
+                author_name=item.get("author_name", "Google User"),
+                rating=item.get("rating", 0),
                 text=text,
-                google_review_time=datetime.fromisoformat(item["review_datetime_utc"]),
+                google_review_time=review_time,
                 sentiment_score=score,
                 sentiment_label=label,
                 source_platform="Google"
             )
+
             session.add(new_review)
             new_count += 1
 
+        except Exception as e:
+            logger.warning(f"Skipping bad review: {str(e)}")
+            continue
+
     await session.commit()
-    logger.info(f"✅ Added {new_count} reviews for {company.name}")
-    
+
+    logger.info(f"✅ {new_count} new reviews added for {company.name}")
+
     return {
         "status": "success",
         "new_reviews_added": new_count,
