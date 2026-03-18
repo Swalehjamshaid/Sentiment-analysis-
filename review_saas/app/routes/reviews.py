@@ -1,84 +1,92 @@
-# filename: app/routes/reviews.py
 import logging
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from typing import List, Dict, Any
 from datetime import datetime
 
-from app.core.db import get_session
-from app.core.models import Company, Review
+# Import your database models and scraper service
+from app.db.database import get_db
+from app.db import models
 from app.services.scraper import fetch_reviews
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-router = APIRouter(prefix="/api/reviews", tags=["reviews"])
+router = APIRouter(prefix="/api/reviews", tags=["Reviews"])
 logger = logging.getLogger(__name__)
-analyzer = SentimentIntensityAnalyzer()
 
-BATCH_SIZE = 200  # Number of reviews to fetch per sync
-
-@router.post("/ingest/{company_id}", response_model=None)
-async def ingest_reviews(
-    company_id: int, 
-    session: AsyncSession = Depends(get_session)
-):
-    # 1. Fetch Company from DB
-    company = await session.get(Company, company_id)
+@router.post("/ingest/{company_id}")
+async def ingest_reviews(company_id: int, db: Session = Depends(get_db)):
+    """
+    Endpoint to trigger the Playwright scraper for a specific company.
+    It fetches reviews from Google Maps and saves them to the Postgres database.
+    """
+    # 1. Verify Company Exists
+    company = db.query(models.Company).filter(models.Company.id == company_id).first()
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
 
-    # 2. MATCH THE MODEL: Use 'google_place_id' as defined in your models.py
-    place_id = company.google_place_id or company.google_id
-    
-    if not place_id:
-        logger.error(f"400 Error: Company {company_id} is missing google_place_id")
-        raise HTTPException(
-            status_code=400, 
-            detail="Google Place ID is missing. Please re-add this business."
+    if not company.place_id:
+        raise HTTPException(status_code=400, detail="Company missing Google Place ID")
+
+    logger.info(f"🚀 Manual Sync Triggered for: {company.name} (ID: {company_id})")
+
+    try:
+        # 2. Call Scraper Service
+        # We pass place_id and a limit of 300 to match your dashboard requirements.
+        # This matches the 'async def fetch_reviews(place_id, limit, skip)' signature.
+        scraped_data = await fetch_reviews(
+            place_id=company.place_id, 
+            limit=300, 
+            skip=0
         )
 
-    # 3. Pagination Logic: Count how many reviews already exist
-    count_stmt = select(func.count(Review.id)).where(Review.company_id == company_id)
-    result = await session.execute(count_stmt)
-    existing_count = result.scalar() or 0
+        if not scraped_data:
+            logger.warning(f"⚠️ No reviews found for {company.name}. Check scraper logs.")
+            return {"message": "Sync completed", "reviews_count": 0}
 
-    # 4. Fetch the next batch of reviews using BATCH_SIZE
-    scraped_data = await fetch_reviews(place_id=place_id, limit=BATCH_SIZE, skip=existing_count)
+        # 3. Save to Database (Upsert Logic)
+        new_count = 0
+        for item in scraped_data:
+            # Check if review already exists to avoid duplicates
+            existing = db.query(models.Review).filter(
+                models.Review.text == item["text"],
+                models.Review.author_name == item["author_name"],
+                models.Review.company_id == company_id
+            ).first()
 
-    if not scraped_data:
-        return {"status": "success", "new_reviews_added": 0}
+            if not existing:
+                new_review = models.Review(
+                    company_id=company_id,
+                    review_id=item["review_id"],
+                    rating=item["rating"],
+                    text=item["text"],
+                    author_name=item["author_name"],
+                    google_review_time=item["google_review_time"],
+                    created_at=datetime.utcnow()
+                )
+                db.add(new_review)
+                new_count += 1
 
-    new_count = 0
-    for item in scraped_data:
-        try:
-            # Duplicate check
-            stmt = select(Review).where(and_(
-                Review.company_id == company_id,
-                Review.google_review_id == item["review_id"]
-            ))
-            existing = await session.execute(stmt)
-            if existing.scalar_one_or_none():
-                continue
+        db.commit()
+        logger.info(f"✅ Successfully ingested {new_count} new reviews for {company.name}")
 
-            # Sentiment Analysis
-            score = analyzer.polarity_scores(item["text"])["compound"]
-            label = "Positive" if score > 0.05 else "Negative" if score < -0.05 else "Neutral"
+        return {
+            "status": "success",
+            "company": company.name,
+            "reviews_count": new_count,
+            "total_processed": len(scraped_data)
+        }
 
-            new_review = Review(
-                company_id=company_id,
-                google_review_id=item["review_id"],
-                author_name=item["author_name"],
-                rating=item["rating"],
-                text=item["text"],
-                google_review_time=datetime.fromisoformat(item["google_review_time"]),
-                sentiment_score=score,
-                sentiment_label=label,
-                source_platform="Google"
-            )
-            session.add(new_review)
-            new_count += 1
-        except Exception:
-            continue
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Ingestion Error for Company {company_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"Internal Scraper Error: {str(e)}"
+        )
 
-    await session.commit()
-    logger.info(f"✅ Company {company_id}: Added {new_count} new reviews (batch of {BATCH_SIZE})")
-    return {"status": "success", "new_reviews_added": new_count}
+@router.get("/list/{company_id}", response_model=List[Dict[str, Any]])
+async def get_company_reviews(company_id: int, db: Session = Depends(get_db)):
+    """
+    Returns all stored reviews for a specific company.
+    """
+    reviews = db.query(models.Review).filter(models.Review.company_id == company_id).all()
+    return reviews
