@@ -1,169 +1,104 @@
+# filename: app/routes/reviews.py
 from __future__ import annotations
-
-import asyncio
 import logging
-from datetime import datetime
-from typing import Optional, List
+from datetime import datetime, timezone
+from typing import List, Dict, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Path
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy.future import select
 
 from app.core.db import get_session
-from app.core import models
+from app.core.models import Company, Review
 
-# 🔥 Playwright for scraping
-from playwright.async_api import async_playwright
-
-router = APIRouter(prefix="/api/reviews", tags=["Reviews"])
-
-logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/reviews", tags=["Reviews"])
+logger = logging.getLogger("app.routes.reviews")
 
 
-# ---------------------------------------------------
-# 🔥 HELPER: Scrape reviews using Playwright
-# ---------------------------------------------------
-async def scrape_reviews(place_id: str, max_reviews: int = 200):
-    reviews = []
+BATCH_SIZE = 200  # Number of reviews per batch
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
 
-        url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-        await page.goto(url, timeout=60000)
+async def fetch_google_reviews(company: Company, last_synced: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    """
+    Placeholder for actual Google reviews fetching logic.
+    This should return a list of review dictionaries.
+    """
+    # Replace this with your Google Places / API logic
+    # Each review dict should match the Review model fields
+    # Example:
+    reviews = [
+        {
+            "google_review_id": f"rev_{i}",
+            "author_name": f"Author {i}",
+            "rating": 5,
+            "text": f"Review text {i}",
+            "google_review_time": datetime.now(timezone.utc),
+            "review_url": f"https://reviews.com/{i}",
+        }
+        for i in range(1, 1001)  # Simulate 1000 reviews
+    ]
 
-        # Open reviews tab
-        await page.wait_for_selector('button[jsaction="pane.reviewChart.moreReviews"]', timeout=15000)
-        await page.click('button[jsaction="pane.reviewChart.moreReviews"]')
-
-        await page.wait_for_selector('div[role="article"]')
-
-        last_height = 0
-
-        while len(reviews) < max_reviews:
-            cards = await page.query_selector_all('div[role="article"]')
-
-            for card in cards:
-                try:
-                    text_el = await card.query_selector('span[jsname="bN97Pc"]')
-                    text = await text_el.inner_text() if text_el else ""
-
-                    rating_el = await card.query_selector('span[aria-label*="star"]')
-                    rating = 0
-                    if rating_el:
-                        rating_text = await rating_el.get_attribute("aria-label")
-                        rating = int(rating_text[0])
-
-                    time_el = await card.query_selector('span.rsqaWe')
-                    review_time = datetime.utcnow()  # fallback
-
-                    reviews.append({
-                        "google_review_id": hash(text + str(rating)),
-                        "text": text,
-                        "rating": rating,
-                        "time": review_time
-                    })
-
-                except Exception:
-                    continue
-
-                if len(reviews) >= max_reviews:
-                    break
-
-            await page.mouse.wheel(0, 5000)
-            await asyncio.sleep(2)
-
-            new_height = len(cards)
-            if new_height == last_height:
-                break
-            last_height = new_height
-
-        await browser.close()
+    # Filter by last_synced if provided
+    if last_synced:
+        reviews = [r for r in reviews if r["google_review_time"] > last_synced]
 
     return reviews
 
 
-# ---------------------------------------------------
-# 🚀 MAIN API: Ingest Reviews
-# ---------------------------------------------------
 @router.post("/ingest/{company_id}")
 async def ingest_reviews(
-    company_id: int,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
+    company_id: int = Path(..., description="ID of the company to fetch reviews for"),
     db: AsyncSession = Depends(get_session),
 ):
-    # ✅ Get company (ASYNC FIX)
-    result = await db.execute(
-        select(models.Company).where(models.Company.id == company_id)
-    )
-    company = result.scalars().first()
+    # Fetch company
+    result = await db.execute(select(Company).where(Company.id == company_id))
+    company: Optional[Company] = result.scalars().first()
 
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
 
-    # ✅ FIXED: Use correct field
     if not company.google_place_id:
-        raise HTTPException(status_code=400, detail="No Google Place ID found")
+        raise HTTPException(status_code=400, detail="Company does not have a Google Place ID")
 
-    place_id = company.google_place_id
+    logger.info(f"Fetching reviews for company {company.name} (ID {company.id})")
 
-    total_saved = 0
-    batch_size = 200
-    has_more = True
-    page_count = 0
+    last_synced = company.last_synced_at
+    reviews_data = await fetch_google_reviews(company, last_synced=last_synced)
 
-    while has_more:
-        page_count += 1
-        logger.info(f"Fetching batch {page_count}")
+    if not reviews_data:
+        return {"message": "No new reviews found"}
 
-        scraped_reviews = await scrape_reviews(place_id, max_reviews=batch_size)
+    total_reviews = len(reviews_data)
+    logger.info(f"Total new reviews to ingest: {total_reviews}")
 
-        if not scraped_reviews:
-            break
+    # Batch insertion
+    for i in range(0, total_reviews, BATCH_SIZE):
+        batch = reviews_data[i:i + BATCH_SIZE]
+        logger.info(f"Processing batch {i // BATCH_SIZE + 1}")
 
-        for r in scraped_reviews:
-            review_time = r["time"]
-
-            # ✅ Date filtering
-            if start_date and review_time < start_date:
-                has_more = False
-                break
-            if end_date and review_time > end_date:
-                continue
-
-            # ✅ Check duplicate
-            existing = await db.execute(
-                select(models.Review).where(
-                    models.Review.google_review_id == str(r["google_review_id"]),
-                    models.Review.company_id == company_id,
+        review_objects = []
+        for r in batch:
+            review_objects.append(
+                Review(
+                    company_id=company.id,
+                    google_review_id=r["google_review_id"],
+                    author_name=r.get("author_name"),
+                    rating=r.get("rating"),
+                    text=r.get("text"),
+                    google_review_time=r.get("google_review_time"),
+                    review_url=r.get("review_url"),
+                    review_photos=r.get("review_photos"),
+                    review_videos=r.get("review_videos"),
                 )
             )
-            if existing.scalars().first():
-                continue
 
-            # ✅ Save review
-            new_review = models.Review(
-                company_id=company_id,
-                google_review_id=str(r["google_review_id"]),
-                rating=r["rating"],
-                text=r["text"],
-                google_review_time=review_time,
-                source_platform="Google",
-            )
-
-            db.add(new_review)
-            total_saved += 1
-
+        db.add_all(review_objects)
         await db.commit()
 
-        # Stop if less than batch
-        if len(scraped_reviews) < batch_size:
-            has_more = False
+    # Update last_synced_at
+    company.last_synced_at = datetime.now(timezone.utc)
+    db.add(company)
+    await db.commit()
 
-    return {
-        "status": "success",
-        "company_id": company_id,
-        "reviews_saved": total_saved
-    }
+    logger.info(f"Successfully ingested {total_reviews} reviews for company {company.name}")
+    return {"message": f"Successfully ingested {total_reviews} reviews"}
