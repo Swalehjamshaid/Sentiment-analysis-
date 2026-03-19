@@ -1,5 +1,3 @@
-# filename: app/routes/companies.py
-
 from __future__ import annotations
 
 import logging
@@ -15,19 +13,23 @@ from fastapi import (
     status,
     BackgroundTasks,
     Query,
+    Depends,
 )
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Core imports
 from app.core.db import get_session
 from app.core.models import Company, Review
 from app.core.config import settings
 
 logger = logging.getLogger("app.companies")
 
-router = APIRouter(tags=["companies"], prefix="/api")
+# Prefix is handled in main.py, so we use empty prefix here or ensure it matches main.py
+# Given your main.py uses prefix="/api", we use tags here.
+router = APIRouter(tags=["companies"])
 
 
 # ----------------------------------------------------------
@@ -35,8 +37,13 @@ router = APIRouter(tags=["companies"], prefix="/api")
 # ----------------------------------------------------------
 
 def _require_user(request: Request):
-    if not request.session.get("user"):
-        raise HTTPException(401, "Unauthorized")
+    user = request.session.get("user")
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Unauthorized"
+        )
+    return user
 
 
 # ----------------------------------------------------------
@@ -50,7 +57,7 @@ class CompanyCreate(BaseModel):
 
 
 # ----------------------------------------------------------
-# OUTSCRAPER CLIENT
+# OUTSCRAPER CLIENT (Attribute Preserved)
 # ----------------------------------------------------------
 
 class OutscraperClient:
@@ -85,7 +92,7 @@ def _osc():
 
 
 # ----------------------------------------------------------
-# COMPANIES LIST
+# COMPANIES LIST (Updated for Route Alignment)
 # ----------------------------------------------------------
 
 @router.get("/companies")
@@ -93,94 +100,96 @@ async def companies_list(
     request: Request,
     page: int = 1,
     size: int = 20,
-    q: Optional[str] = None
+    q: Optional[str] = None,
+    session: AsyncSession = Depends(get_session)
 ):
     _require_user(request)
 
     page = max(page, 1)
     size = max(1, min(100, size))
 
-    async for session in get_session():
-        stmt = select(Company)
+    stmt = select(Company)
+    if q:
+        stmt = stmt.where(Company.name.ilike(f"%{q}%"))
 
-        if q:
-            stmt = stmt.where(Company.name.ilike(f"%{q}%"))
+    stmt = stmt.order_by(desc(Company.created_at))
 
-        stmt = stmt.order_by(desc(Company.created_at))
+    res = await session.execute(stmt.offset((page - 1) * size).limit(size))
+    companies = res.scalars().all()
 
-        res = await session.execute(stmt.offset((page - 1) * size).limit(size))
-        companies = res.scalars().all()
+    items = []
+    for c in companies:
+        stats_stmt = select(
+            func.count(Review.id), 
+            func.avg(Review.rating)
+        ).where(Review.company_id == c.id)
+        
+        stats_res = await session.execute(stats_stmt)
+        count, avg = stats_res.first()
 
-        items = []
+        items.append({
+            "id": c.id,
+            "name": c.name,
+            "place_id": c.google_place_id,
+            "address": c.address or "",
+            "review_count": int(count or 0),
+            "avg_rating": round(float(avg or 0), 2),
+        })
 
-        for c in companies:
-            stats = await session.execute(
-                select(func.count(Review.id), func.avg(Review.rating)).where(Review.company_id == c.id)
-            )
-            count, avg = stats.first()
-
-            items.append({
-                "id": c.id,
-                "name": c.name,
-                "place_id": c.google_place_id,
-                "address": c.address or "",
-                "review_count": int(count or 0),
-                "avg_rating": round(float(avg or 0), 2),
-            })
-
-        return items
+    return items
 
 
 # ----------------------------------------------------------
-# ADD COMPANY (CORRECTED)
+# ADD COMPANY (Updated to fix 405 error)
 # ----------------------------------------------------------
 
 @router.post("/companies")
 async def add_company(
     request: Request,
     company_in: CompanyCreate,
-    background: BackgroundTasks
+    background: BackgroundTasks,
+    session: AsyncSession = Depends(get_session)
 ):
     _require_user(request)
 
-    async for session in get_session():
+    # FIXED — model uses google_place_id
+    res = await session.execute(
+        select(Company).where(Company.google_place_id == company_in.place_id.strip())
+    )
+    existing = res.scalar_one_or_none()
 
-        # FIXED — model uses google_place_id, NOT place_id
-        res = await session.execute(
-            select(Company).where(Company.google_place_id == company_in.place_id)
-        )
-        existing = res.scalar_one_or_none()
-
-        if existing:
-            return {
-                "status": "exists",
-                "company": {
-                    "id": existing.id,
-                    "name": existing.name,
-                    "place_id": existing.google_place_id,
-                    "address": existing.address,
-                }
-            }
-
-        new_company = Company(
-            name=company_in.name.strip(),
-            google_place_id=company_in.place_id.strip(),
-            address=company_in.address or "",
-        )
-
-        session.add(new_company)
-        await session.commit()
-        await session.refresh(new_company)
-
+    if existing:
         return {
-            "status": "created",
+            "status": "exists",
             "company": {
-                "id": new_company.id,
-                "name": new_company.name,
-                "place_id": new_company.google_place_id,
-                "address": new_company.address,
+                "id": existing.id,
+                "name": existing.name,
+                "place_id": existing.google_place_id,
+                "address": existing.address,
             }
         }
+
+    new_company = Company(
+        name=company_in.name.strip(),
+        google_place_id=company_in.place_id.strip(),
+        address=company_in.address or "",
+    )
+
+    session.add(new_company)
+    await session.commit()
+    await session.refresh(new_company)
+
+    logger.info(f"✅ Created new company: {new_company.name}")
+    
+    return {
+        "status": "created",
+        "company": {
+            "id": new_company.id,
+            "name": new_company.name,
+            "place_id": new_company.google_place_id,
+            "address": new_company.address,
+        }
+    }
 
 
 # ----------------------------------------------------------
@@ -188,16 +197,18 @@ async def add_company(
 # ----------------------------------------------------------
 
 @router.post("/companies/{company_id}/delete")
-async def delete_company(request: Request, company_id: int):
+async def delete_company(
+    request: Request, 
+    company_id: int,
+    session: AsyncSession = Depends(get_session)
+):
     _require_user(request)
 
-    async for session in get_session():
-        comp = await session.get(Company, company_id)
+    comp = await session.get(Company, company_id)
+    if not comp:
+        raise HTTPException(status_code=404, detail="Company not found")
 
-        if not comp:
-            raise HTTPException(404, "Company not found")
-
-        await session.delete(comp)
-        await session.commit()
+    await session.delete(comp)
+    await session.commit()
 
     return {"status": "deleted", "id": company_id}
