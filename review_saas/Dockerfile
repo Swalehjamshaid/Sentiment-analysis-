@@ -1,3 +1,6 @@
+# Use official Python image as base
+FROM python:3.12-slim
+
 # Install system deps for Playwright (only once during build)
 RUN apt-get update && apt-get install -y \
     ca-certificates fonts-liberation libasound2 libatk-bridge2.0-0 libatk1.0-0 libc6 \
@@ -7,11 +10,6 @@ RUN apt-get update && apt-get install -y \
     libxi6 libxrandr2 libxrender1 libxtst6 lsb-release wget xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Playwright + browsers during build
-RUN pip install playwright \
-    && playwright install --with-deps chromium \
-    && playwright install-deps
-
-# Optional: set custom path (helps if Railway clears /root/.cache)
-ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright
-RUN mkdir -p /app/.playwright && chmod -R 777 /app/.playwright
+# Install Playwright
+RUN pip install --no-cache-dir playwright
+RUN playwright install --with-deps
