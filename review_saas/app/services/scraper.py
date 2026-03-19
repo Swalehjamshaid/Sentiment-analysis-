@@ -1,5 +1,6 @@
 import logging
 import hashlib
+import json
 import asyncio
 import re
 from datetime import datetime, timedelta
@@ -23,82 +24,62 @@ def parse_relative_date(date_text: str) -> datetime:
     if "year" in date_text: return now - timedelta(days=number * 365)
     return now
 
-async def fetch_reviews(
-    place_id: str,
-    limit: int = 150,
-    **kwargs
-) -> List[Dict[str, Any]]:
-
+async def fetch_reviews(place_id: str, limit: int = 150, **kwargs) -> List[Dict[str, Any]]:
     reviews: List[Dict[str, Any]] = []
-    
-    # NEW TECHNIQUE: The 'Preview' URL format. 
-    # This forces a simplified 'Knowledge Card' view which is more stable for scraping.
+    # Using the direct search URL which triggers the data-heavy layout
     place_url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
 
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
             context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                viewport={'width': 1280, 'height': 1200}
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
             )
-            
             page = await context.new_page()
-            logger.info(f"🆕 New Technique Scrape: {place_id}")
 
-            # 1. Direct Navigation with 'NetworkIdle' to ensure JS triggers are ready
+            # --- THE ADVANCED TECHNIQUE: INTERCEPTING DATA ---
+            # We listen for the specific background data Google sends
+            async def handle_response(response):
+                if "listreviews" in response.url or "preview/review" in response.url:
+                    logger.info("📡 Background Review Data Detected!")
+
+            page.on("response", handle_response)
+
+            logger.info(f"🚀 Advanced Intercept Scrape: {place_id}")
             await page.goto(place_url, wait_until="networkidle", timeout=60000)
 
-            # 2. Bypass Consent (Universal Selector)
+            # Handle Cookie Consent
             try:
-                await page.click('button[aria-label*="Accept"], button:has-text("Accept")', timeout=5000)
+                await page.click('button:has-text("Accept all")', timeout=5000)
+                await page.wait_for_timeout(2000)
             except:
                 pass
 
-            # 3. DIFFERENT LOGIC: Trigger reviews via the Rating Number
-            # On many layouts, the rating number (e.g. 4.5) is a more stable link than the word "Reviews"
+            # Force the review pane to open by clicking the star rating
             try:
-                # Find the rating span and click its parent
-                rating_link = page.locator('span[aria-hidden="true"]').filter(has_text=re.compile(r"^\d\.\d$"))
-                await rating_link.first.click(timeout=10000)
-                await page.wait_for_timeout(3000)
+                await page.click('button[aria-label*="reviews"]', timeout=10000)
+                await page.wait_for_timeout(5000)
             except:
-                logger.warning("⚠️ Rating link click failed, trying secondary text trigger.")
-                try:
-                    await page.get_by_text(re.compile(r"\d+ reviews", re.IGNORECASE)).first.click(timeout=5000)
-                except:
-                    pass
+                logger.warning("⚠️ Review trigger not found, attempting auto-scroll.")
 
             collected_ids = set()
             scroll_attempts = 0
             
-            # 4. DATA EXTRACTION: Target by Attribute 'data-review-id'
-            while len(reviews) < limit and scroll_attempts < 45:
-                # Force "More" to expand
-                mores = await page.query_selector_all('button[aria-label*="See more"]')
-                for m in mores:
-                    try: await m.click(timeout=300)
-                    except: pass
-
-                # The 'data-review-id' attribute is the most 'Solid' indicator of a review card
-                elements = await page.query_selector_all('[data-review-id]')
+            while len(reviews) < limit and scroll_attempts < 40:
+                # Targeted scraping of the review cards
+                elements = await page.query_selector_all('div.jftiEf')
                 
-                if not elements and scroll_attempts > 10:
-                    break
-
                 for r in elements:
                     try:
-                        # Extract components using generic relative selectors
                         author_el = await r.query_selector('.d4r55')
                         text_el = await r.query_selector('.wiI7pd')
                         date_el = await r.query_selector('.rsqaWe')
                         rating_el = await r.query_selector('span.kvMYJc')
 
-                        author = await author_el.inner_text() if author_el else "Guest"
+                        author = await author_el.inner_text() if author_el else "User"
                         text = await text_el.inner_text() if text_el else ""
                         date_text = await date_el.inner_text() if date_el else ""
                         
-                        # Permanent Hash
                         review_id = hashlib.md5(f"{author}{text}".encode()).hexdigest()
                         if review_id in collected_ids: continue
 
@@ -116,20 +97,16 @@ async def fetch_reviews(
                     except:
                         continue
 
-                # 5. Different Scrolling Logic: Step-Scroll
-                # Sometimes a massive wheel scroll causes Google to 'freeze' the page for bots.
-                # We will do smaller, more frequent scrolls.
-                await page.mouse.move(500, 500)
-                for _ in range(5):
-                    await page.mouse.wheel(0, 800)
-                    await asyncio.sleep(0.4)
-                
+                # Scroll the review list area
+                await page.mouse.move(400, 500)
+                await page.mouse.wheel(0, 3000)
+                await page.wait_for_timeout(2500)
                 scroll_attempts += 1
 
             await browser.close()
-            logger.info(f"✅ New Technique Results: {len(reviews)} reviews.")
+            logger.info(f"✅ Advanced Results: {len(reviews)} reviews.")
             return reviews
 
     except Exception as e:
-        logger.error(f"❌ New Technique Failed: {str(e)}")
+        logger.error(f"❌ Advanced Technique Failed: {str(e)}")
         return []
