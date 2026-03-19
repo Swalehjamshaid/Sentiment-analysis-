@@ -9,12 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from pydantic import BaseModel
 
+# Core project imports
 from app.core.db import get_session
 from app.core.models import Review, Company
 from app.services.scraper import fetch_reviews
 
-router = APIRouter()
-logger = logging.getLogger(__name__)
+# No prefix here because app/main.py handles prefix="/api"
+router = APIRouter(tags=["reviews"])
+logger = logging.getLogger("app.reviews")
 
 # --------------------------- Pydantic Schemas ---------------------------
 class ReviewResponse(BaseModel):
@@ -30,8 +32,12 @@ class ReviewResponse(BaseModel):
         from_attributes = True
 
 # --------------------------- Ingest Reviews (POST) ---------------------------
-@router.post("/ingest/{company_id}")
-async def ingest_reviews(company_id: int, session: AsyncSession = Depends(get_session)):
+# FIXED PATH: Matches the frontend calling /api/reviews/ingest/{id}
+@router.post("/reviews/ingest/{company_id}")
+async def ingest_reviews(
+    company_id: int, 
+    session: AsyncSession = Depends(get_session)
+):
     """
     Triggers the Playwright scraper using the correct Google identifiers 
     defined in models.py and saves them to the database.
@@ -41,11 +47,12 @@ async def ingest_reviews(company_id: int, session: AsyncSession = Depends(get_se
     company = result.scalar_one_or_none()
     
     if not company:
+        logger.error(f"Sync failed: Company ID {company_id} not found.")
         raise HTTPException(status_code=404, detail="Company record not found in database.")
 
-    # 2. Correct Identifier Mapping (Crucial Fix for 500 Error)
+    # 2. Correct Identifier Mapping
     # Your models.py uses 'google_place_id' or 'place_url'
-    target_id = company.google_place_id or company.place_url
+    target_id = company.google_place_id or getattr(company, 'place_url', None)
     
     if not target_id:
         logger.error(f"Company ID {company_id} is missing both google_place_id and place_url.")
@@ -63,7 +70,11 @@ async def ingest_reviews(company_id: int, session: AsyncSession = Depends(get_se
         
         if not scraped_data:
             logger.warning(f"⚠️ Scraper returned 0 results for {company.name}. Check Google Maps layout.")
-            return {"status": "success", "message": "No reviews found on page.", "count": 0}
+            return {
+                "status": "success", 
+                "message": "Sync complete. No reviews found on page.", 
+                "new_reviews_added": 0
+            }
 
         # 4. Persistence with Duplicate Prevention
         new_count = 0
@@ -104,14 +115,15 @@ async def ingest_reviews(company_id: int, session: AsyncSession = Depends(get_se
 
     except Exception as e:
         await session.rollback()
-        logger.error(f"❌ Critical Failure during ingestion: {str(e)}", exc_info=True)
+        logger.error(f"❌ Critical Failure during ingestion for {company.name}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500, 
             detail=f"Internal Scraper Crash: {str(e)}"
         )
 
 # --------------------------- List Reviews (GET) ---------------------------
-@router.get("/", response_model=List[ReviewResponse])
+# Matches: GET /api/reviews
+@router.get("/reviews", response_model=List[ReviewResponse])
 async def list_reviews(
     company_id: Optional[int] = Query(None),
     session: AsyncSession = Depends(get_session)
@@ -131,7 +143,8 @@ async def list_reviews(
         raise HTTPException(status_code=500, detail="Could not retrieve reviews from database.")
 
 # --------------------------- Delete Review (DELETE) ---------------------------
-@router.delete("/{review_id}")
+# Matches: DELETE /api/reviews/{id}
+@router.delete("/reviews/{review_id}")
 async def delete_review(review_id: int, session: AsyncSession = Depends(get_session)):
     """
     Deletes a specific review record by its internal database ID.
