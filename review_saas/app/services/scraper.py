@@ -1,186 +1,122 @@
-# filename: app/services/scraper.py
 import logging
 import hashlib
 import asyncio
-import random
 import re
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from typing import List, Dict, Any, Optional
+from playwright.async_api import async_playwright
 
 logger = logging.getLogger(__name__)
 
-
 def parse_relative_date(date_text: str) -> datetime:
+    """Universal date parser for relative strings."""
     now = datetime.utcnow()
-    date_text = (date_text or "").lower().strip()
-    if not date_text:
-        return now
-
-    # Improved parsing for 2026 formats ("2 days ago", "a week ago", "in 3 hours" rare but handled)
-    match = re.search(r'(a|an|\d+)\s*(\w+)', date_text)
-    if match:
-        num_str, unit = match.groups()
-        number = 1 if num_str in ('a', 'an') else int(num_str)
-
-        if any(k in unit for k in ['minute', 'min']):
-            return now - timedelta(minutes=number)
-        if any(k in unit for k in ['hour', 'hr']):
-            return now - timedelta(hours=number)
-        if 'day' in unit:
-            return now - timedelta(days=number)
-        if 'week' in unit:
-            return now - timedelta(weeks=number)
-        if 'month' in unit:
-            return now - timedelta(days=number * 30)
-        if 'year' in unit:
-            return now - timedelta(days=number * 365)
-
+    date_text = (date_text or "").lower()
+    number = 1
+    for part in date_text.split():
+        if part.isdigit():
+            number = int(part)
+            break
+    if "hour" in date_text: return now - timedelta(hours=number)
+    if "day" in date_text: return now - timedelta(days=number)
+    if "week" in date_text: return now - timedelta(weeks=number)
+    if "month" in date_text: return now - timedelta(days=number * 30)
+    if "year" in date_text: return now - timedelta(days=number * 365)
     return now
-
 
 async def fetch_reviews(
     place_id: str,
-    limit: int = 150,
+    limit: int = 200,
     **kwargs
 ) -> List[Dict[str, Any]]:
-    """
-    2026 real-world Playwright Google Reviews scraper.
-    Uses selectors & techniques from actively maintained 2026 repos.
-    """
-    reviews: List[Dict[str, Any]] = []
-    seen = set()
 
-    # Direct + reliable URL format
-    url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+    reviews: List[Dict[str, Any]] = []
+    # 🎯 GLOBAL LOGIC: Direct 'lrd' URL format. 
+    # This URL type is standardized by Google globally.
+    place_url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
 
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-gpu",
-                    "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled",
-                ]
-            )
-
+            browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
             context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                viewport={"width": 1366, "height": 768},
-                locale="en-US",
-                timezone_id="Asia/Karachi",
-                bypass_csp=True,
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                viewport={'width': 1280, 'height': 800}
             )
-
-            # Minimal but effective stealth (what most 2026 coders add)
-            await context.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-                window.chrome = { runtime: {} };
-            """)
-
+            
             page = await context.new_page()
-            logger.info(f"Starting reviews scrape for place_id: {place_id}")
+            logger.info(f"🌍 Global Sync Attempt: {place_id}")
 
-            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            await page.goto(place_url, wait_until="networkidle", timeout=60000)
 
-            # Accept cookies / consent
+            # --- STEP 1: BYPASS ANY CONSENT (Global approach) ---
             try:
-                await page.get_by_role("button", name=re.compile(r"(accept|agree|ok|continue)", re.I)).click(timeout=10000)
-                await asyncio.sleep(random.uniform(1.0, 2.5))
+                # Instead of looking for "Accept", we click the primary action button
+                await page.click('button[aria-haspopup="false"]:nth-child(2)', timeout=5000)
             except:
                 pass
 
-            # Open Reviews tab – chain of most reliable locators in 2026
-            tab_found = False
-            for loc in [
-                page.get_by_role("tab", name=re.compile(r"reviews?", re.I)),
-                page.get_by_role("tab", name=re.compile(r"\d.*reviews?", re.I)),
-                page.locator('[aria-label*="review" i]'),
-                page.get_by_text("Reviews").first,
-            ]:
-                try:
-                    if await loc.is_visible(timeout=6000):
-                        await loc.click(timeout=10000)
-                        await asyncio.sleep(random.uniform(2.0, 3.8))
-                        await page.wait_for_selector("div.jftiEf, [data-review-id]", timeout=15000)
-                        tab_found = True
-                        break
-                except:
-                    continue
+            # --- STEP 2: OPEN REVIEWS PANEL (Selector-based) ---
+            try:
+                # We click the star rating area, which is a universal link to reviews
+                await page.click('span[role="img"][aria-label*="stars"]', timeout=10000)
+                # Wait for the specific Material Design review container (jftiEf)
+                await page.wait_for_selector('div.jftiEf', timeout=15000)
+            except:
+                logger.warning("⚠️ Could not trigger panel via stars, trying direct scroll.")
 
-            if not tab_found:
-                logger.warning("Reviews tab could not be opened")
-                await browser.close()
-                return []
+            collected_ids = set()
+            scroll_attempts = 0
+            
+            while len(reviews) < limit and scroll_attempts < 50:
+                # 1. Expand "More" (Using the jsname attribute which is global)
+                mores = await page.query_selector_all('button[jsaction*="reviews.expand"]')
+                for m in mores:
+                    try: await m.click(timeout=500)
+                    except: pass
 
-            # Scroll + collect loop (human-like)
-            attempts_no_new = 0
-            prev_len = 0
+                # 2. Extract Data using Permanent CSS Classes
+                elements = await page.query_selector_all('div.jftiEf')
+                if not elements and scroll_attempts > 10: break
 
-            while len(reviews) < limit and attempts_no_new < 15:
-                # Click "More" buttons
-                more = page.get_by_role("button", name=re.compile(r"more", re.I))
-                for i in range(min(await more.count(), 10)):
+                for r in elements:
                     try:
-                        await more.nth(i).click(timeout=4000)
-                        await asyncio.sleep(0.5)
-                    except:
-                        pass
+                        # Names, text, and dates always use these classes globally
+                        author_el = await r.query_selector('.d4r55')
+                        text_el = await r.query_selector('.wiI7pd')
+                        date_el = await r.query_selector('.rsqaWe')
+                        rating_el = await r.query_selector('span.kvMYJc')
 
-                # Extract using current stable selectors
-                cards = await page.query_selector_all("div.jftiEf, [data-review-id]")
+                        author = await author_el.inner_text() if author_el else "User"
+                        text = await text_el.inner_text() if text_el else ""
+                        date_text = await date_el.inner_text() if date_el else ""
+                        
+                        review_id = hashlib.md5(f"{author}{text}".encode()).hexdigest()
+                        if review_id in collected_ids: continue
 
-                for card in cards:
-                    try:
-                        author_el = await card.query_selector(".d4r55")
-                        author = (await author_el.inner_text() if author_el else "Anonymous").strip()
-
-                        text_el = await card.query_selector(".wiI7pd")
-                        text = (await text_el.inner_text() if text_el else "").strip()
-
-                        rating_el = await card.query_selector('[aria-label*="star"]')
-                        rating_text = await rating_el.get_attribute("aria-label") if rating_el else ""
-                        rating = int(re.search(r"\d+", rating_text).group()) if re.search(r"\d+", rating_text) else 0
-
-                        date_el = await card.query_selector(".rsqaWe")
-                        date_str = (await date_el.inner_text() if date_el else "").strip()
-                        time_iso = parse_relative_date(date_str).isoformat()
-
-                        unique_key = hashlib.sha256(f"{author}|{text[:120]}|{rating}".encode()).hexdigest()
-                        if unique_key in seen:
-                            continue
+                        rating_raw = await rating_el.get_attribute("aria-label") if rating_el else "0"
+                        rating = int(re.search(r'\d', rating_raw).group()) if re.search(r'\d', rating_raw) else 0
 
                         reviews.append({
-                            "review_id": unique_key,
+                            "review_id": review_id,
                             "rating": rating,
                             "text": text,
                             "author_name": author,
-                            "google_review_time": time_iso,
+                            "google_review_time": parse_relative_date(date_text).isoformat()
                         })
-                        seen.add(unique_key)
-
+                        collected_ids.add(review_id)
                     except:
                         continue
 
-                current_len = len(reviews)
-                if current_len == prev_len:
-                    attempts_no_new += 1
-                else:
-                    attempts_no_new = 0
-                prev_len = current_len
+                # 3. Targeted Scrolling (Center-Left Scroll)
+                await page.mouse.move(400, 400)
+                await page.mouse.wheel(0, 4000)
+                await page.wait_for_timeout(2000)
+                scroll_attempts += 1
 
-                # Scroll
-                delta = random.randint(1800, 3200)
-                await page.mouse.wheel(0, delta)
-                await asyncio.sleep(random.uniform(2.2, 4.5))
-
-            logger.info(f"Collected {len(reviews)} reviews")
             await browser.close()
-            return reviews[:limit]
+            logger.info(f"✅ Success! Fetched {len(reviews)} reviews globally.")
+            return reviews
 
     except Exception as e:
-        logger.error(f"Scraper error: {e}", exc_info=True)
+        logger.error(f"❌ Scraper Failure: {str(e)}")
         return []
