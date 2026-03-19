@@ -4,7 +4,7 @@ import asyncio
 import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, devices
 
 logger = logging.getLogger(__name__)
 
@@ -26,74 +26,71 @@ def parse_relative_date(date_text: str) -> datetime:
 
 async def fetch_reviews(
     place_id: str,
-    limit: int = 200,
+    limit: int = 100,
     **kwargs
 ) -> List[Dict[str, Any]]:
     
     reviews: List[Dict[str, Any]] = []
-    # Using the direct search-by-id URL which is more stable
+    # Force the mobile reviews URL structure
     place_url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
 
     try:
         async with async_playwright() as p:
+            # Logic: Emulate an iPhone 13 to get the simpler Mobile Layout
+            iphone = p.devices['iPhone 13']
             browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
+            
             context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                viewport={'width': 1280, 'height': 800}
+                **iphone,
+                locale="en-US"
             )
             page = await context.new_page()
 
-            logger.info(f"🚀 Breaking the circle for Place ID: {place_id}")
-            await page.goto(place_url, wait_until="networkidle", timeout=60000)
+            logger.info(f"📱 Emulating Mobile for Place ID: {place_id}")
+            await page.goto(place_url, wait_until="commit", timeout=60000)
 
-            # --- STEP 1: HANDLE GOOGLE CONSENT ---
+            # 1. Handle Consent
             try:
-                # Click 'Accept all' if a consent dialog appears
-                consent_btn = page.locator('button:has-text("Accept all")')
-                if await consent_btn.is_visible():
-                    await consent_btn.click()
-                    await page.wait_for_timeout(2000)
+                await page.click('button:has-text("Accept all")', timeout=5000)
             except:
                 pass
 
-            # --- STEP 2: OPEN REVIEWS PANEL ---
+            # 2. Open Reviews (Mobile logic is different)
             try:
-                # Look for the button that shows the review count
-                await page.wait_for_selector('button[aria-label*="reviews"]', timeout=15000)
-                await page.click('button[aria-label*="reviews"]')
-                # CRITICAL: Wait for the review container to actually appear
-                await page.wait_for_selector('div.jftiEf', timeout=15000)
-            except:
-                logger.warning("⚠️ Review panel didn't open automatically, attempting scroll...")
-
-            # --- STEP 3: SORT BY NEWEST ---
-            try:
-                await page.click('button[aria-label="Sort reviews"]', timeout=5000)
-                await page.click('div[role="menuitemradio"]:has-text("Newest")', timeout=5000)
+                # On mobile, we look for the text "Reviews" or the rating stars
+                await page.click('button:has-text("Reviews")', timeout=10000)
                 await page.wait_for_timeout(2000)
             except:
-                pass
+                logger.warning("⚠️ Could not find mobile Reviews button, trying scroll...")
 
             collected_ids = set()
             scroll_attempts = 0
             
-            while len(reviews) < limit and scroll_attempts < 50:
-                # Expand 'More' text
-                more_btns = await page.query_selector_all('button:has-text("More")')
-                for btn in more_btns:
-                    try: await btn.click(timeout=500)
+            while len(reviews) < limit and scroll_attempts < 40:
+                # Expand "More" links
+                mores = await page.query_selector_all('text=More')
+                for m in mores:
+                    try: await m.click(timeout=500)
                     except: pass
 
-                elements = await page.query_selector_all('div.jftiEf')
-                
+                # Mobile Review Selectors are much simpler
+                # We look for the common review block class
+                elements = await page.query_selector_all('div[data-review-id]')
+                if not elements:
+                    # Fallback for different mobile layouts
+                    elements = await page.query_selector_all('.K77u8b')
+
                 for r in elements:
                     try:
-                        author_el = await r.query_selector('.d4r55')
+                        # Author, Text, and Rating extraction
+                        author_el = await r.query_selector('.al6Kxe .My579') 
                         text_el = await r.query_selector('.wiI7pd')
-                        rating_el = await r.query_selector('span.kvMYJc')
                         date_el = await r.query_selector('.rsqaWe')
-
-                        author = await author_el.inner_text() if author_el else "Anonymous"
+                        
+                        # Rating is usually in the aria-label of the stars container
+                        rating_el = await r.query_selector('[aria-label*="stars"]')
+                        
+                        author = await author_el.inner_text() if author_el else "Google User"
                         text = await text_el.inner_text() if text_el else ""
                         date_text = await date_el.inner_text() if date_el else ""
                         
@@ -114,16 +111,15 @@ async def fetch_reviews(
                     except:
                         continue
 
-                # Scroll inside the sidebar
-                await page.mouse.move(400, 400)
-                await page.mouse.wheel(0, 5000)
+                # Mobile scrolling is just a standard page swipe
+                await page.evaluate("window.scrollBy(0, 2000)")
                 await page.wait_for_timeout(2000)
                 scroll_attempts += 1
 
             await browser.close()
-            logger.info(f"✅ Circle broken! Fetched {len(reviews)} reviews.")
+            logger.info(f"✅ Mobile Logic Success! Fetched {len(reviews)} reviews.")
             return reviews
 
     except Exception as e:
-        logger.error(f"❌ Scraper Critical Failure: {str(e)}")
+        logger.error(f"❌ Scraper Failure: {str(e)}")
         return []
