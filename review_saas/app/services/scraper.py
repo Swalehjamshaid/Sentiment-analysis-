@@ -37,7 +37,7 @@ def parse_relative_date(date_text: str) -> datetime:
 
 async def fetch_reviews(
     place_id: str,
-    limit: int = 150,
+    limit: int = 300,  # increased default limit
     **kwargs
 ) -> List[Dict[str, Any]]:
     reviews: List[Dict[str, Any]] = []
@@ -70,92 +70,99 @@ async def fetch_reviews(
 
             page = await context.new_page()
             logger.info(f"Starting reviews scrape for place_id: {place_id}")
-            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
 
-            # Consent
+            # Consent - quick
             try:
-                consent_btn = page.get_by_role("button", name=re.compile(r"(accept all|agree|ok|continue|accept|got it)", re.I))
-                if await consent_btn.is_visible(timeout=8000):
-                    await consent_btn.click(timeout=10000)
-                    await asyncio.sleep(random.uniform(1.2, 2.5))
+                await page.get_by_role("button", name=re.compile(r"(accept all|agree|ok|continue|accept|got it)", re.I)).click(timeout=6000)
+                await asyncio.sleep(random.uniform(0.8, 1.8))
             except:
                 pass
 
-            # ── Tab opening (exactly same as your working version) ──
+            # ── FAST & ROBUST Tab opening ──
             tab_found = False
             tab_strategies = [
-                page.get_by_role("tab", name=re.compile(r"reviews?|جائزے|تقييمات", re.I)),
-                page.get_by_role("tab", name=re.compile(r"\d.*reviews?", re.I)),
-                page.locator('[aria-label*="review" i], [aria-label*="جائزہ" i], [aria-label*="تقييم" i]'),
-                page.get_by_text(re.compile(r"reviews?|جائزے|تقييمات", re.I)).first,
-                page.locator('//div[@role="tablist"]//div[contains(@role,"tab")][contains(translate(text(),"REVIEWS","reviews"),"reviews")]'),
-                page.locator('button, div[role="tab"], span[role="tab"] >> text=/reviews?|جائزے/i'),
+                page.get_by_role("tab", name=re.compile(r"reviews?|جائزے|جائزہ|تقييمات|تقييم", re.I | re.U)),
+                page.get_by_role("tab", name=re.compile(r"\d.*(reviews?|جائزے|تقييمات)", re.I | re.U)),
+                page.locator('[aria-label*="review" i], [aria-label*="جائزے" i], [aria-label*="تقييم" i], [aria-label*="Reviews" i]'),
+                page.get_by_text(re.compile(r"(reviews?|جائزے|تقييمات|Reviews\s*\d+)", re.I | re.U)).first,
+                page.locator('//div[@role="tablist"]//div[@role="tab"][contains(translate(., "REVIEWSجائزےتقييمات", "reviewsجائزےتقييمات"), "reviews") or contains(., "جائزے")]'),
+                page.locator('[role="tab"], button, [role="button"] >> text=/reviews?|جائزے|تقييم/i'),
             ]
-            for locator in tab_strategies:
+
+            for loc in tab_strategies:
                 try:
-                    if await locator.count() > 0:
-                        first_tab = locator.first
-                        if not await first_tab.is_visible():
-                            await first_tab.scroll_into_view_if_needed(timeout=5000)
-                        await first_tab.click(delay=random.randint(150, 450), timeout=15000, force=True)
-                        await asyncio.sleep(random.uniform(2.8, 4.5))
+                    if await loc.count():
+                        tab = loc.first
+                        await tab.scroll_into_view_if_needed(timeout=4000)
+                        await tab.hover(timeout=3000)
+                        await tab.click(delay=random.randint(80, 250), timeout=10000, force=True)
+                        await asyncio.sleep(random.uniform(2.0, 3.5))
                         await page.wait_for_selector(
-                            "div.jftiEf, [data-review-id], .review-dialog-list",
-                            state="visible",
-                            timeout=25000
+                            "div.jftiEf, [data-review-id], [role='listitem']",
+                            timeout=18000
                         )
                         tab_found = True
-                        logger.info("Reviews panel successfully opened")
+                        logger.info("Reviews panel opened")
                         break
-                except Exception as exc:
-                    logger.debug(f"Tab strategy failed: {exc}")
+                except:
                     continue
 
             if not tab_found:
-                logger.warning("All attempts to open Reviews tab failed – possible layout change or block")
+                logger.warning("Reviews tab failed to open")
                 await browser.close()
                 return []
 
-            # ── FASTER SCROLL + COLLECTION (same logic, higher speed) ──
-            scroll_sels = [
+            # ── SUPER FAST SCROLL & COLLECTION ──
+            scroll_selectors = [
                 'div.m6QErb[aria-label*="reviews"]',
-                'div[role="main"] div[role="feed"]',
+                'div[role="feed"]',
                 'div[aria-label*="reviews list"]',
                 'div.review-dialog-list',
-                'div[role="region"][aria-label*="reviews"]',
+                'div[role="main"] > div > div[aria-label*="reviews"]',
             ]
             scroll_container = None
-            for sel in scroll_sels:
-                container = page.locator(sel).first
-                if await container.is_visible(timeout=4000):
-                    scroll_container = container
-                    logger.debug(f"Using scroll container: {sel}")
-                    break
+            for sel in scroll_selectors:
+                try:
+                    cont = page.locator(sel).first
+                    if await cont.is_visible(timeout=3000):
+                        scroll_container = cont
+                        break
+                except:
+                    pass
 
-            max_attempts = 60
+            max_attempts = 80
             no_progress = 0
-            prev_count = 0
+            prev = 0
 
-            for attempt in range(1, max_attempts + 1):
-                # Expand "More" faster
-                more_btns = page.get_by_role("button", name=re.compile(r"more|مزید", re.I))
-                for i in range(min(await more_btns.count(), 20)):
+            for att in range(1, max_attempts + 1):
+                # Expand More quickly
+                more = page.get_by_role("button", name=re.compile(r"more|مزید|See more", re.I))
+                cnt = await more.count()
+                for i in range(min(cnt, 25)):
                     try:
-                        await more_btns.nth(i).click(timeout=2500, force=True)
-                        await asyncio.sleep(0.3)
+                        await more.nth(i).click(timeout=2000, force=True)
+                        await asyncio.sleep(0.25)
                     except:
                         pass
 
-                cards = await page.query_selector_all("div.jftiEf, [data-review-id]")
+                cards = await page.query_selector_all("div.jftiEf, [data-review-id], [role='listitem']")
 
                 added = 0
                 for card in cards:
                     try:
-                        author = (await (await card.query_selector(".d4r55")).inner_text() if await card.query_selector(".d4r55") else "Anonymous").strip()
-                        text = (await (await card.query_selector(".wiI7pd")).inner_text() if await card.query_selector(".wiI7pd") else "").strip()
-                        rating_text = await (await card.query_selector('[aria-label*="star"]')).get_attribute("aria-label") if await card.query_selector('[aria-label*="star"]') else ""
-                        rating = int(re.search(r"\d+", rating_text).group()) if re.search(r"\d+", rating_text) else 0
-                        date_str = (await (await card.query_selector(".rsqaWe")).inner_text() if await card.query_selector(".rsqaWe") else "").strip()
+                        author_el = await card.query_selector(".d4r55, .TSUbDb")
+                        author = (await author_el.inner_text() if author_el else "Anonymous").strip()
+
+                        text_el = await card.query_selector(".wiI7pd, .MyEned")
+                        text = (await text_el.inner_text() if text_el else "").strip()
+
+                        stars = await card.query_selector('[aria-label*="star rating"]')
+                        rating_str = await stars.get_attribute("aria-label") if stars else ""
+                        rating = int(re.search(r'\d+', rating_str).group()) if re.search(r'\d+', rating_str) else 0
+
+                        date_el = await card.query_selector(".rsqaWe, .DU9Pgb")
+                        date_str = (await date_el.inner_text() if date_el else "").strip()
                         time_iso = parse_relative_date(date_str).isoformat()
 
                         key = hashlib.sha256(f"{author}|{text[:120]}|{rating}".encode()).hexdigest()
@@ -174,32 +181,33 @@ async def fetch_reviews(
                     except:
                         continue
 
-                current = len(reviews)
-                logger.info(f"Attempt {attempt}: +{added} → Total {current} reviews")
+                curr = len(reviews)
+                logger.info(f"Attempt {att}: +{added} → {curr} total")
 
-                if current >= limit:
+                if curr >= limit:
                     break
-                if current == prev_count:
+
+                if curr == prev:
                     no_progress += 1
-                    if no_progress >= 12:
-                        logger.info("No more new reviews loading → stopping")
+                    if no_progress >= 15:
+                        logger.info("No more loading → stop")
                         break
                 else:
                     no_progress = 0
-                prev_count = current
+                prev = curr
 
-                # FAST targeted scroll
+                # Fast targeted scroll
                 if scroll_container:
-                    await scroll_container.evaluate("el => el.scrollTop = el.scrollHeight")
+                    await scroll_container.evaluate("el => el.scrollTop += 4000 || el.scrollBy(0, 4000)")
                 else:
-                    await page.evaluate("window.scrollBy(0, 3500)")
+                    await page.evaluate("window.scrollBy(0, 4000)")
 
-                await asyncio.sleep(random.uniform(2.5, 5.5))  # ← SPEED OPTIMIZED
+                await asyncio.sleep(random.uniform(2.0, 4.2))  # fast but safe
 
-            logger.info(f"✅ Finished scrape – {len(reviews)} reviews ready for Postgres ingest")
+            logger.info(f"Finished - {len(reviews)} reviews fetched (ready for Postgres ingest)")
             await browser.close()
             return reviews[:limit]
 
     except Exception as e:
-        logger.error(f"Scraper error: {e}", exc_info=True)
+        logger.error(f"Scraper failed: {e}", exc_info=True)
         return []
