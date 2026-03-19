@@ -6,7 +6,7 @@ import random
 import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ async def fetch_reviews(
     reviews: List[Dict[str, Any]] = []
     seen = set()
     url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -66,20 +67,21 @@ async def fetch_reviews(
                 Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
                 window.chrome = { runtime: {} };
             """)
+
             page = await context.new_page()
             logger.info(f"Starting reviews scrape for place_id: {place_id}")
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-            # Consent handling
+            # Consent
             try:
                 consent_btn = page.get_by_role("button", name=re.compile(r"(accept all|agree|ok|continue|accept|got it)", re.I))
                 if await consent_btn.is_visible(timeout=8000):
                     await consent_btn.click(timeout=10000)
-                    await asyncio.sleep(random.uniform(1.5, 3.0))
+                    await asyncio.sleep(random.uniform(1.2, 2.5))
             except:
                 pass
 
-            # Reviews tab opening (your working version)
+            # ── Tab opening (exactly same as your working version) ──
             tab_found = False
             tab_strategies = [
                 page.get_by_role("tab", name=re.compile(r"reviews?|جائزے|تقييمات", re.I)),
@@ -96,7 +98,7 @@ async def fetch_reviews(
                         if not await first_tab.is_visible():
                             await first_tab.scroll_into_view_if_needed(timeout=5000)
                         await first_tab.click(delay=random.randint(150, 450), timeout=15000, force=True)
-                        await asyncio.sleep(random.uniform(3.0, 5.0))
+                        await asyncio.sleep(random.uniform(2.8, 4.5))
                         await page.wait_for_selector(
                             "div.jftiEf, [data-review-id], .review-dialog-list",
                             state="visible",
@@ -108,51 +110,52 @@ async def fetch_reviews(
                 except Exception as exc:
                     logger.debug(f"Tab strategy failed: {exc}")
                     continue
+
             if not tab_found:
                 logger.warning("All attempts to open Reviews tab failed – possible layout change or block")
                 await browser.close()
                 return []
 
-            # ── FIXED: Targeted scroll + better loop ──
-            scroll_container_sel = 'div[role="feed"], div.m6QErb[aria-label*="reviews"], div[aria-label*="reviews list"]'
-            max_attempts = 40
-            no_progress_count = 0
+            # ── FASTER SCROLL + COLLECTION (same logic, higher speed) ──
+            scroll_sels = [
+                'div.m6QErb[aria-label*="reviews"]',
+                'div[role="main"] div[role="feed"]',
+                'div[aria-label*="reviews list"]',
+                'div.review-dialog-list',
+                'div[role="region"][aria-label*="reviews"]',
+            ]
+            scroll_container = None
+            for sel in scroll_sels:
+                container = page.locator(sel).first
+                if await container.is_visible(timeout=4000):
+                    scroll_container = container
+                    logger.debug(f"Using scroll container: {sel}")
+                    break
+
+            max_attempts = 60
+            no_progress = 0
             prev_count = 0
 
             for attempt in range(1, max_attempts + 1):
-                # Expand "More"
+                # Expand "More" faster
                 more_btns = page.get_by_role("button", name=re.compile(r"more|مزید", re.I))
-                more_count = await more_btns.count()
-                if more_count > 0:
-                    logger.debug(f"Expanding {more_count} 'More' buttons")
-                for i in range(min(more_count, 12)):
+                for i in range(min(await more_btns.count(), 20)):
                     try:
-                        await more_btns.nth(i).click(timeout=3000, force=True)
-                        await asyncio.sleep(0.5)
+                        await more_btns.nth(i).click(timeout=2500, force=True)
+                        await asyncio.sleep(0.3)
                     except:
                         pass
 
-                # Get current cards
                 cards = await page.query_selector_all("div.jftiEf, [data-review-id]")
-                visible_cards = len(cards)
-                logger.debug(f"Attempt {attempt}: {visible_cards} review cards visible")
 
                 added = 0
                 for card in cards:
                     try:
-                        author_el = await card.query_selector(".d4r55")
-                        author = (await author_el.inner_text() if author_el else "Anonymous").strip()
-
-                        text_el = await card.query_selector(".wiI7pd")
-                        text = (await text_el.inner_text() if text_el else "").strip()
-
-                        rating_el = await card.query_selector('[aria-label*="star"]')
-                        rating_text = await rating_el.get_attribute("aria-label") if rating_el else ""
-                        rating_match = re.search(r"\d+", rating_text)
-                        rating = int(rating_match.group()) if rating_match else 0
-
-                        date_el = await card.query_selector(".rsqaWe")
-                        date_str = (await date_el.inner_text() if date_el else "").strip()
+                        author = (await (await card.query_selector(".d4r55")).inner_text() if await card.query_selector(".d4r55") else "Anonymous").strip()
+                        text = (await (await card.query_selector(".wiI7pd")).inner_text() if await card.query_selector(".wiI7pd") else "").strip()
+                        rating_text = await (await card.query_selector('[aria-label*="star"]')).get_attribute("aria-label") if await card.query_selector('[aria-label*="star"]') else ""
+                        rating = int(re.search(r"\d+", rating_text).group()) if re.search(r"\d+", rating_text) else 0
+                        date_str = (await (await card.query_selector(".rsqaWe")).inner_text() if await card.query_selector(".rsqaWe") else "").strip()
                         time_iso = parse_relative_date(date_str).isoformat()
 
                         key = hashlib.sha256(f"{author}|{text[:120]}|{rating}".encode()).hexdigest()
@@ -171,38 +174,29 @@ async def fetch_reviews(
                     except:
                         continue
 
-                current_count = len(reviews)
-                logger.info(f"Attempt {attempt}: Added {added} new reviews → Total now {current_count}")
+                current = len(reviews)
+                logger.info(f"Attempt {attempt}: +{added} → Total {current} reviews")
 
-                if current_count >= limit:
-                    logger.info(f"Reached limit {limit}")
+                if current >= limit:
                     break
-
-                if current_count == prev_count:
-                    no_progress_count += 1
-                    if no_progress_count >= 8:
-                        logger.info("No new reviews after several scrolls → stopping")
+                if current == prev_count:
+                    no_progress += 1
+                    if no_progress >= 12:
+                        logger.info("No more new reviews loading → stopping")
                         break
                 else:
-                    no_progress_count = 0
-                prev_count = current_count
+                    no_progress = 0
+                prev_count = current
 
-                # Scroll the reviews container (most reliable fix)
-                try:
-                    container = page.locator(scroll_container_sel).first
-                    if await container.is_visible(timeout=3000):
-                        await container.evaluate("el => { el.scrollTop = el.scrollHeight; }")
-                        logger.debug("Scrolled reviews container via JS")
-                    else:
-                        await page.evaluate("window.scrollBy(0, 2500)")
-                except:
-                    await page.evaluate("window.scrollBy(0, 2500)")
-                    logger.debug("Fallback window scroll used")
+                # FAST targeted scroll
+                if scroll_container:
+                    await scroll_container.evaluate("el => el.scrollTop = el.scrollHeight")
+                else:
+                    await page.evaluate("window.scrollBy(0, 3500)")
 
-                # Wait for potential new loads
-                await asyncio.sleep(random.uniform(3.5, 6.5))
+                await asyncio.sleep(random.uniform(2.5, 5.5))  # ← SPEED OPTIMIZED
 
-            logger.info(f"Collected {len(reviews)} reviews total")
+            logger.info(f"✅ Finished scrape – {len(reviews)} reviews ready for Postgres ingest")
             await browser.close()
             return reviews[:limit]
 
