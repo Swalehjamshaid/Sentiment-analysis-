@@ -5,8 +5,8 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# 3. THE FIX: Install the specific "Bones" for Chromium manually
-# I have removed the broken 'ttf' fonts and replaced them with working 'fonts' packages
+# 3. THE FIX: Install the "Bones" manually (No more Error 100)
+# We use the modern names like 'fonts-unifont' instead of 'ttf-unifont'
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -14,9 +14,9 @@ RUN apt-get update && apt-get install -y \
     curl \
     libnss3 \
     libnspr4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
+    libatk1.0-0t64 \
+    libatk-bridge2.0-0t64 \
+    libcups2t64 \
     libdrm2 \
     libxkbcommon0 \
     libxcomposite1 \
@@ -27,9 +27,10 @@ RUN apt-get update && apt-get install -y \
     libgbm1 \
     libpango-1.0-0 \
     libcairo2 \
-    libasound2 \
+    libasound2t64 \
     fonts-liberation \
     fonts-noto-color-emoji \
+    fonts-unifont \
     fonts-wqy-zenhei \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
@@ -38,8 +39,7 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 5. Install the browser ONLY (no deps)
-# We already installed the deps manually in Step 3
+# 5. Install the browser ONLY (No deps command here!)
 RUN playwright install chromium
 
 # 6. Copy project files
