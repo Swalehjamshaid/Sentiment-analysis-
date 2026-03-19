@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from playwright.async_api import async_playwright
 
+
 logger = logging.getLogger(__name__)
 
 def parse_relative_date(date_text: str) -> datetime:
