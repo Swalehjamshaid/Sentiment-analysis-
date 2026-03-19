@@ -1,6 +1,5 @@
 import logging
 import hashlib
-import asyncio
 import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
@@ -14,8 +13,7 @@ def parse_relative_date(date_text: str) -> datetime:
     date_text = (date_text or "").lower()
 
     number = 1
-    parts = date_text.split()
-    for part in parts:
+    for part in date_text.split():
         if part.isdigit():
             number = int(part)
             break
@@ -41,7 +39,7 @@ async def fetch_reviews(
 ) -> List[Dict[str, Any]]:
 
     reviews: List[Dict[str, Any]] = []
-    place_url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
+    place_url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
 
     try:
         async with async_playwright() as p:
@@ -53,10 +51,10 @@ async def fetch_reviews(
 
             context = await browser.new_context(
                 locale="en-US",
-                user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)"
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
             )
 
-            # 🚀 BLOCK HEAVY RESOURCES (BIG SPEED BOOST)
+            # 🚀 Block heavy resources
             await context.route(
                 "**/*",
                 lambda route: route.abort()
@@ -70,38 +68,59 @@ async def fetch_reviews(
 
             await page.goto(place_url, wait_until="domcontentloaded", timeout=60000)
 
-            # Accept cookies (if appears)
+            # Accept cookies
             try:
-                await page.click('button:has-text("Accept")', timeout=4000)
+                await page.click('button:has-text("Accept")', timeout=3000)
             except:
                 pass
 
-            # Try opening reviews
+            # ✅ CLICK REVIEWS TAB (UPDATED LOGIC)
             try:
-                await page.click('button:has-text("Reviews")', timeout=8000)
-                await page.wait_for_timeout(1500)
+                await page.click('button[aria-label*="reviews"]', timeout=10000)
+                await page.wait_for_timeout(2000)
             except:
-                logger.warning("⚠️ Reviews button not found, continuing...")
+                logger.warning("⚠️ Reviews tab not clickable, trying fallback...")
+                try:
+                    await page.click('a[href*="reviews"]', timeout=5000)
+                except:
+                    logger.error("❌ Cannot open reviews section")
+                    await browser.close()
+                    return []
 
             collected_ids = set()
             scroll_attempts = 0
-            max_scroll = 15  # reduced for speed
+            max_scroll = 20
+
+            # ✅ TARGET SCROLLABLE REVIEWS PANEL
+            review_container_selector = 'div[role="feed"]'
 
             while len(reviews) < limit and scroll_attempts < max_scroll:
 
+                try:
+                    container = await page.query_selector(review_container_selector)
+
+                    if container:
+                        await container.evaluate(
+                            "(el) => el.scrollBy(0, 1500)"
+                        )
+                    else:
+                        await page.mouse.wheel(0, 1500)
+
+                except:
+                    pass
+
+                await page.wait_for_timeout(1500)
+
                 # Expand "More"
-                mores = await page.query_selector_all('text=More')
+                mores = await page.query_selector_all('button:has-text("More")')
                 for m in mores:
                     try:
                         await m.click(timeout=300)
                     except:
                         pass
 
-                # Try multiple selectors (Google changes UI often)
-                elements = await page.query_selector_all('div[data-review-id]')
-
-                if not elements:
-                    elements = await page.query_selector_all('.jftiEf')  # fallback
+                # ✅ UPDATED REVIEW SELECTOR
+                elements = await page.query_selector_all('div.jftiEf')
 
                 for r in elements:
                     try:
@@ -138,12 +157,8 @@ async def fetch_reviews(
                         if len(reviews) >= limit:
                             break
 
-                    except Exception as inner_err:
+                    except:
                         continue
-
-                # Scroll
-                await page.evaluate("window.scrollBy(0, 1500)")
-                await page.wait_for_timeout(1200)
 
                 scroll_attempts += 1
 
