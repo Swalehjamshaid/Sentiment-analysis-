@@ -1,3 +1,5 @@
+# filename: app/main.py
+
 from __future__ import annotations
 
 import logging
@@ -14,23 +16,23 @@ from starlette.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Core imports for Database and Settings
+# Core imports
 from app.core.config import settings
 from app.core.db import init_models, get_session, SessionLocal, engine
 from app.core import models
 from app.core.models import User, SCHEMA_VERSION, Config as ConfigModel
 
-# Route Imports (Removed ai_insights)
+# Routers
 from app.routes import auth, companies, dashboard, reviews, exports, google_check
 
-# --------------------------- Logging Configuration ---------------------------
+# --------------------------- Logging ---------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("app.main")
 
-# --------------------------- Database Schema Helpers ---------------------------
+# --------------------------- Schema Helpers ---------------------------
 async def _get_stored_schema_version(session: AsyncSession) -> Optional[str]:
     try:
         res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
@@ -53,51 +55,50 @@ async def check_schema_version_change() -> Tuple[bool, Optional[str], str]:
     async with SessionLocal() as session:
         old_version = await _get_stored_schema_version(session)
         new_version = str(SCHEMA_VERSION)
+
         if old_version is None:
             await _set_stored_schema_version(session, new_version)
-            logger.info("📦 Initialized SCHEMA_VERSION in DB: %s", new_version)
+            logger.info("📦 Initialized SCHEMA_VERSION: %s", new_version)
             return False, None, new_version
+
         if old_version != new_version:
-            logger.warning("🧩 SCHEMA_VERSION changed: %s -> %s", old_version, new_version)
+            logger.warning("🧩 SCHEMA changed: %s → %s", old_version, new_version)
             return True, old_version, new_version
+
         logger.info("✅ SCHEMA_VERSION verified: %s", new_version)
         return False, old_version, new_version
 
-async def reset_database_schema() -> None:
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(models.Base.metadata.drop_all)
-            logger.warning("🧨 Dropped all tables due to version mismatch.")
-            await conn.run_sync(models.Base.metadata.create_all)
-            logger.info("🧱 Recreated all tables successfully.")
-    except Exception as ex:
-        logger.error("Schema reset failed: %s", ex, exc_info=True)
-        raise
+async def reset_database_schema():
+    async with engine.begin() as conn:
+        await conn.run_sync(models.Base.metadata.drop_all)
+        logger.warning("🧨 Dropped all tables")
+        await conn.run_sync(models.Base.metadata.create_all)
+        logger.info("🧱 Recreated all tables")
 
-# --------------------------- Application Lifespan ---------------------------
+# --------------------------- Lifespan ---------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_models()
+
     changed, old_v, new_v = await check_schema_version_change()
+
     if changed:
         await reset_database_schema()
         async with SessionLocal() as session:
             await _set_stored_schema_version(session, new_v)
-        logger.warning("⚠️ Database reset complete (%s -> %s).", old_v, new_v)
 
     app.state.schema_version = new_v
-    app.state.schema_changed = changed
-    app.state.schema_prev = old_v
 
-    logger.info("🚀 Application Startup Sequence Complete")
+    logger.info("🚀 Application Startup Complete")
     yield
 
-# --------------------------- App Initialization ---------------------------
+# --------------------------- App Init ---------------------------
 app = FastAPI(
-    title=getattr(settings, "APP_NAME", "ReviewSaaS AI Dashboard"), 
-    lifespan=lifespan
+    title=getattr(settings, "APP_NAME", "Review SaaS AI"),
+    lifespan=lifespan,
 )
 
+# --------------------------- Middleware ---------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -106,81 +107,88 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_secret_key = os.getenv("SECRET_KEY") or getattr(settings, "SECRET_KEY", "dev-insecure-secret-key-999")
-app.add_middleware(SessionMiddleware, secret_key=_secret_key)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("SECRET_KEY", "super-secret-key"),
+)
 
+# --------------------------- Static & Templates ---------------------------
 if os.path.exists("app/static"):
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 templates = Jinja2Templates(directory="app/templates")
 
-# --------------------------- Auth Helpers ---------------------------
-def get_current_user(request: Request) -> Optional[dict]:
+# --------------------------- Auth Helper ---------------------------
+def get_current_user(request: Request):
     return request.session.get("user")
 
-# --------------------------- View Routes (HTML) ---------------------------
+# --------------------------- Views ---------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    user = get_current_user(request)
-    if user:
-        return RedirectResponse(url="/dashboard")
-    return RedirectResponse(url="/login")
+    if get_current_user(request):
+        return RedirectResponse("/dashboard")
+    return RedirectResponse("/login")
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_get(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request, "user": None})
+    return templates.TemplateResponse("login.html", {"request": request})
 
 @app.post("/login")
 async def login_post(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
-    session_db: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ):
-    result = await session_db.execute(select(User).where(User.email == email))
+    result = await session.execute(select(User).where(User.email == email))
     user = result.scalars().first()
-    
-    if not user or not getattr(user, "check_password", lambda p: p == user.hashed_password)(password):
-        return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid email or password"})
-    
-    request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
-    return RedirectResponse(url="/dashboard", status_code=303)
+
+    if not user or password != user.hashed_password:
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": "Invalid credentials"}
+        )
+
+    request.session["user"] = {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+    }
+
+    return RedirectResponse("/dashboard", status_code=303)
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_view(request: Request):
     user = get_current_user(request)
     if not user:
-        return RedirectResponse(url="/login", status_code=303)
-    
-    google_api_key = os.getenv("GOOGLE_API_KEY") or getattr(settings, "GOOGLE_API_KEY", "")
+        return RedirectResponse("/login")
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
             "request": request,
             "user": user,
-            "google_api_key": google_api_key,
-            "schema_version": getattr(app.state, "schema_version", "22.0.5"),
+            "schema_version": getattr(app.state, "schema_version", ""),
         },
     )
 
 @app.get("/logout")
 async def logout(request: Request):
     request.session.clear()
-    return RedirectResponse(url="/login", status_code=303)
+    return RedirectResponse("/login")
 
-# --------------------------- API Router Registration ---------------------------
-app.include_router(auth.router, prefix="/api/auth")
-app.include_router(companies.router, prefix="/api/companies")
-app.include_router(dashboard.router, prefix="/api/dashboard")
-app.include_router(reviews.router, prefix="/api/reviews")
-# Router for ai_insights HAS BEEN REMOVED
-app.include_router(exports.router, prefix="/api/exports")
-app.include_router(google_check.router, prefix="/api/google_check")
+# --------------------------- ROUTERS (FIXED) ---------------------------
 
-logger.info("🔗 Routers Mounted: Auth, Companies, Dashboard, Reviews, Exports, GoogleCheck")
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(companies.router, prefix="/api", tags=["companies"])
+app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
+app.include_router(reviews.router, prefix="/api", tags=["reviews"])
+app.include_router(exports.router, prefix="/api", tags=["exports"])
+app.include_router(google_check.router, prefix="/api", tags=["google_check"])
 
-# --------------------------- Server Execution ---------------------------
+logger.info("🔗 All routers mounted correctly")
+
+# --------------------------- Run ---------------------------
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8080))
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8080, reload=True)
