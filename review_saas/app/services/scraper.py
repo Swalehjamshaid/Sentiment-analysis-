@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from playwright.async_api import async_playwright
 
-
 logger = logging.getLogger(__name__)
 
 def parse_relative_date(date_text: str) -> datetime:
@@ -26,56 +25,46 @@ def parse_relative_date(date_text: str) -> datetime:
 
 async def fetch_reviews(place_id: str, limit: int = 150, **kwargs) -> List[Dict[str, Any]]:
     reviews: List[Dict[str, Any]] = []
-    # Force the specific 'Review Direct' URL
+    # Use the Direct Search URL
     place_url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
 
     try:
         async with async_playwright() as p:
-            # GHOST LOGIC: We launch with specific args to hide Railway's identity
-            browser = await p.chromium.launch(headless=True, args=[
-                "--no-sandbox", 
-                "--disable-setuid-sandbox", 
-                "--disable-blink-features=AutomationControlled"
-            ])
-            
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                viewport={'width': 1280, 'height': 1000}
-            )
-            
+            # 📱 TECHNIQUE: Emulate an iPhone 13. Mobile pages are 10x easier to scrape!
+            iphone = p.devices['iPhone 13']
+            browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
+            context = await browser.new_context(**iphone, locale="en-US")
             page = await context.new_page()
-            logger.info(f"👻 Ghost Scrape Started for: {place_id}")
 
-            # Wait for the network to be completely quiet
+            logger.info(f"📱 Mobile Ghost Scrape: {place_id}")
             await page.goto(place_url, wait_until="networkidle", timeout=60000)
 
-            # 1. Click "Accept all" if it exists
+            # 1. Bypass Consent
             try:
-                await page.click('button[aria-label*="Accept"], button:has-text("Accept")', timeout=5000)
-            except:
-                pass
+                await page.click('button:has-text("Accept all")', timeout=5000)
+            except: pass
 
-            # 2. TRIGGER REVIEWS (Human-like wait)
+            # 2. On Mobile, reviews are often already visible or under a simple "Reviews" text
             try:
-                # Find the review count link
-                await page.click('button[aria-label*="reviews"]', timeout=10000)
-                await page.wait_for_timeout(3000)
+                await page.click('text=Reviews', timeout=10000)
+                await page.wait_for_timeout(2000)
             except:
-                logger.warning("⚠️ Could not trigger via button, checking if already visible.")
+                logger.warning("⚠️ Mobile 'Reviews' tab not found, attempting direct scroll.")
 
             collected_ids = set()
             scroll_attempts = 0
             
             while len(reviews) < limit and scroll_attempts < 40:
-                # Scrape elements using the most permanent selector 'jftiEf'
-                elements = await page.query_selector_all('div.jftiEf')
+                # Targeted Mobile Selectors (Google uses 'data-review-id' globally)
+                elements = await page.query_selector_all('[data-review-id]')
                 
                 for r in elements:
                     try:
-                        author_el = await r.query_selector('.d4r55')
+                        # Mobile-specific classes (very stable)
+                        author_el = await r.query_selector('.My579') 
                         text_el = await r.query_selector('.wiI7pd')
+                        rating_el = await r.query_selector('[aria-label*="star"]')
                         date_el = await r.query_selector('.rsqaWe')
-                        rating_el = await r.query_selector('span.kvMYJc')
 
                         author = await author_el.inner_text() if author_el else "Guest"
                         text = await text_el.inner_text() if text_el else ""
@@ -95,19 +84,16 @@ async def fetch_reviews(place_id: str, limit: int = 150, **kwargs) -> List[Dict[
                             "google_review_time": parse_relative_date(date_text).isoformat()
                         })
                         collected_ids.add(review_id)
-                    except:
-                        continue
+                    except: continue
 
-                # HUMAN-LIKE SCROLLING
-                await page.mouse.move(500, 500)
-                await page.mouse.wheel(0, 2500)
-                await page.wait_for_timeout(2000)
+                # Standard Mobile Scroll
+                await page.evaluate("window.scrollBy(0, 2000)")
+                await asyncio.sleep(2)
                 scroll_attempts += 1
 
             await browser.close()
-            logger.info(f"✅ Ghost Scrape Finished: {len(reviews)} reviews.")
+            logger.info(f"✅ Success: Fetched {len(reviews)} reviews via Mobile Emulation.")
             return reviews
-
     except Exception as e:
-        logger.error(f"❌ Ghost Scrape Failed: {str(e)}")
+        logger.error(f"❌ Scraper Failed: {str(e)}")
         return []
