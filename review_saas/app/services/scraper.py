@@ -1,6 +1,5 @@
 import logging
 import hashlib
-import json
 import asyncio
 import re
 from datetime import datetime, timedelta
@@ -26,47 +25,48 @@ def parse_relative_date(date_text: str) -> datetime:
 
 async def fetch_reviews(place_id: str, limit: int = 150, **kwargs) -> List[Dict[str, Any]]:
     reviews: List[Dict[str, Any]] = []
-    # Using the direct search URL which triggers the data-heavy layout
+    # Force the specific 'Review Direct' URL
     place_url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
 
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
+            # GHOST LOGIC: We launch with specific args to hide Railway's identity
+            browser = await p.chromium.launch(headless=True, args=[
+                "--no-sandbox", 
+                "--disable-setuid-sandbox", 
+                "--disable-blink-features=AutomationControlled"
+            ])
+            
             context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                viewport={'width': 1280, 'height': 1000}
             )
+            
             page = await context.new_page()
+            logger.info(f"👻 Ghost Scrape Started for: {place_id}")
 
-            # --- THE ADVANCED TECHNIQUE: INTERCEPTING DATA ---
-            # We listen for the specific background data Google sends
-            async def handle_response(response):
-                if "listreviews" in response.url or "preview/review" in response.url:
-                    logger.info("📡 Background Review Data Detected!")
-
-            page.on("response", handle_response)
-
-            logger.info(f"🚀 Advanced Intercept Scrape: {place_id}")
+            # Wait for the network to be completely quiet
             await page.goto(place_url, wait_until="networkidle", timeout=60000)
 
-            # Handle Cookie Consent
+            # 1. Click "Accept all" if it exists
             try:
-                await page.click('button:has-text("Accept all")', timeout=5000)
-                await page.wait_for_timeout(2000)
+                await page.click('button[aria-label*="Accept"], button:has-text("Accept")', timeout=5000)
             except:
                 pass
 
-            # Force the review pane to open by clicking the star rating
+            # 2. TRIGGER REVIEWS (Human-like wait)
             try:
+                # Find the review count link
                 await page.click('button[aria-label*="reviews"]', timeout=10000)
-                await page.wait_for_timeout(5000)
+                await page.wait_for_timeout(3000)
             except:
-                logger.warning("⚠️ Review trigger not found, attempting auto-scroll.")
+                logger.warning("⚠️ Could not trigger via button, checking if already visible.")
 
             collected_ids = set()
             scroll_attempts = 0
             
             while len(reviews) < limit and scroll_attempts < 40:
-                # Targeted scraping of the review cards
+                # Scrape elements using the most permanent selector 'jftiEf'
                 elements = await page.query_selector_all('div.jftiEf')
                 
                 for r in elements:
@@ -76,7 +76,7 @@ async def fetch_reviews(place_id: str, limit: int = 150, **kwargs) -> List[Dict[
                         date_el = await r.query_selector('.rsqaWe')
                         rating_el = await r.query_selector('span.kvMYJc')
 
-                        author = await author_el.inner_text() if author_el else "User"
+                        author = await author_el.inner_text() if author_el else "Guest"
                         text = await text_el.inner_text() if text_el else ""
                         date_text = await date_el.inner_text() if date_el else ""
                         
@@ -97,16 +97,16 @@ async def fetch_reviews(place_id: str, limit: int = 150, **kwargs) -> List[Dict[
                     except:
                         continue
 
-                # Scroll the review list area
-                await page.mouse.move(400, 500)
-                await page.mouse.wheel(0, 3000)
-                await page.wait_for_timeout(2500)
+                # HUMAN-LIKE SCROLLING
+                await page.mouse.move(500, 500)
+                await page.mouse.wheel(0, 2500)
+                await page.wait_for_timeout(2000)
                 scroll_attempts += 1
 
             await browser.close()
-            logger.info(f"✅ Advanced Results: {len(reviews)} reviews.")
+            logger.info(f"✅ Ghost Scrape Finished: {len(reviews)} reviews.")
             return reviews
 
     except Exception as e:
-        logger.error(f"❌ Advanced Technique Failed: {str(e)}")
+        logger.error(f"❌ Ghost Scrape Failed: {str(e)}")
         return []
