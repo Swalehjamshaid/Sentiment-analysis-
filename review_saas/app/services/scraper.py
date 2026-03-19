@@ -25,68 +25,70 @@ def parse_relative_date(date_text: str) -> datetime:
 
 async def fetch_reviews(
     place_id: str,
-    limit: int = 100,
+    limit: int = 150,
     **kwargs
 ) -> List[Dict[str, Any]]:
 
     reviews: List[Dict[str, Any]] = []
-    # 🎯 SOLID LOGIC: Use a direct search URL which is more reliable than googleusercontent
+    # 🎯 THE FIX: Direct 'lrd' URL format. 
+    # This forces Google to open the Review Pane as the main page.
     place_url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
 
     try:
         async with async_playwright() as p:
-            # Emulate an iPhone 13 for a simpler HTML layout
-            iphone = p.devices['iPhone 13']
-            browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
-            context = await browser.new_context(**iphone, locale="en-US")
+            browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu"])
+            # Use a standard Desktop User Agent but high resolution
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                viewport={'width': 1920, 'height': 1080}
+            )
             
             page = await context.new_page()
-            logger.info(f"🚀 Mobile Scraper: Fetching reviews for {place_id}")
+            logger.info(f"🚀 Circle Breaker: Navigating to {place_id}")
 
+            # Go to the page and wait for the actual reviews to exist in the HTML
             await page.goto(place_url, wait_until="networkidle", timeout=60000)
 
-            # 1. Handle Consent / Cookies (Mobile Style)
+            # --- STEP 1: BYPASS CONSENT ---
             try:
                 await page.click('button:has-text("Accept all")', timeout=5000)
+                await page.wait_for_timeout(2000)
             except:
                 pass
 
-            # 2. Open Reviews Section
-            # On mobile, we look for any element mentioning "Reviews"
+            # --- STEP 2: OPEN REVIEWS PANEL ---
             try:
-                await page.click('button:has-text("Reviews")', timeout=10000)
-                await page.wait_for_timeout(2000)
-            except:
-                logger.warning("⚠️ Could not find 'Reviews' tab, attempting to find any star rating link...")
-                try:
-                    await page.click('div[aria-label*="stars"]', timeout=5000)
-                except:
-                    logger.error("❌ Failed to navigate to reviews panel")
-                    await browser.close()
-                    return []
+                # Look for the review count/link and click it
+                await page.wait_for_selector('button[aria-label*="reviews"]', timeout=10000)
+                await page.click('button[aria-label*="reviews"]')
+                # CRITICAL: Wait for the review container to exist before doing anything else
+                await page.wait_for_selector('div.jftiEf', timeout=15000)
+            except Exception as e:
+                logger.warning(f"⚠️ Navigation warning: {e}. Trying to scrape current view.")
 
             collected_ids = set()
             scroll_attempts = 0
             
-            # 3. Scrape Loop
-            while len(reviews) < limit and scroll_attempts < 40:
-                # Expand "More" buttons
-                mores = await page.query_selector_all('text=More')
+            while len(reviews) < limit and scroll_attempts < 50:
+                # 1. Expand "More" buttons
+                mores = await page.query_selector_all('button:has-text("More")')
                 for m in mores:
-                    try: await m.click(timeout=300)
+                    try: await m.click(timeout=500)
                     except: pass
 
-                # Use generic selectors that work across both mobile and desktop
-                elements = await page.query_selector_all('div[data-review-id], div.jftiEf')
+                # 2. Extract Data
+                elements = await page.query_selector_all('div.jftiEf')
+                if not elements and scroll_attempts > 5: break
 
                 for r in elements:
                     try:
-                        author_el = await r.query_selector('.d4r55, .My579')
+                        # Use stable CSS selectors
+                        author_el = await r.query_selector('.d4r55')
                         text_el = await r.query_selector('.wiI7pd')
                         date_el = await r.query_selector('.rsqaWe')
-                        rating_el = await r.query_selector('[aria-label*="star"]')
+                        rating_el = await r.query_selector('span.kvMYJc')
 
-                        author = await author_el.inner_text() if author_el else "Google User"
+                        author = await author_el.inner_text() if author_el else "Anonymous"
                         text = await text_el.inner_text() if text_el else ""
                         date_text = await date_el.inner_text() if date_el else ""
                         
@@ -94,8 +96,7 @@ async def fetch_reviews(
                         if review_id in collected_ids: continue
 
                         rating_raw = await rating_el.get_attribute("aria-label") if rating_el else "0"
-                        match = re.search(r"\d", rating_raw)
-                        rating = int(match.group()) if match else 0
+                        rating = int(re.search(r'\d', rating_raw).group()) if re.search(r'\d', rating_raw) else 0
 
                         reviews.append({
                             "review_id": review_id,
@@ -105,17 +106,18 @@ async def fetch_reviews(
                             "google_review_time": parse_relative_date(date_text).isoformat()
                         })
                         collected_ids.add(review_id)
-                        if len(reviews) >= limit: break
                     except:
                         continue
 
-                # Scroll inside the view
-                await page.evaluate("window.scrollBy(0, 2000)")
+                # 3. Targeted Sidebar Scroll
+                # We move the mouse to the review list and scroll the wheel
+                await page.mouse.move(500, 500)
+                await page.mouse.wheel(0, 4000)
                 await page.wait_for_timeout(2000)
                 scroll_attempts += 1
 
             await browser.close()
-            logger.info(f"✅ Fetched {len(reviews)} reviews successfully")
+            logger.info(f"✅ Success! Circle broken. Fetched {len(reviews)} reviews.")
             return reviews
 
     except Exception as e:
