@@ -1,10 +1,10 @@
-# 1. Base Image
+# 1. Start with Python
 FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# 2. Manual "Bones" for Debian Trixie (Debian 13)
-# I have removed the broken 'ttf' fonts and used the 't64' library names
+# 2. THE "BONES" - Install everything here once
+# We use modern names like fonts-unifont to avoid the Error 100
 RUN apt-get update && apt-get install -y \
     wget gnupg ca-certificates curl \
     libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 \
@@ -15,15 +15,16 @@ RUN apt-get update && apt-get install -y \
     fonts-wqy-zenhei xvfb \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. Python Setup
+# 3. THE "MUSCLES" - Install Python packages
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 4. Bake the Browser into the Image (Build Phase)
+# 4. THE "ENGINE" - Install the browser during BUILD
+# This prevents the "Installing dependencies" message in Deploy Logs
 RUN playwright install chromium
 
-# 5. Project Files
+# 5. THE "BRAIN" - Copy your code last
 COPY . .
 
-# 6. Final Command
+# 6. START
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
