@@ -1,103 +1,82 @@
-# filename: app/services/scraper.py
+import httpx
+import json
 import logging
-from datetime import datetime
+import re
+from datetime import datetime, timezone
 from typing import List, Dict, Any
 
-import googlemaps
-
+# Set up logging to help track errors in Railway
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ── Initialize Google Maps Client ──
-# Make sure to set your API key in environment variable or directly here
-# Example: export GOOGLE_MAPS_API_KEY="YOUR_KEY"
-import os
-API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "YOUR_API_KEY_HERE")
-gmaps = googlemaps.Client(key=API_KEY)
+class FastGoogleScraper:
+    def __init__(self):
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1",
+            "Accept": "*/*",
+            "Referer": "https://www.google.com/",
+        }
 
+    async def get_reviews(self, data_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Fetches and parses reviews from Google Maps for a specific data_id.
+        """
+        # Google Maps review endpoint
+        url = "https://www.google.com/maps/preview/review/listentitiesreviews"
+        
+        # 'pb' is the internal Google parameter for pagination and data identification
+        pb = f"!1m1!1s{data_id}!2i0!3i{limit}!4m5!4b1!5b1!6b1!7b1!5e1"
+        params = {
+            "authuser": "0",
+            "hl": "en",
+            "gl": "us",
+            "pb": pb
+        }
 
-def parse_relative_time(relative_time_str: str) -> datetime:
+        reviews_list = []
+
+        async with httpx.AsyncClient(headers=self.headers, timeout=30.0, follow_redirects=True) as client:
+            try:
+                response = await client.get(url, params=params)
+                
+                if response.status_code != 200:
+                    logger.error(f"Failed to fetch reviews. Status: {response.status_code}")
+                    return []
+
+                # Google's JSON response starts with a security prefix: )]}'
+                content = response.text.lstrip(")]}'\n")
+                data = json.loads(content)
+
+                # Navigate the nested Google JSON structure
+                # The reviews are typically found in the second element of the data array
+                raw_reviews = data[2] if len(data) > 2 else []
+
+                for r in raw_reviews:
+                    try:
+                        review_data = {
+                            "review_id": r[0],
+                            "rating": r[4],
+                            "text": r[3] if r[3] else "",
+                            "author_title": r[1][4][0][4] if r[1] else "Anonymous",
+                            "timestamp": r[27], # Unix timestamp in milliseconds
+                            "datetime_utc": datetime.fromtimestamp(r[27]/1000, tz=timezone.utc).isoformat()
+                        }
+                        reviews_list.append(review_data)
+                    except (IndexError, TypeError, KeyError) as e:
+                        continue
+
+                logger.info(f"Successfully scraped {len(reviews_list)} reviews for {data_id}")
+                return reviews_list
+
+            except Exception as e:
+                logger.error(f"Critical error during scraping: {str(e)}")
+                return []
+
+# --- CRITICAL FIX FOR YOUR IMPORT ERROR ---
+async def fetch_reviews(data_id: str, limit: int = 100) -> List[Dict[str, Any]]:
     """
-    Converts Google's relative time string (e.g., "2 weeks ago") into datetime.
+    Entry point used by app.routes.reviews.
+    This fixes the 'ImportError: cannot import name fetch_reviews'
     """
-    from datetime import timedelta
-    now = datetime.utcnow()
-    number = 1
-    if not relative_time_str:
-        return now
-
-    text = relative_time_str.lower()
-    for part in text.split():
-        if part.isdigit():
-            number = int(part)
-            break
-
-    if "minute" in text:
-        return now - timedelta(minutes=number)
-    if "hour" in text:
-        return now - timedelta(hours=number)
-    if "day" in text:
-        return now - timedelta(days=number)
-    if "week" in text:
-        return now - timedelta(weeks=number)
-    if "month" in text:
-        return now - timedelta(days=number * 30)
-    if "year" in text:
-        return now - timedelta(days=number * 365)
-    return now
-
-
-def fetch_google_reviews(place_id: str, limit: int = 50) -> List[Dict[str, Any]]:
-    """
-    Fetch reviews and ratings from Google Maps using official Google Maps API.
-    Returns a list of review dictionaries with author, rating, text, and time.
-    """
-    reviews_data = []
-
-    try:
-        logger.info(f"🚀 Fetching Google reviews for place_id: {place_id}")
-
-        # Request place details including reviews
-        response = gmaps.place(
-            place_id=place_id,
-            fields=["name", "rating", "user_ratings_total", "reviews"]
-        )
-
-        result = response.get("result", {})
-        reviews = result.get("reviews", [])
-
-        for r in reviews[:limit]:
-            reviews_data.append({
-                "review_id": r.get("author_url", "")[-32:],  # unique identifier fallback
-                "author_name": r.get("author_name", "Google User"),
-                "rating": r.get("rating", 0),
-                "text": r.get("text", ""),
-                "google_review_time": parse_relative_time(r.get("relative_time_description", ""))
-                    .isoformat()
-            })
-
-        logger.info(f"✅ Fetched {len(reviews_data)} reviews for place_id: {place_id}")
-        return reviews_data
-
-    except Exception as e:
-        logger.error(f"❌ Failed to fetch reviews for place_id {place_id}: {str(e)[:200]}")
-        return []
-
-
-def fetch_google_rating(place_id: str) -> Dict[str, Any]:
-    """
-    Fetch overall rating and total number of reviews from Google Maps.
-    """
-    try:
-        response = gmaps.place(
-            place_id=place_id,
-            fields=["name", "rating", "user_ratings_total"]
-        )
-        result = response.get("result", {})
-        rating = result.get("rating", 0)
-        total_reviews = result.get("user_ratings_total", 0)
-        logger.info(f"📊 Rating for place_id {place_id}: {rating} ({total_reviews} reviews)")
-        return {"rating": rating, "total_reviews": total_reviews}
-
-    except Exception as e:
-        logger.error(f"❌ Failed to fetch rating for place_id {place_id}: {str(e)[:200]}")
-        return {"rating": 0, "total_reviews": 0}
+    scraper = FastGoogleScraper()
+    return await scraper.get_reviews(data_id, limit)
