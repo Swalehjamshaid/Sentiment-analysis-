@@ -1,10 +1,8 @@
-v# 1. Base Image
 FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# 2. THE BONES - Baking the Fonts and Libraries
-# I added the specific fonts from your logs (tlwg, freefont, etc.)
+# Install all fonts and libraries into the 'Bones' of the container
 RUN apt-get update && apt-get install -y \
     wget gnupg ca-certificates curl \
     libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 \
@@ -16,15 +14,12 @@ RUN apt-get update && apt-get install -y \
     xfonts-scalable xfonts-utils xvfb \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. THE MUSCLES - Python Packages
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 4. THE ENGINE - Install Browser during BUILD
+# This 'Bakes' the browser into the image so it never has to download again
 RUN playwright install chromium
 
-# 5. THE CODE
 COPY . .
 
-# 6. START
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
