@@ -5,7 +5,7 @@ import asyncio
 import random
 import re
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
 logger = logging.getLogger(__name__)
@@ -19,11 +19,16 @@ def parse_relative_date(date_text: str) -> datetime:
         if part.isdigit():
             number = int(part)
             break
-    if "hour" in date_text: return now - timedelta(hours=number)
-    if "day" in date_text: return now - timedelta(days=number)
-    if "week" in date_text: return now - timedelta(weeks=number)
-    if "month" in date_text: return now - timedelta(days=number * 30)
-    if "year" in date_text: return now - timedelta(days=number * 365)
+    if "hour" in date_text:
+        return now - timedelta(hours=number)
+    if "day" in date_text:
+        return now - timedelta(days=number)
+    if "week" in date_text:
+        return now - timedelta(weeks=number)
+    if "month" in date_text:
+        return now - timedelta(days=number * 30)
+    if "year" in date_text:
+        return now - timedelta(days=number * 365)
     return now
 
 
@@ -34,7 +39,7 @@ async def fetch_reviews(place_id: str, limit: int = 150, **kwargs) -> List[Dict[
     reviews: List[Dict[str, Any]] = []
     collected_ids = set()
 
-    # ── Multiple user-agent rotation for evasion ──
+    # Multiple user-agent rotation for evasion
     user_agents = [
         "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
         "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
@@ -47,7 +52,6 @@ async def fetch_reviews(place_id: str, limit: int = 150, **kwargs) -> List[Dict[
 
         try:
             async with async_playwright() as p:
-                # Use mobile emulation (most reliable for review extraction in 2025–2026)
                 device = p.devices['iPhone 13']
                 browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu"])
                 context = await browser.new_context(
@@ -75,7 +79,7 @@ async def fetch_reviews(place_id: str, limit: int = 150, **kwargs) -> List[Dict[
                     except:
                         pass
 
-                # Try to open Reviews tab / section (mobile is more forgiving)
+                # Try to open Reviews tab / section
                 for selector in [
                     'text=Reviews',
                     'text=جائزے',
@@ -90,7 +94,7 @@ async def fetch_reviews(place_id: str, limit: int = 150, **kwargs) -> List[Dict[
                     except:
                         continue
 
-                # Fallback: scroll directly if tab click fails (mobile often shows reviews inline)
+                # Fallback scroll if reviews not visible
                 if not await page.query_selector('[data-review-id], .jftiEf'):
                     logger.warning("No reviews visible after tab attempt → forcing scroll")
 
@@ -98,16 +102,16 @@ async def fetch_reviews(place_id: str, limit: int = 150, **kwargs) -> List[Dict[
                 last_count = 0
 
                 while len(reviews) < limit and scroll_attempts < 80:
-                    # Expand all "More" buttons aggressively
+                    # Expand "More" buttons
                     mores = await page.query_selector_all('button:has-text("More"), text="More"')
-                    for more in mores[:15]:  # limit to avoid rate-limit suspicion
+                    for more in mores[:15]:
                         try:
                             await more.click(timeout=2000)
                             await asyncio.sleep(0.4)
                         except:
                             pass
 
-                    # Mobile + desktop fallback selectors
+                    # Select review elements
                     elements = await page.query_selector_all(
                         '[data-review-id], .jftiEf, div[role="listitem"], .MyEned, .wiI7pd'
                     )
@@ -141,8 +145,7 @@ async def fetch_reviews(place_id: str, limit: int = 150, **kwargs) -> List[Dict[
                             })
                             collected_ids.add(review_id)
                             added_this_round += 1
-
-                        except Exception:
+                        except:
                             continue
 
                     current_count = len(reviews)
@@ -160,7 +163,6 @@ async def fetch_reviews(place_id: str, limit: int = 150, **kwargs) -> List[Dict[
                         scroll_attempts = 0
                     last_count = current_count
 
-                    # Aggressive but realistic mobile scroll
                     await page.evaluate("window.scrollBy(0, 3000)")
                     await asyncio.sleep(random.uniform(2.0, 4.5))
 
@@ -172,7 +174,7 @@ async def fetch_reviews(place_id: str, limit: int = 150, **kwargs) -> List[Dict[
 
         except Exception as e:
             logger.error(f"Attempt {retry+1} failed: {str(e)[:200]}...")
-            await asyncio.sleep(random.uniform(3, 7))  # backoff
+            await asyncio.sleep(random.uniform(3, 7))
 
     logger.error(f"❌ All {max_retries} attempts failed for place_id: {place_id}")
     return []
