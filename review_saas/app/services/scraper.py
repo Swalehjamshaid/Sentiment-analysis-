@@ -1,12 +1,15 @@
+# filename: app/services/scraper.py
 import logging
 import hashlib
 import asyncio
+import random
 import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
 logger = logging.getLogger(__name__)
+
 
 def parse_relative_date(date_text: str) -> datetime:
     now = datetime.utcnow()
@@ -23,77 +26,153 @@ def parse_relative_date(date_text: str) -> datetime:
     if "year" in date_text: return now - timedelta(days=number * 365)
     return now
 
+
 async def fetch_reviews(place_id: str, limit: int = 150, **kwargs) -> List[Dict[str, Any]]:
+    """
+    High-reliability Google Maps review scraper using mobile emulation + fallback desktop + retries
+    """
     reviews: List[Dict[str, Any]] = []
-    # Use the Direct Search URL
-    place_url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
+    collected_ids = set()
 
-    try:
-        async with async_playwright() as p:
-            # 📱 TECHNIQUE: Emulate an iPhone 13. Mobile pages are 10x easier to scrape!
-            iphone = p.devices['iPhone 13']
-            browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
-            context = await browser.new_context(**iphone, locale="en-US")
-            page = await context.new_page()
+    # ── Multiple user-agent rotation for evasion ──
+    user_agents = [
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
+    ]
 
-            logger.info(f"📱 Mobile Ghost Scrape: {place_id}")
-            await page.goto(place_url, wait_until="networkidle", timeout=60000)
+    max_retries = 3
+    for retry in range(max_retries):
+        logger.info(f"Scrape attempt {retry+1}/{max_retries} for place_id: {place_id}")
 
-            # 1. Bypass Consent
-            try:
-                await page.click('button:has-text("Accept all")', timeout=5000)
-            except: pass
+        try:
+            async with async_playwright() as p:
+                # Use mobile emulation (most reliable for review extraction in 2025–2026)
+                device = p.devices['iPhone 13']
+                browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu"])
+                context = await browser.new_context(
+                    **device,
+                    user_agent=random.choice(user_agents),
+                    locale="en-US",
+                    timezone_id="Asia/Karachi",
+                    bypass_csp=True,
+                    java_script_enabled=True,
+                )
 
-            # 2. On Mobile, reviews are often already visible or under a simple "Reviews" text
-            try:
-                await page.click('text=Reviews', timeout=10000)
-                await page.wait_for_timeout(2000)
-            except:
-                logger.warning("⚠️ Mobile 'Reviews' tab not found, attempting direct scroll.")
+                page = await context.new_page()
+                logger.info(f"📱 Starting mobile emulation scrape: {place_id}")
 
-            collected_ids = set()
-            scroll_attempts = 0
-            
-            while len(reviews) < limit and scroll_attempts < 40:
-                # Targeted Mobile Selectors (Google uses 'data-review-id' globally)
-                elements = await page.query_selector_all('[data-review-id]')
-                
-                for r in elements:
+                place_url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
+                await page.goto(place_url, wait_until="networkidle", timeout=90000)
+
+                # Consent bypass (mobile layout)
+                try:
+                    await page.click('button:has-text("Accept all")', timeout=7000)
+                    await asyncio.sleep(random.uniform(1.0, 2.0))
+                except:
                     try:
-                        # Mobile-specific classes (very stable)
-                        author_el = await r.query_selector('.My579') 
-                        text_el = await r.query_selector('.wiI7pd')
-                        rating_el = await r.query_selector('[aria-label*="star"]')
-                        date_el = await r.query_selector('.rsqaWe')
+                        await page.click('[aria-label*="Accept"], button:has-text("Agree")', timeout=5000)
+                    except:
+                        pass
 
-                        author = await author_el.inner_text() if author_el else "Guest"
-                        text = await text_el.inner_text() if text_el else ""
-                        date_text = await date_el.inner_text() if date_el else ""
-                        
-                        review_id = hashlib.md5(f"{author}{text}".encode()).hexdigest()
-                        if review_id in collected_ids: continue
+                # Try to open Reviews tab / section (mobile is more forgiving)
+                for selector in [
+                    'text=Reviews',
+                    'text=جائزے',
+                    '[aria-label*="reviews" i]',
+                    'button:has-text("Reviews")',
+                    '[role="tab"]:has-text("Reviews")',
+                ]:
+                    try:
+                        await page.click(selector, timeout=10000)
+                        await asyncio.sleep(random.uniform(1.5, 3.0))
+                        break
+                    except:
+                        continue
 
-                        rating_raw = await rating_el.get_attribute("aria-label") if rating_el else "0"
-                        rating = int(re.search(r'\d', rating_raw).group()) if re.search(r'\d', rating_raw) else 0
+                # Fallback: scroll directly if tab click fails (mobile often shows reviews inline)
+                if not await page.query_selector('[data-review-id], .jftiEf'):
+                    logger.warning("No reviews visible after tab attempt → forcing scroll")
 
-                        reviews.append({
-                            "review_id": review_id,
-                            "rating": rating,
-                            "text": text,
-                            "author_name": author,
-                            "google_review_time": parse_relative_date(date_text).isoformat()
-                        })
-                        collected_ids.add(review_id)
-                    except: continue
+                scroll_attempts = 0
+                last_count = 0
 
-                # Standard Mobile Scroll
-                await page.evaluate("window.scrollBy(0, 2000)")
-                await asyncio.sleep(2)
-                scroll_attempts += 1
+                while len(reviews) < limit and scroll_attempts < 80:
+                    # Expand all "More" buttons aggressively
+                    mores = await page.query_selector_all('button:has-text("More"), text="More"')
+                    for more in mores[:15]:  # limit to avoid rate-limit suspicion
+                        try:
+                            await more.click(timeout=2000)
+                            await asyncio.sleep(0.4)
+                        except:
+                            pass
 
-            await browser.close()
-            logger.info(f"✅ Success: Fetched {len(reviews)} reviews via Mobile Emulation.")
-            return reviews
-    except Exception as e:
-        logger.error(f"❌ Scraper Failed: {str(e)}")
-        return []
+                    # Mobile + desktop fallback selectors
+                    elements = await page.query_selector_all(
+                        '[data-review-id], .jftiEf, div[role="listitem"], .MyEned, .wiI7pd'
+                    )
+
+                    added_this_round = 0
+                    for r in elements:
+                        try:
+                            author_el = await r.query_selector('.My579, .d4r55, strong')
+                            text_el = await r.query_selector('.wiI7pd, .MyEned')
+                            rating_el = await r.query_selector('[aria-label*="star"]')
+                            date_el = await r.query_selector('.rsqaWe, .DU9Pgb')
+
+                            author = await author_el.inner_text() if author_el else "Google User"
+                            text = await text_el.inner_text() if text_el else ""
+                            date_text = await date_el.inner_text() if date_el else ""
+
+                            review_id = hashlib.md5(f"{author}{text[:200]}".encode()).hexdigest()
+                            if review_id in collected_ids:
+                                continue
+
+                            rating_raw = await rating_el.get_attribute("aria-label") if rating_el else "0"
+                            rating_match = re.search(r'(\d+(\.\d+)?)', rating_raw)
+                            rating = int(float(rating_match.group(1))) if rating_match else 0
+
+                            reviews.append({
+                                "review_id": review_id,
+                                "rating": rating,
+                                "text": text,
+                                "author_name": author,
+                                "google_review_time": parse_relative_date(date_text).isoformat()
+                            })
+                            collected_ids.add(review_id)
+                            added_this_round += 1
+
+                        except Exception:
+                            continue
+
+                    current_count = len(reviews)
+                    logger.info(f"Attempt {retry+1} — Scroll {scroll_attempts+1}: +{added_this_round} → Total {current_count}")
+
+                    if current_count >= limit:
+                        break
+
+                    if current_count == last_count:
+                        scroll_attempts += 1
+                        if scroll_attempts >= 30:
+                            logger.warning("No new reviews after 30 scrolls → giving up this attempt")
+                            break
+                    else:
+                        scroll_attempts = 0
+                    last_count = current_count
+
+                    # Aggressive but realistic mobile scroll
+                    await page.evaluate("window.scrollBy(0, 3000)")
+                    await asyncio.sleep(random.uniform(2.0, 4.5))
+
+                await browser.close()
+
+                if len(reviews) > 0:
+                    logger.info(f"✅ Success: Fetched {len(reviews)} reviews via mobile emulation (attempt {retry+1})")
+                    return reviews[:limit]
+
+        except Exception as e:
+            logger.error(f"Attempt {retry+1} failed: {str(e)[:200]}...")
+            await asyncio.sleep(random.uniform(3, 7))  # backoff
+
+    logger.error(f"❌ All {max_retries} attempts failed for place_id: {place_id}")
+    return []
