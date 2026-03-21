@@ -24,11 +24,16 @@ def parse_relative_date(date_text: str) -> datetime:
         if part.isdigit():
             number = int(part)
             break
-    if "hour" in date_text: return now - timedelta(hours=number)
-    if "day" in date_text: return now - timedelta(days=number)
-    if "week" in date_text: return now - timedelta(weeks=number)
-    if "month" in date_text: return now - timedelta(days=number * 30)
-    if "year" in date_text: return now - timedelta(days=number * 365)
+    if "hour" in date_text:
+        return now - timedelta(hours=number)
+    if "day" in date_text:
+        return now - timedelta(days=number)
+    if "week" in date_text:
+        return now - timedelta(weeks=number)
+    if "month" in date_text:
+        return now - timedelta(days=number * 30)
+    if "year" in date_text:
+        return now - timedelta(days=number * 365)
     return now
 
 
@@ -40,32 +45,23 @@ def parse_relative_date(date_text: str) -> datetime:
 )
 async def fetch_reviews(place_id: str, limit: int = 200, **kwargs) -> List[Dict[str, Any]]:
     """
-    High-reliability Google Maps Reviews Scraper 2026
+    Powerful Google Maps Reviews Scraper 2026
     Uses undetected-playwright + stealth + fake UA + tenacity retries
     """
     reviews: List[Dict[str, Any]] = []
     collected_ids = set()
 
     ua = UserAgent()
-    user_agents = [ua.random for _ in range(5)]  # fresh random UAs
+    user_agents = [ua.random for _ in range(5)]
 
-    async with async_playwright() as p:  # fallback to undetected if needed
-        try:
-            # Try undetected first (stronger stealth)
-            browser = await p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
-            )
-        except:
-            # Fallback to standard if undetected fails to launch
-            browser = await p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-gpu"]
-            )
-
+    async with undetected_async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
+        )
         context = await browser.new_context(
             user_agent=random.choice(user_agents),
-            viewport={"width": 390, "height": 844},  # iPhone-like
+            viewport={"width": 390, "height": 844},
             locale="en-US",
             timezone_id="Asia/Karachi",
             bypass_csp=True,
@@ -73,22 +69,20 @@ async def fetch_reviews(place_id: str, limit: int = 200, **kwargs) -> List[Dict[
         )
 
         page = await context.new_page()
-
-        # Apply both stealth layers
         await stealth_async(page)
 
-        logger.info(f"Starting stealth scrape for place_id: {place_id} (UA: {context._options.get('userAgent')[:50]}...)")
+        logger.info(f"Stealth scrape started for {place_id} (UA: {context._options.get('userAgent')[:50]}...)")
 
         url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
         await page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-        # Consent bypass - multiple selectors
-        consent_tries = [
+        # Consent handling
+        consent_selectors = [
             'button:has-text("Accept all")',
             'button:has-text("Agree")',
             '[aria-label*="Accept"], [aria-label*="Continue"]',
         ]
-        for sel in consent_tries:
+        for sel in consent_selectors:
             try:
                 await page.click(sel, timeout=7000)
                 await asyncio.sleep(random.uniform(0.8, 1.8))
@@ -96,8 +90,8 @@ async def fetch_reviews(place_id: str, limit: int = 200, **kwargs) -> List[Dict[
             except:
                 pass
 
-        # Open reviews section - robust selectors
-        review_triggers = [
+        # Open reviews panel
+        review_selectors = [
             'text=Reviews',
             'text=جائزے',
             'text=تقييمات',
@@ -107,9 +101,9 @@ async def fetch_reviews(place_id: str, limit: int = 200, **kwargs) -> List[Dict[
         ]
 
         opened = False
-        for trigger in review_triggers:
+        for sel in review_selectors:
             try:
-                elem = page.locator(trigger).first
+                elem = page.locator(sel).first
                 if await elem.is_visible(timeout=8000):
                     await elem.click(timeout=12000)
                     await asyncio.sleep(random.uniform(1.5, 3.5))
@@ -120,24 +114,22 @@ async def fetch_reviews(place_id: str, limit: int = 200, **kwargs) -> List[Dict[
                 continue
 
         if not opened:
-            logger.warning("No reviews tab clicked — attempting direct scroll")
+            logger.warning("No tab opened - forcing scroll")
 
-        # Main collection loop
+        # Scroll & extract
         scroll_attempts = 0
         last_count = 0
 
         while len(reviews) < limit and scroll_attempts < 100:
-            # Expand "More" buttons aggressively
+            # Expand "More"
             mores = page.get_by_role("button", name=re.compile(r"more|مزید|See more", re.I))
-            count_mores = await mores.count()
-            for i in range(min(count_mores, 25)):
+            for i in range(min(await mores.count(), 25)):
                 try:
                     await mores.nth(i).click(timeout=2500)
                     await asyncio.sleep(0.35)
                 except:
                     pass
 
-            # Collect cards with combined selectors
             cards = await page.query_selector_all(
                 '[data-review-id], .jftiEf, [role="listitem"], .review-card, .MyEned'
             )
@@ -188,15 +180,14 @@ async def fetch_reviews(place_id: str, limit: int = 200, **kwargs) -> List[Dict[
                 scroll_attempts = 0
             last_count = current
 
-            # Scroll
             await page.evaluate("window.scrollBy(0, 4000)")
             await asyncio.sleep(random.uniform(2.5, 5.0))
 
         await browser.close()
 
-        logger.info(f"Finished scrape: {len(reviews)} reviews collected")
+        logger.info(f"Finished: {len(reviews)} reviews collected")
         return reviews[:limit]
 
     except Exception as e:
-        logger.error(f"Critical scraper error: {e}", exc_info=True)
+        logger.error(f"Critical error: {e}", exc_info=True)
         return []
