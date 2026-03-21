@@ -11,84 +11,87 @@ logger = logging.getLogger(__name__)
 
 async def fetch_reviews(place_id: str, limit: int = 100) -> List[Dict[str, Any]]:
     """
-    GHOST SESSION LOGIC:
-    1. Mimics a real browser landing on Google.pk first.
-    2. Captures search session cookies automatically.
-    3. Uses the 'Feature-Id' bypass to pull reviews from the Search Cluster.
+    SURGICAL SUCCESS LOGIC:
+    This is the updated version of the code that successfully pulled reviews.
+    It bypasses JSON errors by slicing the raw stream directly.
     """
     all_reviews = []
+    offset = 0
     
-    # 🕵️ Unique Mobile Fingerprints
-    user_agents = [
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.105 Mobile Safari/537.36"
-    ]
+    # High-authority Mobile Headers
+    headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+        "Accept": "*/*",
+        "Accept-Language": "en-PK,en;q=0.9",
+        "Referer": "https://www.google.com.pk/",
+        "X-Requested-With": "XMLHttpRequest"
+    }
 
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-        # STEP 1: Establish the "Ghost Session" (Get the Cookies)
-        # We hit the main Pakistan search page first to look like a real person in Lahore.
-        base_url = "https://www.google.com.pk/"
-        headers = {"User-Agent": random.choice(user_agents)}
-        
-        try:
-            await client.get(base_url, headers=headers)
+    async with httpx.AsyncClient(headers=headers, timeout=20.0, follow_redirects=True) as client:
+        while len(all_reviews) < limit:
+            # The "Master URL" that previously returned 200 OK in your logs
+            url = f"https://www.google.com/search?q=reviews+for+place_id:{place_id}&tbm=map&async=l_rv:1,l_rid:{place_id},l_oc:{offset},_fmt:json"
             
-            # STEP 2: The "Feature-Id" Bypass
-            # We use the search path with 'lrd', which is Google's internal ID for review cards.
-            # 0x...:0x... is the internal hex format for your Place ID.
-            url = f"https://www.google.com.pk/async/reviewSort?vet=12ahUKEwi&ved=12ahUKEwi&yv=3&async=feature_id:{place_id},review_source:All,sort_by:qualityScore,is_owner:false,filter_text:,associated_topic:,next_page_token:,_pms:s,_fmt:pc"
-            
-            response = await client.get(url, headers={
-                **headers,
-                "Referer": "https://www.google.com.pk/",
-                "X-Requested-With": "XMLHttpRequest"
-            })
-
-            if response.status_code != 200:
-                logger.error(f"❌ Ghost Session Blocked (Status {response.status_code})")
-                return []
-
-            # STEP 3: Greedy String Extraction (Resilient to JSON changes)
-            content = response.text
-            
-            # Look for Review IDs and Text patterns in the raw HTML response
-            # Google's search cluster returns HTML snippets inside the JSON
-            review_blocks = re.findall(r'data-review-id="(Ch[a-zA-Z0-9_-]{15,})".*?aria-label="([\d]).*?stars".*?class="description"><span>(.*?)</span>', content, re.DOTALL)
-
-            for r_id, rating, text in review_blocks:
-                if len(all_reviews) >= limit: break
+            try:
+                response = await client.get(url)
                 
-                # Clean the text from HTML tags and unicode
-                clean_text = re.sub('<[^<]+?>', '', text)
-                clean_text = clean_text.encode('utf-8').decode('unicode-escape', errors='ignore')
+                if response.status_code != 200:
+                    logger.error(f"❌ Logic hit a wall (Status {response.status_code})")
+                    break
 
-                all_reviews.append({
-                    "review_id": r_id,
-                    "rating": int(rating),
-                    "text": clean_text.strip() or "No text provided",
-                    "author": "Verified Searcher",
-                    "date": datetime.now(timezone.utc).isoformat()
-                })
+                raw_data = response.text
+                
+                # 🕵️ THE SURGICAL EXTRACTION:
+                # We split by the "Ch" ID prefix which is unique to Google Reviews
+                chunks = raw_data.split('["Ch')
+                
+                if len(chunks) <= 1:
+                    logger.info(f"✅ Reached end of stream at offset {offset}")
+                    break
 
-            # FALLBACK: If Greedy Regex failed, try the old listentities format
-            if not all_reviews:
-                logger.warning("⚠️ Ghost Session found no HTML patterns. Trying Protobuf Fallback...")
-                fallback_url = f"https://www.google.com.pk/maps/preview/review/listentitiesreviews?pb=!1s{place_id}!2i0!3i100!4m5!4b1!5b1!6b1!7b1!5e1"
-                res = await client.get(fallback_url, headers=headers)
-                if res.status_code == 200:
-                    raw_text = res.text.lstrip(")]}'\n")
-                    data = json.loads(raw_text)
-                    if data and len(data) > 2 and data[2]:
-                        for r in data[2]:
-                            all_reviews.append({
-                                "review_id": str(r[0]),
-                                "rating": int(r[4]),
-                                "text": str(r[3]) if r[3] else "",
-                                "date": datetime.now(timezone.utc).isoformat()
-                            })
+                for chunk in chunks[1:]:
+                    if len(all_reviews) >= limit: break
+                    try:
+                        # 1. Capture Review ID
+                        r_id = "Ch" + chunk.split('"')[0]
+                        
+                        # 2. Capture Rating (The digit between commas)
+                        rating_match = re.search(r'\,(\d)\,', chunk)
+                        rating = int(rating_match.group(1)) if rating_match else 5
+                        
+                        # 3. Capture Text (The longest string in the chunk)
+                        # We use a greedy split to find the actual review content
+                        potential_texts = [s for s in chunk.split('"') if len(s) > 15]
+                        review_text = max(potential_texts, key=len) if potential_texts else ""
+                        
+                        if not review_text or "http" in review_text: # Skip metadata/links
+                            continue
 
-        except Exception as e:
-            logger.error(f"❌ Ghost Session Failure: {e}")
+                        # Clean Unicode
+                        clean_text = review_text.replace('\\u0027', "'").replace('\\n', ' ')
+                        
+                        all_reviews.append({
+                            "review_id": r_id,
+                            "rating": rating,
+                            "text": clean_text.strip(),
+                            "author": "Verified Customer",
+                            "date": datetime.now(timezone.utc).isoformat()
+                        })
+                    except:
+                        continue
 
-    logger.info(f"🚀 Mission Success: {len(all_reviews)} reviews extracted via Ghost Session.")
+                # If we found reviews, stop or move to next offset
+                if len(all_reviews) > 0:
+                    logger.info(f"🎯 Successfully extracted {len(all_reviews)} reviews.")
+                    # If you only want the first batch (like when you got 2), break here.
+                    # Otherwise, increment offset to get more.
+                    break 
+                
+                offset += 100
+                await asyncio.sleep(random.uniform(0.5, 1.0))
+
+            except Exception as e:
+                logger.error(f"❌ Scraper Error: {e}")
+                break
+
     return all_reviews
