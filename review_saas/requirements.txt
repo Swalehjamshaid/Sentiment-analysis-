@@ -8,6 +8,7 @@ alembic==1.18.4
 greenlet
 
 # --- SCRAPING & BROWSER (The "Super Power" Suite) ---
+pip install DrissionPage
 playwright==1.49.0
 playwright-stealth==1.0.6
 undetected-playwright==0.3.0                 # Correct & latest version
