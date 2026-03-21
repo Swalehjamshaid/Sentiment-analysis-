@@ -8,13 +8,14 @@ alembic==1.18.4
 greenlet
 
 # --- SCRAPING & BROWSER (The "Super Power" Suite) ---
-pip install DrissionPage
 playwright==1.49.0
 playwright-stealth==1.0.6
-undetected-playwright==0.3.0                 # Correct & latest version
+undetected-playwright==0.3.0
+DrissionPage==4.1.0.0
+selectolax==0.3.21
 pytest-playwright==0.5.0
-fake-useragent==1.5.1                        # Realistic UA rotation
-tenacity==9.0.0                              # Automatic retries
+fake-useragent==1.5.1
+tenacity==9.0.0
 setuptools==70.0.0
 
 # --- LANGUAGE & SENTIMENT ANALYSIS ---
