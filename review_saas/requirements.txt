@@ -5,7 +5,6 @@ SQLAlchemy>=2.0.48
 psycopg[binary]==3.2.4
 psycopg2-binary==2.9.10
 alembic==1.18.4
-# We let pip choose the version to avoid conflicts with Playwright
 greenlet
 
 # Language Detection & Sentiment Analysis
@@ -29,8 +28,9 @@ charset_normalizer>=3.4.6
 httpx[http2]==0.27.2
 python-dateutil==2.9.0.post0
 
-# Playwright (Updated for Python 3.12 Compatibility)
+# Playwright & Stealth (Added new requirement)
 playwright==1.49.0
+playwright-stealth==1.0.6
 pytest-playwright==0.5.0
 
 # Web Framework & Server
