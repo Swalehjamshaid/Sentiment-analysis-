@@ -1,53 +1,55 @@
-import httpx
-import json
-import logging
 import asyncio
+import logging
+import json
 from datetime import datetime, timezone
 from typing import List, Dict, Any
+from playwright.async_api import async_playwright
 
 # Standard logging
 logger = logging.getLogger(__name__)
 
-# --- CONFIGURATION ---
-# IMPORTANT: Replace with your actual ZenRows API Key
-ZENROWS_API_KEY = "YOUR_ZENROWS_API_KEY"  
-ZENROWS_API_URL = "https://api.zenrows.com/v1/"
-
-class ZenRowsGoogleScraper:
+class PlaywrightGoogleScraper:
     def __init__(self):
-        self.api_key = ZENROWS_API_KEY
+        self.browser_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-setuid-sandbox"
+        ]
 
     async def get_reviews(self, place_id: str, max_reviews: int = 1000) -> List[Dict[str, Any]]:
         all_reviews = []
-        offset = 0
-        page_size = 100 
+        
+        async with async_playwright() as p:
+            # Launching a high-performance headless browser
+            browser = await p.chromium.launch(headless=True, args=self.browser_args)
+            
+            # Using a mobile context to stay "Grey Hat" and fast
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1"
+            )
+            page = await context.new_page()
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            while len(all_reviews) < max_reviews:
-                # Target URL using the internal Google endpoint (Grey Hat method)
-                target_url = f"https://www.google.com/maps/preview/review/listentitiesreviews?authuser=0&hl=en&gl=us&pb=!1m1!1s{place_id}!2i{offset}!3i{page_size}!4m5!4b1!5b1!6b1!7b1!5e1"
-                
-                # ZenRows Managed Parameters
-                params = {
-                    "apikey": self.api_key,
-                    "url": target_url,
-                    "premium_proxy": "true",
-                    "proxy_country": "us",
-                    "js_render": "true"
-                }
+            # The internal Google Maps review URL
+            # We use the 'pb' logic inside the URL to request 100 reviews at a time
+            offset = 0
+            page_size = 100
 
-                try:
-                    response = await client.get(ZENROWS_API_URL, params=params)
+            try:
+                while len(all_reviews) < max_reviews:
+                    target_url = f"https://www.google.com/maps/preview/review/listentitiesreviews?authuser=0&hl=en&gl=us&pb=!1m1!1s{place_id}!2i{offset}!3i{page_size}!4m5!4b1!5b1!6b1!7b1!5e1"
                     
-                    if response.status_code != 200:
-                        logger.error(f"ZenRows Error: {response.status_code}")
-                        break
-
-                    # Strip Google's security prefix: )]}'
-                    raw_text = response.text.lstrip(")]}'\n")
+                    # Navigate to the data URL
+                    await page.goto(target_url)
+                    
+                    # Get the raw text content (Google's JSON)
+                    content = await page.content()
+                    
+                    # Clean the HTML tags Playwright adds to raw text
+                    raw_text = await page.evaluate("() => document.querySelector('pre').innerText")
+                    raw_text = raw_text.lstrip(")]}'\n")
+                    
                     data = json.loads(raw_text)
 
-                    # Ensure the response has data at the expected index
                     if len(data) <= 2 or not data[2]:
                         break 
                     
@@ -56,7 +58,6 @@ class ZenRowsGoogleScraper:
                         if len(all_reviews) >= max_reviews:
                             break
                         try:
-                            # Casting data to explicit Python types ensures SQLAlchemy alignment
                             all_reviews.append({
                                 "review_id": str(r[0]),
                                 "rating": int(r[4]),
@@ -65,29 +66,28 @@ class ZenRowsGoogleScraper:
                                 "timestamp_ms": r[27],
                                 "date": datetime.fromtimestamp(r[27]/1000, tz=timezone.utc).isoformat()
                             })
-                        except (IndexError, TypeError, KeyError):
+                        except (IndexError, TypeError):
                             continue
 
-                    # Break if no more reviews are returned from Google
                     if len(batch) < page_size:
                         break
 
                     offset += page_size
-                    # Short delay to keep requests looking natural
-                    await asyncio.sleep(0.2)
-
-                except Exception as e:
-                    logger.error(f"Scraper Error: {str(e)}")
-                    break
+                    # Human-like delay
+                    await asyncio.sleep(1)
+                    
+            except Exception as e:
+                logger.error(f"Playwright Scraper Error: {str(e)}")
+            finally:
+                await browser.close()
 
         return all_reviews
 
 # --- PROJECT ALIGNMENT BRIDGE ---
-# This matches your routes/reviews.py call: fetch_reviews(place_id=target_id, limit=300)
 async def fetch_reviews(place_id: str, limit: int = 1000) -> List[Dict[str, Any]]:
     """
-    Entry point that aligns perfectly with your existing route logic.
-    Requires ZERO changes to other project files.
+    Standard entry point for your FastAPI routes.
+    Matches: fetch_reviews(place_id=target_id, limit=300)
     """
-    scraper = ZenRowsGoogleScraper()
+    scraper = PlaywrightGoogleScraper()
     return await scraper.get_reviews(place_id=place_id, max_reviews=limit)
