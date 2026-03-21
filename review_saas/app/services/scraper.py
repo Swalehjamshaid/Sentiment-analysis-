@@ -1,99 +1,115 @@
 import asyncio
-import logging
-import re
-from datetime import datetime, timezone
+import random
+from datetime import datetime
 from typing import List, Dict, Any
 
-# Using your new "Super Power" libraries
-from DrissionPage import ChromiumPage, ChromiumOptions
+from playwright.async_api import async_playwright
+from playwright_stealth import stealth_async
 from selectolax.parser import HTMLParser
+from fake_useragent import UserAgent
+from tenacity import retry, stop_after_attempt, wait_exponential
+from loguru import logger
 
-logger = logging.getLogger(__name__)
+class GoogleReviewScraper:
+    def __init__(self):
+        self.ua = UserAgent()
+        # Common Google Maps selectors for reviews
+        self.selectors = {
+            "container": ".jftiEf",
+            "text": ".wi7Cbe",
+            "rating": ".kv9pPn",
+            "date": ".rsqaWe"
+        }
 
-async def fetch_reviews(place_id: str, limit: int = 300) -> List[Dict[str, Any]]:
-    """
-    GHOST PROTOCOL SCRAPER:
-    Uses DrissionPage to bypass 400 errors and Selectolax to 
-    extract ACTUAL TEXT for 300+ reviews.
-    """
-    all_reviews = []
-    
+    def _parse_reviews(self, html_content: str) -> List[Dict[str, Any]]:
+        """Parses the raw HTML using Selectolax for high-speed extraction."""
+        tree = HTMLParser(html_content)
+        reviews = []
+        
+        for node in tree.css(self.selectors["container"]):
+            text_node = node.css_first(self.selectors["text"])
+            rating_node = node.css_first(self.selectors["rating"])
+            date_node = node.css_first(self.selectors["date"])
+            
+            review_data = {
+                "text": text_node.text(strip=True) if text_node else "",
+                "rating": rating_node.attributes.get("aria-label", "0") if rating_node else "0",
+                "date": date_node.text(strip=True) if date_node else "Unknown",
+                "extracted_at": datetime.utcnow().isoformat()
+            }
+            
+            if review_data["text"]:  # Only keep reviews with actual content
+                reviews.append(review_data)
+        
+        return reviews
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10)
+    )
+    async def run(self, company_name: str, max_reviews: int = 10) -> List[Dict[str, Any]]:
+        """
+        Executes the scraping mission. 
+        Headless mode is handled via launch arguments to fix 'Ghost Protocol' error.
+        """
+        async with async_playwright() as p:
+            try:
+                # ✅ FIX: 'set_headless' is not an attribute. Use launch parameters.
+                # We use --no-sandbox for Railway/Docker compatibility.
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+                )
+                
+                context = await browser.new_context(
+                    user_agent=self.ua.random,
+                    viewport={'width': 1920, 'height': 1080}
+                )
+                
+                page = await context.new_page()
+                await stealth_async(page)
+                
+                logger.info(f"🚀 Starting Playwright scraper for: {company_name}")
+                
+                # Search for the business on Google Maps
+                search_query = company_name.replace(" ", "+")
+                url = f"https://www.google.com/maps/search/{search_query}"
+                
+                await page.goto(url, wait_until="networkidle")
+                
+                # Wait for the result or the list to appear
+                try:
+                    # Attempt to find and click the 'Reviews' tab if it's a direct business match
+                    reviews_tab = page.get_by_role("tab", name="Reviews")
+                    if await reviews_tab.is_visible():
+                        await reviews_tab.click()
+                        await page.wait_for_timeout(2000)
+                except Exception:
+                    logger.warning(f"⚠️ Could not find explicit Reviews tab for {company_name}, trying direct scroll.")
+
+                # Scroll to load more reviews
+                for _ in range(2): # Minimal scrolling for the initial test
+                    await page.mouse.wheel(0, 2000)
+                    await asyncio.sleep(random.uniform(1.5, 3.0))
+
+                content = await page.content()
+                results = self._parse_reviews(content)
+                
+                await browser.close()
+                
+                logger.info(f"🚀 Mission Success: {len(results)} reviews with actual text delivered.")
+                return results[:max_reviews]
+
+            except Exception as e:
+                # Capture the specific failure for the logs
+                logger.error(f"❌ Ghost Protocol Failure: {str(e)}")
+                # Re-raise for tenacity to handle retries if it's a transient error
+                raise e
+
+# Helper function to be called by your API router
+async def get_reviews(location: str):
+    scraper = GoogleReviewScraper()
     try:
-        # 1. Setup Chromium Options (Stealth Mode)
-        co = ChromiumOptions()
-        co.set_argument('--no-sandbox')
-        co.set_argument('--disable-gpu')
-        # On Railway, we run headless; locally you can set this to False to watch it
-        co.set_headless(True) 
-        
-        # 2. Initialize the Page
-        page = ChromiumPage(co)
-        
-        # 3. Direct Navigation to the Review Portal
-        # The 'lrd' parameter forces the review overlay to open immediately
-        url = f"https://www.google.com/search?q=reviews+for+place_id:{place_id}&lrd=0x0:0x0,1,1&hl=en&gl=pk"
-        logger.info(f"🛰️ Ghost Protocol initiated for {place_id}")
-        page.get(url)
-        
-        # 4. The "Infinite Scroll" Logistics
-        # We scroll and collect until we hit 300
-        last_count = 0
-        while len(all_reviews) < limit:
-            # Scroll to the bottom of the review pane
-            page.scroll.to_bottom()
-            await asyncio.sleep(1.5) # Human-like pause for data loading
-            
-            # Use Selectolax for ultra-fast parsing of the current HTML
-            tree = HTMLParser(page.html)
-            
-            # Find all review containers
-            # Google 2026 uses data-review-id as the primary anchor
-            nodes = tree.css('div[data-review-id]')
-            
-            if len(nodes) == last_count:
-                logger.info("🏁 No more new reviews loading. Ending harvest.")
-                break
-            
-            last_count = len(nodes)
-            
-            for node in nodes:
-                if len(all_reviews) >= limit: break
-                
-                r_id = node.attributes.get('data-review-id')
-                
-                # Prevent duplicates
-                if any(r['review_id'] == r_id for r in all_reviews):
-                    continue
-                
-                # 🕵️ DEEP TEXT EXTRACTION
-                # We target the actual review text span, bypassing the "NULL" issue
-                text_node = node.css_first('span[class*="review-text"], .description, .K7oBsc')
-                rating_node = node.css_first('span[aria-label*="star"]')
-                
-                # Rating Logic
-                rating_text = rating_node.attributes.get('aria-label', '5') if rating_node else "5"
-                rating = int(re.search(r'\d', rating_text).group()) if rating_text else 5
-                
-                # Text Cleaning
-                raw_text = text_node.text(strip=True) if text_node else "Verified Experience"
-                # Remove "More" button text if captured
-                clean_text = raw_text.replace("More", "").strip()
-
-                if r_id:
-                    all_reviews.append({
-                        "review_id": r_id,
-                        "rating": rating,
-                        "text": clean_text if len(clean_text) > 5 else "Highly Rated Customer Review",
-                        "author": "Google Customer",
-                        "date": datetime.now(timezone.utc).isoformat()
-                    })
-
-            logger.info(f"📦 Progress: {len(all_reviews)}/{limit} reviews captured.")
-
-        page.quit()
-        
-    except Exception as e:
-        logger.error(f"❌ Ghost Protocol Failure: {e}")
-    
-    logger.info(f"🚀 Mission Success: {len(all_reviews)} reviews with actual text delivered.")
-    return all_reviews
+        return await scraper.run(location)
+    except Exception:
+        return []
