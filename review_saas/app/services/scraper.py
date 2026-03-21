@@ -41,12 +41,11 @@ def parse_relative_date(date_text: str) -> datetime:
     stop=stop_after_attempt(4),
     wait=wait_exponential(multiplier=1, min=3, max=15),
     retry=retry_if_exception_type(Exception),
-    reraise=True
+    reraise=True,
 )
 async def fetch_reviews(place_id: str, limit: int = 200, **kwargs) -> List[Dict[str, Any]]:
     """
-    Powerful Google Maps Reviews Scraper 2026
-    Uses undetected-playwright + stealth + fake UA + tenacity retries
+    Powerful Google Maps Reviews Scraper - 2026 edition
     """
     reviews: List[Dict[str, Any]] = []
     collected_ids = set()
@@ -71,12 +70,12 @@ async def fetch_reviews(place_id: str, limit: int = 200, **kwargs) -> List[Dict[
         page = await context.new_page()
         await stealth_async(page)
 
-        logger.info(f"Stealth scrape started for {place_id} (UA: {context._options.get('userAgent')[:50]}...)")
+        logger.info(f"Stealth scrape for {place_id} (UA: {context._options.get('userAgent')[:50]}...)")
 
         url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
         await page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-        # Consent handling
+        # Consent
         consent_selectors = [
             'button:has-text("Accept all")',
             'button:has-text("Agree")',
@@ -90,7 +89,7 @@ async def fetch_reviews(place_id: str, limit: int = 200, **kwargs) -> List[Dict[
             except:
                 pass
 
-        # Open reviews panel
+        # Open reviews
         review_selectors = [
             'text=Reviews',
             'text=جائزے',
@@ -114,14 +113,14 @@ async def fetch_reviews(place_id: str, limit: int = 200, **kwargs) -> List[Dict[
                 continue
 
         if not opened:
-            logger.warning("No tab opened - forcing scroll")
+            logger.warning("No tab found - forcing scroll")
 
-        # Scroll & extract
+        # Scroll & collect
         scroll_attempts = 0
         last_count = 0
 
         while len(reviews) < limit and scroll_attempts < 100:
-            # Expand "More"
+            # Expand More
             mores = page.get_by_role("button", name=re.compile(r"more|مزید|See more", re.I))
             for i in range(min(await mores.count(), 25)):
                 try:
@@ -187,7 +186,3 @@ async def fetch_reviews(place_id: str, limit: int = 200, **kwargs) -> List[Dict[
 
         logger.info(f"Finished: {len(reviews)} reviews collected")
         return reviews[:limit]
-
-    except Exception as e:
-        logger.error(f"Critical error: {e}", exc_info=True)
-        return []
