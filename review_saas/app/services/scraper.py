@@ -10,40 +10,35 @@ logger = logging.getLogger(__name__)
 
 async def fetch_reviews(place_id: str, limit: int = 1000) -> List[Dict[str, Any]]:
     """
-    Lightweight Stealth Scraper: 100% Python based.
-    Bypasses the 'Status 400' error by using professional headers and internal endpoints.
-    Matches your project's call: fetch_reviews(place_id, limit)
+    Ultra-Lightweight Stealth Scraper.
+    Bypasses Chromium entirely to save memory and time on Railway.
     """
     all_reviews = []
     offset = 0
     page_size = 100 
 
-    # Professional headers to mimic a real desktop browser
+    # Masking headers to mimic a real desktop browser
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "*/*",
         "Accept-Language": "en-US,en;q=0.9",
         "Referer": "https://www.google.com/",
         "Origin": "https://www.google.com",
-        "Connection": "keep-alive",
     }
 
-    # Using an Async Client for high performance on Railway
-    async with httpx.AsyncClient(headers=headers, timeout=30.0, follow_redirects=True) as client:
+    async with httpx.AsyncClient(headers=headers, timeout=20.0) as client:
         while len(all_reviews) < limit:
-            # Internal Google Search Review Endpoint
-            # This format is highly resilient against 400 Bad Request errors for Lahore-based businesses
+            # Internal Google Review Data Endpoint (Resilient against 400 errors)
             url = f"https://www.google.com/maps/preview/review/listentitiesreviews?authuser=0&hl=en&gl=us&pb=!1m1!1s{place_id}!2i{offset}!3i{page_size}!4m5!4b1!5b1!6b1!7b1!5e1"
             
             try:
                 response = await client.get(url)
                 
-                # Check for blocking
                 if response.status_code != 200:
-                    logger.error(f"❌ Google Blocked Request. Status: {response.status_code}")
+                    logger.error(f"❌ Google Blocked Request (Status {response.status_code})")
                     break
 
-                # Strip Google's JSON security prefix: )]}'
+                # Strip JSON security prefix: )]}'
                 raw_text = response.text.lstrip(")]}'\n")
                 
                 try:
@@ -52,7 +47,6 @@ async def fetch_reviews(place_id: str, limit: int = 1000) -> List[Dict[str, Any]
                     logger.error("❌ Failed to parse Google JSON response.")
                     break
 
-                # Ensure data exists in the expected Protobuf index [2]
                 if not data or len(data) < 3 or not data[2]:
                     logger.info(f"✅ Collection finished at offset {offset}.")
                     break
@@ -62,7 +56,7 @@ async def fetch_reviews(place_id: str, limit: int = 1000) -> List[Dict[str, Any]
                     if len(all_reviews) >= limit:
                         break
                     try:
-                        # Converting to explicit types ensures database safety
+                        # Extracting and converting to explicit types for DB safety
                         all_reviews.append({
                             "review_id": str(r[0]),
                             "rating": int(r[4]),
@@ -74,18 +68,16 @@ async def fetch_reviews(place_id: str, limit: int = 1000) -> List[Dict[str, Any]
                     except (IndexError, TypeError):
                         continue
 
-                # If the batch returned is less than the page size, we've hit the end
                 if len(batch) < page_size:
                     break
 
                 offset += page_size
-                
-                # Human-mimicry delay to prevent IP flagging
-                await asyncio.sleep(1.0)
+                # Human-mimicry delay
+                await asyncio.sleep(0.5)
                 
             except Exception as e:
                 logger.error(f"❌ Scraper Failure: {str(e)}")
                 break
 
-    logger.info(f"🚀 Successfully scraped {len(all_reviews)} reviews for {place_id}")
+    logger.info(f"🚀 Successfully scraped {len(all_reviews)} reviews.")
     return all_reviews
