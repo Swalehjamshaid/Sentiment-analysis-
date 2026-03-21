@@ -3,7 +3,6 @@ import json
 import logging
 import asyncio
 import random
-import re
 from datetime import datetime, timezone
 from typing import List, Dict, Any
 
@@ -11,8 +10,9 @@ logger = logging.getLogger(__name__)
 
 async def fetch_reviews(place_id: str, limit: int = 1000) -> List[Dict[str, Any]]:
     """
-    VOLUME BOOSTER: Relaxed Surgical Extraction.
-    Now that we have 200 OK, we widen the 'net' to catch every review in the stream.
+    BRUTE FORCE EXTRACTION:
+    Uses manual string splitting to bypass Google's complex JSON encoding.
+    Matches the 200 OK stream confirmed in the logs.
     """
     all_reviews = []
     offset = 0
@@ -33,49 +33,55 @@ async def fetch_reviews(place_id: str, limit: int = 1000) -> List[Dict[str, Any]
 
                 raw_data = response.text
                 
-                # 🕵️ RELAXED PATTERN: Find the Review ID (Ch...) and everything until the next one
-                # This ensures we don't miss reviews with complex formatting
-                chunks = re.split(r'\["(Ch[a-zA-Z0-9_-]{15,})"', raw_data)[1:]
+                # 🕵️ THE BRUTE FORCE SPLIT:
+                # Every review in this stream starts with a specific ID pattern
+                chunks = raw_data.split('["Ch')
                 
-                if not chunks:
+                if len(chunks) <= 1:
+                    logger.info(f"✅ End of data stream at offset {offset}")
                     break
 
-                # Process chunks in pairs (ID, then the data following it)
-                for i in range(0, len(chunks), 2):
+                for chunk in chunks[1:]: # Skip the first part before the first ID
                     if len(all_reviews) >= limit: break
-                    r_id = chunks[i]
-                    chunk_data = chunks[i+1] if i+1 < len(chunks) else ""
-                    
                     try:
-                        # Find the first digit (1-5) after the ID - that's the rating
-                        rating_match = re.search(r'\,(\d)\,', chunk_data)
-                        rating = int(rating_match.group(1)) if rating_match else 5
+                        # 1. Extract Review ID
+                        r_id = "Ch" + chunk.split('"')[0]
                         
-                        # Find the longest string in quotes - that's the review text
-                        texts = re.findall(r'"([^"]{5,})"', chunk_data)
-                        review_text = max(texts, key=len) if texts else "No text provided"
+                        # 2. Extract Rating (It's always a single digit 1-5 followed by a comma)
+                        # We look for the first occurrence after the ID
+                        rating = 5
+                        for char in chunk:
+                            if char in "12345":
+                                rating = int(char)
+                                break
                         
-                        # Clean unicode
-                        clean_text = review_text.encode('utf-8').decode('unicode-escape', errors='ignore')
+                        # 3. Extract Text (It's the longest string inside double quotes)
+                        # We clean up common Google escape characters
+                        potential_texts = [s for s in chunk.split('"') if len(s) > 10]
+                        review_text = max(potential_texts, key=len) if potential_texts else "No text"
+                        
+                        # Quick clean of the text
+                        review_text = review_text.replace('\\u0027', "'").replace('\\n', ' ')
                         
                         all_reviews.append({
                             "review_id": r_id,
                             "rating": rating,
-                            "text": clean_text,
+                            "text": review_text,
                             "author": "Local Guide",
                             "date": datetime.now(timezone.utc).isoformat()
                         })
                     except:
                         continue
 
-                # Move to next page
-                if len(chunks) < 10: break 
+                # If we found less than 5 reviews, it's likely the end of the list
+                if len(chunks) < 5: break 
+                
                 offset += 100
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(random.uniform(0.3, 0.6))
 
             except Exception as e:
-                logger.error(f"❌ Volume Booster Error: {e}")
+                logger.error(f"❌ Brute Force Error: {e}")
                 break
 
-    logger.info(f"🚀 Mission Accomplished: {len(all_reviews)} reviews pulled.")
+    logger.info(f"🚀 Mission Accomplished: {len(all_reviews)} reviews pulled via Brute Force.")
     return all_reviews
