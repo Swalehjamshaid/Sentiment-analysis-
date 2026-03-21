@@ -1,62 +1,155 @@
-# app/services/scraper.py
+# scraper.py
 
 import asyncio
-from playwright.async_api import async_playwright, Page
-from typing import Dict
-import logging
+import random
+import re
+from typing import Optional, Dict
 
-logging.basicConfig(level=logging.INFO)
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright_stealth import stealth_async
 
+# Rotating User Agents (anti-detection)
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+]
 
-async def scrape_google_reviews(company_name: str) -> Dict:
+async def _extract_rating_and_reviews(page) -> Optional[Dict]:
     """
-    Scrapes Google search results for company reviews.
-    Returns a dict with rating and number of reviews.
-    Uses only Python libraries (Playwright) without Google API.
+    Try multiple strategies to extract rating and review count
     """
-    logging.info(f"🕵️ Starting scraping for: {company_name}")
-    result = {"rating": None, "reviews": None}
 
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context()
-            page: Page = await context.new_page()
+    # -------- Rating Extraction --------
+    rating = None
 
-            # Open Google search for reviews
-            search_url = f"https://www.google.com/search?q={company_name.replace(' ', '+')}+reviews"
-            await page.goto(search_url)
+    rating_patterns = [
+        r"(\d\.\d)\s*out of 5",
+        r"Rated\s*(\d\.\d)",
+        r"(\d\.\d)\s*stars",
+    ]
 
-            # Wait for content to load
-            await page.wait_for_timeout(3000)
+    possible_rating_selectors = [
+        'span[aria-label*="Rated"]',
+        'div[role="heading"] span',
+        'span[jsname]',
+    ]
 
-            try:
-                # Grab rating element
-                rating_el = await page.query_selector('span[aria-label*="stars"]')
-                review_count_el = await page.query_selector('span:has-text("reviews")')
+    for selector in possible_rating_selectors:
+        try:
+            elements = await page.query_selector_all(selector)
+            for el in elements:
+                text = await el.inner_text()
+                for pattern in rating_patterns:
+                    match = re.search(pattern, text, re.IGNORECASE)
+                    if match:
+                        rating = float(match.group(1))
+                        break
+                if rating:
+                    break
+        except:
+            continue
+        if rating:
+            break
 
-                if rating_el:
-                    rating_text = await rating_el.get_attribute("aria-label")
-                    if rating_text:
-                        result["rating"] = float(rating_text.split()[0])
+    # -------- Review Count Extraction --------
+    review_count = None
 
-                if review_count_el:
-                    reviews_text = await review_count_el.inner_text()
-                    if reviews_text:
-                        result["reviews"] = int(''.join(filter(str.isdigit, reviews_text)))
-            except Exception as e:
-                logging.warning(f"⚠️ Could not parse rating/reviews: {e}")
+    review_patterns = [
+        r"([\d,]+)\s*reviews",
+        r"([\d,]+)\s*Ratings",
+    ]
 
-            await browser.close()
-    except Exception as e:
-        logging.error(f"🛑 Scraper error: {e}")
+    possible_review_selectors = [
+        'span:has-text("reviews")',
+        'div:has-text("reviews")',
+        'a:has-text("reviews")',
+    ]
 
-    logging.info(f"✅ Scraping completed for {company_name}: {result}")
-    return result
+    for selector in possible_review_selectors:
+        try:
+            elements = await page.query_selector_all(selector)
+            for el in elements:
+                text = await el.inner_text()
+                for pattern in review_patterns:
+                    match = re.search(pattern, text, re.IGNORECASE)
+                    if match:
+                        review_count = int(match.group(1).replace(",", ""))
+                        break
+                if review_count:
+                    break
+        except:
+            continue
+        if review_count:
+            break
+
+    if rating and review_count:
+        return {"rating": rating, "review_count": review_count}
+
+    return None
 
 
-# Optional test runner
+async def fetch_google_reviews(query: str, retries: int = 3) -> Optional[Dict]:
+    """
+    MAIN FUNCTION — Use this in your project
+    """
+
+    for attempt in range(retries):
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+
+                context = await browser.new_context(
+                    user_agent=random.choice(USER_AGENTS),
+                    viewport={"width": 1280, "height": 800},
+                    locale="en-US",
+                )
+
+                page = await context.new_page()
+                await stealth_async(page)
+
+                # Google search URL
+                url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+
+                await page.goto(url, timeout=60000)
+
+                # Random human-like delay
+                await asyncio.sleep(random.uniform(2, 4))
+
+                # Scroll slightly (human behavior)
+                await page.mouse.wheel(0, random.randint(200, 600))
+                await asyncio.sleep(random.uniform(1, 2))
+
+                # Extract data
+                result = await _extract_rating_and_reviews(page)
+
+                await browser.close()
+
+                if result:
+                    return result
+
+        except PlaywrightTimeoutError:
+            print(f"⏳ Timeout on attempt {attempt+1}")
+        except Exception as e:
+            print(f"❌ Attempt {attempt+1} failed: {e}")
+
+        # Retry delay
+        await asyncio.sleep(random.uniform(2, 5))
+
+    print("🚫 All attempts failed.")
+    return {
+        "rating": 0.0,
+        "review_count": 0
+    }
+
+
+# Optional test run
 if __name__ == "__main__":
-    test_company = "Gloria Jeans Coffees DHA Phase 5"
-    data = asyncio.run(scrape_google_reviews(test_company))
-    print(data)
+    async def test():
+        result = await fetch_google_reviews("Gloria Jeans DHA Lahore")
+        print(result)
+
+    asyncio.run(test())
