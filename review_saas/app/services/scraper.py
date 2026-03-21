@@ -9,7 +9,8 @@ from typing import List, Dict, Any
 logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
-ZENROWS_API_KEY = "YOUR_ZENROWS_API_KEY"  # <--- Paste your key here
+# IMPORTANT: Replace with your actual ZenRows API Key
+ZENROWS_API_KEY = "YOUR_ZENROWS_API_KEY"  
 ZENROWS_API_URL = "https://api.zenrows.com/v1/"
 
 class ZenRowsGoogleScraper:
@@ -23,9 +24,10 @@ class ZenRowsGoogleScraper:
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             while len(all_reviews) < max_reviews:
-                # Target URL using the internal Google endpoint
+                # Target URL using the internal Google endpoint (Grey Hat method)
                 target_url = f"https://www.google.com/maps/preview/review/listentitiesreviews?authuser=0&hl=en&gl=us&pb=!1m1!1s{place_id}!2i{offset}!3i{page_size}!4m5!4b1!5b1!6b1!7b1!5e1"
                 
+                # ZenRows Managed Parameters
                 params = {
                     "apikey": self.api_key,
                     "url": target_url,
@@ -41,9 +43,11 @@ class ZenRowsGoogleScraper:
                         logger.error(f"ZenRows Error: {response.status_code}")
                         break
 
+                    # Strip Google's security prefix: )]}'
                     raw_text = response.text.lstrip(")]}'\n")
                     data = json.loads(raw_text)
 
+                    # Ensure the response has data at the expected index
                     if len(data) <= 2 or not data[2]:
                         break 
                     
@@ -52,6 +56,7 @@ class ZenRowsGoogleScraper:
                         if len(all_reviews) >= max_reviews:
                             break
                         try:
+                            # Casting data to explicit Python types ensures SQLAlchemy alignment
                             all_reviews.append({
                                 "review_id": str(r[0]),
                                 "rating": int(r[4]),
@@ -63,10 +68,12 @@ class ZenRowsGoogleScraper:
                         except (IndexError, TypeError, KeyError):
                             continue
 
+                    # Break if no more reviews are returned from Google
                     if len(batch) < page_size:
                         break
 
                     offset += page_size
+                    # Short delay to keep requests looking natural
                     await asyncio.sleep(0.2)
 
                 except Exception as e:
@@ -76,11 +83,11 @@ class ZenRowsGoogleScraper:
         return all_reviews
 
 # --- PROJECT ALIGNMENT BRIDGE ---
-# Updated 'data_id' to 'place_id' to match your reviews.py exactly
+# This matches your routes/reviews.py call: fetch_reviews(place_id=target_id, limit=300)
 async def fetch_reviews(place_id: str, limit: int = 1000) -> List[Dict[str, Any]]:
     """
-    Entry point that matches your routes/reviews.py call:
-    fetch_reviews(place_id=target_id, limit=300)
+    Entry point that aligns perfectly with your existing route logic.
+    Requires ZERO changes to other project files.
     """
     scraper = ZenRowsGoogleScraper()
     return await scraper.get_reviews(place_id=place_id, max_reviews=limit)
