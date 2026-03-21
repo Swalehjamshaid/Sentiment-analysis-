@@ -10,10 +10,10 @@ greenlet
 # --- SCRAPING & BROWSER (The "Super Power" Suite) ---
 playwright==1.49.0
 playwright-stealth==1.0.6
-undetected-playwright==0.1.2          # New: strongest stealth & anti-detection
+undetected-playwright==0.3.0                 # Correct & latest version
 pytest-playwright==0.5.0
-fake-useragent==1.5.1                 # New: realistic user-agent rotation
-tenacity==9.0.0                       # New: powerful retry logic
+fake-useragent==1.5.1                        # Realistic UA rotation
+tenacity==9.0.0                              # Automatic retries
 setuptools==70.0.0
 
 # --- LANGUAGE & SENTIMENT ANALYSIS ---
