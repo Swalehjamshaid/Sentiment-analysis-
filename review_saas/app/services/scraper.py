@@ -1,3 +1,5 @@
+# app/services/scraper.py
+
 import asyncio
 import random
 import logging
@@ -10,7 +12,7 @@ from selectolax.parser import HTMLParser
 from fake_useragent import UserAgent
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-# Fallback to standard logging since loguru is missing in your env
+# Use standard logging to avoid ModuleNotFound errors on Railway
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("scraper")
 
@@ -43,10 +45,10 @@ class GoogleReviewScraper:
         return reviews
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-    async def run(self, company_name: str, max_reviews: int = 10) -> List[Dict[str, Any]]:
+    async def run(self, target_id: str, limit: int = 10) -> List[Dict[str, Any]]:
         async with async_playwright() as p:
             try:
-                # ✅ FIX: Headless set correctly for Playwright 1.49.0
+                # Correct Headless Launch for Railway
                 browser = await p.chromium.launch(
                     headless=True,
                     args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
@@ -56,29 +58,34 @@ class GoogleReviewScraper:
                 page = await context.new_page()
                 await stealth_async(page)
                 
-                logger.info(f"🚀 Starting Playwright scraper for: {company_name}")
+                logger.info(f"🚀 Starting scrape for target: {target_id}")
                 
-                search_query = company_name.replace(" ", "+")
-                url = f"https://www.google.com/maps/search/{search_query}"
+                # If target_id is a place_id, we use the Google Maps CID or search query
+                url = f"https://www.google.com/maps/search/?api=1&query=google&query_place_id={target_id}"
                 
                 await page.goto(url, wait_until="networkidle")
                 
-                # Simple scroll to trigger content load
-                await page.mouse.wheel(0, 2000)
+                # Small wait for layout
                 await asyncio.sleep(2)
+                
+                # Scroll a few times to get closer to the requested limit
+                scroll_count = min(limit // 10, 5) # Cap scrolls for safety
+                for _ in range(scroll_count):
+                    await page.mouse.wheel(0, 3000)
+                    await asyncio.sleep(1.5)
 
                 content = await page.content()
                 results = self._parse_reviews(content)
                 
                 await browser.close()
-                logger.info(f"✅ Mission Success: {len(results)} reviews delivered.")
-                return results[:max_reviews]
+                logger.info(f"✅ Success: Extracted {len(results)} reviews.")
+                return results[:limit]
 
             except Exception as e:
-                logger.error(f"❌ Ghost Protocol Failure: {str(e)}")
+                logger.error(f"❌ Scraper Failure: {str(e)}")
                 return []
 
-# ✅ This matches the import in your app/routes/reviews.py
-async def fetch_reviews(location: str):
+# ✅ UPDATED: Function signature now matches what app/routes/reviews.py expects
+async def fetch_reviews(place_id: str, limit: int = 10):
     scraper = GoogleReviewScraper()
-    return await scraper.run(location)
+    return await scraper.run(target_id=place_id, limit=limit)
