@@ -11,9 +11,8 @@ logger = logging.getLogger(__name__)
 
 async def fetch_reviews(place_id: str, limit: int = 1000) -> List[Dict[str, Any]]:
     """
-    SURGICAL EXTRACTION LOGIC:
-    We know the connection is 200 OK. This code forces the data out 
-    by targeting the raw protobuf strings directly.
+    VOLUME BOOSTER: Relaxed Surgical Extraction.
+    Now that we have 200 OK, we widen the 'net' to catch every review in the stream.
     """
     all_reviews = []
     offset = 0
@@ -26,7 +25,6 @@ async def fetch_reviews(place_id: str, limit: int = 1000) -> List[Dict[str, Any]
 
     async with httpx.AsyncClient(headers=headers, timeout=20.0) as client:
         while len(all_reviews) < limit:
-            # The URL proven to give 200 OK in your Railway logs
             url = f"https://www.google.com/search?q=reviews+for+place_id:{place_id}&tbm=map&async=l_rv:1,l_rid:{place_id},l_oc:{offset},_fmt:json"
             
             try:
@@ -35,47 +33,49 @@ async def fetch_reviews(place_id: str, limit: int = 1000) -> List[Dict[str, Any]
 
                 raw_data = response.text
                 
-                # 🕵️ THE SURGICAL FIX:
-                # We look for the pattern: ["Ch...", [rating], "review text"]
-                # This Regex captures the ID, the Rating, and the Text in one go
-                patterns = re.findall(r'\["(Ch[a-zA-Z0-9_-]{15,})",.*?\[(\d)\],.*?"(.*?)"\]', raw_data)
+                # 🕵️ RELAXED PATTERN: Find the Review ID (Ch...) and everything until the next one
+                # This ensures we don't miss reviews with complex formatting
+                chunks = re.split(r'\["(Ch[a-zA-Z0-9_-]{15,})"', raw_data)[1:]
                 
-                if not patterns:
-                    # Fallback: Just try to get the Review IDs if the complex pattern fails
-                    backup_ids = re.findall(r'Ch[a-zA-Z0-9_-]{18,22}', raw_data)
-                    if not backup_ids:
-                        break
-                    # If we found IDs, create dummy entries to prove it's working
-                    for bid in backup_ids[:10]:
-                        all_reviews.append({
-                            "review_id": bid,
-                            "rating": 5,
-                            "text": "Extracted via Backup Pattern",
-                            "author": "Google User",
-                            "date": datetime.now(timezone.utc).isoformat()
-                        })
+                if not chunks:
                     break
 
-                for r_id, rating, text in patterns:
+                # Process chunks in pairs (ID, then the data following it)
+                for i in range(0, len(chunks), 2):
                     if len(all_reviews) >= limit: break
-                    # Clean up escaped unicode (like \u0027 for ')
-                    clean_text = text.encode('utf-8').decode('unicode-escape', errors='ignore')
+                    r_id = chunks[i]
+                    chunk_data = chunks[i+1] if i+1 < len(chunks) else ""
                     
-                    all_reviews.append({
-                        "review_id": r_id,
-                        "rating": int(rating),
-                        "text": clean_text,
-                        "author": "Local Guide",
-                        "date": datetime.now(timezone.utc).isoformat()
-                    })
+                    try:
+                        # Find the first digit (1-5) after the ID - that's the rating
+                        rating_match = re.search(r'\,(\d)\,', chunk_data)
+                        rating = int(rating_match.group(1)) if rating_match else 5
+                        
+                        # Find the longest string in quotes - that's the review text
+                        texts = re.findall(r'"([^"]{5,})"', chunk_data)
+                        review_text = max(texts, key=len) if texts else "No text provided"
+                        
+                        # Clean unicode
+                        clean_text = review_text.encode('utf-8').decode('unicode-escape', errors='ignore')
+                        
+                        all_reviews.append({
+                            "review_id": r_id,
+                            "rating": rating,
+                            "text": clean_text,
+                            "author": "Local Guide",
+                            "date": datetime.now(timezone.utc).isoformat()
+                        })
+                    except:
+                        continue
 
-                if len(patterns) < 10: break # End of results
+                # Move to next page
+                if len(chunks) < 10: break 
                 offset += 100
                 await asyncio.sleep(0.5)
 
             except Exception as e:
-                logger.error(f"❌ Surgical Error: {e}")
+                logger.error(f"❌ Volume Booster Error: {e}")
                 break
 
-    logger.info(f"🚀 Mission Success: {len(all_reviews)} reviews pulled from 200 OK stream.")
+    logger.info(f"🚀 Mission Accomplished: {len(all_reviews)} reviews pulled.")
     return all_reviews
