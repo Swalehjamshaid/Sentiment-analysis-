@@ -1,82 +1,89 @@
 import httpx
 import json
 import logging
+import asyncio
 from datetime import datetime, timezone
 from typing import List, Dict, Any
 
-# Set up logging to track scraping status in Railway Deploy Logs
+# Standard logging so you can see progress in Railway
 logger = logging.getLogger(__name__)
 
 class FastGoogleScraper:
     def __init__(self):
-        # Mobile headers help prevent being blocked by Google
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1",
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15.0; Like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
             "Accept": "*/*",
-            "Referer": "https://www.google.com/",
+            "Host": "www.google.com",
         }
+        self.base_url = "https://www.google.com/maps/preview/review/listentitiesreviews"
 
-    async def get_reviews(self, data_id: str, limit: int = 100) -> List[Dict[str, Any]]:
-        """
-        Main logic to fetch and parse reviews from Google's internal API.
-        """
-        # Google Maps internal review endpoint
-        url = "https://www.google.com/maps/preview/review/listentitiesreviews"
-        
-        # 'pb' is the parameter string containing the data_id and result limit
-        pb = f"!1m1!1s{data_id}!2i0!3i{limit}!4m5!4b1!5b1!6b1!7b1!5e1"
-        params = {
-            "authuser": "0",
-            "hl": "en",
-            "gl": "us",
-            "pb": pb
-        }
+    async def get_reviews(self, data_id: str, max_reviews: int = 1000) -> List[Dict[str, Any]]:
+        all_reviews = []
+        offset = 0
+        page_size = 100 
 
-        reviews_list = []
+        async with httpx.AsyncClient(headers=self.headers, timeout=30.0, follow_redirects=True) as client:
+            while len(all_reviews) < max_reviews:
+                # The 'pb' parameter handles the Data ID and the Pagination offset
+                pb = f"!1m1!1s{data_id}!2i{offset}!3i{page_size}!4m5!4b1!5b1!6b1!7b1!5e1"
+                params = {
+                    "authuser": "0",
+                    "hl": "en",
+                    "gl": "us",
+                    "pb": pb
+                }
 
-        async with httpx.AsyncClient(headers=self.headers, timeout=60.0, follow_redirects=True) as client:
-            try:
-                response = await client.get(url, params=params)
-                
-                if response.status_code != 200:
-                    logger.error(f"Scraper failed with status code: {response.status_code}")
-                    return []
+                try:
+                    response = await client.get(self.base_url, params=params)
+                    
+                    if response.status_code != 200:
+                        logger.error(f"Google Error: {response.status_code} at offset {offset}")
+                        break
 
-                # Google's JSON response starts with a security prefix: )]}'
-                # We must strip this before json.loads() can work
-                raw_content = response.text.lstrip(")]}'\n")
-                data = json.loads(raw_content)
+                    # Cleaning the security prefix )]}' from Google's response
+                    raw_text = response.text.lstrip(")]}'\n")
+                    data = json.loads(raw_text)
 
-                # The reviews are usually nested in index [2] of the response array
-                if len(data) > 2 and data[2]:
-                    for r in data[2]:
+                    # reviews are located in the 3rd index [2]
+                    if len(data) <= 2 or not data[2]:
+                        break 
+                    
+                    batch = data[2]
+                    for r in batch:
+                        if len(all_reviews) >= max_reviews:
+                            break
+                        
                         try:
-                            # Extracting specific fields from the nested list structure
-                            review_item = {
+                            all_reviews.append({
                                 "review_id": r[0],
                                 "rating": r[4],
                                 "text": r[3] if r[3] else "",
-                                "author_title": r[1][4][0][4] if (len(r) > 1 and r[1]) else "Anonymous",
-                                "timestamp": r[27],
-                                "datetime_utc": datetime.fromtimestamp(r[27]/1000, tz=timezone.utc).isoformat()
-                            }
-                            reviews_list.append(review_item)
-                        except (IndexError, TypeError, KeyError):
-                            # Skip individual reviews if they are malformed
+                                "author": r[1][4][0][4] if (len(r) > 1 and r[1]) else "Anonymous",
+                                "timestamp_ms": r[27],
+                                "date": datetime.fromtimestamp(r[27]/1000, tz=timezone.utc).isoformat()
+                            })
+                        except (IndexError, TypeError):
                             continue
 
-                logger.info(f"Successfully fetched {len(reviews_list)} reviews for {data_id}")
-                return reviews_list
+                    # If the batch is smaller than requested, we've reached the end of the reviews
+                    if len(batch) < page_size:
+                        break
 
-            except Exception as e:
-                logger.error(f"Scraper encountered a critical error: {str(e)}")
-                return []
+                    offset += page_size
+                    # 0.5s delay to avoid IP blocking
+                    await asyncio.sleep(0.5)
 
-# --- THIS IS THE FUNCTION YOUR APP IS CURRENTLY MISSING ---
-# This acts as the entry point for app.routes.reviews
-async def fetch_reviews(data_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+                except Exception as e:
+                    logger.error(f"Scraper Loop Error: {str(e)}")
+                    break
+
+        return all_reviews
+
+# --- ALIGNMENT WRAPPER ---
+# This matches the 'from app.services.scraper import fetch_reviews' in your routes
+async def fetch_reviews(data_id: str, limit: int = 1000) -> List[Dict[str, Any]]:
     """
-    Called by the web routes to execute the scraping process.
+    This function bridges your existing project routes to the new fast scraper.
     """
     scraper = FastGoogleScraper()
-    return await scraper.get_reviews(data_id, limit)
+    return await scraper.get_reviews(data_id, max_reviews=limit)
