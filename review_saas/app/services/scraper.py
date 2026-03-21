@@ -1,117 +1,97 @@
-import asyncio
+# filename: app/services/scraper.py
+
+import os
 import logging
-import json
 from datetime import datetime, timezone
 from typing import List, Dict, Any
-from playwright.async_api import async_playwright
 
-# Safety import for the stealth library
-try:
-    from playwright_stealth import stealth_async
-    HAS_STEALTH = True
-except (ImportError, ModuleNotFoundError):
-    HAS_STEALTH = False
-    logging.warning("⚠️ Stealth library not found. Proceeding with standard Playwright.")
+from google.maps import Client as GoogleMapsClient
 
 logger = logging.getLogger(__name__)
 
-class PlaywrightGoogleScraper:
-    def __init__(self):
-        # Optimized flags for Railway's shared CPU environment
-        self.browser_args = [
-            "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu",
-            "--single-process" # Reduces RAM usage on Railway
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+
+# ─────────────────────────────────────────────
+# INIT GOOGLE CLIENT
+# ─────────────────────────────────────────────
+def get_client():
+    if not GOOGLE_API_KEY:
+        raise ValueError("❌ GOOGLE_API_KEY not set in environment")
+    return GoogleMapsClient(key=GOOGLE_API_KEY)
+
+
+# ─────────────────────────────────────────────
+# FETCH PLACE DETAILS (GOOGLE LIBRARY)
+# ─────────────────────────────────────────────
+def _get_place_details(place_id: str) -> Dict[str, Any]:
+    client = get_client()
+
+    response = client.place(
+        place_id=place_id,
+        fields=[
+            "name",
+            "rating",
+            "user_ratings_total",
+            "reviews"
         ]
+    )
 
-    async def get_reviews(self, place_id: str, max_reviews: int = 1000) -> List[Dict[str, Any]]:
-        all_reviews = []
-        offset = 0
-        page_size = 100 
+    if response.get("status") != "OK":
+        logger.error(f"❌ Google API error: {response}")
+        return {}
 
-        async with async_playwright() as p:
-            # 1. Launching Browser
-            browser = await p.chromium.launch(headless=True, args=self.browser_args)
-            
-            # 2. Creating a high-authority Desktop context
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                viewport={'width': 1920, 'height': 1080}
-            )
-            page = await context.new_page()
-            
-            if HAS_STEALTH:
-                await stealth_async(page)
+    return response.get("result", {})
 
-            try:
-                while len(all_reviews) < max_reviews:
-                    # UPDATED: Using the most stable internal data endpoint to avoid Status 400
-                    # Note the '!1s' prefix before the place_id which is critical for Google Protobuf
-                    target_url = f"https://www.google.com/maps/preview/review/listentitiesreviews?authuser=0&hl=en&gl=us&pb=!1m1!1s{place_id}!2i{offset}!3i{page_size}!4m5!4b1!5b1!6b1!7b1!5e1"
-                    
-                    # 3. Fetching with a longer timeout for Railway stability
-                    response = await page.goto(target_url, wait_until="load", timeout=60000)
-                    
-                    if response.status != 200:
-                        logger.error(f"❌ Google returned Status {response.status} at offset {offset}. Stopping.")
-                        break
 
-                    # 4. Extracting raw text from the browser's <body>
-                    content = await page.evaluate("() => document.body.innerText")
-                    
-                    # Google's security prefix: )]}'
-                    raw_text = content.lstrip(")]}'\n")
-                    
-                    try:
-                        data = json.loads(raw_text)
-                    except json.JSONDecodeError:
-                        logger.error("❌ Failed to parse JSON. Page layout might have shifted.")
-                        break
+# ─────────────────────────────────────────────
+# TRANSFORM DATA → YOUR FORMAT
+# ─────────────────────────────────────────────
+def _transform_reviews(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    reviews = []
 
-                    # Index [2] contains the list of review objects
-                    if len(data) <= 2 or not data[2]:
-                        logger.info(f"✅ Reached the end of reviews at offset {offset}.")
-                        break 
-                    
-                    batch = data[2]
-                    for r in batch:
-                        if len(all_reviews) >= max_reviews:
-                            break
-                        try:
-                            # Converting to explicit types ensures SQLAlchemy/DB alignment
-                            all_reviews.append({
-                                "review_id": str(r[0]),
-                                "rating": int(r[4]),
-                                "text": str(r[3]) if r[3] else "",
-                                "author": str(r[1][4][0][4]) if (len(r) > 1 and r[1]) else "Anonymous",
-                                "timestamp_ms": r[27],
-                                "date": datetime.fromtimestamp(r[27]/1000, tz=timezone.utc).isoformat()
-                            })
-                        except (IndexError, TypeError, KeyError):
-                            continue
+    for r in data.get("reviews", []):
+        try:
+            reviews.append({
+                "review_id": str(r.get("time")),  # unique enough
+                "rating": int(r.get("rating", 0)),
+                "text": r.get("text", ""),
+                "author_name": r.get("author_name", "Anonymous"),
+                "google_review_time": datetime.fromtimestamp(
+                    r.get("time", 0),
+                    tz=timezone.utc
+                ).isoformat()
+            })
+        except Exception:
+            continue
 
-                    if len(batch) < page_size:
-                        break
+    return reviews
 
-                    offset += page_size
-                    # Stay under the radar with a 1.5s human-like pause
-                    await asyncio.sleep(1.5)
-                    
-            except Exception as e:
-                logger.error(f"❌ Critical Scraper Failure: {str(e)}")
-            finally:
-                await browser.close()
 
-        return all_reviews
-
-# --- PROJECT ALIGNMENT BRIDGE ---
-# This matches your routes/reviews.py call: fetch_reviews(place_id=target_id, limit=300)
-async def fetch_reviews(place_id: str, limit: int = 1000) -> List[Dict[str, Any]]:
+# ─────────────────────────────────────────────
+# MAIN FUNCTION (YOUR PROJECT ENTRY POINT)
+# ─────────────────────────────────────────────
+async def fetch_reviews(place_id: str, limit: int = 100) -> List[Dict[str, Any]]:
     """
-    Standard entry point. Aligns the external logic with the Playwright Scraper.
+    ✔ Fully aligned with your routes/reviews.py
+    ✔ Uses official Google Maps Python library
+    ✔ No Playwright / No scraping
     """
-    scraper = PlaywrightGoogleScraper()
-    return await scraper.get_reviews(place_id=place_id, max_reviews=limit)
+
+    logger.info(f"🚀 Fetching Google reviews via library for place_id: {place_id}")
+
+    try:
+        data = _get_place_details(place_id)
+
+        if not data:
+            return []
+
+        reviews = _transform_reviews(data)
+
+        logger.info(f"✅ Retrieved {len(reviews)} reviews")
+
+        return reviews[:limit]
+
+    except Exception as e:
+        logger.error(f"❌ Fetch failed: {str(e)}", exc_info=True)
+        return []
