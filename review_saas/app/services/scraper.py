@@ -1,11 +1,12 @@
 # filename: scraper.py
 """
-Google Maps Reviews Scraper (Regional Stealth V4.1)
+Google Maps Reviews Scraper (Regional Stealth V4.2)
 
-- Public API (unchanged): async def fetch_reviews(place_id: str, limit: int = 1000) -> List[Dict[str, Any]]
-- Primary path: Google Search `tbm=map&async=l_rv` (handles line-delimited JSON frames)
+- Public API unchanged:
+    async def fetch_reviews(place_id: str, limit: int = 1000) -> List[Dict[str, Any]]
+- Primary path: Google Search `tbm=map&async=l_rv` with **line-delimited** JSON parsing
 - Fallback: Maps preview `/maps/preview/review/listentitiesreviews`
-- Resilient parsing, retries with backoff, domain fallbacks (.com.pk → .com → .com.hk), mobile UA
+- Resilient parsing, retries w/ backoff, domain fallbacks (.com.pk → .com → .com.hk), mobile UA
 """
 
 from __future__ import annotations
@@ -147,7 +148,7 @@ def _walk_and_collect(node: Any, out: List[Dict[str, Any]], limit: int) -> None:
 
 def _extract_search_candidates(body_text: str) -> List[Any]:
     """
-    Google 'tbm=map&async=l_rv' responses are often LINE-DELIMITED JSON.
+    Google 'tbm=map&async=l_rv' responses are often **line-delimited** JSON.
     Each non-empty line may be:
       - ["wrb.fr", null, "<JSON STRING>"]  -> parse inner string as JSON
       - a plain JSON object/array
@@ -183,7 +184,6 @@ def _extract_search_candidates(body_text: str) -> List[Any]:
                 inner = json.loads(obj[2])
                 candidates.append(inner)
             except Exception:
-                # If inner fails, keep outer as last resort
                 candidates.append(obj)
         else:
             candidates.append(obj)
