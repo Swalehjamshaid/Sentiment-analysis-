@@ -1,5 +1,3 @@
-# app/services/scraper.py
-
 import asyncio
 import random
 import logging
@@ -12,7 +10,7 @@ from selectolax.parser import HTMLParser
 from fake_useragent import UserAgent
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-# Use standard logging to avoid ModuleNotFound errors on Railway
+# Standard logging for Railway visibility
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("scraper")
 
@@ -48,30 +46,41 @@ class GoogleReviewScraper:
     async def run(self, target_id: str, limit: int = 10) -> List[Dict[str, Any]]:
         async with async_playwright() as p:
             try:
-                # Correct Headless Launch for Railway
+                # Optimized Launch for Railway's Linux environment
                 browser = await p.chromium.launch(
                     headless=True,
-                    args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+                    args=[
+                        "--no-sandbox", 
+                        "--disable-setuid-sandbox", 
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu",
+                        "--no-zygote",
+                        "--single-process"
+                    ]
                 )
                 
-                context = await browser.new_context(user_agent=self.ua.random)
+                context = await browser.new_context(
+                    user_agent=self.ua.random,
+                    viewport={'width': 1280, 'height': 800}
+                )
                 page = await context.new_page()
                 await stealth_async(page)
                 
                 logger.info(f"🚀 Starting scrape for target: {target_id}")
                 
-                # If target_id is a place_id, we use the Google Maps CID or search query
-                url = f"https://www.google.com/maps/search/?api=1&query=google&query_place_id={target_id}"
+                # Using the standard Google Maps Review URL format
+                # Note: target_id should be the CID or PlaceID
+                url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={target_id}"
                 
-                await page.goto(url, wait_until="networkidle")
+                await page.goto(url, wait_until="networkidle", timeout=60000)
                 
-                # Small wait for layout
-                await asyncio.sleep(2)
+                # Wait for the review pane to load
+                await asyncio.sleep(3)
                 
-                # Scroll a few times to get closer to the requested limit
-                scroll_count = min(limit // 10, 5) # Cap scrolls for safety
-                for _ in range(scroll_count):
-                    await page.mouse.wheel(0, 3000)
+                # Scroll logic to load more reviews
+                scroll_count = min(limit // 5, 10) 
+                for i in range(scroll_count):
+                    await page.mouse.wheel(0, 2000)
                     await asyncio.sleep(1.5)
 
                 content = await page.content()
@@ -85,7 +94,6 @@ class GoogleReviewScraper:
                 logger.error(f"❌ Scraper Failure: {str(e)}")
                 return []
 
-# ✅ UPDATED: Function signature now matches what app/routes/reviews.py expects
 async def fetch_reviews(place_id: str, limit: int = 10):
     scraper = GoogleReviewScraper()
     return await scraper.run(target_id=place_id, limit=limit)
