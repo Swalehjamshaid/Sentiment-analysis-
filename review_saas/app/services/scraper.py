@@ -1,3 +1,5 @@
+# app/services/scraper.py
+
 import asyncio
 import random
 import logging
@@ -10,13 +12,14 @@ from selectolax.parser import HTMLParser
 from fake_useragent import UserAgent
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-# Standard logging for Railway visibility
+# Setup logging for Railway output
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("scraper")
 
 class GoogleReviewScraper:
     def __init__(self):
         self.ua = UserAgent()
+        # Selectors for Google Maps review elements
         self.selectors = {
             "container": ".jftiEf",
             "text": ".wi7Cbe",
@@ -46,7 +49,7 @@ class GoogleReviewScraper:
     async def run(self, target_id: str, limit: int = 10) -> List[Dict[str, Any]]:
         async with async_playwright() as p:
             try:
-                # Optimized Launch for Railway's Linux environment
+                # Launching with specific arguments for Linux/Railway containers
                 browser = await p.chromium.launch(
                     headless=True,
                     args=[
@@ -66,34 +69,32 @@ class GoogleReviewScraper:
                 page = await context.new_page()
                 await stealth_async(page)
                 
-                logger.info(f"🚀 Starting scrape for target: {target_id}")
+                logger.info(f"🚀 Scraper started for ID: {target_id}")
                 
-                # Using the standard Google Maps Review URL format
-                # Note: target_id should be the CID or PlaceID
-                url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={target_id}"
+                # Standard internal Google Review URL
+                url = f"https://www.google.com/maps/reviews/data=!4m8!14m7!1m6!1s{target_id}!2s1!3m1!1s1!4m1!1i10"
                 
                 await page.goto(url, wait_until="networkidle", timeout=60000)
+                await asyncio.sleep(2)
                 
-                # Wait for the review pane to load
-                await asyncio.sleep(3)
-                
-                # Scroll logic to load more reviews
-                scroll_count = min(limit // 5, 10) 
-                for i in range(scroll_count):
+                # Dynamic scrolling based on requested limit
+                scrolls = min(limit // 5, 8) 
+                for _ in range(scrolls):
                     await page.mouse.wheel(0, 2000)
-                    await asyncio.sleep(1.5)
+                    await asyncio.sleep(1)
 
                 content = await page.content()
                 results = self._parse_reviews(content)
                 
                 await browser.close()
-                logger.info(f"✅ Success: Extracted {len(results)} reviews.")
+                logger.info(f"✅ Extracted {len(results)} reviews.")
                 return results[:limit]
 
             except Exception as e:
-                logger.error(f"❌ Scraper Failure: {str(e)}")
+                logger.error(f"❌ Scraper Error: {str(e)}")
                 return []
 
+# Entry point function used by the API routes
 async def fetch_reviews(place_id: str, limit: int = 10):
     scraper = GoogleReviewScraper()
     return await scraper.run(target_id=place_id, limit=limit)
