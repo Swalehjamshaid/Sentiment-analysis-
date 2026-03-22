@@ -177,8 +177,7 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login")
 
-# --------------------------- ROUTERS (FIXED) ---------------------------
-
+# --------------------------- ROUTERS ---------------------------
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
@@ -188,7 +187,10 @@ app.include_router(google_check.router, prefix="/api", tags=["google_check"])
 
 logger.info("🔗 All routers mounted correctly")
 
-# --------------------------- Run ---------------------------
+# --------------------------- Run (Updated for Railway) ---------------------------
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8080, reload=True)
+    # Railway passes the port via an environment variable
+    port = int(os.environ.get("PORT", 8080))
+    # We use 'app.main:app' because the file is inside the 'app' directory
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
