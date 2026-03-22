@@ -1,96 +1,148 @@
-import httpx
 import logging
-import re
-import json
+import asyncio
 from datetime import datetime, timezone
 from typing import List, Dict, Any
+
 from tenacity import retry, stop_after_attempt, wait_exponential
+from playwright.async_api import async_playwright
 
 logger = logging.getLogger("scraper")
 
+
 class GoogleMobileScraper:
     def __init__(self):
-        # High-authority Mobile Headers (Pixel 8 Pro)
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.105 Mobile Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Sec-CH-UA-Mobile": "?1",
-            "Sec-CH-UA-Platform": '"Android"',
-            "X-Requested-With": "com.android.chrome",
-            "Referer": "https://www.google.com/"
-        }
+        self.max_scroll = 30   # increase for more reviews
+        self.scroll_pause = 2
 
     def _clean_text(self, text: str) -> str:
-        """Removes HTML tags and cleans up whitespace/entities."""
-        if not text: return ""
-        text = re.sub(r'<[^<]+?>', '', text)
-        text = text.replace('&amp;', '&').replace('&quot;', '"').replace('&#39;', "'")
+        if not text:
+            return ""
         return " ".join(text.split()).strip()
+
+    async def _auto_scroll(self, page):
+        """Smart scrolling with stop detection"""
+        last_height = 0
+
+        for i in range(self.max_scroll):
+            await page.mouse.wheel(0, 5000)
+            await asyncio.sleep(self.scroll_pause)
+
+            new_height = await page.evaluate("document.body.scrollHeight")
+
+            if new_height == last_height:
+                logger.info("⛔ No more new reviews loaded (scroll stop)")
+                break
+
+            last_height = new_height
+            logger.info(f"🔄 Scrolling... ({i+1})")
 
     @retry(
         stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=2, min=4, max=10)
+        wait=wait_exponential(multiplier=2, min=3, max=10)
     )
-    async def run(self, place_id: str, limit: int = 100) -> List[Dict[str, Any]]:
-        # Using the Search 'Review' cluster URL - more stable for Place IDs
-        url = f"https://www.google.com/search?q=reviews+for+place+id+{place_id}&num=100&hl=en&gl=pk"
-        
+    async def run(self, place_id: str, limit: int = 200) -> List[Dict[str, Any]]:
         all_reviews = []
-        
-        async with httpx.AsyncClient(headers=self.headers, timeout=30.0, follow_redirects=True) as client:
-            logger.info(f"📱 MUS-Logic: Requesting mobile data for {place_id}")
-            response = await client.get(url)
-            
-            if response.status_code != 200:
-                logger.error(f"❌ Google Blocked Request: {response.status_code}")
-                return []
 
-            html = response.text
+        logger.info(f"🚀 Enterprise Scraper Started: {place_id}")
 
-            # 1. PRIMARY EXTRACTION: Data-Review-ID Blocks
-            # This captures the ID, Rating, and Review Body in one surgical sweep
-            blocks = re.findall(
-                r'data-review-id="(Ch[a-zA-Z0-9_-]{16,})".*?aria-label="([\d]).*?stars".*?<(?:span|div)[^>]*>(.*?)</(?:span|div)>', 
-                html, 
-                re.DOTALL
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
             )
 
-            for r_id, rating, raw_text in blocks:
-                if len(all_reviews) >= limit: break
-                
-                clean_body = self._clean_text(raw_text)
-                
-                # Filter out 'system' text like "More", "Translate", or empty snippets
-                if len(clean_body) > 10 and clean_body.lower() != "more":
-                    all_reviews.append({
-                        "review_id": r_id,
-                        "rating": int(rating),
-                        "text": clean_body,
-                        "author": "Google User",
-                        "extracted_at": datetime.now(timezone.utc).isoformat()
-                    })
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro)",
+                locale="en-US"
+            )
 
-            # 2. SECONDARY EXTRACTION: JSON/Script Snippets
-            # Sometimes Google hides data in a JSON-like string at the bottom
-            if not all_reviews:
-                logger.warning("⚠️ Primary regex failed. Attempting JSON-Snippet extraction.")
-                # This looks for text blocks between 40-500 chars that follow a rating mention
-                snippets = re.findall(r'aria-label="[\d]\.[\d] stars".*?<span>([^<]{40,500})</span>', html, re.DOTALL)
-                for i, snip in enumerate(snippets):
-                    if len(all_reviews) >= limit: break
-                    all_reviews.append({
-                        "review_id": f"snip_{i}_{datetime.now().timestamp()}",
-                        "rating": 5,
-                        "text": self._clean_text(snip),
-                        "author": "Verified Customer",
-                        "extracted_at": datetime.now(timezone.utc).isoformat()
-                    })
+            page = await context.new_page()
 
-        logger.info(f"✅ Success: Harvested {len(all_reviews)} reviews.")
+            url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+            await page.goto(url, timeout=60000)
+
+            # wait for full load
+            await page.wait_for_timeout(5000)
+
+            # ✅ Click reviews button
+            try:
+                await page.wait_for_selector('button[jsaction*="pane.reviewChart.moreReviews"]', timeout=15000)
+                await page.click('button[jsaction*="pane.reviewChart.moreReviews"]')
+                logger.info("✅ Reviews panel opened")
+            except:
+                logger.error("❌ Could not open reviews panel")
+                await browser.close()
+                return []
+
+            await page.wait_for_timeout(5000)
+
+            # ✅ Sort by newest (optional but powerful)
+            try:
+                await page.click('button[aria-label*="Sort"]')
+                await page.wait_for_timeout(1000)
+                await page.click('div[role="menuitemradio"] >> nth=1')
+                logger.info("✅ Sorted by newest")
+            except:
+                logger.warning("⚠️ Sorting not available")
+
+            # ✅ Scroll reviews
+            await self._auto_scroll(page)
+
+            # ✅ Extract reviews
+            review_cards = await page.query_selector_all('div[data-review-id]')
+
+            for card in review_cards:
+                if len(all_reviews) >= limit:
+                    break
+
+                try:
+                    review_id = await card.get_attribute("data-review-id")
+
+                    # rating
+                    rating_el = await card.query_selector('span[aria-label*="stars"]')
+                    rating = 5
+                    if rating_el:
+                        rating_text = await rating_el.get_attribute("aria-label")
+                        rating = int(rating_text[0])
+
+                    # text (expanded + fallback)
+                    text_el = await card.query_selector('span[jsname="fbQN7e"]')
+                    if not text_el:
+                        text_el = await card.query_selector('span[jsname="bN97Pc"]')
+
+                    text = await text_el.inner_text() if text_el else ""
+
+                    # author
+                    author_el = await card.query_selector('.d4r55')
+                    author = await author_el.inner_text() if author_el else "Google User"
+
+                    # time
+                    time_el = await card.query_selector('span.rsqaWe')
+                    review_time = await time_el.inner_text() if time_el else ""
+
+                    clean_body = self._clean_text(text)
+
+                    if len(clean_body) > 5:
+                        all_reviews.append({
+                            "review_id": review_id,
+                            "rating": rating,
+                            "text": clean_body,
+                            "author": author,
+                            "review_time": review_time,
+                            "extracted_at": datetime.now(timezone.utc).isoformat()
+                        })
+
+                except Exception as e:
+                    logger.warning(f"⚠️ Parsing error: {e}")
+                    continue
+
+            await browser.close()
+
+        logger.info(f"✅ DONE: {len(all_reviews)} reviews scraped")
         return all_reviews
 
-# Alignment function for your Route
-async def fetch_reviews(place_id: str, limit: int = 100):
+
+# 🔗 FastAPI integration
+async def fetch_reviews(place_id: str, limit: int = 200):
     scraper = GoogleMobileScraper()
     return await scraper.run(place_id=place_id, limit=limit)
