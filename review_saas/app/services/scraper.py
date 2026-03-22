@@ -9,16 +9,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("scraper")
 
 
-async def fetch_reviews(place_id: str, limit: int = 100) -> Dict[str, Any]:
+async def fetch_reviews(place_id: str, limit: int = 100) -> List[Dict[str, Any]]:
     """
-    MOBILE-USER-SIM (MUS) LOGIC:
-    Now extracts:
-    ✅ Individual reviews
-    ✅ Overall rating
-    ✅ Total review count
+    MOBILE-USER-SIM (MUS) LOGIC
+    ✅ Keeps SAME return structure (list)
+    ✅ Adds overall rating + total reviews inside each item
     """
 
     all_reviews = []
+
     overall_rating = None
     total_reviews = None
 
@@ -42,29 +41,27 @@ async def fetch_reviews(place_id: str, limit: int = 100) -> Dict[str, Any]:
 
             if response.status_code != 200:
                 logger.error(f"❌ Blocked: {response.status_code}")
-                return {"reviews": [], "rating": None, "total_reviews": None}
+                return []
 
             content = response.text
 
-            # =========================================
-            # ⭐ EXTRACT OVERALL RATING (MAIN TARGET)
-            # =========================================
+            # ================================
+            # ⭐ OVERALL RATING
+            # ================================
             rating_match = re.search(r'aria-label="Rated ([0-9.]+) out of 5"', content)
             if rating_match:
                 overall_rating = float(rating_match.group(1))
-                logger.info(f"⭐ Overall Rating: {overall_rating}")
 
-            # =========================================
-            # 📊 EXTRACT TOTAL REVIEW COUNT
-            # =========================================
+            # ================================
+            # 📊 TOTAL REVIEWS
+            # ================================
             review_count_match = re.search(r'([\d,]+)\s+reviews', content)
             if review_count_match:
                 total_reviews = int(review_count_match.group(1).replace(",", ""))
-                logger.info(f"📊 Total Reviews: {total_reviews}")
 
-            # =========================================
-            # 🕵️ INDIVIDUAL REVIEWS EXTRACTION
-            # =========================================
+            # ================================
+            # 🕵️ INDIVIDUAL REVIEWS
+            # ================================
             review_blocks = re.findall(
                 r'data-review-id="(Ch[a-zA-Z0-9_-]{16,})".*?aria-label="([\d]).*?stars.*?<span.*?>(.*?)</span>',
                 content,
@@ -82,12 +79,16 @@ async def fetch_reviews(place_id: str, limit: int = 100) -> Dict[str, Any]:
                     "rating": int(rating),
                     "text": clean_text or "Verified User Review",
                     "author": "Google Customer",
-                    "extracted_at": datetime.now(timezone.utc).isoformat()
+                    "extracted_at": datetime.now(timezone.utc).isoformat(),
+
+                    # 🔥 NEW FIELDS (SAFE ADDITION)
+                    "overall_rating": overall_rating,
+                    "total_reviews": total_reviews
                 })
 
-            # =========================================
-            # ⚠️ FALLBACK MODE
-            # =========================================
+            # ================================
+            # ⚠️ FALLBACK
+            # ================================
             if not all_reviews:
                 logger.warning("⚠️ Primary parsing failed → fallback mode")
 
@@ -99,7 +100,11 @@ async def fetch_reviews(place_id: str, limit: int = 100) -> Dict[str, Any]:
                         "rating": 5,
                         "text": "Fallback extracted review",
                         "author": "Local Reviewer",
-                        "extracted_at": datetime.now(timezone.utc).isoformat()
+                        "extracted_at": datetime.now(timezone.utc).isoformat(),
+
+                        # 🔥 KEEP STRUCTURE SAME
+                        "overall_rating": overall_rating,
+                        "total_reviews": total_reviews
                     })
 
         except Exception as e:
@@ -107,8 +112,4 @@ async def fetch_reviews(place_id: str, limit: int = 100) -> Dict[str, Any]:
 
     logger.info(f"🚀 Done: {len(all_reviews)} reviews fetched")
 
-    return {
-        "rating": overall_rating,
-        "total_reviews": total_reviews,
-        "reviews": all_reviews
-    }
+    return all_reviews
