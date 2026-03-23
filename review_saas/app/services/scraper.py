@@ -1,237 +1,275 @@
-import asyncio
+import httpx
 import logging
-import random
 import re
+import random
+import asyncio
 from datetime import datetime, timezone
 from typing import List, Dict, Any
 
-from playwright.async_api import async_playwright
-from playwright_stealth import stealth_async
-from fake_useragent import UserAgent
 from tenacity import retry, stop_after_attempt, wait_exponential
-import googlemaps
+from playwright.async_api import async_playwright
 
 logger = logging.getLogger("scraper")
 
-# ────────────────────────────────────────────────
-#  SETTINGS  –  CHANGE THESE
-# ────────────────────────────────────────────────
-PROXY_LIST = [
-    # "http://user:pass@residential-ip:port",
-    # "http://user:pass@residential-ip:port",
-    # add real residential proxies !!!
+# =====================================================
+# 🌍 CONFIG
+# =====================================================
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 Chrome/122 Mobile",
+    "Mozilla/5.0 (Linux; Android 13; Samsung Galaxy S23) AppleWebKit/537.36 Chrome/120 Mobile",
+    "Mozilla/5.0 (Linux; Android 12; Pixel 7) AppleWebKit/537.36 Chrome/118 Mobile",
 ]
 
-GOOGLE_API_KEY = "AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXX"  # ← real key or ""
+PROXIES = [
+    # "http://user:pass@host:port"
+]
 
-MAX_ATTEMPTS = 6
-TIMEOUT = 75000
+# =====================================================
+# 🧩 HELPERS
+# =====================================================
 
-# ────────────────────────────────────────────────
-#  SCRAPER CLASS
-# ────────────────────────────────────────────────
-class HighSuccessScraper:
-    def __init__(self):
-        self.browser = None
-        self.playwright = None
-        self.ua = UserAgent()
+def get_headers():
+    return {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-PK,en-US;q=0.9",
+        "Sec-CH-UA-Mobile": "?1",
+        "Sec-CH-UA-Platform": '"Android"',
+        "Referer": "https://www.google.com/",
+        "X-Requested-With": "com.android.chrome"
+    }
 
-    async def start_browser(self):
-        if self.browser:
-            return
 
-        self.playwright = await async_playwright().start()
-        proxy = random.choice(PROXY_LIST) if PROXY_LIST else None
+def get_proxy():
+    return random.choice(PROXIES) if PROXIES else None
 
-        self.browser = await self.playwright.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-software-rasterizer",
-                "--disable-blink-features=AutomationControlled",
-            ],
-            proxy={"server": proxy} if proxy else None
-        )
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=3, max=15))
-    async def _create_page(self):
-        await self.start_browser()
+def clean_text(text: str) -> str:
+    if not text:
+        return ""
+    text = re.sub(r'<[^<]+?>', '', text)
+    return " ".join(text.split())
 
-        context = await self.browser.new_context(
-            user_agent=self.ua.random,
-            viewport={"width": 1366, "height": 768},
-            locale="en-US",
-            timezone_id="Asia/Karachi",
-            bypass_csp=True,
-            java_script_enabled=True,
+
+# =====================================================
+# 🔁 SAFE HTTP REQUEST
+# =====================================================
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2))
+async def safe_request(url, headers, proxy):
+    async with httpx.AsyncClient(
+        headers=headers,
+        timeout=30.0,
+        proxies=proxy,
+        follow_redirects=True
+    ) as client:
+        return await client.get(url)
+
+
+# =====================================================
+# 🔍 EXTRACTION STRATEGIES
+# =====================================================
+
+def extract_strategy_1(html):
+    """Primary: data-review-id"""
+    return re.findall(
+        r'data-review-id="(Ch[a-zA-Z0-9_-]{16,})".*?aria-label="([\d]).*?stars".*?<span>(.*?)</span>',
+        html,
+        re.DOTALL
+    )
+
+
+def extract_strategy_2(html):
+    """Secondary: aria stars pattern"""
+    return re.findall(
+        r'aria-label="([\d]\.[\d]) stars".*?<span>(.*?)</span>',
+        html,
+        re.DOTALL
+    )
+
+
+def extract_strategy_3(html):
+    """Short text snippets"""
+    return re.findall(
+        r'<span>([^<]{40,300})</span>',
+        html
+    )
+
+
+def extract_strategy_4(html):
+    """Review IDs fallback"""
+    return re.findall(r'Ch[a-zA-Z0-9_-]{18,22}', html)
+
+
+def extract_strategy_5(html):
+    """Loose star detection"""
+    return re.findall(
+        r'([\d]) star.*?<span>(.*?)</span>',
+        html,
+        re.DOTALL
+    )
+
+
+# =====================================================
+# 🌐 HTTP SCRAPER (MULTI-STRATEGY)
+# =====================================================
+
+async def http_scrape(place_id, limit):
+    logger.info("🌐 HTTP scraping started")
+
+    queries = [
+        f"https://www.google.com/search?q=reviews+for+{place_id}&hl=en&gl=pk",
+        f"https://www.google.com/search?q={place_id}+reviews",
+        f"https://www.google.com/search?q={place_id}+rating",
+    ]
+
+    all_reviews = []
+
+    for url in queries:
+        try:
+            headers = get_headers()
+            proxy = get_proxy()
+
+            res = await safe_request(url, headers, proxy)
+
+            if res.status_code != 200:
+                continue
+
+            html = res.text
+
+            # Apply all strategies
+            strategies = [
+                ("S1", extract_strategy_1(html)),
+                ("S2", extract_strategy_2(html)),
+                ("S3", extract_strategy_3(html)),
+                ("S4", extract_strategy_4(html)),
+                ("S5", extract_strategy_5(html)),
+            ]
+
+            for label, matches in strategies:
+                for i, item in enumerate(matches):
+                    if len(all_reviews) >= limit:
+                        break
+
+                    if isinstance(item, tuple):
+                        rating = int(item[0][0]) if item[0][0].isdigit() else 5
+                        text = item[1] if len(item) > 1 else str(item)
+                    else:
+                        rating = 5
+                        text = item
+
+                    text = clean_text(text)
+
+                    if len(text) > 10:
+                        all_reviews.append({
+                            "review_id": f"{label}_{i}_{random.randint(1000,9999)}",
+                            "rating": rating,
+                            "text": text,
+                            "method": f"HTTP_{label}",
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        })
+
+            if all_reviews:
+                logger.info(f"✅ HTTP Success: {len(all_reviews)}")
+                return all_reviews
+
+        except Exception as e:
+            logger.warning(f"⚠️ HTTP error: {e}")
+
+    return []
+
+
+# =====================================================
+# 🖥️ PLAYWRIGHT FALLBACK
+# =====================================================
+
+async def playwright_scrape(place_id, limit):
+    logger.info("🖥️ Playwright fallback started")
+
+    results = []
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+
+        context = await browser.new_context(
+            user_agent=random.choice(USER_AGENTS)
         )
 
         page = await context.new_page()
-        await stealth_async(page)
 
-        # Extra stealth
-        await page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            window.chrome = { runtime: {} };
-            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-            Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
-        """)
+        await page.goto(f"https://www.google.com/maps/place/?q=place_id:{place_id}")
+        await asyncio.sleep(5)
 
-        return page, context
+        # Open reviews
+        selectors = [
+            'button[jsaction*="pane.reviewChart.moreReviews"]',
+            'button:has-text("reviews")'
+        ]
 
-    async def scrape(self, place_id: str, limit: int = 100) -> List[Dict[str, Any]]:
-        page = None
-        context = None
-        results = []
-
-        for attempt in range(1, MAX_ATTEMPTS + 1):
-            logger.info(f"Attempt {attempt}/{MAX_ATTEMPTS} – place_id {place_id}")
-
+        for sel in selectors:
             try:
-                page, context = await self._create_page()
+                await page.click(sel)
+                break
+            except:
+                continue
 
-                # Different URLs to try
-                urls = [
-                    f"https://www.google.com/maps/place/_/data=!4m2!3m1!1s{place_id}",
-                    f"https://www.google.com/maps/contrib/{place_id}/reviews",
-                    f"https://www.google.com/maps/search/?api=1&query=place_id:{place_id}",
-                ]
+        await asyncio.sleep(5)
 
-                url = random.choice(urls)
-                await page.goto(url, wait_until="commit", timeout=TIMEOUT)
-                await asyncio.sleep(random.uniform(2.2, 4.8))
+        # Scroll
+        for _ in range(20):
+            await page.mouse.wheel(0, 4000)
+            await asyncio.sleep(1)
 
-                # Consent handling
-                for btn_text in ["Accept all", "Accept", "Agree", "OK", "قبول"]:
-                    try:
-                        await page.get_by_role("button", name=re.compile(btn_text, re.I)).click(timeout=8000)
-                        break
-                    except:
-                        pass
+        cards = await page.query_selector_all('div[data-review-id]')
 
-                # Try to open Reviews tab – many selectors
-                review_buttons = [
-                    '[aria-label*="Reviews"]',
-                    'button:has-text("Reviews")',
-                    'button:has-text("All reviews")',
-                    'button[jsaction*="pane.review"]',
-                    '[role="tab"] [aria-label*="Reviews"]',
-                    'a:has-text("Reviews")',
-                ]
-
-                for sel in review_buttons:
-                    try:
-                        btn = page.locator(sel).first
-                        if await btn.is_visible(timeout=7000):
-                            await btn.hover()
-                            await asyncio.sleep(0.6)
-                            await btn.click(timeout=10000)
-                            logger.info(f"Clicked: {sel}")
-                            await asyncio.sleep(random.uniform(3.0, 6.0))
-                            break
-                    except:
-                        pass
-
-                # Wait for any review content
-                try:
-                    await page.wait_for_selector(
-                        'div[data-review-id], .jftiEf, [role="feed"], span[jsname="bN97Pc"]',
-                        timeout=20000
-                    )
-                except:
-                    logger.warning("No review elements detected after wait")
-
-                # Human-like scroll
-                for _ in range(18):
-                    await page.evaluate("window.scrollBy(0, window.innerHeight * 1.8)")
-                    await asyncio.sleep(random.uniform(1.1, 2.9))
-
-                # Extract
-                cards = await page.query_selector_all('div[data-review-id], .jftiEf, div[jsaction*="review"]')
-                logger.info(f"Found {len(cards)} cards")
-
-                for card in cards:
-                    try:
-                        rid = await card.get_attribute("data-review-id") or f"gen_{random.randint(100000,999999)}"
-
-                        # Rating
-                        rating_el = await card.query_selector('[aria-label*="star"]')
-                        rating = 5
-                        if rating_el:
-                            aria = await rating_el.get_attribute("aria-label") or ""
-                            m = re.search(r"(\d+)", aria)
-                            if m:
-                                rating = int(m.group(1))
-
-                        # Text
-                        text_parts = []
-                        for sel in ['span[jsname="bN97Pc"]', '.wiI7pd', '.MyEned', 'span[dir="auto"]']:
-                            els = await card.query_selector_all(sel)
-                            for el in els:
-                                t = await el.inner_text()
-                                if t and len(t.strip()) > 20:
-                                    text_parts.append(t.strip())
-
-                        text = " ".join(text_parts).strip()
-
-                        if len(text) > 60:
-                            results.append({
-                                "review_id": rid,
-                                "rating": rating,
-                                "text": text,
-                                "author": "Google User",
-                                "extracted_at": datetime.now(timezone.utc).isoformat(),
-                            })
-                    except:
-                        continue
-
-                if results:
-                    logger.info(f"Success on attempt {attempt}: {len(results)} reviews")
-                    break
-
-            except Exception as e:
-                logger.error(f"Attempt {attempt} failed: {e}", exc_info=True)
-                if page:
-                    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-                    await page.screenshot(path=f"/tmp/fail-{attempt}-{ts}.png", full_page=True)
-                    html = await page.content()
-                    with open(f"/tmp/fail-html-{attempt}-{ts}.html", "w", encoding="utf-8") as f:
-                        f.write(html)
-                    logger.info(f"Debug saved: /tmp/fail-*-{ts}.*")
-
-            finally:
-                if page:
-                    await page.close()
-                if context:
-                    await context.close()
-
-            await asyncio.sleep(random.uniform(3, 8))
-
-        # FINAL FALLBACK: official API
-        if not results and GOOGLE_API_KEY and GOOGLE_API_KEY != "AIzaSy...":
+        for c in cards:
             try:
-                gmaps = googlemaps.Client(key=GOOGLE_API_KEY)
-                place = gmaps.place(place_id=place_id, fields=["reviews"])
-                api_reviews = place.get("result", {}).get("reviews", [])
-                logger.info(f"API fallback → {len(api_reviews)} reviews")
-                results.extend([{
-                    "review_id": str(r.get("time", "")),
-                    "rating": r.get("rating", 0),
-                    "text": r.get("text", ""),
-                    "author": r.get("author_name", "Google User"),
-                    "extracted_at": datetime.now(timezone.utc).isoformat(),
-                } for r in api_reviews])
-            except Exception as e:
-                logger.error(f"API fallback failed: {e}")
+                rid = await c.get_attribute("data-review-id")
 
-        return results[:limit]
+                rating_el = await c.query_selector('span[aria-label*="stars"]')
+                rating = int((await rating_el.get_attribute("aria-label"))[0]) if rating_el else 5
+
+                text_el = await c.query_selector('span[jsname="fbQN7e"]') or \
+                          await c.query_selector('span[jsname="bN97Pc"]')
+
+                text = await text_el.inner_text() if text_el else ""
+
+                if text:
+                    results.append({
+                        "review_id": rid,
+                        "rating": rating,
+                        "text": clean_text(text),
+                        "method": "PLAYWRIGHT",
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    })
+
+            except:
+                continue
+
+        await browser.close()
+
+    logger.info(f"✅ Playwright Success: {len(results)}")
+    return results[:limit]
 
 
-# Singleton
-scraper = HighSuccessScraper()
+# =====================================================
+# 🚀 MAIN FUNCTION
+# =====================================================
 
-async def fetch_reviews(place_id: str, limit: int = 100) -> List[Dict[str, Any]]:
-    return await scraper.scrape(place_id, limit)
+async def fetch_reviews(place_id: str, limit: int = 100):
+
+    # 🔥 Step 1: HTTP attempts
+    reviews = await http_scrape(place_id, limit)
+
+    if reviews:
+        return reviews[:limit]
+
+    # 🔥 Step 2: Playwright fallback
+    reviews = await playwright_scrape(place_id, limit)
+
+    if reviews:
+        return reviews[:limit]
+
+    logger.error("💀 ALL METHODS FAILED")
+    return []
