@@ -1,92 +1,152 @@
 import logging
 import asyncio
 import random
-import re
 from datetime import datetime, timezone
 from typing import List, Dict, Any
 
 import httpx
 from playwright.async_api import async_playwright
 
+# =====================================================
+# 🔧 LOGGING
+# =====================================================
 logger = logging.getLogger("scraper")
+logging.basicConfig(level=logging.INFO)
 
 # =====================================================
-# 🌍 ADD YOUR PROXIES HERE
+# 🌍 PROXIES (ADD YOURS)
 # =====================================================
 PROXIES = [
     # "http://user:pass@host:port"
 ]
 
+# =====================================================
+# 🧠 USER AGENTS
+# =====================================================
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8)",
+]
 
-class MultiStrategyScraper:
+# =====================================================
+# ⚙️ CONFIG
+# =====================================================
+MAX_CONCURRENT_BROWSERS = 3
+MAX_CONCURRENT_TASKS = 5
+SCROLL_LIMIT = 25
+
+
+# =====================================================
+# 🧩 UTILS
+# =====================================================
+def get_proxy():
+    return random.choice(PROXIES) if PROXIES else None
+
+
+def get_user_agent():
+    return random.choice(USER_AGENTS)
+
+
+def clean(text: str) -> str:
+    return " ".join(text.split()) if text else ""
+
+
+# =====================================================
+# 🕵️ STEALTH ENGINE
+# =====================================================
+class ProductionScraper:
 
     def __init__(self):
-        self.user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-            "Mozilla/5.0 (Linux; Android 14; Pixel 8)",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
-        ]
+        self.browser = None
+        self.playwright = None
+        self.semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
 
-    def clean(self, text: str) -> str:
-        return " ".join(text.split()) if text else ""
+    # ===============================
+    # 🚀 INIT BROWSER (REUSE)
+    # ===============================
+    async def init_browser(self):
+        if self.browser:
+            return
 
-    def get_proxy(self):
-        if PROXIES:
-            proxy = random.choice(PROXIES)
-            logger.info(f"🌍 Using Proxy: {proxy}")
-            return proxy
-        return None
+        self.playwright = await async_playwright().start()
 
-    # =====================================================
-    # 🔥 PLAYWRIGHT CORE METHOD (WITH PROXY)
-    # =====================================================
-    async def playwright_attempt(self, place_id, config):
+        self.browser = await self.playwright.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--disable-infobars"
+            ]
+        )
 
-        label = config["label"]
-        proxy = self.get_proxy()
+        logger.info("🔥 Browser initialized (REUSED)")
 
-        logger.info(f"🚀 Running {label}")
+    # ===============================
+    # 🧠 CREATE STEALTH PAGE
+    # ===============================
+    async def create_page(self):
 
-        try:
-            async with async_playwright() as p:
+        proxy = get_proxy()
+        ua = get_user_agent()
 
-                browser = await p.chromium.launch(
-                    headless=True,
-                    proxy={"server": proxy} if proxy else None,
-                    args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
-                )
+        context = await self.browser.new_context(
+            user_agent=ua,
+            locale="en-US",
+            viewport={"width": 1280, "height": 800},
+        )
 
-                context = await browser.new_context(
-                    user_agent=random.choice(self.user_agents),
-                    viewport={"width": 1280, "height": 800}
-                )
+        page = await context.new_page()
 
-                page = await context.new_page()
+        # 🔥 FULL STEALTH
+        await page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            Object.defineProperty(navigator, 'languages', { get: () => ['en-US','en'] });
+            Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4,5] });
+            window.chrome = { runtime: {} };
+        """)
 
-                # Hide automation
-                await page.add_init_script("""
-                    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                """)
+        return page, proxy, ua
+
+    # ===============================
+    # 🎯 SINGLE SCRAPE ATTEMPT
+    # ===============================
+    async def scrape_once(self, place_id: str, attempt_id: int):
+
+        async with self.semaphore:
+
+            page, proxy, ua = await self.create_page()
+
+            label = f"ATTEMPT_{attempt_id}"
+
+            try:
+                logger.info(f"🚀 {label} started")
 
                 url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
                 await page.goto(url, timeout=60000)
 
-                await asyncio.sleep(config["wait"])
+                await asyncio.sleep(random.uniform(2, 4))
 
                 # Accept cookies
-                if config["popup"]:
-                    try:
-                        buttons = await page.query_selector_all("button")
-                        for b in buttons:
-                            txt = await b.inner_text()
-                            if "accept" in txt.lower():
-                                await b.click()
-                    except:
-                        pass
+                try:
+                    buttons = await page.query_selector_all("button")
+                    for b in buttons:
+                        txt = await b.inner_text()
+                        if "accept" in txt.lower():
+                            await b.click()
+                except:
+                    pass
 
                 # Open reviews
+                selectors = [
+                    'button[jsaction*="pane.reviewChart.moreReviews"]',
+                    'button:has-text("reviews")',
+                    'button:has-text("Review")'
+                ]
+
                 opened = False
-                for sel in config["selectors"]:
+                for sel in selectors:
                     try:
                         await page.click(sel, timeout=3000)
                         opened = True
@@ -95,23 +155,15 @@ class MultiStrategyScraper:
                         continue
 
                 if not opened:
-                    await browser.close()
+                    await page.close()
                     return []
 
                 await asyncio.sleep(3)
 
                 # Scroll
-                for _ in range(config["scroll"]):
-                    await page.mouse.wheel(0, 5000)
-                    await asyncio.sleep(config["sleep"])
-
-                # Expand
-                try:
-                    more_buttons = await page.query_selector_all('button[jsname="gxjVle"]')
-                    for m in more_buttons:
-                        await m.click()
-                except:
-                    pass
+                for _ in range(SCROLL_LIMIT):
+                    await page.mouse.wheel(0, random.randint(3000, 6000))
+                    await asyncio.sleep(random.uniform(0.8, 1.8))
 
                 # Extract
                 cards = await page.query_selector_all('div[data-review-id]')
@@ -122,10 +174,7 @@ class MultiStrategyScraper:
                         rid = await c.get_attribute("data-review-id")
 
                         rating_el = await c.query_selector('span[aria-label*="stars"]')
-                        rating = 5
-                        if rating_el:
-                            txt = await rating_el.get_attribute("aria-label")
-                            rating = int(txt[0]) if txt else 5
+                        rating = int((await rating_el.get_attribute("aria-label"))[0]) if rating_el else 5
 
                         text_el = await c.query_selector('span[jsname="fbQN7e"]') or \
                                   await c.query_selector('span[jsname="bN97Pc"]')
@@ -136,114 +185,70 @@ class MultiStrategyScraper:
                             results.append({
                                 "review_id": rid,
                                 "rating": rating,
-                                "text": self.clean(text),
+                                "text": clean(text),
                                 "method": label,
                                 "proxy": proxy,
+                                "user_agent": ua,
                                 "extracted_at": datetime.now(timezone.utc).isoformat()
                             })
                     except:
                         continue
 
-                await browser.close()
+                await page.close()
+
+                if results:
+                    logger.info(f"✅ SUCCESS {label}: {len(results)}")
+                else:
+                    logger.warning(f"❌ FAILED {label}")
 
                 return results
 
-        except Exception as e:
-            logger.error(f"⚠️ ERROR {label}: {e}")
-            return []
+            except Exception as e:
+                logger.error(f"⚠️ ERROR {label}: {e}")
+                await page.close()
+                return []
 
-    # =====================================================
-    # 🌐 HTTP METHOD (WITH PROXY)
-    # =====================================================
-    async def http_attempt(self, place_id, label, url):
-
-        proxy = self.get_proxy()
-
-        logger.info(f"🌐 Running {label}")
-
-        try:
-            async with httpx.AsyncClient(
-                timeout=20,
-                proxies=proxy
-            ) as client:
-
-                r = await client.get(url)
-
-            html = r.text
-
-            matches = re.findall(r'aria-label="(\d\.\d) stars".*?<span>(.*?)</span>', html, re.DOTALL)
-
-            results = []
-
-            for i, (rating, text) in enumerate(matches):
-                results.append({
-                    "review_id": f"{label}_{i}",
-                    "rating": float(rating),
-                    "text": self.clean(text),
-                    "method": label,
-                    "proxy": proxy,
-                    "extracted_at": datetime.now(timezone.utc).isoformat()
-                })
-
-            return results
-
-        except:
-            return []
-
-    # =====================================================
-    # 🔁 MAIN RUNNER (30 STRATEGIES WITH PROXY ROTATION)
-    # =====================================================
+    # ===============================
+    # 🔁 MAIN RUNNER (PARALLEL)
+    # ===============================
     async def run(self, place_id: str, limit=100):
 
-        selectors = [
-            'button[jsaction*="pane.reviewChart.moreReviews"]',
-            'button:has-text("reviews")',
-            'button:has-text("Review")'
+        await self.init_browser()
+
+        tasks = [
+            self.scrape_once(place_id, i)
+            for i in range(1, 16)  # 15 parallel attempts
         ]
 
-        # 🔥 20 Playwright Strategies
-        for i in range(20):
-            config = {
-                "label": f"PW_{i+1}",
-                "wait": 3 + (i % 3),
-                "popup": i % 2 == 0,
-                "scroll": 15 + (i * 2),
-                "sleep": 1 + (i % 2),
-                "selectors": selectors[::-1] if i % 2 else selectors
-            }
+        results = await asyncio.gather(*tasks)
 
-            res = await self.playwright_attempt(place_id, config)
+        # Flatten results
+        all_reviews = [item for sublist in results for item in sublist]
 
-            if res:
-                return res[:limit]
+        if all_reviews:
+            logger.info(f"🎯 FINAL SUCCESS: {len(all_reviews)} reviews")
+            return all_reviews[:limit]
 
-        # 🌐 10 HTTP Strategies
-        urls = [
-            f"https://www.google.com/search?q=reviews+{place_id}",
-            f"https://www.google.com/search?q={place_id}+rating",
-            f"https://www.google.com/search?q={place_id}+feedback",
-            f"https://www.google.com/search?q={place_id}+opinions",
-            f"https://www.google.com/search?q={place_id}+stars",
-            f"https://www.google.com/search?q={place_id}+experience",
-            f"https://www.google.com/search?q={place_id}+customer+reviews",
-            f"https://www.google.com/search?q=google+reviews+{place_id}",
-            f"https://www.google.com/maps/place/?q=place_id:{place_id}",
-            f"https://www.google.com/search?q={place_id}+review+site",
-        ]
-
-        for i, url in enumerate(urls):
-            res = await self.http_attempt(place_id, f"HTTP_{i+1}", url)
-
-            if res:
-                return res[:limit]
-
-        logger.error("💀 ALL STRATEGIES FAILED")
+        logger.error("💀 ALL ATTEMPTS FAILED")
         return []
+
+    # ===============================
+    # 🧹 CLEANUP
+    # ===============================
+    async def close(self):
+        if self.browser:
+            await self.browser.close()
+        if self.playwright:
+            await self.playwright.stop()
 
 
 # =====================================================
 # 🔗 FASTAPI ENTRY
 # =====================================================
 async def fetch_reviews(place_id: str, limit: int = 100):
-    scraper = MultiStrategyScraper()
-    return await scraper.run(place_id, limit)
+    scraper = ProductionScraper()
+
+    try:
+        return await scraper.run(place_id, limit)
+    finally:
+        await scraper.close()
