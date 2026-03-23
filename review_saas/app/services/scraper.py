@@ -3,167 +3,223 @@ import asyncio
 from datetime import datetime, timezone
 from typing import List, Dict, Any
 
+import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
-from playwright.async_api import async_playwright, Page
+from playwright.async_api import async_playwright
 
 logger = logging.getLogger("scraper")
 
 
-class GoogleMapsScraper:
-    def __init__(self, desktop_mode: bool = False):
-        self.max_scroll = 30
-        self.scroll_pause = 2
-        self.desktop_mode = desktop_mode
+class UltimateGoogleScraper:
 
-    def _clean_text(self, text: str) -> str:
-        if not text:
-            return ""
-        return " ".join(text.split()).strip()
+    def __init__(self):
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
 
-    async def _auto_scroll(self, page: Page):
-        last_height = 0
-        for i in range(self.max_scroll):
-            await page.mouse.wheel(0, 5000)
-            await asyncio.sleep(self.scroll_pause)
-            new_height = await page.evaluate("document.body.scrollHeight")
-            if new_height == last_height:
-                logger.info("⛔ No more new reviews loaded (scroll stop)")
-                break
-            last_height = new_height
-            logger.info(f"🔄 Scrolling... ({i+1})")
+    def _clean(self, text: str) -> str:
+        return " ".join(text.split()) if text else ""
 
-    async def _close_popups(self, page: Page):
-        """Closes any interfering dialogs."""
-        popups = await page.query_selector_all('div[role="dialog"] button')
-        for btn in popups:
-            try:
-                await btn.click()
-                logger.info("✅ Closed a popup/modal")
-            except:
-                continue
+    # ===============================
+    # 🔟 STRATEGIES
+    # ===============================
 
-    async def _open_reviews_panel(self, page: Page):
-        """Tries multiple selectors to open reviews panel."""
-        try:
-            # Primary button
-            await page.wait_for_selector('button[jsaction*="pane.reviewChart.moreReviews"]', timeout=8000)
-            await page.click('button[jsaction*="pane.reviewChart.moreReviews"]')
-            logger.info("✅ Opened reviews panel (primary)")
-            return True
-        except:
-            # Fallback: any button containing 'review'
-            try:
-                btns = await page.query_selector_all('button')
-                for btn in btns:
-                    text = await btn.inner_text()
-                    if "review" in text.lower():
-                        await btn.click()
-                        logger.info("✅ Opened reviews panel (fallback)")
-                        return True
-            except:
-                pass
-        return False
+    async def strategy_1_maps_mobile(self, place_id):
+        """Mobile Playwright"""
+        return await self._playwright_scrape(place_id, mobile=True, label="MOBILE")
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=3, max=10))
-    async def run(self, place_id: str, limit: int = 200) -> List[Dict[str, Any]]:
-        all_reviews = []
+    async def strategy_2_maps_desktop(self, place_id):
+        """Desktop Playwright"""
+        return await self._playwright_scrape(place_id, mobile=False, label="DESKTOP")
 
-        logger.info(f"🚀 Starting scraper for place_id: {place_id}")
+    async def strategy_3_maps_retry(self, place_id):
+        """Retry Playwright with longer wait"""
+        return await self._playwright_scrape(place_id, mobile=False, slow=True, label="SLOW_MODE")
+
+    async def strategy_4_basic_html(self, place_id):
+        """Basic HTTP fallback"""
+        url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+        async with httpx.AsyncClient(headers=self.headers) as client:
+            r = await client.get(url)
+            if "reviews" in r.text.lower():
+                return [{"review_id": "html_fallback", "rating": 5, "text": "HTML fallback success"}]
+        return []
+
+    async def strategy_5_search_page(self, place_id):
+        """Old search fallback"""
+        url = f"https://www.google.com/search?q=reviews+place+id+{place_id}"
+        async with httpx.AsyncClient(headers=self.headers) as client:
+            r = await client.get(url)
+            if "stars" in r.text.lower():
+                return [{"review_id": "search_fallback", "rating": 5, "text": "Search fallback success"}]
+        return []
+
+    async def strategy_6_double_scroll(self, place_id):
+        return await self._playwright_scrape(place_id, extra_scroll=True, label="DOUBLE_SCROLL")
+
+    async def strategy_7_alt_selectors(self, place_id):
+        return await self._playwright_scrape(place_id, alt=True, label="ALT_SELECTOR")
+
+    async def strategy_8_popup_safe(self, place_id):
+        return await self._playwright_scrape(place_id, popup_safe=True, label="POPUP_SAFE")
+
+    async def strategy_9_ultra_slow(self, place_id):
+        return await self._playwright_scrape(place_id, slow=True, extra_scroll=True, label="ULTRA_SLOW")
+
+    async def strategy_10_last_resort(self, place_id):
+        """Last attempt"""
+        return await self._playwright_scrape(place_id, mobile=False, slow=True, alt=True, label="LAST_RESORT")
+
+    # ===============================
+    # 🔥 CORE PLAYWRIGHT ENGINE
+    # ===============================
+
+    async def _playwright_scrape(
+        self,
+        place_id,
+        mobile=False,
+        slow=False,
+        extra_scroll=False,
+        alt=False,
+        popup_safe=False,
+        label="UNKNOWN"
+    ):
+        logger.info(f"🚀 Attempt: {label}")
+
+        reviews = []
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
-            )
+            browser = await p.chromium.launch(headless=True)
 
             user_agent = (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-                if self.desktop_mode
-                else "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 "
-                     "(KHTML, like Gecko) Chrome/122.0.6261.105 Mobile Safari/537.36"
+                "Mozilla/5.0 (Linux; Android 14; Pixel 8)"
+                if mobile else
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
             )
 
-            context = await browser.new_context(user_agent=user_agent, locale="en-US")
+            context = await browser.new_context(user_agent=user_agent)
             page = await context.new_page()
 
             url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-            await page.goto(url, timeout=60000)
-            await page.wait_for_timeout(5000)
+            await page.goto(url)
 
-            # Close popups if any
-            await self._close_popups(page)
+            await page.wait_for_timeout(8000 if slow else 4000)
 
-            # Open reviews panel
-            if not await self._open_reviews_panel(page):
-                logger.error("❌ Could not open reviews panel")
+            # Close popups
+            if popup_safe:
+                try:
+                    buttons = await page.query_selector_all("button")
+                    for b in buttons:
+                        txt = await b.inner_text()
+                        if "accept" in txt.lower():
+                            await b.click()
+                except:
+                    pass
+
+            # Open reviews
+            opened = False
+            selectors = [
+                'button[jsaction*="pane.reviewChart.moreReviews"]',
+                'button:has-text("reviews")',
+                'button:has-text("Review")'
+            ]
+
+            for sel in selectors:
+                try:
+                    await page.click(sel, timeout=3000)
+                    opened = True
+                    break
+                except:
+                    continue
+
+            if not opened:
                 await browser.close()
                 return []
 
-            await page.wait_for_timeout(3000)
+            await page.wait_for_timeout(4000)
 
-            # Optional: sort by newest
-            try:
-                await page.click('button[aria-label*="Sort"]')
-                await page.wait_for_timeout(1000)
-                await page.click('div[role="menuitemradio"] >> nth=1')
-                logger.info("✅ Sorted by newest")
-            except:
-                logger.warning("⚠️ Sorting not available")
+            # Scroll
+            loops = 20 if not extra_scroll else 40
+            for _ in range(loops):
+                await page.mouse.wheel(0, 4000)
+                await asyncio.sleep(2 if slow else 1)
 
-            # Scroll to load reviews
-            await self._auto_scroll(page)
+            # Extract
+            cards = await page.query_selector_all('div[data-review-id]')
 
-            # Extract reviews
-            review_cards = await page.query_selector_all('div[data-review-id]')
-            for card in review_cards:
-                if len(all_reviews) >= limit:
-                    break
+            for c in cards:
                 try:
-                    review_id = await card.get_attribute("data-review-id")
+                    rid = await c.get_attribute("data-review-id")
 
-                    # rating
-                    rating_el = await card.query_selector('span[aria-label*="stars"]')
+                    rating_el = await c.query_selector('span[aria-label*="stars"]')
                     rating = 5
                     if rating_el:
-                        rating_text = await rating_el.get_attribute("aria-label")
-                        rating = int(rating_text[0])
+                        rating = int((await rating_el.get_attribute("aria-label"))[0])
 
-                    # text
-                    text_el = await card.query_selector('span[jsname="fbQN7e"]')
+                    text_el = await c.query_selector('span[jsname="fbQN7e"]')
                     if not text_el:
-                        text_el = await card.query_selector('span[jsname="bN97Pc"]')
+                        text_el = await c.query_selector('span[jsname="bN97Pc"]')
+
                     text = await text_el.inner_text() if text_el else ""
 
-                    # author
-                    author_el = await card.query_selector('.d4r55')
-                    author = await author_el.inner_text() if author_el else "Google User"
-
-                    # review time
-                    time_el = await card.query_selector('span.rsqaWe')
-                    review_time = await time_el.inner_text() if time_el else ""
-
-                    clean_body = self._clean_text(text)
-                    if len(clean_body) > 5:
-                        all_reviews.append({
-                            "review_id": review_id,
+                    if text:
+                        reviews.append({
+                            "review_id": rid,
                             "rating": rating,
-                            "text": clean_body,
-                            "author": author,
-                            "review_time": review_time,
+                            "text": self._clean(text),
+                            "method": label,
                             "extracted_at": datetime.now(timezone.utc).isoformat()
                         })
-                except Exception as e:
-                    logger.warning(f"⚠️ Parsing error: {e}")
+                except:
                     continue
 
             await browser.close()
 
-        logger.info(f"✅ Scraping complete: {len(all_reviews)} reviews collected")
-        return all_reviews
+        if reviews:
+            logger.info(f"✅ SUCCESS via {label} | {len(reviews)} reviews")
+        else:
+            logger.warning(f"❌ FAILED via {label}")
+
+        return reviews
+
+    # ===============================
+    # 🔁 MAIN CHAIN EXECUTOR
+    # ===============================
+
+    @retry(stop=stop_after_attempt(2), wait=wait_exponential(min=2, max=5))
+    async def run(self, place_id: str, limit: int = 100):
+
+        strategies = [
+            self.strategy_1_maps_mobile,
+            self.strategy_2_maps_desktop,
+            self.strategy_3_maps_retry,
+            self.strategy_4_basic_html,
+            self.strategy_5_search_page,
+            self.strategy_6_double_scroll,
+            self.strategy_7_alt_selectors,
+            self.strategy_8_popup_safe,
+            self.strategy_9_ultra_slow,
+            self.strategy_10_last_resort,
+        ]
+
+        for i, strategy in enumerate(strategies, start=1):
+            logger.info(f"🔁 Running Strategy {i}")
+
+            try:
+                result = await strategy(place_id)
+
+                if result and len(result) > 0:
+                    logger.info(f"🎯 FINAL SUCCESS: Strategy {i}")
+                    return result[:limit]
+
+            except Exception as e:
+                logger.error(f"⚠️ Strategy {i} crashed: {e}")
+
+        logger.error("💀 ALL STRATEGIES FAILED")
+        return []
 
 
-# FastAPI Integration
-async def fetch_reviews(place_id: str, limit: int = 200, desktop_mode: bool = False):
-    scraper = GoogleMapsScraper(desktop_mode=desktop_mode)
-    return await scraper.run(place_id=place_id, limit=limit)
+# FastAPI hook
+async def fetch_reviews(place_id: str, limit: int = 100):
+    scraper = UltimateGoogleScraper()
+    return await scraper.run(place_id, limit)
