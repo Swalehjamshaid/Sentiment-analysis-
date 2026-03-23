@@ -1,6 +1,3 @@
-# app/services/scraper.py
-# Updated March 23, 2026 – Aggressive reliability fixes for Railway
-
 import asyncio
 import logging
 import random
@@ -8,163 +5,179 @@ import re
 from datetime import datetime, timezone
 from typing import List, Dict, Any
 
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright
+from playwright_stealth import stealth_async
 from fake_useragent import UserAgent
 from tenacity import retry, stop_after_attempt, wait_exponential
+import googlemaps
 
 logger = logging.getLogger("scraper")
 
-# =====================================================
-# CONFIG
-# =====================================================
+# ────────────────────────────────────────────────
+#  SETTINGS  –  CHANGE THESE
+# ────────────────────────────────────────────────
+PROXY_LIST = [
+    # "http://user:pass@residential-ip:port",
+    # "http://user:pass@residential-ip:port",
+    # add real residential proxies !!!
+]
+
+GOOGLE_API_KEY = "AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXX"  # ← real key or ""
+
 MAX_ATTEMPTS = 6
-GOTO_TIMEOUT = 90000
-SCROLL_ATTEMPTS = 20
+TIMEOUT = 75000
 
-class ReliableScraper:
-    _browser = None
-    _playwright = None
-    _lock = asyncio.Lock()
+# ────────────────────────────────────────────────
+#  SCRAPER CLASS
+# ────────────────────────────────────────────────
+class HighSuccessScraper:
+    def __init__(self):
+        self.browser = None
+        self.playwright = None
+        self.ua = UserAgent()
 
-    async def _init_browser(self):
-        async with self._lock:
-            if self._browser and self._browser.is_connected():
-                return
-            if self._browser:
-                await self._browser.close()
-            self._playwright = await async_playwright().start()
-            self._browser = await self._playwright.chromium.launch(
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--disable-software-rasterizer",
-                    "--disable-background-timer-throttling",
-                    "--disable-renderer-backgrounding",
-                    "--disable-blink-features=AutomationControlled",
-                ]
-            )
-            logger.info("Browser initialized")
+    async def start_browser(self):
+        if self.browser:
+            return
 
-    @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=4, max=15))
-    async def _safe_goto(self, page, url):
-        await page.goto(url, wait_until="commit", timeout=GOTO_TIMEOUT)
-        await page.wait_for_load_state("domcontentloaded", timeout=30000)
-        logger.info(f"Navigated to {page.url} | Title: {await page.title()}")
+        self.playwright = await async_playwright().start()
+        proxy = random.choice(PROXY_LIST) if PROXY_LIST else None
 
-    async def fetch_reviews(self, place_id: str, limit: int = 100) -> List[Dict[str, Any]]:
-        await self._init_browser()
+        self.browser = await self.playwright.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+                "--disable-blink-features=AutomationControlled",
+            ],
+            proxy={"server": proxy} if proxy else None
+        )
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=3, max=15))
+    async def _create_page(self):
+        await self.start_browser()
+
+        context = await self.browser.new_context(
+            user_agent=self.ua.random,
+            viewport={"width": 1366, "height": 768},
+            locale="en-US",
+            timezone_id="Asia/Karachi",
+            bypass_csp=True,
+            java_script_enabled=True,
+        )
+
+        page = await context.new_page()
+        await stealth_async(page)
+
+        # Extra stealth
+        await page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            window.chrome = { runtime: {} };
+            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+            Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
+        """)
+
+        return page, context
+
+    async def scrape(self, place_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        page = None
+        context = None
         results = []
-        ua = UserAgent().random
 
         for attempt in range(1, MAX_ATTEMPTS + 1):
-            logger.info(f"Attempt {attempt}/{MAX_ATTEMPTS} for place_id {place_id}")
+            logger.info(f"Attempt {attempt}/{MAX_ATTEMPTS} – place_id {place_id}")
 
-            context = None
-            page = None
             try:
-                context = await self._browser.new_context(
-                    user_agent=ua,
-                    viewport={"width": 1366, "height": 768},
-                    locale="en-US",
-                    timezone_id="Asia/Karachi",
-                    bypass_csp=True,
-                )
-                page = await context.new_page()
+                page, context = await self._create_page()
 
-                # Stealth basics
-                await page.add_init_script("""
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    window.chrome = { runtime: {} };
-                """)
+                # Different URLs to try
+                urls = [
+                    f"https://www.google.com/maps/place/_/data=!4m2!3m1!1s{place_id}",
+                    f"https://www.google.com/maps/contrib/{place_id}/reviews",
+                    f"https://www.google.com/maps/search/?api=1&query=place_id:{place_id}",
+                ]
 
-                # Better URL: direct Maps place link
-                url = f"https://www.google.com/maps/place/_/data=!4m2!3m1!1s{place_id}"
+                url = random.choice(urls)
+                await page.goto(url, wait_until="commit", timeout=TIMEOUT)
+                await asyncio.sleep(random.uniform(2.2, 4.8))
 
-                await self._safe_goto(page, url)
-
-                # Save initial screenshot
-                ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-                await page.screenshot(path=f"/tmp/start-attempt-{attempt}-{ts}.png", full_page=True)
-
-                # Consent
-                try:
-                    await page.locator('button:has-text("Accept all")').click(timeout=8000)
-                except:
+                # Consent handling
+                for btn_text in ["Accept all", "Accept", "Agree", "OK", "قبول"]:
                     try:
-                        await page.locator('button[aria-label*="Accept"]').click(timeout=5000)
+                        await page.get_by_role("button", name=re.compile(btn_text, re.I)).click(timeout=8000)
+                        break
                     except:
                         pass
 
-                # Open Reviews – very aggressive
-                review_triggers = [
+                # Try to open Reviews tab – many selectors
+                review_buttons = [
                     '[aria-label*="Reviews"]',
                     'button:has-text("Reviews")',
-                    'button:has-text("Reviews")',
-                    'div[role="tab"] [aria-label*="Reviews"]',
-                    'button[jsaction*="review"]',
-                    '[role="button"] [aria-label*="more reviews"]',
-                    'button:has-text("See all reviews")',
+                    'button:has-text("All reviews")',
+                    'button[jsaction*="pane.review"]',
+                    '[role="tab"] [aria-label*="Reviews"]',
+                    'a:has-text("Reviews")',
                 ]
 
-                opened = False
-                for sel in review_triggers:
+                for sel in review_buttons:
                     try:
-                        btn = page.locator(sel)
-                        if await btn.is_visible(timeout=6000):
-                            await btn.click()
-                            logger.info(f"Clicked reviews trigger: {sel}")
-                            opened = True
-                            await asyncio.sleep(random.uniform(2.5, 4.5))
+                        btn = page.locator(sel).first
+                        if await btn.is_visible(timeout=7000):
+                            await btn.hover()
+                            await asyncio.sleep(0.6)
+                            await btn.click(timeout=10000)
+                            logger.info(f"Clicked: {sel}")
+                            await asyncio.sleep(random.uniform(3.0, 6.0))
                             break
                     except:
-                        continue
+                        pass
 
-                if not opened:
-                    logger.warning("No reviews tab found – trying forced scroll anyway")
-
-                # Wait for any review container
+                # Wait for any review content
                 try:
-                    await page.wait_for_selector('div[data-review-id], .jftiEf, [aria-label*="review"]', timeout=15000)
+                    await page.wait_for_selector(
+                        'div[data-review-id], .jftiEf, [role="feed"], span[jsname="bN97Pc"]',
+                        timeout=20000
+                    )
                 except:
-                    logger.warning("No review container appeared after wait")
+                    logger.warning("No review elements detected after wait")
 
-                # Scroll aggressively
-                for i in range(SCROLL_ATTEMPTS):
-                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    await asyncio.sleep(random.uniform(1.0, 2.8))
-
-                    # Check if loaded something
-                    count = len(await page.query_selector_all('div[data-review-id]'))
-                    if count > 5 and i > 5:
-                        break
+                # Human-like scroll
+                for _ in range(18):
+                    await page.evaluate("window.scrollBy(0, window.innerHeight * 1.8)")
+                    await asyncio.sleep(random.uniform(1.1, 2.9))
 
                 # Extract
-                cards = await page.query_selector_all('div[data-review-id], .jftiEf, div[jsaction*="review"], [role="listitem"]')
+                cards = await page.query_selector_all('div[data-review-id], .jftiEf, div[jsaction*="review"]')
                 logger.info(f"Found {len(cards)} cards")
 
                 for card in cards:
                     try:
-                        rid = await card.get_attribute("data-review-id") or f"gen_{random.randint(10000,999999)}"
+                        rid = await card.get_attribute("data-review-id") or f"gen_{random.randint(100000,999999)}"
 
                         # Rating
-                        star = await card.query_selector('[aria-label*="star"], [role="img"][aria-label*="star"]')
+                        rating_el = await card.query_selector('[aria-label*="star"]')
                         rating = 5
-                        if star:
-                            aria = await star.get_attribute("aria-label") or ""
+                        if rating_el:
+                            aria = await rating_el.get_attribute("aria-label") or ""
                             m = re.search(r"(\d+)", aria)
                             if m:
                                 rating = int(m.group(1))
 
                         # Text
-                        text_els = await card.query_selector_all('span[jsname], .wiI7pd, .MyEned, div[aria-label*="review"] span')
-                        text = " ".join([await el.inner_text() for el in text_els if await el.inner_text()])
-                        text = re.sub(r'\s+', ' ', text).strip()
+                        text_parts = []
+                        for sel in ['span[jsname="bN97Pc"]', '.wiI7pd', '.MyEned', 'span[dir="auto"]']:
+                            els = await card.query_selector_all(sel)
+                            for el in els:
+                                t = await el.inner_text()
+                                if t and len(t.strip()) > 20:
+                                    text_parts.append(t.strip())
 
-                        if len(text) > 50:
+                        text = " ".join(text_parts).strip()
+
+                        if len(text) > 60:
                             results.append({
                                 "review_id": rid,
                                 "rating": rating,
@@ -179,31 +192,46 @@ class ReliableScraper:
                     logger.info(f"Success on attempt {attempt}: {len(results)} reviews")
                     break
 
-            except PlaywrightTimeoutError as te:
-                logger.error(f"Timeout on attempt {attempt}: {te}")
             except Exception as e:
                 logger.error(f"Attempt {attempt} failed: {e}", exc_info=True)
+                if page:
+                    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+                    await page.screenshot(path=f"/tmp/fail-{attempt}-{ts}.png", full_page=True)
+                    html = await page.content()
+                    with open(f"/tmp/fail-html-{attempt}-{ts}.html", "w", encoding="utf-8") as f:
+                        f.write(html)
+                    logger.info(f"Debug saved: /tmp/fail-*-{ts}.*")
+
             finally:
                 if page:
-                    # Final screenshot
-                    try:
-                        await page.screenshot(path=f"/tmp/end-attempt-{attempt}-{ts}.png", full_page=True)
-                    except:
-                        pass
                     await page.close()
                 if context:
                     await context.close()
 
-            await asyncio.sleep(random.uniform(3, 7))  # Cool down
+            await asyncio.sleep(random.uniform(3, 8))
+
+        # FINAL FALLBACK: official API
+        if not results and GOOGLE_API_KEY and GOOGLE_API_KEY != "AIzaSy...":
+            try:
+                gmaps = googlemaps.Client(key=GOOGLE_API_KEY)
+                place = gmaps.place(place_id=place_id, fields=["reviews"])
+                api_reviews = place.get("result", {}).get("reviews", [])
+                logger.info(f"API fallback → {len(api_reviews)} reviews")
+                results.extend([{
+                    "review_id": str(r.get("time", "")),
+                    "rating": r.get("rating", 0),
+                    "text": r.get("text", ""),
+                    "author": r.get("author_name", "Google User"),
+                    "extracted_at": datetime.now(timezone.utc).isoformat(),
+                } for r in api_reviews])
+            except Exception as e:
+                logger.error(f"API fallback failed: {e}")
 
         return results[:limit]
 
 
-scraper_instance = ReliableScraper()
+# Singleton
+scraper = HighSuccessScraper()
 
-async def fetch_reviews(place_id: str, limit: int = 100):
-    try:
-        return await scraper_instance.fetch_reviews(place_id, limit)
-    except Exception as e:
-        logger.critical(f"Fatal: {e}")
-        return []
+async def fetch_reviews(place_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+    return await scraper.scrape(place_id, limit)
