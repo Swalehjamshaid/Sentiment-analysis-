@@ -1,16 +1,11 @@
+import os
 import asyncio
-import random
 import json
+import httpx  # Using httpx for async requests
 from typing import Dict, List
-from playwright.async_api import async_playwright
-from playwright_stealth import stealth_async
 
-# 📱 2026 High-End Mobile User Agents
-# Matching these to your 4G/5G Proxy is critical for "Trust Score"
-USER_AGENTS = [
-    "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UQ1A.240205.004) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.64 Mobile Safari/537.36",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
-]
+# Load API Key from Railway Environment Variables
+SCRAPELESS_API_KEY = os.getenv("SCRAPELESS_API_KEY")
 
 def clean(text: str) -> str:
     return " ".join(text.split()) if text else ""
@@ -18,11 +13,15 @@ def clean(text: str) -> str:
 def parse_reviews(raw: str) -> List[Dict]:
     reviews = []
     try:
+        # Some Google responses start with security prefix
         if raw.startswith(")]}'"):
             raw = raw[4:]
         data = json.loads(raw)
+        
+        # This parsing logic matches the specific Google Maps review JSON structure
         if len(data) < 3 or not data[2]:
             return []
+            
         for r in data[2]:
             try:
                 reviews.append({
@@ -35,118 +34,77 @@ def parse_reviews(raw: str) -> List[Dict]:
                 })
             except:
                 continue
-    except:
-        pass
+    except Exception as e:
+        print(f"Parsing error: {e}")
     return reviews
 
-async def fetch_reviews(place_id: str, limit: int = 500):
-    collected = {}
+async def fetch_reviews_via_scrapeless(place_id: str, limit: int = 100):
+    """
+    Uses Scrapeless to fetch Google Maps reviews.
+    Scrapeless handles the browser, proxies, and anti-bot.
+    """
+    if not SCRAPELESS_API_KEY:
+        raise ValueError("SCRAPELESS_API_KEY is missing! Add it to Railway Variables.")
+
+    # Scrapeless Scraper API Endpoint
+    api_url = "https://api.scrapeless.com/api/v1/scraper/request"
     
-    # ⚡ EXTREMELY POWERFUL PROXY CONFIG
-    # Use 4G/5G Residential Proxies from providers like Bright Data or Oxylabs
-    PROXY_SETTINGS = {
-        "server": "http://your-mobile-proxy-endpoint.com:port",
-        "username": "your_username",
-        "password": "your_password"
+    # We target the Mobile Google Maps URL
+    target_url = f"https://www.google.com/maps/preview/review/listentitiesreviews?authuser=0&hl=en&gl=us&pb=!1m2!1y{place_id}!2m2!1i0!3i{limit}!4m5!2b1!3b1!5b1!6b1!7b1"
+
+    headers = {
+        "x-api-token": SCRAPELESS_API_KEY,
+        "Content-Type": "application/json"
     }
 
-    async with async_playwright() as p:
-        # Launch with proxy and slow_mo to mimic human interaction
-        browser = await p.chromium.launch(
-            headless=True, 
-            proxy=PROXY_SETTINGS,
-            args=["--disable-blink-features=AutomationControlled"]
-        )
+    # Payload for Scrapeless
+    # We use 'collector' or 'browser' depending on the site. 
+    # For Google Maps data feeds, 'browser.chrome' is safest.
+    payload = {
+        "actor": "browser.chrome",
+        "input": {
+            "url": target_url,
+            "proxy_country": "US",
+            "wait_until": "networkidle"
+        }
+    }
 
-        # Emulate a specific high-end mobile device
-        context = await browser.new_context(
-            user_agent=random.choice(USER_AGENTS),
-            viewport={'width': 390, 'height': 844},
-            device_scale_factor=3,
-            is_mobile=True,
-            has_touch=True,
-            locale="en-US",
-            timezone_id="America/New_York" # Match this to your proxy location!
-        )
-
-        page = await context.new_page()
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        print(f"🚀 Requesting data from Scrapeless for Place: {place_id}...")
         
-        # Apply Stealth to bypass 'navigator.webdriver' checks
-        await stealth_async(page)
-
-        # Capture background API traffic
-        async def handle_response(response):
-            if "listentitiesreviews" in response.url:
-                try:
-                    raw = await response.text()
-                    parsed = parse_reviews(raw)
-                    for r in parsed:
-                        collected[r["review_id"]] = r
-                except:
-                    pass
-
-        page.on("response", handle_response)
-
-        # 🌍 Navigate to Google Maps (Mobile Interface)
-        # 2026 URL structure for higher stability
-        url = f"https://www.google.com/maps/search/?api=1&query_place_id={place_id}"
+        response = await client.post(api_url, headers=headers, json=payload)
         
-        try:
-            await page.goto(url, wait_until="networkidle", timeout=60000)
+        if response.status_code != 200:
+            print(f"❌ Scrapeless Error: {response.status_code} - {response.text}")
+            return []
+
+        result_data = response.json()
+        
+        # Scrapeless usually returns the raw response body in the 'content' field
+        raw_content = result_data.get("content", "")
+        
+        if not raw_content:
+            print("⚠️ No content returned from Scrapeless.")
+            return []
+
+        reviews = parse_reviews(raw_content)
+        return reviews[:limit]
+
+async def main():
+    # Example Place ID
+    PLACE_ID = "ChIJ8S6kk9YJGTkRWK6XHzCKSrA"
+    
+    try:
+        reviews = await fetch_reviews_via_scrapeless(PLACE_ID, limit=50)
+        
+        print(f"✅ Successfully captured {len(reviews)} reviews.")
+        
+        # Save to file
+        with open("master_reviews.json", "w", encoding="utf-8") as f:
+            json.dump(reviews, f, indent=4, ensure_ascii=False)
             
-            # Random wait to simulate human "looking" at the screen
-            await asyncio.sleep(random.uniform(2, 4))
-
-            # Click the 'Reviews' tab - Logic adapted for 2026 Mobile UI
-            review_btn = page.get_by_role("button", name="Reviews")
-            if await review_btn.is_visible():
-                await review_btn.click()
-            else:
-                # Fallback: Click the rating stars
-                await page.click('span[role="img"][aria-label*="stars"]')
-
-            await asyncio.sleep(2)
-
-            # 🔥 HUMAN-LIKE SCROLLING ENGINE
-            print(f"✅ Connection Secure. Starting extraction for {place_id}...")
-            
-            last_count = 0
-            for _ in range(50): # Scroll iterations
-                if len(collected) >= limit:
-                    break
-                
-                # Scroll in small, varying "thumb" increments
-                scroll_amount = random.randint(700, 1500)
-                await page.mouse.wheel(0, scroll_amount)
-                
-                # Important: Move mouse slightly to simulate activity
-                await page.mouse.move(random.randint(0, 100), random.randint(0, 100))
-                
-                # Wait for data to load - 4G/5G speeds vary
-                await asyncio.sleep(random.uniform(1.2, 2.8))
-                
-                if len(collected) == last_count:
-                    # If stuck, try a larger "swipe"
-                    await page.mouse.wheel(0, 3000)
-                    await asyncio.sleep(3)
-                
-                last_count = len(collected)
-                print(f"📦 Progress: {len(collected)} reviews found...")
-
-        except Exception as e:
-            print(f"⚠️ Critical Error: {e}")
-        finally:
-            await browser.close()
-
-    return list(collected.values())[:limit]
+    except Exception as e:
+        print(f"⚠️ Process Failed: {e}")
 
 if __name__ == "__main__":
-    # Test with a popular location
-    PLACE_ID = "ChIJ8S6kk9YJGTkRWK6XHzCKSrA"
-    results = asyncio.run(fetch_reviews(PLACE_ID, limit=100))
-    
-    # Save for ReviewSaaS Sentiment Analysis
-    with open("master_reviews.json", "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=4, ensure_ascii=False)
-    
-    print(f"🔥 Success! Captured {len(results)} reviews.")
+    asyncio.run(main())
