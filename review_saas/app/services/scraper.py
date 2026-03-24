@@ -1,24 +1,30 @@
 import os
 import asyncio
 import json
-import httpx  # Using httpx for async requests
+import httpx
 from typing import Dict, List
 
-# Load API Key from Railway Environment Variables
-SCRAPELESS_API_KEY = os.getenv("SCRAPELESS_API_KEY")
+# 1. API Configuration
+# On Railway, set SCRAPELESS_API_KEY in the 'Variables' tab.
+# For local testing, you can replace the getenv with your sk_... string.
+SCRAPELESS_API_KEY = os.getenv("SCRAPELESS_API_KEY", "sk_eFUsJD1Cyq4r4BASJhwJxOaasCYcmSeggZRcVN6e5Gk881q0NPgTVTx4GFvflGQc")
+SCRAPELESS_ENDPOINT = "https://api.scrapeless.com/api/v1/unlocker/request"
 
 def clean(text: str) -> str:
+    """Standardizes spacing and removes newlines."""
     return " ".join(text.split()) if text else ""
 
 def parse_reviews(raw: str) -> List[Dict]:
+    """Parses Google Maps internal JSON data."""
     reviews = []
     try:
-        # Some Google responses start with security prefix
+        # Google's internal JSON often starts with a security prefix
         if raw.startswith(")]}'"):
             raw = raw[4:]
+        
         data = json.loads(raw)
         
-        # This parsing logic matches the specific Google Maps review JSON structure
+        # Structure check for Google Maps listentitiesreviews
         if len(data) < 3 or not data[2]:
             return []
             
@@ -32,24 +38,22 @@ def parse_reviews(raw: str) -> List[Dict]:
                     "relative_time": r[14],
                     "total_author_reviews": r[12][1][1] if r[12] and r[12][1] else 0
                 })
-            except:
+            except (IndexError, TypeError):
                 continue
     except Exception as e:
-        print(f"Parsing error: {e}")
+        print(f"❌ Parsing error: {e}")
     return reviews
 
 async def fetch_reviews_via_scrapeless(place_id: str, limit: int = 100):
     """
-    Uses Scrapeless to fetch Google Maps reviews.
-    Scrapeless handles the browser, proxies, and anti-bot.
+    Uses the Scrapeless Unlocker (WebUnlocker) to fetch reviews.
+    Matches the 'Universal Scraping API' config from your dashboard.
     """
     if not SCRAPELESS_API_KEY:
-        raise ValueError("SCRAPELESS_API_KEY is missing! Add it to Railway Variables.")
+        raise ValueError("SCRAPELESS_API_KEY is missing!")
 
-    # Scrapeless Scraper API Endpoint
-    api_url = "https://api.scrapeless.com/api/v1/scraper/request"
-    
-    # We target the Mobile Google Maps URL
+    # Target the internal Google Review feed URL
+    # The !3i parameter controls the count of reviews returned
     target_url = f"https://www.google.com/maps/preview/review/listentitiesreviews?authuser=0&hl=en&gl=us&pb=!1m2!1y{place_id}!2m2!1i0!3i{limit}!4m5!2b1!3b1!5b1!6b1!7b1"
 
     headers = {
@@ -57,54 +61,59 @@ async def fetch_reviews_via_scrapeless(place_id: str, limit: int = 100):
         "Content-Type": "application/json"
     }
 
-    # Payload for Scrapeless
-    # We use 'collector' or 'browser' depending on the site. 
-    # For Google Maps data feeds, 'browser.chrome' is safest.
+    # Payload matching the 'Unlocker' configuration in your screenshot
     payload = {
-        "actor": "browser.chrome",
+        "actor": "unlocker.webunlocker",
+        "proxy": {
+            "country": "ANY"  # This is the 'World Wide' setting
+        },
         "input": {
             "url": target_url,
-            "proxy_country": "US",
-            "wait_until": "networkidle"
+            "method": "GET"
         }
     }
 
     async with httpx.AsyncClient(timeout=60.0) as client:
-        print(f"🚀 Requesting data from Scrapeless for Place: {place_id}...")
+        print(f"🚀 [Unlocker] Requesting reviews for Place: {place_id}...")
         
-        response = await client.post(api_url, headers=headers, json=payload)
-        
-        if response.status_code != 200:
-            print(f"❌ Scrapeless Error: {response.status_code} - {response.text}")
-            return []
+        try:
+            response = await client.post(SCRAPELESS_ENDPOINT, headers=headers, json=payload)
+            
+            if response.status_code != 200:
+                print(f"❌ Scrapeless Error: {response.status_code} - {response.text}")
+                return []
 
-        result_data = response.json()
-        
-        # Scrapeless usually returns the raw response body in the 'content' field
-        raw_content = result_data.get("content", "")
-        
-        if not raw_content:
-            print("⚠️ No content returned from Scrapeless.")
-            return []
+            result_data = response.json()
+            
+            # The WebUnlocker returns the raw content of the target URL in 'content'
+            raw_content = result_data.get("content", "")
+            
+            if not raw_content:
+                print("⚠️ Scrapeless returned empty content.")
+                return []
 
-        reviews = parse_reviews(raw_content)
-        return reviews[:limit]
+            return parse_reviews(raw_content)
+
+        except Exception as e:
+            print(f"⚠️ Network error during Scrapeless request: {e}")
+            return []
 
 async def main():
-    # Example Place ID
+    # Example Place ID (Replace this with your target)
     PLACE_ID = "ChIJ8S6kk9YJGTkRWK6XHzCKSrA"
     
-    try:
-        reviews = await fetch_reviews_via_scrapeless(PLACE_ID, limit=50)
-        
+    # We set a limit of 50 reviews for this test run
+    reviews = await fetch_reviews_via_scrapeless(PLACE_ID, limit=50)
+    
+    if reviews:
         print(f"✅ Successfully captured {len(reviews)} reviews.")
         
-        # Save to file
+        # Save results for your Sentiment Analysis backend
         with open("master_reviews.json", "w", encoding="utf-8") as f:
             json.dump(reviews, f, indent=4, ensure_ascii=False)
-            
-    except Exception as e:
-        print(f"⚠️ Process Failed: {e}")
+            print("💾 Data saved to master_reviews.json")
+    else:
+        print("❌ Failed to capture reviews.")
 
 if __name__ == "__main__":
     asyncio.run(main())
