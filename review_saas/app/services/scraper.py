@@ -1,96 +1,145 @@
-import os
-import json
 import asyncio
-import httpx
-from typing import Dict, List
+import random
+import json
+import re
+from playwright.async_api import async_playwright
+from playwright_stealth import stealth_async
 
-# 1. API Configuration
-# Railway will pull this from your Variables tab. 
-# Fallback included for local testing.
-SCRAPELESS_API_KEY = os.getenv("SCRAPELESS_API_KEY", "sk_eFUsJD1Cyq4r4BASJhwJxOaasCYcmSeggZRcVN6e5Gk881q0NPgTVTx4GFvflGQc")
-SCRAPELESS_ENDPOINT = "https://api.scrapeless.com/api/v1/unlocker/request"
+MAX_RETRIES = 3
 
-def clean(text: str) -> str:
-    """Standardizes spacing and removes newlines for ReviewSaaS processing."""
-    return " ".join(text.split()) if text else ""
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/119 Safari/537.36",
+]
 
-def parse_reviews_json(raw_data: str) -> List[Dict]:
-    """
-    Parses Google's 'listentitiesreviews' internal JSON.
-    Google prefixes this data with a security string: )]}'\n
-    """
-    reviews = []
+
+# ==========================================
+# PARSE BATCHEXECUTE RESPONSE
+# ==========================================
+
+def parse_batchexecute(text):
     try:
-        # Strip the security prefix if it exists
-        if raw_data.startswith(")]}'"):
-            raw_data = raw_data[4:]
-        
-        data = json.loads(raw_data)
-        
-        # Google Maps JSON structure: Reviews are in the 3rd index (data[2])
-        if len(data) > 2 and data[2]:
-            for r in data[2]:
-                try:
-                    reviews.append({
-                        "review_id": r[0],
-                        "author": r[1][0] if r[1] else "Anonymous",
-                        "rating": r[4],
-                        "text": clean(r[3]),
-                        "relative_time": r[14],
-                        "total_author_reviews": r[12][1][1] if r[12] and r[12][1] else 0
-                    })
-                except (IndexError, TypeError):
-                    continue
-    except Exception as e:
-        print(f"❌ Scrapeless Parsing Error: {e}")
-    return reviews
+        # Remove Google's anti-JSON prefix
+        cleaned = text.replace(")]}'", "")
 
-async def fetch_reviews(place_id: str, limit: int = 100):
-    """
-    Main entry point aligned with app/routes/reviews.py.
-    Uses Scrapeless Unlocker to fetch data directly from the Google internal API.
-    """
-    if not SCRAPELESS_API_KEY:
-        print("CRITICAL: SCRAPELESS_API_KEY is missing!")
+        # Extract JSON string inside
+        matches = re.findall(r'\["wrb\.fr".*?\]\]', cleaned)
+
+        all_reviews = []
+
+        for match in matches:
+            try:
+                data = json.loads(match)
+
+                # Deep nested extraction (Google format)
+                payload = data[2]
+
+                if isinstance(payload, str):
+                    inner = json.loads(payload)
+
+                    for block in inner:
+                        for review in block:
+                            try:
+                                review_text = review[3]
+                                rating = review[4]
+                                author = review[0][1]
+
+                                all_reviews.append({
+                                    "author": author,
+                                    "rating": rating,
+                                    "text": review_text
+                                })
+                            except:
+                                continue
+            except:
+                continue
+
+        return all_reviews
+
+    except Exception as e:
+        print("Parse Error:", e)
         return []
 
-    # Target URL: Google internal API for reviews
-    # !3i{limit} handles the 'scrolling' logic automatically in one request
-    target_url = f"https://www.google.com/maps/preview/review/listentitiesreviews?authuser=0&hl=en&gl=us&pb=!1m2!1y{place_id}!2m2!1i0!3i{limit}!4m5!2b1!3b1!5b1!6b1!7b1"
 
-    headers = {
-        "x-api-token": SCRAPELESS_API_KEY,
-        "Content-Type": "application/json"
-    }
+# ==========================================
+# SCRAPER
+# ==========================================
 
-    # Payload matching the 'Unlocker' tool in your Scrapeless dashboard
-    payload = {
-        "actor": "unlocker.webunlocker",
-        "proxy": {
-            "country": "ANY"  # Represents 'World Wide'
-        },
-        "input": {
-            "url": target_url,
-            "method": "GET"
-        }
-    }
+async def scrape_google_reviews(url):
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        try:
-            response = await client.post(SCRAPELESS_ENDPOINT, headers=headers, json=payload)
-            
-            if response.status_code == 200:
-                result = response.json()
-                raw_content = result.get("content", "")
-                
-                if not raw_content:
-                    return []
+    for attempt in range(MAX_RETRIES):
 
-                return parse_reviews_json(raw_content)
-            else:
-                print(f"❌ Scrapeless Error {response.status_code}: {response.text}")
-                return []
-                
-        except Exception as e:
-            print(f"⚠️ Network error during Scrapeless request: {e}")
-            return []
+        print(f"\n🚀 Attempt {attempt+1}")
+
+        async with async_playwright() as p:
+
+            browser = await p.chromium.launch(headless=True)
+
+            context = await browser.new_context(
+                user_agent=random.choice(USER_AGENTS)
+            )
+
+            page = await context.new_page()
+            await stealth_async(page)
+
+            batchexecute_data = []
+
+            async def handle_response(response):
+                try:
+                    if "batchexecute" in response.url:
+                        text = await response.text()
+                        batchexecute_data.append(text)
+                except:
+                    pass
+
+            page.on("response", handle_response)
+
+            try:
+                await page.goto(url, timeout=60000)
+
+                await page.wait_for_load_state("networkidle")
+
+                # Scroll to load reviews
+                for _ in range(6):
+                    await page.mouse.wheel(0, 4000)
+                    await asyncio.sleep(2)
+
+                await asyncio.sleep(5)
+
+                await browser.close()
+
+                # ==================================
+                # PARSE REVIEWS
+                # ==================================
+                all_reviews = []
+
+                for raw in batchexecute_data:
+                    parsed = parse_batchexecute(raw)
+                    all_reviews.extend(parsed)
+
+                return {
+                    "success": True,
+                    "total_reviews_found": len(all_reviews),
+                    "reviews": all_reviews[:20]  # preview
+                }
+
+            except Exception as e:
+                print("Error:", e)
+                await browser.close()
+                await asyncio.sleep(2)
+
+    return {"success": False}
+
+
+# ==========================================
+# RUN
+# ==========================================
+
+if __name__ == "__main__":
+
+    url = input("Enter Google Maps URL: ").strip()
+
+    result = asyncio.run(scrape_google_reviews(url))
+
+    print("\n========== RESULT ==========")
+    print(json.dumps(result, indent=2))
