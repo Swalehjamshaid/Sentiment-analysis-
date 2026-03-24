@@ -1,11 +1,8 @@
 # requirements.txt
-# Updated March 23, 2026 – Rai Jamshaid (Lahore, PK)
-# Fixes: playwright-stealth ==1.0.6 to restore stealth_async import
-#        setuptools==81.0.0 to keep pkg_resources
-#        playwright==1.58.0 (latest stable)
+# Updated March 24, 2026 – Fix: Removed command syntax from package list
 # After push: Railway should build & workers boot successfully
 
-# Critical compatibility pins (must be at top)
+# Critical compatibility pins
 setuptools==81.0.0
 playwright-stealth==1.0.6
 
@@ -20,7 +17,8 @@ alembic==1.18.4
 greenlet>=1.1.0
 
 # --- SCRAPING & BROWSER ---
-pip install httpx
+# FIXED: Removed 'pip install' prefix
+httpx[http2]==0.27.2
 playwright==1.58.0
 undetected-playwright==0.3.0
 DrissionPage==4.1.0.0
@@ -49,7 +47,6 @@ requests==2.32.3
 urllib3>=2.3.0
 chardet==5.2.0
 charset_normalizer>=3.4.6
-httpx[http2]==0.27.2
 python-dateutil==2.9.0.post0
 
 # --- WEB FRAMEWORK & SERVER ---
@@ -90,7 +87,3 @@ googlemaps>=4.10.0
 google-api-python-client>=2.150.0
 google-auth>=2.35.0
 google-auth-oauthlib>=1.2.1
-
-# Optional extras (uncomment if needed)
-# beautifulsoup4==4.12.3
-# python-dotenv[cli]
