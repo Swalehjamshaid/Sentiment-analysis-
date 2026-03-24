@@ -2,7 +2,6 @@ import asyncio
 import random
 import json
 from typing import Dict, List
-
 from playwright.async_api import async_playwright
 
 USER_AGENTS = [
@@ -13,7 +12,7 @@ USER_AGENTS = [
 def clean(text):
     return " ".join(text.split()) if text else ""
 
-# ✅ Parse API response
+# ✅ PARSER
 def parse_reviews(raw: str) -> List[Dict]:
     reviews = []
 
@@ -22,6 +21,9 @@ def parse_reviews(raw: str) -> List[Dict]:
             raw = raw[4:]
 
         data = json.loads(raw)
+
+        if len(data) < 3:
+            return []
 
         for r in data[2]:
             try:
@@ -33,6 +35,7 @@ def parse_reviews(raw: str) -> List[Dict]:
                 })
             except:
                 continue
+
     except:
         pass
 
@@ -52,7 +55,7 @@ async def fetch_reviews(place_id: str, limit: int = 500):
 
         page = await context.new_page()
 
-        # 🔥 Capture API responses
+        # 🔥 CAPTURE API
         async def handle_response(response):
             try:
                 if "listentitiesreviews" in response.url:
@@ -71,20 +74,51 @@ async def fetch_reviews(place_id: str, limit: int = 500):
         # 🌍 Open Maps
         await page.goto(
             f"https://www.google.com/maps/place/?q=place_id:{place_id}",
-            timeout=120000
+            timeout=120000,
+            wait_until="domcontentloaded"
         )
 
-        # 🔥 Trigger loading
-        for _ in range(20):
+        await asyncio.sleep(5)
+
+        # 🔥 IMPORTANT: Click rating (THIS TRIGGERS API)
+        clicked = False
+
+        selectors = [
+            'button[jsaction*="pane.reviewChart.moreReviews"]',
+            'button[jsaction*="pane.reviewChart.openReviews"]',
+            'button:has-text("reviews")',
+            'button:has-text("Review")',
+            'span[role="img"]'
+        ]
+
+        for sel in selectors:
+            try:
+                await page.click(sel, timeout=5000)
+                clicked = True
+                break
+            except:
+                continue
+
+        if not clicked:
+            print("❌ Could not trigger reviews API")
+            await browser.close()
+            return []
+
+        await asyncio.sleep(5)
+
+        # 🔥 SCROLL AFTER OPENING REVIEWS
+        for _ in range(25):
             await page.mouse.wheel(0, 5000)
-            await asyncio.sleep(random.uniform(1, 2))
+            await asyncio.sleep(random.uniform(1.5, 3))
 
         await browser.close()
+
+    print(f"✅ Reviews collected: {len(collected)}")
 
     return list(collected.values())[:limit]
 
 
-# 🚀 Run
+# 🚀 TEST
 if __name__ == "__main__":
     data = asyncio.run(fetch_reviews("ChIJ8S6kk9YJGTkRWK6XHzCKSrA"))
     print(len(data))
