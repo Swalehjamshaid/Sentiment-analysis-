@@ -12,12 +12,11 @@ logger = logging.getLogger("app.scraper")
 
 async def fetch_reviews(place_id: str, limit: int = 50):
     """
-    STRICT PATCHRIGHT + WEBSHARE PROXY ROTATION:
-    This matches the Thomas Janssen logic perfectly.
+    STRICT PATCHRIGHT + WEBSHARE PROXY + COOKIE BYPASS:
+    The complete logic to bypass Google's 2026 security layers.
     """
     
-    # 🌐 YOUR REAL WEBSHARE PROXIES (from image_f1949d.jpg)
-    # Rotating through these makes you look like different users
+    # 🌐 YOUR WEBSHARE PROXIES (from image_f1949d.jpg)
     PROXIES = [
         "http://dkgjitgr:uzeqkqwjwmqe@31.59.20.176:6754",
         "http://dkgjitgr:uzeqkqwjwmqe@23.95.150.145:6114",
@@ -32,7 +31,7 @@ async def fetch_reviews(place_id: str, limit: int = 50):
         logger.info(f"🎭 Launching Patchright (Stealth Engine)...")
         logger.info(f"📡 Routing through Proxy: {selected_proxy.split('@')[-1]}")
 
-        # Launching with the patched binary that hides 'webdriver' flags
+        # Launch with Patchright binary to hide 'webdriver' flags
         browser = await p.chromium.launch(
             headless=True,
             proxy={"server": selected_proxy},
@@ -44,6 +43,7 @@ async def fetch_reviews(place_id: str, limit: int = 50):
             ]
         )
 
+        # Desktop Context to appear more 'trustworthy' to Google
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             viewport={"width": 1280, "height": 720}
@@ -51,19 +51,20 @@ async def fetch_reviews(place_id: str, limit: int = 50):
 
         page = await context.new_page()
         
-        # Apply the Thomas Janssen stealth layer to bypass fingerprinting
+        # Apply stealth_async to handle secondary fingerprinting (canvas, plugins, etc.)
         await stealth_async(page)
 
         captured_reviews = []
 
-        # 🔍 NETWORK INTERCEPTION (The Video Method)
+        # 🔍 THE VIDEO METHOD: Intercept the 'batchexecute' background stream
         async def handle_response(response):
             if "batchexecute" in response.url:
                 try:
                     text = await response.text()
+                    # Clean Google's JSON protection prefix
                     clean_text = text.replace(")]}'", "").strip()
                     
-                    # 'wrb.fr' is the internal identifier for review data
+                    # 'wrb.fr' is the key identifier for Map review data
                     matches = re.findall(r'\["wrb\.fr".*?\]\]', clean_text)
                     for m in matches:
                         raw_data = json.loads(m)
@@ -85,26 +86,41 @@ async def fetch_reviews(place_id: str, limit: int = 50):
         page.on("response", handle_response)
 
         try:
-            # Navigate to the Google Map Data URL
-            url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
+            # Add &hl=en to ensure the 'Accept' button is in English for our clicker
+            url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}&hl=en"
             
             logger.info(f"🌐 Navigating to Map...")
-            await page.goto(url, wait_until="networkidle", timeout=60000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-            # 🖱️ HUMAN SCROLLING
-            # This triggers the 'batchexecute' calls we need
+            # 🍪 COOKIE BYPASS: Google shows a consent page for UK/US proxies
+            try:
+                # Look for 'Accept all' or 'Agree' button
+                accept_button = page.get_by_role("button", name=re.compile("Accept all|Agree|Allow", re.IGNORECASE))
+                if await accept_button.is_visible(timeout=7000):
+                    await accept_button.click()
+                    logger.info("🍪 Cookie Consent Bypassed.")
+                    # Give it a moment to redirect back to the map
+                    await asyncio.sleep(3)
+            except Exception:
+                logger.info("🍪 No Cookie popup detected, proceeding...")
+
+            # Wait for the review container to actually exist before scrolling
+            await asyncio.sleep(5) 
+
             logger.info("🖱️ Scrolling to trigger background data...")
-            for i in range(12): 
-                await page.mouse.wheel(0, random.randint(1800, 2400))
-                # Longer pauses to account for proxy latency
-                await asyncio.sleep(random.uniform(4.0, 7.0))
+            for i in range(15): 
+                # Scroll within the viewport
+                await page.mouse.wheel(0, random.randint(1500, 2500))
+                
+                # Human-like delay to let the proxy load the next batch of data
+                await asyncio.sleep(random.uniform(4.0, 8.0))
                 
                 if len(captured_reviews) >= limit:
                     break
 
             await browser.close()
             
-            # Remove duplicates by review_id
+            # Deduplicate by unique review_id
             unique_reviews = {r['review_id']: r for r in captured_reviews}
             final_list = list(unique_reviews.values())
             
