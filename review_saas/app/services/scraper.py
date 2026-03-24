@@ -11,43 +11,69 @@ from playwright_stealth import stealth_async
 # CONFIG
 # ==========================================
 
-MAX_RETRIES = 5
-SCROLL_STEPS = 8
+MAX_RETRIES = 4
+MAX_WORKERS = 3
+SCROLL_STEPS = 6
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/119 Safari/537.36",
 ]
 
-# 🔥 ADD YOUR REAL PROXIES HERE
 PROXIES = [
     None,
-    # "http://user:pass@ip1:port",
-    # "http://user:pass@ip2:port",
+    # "http://user:pass@ip:port",
 ]
 
 SESSION_FILE = "session.json"
 
+# ==========================================
+# 🔥 PROXY MANAGER
+# ==========================================
+
+class ProxyManager:
+    def __init__(self, proxies):
+        self.proxies = proxies.copy()
+        self.fail_count = {p: 0 for p in proxies}
+
+    def get_proxy(self):
+        if not self.proxies:
+            return None
+        sorted_proxies = sorted(self.proxies, key=lambda p: self.fail_count.get(p, 0))
+        return random.choice(sorted_proxies[:2])
+
+    def mark_success(self, proxy):
+        if proxy in self.fail_count:
+            self.fail_count[proxy] = max(0, self.fail_count[proxy] - 1)
+
+    def mark_failure(self, proxy):
+        if proxy not in self.fail_count:
+            return
+        self.fail_count[proxy] += 1
+
+        if self.fail_count[proxy] >= 3:
+            print(f"❌ Removing bad proxy: {proxy}")
+            self.proxies.remove(proxy)
+
+
+proxy_manager = ProxyManager(PROXIES)
 
 # ==========================================
 # HUMAN SIMULATION
 # ==========================================
 
 async def simulate_human(page):
-    for _ in range(5):
-        await page.mouse.move(
-            random.randint(100, 900),
-            random.randint(100, 700)
-        )
-        await asyncio.sleep(random.uniform(0.3, 1.2))
+    for _ in range(4):
+        await page.mouse.move(random.randint(100, 900), random.randint(100, 700))
+        await asyncio.sleep(random.uniform(0.3, 1.0))
 
     for _ in range(SCROLL_STEPS):
-        await page.mouse.wheel(0, random.randint(2000, 4000))
-        await asyncio.sleep(random.uniform(1.5, 3))
+        await page.mouse.wheel(0, random.randint(1500, 3500))
+        await asyncio.sleep(random.uniform(1, 2.5))
 
 
 # ==========================================
-# PARSER (Google batchexecute)
+# PARSER (batchexecute)
 # ==========================================
 
 def parse_batchexecute(text: str) -> List[Dict[str, Any]]:
@@ -80,138 +106,145 @@ def parse_batchexecute(text: str) -> List[Dict[str, Any]]:
 
         return reviews
 
-    except:
+    except Exception as e:
+        print("Parse Error:", e)
         return []
 
 
 # ==========================================
-# ENGINE CLASS
+# SINGLE SCRAPE TASK
 # ==========================================
 
-class ScrapelessEngine:
+async def run_single_scrape(url: str) -> List[Dict]:
 
-    def __init__(self):
-        self.playwright = None
-        self.browser = None
-        self.context = None
+    playwright = await async_playwright().start()
 
-    async def init_browser(self):
-        self.playwright = await async_playwright().start()
+    proxy = proxy_manager.get_proxy()
 
-        proxy = random.choice(PROXIES)
+    browser = await playwright.chromium.launch(
+        headless=True,
+        proxy={"server": proxy} if proxy else None
+    )
 
-        self.browser = await self.playwright.chromium.launch(
-            headless=True,
-            proxy={"server": proxy} if proxy else None
-        )
+    context = await browser.new_context(
+        user_agent=random.choice(USER_AGENTS)
+    )
 
+    page = await context.new_page()
+    await stealth_async(page)
+
+    batchexecute_data = []
+
+    async def handle_response(response):
         try:
-            self.context = await self.browser.new_context(
-                user_agent=random.choice(USER_AGENTS),
-                storage_state=SESSION_FILE
-            )
-        except:
-            self.context = await self.browser.new_context(
-                user_agent=random.choice(USER_AGENTS)
-            )
-
-    async def close(self):
-        try:
-            if self.context:
-                await self.context.close()
-            if self.browser:
-                await self.browser.close()
-            if self.playwright:
-                await self.playwright.stop()
+            if "batchexecute" in response.url:
+                batchexecute_data.append(await response.text())
         except:
             pass
 
-    async def run_single(self, url: str) -> List[Dict]:
+    page.on("response", handle_response)
 
-        await self.init_browser()
+    try:
+        await page.goto(url, timeout=60000)
+        await page.wait_for_load_state("domcontentloaded")
 
-        page = await self.context.new_page()
-        await stealth_async(page)
-
-        batchexecute_data = []
-
-        async def handle_response(response):
-            try:
-                if "batchexecute" in response.url:
-                    text = await response.text()
-                    batchexecute_data.append(text)
-            except:
-                pass
-
-        page.on("response", handle_response)
-
+        # Consent
         try:
-            await page.goto(url, timeout=60000)
-            await page.wait_for_load_state("domcontentloaded")
+            await page.click("button:has-text('I agree')", timeout=5000)
+        except:
+            pass
 
-            # Handle consent
-            try:
-                await page.click("button:has-text('I agree')", timeout=5000)
-            except:
-                pass
+        await simulate_human(page)
+        await asyncio.sleep(3)
 
-            # Simulate human
-            await simulate_human(page)
+        await browser.close()
+        await playwright.stop()
 
-            await asyncio.sleep(4)
+        all_reviews = []
+        for raw in batchexecute_data:
+            all_reviews.extend(parse_batchexecute(raw))
 
-            # Save session
-            try:
-                await self.context.storage_state(path=SESSION_FILE)
-            except:
-                pass
+        if all_reviews:
+            proxy_manager.mark_success(proxy)
+        else:
+            proxy_manager.mark_failure(proxy)
 
-            await self.close()
+        return all_reviews
 
-            # Parse
-            all_reviews = []
-            for raw in batchexecute_data:
-                all_reviews.extend(parse_batchexecute(raw))
+    except Exception as e:
+        print(f"❌ Proxy {proxy} failed:", e)
+        proxy_manager.mark_failure(proxy)
 
-            return all_reviews
+        await browser.close()
+        await playwright.stop()
 
-        except Exception as e:
-            print("❌ Run Error:", e)
-            await self.close()
-            return []
-
-    async def scrape(self, url: str) -> Dict[str, Any]:
-
-        all_results = []
-
-        for attempt in range(MAX_RETRIES):
-            print(f"🚀 Attempt {attempt+1}")
-
-            results = await self.run_single(url)
-
-            if results:
-                all_results.extend(results)
-
-                # If enough data found, stop early
-                if len(all_results) > 20:
-                    break
-
-            await asyncio.sleep(2)
-
-        # Remove duplicates
-        unique_reviews = {r["text"]: r for r in all_results}.values()
-
-        return {
-            "success": len(unique_reviews) > 0,
-            "count": len(unique_reviews),
-            "reviews": list(unique_reviews)[:50]
-        }
+        return []
 
 
 # ==========================================
-# PUBLIC FUNCTION
+# WORKER SYSTEM
+# ==========================================
+
+async def worker(queue: asyncio.Queue, results: List):
+
+    while not queue.empty():
+        url = await queue.get()
+
+        try:
+            data = await run_single_scrape(url)
+            if data:
+                results.extend(data)
+        except Exception as e:
+            print("Worker error:", e)
+
+        finally:
+            queue.task_done()
+
+
+# ==========================================
+# MAIN ENGINE
 # ==========================================
 
 async def scrape_google_reviews(url: str):
-    engine = ScrapelessEngine()
-    return await engine.scrape(url)
+
+    queue = asyncio.Queue()
+
+    # Add retry tasks
+    for _ in range(MAX_RETRIES):
+        await queue.put(url)
+
+    results = []
+
+    workers = [
+        asyncio.create_task(worker(queue, results))
+        for _ in range(MAX_WORKERS)
+    ]
+
+    await queue.join()
+
+    for w in workers:
+        w.cancel()
+
+    # Deduplicate
+    unique_reviews = {
+        f"{r['author']}_{r['text'][:50]}": r
+        for r in results
+    }.values()
+
+    return {
+        "success": len(unique_reviews) > 0,
+        "count": len(unique_reviews),
+        "reviews": list(unique_reviews)[:50]
+    }
+
+
+# ==========================================
+# 🔥 PUBLIC FUNCTION (FIXED)
+# ==========================================
+
+async def fetch_reviews(url: str):
+    return await scrape_google_reviews(url)
+
+
+# DEBUG (to confirm Railway loads correct file)
+print("✅ scraper.py fully loaded with workers + proxy system")
