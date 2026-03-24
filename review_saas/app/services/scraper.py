@@ -21,60 +21,77 @@ USER_AGENTS = [
 def clean_text(text):
     return " ".join(text.split()) if text else ""
 
+
 # =====================================================
-# 🔥 GOOGLE RESPONSE PARSER (REAL STRUCTURE)
+# 🔥 SAFE PARSER (RESILIENT - 2026 PRO LEVEL)
 # =====================================================
+
+def find_reviews(obj):
+    """Recursively find review-like structures"""
+    if isinstance(obj, list):
+        for item in obj:
+            if isinstance(item, list) and len(item) >= 4:
+                yield item
+            yield from find_reviews(item)
+
 
 def parse_google_reviews(raw_text: str) -> List[Dict]:
 
     results = []
 
     try:
-        # Google wraps JSON in )]}' 
         if raw_text.startswith(")]}'"):
             raw_text = raw_text[4:]
 
         data = json.loads(raw_text)
 
-        # Deep nested structure (based on real reverse engineering)
-        reviews = data[2] if len(data) > 2 else []
-
-        for r in reviews:
+        for r in find_reviews(data):
             try:
-                review_id = r[0]
+                review_id = r[0] if isinstance(r[0], str) else None
 
-                author = r[1][0] if r[1] else "Anonymous"
-                rating = r[4] if len(r) > 4 else None
-                text = r[3] if len(r) > 3 else ""
+                author = None
+                if len(r) > 1 and isinstance(r[1], list):
+                    author = r[1][0]
 
-                results.append({
-                    "review_id": review_id,
-                    "author_name": author,
-                    "rating": rating,
-                    "text": clean_text(text),
-                    "source": "API"
-                })
+                rating = None
+                if len(r) > 4 and isinstance(r[4], (int, float)):
+                    rating = int(r[4])
+
+                text = None
+                if len(r) > 3 and isinstance(r[3], str):
+                    text = r[3]
+
+                if review_id and text:
+                    results.append({
+                        "review_id": review_id,
+                        "author_name": author or "Anonymous",
+                        "rating": rating,
+                        "text": clean_text(text),
+                        "source": "API"
+                    })
 
             except:
                 continue
 
-    except:
-        pass
+    except Exception as e:
+        logger.warning(f"API parse failed: {e}")
 
     return results
 
+
 # =====================================================
-# 🧠 HUMAN SIMULATION
+# 🧠 HUMAN DELAY
 # =====================================================
 
-async def human_delay():
-    await asyncio.sleep(random.uniform(1.2, 3))
+async def human_delay(a=1.2, b=2.5):
+    await asyncio.sleep(random.uniform(a, b))
+
 
 # =====================================================
 # 🔁 SINGLE SESSION
 # =====================================================
 
-async def scrape_session(place_id: str):
+async def scrape_session(place_id: str, limit: int):
 
     results = {}
     api_results = []
@@ -83,17 +100,16 @@ async def scrape_session(place_id: str):
         browser = await p.chromium.launch(headless=True)
 
         context = await browser.new_context(
-            user_agent=random.choice(USER_AGENTS)
+            user_agent=random.choice(USER_AGENTS),
+            viewport={"width": 1280, "height": 2000}
         )
 
         page = await context.new_page()
 
-        # 🔥 Capture API
+        # 🔥 CAPTURE API RESPONSES
         async def handle_response(response):
             try:
-                url = response.url
-
-                if "listentitiesreviews" in url:
+                if "listentitiesreviews" in response.url:
                     text = await response.text()
                     parsed = parse_google_reviews(text)
 
@@ -105,44 +121,61 @@ async def scrape_session(place_id: str):
 
         page.on("response", handle_response)
 
-        # Open Maps
-        await page.goto(f"https://www.google.com/maps/place/?q=place_id:{place_id}")
+        # 🌍 OPEN MAPS
+        await page.goto(f"https://www.google.com/maps/place/?q=place_id:{place_id}", timeout=60000)
         await human_delay()
 
-        # Click reviews
+        # ⭐ OPEN REVIEWS PANEL
         try:
             await page.click('button[jsaction*="pane.reviewChart.moreReviews"]', timeout=10000)
         except:
-            await page.click('button:has-text("reviews")')
+            try:
+                await page.click('button:has-text("reviews")')
+            except:
+                logger.error("❌ Cannot open reviews panel")
+                await browser.close()
+                return []
 
         await human_delay()
 
+        # 📜 SCROLL CONTAINER
+        await page.wait_for_selector('div[role="feed"]', timeout=15000)
         scrollable = page.locator('div[role="feed"]')
 
         last_count = 0
         stagnation = 0
 
-        while True:
+        while len(results) < limit:
 
-            await scrollable.evaluate("el => el.scrollBy(0, 4000)")
+            # 🔽 SCROLL
+            await scrollable.evaluate("el => el.scrollBy(0, 5000)")
             await human_delay()
 
+            # 🔽 EXPAND TEXT
+            buttons = page.locator('button.w8nwRe')
+            for i in range(await buttons.count()):
+                try:
+                    await buttons.nth(i).click()
+                except:
+                    pass
+
+            # 🧩 DOM EXTRACTION
             cards = await page.query_selector_all('div[data-review-id]')
 
             for c in cards:
                 try:
                     rid = await c.get_attribute("data-review-id")
+
                     if not rid or rid in results:
                         continue
 
-                    author_el = await c.query_selector('.d4r55')
-                    author = await author_el.inner_text() if author_el else "Anonymous"
+                    author = await c.locator('.d4r55').inner_text(timeout=2000)
+                    text = await (
+                        c.locator('.wiI7pd').inner_text(timeout=2000)
+                        or c.locator('.bN97Pc').inner_text(timeout=2000)
+                    )
 
-                    text_el = await c.query_selector('.wiI7pd') or await c.query_selector('.bN97Pc')
-                    text = await text_el.inner_text() if text_el else ""
-
-                    rating_el = await c.query_selector('span.kvMYJc')
-                    rating_raw = await rating_el.get_attribute("aria-label") if rating_el else None
+                    rating_raw = await c.locator('span.kvMYJc').get_attribute("aria-label")
                     rating = int(rating_raw[0]) if rating_raw else None
 
                     if text:
@@ -154,9 +187,15 @@ async def scrape_session(place_id: str):
                             "source": "DOM"
                         }
 
+                    if len(results) >= limit:
+                        break
+
                 except:
                     continue
 
+            logger.info(f"Collected: {len(results)}")
+
+            # 🛑 STOP CONDITION
             if len(results) == last_count:
                 stagnation += 1
             else:
@@ -169,32 +208,36 @@ async def scrape_session(place_id: str):
 
         await browser.close()
 
-    # Merge API + DOM
+    # 🔥 MERGE API DATA
     for r in api_results:
         results[r["review_id"]] = r
 
-    return list(results.values())
+    return list(results.values())[:limit]
+
 
 # =====================================================
-# 🚀 MULTI-SESSION ENGINE (KEY FOR 95%)
+# 🚀 MULTI-SESSION ENGINE
 # =====================================================
 
-async def fetch_reviews(place_id: str, sessions: int = 3):
+async def fetch_reviews(place_id: str, limit: int = 1000, sessions: int = 3):
 
     final_results = {}
 
-    for i in range(sessions):
-        logger.info(f"🚀 Session {i+1}")
+    tasks = [
+        scrape_session(place_id, limit)
+        for _ in range(sessions)
+    ]
 
-        try:
-            session_data = await scrape_session(place_id)
+    session_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            for r in session_data:
-                final_results[r["review_id"]] = r
+    for res in session_results:
+        if isinstance(res, Exception):
+            logger.warning(f"Session error: {res}")
+            continue
 
-        except Exception as e:
-            logger.warning(f"Session failed: {e}")
+        for r in res:
+            final_results[r["review_id"]] = r
 
     logger.info(f"🎯 FINAL UNIQUE REVIEWS: {len(final_results)}")
 
-    return list(final_results.values())
+    return list(final_results.values())[:limit]
