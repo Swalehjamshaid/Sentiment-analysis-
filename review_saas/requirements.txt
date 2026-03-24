@@ -1,6 +1,6 @@
 # ==========================================
 # CCEOP-2026-03 & ReviewSaaS CORE
-# Finalized: March 24, 2026
+# Finalized: March 24, 2026 (Conflict Fix)
 # ==========================================
 
 # --- STEALTH SCRAPING ENGINE (Per Tutorial) ---
@@ -58,8 +58,9 @@ python-jose[cryptography]==3.3.0
 authlib==1.3.1
 pyotp==2.9.0
 
-# --- HTTP & UTILS ---
-httpx[http2]==0.27.2
+# --- HTTP & UTILS (FIXED VERSION CONFLICT) ---
+# httpx pinned to 0.26.2 to satisfy agentql 0.4.0 requirements
+httpx[http2]==0.26.2
 requests==2.32.3
 urllib3>=2.3.0
 chardet==5.2.0
