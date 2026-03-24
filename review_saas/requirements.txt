@@ -20,6 +20,7 @@ alembic==1.18.4
 greenlet>=1.1.0
 
 # --- SCRAPING & BROWSER ---
+pip install httpx
 playwright==1.58.0
 undetected-playwright==0.3.0
 DrissionPage==4.1.0.0
