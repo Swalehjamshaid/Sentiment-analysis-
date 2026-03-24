@@ -1,11 +1,19 @@
 [phases.setup]
 nixPkgs = ["python311", "playwright-driver"]
 
-[phases.build]
+[phases.install]
+# We move everything to 'install' so Railway caches the browser download
 cmds = [
-    "pip install -r requirements.txt",
-    "playwright install --with-deps chromium"
+    "python -m venv --copies /opt/venv && . /opt/venv/bin/activate && pip install -r requirements.txt",
+    "patchright install --with-deps chromium"
 ]
 
+[phases.build]
+# Keeps the build phase light to avoid timeouts
+cmds = ["echo 'Dependencies and Browser installed successfully'"]
+
 [start]
-cmd = "python main.py"
+# 1. Activates the virtual environment
+# 2. Uses Gunicorn for stability
+# 3. Reduces workers to 2 to prevent RAM crashes (each worker opens a browser)
+cmd = ". /opt/venv/bin/activate && gunicorn -w 2 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:${PORT:-8080}"
