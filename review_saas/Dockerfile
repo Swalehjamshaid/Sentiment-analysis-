@@ -1,11 +1,19 @@
+# ================================
+# BASE IMAGE
+# ================================
 FROM python:3.11-slim
 
+# ================================
+# ENVIRONMENT VARIABLES
+# ================================
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=off \
     POETRY_VIRTUALENVS_CREATE=false \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-# System dependencies for Playwright (added some missing ones)
+# ================================
+# SYSTEM DEPENDENCIES FOR PLAYWRIGHT
+# ================================
 RUN apt-get update && apt-get install -y \
     curl \
     wget \
@@ -25,23 +33,38 @@ RUN apt-get update && apt-get install -y \
     libgtk-3-0 \
     fonts-liberation \
     libdbus-glib-1-2 \
-    libxvfb1 \
-    libpango1.0-0 \
     libasound2 \
-    libgdk-pixbuf2.0-0 \
+    libgdk-pixbuf-xlib-2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
+# ================================
+# SET WORKDIR
+# ================================
 WORKDIR /app
 
-COPY requirements.txt ./
+# ================================
+# COPY PROJECT FILES
+# ================================
+COPY requirements.txt ./ 
 COPY app ./app
 
+# ================================
+# INSTALL PYTHON DEPENDENCIES
+# ================================
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 
-# Install Playwright browsers
+# ================================
+# INSTALL PLAYWRIGHT BROWSERS
+# ================================
 RUN playwright install chromium firefox webkit
 
+# ================================
+# EXPOSE PORT
+# ================================
 EXPOSE 8080
 
+# ================================
+# START COMMAND
+# ================================
 CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080", "--workers", "1"]
