@@ -1,44 +1,24 @@
 # =============================================
-# Playwright + Python Docker Image (2026)
+# Final Working Dockerfile for Railway 
+# (Playwright + FastAPI + Gunicorn + $PORT fix)
 # =============================================
-FROM python:3.11-slim-bookworm
-
-# Install system dependencies required by Firefox (Playwright/Patchright)
-RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg \
-    ca-certificates \
-    libnss3 \
-    libnspr4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2 \
-    && rm -rf /var/lib/apt/lists/*
+FROM mcr.microsoft.com/playwright/python:v1.58.0-noble
 
 WORKDIR /app
 
-# Copy and install Python dependencies
+# 1. Copy and install dependencies first (this layer is cached)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Download browsers (very important!)
+# 2. Download Firefox browser (needed for your scraper)
 RUN playwright install firefox --with-deps
-# If you prefer patchright instead:
-# RUN patchright install firefox --with-deps
 
-# Copy your application code
+# 3. Copy your application code (this layer rebuilds when you change scraper.py)
 COPY . .
 
-# Expose FastAPI port
+# 4. Expose port (for documentation)
 EXPOSE 8080
 
-# Run with Gunicorn + Uvicorn worker
-CMD ["gunicorn", "app.main:app", "--workers", "1", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080"]
+# 5. FIXED START COMMAND FOR RAILWAY
+# This uses shell form so $PORT variable from Railway gets properly expanded
+CMD ["sh", "-c", "gunicorn app.main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8080}"]
