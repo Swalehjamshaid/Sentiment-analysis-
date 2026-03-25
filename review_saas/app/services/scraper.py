@@ -3,22 +3,21 @@ import json
 import re
 import random
 import logging
+import csv
 
-# Engines
+# Professional Scraping Engines
 from patchright.async_api import async_playwright as patchright_playwright
 from playwright.async_api import async_playwright as playwright
 from playwright_stealth import stealth_async
-
-# Optional fallback
 import requests
 
+# Logger configuration for real-time tracking
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("multi.scraper")
+logger = logging.getLogger("ReviewSaaS.Master")
 
-
-# ================================
-# COMMON PROXY POOL
-# ================================
+# ==========================================
+# 1. UPDATED PROXY POOL (From your Dashboard)
+# ==========================================
 PROXIES = [
     "http://dkgjitgr:uzeqkqwjwmqe@31.59.20.176:6754",
     "http://dkgjitgr:uzeqkqwjwmqe@23.95.150.145:6114",
@@ -27,27 +26,30 @@ PROXIES = [
     "http://dkgjitgr:uzeqkqwjwmqe@107.172.163.27:6543"
 ]
 
-
-# ================================
-# ENGINE 1: PATCHRIGHT (BEST)
-# ================================
+# ==========================================
+# 2. ENGINE 1: PATCHRIGHT (Video-Aligned Logic)
+# ==========================================
 async def engine_patchright(place_id, limit):
-    logger.info("🚀 Engine 1: Patchright Starting")
-
+    """
+    Primary Engine: Uses the 'batchexecute' interception 
+    method shown in the advanced portion of the tutorial.
+    """
+    logger.info("🚀 Engine 1: Patchright Starting (Stealth Mode)")
     proxy = random.choice(PROXIES)
 
     async with patchright_playwright() as p:
         browser = await p.chromium.launch(
-            headless=True,
+            headless=True, # Set to False if you want to see the browser
             proxy={"server": proxy}
         )
 
         context = await browser.new_context()
         page = await context.new_page()
-        await stealth_async(page)
+        await stealth_async(page) # Hides automation signatures
 
         reviews = []
 
+        # Listener to catch the raw JSON data Google sends to the browser
         async def handle_response(response):
             if "batchexecute" in response.url:
                 try:
@@ -58,136 +60,52 @@ async def engine_patchright(place_id, limit):
                     for m in matches:
                         raw = json.loads(m)
                         inner = json.loads(raw[2])
-
                         for block in inner:
                             for r in block:
                                 try:
                                     reviews.append({
-                                        "review_id": r[0],
                                         "author": r[1][0],
                                         "rating": r[4],
-                                        "text": r[3]
+                                        "text": r[3],
+                                        "id": r[0]
                                     })
-                                except:
-                                    continue
-                except:
-                    pass
+                                except: continue
+                except: pass
 
         page.on("response", handle_response)
 
-        url = f"https://www.google.com/maps/search/?api=1&query_place_id={place_id}&hl=en"
-
+        # Build URL using Place ID
+        url = f"https://www.google.com/maps/place/Do+or+Dive+Bar/@40.6867831,-73.9570104,17z/data=!3m23{place_id}&hl=en"
         await page.goto(url, wait_until="networkidle", timeout=60000)
 
-        try:
-            await page.wait_for_selector('.wiI7eb', timeout=10000)
-        except:
-            pass
-
+        # Human-like scrolling loop to trigger data loading
         for _ in range(10):
             await page.mouse.wheel(0, 3000)
             await asyncio.sleep(random.uniform(3, 6))
 
         await browser.close()
-
-        logger.info(f"Patchright got {len(reviews)} reviews")
+        logger.info(f"✅ Patchright recovered {len(reviews)} reviews")
         return reviews[:limit]
 
+# ==========================================
+# 3. MASTER CONTROLLER & SAVING
+# ==========================================
+async def run_scraper(place_id, limit=50):
+    # Try the best engine first
+    results = await engine_patchright(place_id, limit)
+    
+    if results:
+        # Save results to CSV (Final step of the video)
+        keys = results[0].keys()
+        with open('google_reviews_master.csv', 'w', newline='', encoding='utf-8') as f:
+            dict_writer = csv.DictWriter(f, fieldnames=keys)
+            dict_writer.writeheader()
+            dict_writer.writerows(results)
+        logger.info("📁 Data saved to google_reviews_master.csv")
+    else:
+        logger.error("❌ No reviews found.")
 
-# ================================
-# ENGINE 2: PLAYWRIGHT (NO STEALTH)
-# ================================
-async def engine_playwright(place_id, limit):
-    logger.info("⚙️ Engine 2: Playwright Starting")
-
-    async with playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
-
-        reviews = []
-
-        try:
-            url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-            await page.goto(url, timeout=60000)
-
-            await page.wait_for_timeout(5000)
-
-            elements = await page.query_selector_all('.wiI7eb')
-
-            for el in elements:
-                text = await el.inner_text()
-                reviews.append({"text": text})
-
-        except Exception as e:
-            logger.warning(f"Playwright failed: {e}")
-
-        await browser.close()
-        return reviews[:limit]
-
-
-# ================================
-# ENGINE 3: REQUESTS (FAST API HACK)
-# ================================
-def engine_requests(place_id, limit):
-    logger.info("🌐 Engine 3: Requests Starting")
-
-    try:
-        url = "https://www.google.com/maps/preview/review/listentitiesreviews"
-
-        params = {
-            "authuser": "0",
-            "hl": "en",
-            "gl": "us",
-            "pb": f"!1m2!1y{place_id}!2y0"
-        }
-
-        res = requests.get(url, params=params, timeout=10)
-
-        if res.status_code == 200:
-            data = res.text
-            matches = re.findall(r'\[\[".*?"\]\]', data)
-
-            return [{"raw": m} for m in matches[:limit]]
-
-    except Exception as e:
-        logger.warning(f"Requests failed: {e}")
-
-    return []
-
-
-# ================================
-# ENGINE 4: FINAL FALLBACK
-# ================================
-async def engine_empty(place_id, limit):
-    logger.warning("⚠️ All engines failed")
-    return []
-
-
-# ================================
-# MASTER CONTROLLER
-# ================================
-async def fetch_reviews(place_id: str, limit: int = 50):
-
-    engines = [
-        engine_patchright,
-        engine_playwright,
-        lambda p, l: asyncio.to_thread(engine_requests, p, l)
-    ]
-
-    for engine in engines:
-        try:
-            logger.info(f"🔄 Trying engine: {engine.__name__}")
-
-            if asyncio.iscoroutinefunction(engine):
-                result = await engine(place_id, limit)
-            else:
-                result = await engine(place_id, limit)
-
-            if result and len(result) > 5:
-                logger.info(f"✅ SUCCESS with {engine.__name__}")
-                return result
-
-        except Exception as e:
-            logger.error(f"❌ Engine failed: {engine.__name__} | {e}")
-
-    return await engine_empty(place_id, limit)
+if __name__ == "__main__":
+    # Your target Place ID (Replace with yours)
+    TARGET_PLACE_ID = "ChIJN1t_tDeuEmsRUoG3yEAt848"
+    asyncio.run(run_scraper(TARGET_PLACE_ID, 30))
