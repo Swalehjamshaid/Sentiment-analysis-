@@ -12,7 +12,7 @@ ENV PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # ================================
-# SYSTEM DEPENDENCIES
+# SYSTEM DEPENDENCIES (MANUAL FIX)
 # ================================
 RUN apt-get update && apt-get install -y \
     curl \
@@ -35,6 +35,7 @@ RUN apt-get update && apt-get install -y \
     libdbus-glib-1-2 \
     libasound2 \
     libgdk-pixbuf-xlib-2.0-0 \
+    fonts-unifont \
     && rm -rf /var/lib/apt/lists/*
 
 # ================================
@@ -55,10 +56,9 @@ RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 
 # ================================
-# PLAYWRIGHT FIX (IMPORTANT)
+# INSTALL ONLY CHROMIUM
 # ================================
 RUN playwright install chromium
-RUN playwright install-deps chromium
 
 # ================================
 # EXPOSE PORT
