@@ -1,19 +1,18 @@
 # ================================
-# 1. BASE IMAGE
+# BASE IMAGE
 # ================================
 FROM python:3.11-slim
 
 # ================================
-# 2. ENVIRONMENT CONFIG
+# ENVIRONMENT CONFIG
 # ================================
 ENV PYTHONUNBUFFERED=1 \
-    # Force Playwright to store browsers in a consistent location
+    # Sync Playwright path for the scraper
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    # Optimize memory for Railway
     MALLOC_ARENA_MAX=2
 
 # ================================
-# 3. SYSTEM DEPENDENCIES
+# SYSTEM DEPENDENCIES
 # ================================
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl wget gnupg ca-certificates \
@@ -24,7 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ================================
-# 4. PYTHON INSTALLATION
+# WORKDIR & PYTHON INSTALL
 # ================================
 WORKDIR /app
 COPY requirements.txt .
@@ -32,18 +31,19 @@ RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # ================================
-# 5. BROWSER INSTALLATION
+# BROWSER INSTALLATION (CRITICAL)
 # ================================
-# This MUST be done during the build phase
+# This ensures the browser exists before the backend tries to call it
 RUN playwright install --with-deps chromium
 
 # ================================
-# 6. APPLICATION CODE
+# APPLICATION CODE
 # ================================
 COPY . .
 
 # ================================
-# 7. START COMMAND
+# START SERVER (BACKEND SYNC)
 # ================================
 EXPOSE 8080
+# Timeout 120 ensures the scraper has time to finish before Gunicorn kills it
 CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080", "--workers", "1", "--timeout", "120"]
