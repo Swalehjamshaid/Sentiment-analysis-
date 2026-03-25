@@ -5,7 +5,8 @@ nixPkgs = ["python311", "playwright-driver"]
 # We move everything to 'install' so Railway caches the browser download
 cmds = [
     "python -m venv --copies /opt/venv && . /opt/venv/bin/activate && pip install -r requirements.txt",
-    "patchright install --with-deps chromium"
+    # FIXED: Changed chromium to firefox to match your scraper.py logic
+    "patchright install --with-deps firefox" 
 ]
 
 [phases.build]
@@ -15,5 +16,6 @@ cmds = ["echo 'Dependencies and Browser installed successfully'"]
 [start]
 # 1. Activates the virtual environment
 # 2. Uses Gunicorn for stability
-# 3. Reduces workers to 2 to prevent RAM crashes (each worker opens a browser)
-cmd = ". /opt/venv/bin/activate && gunicorn -w 2 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:${PORT:-8080}"
+# 3. FIXED: Reduced to 1 worker. Launching multiple browsers will crash a standard Railway RAM limit.
+# 4. FIXED: Added --timeout 120 because scraping 300 reviews takes time.
+cmd = ". /opt/venv/bin/activate && gunicorn -w 1 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:${PORT:-8080} --timeout 120"
