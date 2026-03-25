@@ -1,20 +1,14 @@
 [phases.setup]
-# We add 'pkgs.playwright-driver' to get the necessary system libraries 
-# like libnss3, libatk, etc., without needing apt-get.
-nixPkgs = ["python311", "playwright-driver", "nodejs"] 
+# 'playwright-driver' provides the OS-level dependencies
+nixPkgs = ["python311", "playwright-driver"]
 
 [phases.install]
 cmds = [
     "python -m venv /opt/venv",
-    ". /opt/venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt",
-    # We use 'install' without '--with-deps' because Nix handles the deps
-    ". /opt/venv/bin/activate && playwright install firefox"
+    ". /opt/venv/bin/activate && pip install -r requirements.txt",
+    # Use the specific library you have in requirements.txt (playwright or patchright)
+    ". /opt/venv/bin/activate && playwright install chromium"
 ]
 
-[phases.build]
-cmds = ["echo 'Build complete'"]
-
 [start]
-# Using 'gunicorn' with 'uvicorn' is great for production.
-# Added --preload to save memory if you ever increase workers.
-cmd = ". /opt/venv/bin/activate && gunicorn -w 1 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:${PORT:-8080} --timeout 120 --preload"
+cmd = ". /opt/venv/bin/activate && gunicorn -w 1 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:${PORT:-8080} --timeout 120"
