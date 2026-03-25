@@ -27,11 +27,12 @@ PROXIES = [
 ]
 
 # =================================================================
-# CORE SCRAPER ENGINE
+# CORE SCRAPER ENGINE (SYNCED WITH BACKEND)
 # =================================================================
 async def fetch_reviews(place_id: str, limit: int = 50):
     """
     Advanced Playwright Scraper using BatchExecute interception.
+    Synchronized with FastAPI's async loop.
     """
     logger.info(f"🚀 Initializing Master Scraper for: {place_id}")
     
@@ -53,14 +54,14 @@ async def fetch_reviews(place_id: str, limit: int = 50):
         page = await context.new_page()
         await stealth_async(page)
 
-        # --- DATA INTERCEPTION LOGIC ---
+        # --- NETWORK DATA INTERCEPTION ---
         async def handle_response(response):
             if "batchexecute" in response.url:
                 try:
                     text = await response.text()
                     cleaned_text = text.replace(")]}'", "").strip()
                     
-                    # Regex for internal 'wrb.fr' data blocks
+                    # Intercepting the 'wrb.fr' data arrays from your screenshots
                     matches = re.findall(r'\["wrb\.fr".*?\]\]', cleaned_text)
                     
                     for match in matches:
@@ -94,16 +95,17 @@ async def fetch_reviews(place_id: str, limit: int = 50):
         try:
             await page.goto(url, wait_until="networkidle", timeout=60000)
             
-            logger.info("Starting scroll sequence...")
+            logger.info("Starting infinite scroll sequence...")
             scrolls = 0
+            # Ensure we scroll enough to hit the limit requested by the frontend
             max_scrolls = (limit // 10) + 10
 
             while len(reviews_data) < limit and scrolls < max_scrolls:
                 await page.mouse.wheel(0, 4000)
-                # Async sleep to keep the loop responsive
+                # Async sleep keeps the backend responsive to other users
                 await asyncio.sleep(random.uniform(3.0, 5.0))
                 scrolls += 1
-                logger.info(f"Progress: {len(reviews_data)} / {limit}")
+                logger.info(f"Progress: {len(reviews_data)} / {limit} (Synced)")
 
         except Exception as e:
             logger.error(f"❌ Scraper failure: {str(e)}")
@@ -113,25 +115,20 @@ async def fetch_reviews(place_id: str, limit: int = 50):
 
     return reviews_data[:limit]
 
-# ALIAS FOR ROUTE COMPATIBILITY
+# ALIAS FOR BACKEND ROUTE COMPATIBILITY
 scrape_google_reviews = fetch_reviews
 
 # =================================================================
-# EXPORT UTILITY
+# DATA EXPORT & LOCAL TESTING
 # =================================================================
 def save_to_csv(data, filename="scraped_reviews.csv"):
-    if not data:
-        return
+    if not data: return
     keys = data[0].keys()
     with open(filename, 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
         writer.writerows(data)
-    logger.info(f"📁 Exported to {filename}")
 
-# =================================================================
-# LOCAL TEST RUN
-# =================================================================
 if __name__ == "__main__":
     TEST_ID = "ChIJDVYKpFEEGTkRp_XASXZ21Tc"
     results = asyncio.run(fetch_reviews(TEST_ID, limit=20))
