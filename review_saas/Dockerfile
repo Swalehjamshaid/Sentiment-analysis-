@@ -12,7 +12,7 @@ ENV PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # ================================
-# SYSTEM DEPENDENCIES (MINIMAL)
+# SYSTEM DEPENDENCIES
 # ================================
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -36,6 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2 \
     libgdk-pixbuf-xlib-2.0-0 \
     fonts-unifont \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # ================================
@@ -50,23 +51,17 @@ COPY requirements.txt ./requirements.txt
 COPY app ./app
 
 # ================================
-# INSTALL PYTHON DEPENDENCIES
+# INSTALL PYTHON PACKAGES
 # ================================
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 
 # ================================
-# INSTALL ONLY CHROMIUM (HEADLESS)
+# INSTALL PLAYWRIGHT CHROMIUM ONLY
 # ================================
-# Avoid installing Firefox/WebKit to save time
-RUN playwright install chromium --with-deps
-
-# ================================
-# CACHE LAYER: Prelaunch Chromium
-# ================================
-# Launch once to populate cache and verify installation
-RUN python -c "from playwright.sync_api import sync_playwright; \
-with sync_playwright() as p: p.chromium.launch(headless=True)"
+# Using playwright CLI inside Docker for proper dependencies
+RUN pip install playwright && \
+    playwright install chromium --with-deps
 
 # ================================
 # EXPOSE PORT
