@@ -12,9 +12,9 @@ ENV PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # ================================
-# SYSTEM DEPENDENCIES (MANUAL FIX)
+# SYSTEM DEPENDENCIES (MINIMAL)
 # ================================
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
     gnupg \
@@ -46,19 +46,27 @@ WORKDIR /app
 # ================================
 # COPY FILES
 # ================================
-COPY requirements.txt ./
+COPY requirements.txt ./requirements.txt
 COPY app ./app
 
 # ================================
-# INSTALL PYTHON
+# INSTALL PYTHON DEPENDENCIES
 # ================================
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 
 # ================================
-# INSTALL ONLY CHROMIUM
+# INSTALL ONLY CHROMIUM (HEADLESS)
 # ================================
-RUN playwright install chromium
+# Avoid installing Firefox/WebKit to save time
+RUN playwright install chromium --with-deps
+
+# ================================
+# CACHE LAYER: Prelaunch Chromium
+# ================================
+# Launch once to populate cache and verify installation
+RUN python -c "from playwright.sync_api import sync_playwright; \
+with sync_playwright() as p: p.chromium.launch(headless=True)"
 
 # ================================
 # EXPOSE PORT
