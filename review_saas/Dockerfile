@@ -12,7 +12,7 @@ ENV PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # ================================
-# SYSTEM DEPENDENCIES FOR PLAYWRIGHT
+# SYSTEM DEPENDENCIES
 # ================================
 RUN apt-get update && apt-get install -y \
     curl \
@@ -38,26 +38,27 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # ================================
-# SET WORKDIR
+# WORKDIR
 # ================================
 WORKDIR /app
 
 # ================================
-# COPY PROJECT FILES
+# COPY FILES
 # ================================
-COPY requirements.txt ./ 
+COPY requirements.txt ./
 COPY app ./app
 
 # ================================
-# INSTALL PYTHON DEPENDENCIES
+# INSTALL PYTHON
 # ================================
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 
 # ================================
-# INSTALL PLAYWRIGHT BROWSERS
+# PLAYWRIGHT FIX (IMPORTANT)
 # ================================
-RUN playwright install chromium firefox webkit
+RUN playwright install chromium
+RUN playwright install-deps chromium
 
 # ================================
 # EXPOSE PORT
@@ -65,6 +66,6 @@ RUN playwright install chromium firefox webkit
 EXPOSE 8080
 
 # ================================
-# START COMMAND
+# START SERVER
 # ================================
 CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080", "--workers", "1"]
