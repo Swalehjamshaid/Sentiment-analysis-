@@ -1,22 +1,21 @@
 # =============================================
-# Railway-Optimized Dockerfile for Playwright Scraper (Fixed)
+# Final Railway Dockerfile - Playwright + FastAPI (Fixed)
 # =============================================
 FROM mcr.microsoft.com/playwright/python:v1.58.0-noble
 
 WORKDIR /app
 
-# 1. Install Python dependencies first (this layer caches well)
+# Install Python dependencies first (cached)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 2. Install Firefox browser + dependencies with retry + timeout handling
-RUN playwright install firefox --with-deps || \
-    (echo "Retrying browser install..." && sleep 10 && playwright install firefox --with-deps)
+# Install Firefox browser (critical for your scraper)
+RUN playwright install firefox --with-deps
 
-# 3. Copy your code last (fast rebuilds for scraper.py changes)
+# Copy your code last
 COPY . .
 
 EXPOSE 8080
 
-# Fixed start command for Railway ($PORT expansion)
+# Correct shell form for Railway $PORT
 CMD sh -c "gunicorn app.main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:\${PORT:-8080}"
