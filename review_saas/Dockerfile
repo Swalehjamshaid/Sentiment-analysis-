@@ -1,9 +1,10 @@
-# Use a Debian/Ubuntu-based image (recommended)
-FROM python:3.11-slim-bookworm   # or python:3.11-bookworm
+# =============================================
+# Playwright + Python Docker Image (2026)
+# =============================================
+FROM python:3.11-slim-bookworm
 
-# Install system dependencies required by Playwright browsers
+# Install system dependencies required by Firefox (Playwright/Patchright)
 RUN apt-get update && apt-get install -y \
-    curl \
     wget \
     gnupg \
     ca-certificates \
@@ -24,21 +25,20 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy requirements and install Python packages
+# Copy and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# IMPORTANT: Download the browsers + dependencies INSIDE the container
-# Use patchright or playwright CLI — both work
+# Download browsers (very important!)
 RUN playwright install firefox --with-deps
-# OR if you prefer patchright:
+# If you prefer patchright instead:
 # RUN patchright install firefox --with-deps
 
 # Copy your application code
 COPY . .
 
-# Expose port (your FastAPI port)
+# Expose FastAPI port
 EXPOSE 8080
 
-# Use gunicorn as before
+# Run with Gunicorn + Uvicorn worker
 CMD ["gunicorn", "app.main:app", "--workers", "1", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080"]
