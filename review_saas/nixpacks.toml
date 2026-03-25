@@ -1,21 +1,20 @@
 [phases.setup]
-nixPkgs = ["python311", "playwright-driver"]
+# We add 'pkgs.playwright-driver' to get the necessary system libraries 
+# like libnss3, libatk, etc., without needing apt-get.
+nixPkgs = ["python311", "playwright-driver", "nodejs"] 
 
 [phases.install]
-# We move everything to 'install' so Railway caches the browser download
 cmds = [
-    "python -m venv --copies /opt/venv && . /opt/venv/bin/activate && pip install -r requirements.txt",
-    # FIXED: Changed chromium to firefox to match your scraper.py logic
-    "patchright install --with-deps firefox" 
+    "python -m venv /opt/venv",
+    ". /opt/venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt",
+    # We use 'install' without '--with-deps' because Nix handles the deps
+    ". /opt/venv/bin/activate && playwright install firefox"
 ]
 
 [phases.build]
-# Keeps the build phase light to avoid timeouts
-cmds = ["echo 'Dependencies and Browser installed successfully'"]
+cmds = ["echo 'Build complete'"]
 
 [start]
-# 1. Activates the virtual environment
-# 2. Uses Gunicorn for stability
-# 3. FIXED: Reduced to 1 worker. Launching multiple browsers will crash a standard Railway RAM limit.
-# 4. FIXED: Added --timeout 120 because scraping 300 reviews takes time.
-cmd = ". /opt/venv/bin/activate && gunicorn -w 1 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:${PORT:-8080} --timeout 120"
+# Using 'gunicorn' with 'uvicorn' is great for production.
+# Added --preload to save memory if you ever increase workers.
+cmd = ". /opt/venv/bin/activate && gunicorn -w 1 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:${PORT:-8080} --timeout 120 --preload"
