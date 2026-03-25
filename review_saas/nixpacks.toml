@@ -1,15 +1,17 @@
 [phases.setup]
-# Adding playwright-driver and nodejs provides all the missing .so libraries
+# 'playwright-driver' is the critical package that contains the missing libraries
+# 'nodejs' is required by Playwright to manage browser processes
 nixPkgs = ["python311", "playwright-driver", "nodejs"]
 
 [phases.install]
 cmds = [
     "python -m venv /opt/venv",
+    ". /opt/venv/bin/activate && pip install --upgrade pip",
     ". /opt/venv/bin/activate && pip install -r requirements.txt",
-    # We install the browser, but NOT the deps (Nix handles deps above)
+    # We install the browser binaries, but Nix handles the 'deps'
     ". /opt/venv/bin/activate && playwright install chromium"
 ]
 
 [start]
-# Ensure we use the virtual env where playwright is installed
+# We must ensure the virtual environment is active so it finds 'playwright'
 cmd = ". /opt/venv/bin/activate && gunicorn -w 1 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:${PORT:-8080} --timeout 120"
