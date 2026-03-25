@@ -6,6 +6,7 @@
 
 # --- STEALTH SCRAPING ENGINE (Per Tutorial) ---
 # Using patchright as a stealth replacement for playwright
+playwright install firefox
 patchright==1.50.0
 playwright-stealth==1.0.6
 agentql==0.4.0
