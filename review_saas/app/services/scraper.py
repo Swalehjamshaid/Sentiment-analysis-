@@ -8,6 +8,10 @@ from datetime import datetime
 # =================================================================
 # GLOBAL CONFIGURATION & LOGGING
 # =================================================================
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger("ReviewSaaS.Scraper")
 
 # =================================================================
@@ -22,7 +26,7 @@ PROXIES = [
 ]
 
 # =================================================================
-# PLAYWRIGHT
+# PLAYWRIGHT (CHROMIUM ONLY)
 # =================================================================
 from playwright.async_api import async_playwright
 from playwright_stealth import stealth_async
@@ -33,24 +37,39 @@ async def fetch_reviews(place_id: str, limit: int = 50):
 
     reviews_data = []
     visited_ids = set()
-    selected_proxy = random.choice(PROXIES)
 
     async with async_playwright() as p:
 
-        # ✅ FIX: fallback if proxy fails
+        # ==========================================================
+        # 🔥 FIX 1: USE CHROMIUM (NOT FIREFOX)
+        # ==========================================================
         try:
-            browser = await p.firefox.launch(
+            selected_proxy = random.choice(PROXIES)
+
+            browser = await p.chromium.launch(
                 headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled"
+                ],
                 proxy={"server": selected_proxy}
             )
         except Exception:
             logger.warning("⚠️ Proxy failed, launching without proxy...")
-            browser = await p.firefox.launch(headless=True)
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled"
+                ]
+            )
 
         context = await browser.new_context(
             viewport={"width": 1280, "height": 1280},
             locale="en-US",
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0",
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
             extra_http_headers={"Accept-Language": "en-US,en;q=0.9"}
         )
 
@@ -61,77 +80,96 @@ async def fetch_reviews(place_id: str, limit: int = 50):
             url = f"https://www.google.com/maps/place/?q=place_id:{place_id}&hl=en"
             await page.goto(url, wait_until="networkidle", timeout=90000)
 
-            await page.locator('button[aria-label*="Reviews for"]').click(timeout=15000)
+            # ======================================================
+            # CLICK REVIEWS BUTTON
+            # ======================================================
+            await page.locator('button[aria-label*="Reviews"]').click(timeout=15000)
             await asyncio.sleep(random.uniform(3, 5))
+
+            logger.info("Starting scroll + expand loop...")
 
             scroll_attempts = 0
             max_attempts = (limit // 10) + 15
 
             while len(reviews_data) < limit and scroll_attempts < max_attempts:
 
-                # Expand "More"
-                more_buttons = page.locator("button.w8nwRe.kyuRq, button[data-review-id] button")
-                for btn in await more_buttons.all():
+                # ==================================================
+                # EXPAND "MORE" BUTTONS
+                # ==================================================
+                more_buttons = page.locator("button.w8nwRe")
+                count = await more_buttons.count()
+
+                for i in range(count):
                     try:
-                        await btn.click(timeout=2000)
+                        await more_buttons.nth(i).click(timeout=2000)
                     except:
                         pass
 
-                review_cards = page.locator("div.jJc9Ad, div.jftiEf, div[data-review-id]")
+                # ==================================================
+                # EXTRACT REVIEWS
+                # ==================================================
+                review_cards = page.locator("div.jftiEf")
                 cards = await review_cards.all()
 
                 new_found = False
 
                 for card in cards:
                     try:
-                        review_id = await card.get_attribute("data-review-id") or f"rev_{len(reviews_data)}"
-
-                        if review_id in visited_ids:
+                        review_id = await card.get_attribute("data-review-id")
+                        if not review_id or review_id in visited_ids:
                             continue
 
+                        # AUTHOR
                         author = "N/A"
-                        author_el = card.locator("div.d4r55, span.X43Kjb, div.fontBodyMedium")
+                        author_el = card.locator(".d4r55")
                         if await author_el.count() > 0:
                             author = (await author_el.first.inner_text()).strip()
 
-                        rating = "N/A"
-                        rating_el = card.locator("span.kvMYJc, div.Uy7F9, span.hCCjke")
+                        # RATING
+                        rating = 0
+                        rating_el = card.locator("span.kvMYJc")
                         if await rating_el.count() > 0:
                             aria = await rating_el.first.get_attribute("aria-label")
                             if aria:
-                                match = re.search(r'(\d+\.?\d*)', aria)
-                                rating = match.group(1) if match else "N/A"
+                                match = re.search(r'(\d+)', aria)
+                                rating = int(match.group(1)) if match else 0
 
-                        text_el = card.locator("span.wiI7pd, div.jftiEf span, div.fontBodyMedium span")
-                        review_text = ""
+                        # TEXT
+                        text = ""
+                        text_el = card.locator("span.wiI7pd")
                         if await text_el.count() > 0:
-                            review_text = (await text_el.first.inner_text()).strip()
+                            text = (await text_el.first.inner_text()).strip()
 
                         reviews_data.append({
                             "review_id": review_id,
-                            "author": author,
+                            "author_name": author,   # ✅ aligned with your API
                             "rating": rating,
-                            "text": review_text,
+                            "text": text,
                             "scraped_at": datetime.utcnow().isoformat()
                         })
 
                         visited_ids.add(review_id)
                         new_found = True
 
-                    except Exception:
+                    except:
                         continue
 
                 if not new_found and len(reviews_data) > 5:
+                    logger.info("No new reviews → stopping early")
                     break
 
+                # ==================================================
+                # SCROLL PANEL
+                # ==================================================
                 try:
-                    panel = page.locator("div[role='list']").first
-                    await page.evaluate("el => el.scrollTop = el.scrollHeight", await panel.element_handle())
+                    await page.mouse.wheel(0, 3000)
                 except:
-                    await page.mouse.wheel(0, 2500)
+                    pass
 
                 await asyncio.sleep(random.uniform(2.5, 4.5))
                 scroll_attempts += 1
+
+                logger.info(f"Progress: {len(reviews_data)}/{limit}")
 
         except Exception as e:
             logger.error(f"❌ Scraper error: {str(e)}")
@@ -139,11 +177,34 @@ async def fetch_reviews(place_id: str, limit: int = 50):
         finally:
             await browser.close()
 
-    logger.info(f"✅ Done: {len(reviews_data)} reviews")
+    logger.info(f"✅ Finished. Collected {len(reviews_data)} reviews.")
     return reviews_data[:limit]
 
 
 # =================================================================
-# ALIAS
+# EXPORTS (DO NOT CHANGE)
 # =================================================================
 scrape_google_reviews = fetch_reviews
+
+
+def save_results_to_csv(data, filename="scraped_reviews.csv"):
+    if not data:
+        print("No data found.")
+        return
+
+    keys = data[0].keys()
+    with open(filename, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=keys)
+        writer.writeheader()
+        writer.writerows(data)
+
+    print(f"📁 Saved to {filename}")
+
+
+# =================================================================
+# LOCAL TEST
+# =================================================================
+if __name__ == "__main__":
+    SAMPLE_PLACE_ID = "ChIJN1t_tDeuEmsRUoG3yEAt848"
+    output = asyncio.run(fetch_reviews(SAMPLE_PLACE_ID, limit=30))
+    save_results_to_csv(output)
