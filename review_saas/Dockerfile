@@ -1,29 +1,35 @@
-# 1. Use the official Playwright image (Includes Python and Browser dependencies)
-FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
+# ============================================
+#  Playwright + FastAPI Production Dockerfile
+# ============================================
+
+FROM mcr.microsoft.com/playwright/python:v1.50.0-noble
 
 WORKDIR /app
 
-# 2. Upgrade pip and setuptools
-RUN pip install --no-cache-dir --upgrade pip setuptools
+# Copy requirements
+COPY requirements.txt /app/
 
-# 3. Copy only requirements first
-COPY requirements.txt .
+# Install dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir "setuptools==68.2.2"
 
-# 4. Install all dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy application source code
+COPY . /app/
 
-# 5. Copy the entire project into the /app folder
-COPY . .
+# Run as non-root user
+RUN useradd -m appuser
+USER appuser
 
-# 6. CRITICAL: Physically install the Chromium browser engine
-RUN playwright install chromium
-
-# 7. Set environment variables for the container
-ENV PYTHONPATH=.
-ENV PORT=8080
-ENV PYTHONUNBUFFERED=1
-
+# Expose port (Cloud Run ignores this, but we keep it for local use)
 EXPOSE 8080
 
-# 8. Start the app (Hardcoded 8080 to stop the $PORT error)
-CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "--timeout", "300", "--bind", "0.0.0.0:8080", "app.main:app"]
+ENV PYTHONUNBUFFERED=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+# ==============================
+# ⭐ CRITICAL FIX (Cloud Run PORT)
+# ==============================
+# Cloud Run passes a dynamic port via $PORT.
+# Shell ("sh -c") is required so ${PORT} expands.
+CMD ["sh", "-c", "gunicorn --workers 1 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --bind 0.0.0.0:${PORT} app.main:app"]
