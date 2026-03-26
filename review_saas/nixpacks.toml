@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["...", "python312", "playwright"]
+
+[phases.install]
+cmds = ["pip install -r requirements.txt", "playwright install --with-deps chromium"]
+
+[start]
+cmd = "gunicorn -w 1 -k uvicorn.workers.UvicornWorker --timeout 300 --bind 0.0.0.0:$PORT review_saas.app.main:app"
