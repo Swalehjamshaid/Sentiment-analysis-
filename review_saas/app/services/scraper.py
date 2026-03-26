@@ -17,8 +17,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ReviewSaaS.Scraper")
 
-# Pulling Webshare credentials from Railway Environment Variables
-# Host usually: http://p.webshare.io:80
+# Webshare Credentials from Railway Environment Variables
 PROXY_SERVER = os.getenv("PROXY_SERVER", "http://p.webshare.io:80")
 PROXY_USER = os.getenv("PROXY_USERNAME")
 PROXY_PASS = os.getenv("PROXY_PASSWORD")
@@ -34,12 +33,11 @@ USER_AGENTS = [
 async def fetch_reviews(place_id: str, limit: int = 50):
     """
     Full Playwright Scraper optimized for Railway + Webshare Proxies.
-    Intercepts Google's BatchExecute review stream.
     """
     logger.info(f"🚀 [Railway] Starting Webshare Scraper for: {place_id}")
     
     if not PROXY_USER or not PROXY_PASS:
-        logger.error("❌ Webshare credentials (PROXY_USERNAME/PASSWORD) missing in Railway Variables!")
+        logger.error("❌ PROXY_USERNAME or PROXY_PASSWORD missing in Railway Variables!")
         return []
 
     reviews_data = []
@@ -47,7 +45,7 @@ async def fetch_reviews(place_id: str, limit: int = 50):
 
     async with async_playwright() as p:
         try:
-            # Launch Chromium through Webshare Proxy
+            # Launch Chromium via Webshare Proxy
             browser = await p.chromium.launch(
                 headless=True,
                 proxy={
@@ -63,7 +61,7 @@ async def fetch_reviews(place_id: str, limit: int = 50):
                 ]
             )
         except Exception as e:
-            logger.error(f"❌ Webshare Connection Failed: {e}")
+            logger.error(f"❌ Webshare Proxy Launch Failed: {e}")
             return []
 
         context = await browser.new_context(
@@ -74,11 +72,10 @@ async def fetch_reviews(place_id: str, limit: int = 50):
         page = await context.new_page()
         await stealth_async(page)
 
-        # --- RESOURCE OPTIMIZATION ---
-        # Blocks heavy media to save Railway RAM and Proxy bandwidth
+        # Optimize for Railway RAM
         await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,mp4,woff2,css}", lambda route: route.abort())
 
-        # --- DATA INTERCEPTION ---
+        # Data Interception
         async def handle_response(response):
             if "batchexecute" in response.url:
                 try:
@@ -90,46 +87,40 @@ async def fetch_reviews(place_id: str, limit: int = 50):
                         for block in [b for b in inner_json if isinstance(b, list)]:
                             for r in block:
                                 try:
-                                    r_id = r[0]
-                                    if r_id not in visited_ids:
+                                    if r[0] not in visited_ids:
                                         reviews_data.append({
-                                            "review_id": r_id,
+                                            "review_id": r[0],
                                             "author_name": r[1][0],
                                             "rating": r[4],
                                             "text": r[3] if r[3] else "",
                                             "scraped_at": datetime.utcnow().isoformat()
                                         })
-                                        visited_ids.add(r_id)
-                                except (IndexError, TypeError): continue
+                                        visited_ids.add(r[0])
+                                except: continue
                 except Exception: pass
 
         page.on("response", handle_response)
-
-        # Target Google Maps review endpoint
         url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
 
         try:
             logger.info(f"📡 Navigating through Webshare Proxy...")
             await page.goto(url, wait_until="load", timeout=90000)
 
-            scrolls = 0
-            max_scrolls = (limit // 5) + 15
-            
-            while len(reviews_data) < limit and scrolls < max_scrolls:
+            # Scroll to trigger data
+            for _ in range((limit // 5) + 5):
+                if len(reviews_data) >= limit: break
                 await page.mouse.wheel(0, 4000)
-                await asyncio.sleep(random.uniform(4.0, 6.0))
-                scrolls += 1
+                await asyncio.sleep(5)
                 if len(reviews_data) > 0:
-                    logger.info(f"📊 Collected {len(reviews_data)} reviews...")
+                    logger.info(f"📊 Progress: {len(reviews_data)} reviews found.")
 
         except Exception as e:
-            logger.error(f"❌ Railway Execution Failure: {str(e)}")
+            logger.error(f"❌ Scraper failure: {str(e)}")
         finally:
             await browser.close()
-            logger.info(f"✅ Finished. Total Captured: {len(reviews_data)}")
+            logger.info(f"✅ Finished. Total: {len(reviews_data)}")
 
     return reviews_data[:limit]
 
-# Aliases
 scrape_google_reviews = fetch_reviews
 run_scraper = fetch_reviews
