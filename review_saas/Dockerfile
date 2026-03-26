@@ -1,37 +1,43 @@
 # -----------------------------------------------
 # Production-ready Dockerfile for FastAPI + Playwright Scraper
 # -----------------------------------------------
+# Use official Playwright Python image (includes Chromium + deps)
 FROM mcr.microsoft.com/playwright/python:v1.58.0-noble
 
+# ----------------------------
 # Environment settings
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app
+# ----------------------------
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
+# ----------------------------
 # Set working directory
+# ----------------------------
 WORKDIR /app
 
-# Copy and install dependencies
+# ----------------------------
+# Copy dependencies and install
+# ----------------------------
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
+# ----------------------------
 # Copy application code
+# ----------------------------
 COPY . .
 
-# Install Chromium browser (important step)
+# ----------------------------
+# Ensure Chromium is installed (forces download into the right path)
+# ----------------------------
 RUN playwright install chromium --with-deps
 
-# Expose port
+# ----------------------------
+# Expose port (optional, for clarity)
+# ----------------------------
 EXPOSE 8080
 
-# Start Gunicorn with better logging so you can see the real error
-CMD ["gunicorn", \
-     "--log-level", "debug", \
-     "-w", "1", \
-     "-k", "uvicorn.workers.UvicornWorker", \
-     "app.main:app", \
-     "--bind", "0.0.0.0:8080", \
-     "--timeout", "300", \
-     "--access-logfile", "-", \
-     "--error-logfile", "-"]
+# ----------------------------
+# Start FastAPI server with Gunicorn + Uvicorn worker
+# ----------------------------
+CMD ["gunicorn", "--log-level", "debug", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080", "--timeout", "300", "--access-logfile", "-", "--error-logfile", "-"]
