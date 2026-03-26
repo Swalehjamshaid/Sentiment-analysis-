@@ -1,6 +1,7 @@
 # --- CRITICAL FIXES ---
 setuptools==68.2.2
 playwright==1.45.0
+pytest-playwright==0.5.2
 playwright-stealth==1.0.6
 agentql==0.4.0
 
