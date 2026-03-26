@@ -32,15 +32,14 @@ class ReviewResponse(BaseModel):
         from_attributes = True
 
 # --------------------------- Ingest Reviews (POST) ---------------------------
-# FIXED PATH: Matches the frontend calling /api/reviews/ingest/{id}
 @router.post("/reviews/ingest/{company_id}")
 async def ingest_reviews(
     company_id: int, 
     session: AsyncSession = Depends(get_session)
 ):
     """
-    Triggers the Playwright scraper using the correct Google identifiers 
-    defined in models.py and saves them to the database.
+    Triggers the Playwright scraper and saves results to the database.
+    Fixed to avoid MissingGreenlet errors by caching attributes locally.
     """
     # 1. Fetch Company from DB
     result = await session.execute(select(Company).where(Company.id == company_id))
@@ -48,39 +47,38 @@ async def ingest_reviews(
     
     if not company:
         logger.error(f"Sync failed: Company ID {company_id} not found.")
-        raise HTTPException(status_code=404, detail="Company record not found in database.")
+        raise HTTPException(status_code=404, detail="Company record not found.")
 
-    # 2. Correct Identifier Mapping
-    # Your models.py uses 'google_place_id' or 'place_url'
+    # CRITICAL FIX: Save these to local variables immediately. 
+    # Do not access 'company.x' inside the 'except' block or after the scraper call.
+    target_name = str(company.name)
     target_id = company.google_place_id or getattr(company, 'place_url', None)
     
     if not target_id:
-        logger.error(f"Company ID {company_id} is missing both google_place_id and place_url.")
+        logger.error(f"Company {target_name} is missing Google Place ID/URL.")
         raise HTTPException(
             status_code=400, 
-            detail="Business is missing a valid Google Place ID or URL to start scraping."
+            detail="Business is missing a valid Google Place ID or URL."
         )
 
     try:
-        logger.info(f"🚀 Starting Playwright scraper for: {company.name}")
+        logger.info(f"🚀 Starting Playwright scraper for: {target_name}")
 
-        # 3. Call the Scraper Service
-        # We pass the target_id (Place ID or URL) and limit to 300
+        # 2. Call the Scraper Service (Aligned with scraper.py keys)
         scraped_data = await fetch_reviews(place_id=target_id, limit=300)
         
         if not scraped_data:
-            logger.warning(f"⚠️ Scraper returned 0 results for {company.name}. Check Google Maps layout.")
+            logger.warning(f"⚠️ 0 results for {target_name}.")
             return {
                 "status": "success", 
-                "message": "Sync complete. No reviews found on page.", 
+                "message": "Sync complete. No reviews found.", 
                 "new_reviews_added": 0
             }
 
-        # 4. Persistence with Duplicate Prevention
+        # 3. Persistence with Duplicate Prevention
         new_count = 0
         for item in scraped_data:
-            # Check if this specific Google Review ID already exists for this company
-            # Matches the UniqueConstraint in your models.py
+            # Check for duplicates using the unique Google Review ID
             check_query = await session.execute(
                 select(Review).where(
                     Review.company_id == company_id,
@@ -92,7 +90,7 @@ async def ingest_reviews(
             if not existing_review:
                 new_review = Review(
                     company_id=company_id,
-                    google_review_id=item["review_id"], # Map scraper 'review_id' to model 'google_review_id'
+                    google_review_id=item["review_id"],
                     author_name=item.get("author_name", "Anonymous"),
                     rating=item.get("rating", 0),
                     text=item.get("text", ""),
@@ -102,35 +100,32 @@ async def ingest_reviews(
                 session.add(new_review)
                 new_count += 1
 
-        # 5. Commit Transaction
+        # 4. Commit Transaction
         await session.commit()
-        logger.info(f"✅ Ingested {new_count} new reviews for {company.name}.")
+        logger.info(f"✅ Ingested {new_count} new reviews for {target_name}.")
 
         return {
             "status": "success",
-            "company_name": company.name,
+            "company_name": target_name,
             "new_reviews_added": new_count,
             "total_fetched": len(scraped_data)
         }
 
     except Exception as e:
         await session.rollback()
-        logger.error(f"❌ Critical Failure during ingestion for {company.name}: {str(e)}", exc_info=True)
+        # Using target_name here prevents the MissingGreenlet crash
+        logger.error(f"❌ Failure for {target_name}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500, 
             detail=f"Internal Scraper Crash: {str(e)}"
         )
 
 # --------------------------- List Reviews (GET) ---------------------------
-# Matches: GET /api/reviews
 @router.get("/reviews", response_model=List[ReviewResponse])
 async def list_reviews(
     company_id: Optional[int] = Query(None),
     session: AsyncSession = Depends(get_session)
 ):
-    """
-    Retrieves stored reviews, optionally filtered by company_id.
-    """
     try:
         query = select(Review)
         if company_id:
@@ -140,15 +135,11 @@ async def list_reviews(
         return result.scalars().all()
     except Exception as e:
         logger.error(f"Error fetching reviews: {str(e)}")
-        raise HTTPException(status_code=500, detail="Could not retrieve reviews from database.")
+        raise HTTPException(status_code=500, detail="Could not retrieve reviews.")
 
 # --------------------------- Delete Review (DELETE) ---------------------------
-# Matches: DELETE /api/reviews/{id}
 @router.delete("/reviews/{review_id}")
 async def delete_review(review_id: int, session: AsyncSession = Depends(get_session)):
-    """
-    Deletes a specific review record by its internal database ID.
-    """
     try:
         await session.execute(delete(Review).where(Review.id == review_id))
         await session.commit()
