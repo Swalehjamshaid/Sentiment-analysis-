@@ -1,7 +1,7 @@
 import sys
-from contextlib import asynccontextmanager
-import logging
 import os
+import logging
+from contextlib import asynccontextmanager
 from typing import Optional, Tuple
 
 from fastapi import FastAPI, Request, Depends, Form
@@ -34,12 +34,9 @@ logger = logging.getLogger("app.main")
 
 # --------------------------- Schema Helpers ---------------------------
 async def _get_stored_schema_version(session: AsyncSession) -> Optional[str]:
-    try:
-        res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
-        row = res.scalar_one_or_none()
-        return row.value if row else None
-    except Exception:
-        return None
+    res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
+    row = res.scalar_one_or_none()
+    return row.value if row else None
 
 async def _set_stored_schema_version(session: AsyncSession, new_value: str) -> None:
     res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
@@ -76,27 +73,19 @@ async def reset_database_schema():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 Application Startup Started...")
-    
     try:
         await init_models()
         changed, old_v, new_v = await check_schema_version_change()
-        
         if changed:
             await reset_database_schema()
             async with SessionLocal() as session:
                 await _set_stored_schema_version(session, new_v)
-        
         app.state.schema_version = new_v
         logger.info("✅ SCHEMA_VERSION verified: %s", new_v)
         logger.info("🚀 Application Startup Complete")
-        
     except Exception as e:
         logger.error(f"❌ Error during startup: {e}")
-        # Do not raise here so the app can still start
-
     yield
-
-    # Shutdown
     logger.info("🛑 Application Shutdown Started...")
 
 # --------------------------- App Init ---------------------------
@@ -180,20 +169,19 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login")
 
-# --------------------------- ROUTERS ---------------------------
+# --------------------------- Routers ---------------------------
 logger.info("🔗 Mounting all routers...")
-
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(reviews.router, prefix="/api", tags=["reviews"])
 app.include_router(exports.router, prefix="/api", tags=["exports"])
 app.include_router(google_check.router, prefix="/api", tags=["google_check"])
-
 logger.info("🔗 All routers mounted correctly")
 
-# --------------------------- Run (for local testing) ---------------------------
+# --------------------------- Run (local/testing only) ---------------------------
 if __name__ == "__main__":
     import uvicorn
+    # Read PORT from env (Railway sets this automatically)
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
