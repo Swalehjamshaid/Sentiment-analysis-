@@ -1,12 +1,17 @@
-# Minimal Python 3.12 + Playwright Dockerfile
+# ================================
+# Base Image
+# ================================
 FROM python:3.12-slim
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+# ================================
+# Set working directory
+# ================================
+WORKDIR /app
 
-# --- Install minimal system dependencies for Playwright ---
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# ================================
+# Install system dependencies
+# ================================
+RUN apt-get update && apt-get install -y \
     curl \
     wget \
     gnupg \
@@ -28,27 +33,42 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     libgdk-pixbuf2.0-0 \
     libjpeg-turbo8 \
+    libx264-155 \
+    libvpx6 \
+    libwebp6 \
     fonts-unifont \
+    libenchant1c2a \
     libicu-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# --- Set working directory ---
-WORKDIR /app
-
-# --- Copy and install Python dependencies ---
+# ================================
+# Copy requirements
+# ================================
 COPY requirements.txt .
+
+# ================================
+# Upgrade pip & install Python deps
+# ================================
 RUN pip install --upgrade pip setuptools wheel
 RUN pip install -r requirements.txt
 
-# --- Install Playwright and browsers ---
-RUN pip install playwright
-RUN playwright install --with-deps
+# ================================
+# Install Playwright + Chromium
+# ================================
+RUN pip install playwright==1.45.0 playwright-stealth==1.0.6
+RUN playwright install chromium
 
-# --- Copy app code ---
+# ================================
+# Copy application code
+# ================================
 COPY . .
 
-# --- Expose port ---
+# ================================
+# Expose port
+# ================================
 EXPOSE 8080
 
-# --- Start FastAPI app with Gunicorn ---
-CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080", "--workers", "1"]
+# ================================
+# Command to run your app
+# ================================
+CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080"]
