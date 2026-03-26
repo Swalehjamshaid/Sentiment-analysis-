@@ -6,8 +6,8 @@ import logging
 from datetime import datetime
 from playwright.async_api import async_playwright
 
-# FIXED: replace deprecated playwright_stealth with compatible fork
-from playwright_stealth_who import stealth_async
+# FIXED: Changed from playwright_stealth_who to the standard playwright_stealth
+from playwright_stealth import stealth_async
 
 # =========================
 # LOGGING CONFIG
@@ -84,7 +84,7 @@ async def fetch_reviews(place_id: str, limit: int = 50):
 
         page = await context.new_page()
 
-        # APPLY STEALTH (same API as before)
+        # APPLY STEALTH
         await stealth_async(page)
 
         # --- NETWORK DATA INTERCEPTION ---
@@ -154,10 +154,8 @@ async def fetch_reviews(place_id: str, limit: int = 50):
 
     return reviews_data[:limit]
 
-
 # ALIAS FOR BACKEND COMPATIBILITY
 scrape_google_reviews = fetch_reviews
-
 
 # OPTIONAL: CSV EXPORT
 def save_to_csv(data, filename="scraped_reviews.csv"):
