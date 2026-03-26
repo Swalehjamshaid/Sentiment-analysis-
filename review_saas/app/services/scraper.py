@@ -5,8 +5,8 @@ import random
 import logging
 import csv
 from datetime import datetime
-# CRITICAL: Changed to patchright to match your requirements.txt
-from patchright.async_api import async_patchright as async_playwright
+# FIXED IMPORT: Matches patchright 1.50.0 structure
+from patchright.async_api import async_playwright
 from playwright_stealth import stealth_async
 
 # =================================================================
