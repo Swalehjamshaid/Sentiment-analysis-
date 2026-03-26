@@ -1,16 +1,10 @@
-# ================================
-# Base Image
-# ================================
-FROM python:3.12-slim
+# --- Base image ---
+FROM python:3.12-slim-bullseye
 
-# ================================
-# Set working directory
-# ================================
+# --- Set working directory ---
 WORKDIR /app
 
-# ================================
-# Install system dependencies
-# ================================
+# --- System dependencies for Playwright and general utilities ---
 RUN apt-get update && apt-get install -y \
     curl \
     wget \
@@ -31,44 +25,30 @@ RUN apt-get update && apt-get install -y \
     libpango-1.0-0 \
     libxcb1 \
     unzip \
-    libgdk-pixbuf2.0-0 \
-    libjpeg-turbo8 \
-    libx264-155 \
-    libvpx6 \
-    libwebp6 \
-    fonts-unifont \
-    libenchant1c2a \
+    libgdk-pixbuf-2.0-0 \
+    libjpeg62-turbo \
+    libx264-dev \
+    libvpx-dev \
+    libwebp-dev \
+    libenchant-2-2 \
     libicu-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# ================================
-# Copy requirements
-# ================================
+# --- Copy requirements and install Python packages ---
 COPY requirements.txt .
-
-# ================================
-# Upgrade pip & install Python deps
-# ================================
 RUN pip install --upgrade pip setuptools wheel
 RUN pip install -r requirements.txt
 
-# ================================
-# Install Playwright + Chromium
-# ================================
+# --- Install Playwright and download browsers ---
 RUN pip install playwright==1.45.0 playwright-stealth==1.0.6
-RUN playwright install chromium
+RUN playwright install --with-deps
 
-# ================================
-# Copy application code
-# ================================
+# --- Copy application code ---
 COPY . .
 
-# ================================
-# Expose port
-# ================================
-EXPOSE 8080
+# --- Set environment variables (optional, adjust as needed) ---
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8080
 
-# ================================
-# Command to run your app
-# ================================
-CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080"]
+# --- Command to start the application ---
+CMD ["gunicorn", "app.main:app", "-w", "2", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080"]
