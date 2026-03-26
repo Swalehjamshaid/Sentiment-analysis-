@@ -1,24 +1,57 @@
-# 1. Use the official Playwright image (matches your requirements.txt)
-FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
+FROM python:3.12-slim
 
-# 2. Set environment variables
-ENV PYTHONUNBUFFERED=1
+# --- Set environment variables ---
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# --- System dependencies for Playwright ---
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    gnupg \
+    ca-certificates \
+    fonts-liberation \
+    libnss3 \
+    libxss1 \
+    libasound2 \
+    libatk1.0-0 \
+    libcups2 \
+    libgtk-3-0 \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libxcb1 \
+    unzip \
+    libgdk-pixbuf2.0-0 \
+    libjpeg-turbo8 \
+    libx264-155 \
+    libvpx6 \
+    libwebp6 \
+    fonts-unifont \
+    libenchant1c2a \
+    libicu-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Set working directory ---
 WORKDIR /app
 
-# 3. Install Python dependencies
-# Since we are using the Playwright image, 'pip install playwright' 
-# is already done, but we install your requirements.txt
+# --- Copy requirements and install Python deps ---
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip setuptools wheel
+RUN pip install -r requirements.txt
 
-# 4. Copy all application code
+# --- Install Playwright ---
+RUN pip install playwright
+RUN playwright install
+
+# --- Copy application code ---
 COPY . .
 
-# 5. CRITICAL: Only install the browser (Dependencies are already in the image!)
-# This avoids the "Package not available" errors you just saw.
-RUN playwright install chromium
+# --- Expose port ---
+EXPOSE 8080
 
-# 6. Start command
-CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080", "--timeout", "300"]
+# --- Start FastAPI app ---
+CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080", "--workers", "1"]
