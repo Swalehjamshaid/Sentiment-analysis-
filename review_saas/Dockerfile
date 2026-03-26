@@ -13,10 +13,8 @@ COPY . /app/
 RUN useradd -m appuser
 USER appuser
 
-EXPOSE 8080
-
 ENV PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-# IMPORTANT FOR RAILWAY: Bind directly to 8080 (Railway does NOT use $PORT)
-CMD ["sh", "-c", "gunicorn --workers 1 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --bind 0.0.0.0:8080 app.main:app"]
+# Railway provides PORT dynamically → must use ${PORT}
+CMD ["sh", "-c", "gunicorn --workers 1 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --bind 0.0.0.0:${PORT:-8080} app.main:app"]
