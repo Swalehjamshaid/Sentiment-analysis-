@@ -21,9 +21,10 @@ logger = logging.getLogger("ReviewSaaS.Scraper")
 SCRAPEOPS_API_KEY = os.getenv("SCRAPEOPS_API_KEY")
 
 if not SCRAPEOPS_API_KEY:
-    logger.error("❌ SCRAPEOPS_API_KEY not found in environment variables!")
+    logger.error("❌ SCRAPEOPS_API_KEY not found in Railway environment variables!")
 
 # Proxy Configuration aligned with ScrapeOps Port 8181
+# This acts as the gateway to 20+ residential proxy providers
 PROXY_SETTINGS = {
     "server": "http://residential-proxy.scrapeops.io:8181",
     "username": "scrapeops",
@@ -41,14 +42,15 @@ USER_AGENTS = [
 async def fetch_reviews(place_id: str, limit: int = 50):
     """
     Railway-optimized Playwright scraper using ScrapeOps Residential Proxy.
+    Intercepts Google's BatchExecute JSON stream.
     """
-    logger.info(f"🚀 [Railway] Starting Master Scraper for: {place_id}")
+    logger.info(f"🚀 [Railway] Initializing Master Scraper for: {place_id}")
     reviews_data = []
     visited_ids = set()
 
     async with async_playwright() as p:
         try:
-            # Launch Chromium with ScrapeOps Tunnel
+            # Launch Chromium through the ScrapeOps Tunnel
             browser = await p.chromium.launch(
                 headless=True,
                 proxy=PROXY_SETTINGS,
@@ -62,7 +64,7 @@ async def fetch_reviews(place_id: str, limit: int = 50):
             )
         except Exception as e:
             logger.error(f"❌ Railway Tunnel Connection Failed: {e}")
-            logger.error("CHECK: 1. Is SCRAPEOPS_API_KEY set in Railway? 2. Is 'Whitelisting' empty in ScrapeOps?")
+            logger.error("FIX: Ensure 'Whitelisted IPs' is EMPTY in ScrapeOps dashboard.")
             return []
 
         context = await browser.new_context(
@@ -73,10 +75,11 @@ async def fetch_reviews(place_id: str, limit: int = 50):
         page = await context.new_page()
         await stealth_async(page)
 
-        # --- BANDWIDTH & RAM OPTIMIZATION ---
+        # --- RESOURCE OPTIMIZATION ---
+        # Aborts images/media to stay under Railway's RAM limits and save Proxy bandwidth
         await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,mp4,woff2,css}", lambda route: route.abort())
 
-        # --- NETWORK DATA INTERCEPTION ---
+        # --- DATA INTERCEPTION (BatchExecute) ---
         async def handle_response(response):
             if "batchexecute" in response.url:
                 try:
@@ -109,6 +112,7 @@ async def fetch_reviews(place_id: str, limit: int = 50):
 
         try:
             logger.info(f"📡 Navigating Tunnel to: {url}")
+            # Extended timeout for slower residential proxy nodes
             await page.goto(url, wait_until="load", timeout=120000)
 
             scrolls = 0
@@ -119,7 +123,7 @@ async def fetch_reviews(place_id: str, limit: int = 50):
                 await asyncio.sleep(random.uniform(4.0, 6.0))
                 scrolls += 1
                 if len(reviews_data) > 0:
-                    logger.info(f"📊 Progress: {len(reviews_data)} / {limit} reviews collected.")
+                    logger.info(f"📊 Collected {len(reviews_data)} / {limit} reviews...")
 
         except Exception as e:
             logger.error(f"❌ Railway Execution Failure: {str(e)}")
@@ -129,6 +133,6 @@ async def fetch_reviews(place_id: str, limit: int = 50):
 
     return reviews_data[:limit]
 
-# Aliases for compatibility
+# Aliases for compatibility with your main app
 scrape_google_reviews = fetch_reviews
 run_scraper = fetch_reviews
