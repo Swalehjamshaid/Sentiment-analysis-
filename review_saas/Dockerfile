@@ -1,7 +1,5 @@
-# Use the official Microsoft Playwright image
 FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
 
-# Standard environment setup
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
@@ -14,7 +12,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # 2. Copy all application code
 COPY . .
 
-# 3. CRITICAL: This downloads the actual Chromium browser into the container
+# 3. CRITICAL: Install Chromium and System Dependencies
 RUN playwright install chromium
 RUN playwright install-deps chromium
 
