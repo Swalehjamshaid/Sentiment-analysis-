@@ -1,10 +1,7 @@
-# filename: app/main.py
-
-from __future__ import annotations
-
+import sys
+from contextlib import asynccontextmanager
 import logging
 import os
-from contextlib import asynccontextmanager
 from typing import Optional, Tuple
 
 from fastapi import FastAPI, Request, Depends, Form
@@ -15,6 +12,9 @@ from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+# Fix for Docker / Gunicorn import issues
+sys.path.insert(0, "/app")
 
 # Core imports
 from app.core.config import settings
@@ -55,16 +55,13 @@ async def check_schema_version_change() -> Tuple[bool, Optional[str], str]:
     async with SessionLocal() as session:
         old_version = await _get_stored_schema_version(session)
         new_version = str(SCHEMA_VERSION)
-
         if old_version is None:
             await _set_stored_schema_version(session, new_version)
             logger.info("📦 Initialized SCHEMA_VERSION: %s", new_version)
             return False, None, new_version
-
         if old_version != new_version:
             logger.warning("🧩 SCHEMA changed: %s → %s", old_version, new_version)
             return True, old_version, new_version
-
         logger.info("✅ SCHEMA_VERSION verified: %s", new_version)
         return False, old_version, new_version
 
@@ -78,19 +75,29 @@ async def reset_database_schema():
 # --------------------------- Lifespan ---------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_models()
+    logger.info("🚀 Application Startup Started...")
+    
+    try:
+        await init_models()
+        changed, old_v, new_v = await check_schema_version_change()
+        
+        if changed:
+            await reset_database_schema()
+            async with SessionLocal() as session:
+                await _set_stored_schema_version(session, new_v)
+        
+        app.state.schema_version = new_v
+        logger.info("✅ SCHEMA_VERSION verified: %s", new_v)
+        logger.info("🚀 Application Startup Complete")
+        
+    except Exception as e:
+        logger.error(f"❌ Error during startup: {e}")
+        # Do not raise here so the app can still start
 
-    changed, old_v, new_v = await check_schema_version_change()
-
-    if changed:
-        await reset_database_schema()
-        async with SessionLocal() as session:
-            await _set_stored_schema_version(session, new_v)
-
-    app.state.schema_version = new_v
-
-    logger.info("🚀 Application Startup Complete")
     yield
+
+    # Shutdown
+    logger.info("🛑 Application Shutdown Started...")
 
 # --------------------------- App Init ---------------------------
 app = FastAPI(
@@ -142,19 +149,16 @@ async def login_post(
 ):
     result = await session.execute(select(User).where(User.email == email))
     user = result.scalars().first()
-
     if not user or password != user.hashed_password:
         return templates.TemplateResponse(
             "login.html",
             {"request": request, "error": "Invalid credentials"}
         )
-
     request.session["user"] = {
         "id": user.id,
         "email": user.email,
         "name": user.name,
     }
-
     return RedirectResponse("/dashboard", status_code=303)
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -162,7 +166,6 @@ async def dashboard_view(request: Request):
     user = get_current_user(request)
     if not user:
         return RedirectResponse("/login")
-
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -178,6 +181,8 @@ async def logout(request: Request):
     return RedirectResponse("/login")
 
 # --------------------------- ROUTERS ---------------------------
+logger.info("🔗 Mounting all routers...")
+
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
@@ -187,10 +192,8 @@ app.include_router(google_check.router, prefix="/api", tags=["google_check"])
 
 logger.info("🔗 All routers mounted correctly")
 
-# --------------------------- Run (Updated for Railway) ---------------------------
+# --------------------------- Run (for local testing) ---------------------------
 if __name__ == "__main__":
     import uvicorn
-    # Railway passes the port via an environment variable
     port = int(os.environ.get("PORT", 8080))
-    # We use 'app.main:app' because the file is inside the 'app' directory
     uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
