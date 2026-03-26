@@ -3,10 +3,9 @@ import json
 import re
 import random
 import logging
+import os
 from datetime import datetime
 from playwright.async_api import async_playwright
-
-# FIXED: Using 'stealth_async' as requested by the library logs
 from playwright_stealth import stealth_async
 
 # =========================
@@ -29,18 +28,11 @@ PROXIES = [
     "http://dkgjitgr:uzeqkqwjwmqe@107.172.163.27:6543"
 ]
 
-# =========================
-# USER AGENTS (Rotation)
-# =========================
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
 ]
 
-# =========================
-# HELPER: PARSE PROXY
-# =========================
 def parse_proxy(proxy_url):
     """Formats the proxy string for Playwright consumption."""
     if "@" in proxy_url:
@@ -55,16 +47,22 @@ def parse_proxy(proxy_url):
 async def fetch_reviews(place_id: str, limit: int = 50):
     """
     Advanced Playwright Scraper using BatchExecute interception.
-    Aligned perfectly with existing backend mapping.
     """
     logger.info(f"🚀 Initializing Master Scraper for: {place_id}")
 
     reviews_data = []
     visited_ids = set()
-    selected_proxy = parse_proxy(random.choice(PROXIES))
+    
+    # Try to use Scrapeless if available, otherwise use your PROXIES list
+    scrapeless_key = os.getenv("SCRAPELESS_API_KEY")
+    if scrapeless_key:
+        selected_proxy = {"server": f"http://scraperapi:{scrapeless_key}@proxy-server.scrapeless.com:8001"}
+        logger.info("📡 Using Scrapeless Proxy via Environment Variable")
+    else:
+        selected_proxy = parse_proxy(random.choice(PROXIES))
+        logger.info("📡 Using Residential Proxy from fallback list")
 
     async with async_playwright() as p:
-        # Launch Chromium
         browser = await p.chromium.launch(
             headless=True,
             proxy=selected_proxy,
@@ -73,7 +71,6 @@ async def fetch_reviews(place_id: str, limit: int = 50):
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
-                "--single-process",
             ]
         )
 
@@ -83,8 +80,6 @@ async def fetch_reviews(place_id: str, limit: int = 50):
         )
 
         page = await context.new_page()
-
-        # FIXED: Using the corrected function name 'stealth_async'
         await stealth_async(page)
 
         # --- NETWORK DATA INTERCEPTION ---
@@ -93,12 +88,10 @@ async def fetch_reviews(place_id: str, limit: int = 50):
                 try:
                     text = await response.text()
                     cleaned_text = text.replace(")]}'", "").strip()
-
                     matches = re.findall(r'\["wrb\.fr".*?\]\]', cleaned_text)
                     for match in matches:
                         try:
                             inner_json = json.loads(json.loads(match)[2])
-
                             for block in inner_json:
                                 if isinstance(block, list):
                                     for r in block:
@@ -124,6 +117,7 @@ async def fetch_reviews(place_id: str, limit: int = 50):
         page.on("response", handle_response)
 
         # --- NAVIGATION ---
+        # Handle both full URLs and Place IDs
         if str(place_id).startswith("http"):
             url = f"{place_id}&hl=en"
         else:
@@ -134,7 +128,8 @@ async def fetch_reviews(place_id: str, limit: int = 50):
 
             logger.info(f"Starting scroll sequence for limit: {limit}")
             scrolls = 0
-            max_scrolls = (limit // 10) + 15
+            # Safety limit for scrolling
+            max_scrolls = (limit // 5) + 10 
 
             while len(reviews_data) < limit and scrolls < max_scrolls:
                 await page.mouse.wheel(0, 4000)
@@ -149,20 +144,10 @@ async def fetch_reviews(place_id: str, limit: int = 50):
 
         finally:
             await browser.close()
-            logger.info("✅ Scraper cycle finished.")
+            logger.info(f"✅ Scraper cycle finished. Total Captured: {len(reviews_data)}")
 
     return reviews_data[:limit]
 
-# ALIAS FOR BACKEND COMPATIBILITY
+# ALIASES FOR COMPATIBILITY
 scrape_google_reviews = fetch_reviews
-
-# OPTIONAL: CSV EXPORT
-def save_to_csv(data, filename="scraped_reviews.csv"):
-    import csv
-    if not data:
-        return
-    keys = data[0].keys()
-    with open(filename, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=keys)
-        writer.writeheader()
-        writer.writerows(data)
+run_scraper = fetch_reviews
