@@ -1,24 +1,50 @@
-# 1. Use the Playwright 1.45.0 base image to match requirements
-FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
+# --- Base Image ---
+FROM python:3.12-slim
 
-# 2. Standard environment setup
-ENV PYTHONUNBUFFERED=1
+# --- Set environment ---
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# --- System dependencies for Playwright and browsers ---
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    gnupg \
+    ca-certificates \
+    fonts-liberation \
+    libnss3 \
+    libxss1 \
+    libasound2 \
+    libatk1.0-0 \
+    libcups2 \
+    libgtk-3-0 \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm1 \
+    libpango1.0-0 \
+    libxcb1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Set working directory ---
 WORKDIR /app
 
-# 3. Install Python dependencies
-# We copy requirements.txt first to leverage Docker caching
+# --- Copy requirements ---
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
 
-# 4. Copy all application code
+# --- Install Python dependencies ---
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
+
+# --- Install Playwright browsers ---
+RUN playwright install chromium
+
+# --- Copy app code ---
 COPY . .
 
-# 5. CRITICAL: Install the specific Chromium version for 1.45.0
-# This command physically puts the browser in /usr/local/lib/python3.12/dist-packages/
-RUN playwright install chromium
-RUN playwright install-deps chromium
+# --- Expose port ---
+EXPOSE 8080
 
-# 6. Start command using Gunicorn/Uvicorn
-CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080", "--timeout", "300"]
+# --- Command to run ---
+CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080", "--workers", "1"]
