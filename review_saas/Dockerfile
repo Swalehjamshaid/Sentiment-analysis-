@@ -1,35 +1,24 @@
-# Base image with Python & Playwright
-FROM mcr.microsoft.com/playwright/python:v1.50.0-noble
+# Use the official Playwright image
+FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
 
-# Set working directory
 WORKDIR /app
 
-# Copy requirements
-COPY requirements.txt /app/
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir "setuptools==68.2.2"
+# Copy your code
+COPY . .
 
-# Copy application code
-COPY . /app/
+# Install the browser engine
+RUN playwright install chromium
 
-# Install Playwright browsers (with dependencies)
-RUN playwright install --with-deps
+# Set the environment
+ENV PYTHONPATH=.
+ENV PORT=8080
 
-# Add non-root user
-RUN useradd -m appuser
-USER appuser
-
-# Expose port for Railway
 EXPOSE 8080
 
-# Environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-
-# -------------------------------
-# CMD: Railway-compatible start command
-# -------------------------------
-CMD ["sh", "-c", "gunicorn -w 1 -k uvicorn.workers.UvicornWorker --timeout 300 --bind 0.0.0.0:$PORT app.main:app"]
+# FIXED START COMMAND: No brackets to avoid the "cmd not found" error
+CMD gunicorn -w 1 -k uvicorn.workers.UvicornWorker --timeout 300 --bind 0.0.0.0:8080 app.main:app
