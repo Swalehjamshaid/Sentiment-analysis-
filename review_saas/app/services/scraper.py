@@ -27,12 +27,12 @@ PROXIES = [
 ]
 
 # =================================================================
-# CORE SCRAPER ENGINE (SYNCED WITH BACKEND)
+# CORE SCRAPER ENGINE
 # =================================================================
 async def fetch_reviews(place_id: str, limit: int = 50):
     """
     Advanced Playwright Scraper using BatchExecute interception.
-    Updated with Cloud-compatible flags for Railway deployment.
+    100% Aligned with Review.py model mapping.
     """
     logger.info(f"🚀 Initializing Master Scraper for: {place_id}")
     
@@ -41,10 +41,7 @@ async def fetch_reviews(place_id: str, limit: int = 50):
     selected_proxy = random.choice(PROXIES)
 
     async with async_playwright() as p:
-        # =================================================================
-        # CRITICAL FIX FOR RAILWAY/DOCKER:
-        # Added --no-sandbox, --disable-dev-shm-usage, and --disable-gpu
-        # =================================================================
+        # Launching Chromium with required Cloud/Docker flags for v1.51.0
         browser = await p.chromium.launch(
             headless=True,
             proxy={"server": selected_proxy},
@@ -53,7 +50,6 @@ async def fetch_reviews(place_id: str, limit: int = 50):
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
-                "--disable-software-rasterizer",
                 "--single-process"
             ]
         )
@@ -77,9 +73,7 @@ async def fetch_reviews(place_id: str, limit: int = 50):
                     
                     for match in matches:
                         try:
-                            # Double-decode the nested JSON structure in BatchExecute
-                            raw_json = json.loads(match)
-                            inner_json = json.loads(raw_json[2])
+                            inner_json = json.loads(json.loads(match)[2])
                             
                             for block in inner_json:
                                 if isinstance(block, list):
@@ -87,11 +81,12 @@ async def fetch_reviews(place_id: str, limit: int = 50):
                                         try:
                                             r_id = r[0]
                                             if r_id not in visited_ids:
+                                                # KEY MAPPING SYNCED WITH Review.py:
                                                 reviews_data.append({
-                                                    "review_id": r_id,
-                                                    "author": r[1][0],
-                                                    "rating": r[4],
-                                                    "text": r[3],
+                                                    "review_id": r_id,           # Used by Review.google_review_id
+                                                    "author_name": r[1][0],      # Used by Review.author_name
+                                                    "rating": r[4],             # Used by Review.rating
+                                                    "text": r[3],               # Used by Review.text
                                                     "date_text": r[27] if len(r) > 27 else "N/A",
                                                     "scraped_at": datetime.now().isoformat()
                                                 })
@@ -106,33 +101,33 @@ async def fetch_reviews(place_id: str, limit: int = 50):
         page.on("response", handle_response)
 
         # --- NAVIGATION ---
-        # Note: Added hl=en to ensure consistent date parsing
-        url = f"https://www.google.com/maps/place/?q=place_id:{place_id}&hl=en"
+        # Handles both raw IDs and Place URLs
+        if str(place_id).startswith("http"):
+            url = f"{place_id}&hl=en"
+        else:
+            url = f"https://www.google.com/maps/place/?q=place_id:{place_id}&hl=en"
         
         try:
-            # Increased timeout for proxy latency
             await page.goto(url, wait_until="networkidle", timeout=90000)
             
-            logger.info("Starting infinite scroll sequence...")
+            logger.info(f"Starting scroll sequence for limit: {limit}")
             scrolls = 0
-            # Heuristic to ensure we hit the limit
             max_scrolls = (limit // 10) + 15 
 
-            # Target the specific scrollable container for reviews if possible
-            # or use the generic wheel scroll
             while len(reviews_data) < limit and scrolls < max_scrolls:
                 await page.mouse.wheel(0, 4000)
-                # Random sleep helps bypass bot detection
-                await asyncio.sleep(random.uniform(2.5, 4.5))
+                # Keep backend responsive and avoid detection
+                await asyncio.sleep(random.uniform(3.0, 5.0))
                 scrolls += 1
-                logger.info(f"Progress: {len(reviews_data)} / {limit} fetched.")
+                if len(reviews_data) > 0:
+                    logger.info(f"Progress: {len(reviews_data)} / {limit} (Synced)")
 
         except Exception as e:
             logger.error(f"❌ Scraper failure: {str(e)}")
         
         finally:
             await browser.close()
-            logger.info("Browser closed.")
+            logger.info("Browser closed successfully.")
 
     return reviews_data[:limit]
 
@@ -143,9 +138,7 @@ scrape_google_reviews = fetch_reviews
 # DATA EXPORT & LOCAL TESTING
 # =================================================================
 def save_to_csv(data, filename="scraped_reviews.csv"):
-    if not data: 
-        logger.warning("No data to save.")
-        return
+    if not data: return
     keys = data[0].keys()
     with open(filename, 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=keys)
@@ -153,7 +146,7 @@ def save_to_csv(data, filename="scraped_reviews.csv"):
         writer.writerows(data)
 
 if __name__ == "__main__":
-    # Test with a known Place ID
-    TEST_ID = "ChIJDVYKpFEEGTkRp_XASXZ21Tc" 
+    # Test execution
+    TEST_ID = "ChIJDVYKpFEEGTkRp_XASXZ21Tc"
     results = asyncio.run(fetch_reviews(TEST_ID, limit=20))
     save_to_csv(results)
