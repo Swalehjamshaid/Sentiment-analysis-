@@ -1,8 +1,7 @@
 from __future__ import annotations
 import logging
-import re
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,8 +37,8 @@ async def ingest_reviews(
     session: AsyncSession = Depends(get_session)
 ):
     """
-    Triggers the Playwright scraper and saves results to the database.
-    Fixed to avoid MissingGreenlet errors by caching attributes locally.
+    Triggers the high-performance Playwright scraper.
+    Aligned with BatchExecute interception logic.
     """
     # 1. Fetch Company from DB
     result = await session.execute(select(Company).where(Company.id == company_id))
@@ -49,36 +48,36 @@ async def ingest_reviews(
         logger.error(f"Sync failed: Company ID {company_id} not found.")
         raise HTTPException(status_code=404, detail="Company record not found.")
 
-    # CRITICAL FIX: Save these to local variables immediately. 
-    # Do not access 'company.x' inside the 'except' block or after the scraper call.
+    # CRITICAL: Local variables to avoid 'MissingGreenlet' errors during async/except
     target_name = str(company.name)
     target_id = company.google_place_id or getattr(company, 'place_url', None)
     
     if not target_id:
-        logger.error(f"Company {target_name} is missing Google Place ID/URL.")
+        logger.error(f"Company {target_name} missing Google ID.")
         raise HTTPException(
             status_code=400, 
             detail="Business is missing a valid Google Place ID or URL."
         )
 
     try:
-        logger.info(f"🚀 Starting Playwright scraper for: {target_name}")
+        logger.info(f"🚀 Initializing Video-Logic Scraper for: {target_name}")
 
-        # 2. Call the Scraper Service (Aligned with scraper.py keys)
+        # 2. Call the Scraper (Matches scraper.py keys)
+        # We fetch 300 to provide a deep analysis for ReviewSaaS
         scraped_data = await fetch_reviews(place_id=target_id, limit=300)
         
         if not scraped_data:
-            logger.warning(f"⚠️ 0 results for {target_name}.")
+            logger.warning(f"⚠️ 0 reviews intercepted for {target_name}.")
             return {
                 "status": "success", 
-                "message": "Sync complete. No reviews found.", 
+                "message": "Sync complete. No new data found.", 
                 "new_reviews_added": 0
             }
 
         # 3. Persistence with Duplicate Prevention
         new_count = 0
         for item in scraped_data:
-            # Check for duplicates using the unique Google Review ID
+            # Match scraper 'review_id' to database 'google_review_id'
             check_query = await session.execute(
                 select(Review).where(
                     Review.company_id == company_id,
@@ -100,9 +99,9 @@ async def ingest_reviews(
                 session.add(new_review)
                 new_count += 1
 
-        # 4. Commit Transaction
+        # 4. Finalize
         await session.commit()
-        logger.info(f"✅ Ingested {new_count} new reviews for {target_name}.")
+        logger.info(f"✅ Successfully ingested {new_count} reviews for {target_name}.")
 
         return {
             "status": "success",
@@ -113,8 +112,8 @@ async def ingest_reviews(
 
     except Exception as e:
         await session.rollback()
-        # Using target_name here prevents the MissingGreenlet crash
-        logger.error(f"❌ Failure for {target_name}: {str(e)}", exc_info=True)
+        # Safe logging using cached target_name
+        logger.error(f"❌ Scraper/Ingest Failure for {target_name}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500, 
             detail=f"Internal Scraper Crash: {str(e)}"
