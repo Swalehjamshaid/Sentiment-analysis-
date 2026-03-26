@@ -17,10 +17,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ReviewSaaS.Scraper")
 
-# PASTE YOUR SCRAPEOPS API KEY HERE
-SCRAPEOPS_API_KEY = "YOUR_API_KEY_HERE" 
+# YOUR CONFIRMED API KEY
+SCRAPEOPS_API_KEY = "d6879aef-d2a6-4422-9b6d-14ff099a538f" 
 
-# ScrapeOps Proxy Integration (Matches your screenshot)
+# ScrapeOps Proxy Integration
+# Server: residential-proxy.scrapeops.io:8181
+# User: scrapeops
+# Password: [Your API Key]
 PROXY_SETTINGS = {
     "server": "http://residential-proxy.scrapeops.io:8181",
     "username": "scrapeops",
@@ -38,23 +41,26 @@ USER_AGENTS = [
 async def fetch_reviews(place_id: str, limit: int = 50):
     """
     Playwright Scraper using ScrapeOps Residential Aggregator.
-    Optimized for Google's BatchExecute protocol.
     """
     logger.info(f"🚀 Initializing Master Scraper for: {place_id}")
     reviews_data = []
     visited_ids = set()
 
     async with async_playwright() as p:
-        # Launch Chromium via ScrapeOps Proxy
-        browser = await p.chromium.launch(
-            headless=True,
-            proxy=PROXY_SETTINGS,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-            ]
-        )
+        # Launch Chromium via ScrapeOps Tunnel
+        try:
+            browser = await p.chromium.launch(
+                headless=True,
+                proxy=PROXY_SETTINGS,
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                ]
+            )
+        except Exception as e:
+            logger.error(f"❌ Failed to launch browser via Proxy: {e}")
+            return []
 
         context = await browser.new_context(
             user_agent=random.choice(USER_AGENTS),
@@ -64,11 +70,11 @@ async def fetch_reviews(place_id: str, limit: int = 50):
         page = await context.new_page()
         await stealth_async(page)
 
-        # --- DATA SAVING OPTIMIZATION ---
-        # Blocks images/media to save your ScrapeOps trial bandwidth
+        # --- BANDWIDTH SAVER ---
+        # Blocks images to save your free trial data
         await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,mp4,woff2}", lambda route: route.abort())
 
-        # --- NETWORK INTERCEPTION ---
+        # --- DATA INTERCEPTION (BatchExecute) ---
         async def handle_response(response):
             if "batchexecute" in response.url:
                 try:
@@ -97,24 +103,24 @@ async def fetch_reviews(place_id: str, limit: int = 50):
         page.on("response", handle_response)
 
         # --- NAVIGATION ---
-        # Constructing a direct Google Maps reviews URL
+        # Fixed URL format for Google Maps reviews
         url = f"https://www.google.com/maps/search/?api=1&query_place_id={place_id}&hl=en"
 
         try:
-            logger.info(f"📡 Navigating through ScrapeOps to: {url}")
-            # Higher timeout for residential latency
-            await page.goto(url, wait_until="domcontentloaded", timeout=90000)
+            logger.info(f"📡 Navigating through ScrapeOps Tunnel to: {url}")
+            # Use 'load' to ensure the proxy tunnel is established
+            await page.goto(url, wait_until="load", timeout=90000)
 
-            # Scroll loop to trigger BatchExecute calls
+            # Scroll loop to trigger more reviews
             scrolls = 0
             max_scrolls = (limit // 5) + 10
             
             while len(reviews_data) < limit and scrolls < max_scrolls:
-                await page.mouse.wheel(0, 3000)
-                await asyncio.sleep(random.uniform(2.5, 4.5))
+                await page.mouse.wheel(0, 3500)
+                await asyncio.sleep(random.uniform(3.0, 5.0))
                 scrolls += 1
                 if len(reviews_data) > 0:
-                    logger.info(f"📊 Progress: {len(reviews_data)} / {limit}")
+                    logger.info(f"📊 Collected {len(reviews_data)} reviews so far...")
 
         except Exception as e:
             logger.error(f"❌ Scraper failure: {str(e)}")
@@ -124,6 +130,6 @@ async def fetch_reviews(place_id: str, limit: int = 50):
 
     return reviews_data[:limit]
 
-# Aliases for your app logic
+# Aliases for compatibility
 scrape_google_reviews = fetch_reviews
 run_scraper = fetch_reviews
