@@ -1,24 +1,40 @@
-# ================================
-# Dockerfile for Playwright + FastAPI
-# ================================
+# ============================================
+#  Playwright + FastAPI Production Dockerfile
+# ============================================
 
-# Use official Playwright Python image with all browsers pre-installed
+# Use official Playwright Python image (includes browsers)
 FROM mcr.microsoft.com/playwright/python:1.41.1-focal
 
 # Set working directory
 WORKDIR /app
 
-# Copy Python requirements
-COPY requirements.txt .
+# Better caching: copy only requirements first
+COPY requirements.txt /app/
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy your application code
-COPY . .
+# Copy application code
+COPY . /app/
 
-# Expose port
+# Create a non-root user for security
+RUN useradd -m appuser
+USER appuser
+
+# Expose FastAPI port
 EXPOSE 8080
 
-# Start the FastAPI app using Gunicorn + Uvicorn worker
-CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080"]
+# Environment variables (optional)
+ENV PYTHONUNBUFFERED=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    PORT=8080
+
+# Start FastAPI using Gunicorn + Uvicorn worker
+# Increase timeout for Playwright (browser may take time)
+CMD ["gunicorn", 
+     "--workers", "1",
+     "--worker-class", "uvicorn.workers.UvicornWorker",
+     "--timeout", "120",
+     "--bind", "0.0.0.0:8080",
+     "app.main:app"]
