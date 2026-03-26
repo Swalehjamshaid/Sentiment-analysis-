@@ -2,7 +2,7 @@
 #  Playwright + FastAPI Production Dockerfile
 # ============================================
 
-FROM mcr.microsoft.com/playwright/python:1.41.1-focal
+FROM mcr.microsoft.com/playwright/python:v1.50.0-noble
 
 WORKDIR /app
 
