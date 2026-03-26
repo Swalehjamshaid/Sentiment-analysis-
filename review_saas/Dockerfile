@@ -18,5 +18,5 @@ EXPOSE 8080
 ENV PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-# IMPORTANT FOR RAILWAY: must bind to 8080, not $PORT
+# IMPORTANT FOR RAILWAY: Bind directly to 8080 (Railway does NOT use $PORT)
 CMD ["sh", "-c", "gunicorn --workers 1 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --bind 0.0.0.0:8080 app.main:app"]
