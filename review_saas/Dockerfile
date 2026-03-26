@@ -1,24 +1,56 @@
-# 1. Use the official Playwright image (guarantees the right OS for browsers)
-FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
+# ===============================
+# Dockerfile for FastAPI + Playwright
+# ===============================
 
-# 2. Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
+# Base image
+FROM python:3.12-slim
+
+# Set working directory
 WORKDIR /app
 
-# 3. Install Python dependencies
-# Because the Root is "/", we point to the folder for the requirements file
-COPY review_saas/requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -r requirements.txt
+# Install system dependencies for Playwright browsers
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    gnupg \
+    ca-certificates \
+    fonts-liberation \
+    libnss3 \
+    libxss1 \
+    libasound2 \
+    libatk1.0-0 \
+    libcups2 \
+    libgtk-3-0 \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libxcb1 \
+    unzip \
+    libgdk-pixbuf2.0-0 \
+    libjpeg62-turbo \
+    libx264-160 \
+    libvpx6 \
+    libwebp7 \
+    fonts-unifont \
+    libenchant-2-2 \
+    libicu-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# 4. Copy all application code from the root
+# Copy requirements and install Python packages
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright browsers with dependencies
+RUN playwright install --with-deps
+
+# Copy the rest of your application code
 COPY . .
 
-# 5. CRITICAL: Physically install the Chromium browser engine
-# This is the step that fixes the "Executable doesn't exist" error
-RUN playwright install chromium
-RUN playwright install-deps chromium
+# Expose port
+EXPOSE 8080
 
-# 6. Start command (Corrected path to find your main.py from the new root)
-CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "review_saas.app.main:app", "--bind", "0.0.0.0:8080", "--timeout", "300"]
+# Start FastAPI with Gunicorn and Uvicorn worker
+CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8080"]
