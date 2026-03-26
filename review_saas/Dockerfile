@@ -1,14 +1,11 @@
-# ============================================
-#  Playwright + FastAPI Production Dockerfile
-# ============================================
-
 FROM mcr.microsoft.com/playwright/python:v1.50.0-noble
 
 WORKDIR /app
 
 COPY requirements.txt /app/
 
-RUN pip install --no-cache-dir --upgrade pip && \
+# Install pip, setuptools (needed for pkg_resources), then your deps
+RUN pip install --no-cache-dir --upgrade pip setuptools && \
     pip install --no-cache-dir -r requirements.txt
 
 COPY . /app/
