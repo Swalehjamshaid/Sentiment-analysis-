@@ -20,6 +20,7 @@ logger = logging.getLogger("ReviewSaaS.Scraper")
 # =========================
 # PROXY POOL (Residential)
 # =========================
+# These are your home residential proxies
 PROXIES = [
     "http://dkgjitgr:uzeqkqwjwmqe@31.59.20.176:6754",
     "http://dkgjitgr:uzeqkqwjwmqe@23.95.150.145:6114",
@@ -47,22 +48,25 @@ def parse_proxy(proxy_url):
 async def fetch_reviews(place_id: str, limit: int = 50):
     """
     Advanced Playwright Scraper using BatchExecute interception.
+    Uses home proxies for high-anonymity scraping.
     """
     logger.info(f"🚀 Initializing Master Scraper for: {place_id}")
 
     reviews_data = []
     visited_ids = set()
     
-    # Try to use Scrapeless if available, otherwise use your PROXIES list
+    # LOGISTICS CHECK: Try Scrapeless first if key is present, otherwise use home PROXIES list
     scrapeless_key = os.getenv("SCRAPELESS_API_KEY")
     if scrapeless_key:
         selected_proxy = {"server": f"http://scraperapi:{scrapeless_key}@proxy-server.scrapeless.com:8001"}
         logger.info("📡 Using Scrapeless Proxy via Environment Variable")
     else:
+        # Pick a random proxy from your Residential list
         selected_proxy = parse_proxy(random.choice(PROXIES))
-        logger.info("📡 Using Residential Proxy from fallback list")
+        logger.info(f"📡 Using Residential Home Proxy: {selected_proxy['server']}")
 
     async with async_playwright() as p:
+        # Launch Chromium with Linux-friendly arguments for Railway
         browser = await p.chromium.launch(
             headless=True,
             proxy=selected_proxy,
@@ -80,9 +84,11 @@ async def fetch_reviews(place_id: str, limit: int = 50):
         )
 
         page = await context.new_page()
+        
+        # Apply stealth to hide the scraper from Google
         await stealth_async(page)
 
-        # --- NETWORK DATA INTERCEPTION ---
+        # --- NETWORK DATA INTERCEPTION (BatchExecute) ---
         async def handle_response(response):
             if "batchexecute" in response.url:
                 try:
@@ -91,6 +97,7 @@ async def fetch_reviews(place_id: str, limit: int = 50):
                     matches = re.findall(r'\["wrb\.fr".*?\]\]', cleaned_text)
                     for match in matches:
                         try:
+                            # Direct JSON extraction from Google's response stream
                             inner_json = json.loads(json.loads(match)[2])
                             for block in inner_json:
                                 if isinstance(block, list):
@@ -117,21 +124,21 @@ async def fetch_reviews(place_id: str, limit: int = 50):
         page.on("response", handle_response)
 
         # --- NAVIGATION ---
-        # Handle both full URLs and Place IDs
         if str(place_id).startswith("http"):
             url = f"{place_id}&hl=en"
         else:
             url = f"https://www.google.com/maps/place/?q=place_id:{place_id}&hl=en"
 
         try:
+            # High timeout for slower residential proxies
             await page.goto(url, wait_until="networkidle", timeout=90000)
 
             logger.info(f"Starting scroll sequence for limit: {limit}")
             scrolls = 0
-            # Safety limit for scrolling
-            max_scrolls = (limit // 5) + 10 
+            max_scrolls = (limit // 5) + 15 
 
             while len(reviews_data) < limit and scrolls < max_scrolls:
+                # Scroll down to trigger more BatchExecute calls
                 await page.mouse.wheel(0, 4000)
                 await asyncio.sleep(random.uniform(3.0, 5.0))
                 scrolls += 1
@@ -148,6 +155,6 @@ async def fetch_reviews(place_id: str, limit: int = 50):
 
     return reviews_data[:limit]
 
-# ALIASES FOR COMPATIBILITY
+# ALIASES FOR COMPATIBILITY WITH YOUR MAIN APP
 scrape_google_reviews = fetch_reviews
 run_scraper = fetch_reviews
