@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from playwright.async_api import async_playwright
 
-# FIXED: Standard playwright_stealth uses 'stealth_page_async'
+# FIXED: Changed to stealth_page_async to match the standard playwright-stealth library
 from playwright_stealth import stealth_page_async
 
 # =========================
@@ -84,7 +84,7 @@ async def fetch_reviews(place_id: str, limit: int = 50):
 
         page = await context.new_page()
 
-        # FIXED: Calling the correct function name for the library
+        # FIXED: Using the correct function name to avoid ImportError
         await stealth_page_async(page)
 
         # --- NETWORK DATA INTERCEPTION ---
