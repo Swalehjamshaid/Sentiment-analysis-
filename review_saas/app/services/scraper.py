@@ -5,7 +5,8 @@ import random
 import logging
 import csv
 from datetime import datetime
-from playwright.async_api import async_playwright
+# CRITICAL: Changed to patchright to match your requirements.txt
+from patchright.async_api import async_patchright as async_playwright
 from playwright_stealth import stealth_async
 
 # =================================================================
@@ -31,7 +32,7 @@ PROXIES = [
 # =================================================================
 async def fetch_reviews(place_id: str, limit: int = 50):
     """
-    Advanced Playwright Scraper using BatchExecute interception.
+    Advanced Scraper using Patchright.
     100% Aligned with Review.py model mapping.
     """
     logger.info(f"🚀 Initializing Master Scraper for: {place_id}")
@@ -41,7 +42,7 @@ async def fetch_reviews(place_id: str, limit: int = 50):
     selected_proxy = random.choice(PROXIES)
 
     async with async_playwright() as p:
-        # Launching Chromium with required Cloud/Docker flags for v1.51.0
+        # Launching Chromium with required Cloud/Docker flags
         browser = await p.chromium.launch(
             headless=True,
             proxy={"server": selected_proxy},
@@ -101,7 +102,6 @@ async def fetch_reviews(place_id: str, limit: int = 50):
         page.on("response", handle_response)
 
         # --- NAVIGATION ---
-        # Handles both raw IDs and Place URLs
         if str(place_id).startswith("http"):
             url = f"{place_id}&hl=en"
         else:
@@ -116,7 +116,6 @@ async def fetch_reviews(place_id: str, limit: int = 50):
 
             while len(reviews_data) < limit and scrolls < max_scrolls:
                 await page.mouse.wheel(0, 4000)
-                # Keep backend responsive and avoid detection
                 await asyncio.sleep(random.uniform(3.0, 5.0))
                 scrolls += 1
                 if len(reviews_data) > 0:
@@ -134,9 +133,6 @@ async def fetch_reviews(place_id: str, limit: int = 50):
 # ALIAS FOR BACKEND ROUTE COMPATIBILITY
 scrape_google_reviews = fetch_reviews
 
-# =================================================================
-# DATA EXPORT & LOCAL TESTING
-# =================================================================
 def save_to_csv(data, filename="scraped_reviews.csv"):
     if not data: return
     keys = data[0].keys()
@@ -144,9 +140,3 @@ def save_to_csv(data, filename="scraped_reviews.csv"):
         writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
         writer.writerows(data)
-
-if __name__ == "__main__":
-    # Test execution
-    TEST_ID = "ChIJDVYKpFEEGTkRp_XASXZ21Tc"
-    results = asyncio.run(fetch_reviews(TEST_ID, limit=20))
-    save_to_csv(results)
