@@ -1,14 +1,14 @@
 # --- CRITICAL FIXES ---
 setuptools==68.2.2
 playwright==1.45.0
-playwright-stealth>=1.0.6   # Replaces playwright-stealth-who
+playwright-stealth==1.0.6
 agentql==0.4.0
 
 # --- DATABASE ---
 gunicorn==23.0.0
 asyncpg==0.31.0
 aiosqlite==0.20.0
-SQLAlchemy>=2.0.48,<3.0.0
+SQLAlchemy>=2.0.48
 psycopg[binary]==3.2.4
 alembic==1.18.4
 greenlet>=1.1.0
@@ -25,7 +25,7 @@ lxml==5.3.0
 textblob==0.18.0.post0
 vaderSentiment==3.3.2
 langdetect==1.0.9
-nltk>=3.9,<4.0
+nltk>=3.9
 
 # --- WEB ---
 fastapi==0.115.0
