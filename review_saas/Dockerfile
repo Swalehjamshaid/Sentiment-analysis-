@@ -1,26 +1,24 @@
-# -----------------------------------------------
-# Fixed Dockerfile for Playwright 1.58.0
-# -----------------------------------------------
-FROM mcr.microsoft.com/playwright/python:v1.58.0-noble
+# 1. Use the Playwright 1.45.0 base image to match requirements
+FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app
-
+# 2. Standard environment setup
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 
-# Install dependencies
+# 3. Install Python dependencies
+# We copy requirements.txt first to leverage Docker caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# 4. Copy all application code
 COPY . .
 
-# CRITICAL: Install the correct browsers for this Playwright version
-RUN playwright install chromium --with-deps
+# 5. CRITICAL: Install the specific Chromium version for 1.45.0
+# This command physically puts the browser in /usr/local/lib/python3.12/dist-packages/
+RUN playwright install chromium
+RUN playwright install-deps chromium
 
-EXPOSE 8080
-
-# Clean CMD (removed debug logging since app is starting)
+# 6. Start command using Gunicorn/Uvicorn
 CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080", "--timeout", "300"]
