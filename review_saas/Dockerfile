@@ -1,5 +1,7 @@
-FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
+# UPDATE: Changed from 1.45.0 to 1.58.0 to match your Python environment
+FROM mcr.microsoft.com/playwright/python:v1.58.0-jammy
 
+# Standard environment setup
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
@@ -12,7 +14,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # 2. Copy all application code
 COPY . .
 
-# 3. CRITICAL: Install Chromium and System Dependencies
+# 3. CRITICAL: Install Chromium and System Dependencies for 1.58.0
 RUN playwright install chromium
 RUN playwright install-deps chromium
 
