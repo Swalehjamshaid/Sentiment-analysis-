@@ -1,13 +1,11 @@
-# ===== Dockerfile for FastAPI + Playwright Scraper =====
-# Base image
+# --- Base image ---
 FROM python:3.12-slim
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+# --- Set environment variables ---
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-# --- Install system dependencies required for Playwright ---
+# --- System dependencies for Playwright and FastAPI ---
 RUN apt-get update && apt-get install -y \
     curl \
     wget \
@@ -27,6 +25,7 @@ RUN apt-get update && apt-get install -y \
     libgbm1 \
     libpango-1.0-0 \
     libxcb1 \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Set working directory ---
@@ -35,19 +34,19 @@ WORKDIR /app
 # --- Copy requirements first for caching ---
 COPY requirements.txt .
 
-# --- Upgrade pip and install Python dependencies ---
-RUN python -m pip install --upgrade pip setuptools wheel
-RUN pip install --no-cache-dir -r requirements.txt
+# --- Install Python dependencies ---
+RUN pip install --upgrade pip setuptools wheel
+RUN pip install -r requirements.txt
 
-# --- Install Playwright and download browsers ---
-RUN pip install --no-cache-dir playwright playwright-stealth
-RUN playwright install chromium
+# --- Install Playwright browsers ---
+RUN pip install playwright
+RUN playwright install --with-deps
 
-# --- Copy project files ---
+# --- Copy application code ---
 COPY . .
 
-# --- Expose the port FastAPI will run on ---
+# --- Expose the FastAPI port ---
 EXPOSE 8080
 
-# --- Command to start the server ---
-CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8080", "--log-level", "info"]
+# --- Run the application with Gunicorn + Uvicorn ---
+CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080", "--workers", "1"]
