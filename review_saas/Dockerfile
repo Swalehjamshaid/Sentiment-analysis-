@@ -1,14 +1,14 @@
-# ===============================
-# Dockerfile for FastAPI + Playwright
-# ===============================
+# ================================
+# Dockerfile for Python 3.12 + Playwright
+# Fixed for Debian Trixie + Chromium
+# ================================
 
-# Base image
 FROM python:3.12-slim
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for Playwright browsers
+# Install system dependencies for Playwright
 RUN apt-get update && apt-get install -y \
     curl \
     wget \
@@ -29,28 +29,29 @@ RUN apt-get update && apt-get install -y \
     libpango-1.0-0 \
     libxcb1 \
     unzip \
-    libgdk-pixbuf2.0-0 \
+    libgdk-pixbuf-xlib-2.0-0 \
     libjpeg62-turbo \
-    libx264-160 \
-    libvpx6 \
     libwebp7 \
     fonts-unifont \
     libenchant-2-2 \
     libicu-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python packages
+# Copy your requirements.txt
 COPY requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers with dependencies
+# Install Playwright and download browsers
+RUN pip install --no-cache-dir playwright
 RUN playwright install --with-deps
 
-# Copy the rest of your application code
+# Copy the application code
 COPY . .
 
-# Expose port
+# Expose port for FastAPI / Uvicorn
 EXPOSE 8080
 
-# Start FastAPI with Gunicorn and Uvicorn worker
-CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8080"]
+# Start the app using Gunicorn + Uvicorn
+CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080"]
