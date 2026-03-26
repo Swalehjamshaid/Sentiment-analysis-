@@ -4,6 +4,7 @@ import re
 import random
 import logging
 import csv
+import glob
 from datetime import datetime
 from playwright.async_api import async_playwright
 from playwright_stealth import stealth_async
@@ -29,7 +30,6 @@ PROXIES = [
 ]
 
 def parse_proxy(proxy_url):
-    """Convert proxy string to Playwright format"""
     if "@" in proxy_url:
         creds, server = proxy_url.split("@")
         username, password = creds.replace("http://", "").split(":")
@@ -42,7 +42,17 @@ def parse_proxy(proxy_url):
 
 
 # =========================
-# CORE SCRAPER
+# 🔥 CRITICAL FIX: FORCE CHROMIUM PATH
+# =========================
+def get_chromium_path():
+    paths = glob.glob("/ms-playwright/chromium-*/chrome-linux/chrome")
+    if not paths:
+        raise Exception("❌ Chromium not found in /ms-playwright")
+    return paths[0]
+
+
+# =========================
+# MAIN SCRAPER
 # =========================
 async def fetch_reviews(place_id: str, limit: int = 50, retries: int = 3):
     logger.info(f"🚀 Starting scraper for: {place_id}")
@@ -65,8 +75,11 @@ async def _run_scraper(place_id: str, limit: int):
     proxy = parse_proxy(random.choice(PROXIES))
 
     async with async_playwright() as p:
+
+        # ✅ FORCE Chromium path (THIS FIXES YOUR ERROR)
         browser = await p.chromium.launch(
             headless=True,
+            executable_path=get_chromium_path(),
             args=[
                 "--no-sandbox",
                 "--disable-dev-shm-usage"
@@ -113,7 +126,7 @@ async def _run_scraper(place_id: str, limit: int):
                                                 "rating": r[4],
                                                 "text": r[3],
                                                 "date_text": r[27] if len(r) > 27 else "N/A",
-                                                "scraped_at": datetime.now().isoformat()
+                                                "scraped_at": datetime.utcnow().isoformat()
                                             })
                                             visited_ids.add(r_id)
                                     except Exception:
@@ -150,7 +163,7 @@ async def _run_scraper(place_id: str, limit: int):
             logger.info(f"Progress: {len(reviews_data)} / {limit}")
 
         await browser.close()
-        logger.info("✅ Browser closed")
+        logger.info("✅ Browser closed successfully")
 
     return reviews_data[:limit]
 
