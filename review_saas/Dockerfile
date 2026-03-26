@@ -1,19 +1,18 @@
-# -----------------------------
-# Playwright Python + Chromium Dockerfile
-# -----------------------------
+# -----------------------------------------------
+# Production-ready Dockerfile for Playwright + FastAPI/Gunicorn
+# -----------------------------------------------
 
-# Use official Playwright image (includes browsers + deps)
+# Use the official Playwright Python image (includes browsers + OS dependencies)
 FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
 
 # Environment settings
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # Set working directory
 WORKDIR /app
 
-# Copy and install Python dependencies
+# Copy Python dependencies and install
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
@@ -21,8 +20,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application code
 COPY . .
 
-# Install Chromium explicitly (ensure correct path)
-RUN playwright install chromium --with-deps
+# Ensure headless Chromium is used in the scraper
+# In your Python code: browser = await p.chromium.launch(headless=True)
 
-# Start server
+# Start FastAPI server with Gunicorn + Uvicorn worker
 CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080", "--timeout", "300"]
