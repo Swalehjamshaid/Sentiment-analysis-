@@ -1,8 +1,7 @@
 # --- CRITICAL FIXES ---
 setuptools==68.2.2
 playwright==1.45.0
-playwright-extra==0.5.0
-playwright-extra-plugin-stealth==0.5.0
+playwright-stealth-who==0.1.5
 agentql==0.4.0
 
 # --- DATABASE ---
@@ -22,7 +21,7 @@ reportlab==4.1.0
 Pillow==11.1.0
 lxml==5.3.0
 
-# --- AI / SENTIMENT ---
+# --- AI / SENTIMENT (LIGHT VERSION) ---
 textblob==0.18.0.post0
 vaderSentiment==3.3.2
 langdetect==1.0.9
