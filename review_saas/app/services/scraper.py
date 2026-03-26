@@ -5,8 +5,8 @@ import random
 import logging
 import csv
 from datetime import datetime
-# FIXED IMPORT: Matches patchright 1.50.0 structure
-from patchright.async_api import async_playwright
+# ALIGNED: Changed back to standard playwright to match your requirements.txt
+from playwright.async_api import async_playwright
 from playwright_stealth import stealth_async
 
 # =================================================================
@@ -32,7 +32,7 @@ PROXIES = [
 # =================================================================
 async def fetch_reviews(place_id: str, limit: int = 50):
     """
-    Advanced Scraper using Patchright.
+    Advanced Playwright Scraper using BatchExecute interception.
     100% Aligned with Review.py model mapping.
     """
     logger.info(f"🚀 Initializing Master Scraper for: {place_id}")
