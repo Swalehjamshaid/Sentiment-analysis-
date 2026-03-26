@@ -1,54 +1,24 @@
-# --- Base image ---
-FROM python:3.12-slim-bullseye
+# 1. Use the official Playwright image (matches your requirements.txt)
+FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
 
-# --- Set working directory ---
+# 2. Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 
-# --- System dependencies for Playwright and general utilities ---
-RUN apt-get update && apt-get install -y \
-    curl \
-    wget \
-    gnupg \
-    ca-certificates \
-    fonts-liberation \
-    libnss3 \
-    libxss1 \
-    libasound2 \
-    libatk1.0-0 \
-    libcups2 \
-    libgtk-3-0 \
-    libx11-xcb1 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libpango-1.0-0 \
-    libxcb1 \
-    unzip \
-    libgdk-pixbuf-2.0-0 \
-    libjpeg62-turbo \
-    libx264-dev \
-    libvpx-dev \
-    libwebp-dev \
-    libenchant-2-2 \
-    libicu-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# --- Copy requirements and install Python packages ---
+# 3. Install Python dependencies
+# Since we are using the Playwright image, 'pip install playwright' 
+# is already done, but we install your requirements.txt
 COPY requirements.txt .
-RUN pip install --upgrade pip setuptools wheel
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
-# --- Install Playwright and download browsers ---
-RUN pip install playwright==1.45.0 playwright-stealth==1.0.6
-RUN playwright install --with-deps
-
-# --- Copy application code ---
+# 4. Copy all application code
 COPY . .
 
-# --- Set environment variables (optional, adjust as needed) ---
-ENV PYTHONUNBUFFERED=1
-ENV PORT=8080
+# 5. CRITICAL: Only install the browser (Dependencies are already in the image!)
+# This avoids the "Package not available" errors you just saw.
+RUN playwright install chromium
 
-# --- Command to start the application ---
-CMD ["gunicorn", "app.main:app", "-w", "2", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080"]
+# 6. Start command
+CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080", "--timeout", "300"]
