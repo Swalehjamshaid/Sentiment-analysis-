@@ -1,23 +1,21 @@
-# 1. Use the official Playwright image
+Dockerfile
 FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
 
 WORKDIR /app
 
-# 2. Use a wildcard to find requirements.txt wherever it is
-COPY *requirements.txt ./
+# Finds requirements anywhere in the project
+COPY **/requirements.txt ./
 
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir "setuptools==68.2.2"
+    pip install --no-cache-dir -r requirements.txt
 
-# 3. Copy everything
-COPY . .
-
-# 4. CRITICAL: Physically install the browser
+# This is the line that fixes your "Executable doesn't exist" error
 RUN playwright install chromium
+
+COPY . .
 
 EXPOSE 8080
 ENV PYTHONUNBUFFERED=1 PORT=8080
 
-# 5. Start command (Tries both paths for safety)
-CMD ["gunicorn", "--workers", "1", "--worker-class", "uvicorn.workers.UvicornWorker", "--timeout", "300", "--bind", "0.0.0.0:8080", "app.main:app"]
+# Fail-safe start command
+CMD ["sh", "-c", "PYTHONPATH=. gunicorn --workers 1 --worker-class uvicorn.worker
