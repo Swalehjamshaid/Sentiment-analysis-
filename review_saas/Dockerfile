@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 
-# Install dependencies from your updated requirements.txt (which now has playwright)
+# Install dependencies from your updated requirements.txt
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
@@ -15,11 +15,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY . .
 
 # =================================================================
-# UPDATED FIX: Use 'playwright' instead of 'patchright'
-# Since you removed patchright from requirements.txt, 
-# this command must now be playwright.
+# FINAL FIXES: Install both the browser AND the system dependencies
 # =================================================================
 RUN playwright install chromium
+RUN playwright install-deps chromium
 
-# Start command
+# Start command (Ensure Railway Dashboard 'Start Command' is EMPTY)
 CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080", "--timeout", "300"]
