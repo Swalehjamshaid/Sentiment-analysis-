@@ -3,24 +3,22 @@ import json
 import re
 import random
 import logging
-import csv
-import glob
 from datetime import datetime
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 from playwright_stealth import stealth_async
 
-# =========================
-# LOGGING
-# =========================
+# =================================================================
+# LOGGING & CONFIGURATION
+# =================================================================
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("ReviewSaaS.Scraper")
 
-# =========================
-# PROXIES
-# =========================
+# =================================================================
+# SMARTPROXY RESIDENTIAL POOL
+# =================================================================
 PROXIES = [
     "http://dkgjitgr:uzeqkqwjwmqe@31.59.20.176:6754",
     "http://dkgjitgr:uzeqkqwjwmqe@23.95.150.145:6114",
@@ -29,155 +27,114 @@ PROXIES = [
     "http://dkgjitgr:uzeqkqwjwmqe@107.172.163.27:6543"
 ]
 
-def parse_proxy(proxy_url):
-    if "@" in proxy_url:
-        creds, server = proxy_url.split("@")
-        username, password = creds.replace("http://", "").split(":")
-        return {
-            "server": f"http://{server}",
-            "username": username,
-            "password": password
-        }
-    return {"server": proxy_url}
-
-
-# =========================
-# 🔥 CRITICAL FIX: FORCE CHROMIUM PATH
-# =========================
-def get_chromium_path():
-    paths = glob.glob("/ms-playwright/chromium-*/chrome-linux/chrome")
-    if not paths:
-        raise Exception("❌ Chromium not found in /ms-playwright")
-    return paths[0]
-
-
-# =========================
-# MAIN SCRAPER
-# =========================
+# =================================================================
+# CORE SCRAPER ENGINE
+# =================================================================
 async def fetch_reviews(place_id: str, limit: int = 50, retries: int = 3):
-    logger.info(f"🚀 Starting scraper for: {place_id}")
-
-    for attempt in range(retries):
-        try:
-            return await _run_scraper(place_id, limit)
-        except Exception as e:
-            logger.warning(f"Retry {attempt+1} failed: {e}")
-            await asyncio.sleep(3)
-
-    logger.error("❌ All retries failed")
-    return []
-
-
-async def _run_scraper(place_id: str, limit: int):
+    """
+    Advanced Playwright scraper with robust scrolling, proxy rotation,
+    retry mechanism, and batch response interception.
+    """
+    logger.info(f"🚀 Initializing scraper for: {place_id}")
     reviews_data = []
     visited_ids = set()
+    
+    for attempt in range(1, retries + 1):
+        selected_proxy = random.choice(PROXIES)
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    proxy={"server": selected_proxy},
+                    args=[
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu",
+                        "--single-process"
+                    ]
+                )
+                
+                context = await browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                               "AppleWebKit/537.36 (KHTML, like Gecko) "
+                               "Chrome/122.0.0.0 Safari/537.36"
+                )
+                
+                page = await context.new_page()
+                await stealth_async(page)
 
-    proxy = parse_proxy(random.choice(PROXIES))
+                # --- NETWORK INTERCEPTION ---
+                async def handle_response(response):
+                    if "batchexecute" in response.url:
+                        try:
+                            text = await response.text()
+                            cleaned_text = text.replace(")]}'", "").strip()
+                            matches = re.findall(r'\["wrb\.fr".*?\]\]', cleaned_text)
+                            for match in matches:
+                                inner_json = json.loads(json.loads(match)[2])
+                                for block in inner_json:
+                                    if isinstance(block, list):
+                                        for r in block:
+                                            try:
+                                                r_id = r[0]
+                                                if r_id not in visited_ids:
+                                                    reviews_data.append({
+                                                        "review_id": r_id,
+                                                        "author_name": r[1][0],
+                                                        "rating": r[4],
+                                                        "text": r[3],
+                                                        "date_text": r[27] if len(r) > 27 else "N/A",
+                                                        "scraped_at": datetime.now().isoformat()
+                                                    })
+                                                    visited_ids.add(r_id)
+                                            except (IndexError, TypeError):
+                                                continue
+                        except Exception:
+                            pass
 
-    async with async_playwright() as p:
+                page.on("response", handle_response)
 
-        # ✅ FORCE Chromium path (THIS FIXES YOUR ERROR)
-        browser = await p.chromium.launch(
-            headless=True,
-            executable_path=get_chromium_path(),
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage"
-            ]
-        )
+                # --- NAVIGATION ---
+                url = (place_id if place_id.startswith("http")
+                       else f"https://www.google.com/maps/place/?q=place_id:{place_id}&hl=en")
+                
+                await page.goto(url, wait_until="networkidle", timeout=90000)
+                logger.info(f"Starting scroll sequence for limit: {limit}")
 
-        context = await browser.new_context(
-            proxy=proxy,
-            user_agent=random.choice([
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
-            ])
-        )
+                scrolls = 0
+                max_scrolls = (limit // 10) + 20
 
-        page = await context.new_page()
-        await stealth_async(page)
+                while len(reviews_data) < limit and scrolls < max_scrolls:
+                    await page.mouse.wheel(0, 4000)
+                    await asyncio.sleep(random.uniform(3.0, 5.0))
+                    scrolls += 1
+                    if len(reviews_data) > 0:
+                        logger.info(f"Progress: {len(reviews_data)} / {limit}")
 
-        # =========================
-        # RESPONSE INTERCEPTOR
-        # =========================
-        async def handle_response(response):
-            try:
-                if "batchexecute" not in response.url:
-                    return
+                await browser.close()
+                logger.info("✅ Browser closed successfully.")
+                return reviews_data[:limit]
 
-                text = await response.text()
-                cleaned = text.replace(")]}'", "").strip()
+        except PlaywrightTimeout as e:
+            logger.warning(f"Retry {attempt} failed due to timeout: {e}")
+        except Exception as e:
+            logger.warning(f"Retry {attempt} failed: {e}")
 
-                matches = re.findall(r'\["wrb\.fr".*?\]\]', cleaned)
+    logger.error(f"❌ All {retries} retries failed for {place_id}")
+    return []
 
-                for match in matches:
-                    try:
-                        inner = json.loads(json.loads(match)[2])
-
-                        for block in inner:
-                            if isinstance(block, list):
-                                for r in block:
-                                    try:
-                                        r_id = r[0]
-                                        if r_id not in visited_ids:
-                                            reviews_data.append({
-                                                "review_id": r_id,
-                                                "author_name": r[1][0],
-                                                "rating": r[4],
-                                                "text": r[3],
-                                                "date_text": r[27] if len(r) > 27 else "N/A",
-                                                "scraped_at": datetime.utcnow().isoformat()
-                                            })
-                                            visited_ids.add(r_id)
-                                    except Exception:
-                                        continue
-                    except Exception:
-                        continue
-
-            except Exception as e:
-                logger.debug(f"Interceptor error: {e}")
-
-        page.on("response", handle_response)
-
-        # =========================
-        # NAVIGATION
-        # =========================
-        if str(place_id).startswith("http"):
-            url = f"{place_id}&hl=en"
-        else:
-            url = f"https://www.google.com/maps/place/?q=place_id:{place_id}&hl=en"
-
-        await page.goto(url, wait_until="networkidle", timeout=90000)
-
-        # =========================
-        # SCROLL LOGIC
-        # =========================
-        scrolls = 0
-        max_scrolls = (limit // 10) + 20
-
-        while len(reviews_data) < limit and scrolls < max_scrolls:
-            await page.mouse.wheel(0, random.randint(3000, 6000))
-            await asyncio.sleep(random.uniform(2.5, 4.5))
-            scrolls += 1
-
-            logger.info(f"Progress: {len(reviews_data)} / {limit}")
-
-        await browser.close()
-        logger.info("✅ Browser closed successfully")
-
-    return reviews_data[:limit]
-
-
-# =========================
-# EXPORT
-# =========================
+# ALIAS FOR BACKEND ROUTE COMPATIBILITY
 scrape_google_reviews = fetch_reviews
 
-
+# =================================================================
+# UTILITY: SAVE TO CSV
+# =================================================================
+import csv
 def save_to_csv(data, filename="scraped_reviews.csv"):
-    if not data:
-        return
-    with open(filename, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=data[0].keys())
+    if not data: return
+    keys = data[0].keys()
+    with open(filename, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
         writer.writerows(data)
