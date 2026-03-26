@@ -11,21 +11,17 @@ from playwright_stealth import stealth_async
 # =================================================================
 # CONFIGURATION & LOGGING
 # =================================================================
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger("ReviewSaaS.Scraper")
 
-# Fetches your verified key from Railway Variables
-# d6879aef-d2a6-4422-9b6d-14ff099a538f
-SCRAPEOPS_API_KEY = os.getenv("SCRAPEOPS_API_KEY")
-
-# PROXY CONFIGURATION: Directly from your ScrapeOps dashboard screenshots
-# Host: residential-proxy.scrapeops.io
-# Port: 8181
-PROXY_SETTINGS = {
-    "server": "http://residential-proxy.scrapeops.io:8181",
-    "username": "scrapeops",
-    "password": SCRAPEOPS_API_KEY
-}
+# Pulling Webshare credentials from Railway Environment Variables
+# Host usually: http://p.webshare.io:80
+PROXY_SERVER = os.getenv("PROXY_SERVER", "http://p.webshare.io:80")
+PROXY_USER = os.getenv("PROXY_USERNAME")
+PROXY_PASS = os.getenv("PROXY_PASSWORD")
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -37,12 +33,13 @@ USER_AGENTS = [
 # =================================================================
 async def fetch_reviews(place_id: str, limit: int = 50):
     """
-    Railway-optimized Playwright scraper using ScrapeOps Residential Proxy Aggregator.
+    Full Playwright Scraper optimized for Railway + Webshare Proxies.
+    Intercepts Google's BatchExecute review stream.
     """
-    logger.info(f"🚀 [Railway] Starting Master Scraper for: {place_id}")
+    logger.info(f"🚀 [Railway] Starting Webshare Scraper for: {place_id}")
     
-    if not SCRAPEOPS_API_KEY:
-        logger.error("❌ SCRAPEOPS_API_KEY not found in environment variables!")
+    if not PROXY_USER or not PROXY_PASS:
+        logger.error("❌ Webshare credentials (PROXY_USERNAME/PASSWORD) missing in Railway Variables!")
         return []
 
     reviews_data = []
@@ -50,19 +47,23 @@ async def fetch_reviews(place_id: str, limit: int = 50):
 
     async with async_playwright() as p:
         try:
-            # Launching via the ScrapeOps Tunnel on Port 8181
+            # Launch Chromium through Webshare Proxy
             browser = await p.chromium.launch(
                 headless=True,
-                proxy=PROXY_SETTINGS,
+                proxy={
+                    "server": PROXY_SERVER,
+                    "username": PROXY_USER,
+                    "password": PROXY_PASS
+                },
                 args=[
                     "--no-sandbox",
                     "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
-                    "--ignore-certificate-errors" # Aligned with ScrapeOps SSL note
+                    "--disable-gpu",
                 ]
             )
         except Exception as e:
-            logger.error(f"❌ Proxy Tunnel Failed: {e}")
+            logger.error(f"❌ Webshare Connection Failed: {e}")
             return []
 
         context = await browser.new_context(
@@ -73,10 +74,11 @@ async def fetch_reviews(place_id: str, limit: int = 50):
         page = await context.new_page()
         await stealth_async(page)
 
-        # BANDWIDTH SAVER: Abort images/media to preserve your 500MB free trial
+        # --- RESOURCE OPTIMIZATION ---
+        # Blocks heavy media to save Railway RAM and Proxy bandwidth
         await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,mp4,woff2,css}", lambda route: route.abort())
 
-        # DATA INTERCEPTION: Capturing Google's BatchExecute stream
+        # --- DATA INTERCEPTION ---
         async def handle_response(response):
             if "batchexecute" in response.url:
                 try:
@@ -95,36 +97,36 @@ async def fetch_reviews(place_id: str, limit: int = 50):
                                             "author_name": r[1][0],
                                             "rating": r[4],
                                             "text": r[3] if r[3] else "",
-                                            "date": r[27] if len(r) > 27 else "N/A",
                                             "scraped_at": datetime.utcnow().isoformat()
                                         })
                                         visited_ids.add(r_id)
-                                except: continue
-                except: pass
+                                except (IndexError, TypeError): continue
+                except Exception: pass
 
         page.on("response", handle_response)
 
-        # Target Google Maps review URL
+        # Target Google Maps review endpoint
         url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
 
         try:
-            logger.info(f"📡 Navigating through ScrapeOps Gateway...")
-            # Increased timeout to 120s for residential proxy latency
-            await page.goto(url, wait_until="load", timeout=120000)
+            logger.info(f"📡 Navigating through Webshare Proxy...")
+            await page.goto(url, wait_until="load", timeout=90000)
 
-            # Scrolling logic to trigger data batches
-            for _ in range((limit // 5) + 10):
-                if len(reviews_data) >= limit: break
+            scrolls = 0
+            max_scrolls = (limit // 5) + 15
+            
+            while len(reviews_data) < limit and scrolls < max_scrolls:
                 await page.mouse.wheel(0, 4000)
                 await asyncio.sleep(random.uniform(4.0, 6.0))
+                scrolls += 1
                 if len(reviews_data) > 0:
-                    logger.info(f"📊 Collected {len(reviews_data)} reviews so far...")
+                    logger.info(f"📊 Collected {len(reviews_data)} reviews...")
 
         except Exception as e:
-            logger.error(f"❌ Railway Execution Error: {str(e)}")
+            logger.error(f"❌ Railway Execution Failure: {str(e)}")
         finally:
             await browser.close()
-            logger.info(f"✅ Scraping Complete. Captured: {len(reviews_data)}")
+            logger.info(f"✅ Finished. Total Captured: {len(reviews_data)}")
 
     return reviews_data[:limit]
 
