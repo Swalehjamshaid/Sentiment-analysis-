@@ -1,52 +1,24 @@
-# --- Base image ---
-FROM python:3.12-slim
+# 1. Use the official Playwright image (matches your requirements.txt)
+FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
 
-# --- Set environment variables ---
-ENV PYTHONDONTWRITEBYTECODE=1
+# 2. Set environment variables
 ENV PYTHONUNBUFFERED=1
-
-# --- System dependencies for Playwright and FastAPI ---
-RUN apt-get update && apt-get install -y \
-    curl \
-    wget \
-    gnupg \
-    ca-certificates \
-    fonts-liberation \
-    libnss3 \
-    libxss1 \
-    libasound2 \
-    libatk1.0-0 \
-    libcups2 \
-    libgtk-3-0 \
-    libx11-xcb1 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libpango-1.0-0 \
-    libxcb1 \
-    unzip \
-    && rm -rf /var/lib/apt/lists/*
-
-# --- Set working directory ---
+ENV PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 
-# --- Copy requirements first for caching ---
+# 3. Install Python dependencies
+# Since we are using the Playwright image, 'pip install playwright' 
+# is already done, but we install your requirements.txt
 COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
-# --- Install Python dependencies ---
-RUN pip install --upgrade pip setuptools wheel
-RUN pip install -r requirements.txt
-
-# --- Install Playwright browsers ---
-RUN pip install playwright
-RUN playwright install --with-deps
-
-# --- Copy application code ---
+# 4. Copy all application code
 COPY . .
 
-# --- Expose the FastAPI port ---
-EXPOSE 8080
+# 5. CRITICAL: Only install the browser (Dependencies are already in the image!)
+# This avoids the "Package not available" errors you just saw.
+RUN playwright install chromium
 
-# --- Run the application with Gunicorn + Uvicorn ---
-CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080", "--workers", "1"]
+# 6. Start command
+CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080", "--timeout", "300"]
