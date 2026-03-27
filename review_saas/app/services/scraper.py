@@ -17,9 +17,13 @@ logger = logging.getLogger("scraper")
 
 class ReviewScraper:
     def __init__(self):
-        self.api_key = os.getenv("SERPAPI_KEY")
-        if not self.api_key:
-            raise ValueError("SERPAPI_KEY not set in environment")
+        # ✅ UPDATED: Support BOTH env names (your fix)
+        self.api_key = os.getenv("SERP_API_KEY") or os.getenv("SERPAPI_KEY")
+
+        if self.api_key:
+            logger.info("✅ SERP API key loaded successfully")
+        else:
+            logger.warning("⚠️ No SERP API key found → using Playwright fallback")
 
         self.base_url = "https://serpapi.com/search.json"
 
@@ -32,6 +36,9 @@ class ReviewScraper:
     # STEP 1: RESOLVE DATA ID
     # =========================
     def resolve_to_data_id(self, query):
+        if not self.api_key:
+            return None
+
         params = {
             "engine": "google_maps",
             "q": query,
@@ -60,6 +67,9 @@ class ReviewScraper:
     # STEP 2: SERPAPI REVIEWS
     # =========================
     def get_reviews_serpapi(self, identifier, count=20):
+        if not self.api_key:
+            return []
+
         if not (str(identifier).startswith("0x") and ":" in str(identifier)):
             identifier = self.resolve_to_data_id(identifier)
             if not identifier:
@@ -74,7 +84,7 @@ class ReviewScraper:
         }
 
         try:
-            logger.info("Fetching reviews via SerpApi...")
+            logger.info("📡 Fetching reviews via SerpApi...")
             res = self.session.get(self.base_url, params=params, timeout=30)
             res.raise_for_status()
 
@@ -93,14 +103,14 @@ class ReviewScraper:
             ]
 
         except Exception as e:
-            logger.error(f"SerpApi failed: {e}")
+            logger.error(f"❌ SerpApi failed: {e}")
             return []
 
     # =========================
     # STEP 3: PLAYWRIGHT FALLBACK
     # =========================
     async def get_reviews_playwright(self, query, max_reviews=20):
-        logger.info("Fallback: Playwright scraping started...")
+        logger.info("🚀 Playwright scraping started...")
 
         reviews = []
 
@@ -120,11 +130,11 @@ class ReviewScraper:
                 try:
                     await page.click('a.hfpxzc', timeout=5000)
                 except:
-                    pass
+                    logger.warning("Could not click first result")
 
                 await page.wait_for_timeout(5000)
 
-                # Click reviews button
+                # Click reviews
                 try:
                     await page.click('button[jsaction="pane.reviewChart.moreReviews"]', timeout=5000)
                 except:
@@ -132,7 +142,7 @@ class ReviewScraper:
 
                 await page.wait_for_timeout(5000)
 
-                # Scroll to load reviews
+                # Scroll reviews
                 for _ in range(10):
                     await page.mouse.wheel(0, 3000)
                     await asyncio.sleep(2)
@@ -157,14 +167,15 @@ class ReviewScraper:
                 await browser.close()
 
         except Exception as e:
-            logger.error(f"Playwright failed: {e}")
+            logger.error(f"❌ Playwright failed: {e}")
 
         return reviews
 
     # =========================
-    # MAIN FUNCTION (HYBRID)
+    # MAIN HYBRID FUNCTION
     # =========================
     async def get_reviews(self, identifier, count=20):
+
         # 1. Try SerpApi
         reviews = self.get_reviews_serpapi(identifier, count)
 
@@ -173,14 +184,14 @@ class ReviewScraper:
             return reviews
 
         # 2. Fallback to Playwright
-        logger.warning("⚠️ SerpApi returned 0 → switching to Playwright")
+        logger.warning("⚠️ Switching to Playwright scraping...")
 
         reviews = await self.get_reviews_playwright(identifier, count)
 
         if reviews:
             logger.info(f"✅ Playwright success: {len(reviews)} reviews")
         else:
-            logger.error("❌ Both methods failed")
+            logger.error("❌ No reviews found from both methods")
 
         return reviews
 
