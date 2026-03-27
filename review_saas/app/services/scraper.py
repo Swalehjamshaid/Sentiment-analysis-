@@ -1,30 +1,54 @@
 import asyncio
-import requests
+import random
 import logging
+import requests
 import os
+from datetime import datetime
 from playwright.async_api import async_playwright
 
-logging.basicConfig(level=logging.INFO)
+# =========================
+# LOGGING CONFIG
+# =========================
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger("scraper")
 
 
-class ReviewScraper:
+class SaaSReviewScraper:
     def __init__(self):
         self.api_key = os.getenv("SERP_API_KEY")
+        self.scrapeless_key = os.getenv("SCRAPELESS_API_KEY")
 
-        # Proxy (ONLY for Playwright)
-        self.proxy = {
-            "server": "http://31.59.20.176:6754",
-            "username": "dkgjitgr",
-            "password": "uzeqkqwjvmqe"
-        }
+        if not self.api_key:
+            raise ValueError("❌ SERP_API_KEY not found in environment variables")
+
+        # =========================
+        # PROXY POOL (ADD MORE FOR SCALE)
+        # =========================
+        self.proxies = [
+            {
+                "server": "http://31.59.20.176:6754",
+                "username": "dkgjitgr",
+                "password": "uzeqkqwjvmqe"
+            }
+        ]
 
     # =========================
-    # STEP 1: GET PLACE ID
+    # PROXY ROTATION
+    # =========================
+    def get_proxy(self):
+        if not self.proxies:
+            return None
+        return random.choice(self.proxies)
+
+    # =========================
+    # SERPAPI → PLACE ID
     # =========================
     def get_place_id(self, query):
         try:
-            logger.info("🔍 Resolving place_id via SerpAPI (NO proxy)")
+            logger.info(f"🔍 Getting place_id for: {query}")
 
             url = "https://serpapi.com/search.json"
             params = {
@@ -33,67 +57,75 @@ class ReviewScraper:
                 "api_key": self.api_key
             }
 
-            res = requests.get(url, params=params, timeout=30)
+            res = requests.get(url, params=params, timeout=20)
+
+            if res.status_code != 200:
+                logger.error(f"SerpAPI error: {res.text}")
+                return None
+
             data = res.json()
 
-            if "place_results" in data:
-                place_id = data["place_results"].get("place_id")
-                logger.info(f"✅ place_id found: {place_id}")
-                return place_id
+            place_id = data.get("place_results", {}).get("place_id")
 
-            logger.error("❌ No place_id found")
-            return None
+            if not place_id:
+                logger.warning("⚠️ No place_id found")
+                return None
+
+            logger.info(f"✅ place_id: {place_id}")
+            return place_id
 
         except Exception as e:
             logger.error(f"❌ SerpAPI failed: {e}")
             return None
 
     # =========================
-    # STEP 2: PLAYWRIGHT SCRAPER
+    # PLAYWRIGHT SCRAPER
     # =========================
-    async def scrape_reviews_playwright(self, place_id, use_proxy=True):
+    async def scrape_playwright(self, place_id, use_proxy=True):
         reviews = []
-
         url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
 
         try:
-            logger.info(f"🚀 Playwright scraping (proxy={use_proxy})")
+            proxy = self.get_proxy() if use_proxy else None
+
+            logger.info(f"🚀 Playwright start (proxy={use_proxy})")
 
             async with async_playwright() as p:
                 browser = await p.chromium.launch(
                     headless=True,
-                    proxy=self.proxy if use_proxy else None
+                    proxy=proxy
                 )
 
                 page = await browser.new_page()
 
                 await page.goto(url, timeout=60000)
-
                 await page.wait_for_timeout(5000)
 
                 # Scroll to load reviews
-                for _ in range(5):
-                    await page.mouse.wheel(0, 3000)
+                for _ in range(7):
+                    await page.mouse.wheel(0, 5000)
                     await page.wait_for_timeout(2000)
 
-                elements = await page.query_selector_all(".jftiEf")
+                cards = await page.query_selector_all(".jftiEf")
 
-                for el in elements:
+                for c in cards:
                     try:
-                        name = await el.query_selector_eval(
+                        author = await c.query_selector_eval(
                             ".d4r55", "el => el.innerText"
                         )
-                        rating = await el.query_selector_eval(
+                        rating = await c.query_selector_eval(
                             ".kvMYJc", "el => el.getAttribute('aria-label')"
                         )
-                        text = await el.query_selector_eval(
+                        text = await c.query_selector_eval(
                             ".wiI7pd", "el => el.innerText"
                         )
 
                         reviews.append({
-                            "author": name,
+                            "author": author,
                             "rating": rating,
-                            "text": text
+                            "text": text,
+                            "source": "google_maps",
+                            "scraped_at": datetime.utcnow().isoformat()
                         })
 
                     except:
@@ -101,7 +133,7 @@ class ReviewScraper:
 
                 await browser.close()
 
-                logger.info(f"✅ Reviews scraped: {len(reviews)}")
+                logger.info(f"✅ Playwright reviews: {len(reviews)}")
                 return reviews
 
         except Exception as e:
@@ -109,34 +141,89 @@ class ReviewScraper:
             return []
 
     # =========================
-    # MAIN FUNCTION
+    # SCRAPELESS BACKUP
+    # =========================
+    def scrape_scrapeless(self, query):
+        if not self.scrapeless_key:
+            return []
+
+        try:
+            logger.info("⚡ Scrapeless fallback triggered")
+
+            url = "https://api.scrapeless.com/v1/scrape"
+
+            headers = {
+                "Authorization": f"Bearer {self.scrapeless_key}"
+            }
+
+            payload = {
+                "query": query,
+                "source": "google_maps_reviews"
+            }
+
+            res = requests.post(url, json=payload, headers=headers, timeout=20)
+
+            if res.status_code == 200:
+                return res.json().get("reviews", [])
+
+            return []
+
+        except Exception as e:
+            logger.error(f"❌ Scrapeless failed: {e}")
+            return []
+
+    # =========================
+    # MAIN PIPELINE
     # =========================
     async def get_reviews(self, query):
+        logger.info(f"🚀 START: {query}")
+
+        # Step 1: Get place_id
         place_id = self.get_place_id(query)
 
         if not place_id:
-            return []
+            logger.warning("⚠️ No place_id → Scrapeless fallback")
+            return self.scrape_scrapeless(query)
 
-        # Try with proxy
-        reviews = await self.scrape_reviews_playwright(place_id, use_proxy=True)
+        # Step 2: Playwright with proxy
+        reviews = await self.scrape_playwright(place_id, use_proxy=True)
 
-        # Fallback: retry without proxy
-        if len(reviews) == 0:
-            logger.warning("⚠️ Retrying WITHOUT proxy...")
-            reviews = await self.scrape_reviews_playwright(place_id, use_proxy=False)
+        # Step 3: Retry without proxy
+        if not reviews:
+            logger.warning("⚠️ Retry without proxy")
+            reviews = await self.scrape_playwright(place_id, use_proxy=False)
 
+        # Step 4: Scrapeless fallback
+        if not reviews:
+            logger.warning("⚠️ Using Scrapeless fallback")
+            reviews = self.scrape_scrapeless(query)
+
+        logger.info(f"🎯 FINAL COUNT: {len(reviews)}")
         return reviews
 
 
 # =========================
-# RUN TEST
+# BULK SCRAPER
+# =========================
+async def bulk_scrape(queries):
+    scraper = SaaSReviewScraper()
+    tasks = [scraper.get_reviews(q) for q in queries]
+    results = await asyncio.gather(*tasks)
+    return dict(zip(queries, results))
+
+
+# =========================
+# LOCAL TEST
 # =========================
 if __name__ == "__main__":
-    scraper = ReviewScraper()
+    queries = [
+        "Salt'n Pepper Village Lahore",
+        "Monal Lahore",
+        "Butt Karahi Lahore"
+    ]
 
-    result = asyncio.run(
-        scraper.get_reviews("Salt'n Pepper Village Lahore")
-    )
+    results = asyncio.run(bulk_scrape(queries))
 
-    print(f"\n🔥 TOTAL REVIEWS: {len(result)}\n")
-    print(result[:3])
+    for name, reviews in results.items():
+        print(f"\n{name} → {len(reviews)} reviews")
+        print(reviews[:2])
