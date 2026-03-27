@@ -10,7 +10,7 @@ from playwright.async_api import async_playwright
 from playwright_stealth import stealth_async
 
 # =================================================================
-# CONFIGURATION & LOGGING
+# BEST PRACTICE CONFIGURATION
 # =================================================================
 logging.basicConfig(
     level=logging.INFO,
@@ -19,23 +19,35 @@ logging.basicConfig(
 logger = logging.getLogger("ReviewSaaS.Scraper")
 
 API_TOKEN = os.getenv("SCRAPE_DO_TOKEN")
-sem = asyncio.Semaphore(5)   # Keep low for Free tier
+if not API_TOKEN:
+    logger.error("❌ SCRAPE_DO_TOKEN environment variable is required!")
+
+# Limit concurrency to avoid burning free/paid credits quickly
+sem = asyncio.Semaphore(4)  # Conservative for Scrape.do Free tier
 
 
-async def fetch_reviews(place_id: str, limit: int = 5):
+async def fetch_reviews(
+    place_id: str,
+    limit: int = 20,
+    sort_newest: bool = True,
+    take_screenshot_on_zero: bool = False
+):
+    """
+    World Best-Practice Google Maps Reviews Scraper using Scrape.do + Playwright (2026)
+    - Hybrid: Network + DOM extraction
+    - Robust Reviews tab + Sort handling
+    - Human-like interaction
+    """
     async with sem:
-        logger.info(f"🚀 Starting improved scraper for place_id: {place_id} | Limit: {limit}")
-
-        if not API_TOKEN:
-            logger.error("❌ SCRAPE_DO_TOKEN is missing!")
-            return []
+        logger.info(f"🚀 [Best Practice] Scraping reviews for place_id: {place_id} | Limit: {limit}")
 
         reviews_data = []
         visited_ids = set()
 
-        target_url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
+        # Direct Place URL (more stable than search URL)
+        target_url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
         encoded_url = urllib.parse.quote(target_url)
-        scrape_do_gateway = f"https://api.scrape.do?token={API_TOKEN}&url={encoded_url}&render=true"
+        scrape_do_url = f"https://api.scrape.do?token={API_TOKEN}&url={encoded_url}&render=true"
 
         async with async_playwright() as p:
             try:
@@ -48,25 +60,24 @@ async def fetch_reviews(place_id: str, limit: int = 5):
                         "--disable-features=IsolateOrigins,site-per-process"
                     ]
                 )
+
                 context = await browser.new_context(
-                    viewport={"width": 1366, "height": 900},
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+                    viewport={"width": 1366, "height": 950},
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                               "(KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
                 )
                 page = await context.new_page()
                 await stealth_async(page)
 
-                # ====================== IMPROVED NETWORK INTERCEPTION ======================
-                async def handle_response(response):
+                # ====================== NETWORK INTERCEPTION (Primary Method) ======================
+                async def handle_batchexecute(response):
                     if len(reviews_data) >= limit or "batchexecute" not in response.url:
                         return
-
                     try:
                         text = await response.text()
-                        # Clean Google prefix
                         cleaned = re.sub(r'^\)]}''\n?', '', text).strip()
+                        matches = re.findall(r'\["wrb\.fr".*?\]\]', cleaned, re.DOTALL)
 
-                        # Find wrb.fr blocks (more flexible regex)
-                        matches = re.findall(r'\["wrb\.fr".*?\]\]', cleaned, re.DOTALL | re.MULTILINE)
                         for match in matches:
                             try:
                                 parsed = json.loads(match)
@@ -92,108 +103,152 @@ async def fetch_reviews(place_id: str, limit: int = 5):
                                         review = {
                                             "review_id": review_id,
                                             "author_name": author,
-                                            "rating": float(rating) if isinstance(rating, (int, float, str)) else None,
+                                            "rating": float(rating) if rating is not None else None,
                                             "text": str(text_content) if text_content else "No review text",
                                             "scraped_at": datetime.utcnow().isoformat()
                                         }
                                         reviews_data.append(review)
                                         visited_ids.add(review_id)
-                                        logger.info(f"✅ Captured {len(reviews_data)}/{limit}: {author[:30]}...")
+                                        logger.info(f"✅ Network: {len(reviews_data)}/{limit} - {author[:40]}")
                             except:
                                 continue
                     except Exception:
                         pass
 
-                page.on("response", handle_response)
+                page.on("response", handle_batchexecute)
 
                 # ====================== NAVIGATION ======================
-                logger.info("📡 Navigating via Scrape.do...")
-                await page.goto(scrape_do_gateway, wait_until="domcontentloaded", timeout=120_000)
-                await page.wait_for_timeout(10_000)   # Longer initial wait for heavy JS
+                logger.info("📡 Loading page via Scrape.do render=true...")
+                await page.goto(scrape_do_url, wait_until="domcontentloaded", timeout=120000)
+                await page.wait_for_timeout(12000)  # Allow heavy JS to settle
 
-                # ====================== ROBUST REVIEWS TAB CLICK ======================
-                logger.info("🖱️ Hunting for Reviews tab (2026 updated selectors)...")
-
+                # ====================== OPEN REVIEWS TAB (Multi-strategy) ======================
+                logger.info("🖱️ Detecting and clicking Reviews tab...")
                 tab_selectors = [
                     'button[aria-label*="Reviews"]',
                     'button[aria-label*="ریویوز"]',
-                    'button[aria-label*="ریویو"]',
                     'button:has-text("Reviews")',
                     'button:has-text("ریویوز")',
                     'div[role="tab"]:has-text("Reviews")',
-                    'div[role="tab"]:has-text("ریویوز")',
                     '[data-value="Reviews"]',
-                    'button[jsaction*="review"]',
-                    '.hh2p_e',                    # still appears sometimes
-                    'span:has-text("Reviews") >> xpath=ancestor::button'
+                    '.hh2p_e',
+                    'button[jsaction*="review"]'
                 ]
 
                 clicked = False
-                for sel in tab_selectors:
+                for selector in tab_selectors:
                     try:
-                        btn = page.locator(sel).first
-                        if await btn.is_visible(timeout=5000):
+                        btn = page.locator(selector).first
+                        if await btn.is_visible(timeout=6000):
                             await btn.scroll_into_view_if_needed()
                             await btn.click(force=True)
-                            logger.info(f"✅ Clicked Reviews tab using: {sel}")
+                            logger.info(f"✅ Reviews tab opened using: {selector}")
                             clicked = True
-                            await page.wait_for_timeout(4000)
+                            await page.wait_for_timeout(5000)
                             break
-                    except Exception:
+                    except:
                         continue
 
                 if not clicked:
-                    logger.warning("⚠️ Tab click failed. Trying fallback: click on any tab panel or 'Sort by'")
-                    # Fallback: click anywhere in the tab area or "Sort by" button
+                    logger.warning("⚠️ Could not click Reviews tab. Proceeding with fallback scroll.")
+
+                # ====================== SORT BY NEWEST (Best for Fresh Data) ======================
+                if sort_newest:
                     try:
-                        await page.locator('button:has-text("Sort")').first.click(timeout=5000)
-                        await page.wait_for_timeout(2000)
+                        await page.wait_for_timeout(3000)
+                        await page.locator('button:has-text("Sort")').first.click()
+                        await page.wait_for_timeout(1500)
+                        await page.locator('span:has-text("Newest")').first.click()
+                        logger.info("✅ Sorted reviews by Newest")
+                        await page.wait_for_timeout(4000)
+                    except Exception:
+                        logger.warning("Could not sort by Newest")
+
+                # ====================== SCROLL + DOM EXTRACTION (Reliable Fallback) ======================
+                logger.info("🔄 Smart scrolling + DOM extraction...")
+
+                # Click "See more" for full review text
+                async def expand_reviews():
+                    try:
+                        more_btns = page.locator('.w8nwRe, .kyuRq')
+                        for i in range(await more_btns.count()):
+                            if i >= 10: break
+                            await more_btns.nth(i).click(force=True)
+                            await asyncio.sleep(0.3)
                     except:
                         pass
 
-                # ====================== SCROLLING + WAIT FOR REVIEWS ======================
-                logger.info("🔄 Aggressive scrolling to trigger review batches...")
+                last_height = 0
+                attempts = 0
+                max_attempts = 18
 
-                # Wait for review container as fallback
-                try:
-                    await page.wait_for_selector('div.jftiEf, div[data-review-id]', timeout=8000)
-                    logger.info("✅ Review elements detected on page")
-                except:
-                    logger.warning("No review DOM elements found yet")
+                while len(reviews_data) < limit and attempts < max_attempts:
+                    attempts += 1
 
-                scroll_attempts = 0
-                max_attempts = 12
+                    # Human-like behavior
+                    await page.mouse.move(random.randint(400, 900), random.randint(300, 700))
+                    await page.mouse.wheel(0, random.randint(2800, 4800))
+                    await asyncio.sleep(random.uniform(5.8, 9.5))
 
-                while len(reviews_data) < limit and scroll_attempts < max_attempts:
-                    scroll_attempts += 1
+                    await expand_reviews()
 
-                    # Move mouse to likely sidebar area
-                    await page.mouse.move(random.randint(500, 700), random.randint(300, 600))
-                    await page.mouse.wheel(0, random.randint(2800, 4200))
+                    # DOM Fallback Extraction (very stable in 2026)
+                    try:
+                        review_cards = page.locator('.jftiEf, [data-review-id]')
+                        cards = await review_cards.all()
+                        for card in cards:
+                            try:
+                                rid = await card.get_attribute("data-review-id")
+                                if not rid or rid in visited_ids:
+                                    continue
 
-                    await asyncio.sleep(random.uniform(5.0, 8.5))
+                                author_el = card.locator('.d4r55, .fontTitleSmall').first
+                                author = (await author_el.text_content(timeout=2000) or "Anonymous").strip()
 
-                    # Extra scroll every 3 attempts
-                    if scroll_attempts % 3 == 0:
-                        await page.mouse.wheel(0, 1500)
-                        await page.wait_for_timeout(2500)
+                                rating_el = card.locator('span[aria-label*="star"]').first
+                                rating_text = await rating_el.get_attribute("aria-label", timeout=2000)
+                                rating = float(rating_text.split()[0]) if rating_text else None
 
-                logger.info(f"🏁 Scrolling complete. Captured: {len(reviews_data)} reviews")
+                                text_el = card.locator('.wiI7pd').first
+                                text = (await text_el.text_content(timeout=3000) or "No text").strip()
 
-                # Optional debug: take screenshot if zero reviews
-                # if len(reviews_data) == 0:
-                #     await page.screenshot(path=f"debug_{place_id[:10]}.png")
-                #     logger.info("📸 Screenshot saved for debugging")
+                                review = {
+                                    "review_id": rid,
+                                    "author_name": author,
+                                    "rating": rating,
+                                    "text": text,
+                                    "scraped_at": datetime.utcnow().isoformat()
+                                }
+                                reviews_data.append(review)
+                                visited_ids.add(rid)
+                                logger.info(f"✅ DOM: {len(reviews_data)}/{limit} - {author[:40]}")
+                            except:
+                                continue
+                    except:
+                        pass
+
+                    # Stop if no new content
+                    current_height = await page.evaluate("document.documentElement.scrollHeight")
+                    if current_height == last_height and len(reviews_data) >= 5:
+                        break
+                    last_height = current_height
+
+                logger.info(f"🏁 Scraping finished. Total reviews: {len(reviews_data)}")
+
+                if len(reviews_data) == 0 and take_screenshot_on_zero:
+                    await page.screenshot(path=f"debug_zero_reviews_{place_id[:12]}.png")
+                    logger.info("📸 Screenshot saved for debugging (zero reviews)")
 
             except Exception as e:
-                logger.error(f"❌ Scraper error: {str(e)}", exc_info=True)
+                logger.error(f"❌ Critical error during scraping: {str(e)}", exc_info=True)
             finally:
                 await browser.close()
-                logger.info(f"✅ Session ended. Total reviews: {len(reviews_data)}")
 
         return reviews_data[:limit]
 
 
-# Aliases
+# =================================================================
+# Aliases for easy integration
+# =================================================================
 scrape_google_reviews = fetch_reviews
 run_scraper = fetch_reviews
