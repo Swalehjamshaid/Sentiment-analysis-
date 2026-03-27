@@ -9,71 +9,40 @@ from datetime import datetime
 from playwright.async_api import async_playwright
 from playwright_stealth import stealth_async
 
-# =================================================================
-# CONFIGURATION & LOGGING
-# =================================================================
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("ReviewSaaS.Scraper")
 
-# Pull token from Railway Environment Variable
 API_TOKEN = os.getenv("SCRAPE_DO_TOKEN")
-
-# Limit concurrency to 5 as per Scrape.do Free Plan
 sem = asyncio.Semaphore(5)
 
-# =================================================================
-# CORE SCRAPER FUNCTION
-# =================================================================
 async def fetch_reviews(place_id: str, limit: int = 5):
-    """
-    Complete Scraper: 
-    - API Gateway via Scrape.do
-    - Tab Switching (Overview -> Reviews)
-    - Network Interception (BatchExecute)
-    - Stops at exactly 5 reviews.
-    """
     async with sem:
         logger.info(f"🚀 [Railway] Starting 5-Review Scraper for: {place_id}")
         
         if not API_TOKEN:
-            logger.error("❌ SCRAPE_DO_TOKEN missing in Railway Variables!")
+            logger.error("❌ SCRAPE_DO_TOKEN missing!")
             return []
 
         reviews_data = []
         visited_ids = set()
-
-        # Target Google Maps URL
         target_url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
         encoded_url = urllib.parse.quote(target_url)
-        
-        # Scrape.do Gateway URL with JS Rendering enabled
         scrape_do_gateway = f"https://api.scrape.do?token={API_TOKEN}&url={encoded_url}&render=true"
 
         async with async_playwright() as p:
             try:
-                browser = await p.chromium.launch(
-                    headless=True,
-                    args=["--no-sandbox", "--disable-dev-shm-usage"]
-                )
+                browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
                 context = await browser.new_context(viewport={'width': 1280, 'height': 800})
                 page = await context.new_page()
                 await stealth_async(page)
 
-                # --- NETWORK INTERCEPTION LOGIC ---
                 async def handle_response(response):
-                    # Stop if we already hit our 5-review limit
-                    if len(reviews_data) >= limit:
-                        return
-
+                    if len(reviews_data) >= limit: return
                     if "batchexecute" in response.url:
                         try:
                             text = await response.text()
                             cleaned = text.replace(")]}'", "").strip()
                             matches = re.findall(r'\["wrb\.fr".*?\]\]', cleaned)
-                            
                             for match in matches:
                                 inner = json.loads(json.loads(match)[2])
                                 for block in [b for b in inner if isinstance(b, list)]:
@@ -89,37 +58,48 @@ async def fetch_reviews(place_id: str, limit: int = 5):
                                                     "scraped_at": datetime.utcnow().isoformat()
                                                 })
                                                 visited_ids.add(r_id)
-                                                logger.info(f"✨ Captured Review {len(reviews_data)}: {r[1][0]}")
+                                                logger.info(f"✨ Captured Review {len(reviews_data)}")
                                         except: continue
                         except: pass
 
                 page.on("response", handle_response)
 
-                # --- EXECUTION ---
-                logger.info("📡 Navigating via Scrape.do API Gateway...")
-                await page.goto(scrape_do_gateway, wait_until="load", timeout=120000)
+                logger.info("📡 Navigating via Scrape.do API...")
+                await page.goto(scrape_do_gateway, wait_until="domcontentloaded", timeout=120000)
+                await page.wait_for_timeout(8000) # Wait for page to settle
+
+                # --- NEW UNIVERSAL CLICK LOGIC ---
+                logger.info("🖱️ Hunting for Reviews tab...")
+                # We try 3 different ways to find the button
+                selectors = [
+                    'button[aria-label*="Reviews"]', 
+                    'button:has-text("Reviews")',
+                    'div[role="tab"]:has-text("Reviews")'
+                ]
                 
-                # Give the page a moment to load the sidebar
-                await page.wait_for_timeout(5000)
+                clicked = False
+                for selector in selectors:
+                    try:
+                        btn = page.locator(selector).first
+                        if await btn.is_visible(timeout=5000):
+                            await btn.click()
+                            logger.info(f"✅ Clicked Reviews tab using: {selector}")
+                            clicked = True
+                            break
+                    except: continue
+                
+                if not clicked:
+                    logger.warning("⚠️ Could not click tab, attempting force-scroll...")
 
-                # TRIGGER: Click the "Reviews" tab to start the data flow
-                logger.info("🖱️ Attempting to click Reviews tab...")
-                try:
-                    # Look for the button that contains the word "Reviews"
-                    review_tab = page.locator('button[aria-label*="Reviews"]').first
-                    await review_tab.click()
-                    await page.wait_for_timeout(3000)
-                except Exception as e:
-                    logger.warning(f"⚠️ Could not click Reviews tab automatically: {e}")
+                await page.wait_for_timeout(3000)
 
-                # SCROLLING: Just a few scrolls needed for 5 reviews
-                logger.info("🔄 Scrolling to trigger data packets...")
-                for i in range(3):
-                    if len(reviews_data) >= limit:
-                        break
-                    
-                    # Scroll down
-                    await page.mouse.wheel(0, 2000)
+                # --- SCROLLING ---
+                logger.info("🔄 Scrolling...")
+                for i in range(5):
+                    if len(reviews_data) >= limit: break
+                    # Move mouse to the sidebar area and scroll
+                    await page.mouse.move(400, 400)
+                    await page.mouse.wheel(0, 3000)
                     await asyncio.sleep(random.uniform(4, 6))
 
             except Exception as e:
@@ -130,6 +110,5 @@ async def fetch_reviews(place_id: str, limit: int = 5):
 
         return reviews_data[:limit]
 
-# Aliases for app integration
 scrape_google_reviews = fetch_reviews
 run_scraper = fetch_reviews
