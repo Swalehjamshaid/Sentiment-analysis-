@@ -41,7 +41,12 @@ class SaaSReviewScraper:
     def get_proxy(self):
         if not self.proxies:
             return None
-        return random.choice(self.proxies)
+        p = random.choice(self.proxies)
+        return {
+            "server": p["server"],
+            "username": p["username"],
+            "password": p["password"]
+        }
 
     # =========================
     # SERPAPI → PLACE ID
@@ -49,30 +54,24 @@ class SaaSReviewScraper:
     def get_place_id(self, query):
         try:
             logger.info(f"🔍 Resolving place_id for: {query}")
-
             url = "https://serpapi.com/search.json"
             params = {
                 "engine": "google_maps",
                 "q": query,
                 "api_key": self.api_key
             }
-
             res = requests.get(url, params=params, timeout=20)
-
             if res.status_code != 200:
                 logger.error(f"SerpAPI error: {res.text}")
                 return None
-
             data = res.json()
-            place_id = data.get("place_results", {}).get("place_id")
-
+            place_results = data.get("place_results") or {}
+            place_id = place_results.get("place_id") if isinstance(place_results, dict) else None
             if not place_id:
                 logger.warning("⚠️ No place_id found")
                 return None
-
             logger.info(f"✅ place_id: {place_id}")
             return place_id
-
         except Exception as e:
             logger.error(f"❌ SerpAPI failed: {e}")
             return None
@@ -86,7 +85,6 @@ class SaaSReviewScraper:
 
         try:
             proxy = self.get_proxy() if use_proxy else None
-
             logger.info(f"🚀 Playwright start (proxy={use_proxy})")
 
             async with async_playwright() as p:
@@ -94,9 +92,7 @@ class SaaSReviewScraper:
                     headless=True,
                     proxy=proxy
                 )
-
                 page = await browser.new_page()
-
                 await page.goto(url, timeout=60000)
                 await page.wait_for_timeout(5000)
 
@@ -106,32 +102,23 @@ class SaaSReviewScraper:
                     await page.wait_for_timeout(2000)
 
                 cards = await page.query_selector_all(".jftiEf")
-
                 for c in cards:
                     try:
-                        author = await c.query_selector_eval(
-                            ".d4r55", "el => el.innerText"
-                        )
-                        rating = await c.query_selector_eval(
-                            ".kvMYJc", "el => el.getAttribute('aria-label')"
-                        )
-                        text = await c.query_selector_eval(
-                            ".wiI7pd", "el => el.innerText"
-                        )
+                        author = await c.query_selector_eval(".d4r55", "el => el.innerText")
+                        rating = await c.query_selector_eval(".kvMYJc", "el => el.getAttribute('aria-label')")
+                        text = await c.query_selector_eval(".wiI7pd", "el => el.innerText")
 
                         reviews.append({
-                            "author": author,
-                            "rating": rating,
-                            "text": text,
+                            "author": author.strip() if author else "",
+                            "rating": rating.strip() if rating else "",
+                            "text": text.strip() if text else "",
                             "source": "google_maps",
                             "scraped_at": datetime.utcnow().isoformat()
                         })
-
                     except:
                         continue
 
                 await browser.close()
-
                 logger.info(f"✅ Playwright reviews: {len(reviews)}")
                 return reviews
 
@@ -148,25 +135,13 @@ class SaaSReviewScraper:
 
         try:
             logger.info("⚡ Scrapeless fallback")
-
             url = "https://api.scrapeless.com/v1/scrape"
-
-            headers = {
-                "Authorization": f"Bearer {self.scrapeless_key}"
-            }
-
-            payload = {
-                "query": query,
-                "source": "google_maps_reviews"
-            }
-
+            headers = {"Authorization": f"Bearer {self.scrapeless_key}"}
+            payload = {"query": query, "source": "google_maps_reviews"}
             res = requests.post(url, json=payload, headers=headers, timeout=20)
-
             if res.status_code == 200:
                 return res.json().get("reviews", [])
-
             return []
-
         except Exception as e:
             logger.error(f"❌ Scrapeless failed: {e}")
             return []
@@ -176,23 +151,16 @@ class SaaSReviewScraper:
     # =========================
     async def get_reviews(self, query):
         logger.info(f"🚀 START: {query}")
-
-        # Step 1: place_id
         place_id = self.get_place_id(query)
-
         if not place_id:
             logger.warning("⚠️ No place_id → Scrapeless")
             return self.scrape_scrapeless(query)
 
-        # Step 2: Playwright with proxy
         reviews = await self.scrape_playwright(place_id, True)
-
-        # Step 3: Retry without proxy
         if not reviews:
             logger.warning("⚠️ Retry without proxy")
             reviews = await self.scrape_playwright(place_id, False)
 
-        # Step 4: Scrapeless fallback
         if not reviews:
             logger.warning("⚠️ Scrapeless fallback")
             reviews = self.scrape_scrapeless(query)
@@ -202,7 +170,7 @@ class SaaSReviewScraper:
 
 
 # =========================
-# ✅ FIX FOR YOUR ERROR
+# GLOBAL FUNCTION
 # =========================
 async def fetch_reviews(query: str):
     scraper = SaaSReviewScraper()
