@@ -18,12 +18,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ReviewSaaS.Scraper")
 
-# This pulls the token from your Railway Environment Variable: SCRAPE_DO_TOKEN
-# Make sure you have added this name and your token in the Railway Dashboard.
+# Credentials from Railway Environment Variables
 API_TOKEN = os.getenv("SCRAPE_DO_TOKEN")
 
-# Scrape.do Free Plan has a limit of 5 concurrent requests.
-# This Semaphore ensures your app never tries to run more than 5 at once.
+# Scrape.do Free Plan limit
 sem = asyncio.Semaphore(5)
 
 # =================================================================
@@ -31,57 +29,57 @@ sem = asyncio.Semaphore(5)
 # =================================================================
 async def fetch_reviews(place_id: str, limit: int = 50):
     """
-    Railway-optimized scraper using Scrape.do API Gateway.
-    This bypasses proxy tunnels by using a direct API request.
+    Complete Intercept-and-Scroll Scraper.
+    Logic: 
+    1. Call Scrape.do API Gateway.
+    2. 'Listen' for internal Google data (BatchExecute).
+    3. Physically scroll the page to trigger data loading.
+    4. Parse and return the intercepted JSON.
     """
-    async with sem:  # Protects your 5-concurrency limit
-        logger.info(f"🚀 [Railway] Starting Scrape.do Scraper for: {place_id}")
+    async with sem:
+        logger.info(f"🚀 [Railway] Initializing Master Scraper for: {place_id}")
         
         if not API_TOKEN:
-            logger.error("❌ SCRAPE_DO_TOKEN not found in Railway Variables! Check your dashboard.")
+            logger.error("❌ SCRAPE_DO_TOKEN missing in Railway Variables!")
             return []
 
         reviews_data = []
         visited_ids = set()
 
-        # 1. Target URL (The Google Maps Reviews page)
-        # Using the 0{place_id} format to trigger the correct Google redirect
+        # Google Maps URL Format
         target_url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={place_id}"
-        
-        # 2. URL Encoding (Crucial for API parameters)
         encoded_url = urllib.parse.quote(target_url)
         
-        # 3. Build Scrape.do Gateway URL 
-        # '&render=true' is required for Google Maps because it uses heavy JavaScript
+        # Scrape.do Gateway (render=true is mandatory for JS interception)
         scrape_do_gateway = f"https://api.scrape.do?token={API_TOKEN}&url={encoded_url}&render=true"
 
         async with async_playwright() as p:
             try:
-                # Launch WITHOUT proxy settings (the API handles proxies on its side)
                 browser = await p.chromium.launch(
                     headless=True,
-                    args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
+                    args=["--no-sandbox", "--disable-dev-shm-usage"]
                 )
-                context = await browser.new_context(
-                    viewport={'width': 1280, 'height': 800}
-                )
+                context = await browser.new_context(viewport={'width': 1280, 'height': 800})
                 page = await context.new_page()
                 await stealth_async(page)
 
-                # --- DATA INTERCEPTION LOGIC ---
-                # We listen for the 'batchexecute' network response where Google sends review data
+                # --- THE INTERCEPTION LOGIC (The "Video" Method) ---
                 async def handle_response(response):
+                    # We only care about the background data stream from Google
                     if "batchexecute" in response.url:
                         try:
                             text = await response.text()
-                            # Clean the Google-specific security prefix
+                            # Clean Google's security prefix
                             cleaned = text.replace(")]}'", "").strip()
                             matches = re.findall(r'\["wrb\.fr".*?\]\]', cleaned)
+                            
                             for match in matches:
+                                # Convert string match to actual Python list
                                 inner = json.loads(json.loads(match)[2])
                                 for block in [b for b in inner if isinstance(b, list)]:
                                     for r in block:
                                         try:
+                                            # Indexing based on Google's internal JSON structure
                                             r_id = r[0]
                                             if r_id not in visited_ids:
                                                 reviews_data.append({
@@ -89,42 +87,49 @@ async def fetch_reviews(place_id: str, limit: int = 50):
                                                     "author_name": r[1][0],
                                                     "rating": r[4],
                                                     "text": r[3] or "",
+                                                    "relative_date": r[1][4],
                                                     "scraped_at": datetime.utcnow().isoformat()
                                                 })
                                                 visited_ids.add(r_id)
-                                        except (IndexError, TypeError): 
-                                            continue
-                        except Exception: 
-                            pass
+                                        except (IndexError, TypeError): continue
+                        except: pass
 
+                # Tell Playwright to start 'listening'
                 page.on("response", handle_response)
 
-                logger.info("📡 Requesting page through Scrape.do API Gateway...")
-                # We give the API 120 seconds to render the JavaScript and return the page
-                await page.goto(scrape_do_gateway, wait_until="networkidle", timeout=120000)
+                logger.info("📡 Navigating via Scrape.do API...")
+                # We use 'load' to ensure the basic structure is there before we start scrolling
+                await page.goto(scrape_do_gateway, wait_until="load", timeout=120000)
 
-                # --- SCROLLING TO FETCH MORE REVIEWS ---
-                # This triggers more 'batchexecute' requests for the interceptor to catch
+                # --- THE SCROLLING LOGIC ---
+                # We need to find the review panel and scroll it to trigger 'batchexecute'
+                logger.info("⏳ Attempting to locate review panel and scroll...")
+                
+                # Wait for the main content to load
+                await page.wait_for_timeout(5000)
+
+                # Find the scrollable container (Google uses different classes, 
+                # but 'role=main' or specific mouse-wheel actions usually work)
                 for i in range((limit // 5) + 5):
-                    if len(reviews_data) >= limit: 
-                        break
+                    if len(reviews_data) >= limit: break
                     
+                    # Method: Mouse Wheel Scroll
                     await page.mouse.wheel(0, 4000)
-                    # Use a random sleep to mimic human behavior and avoid rate limits
-                    await asyncio.sleep(random.uniform(3, 5))
+                    
+                    # Random wait to allow the API to fetch next batch
+                    await asyncio.sleep(random.uniform(4, 6))
                     
                     if len(reviews_data) > 0:
-                        logger.info(f"📊 Collected {len(reviews_data)} reviews so far...")
+                        logger.info(f"📊 Captured {len(reviews_data)} reviews so far...")
 
             except Exception as e:
-                logger.error(f"❌ Scraper Failure: {str(e)}")
+                logger.error(f"❌ Scraper failure: {str(e)}")
             finally:
                 await browser.close()
-                logger.info(f"✅ Scraping Cycle Finished. Total Captured: {len(reviews_data)}")
+                logger.info(f"✅ Finished. Total Intercepted: {len(reviews_data)}")
 
-        return reviews_data[:limit]
+    return reviews_data[:limit]
 
-# --- Compatibility Aliases ---
-# These ensure your main app (main.py or app.py) can still call the function
+# Aliases for your ReviewSaaS logic
 scrape_google_reviews = fetch_reviews
 run_scraper = fetch_reviews
