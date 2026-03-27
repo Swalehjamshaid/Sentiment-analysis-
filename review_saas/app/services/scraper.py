@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 import requests
+from itertools import cycle
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -17,15 +18,32 @@ logger = logging.getLogger("scraper")
 
 class ReviewScraper:
     def __init__(self):
-        # ✅ UPDATED: Support BOTH env names (your fix)
+        # ✅ API KEY (supports both names)
         self.api_key = os.getenv("SERP_API_KEY") or os.getenv("SERPAPI_KEY")
 
         if self.api_key:
-            logger.info("✅ SERP API key loaded successfully")
+            logger.info("✅ SERP API key loaded")
         else:
-            logger.warning("⚠️ No SERP API key found → using Playwright fallback")
+            logger.warning("⚠️ No SERP API key → using proxies + Playwright")
 
         self.base_url = "https://serpapi.com/search.json"
+
+        # =========================
+        # 🔥 YOUR WEBSHARE PROXIES
+        # =========================
+        self.proxy_list = [
+            "http://dkgjitgr:uzeqkqwjvmqe@31.59.20.176:6754",
+            "http://dkgjitgr:uzeqkqwjvmqe@23.95.150.145:6114",
+            "http://dkgjitgr:uzeqkqwjvmqe@198.23.239.134:6540",
+            "http://dkgjitgr:uzeqkqwjvmqe@45.38.107.97:6014",
+            "http://dkgjitgr:uzeqkqwjvmqe@107.172.163.27:6543",
+            "http://dkgjitgr:uzeqkqwjvmqe@198.105.121.200:6462",
+            "http://dkgjitgr:uzeqkqwjvmqe@216.10.27.159:6837",
+            "http://dkgjitgr:uzeqkqwjvmqe@142.111.xxx.xxx:5611",  # replace properly
+            "http://dkgjitgr:uzeqkqwjvmqe@191.96.254.138:6185"
+        ]
+
+        self.proxy_pool = cycle(self.proxy_list)
 
         # Retry session
         self.session = requests.Session()
@@ -33,7 +51,17 @@ class ReviewScraper:
         self.session.mount("https://", HTTPAdapter(max_retries=retries))
 
     # =========================
-    # STEP 1: RESOLVE DATA ID
+    # GET NEXT PROXY
+    # =========================
+    def get_proxy(self):
+        proxy = next(self.proxy_pool)
+        return {
+            "http": proxy,
+            "https": proxy
+        }
+
+    # =========================
+    # RESOLVE DATA ID
     # =========================
     def resolve_to_data_id(self, query):
         if not self.api_key:
@@ -46,8 +74,16 @@ class ReviewScraper:
         }
 
         try:
-            logger.info(f"Resolving data_id for: {query}")
-            res = self.session.get(self.base_url, params=params, timeout=20)
+            proxy = self.get_proxy()
+            logger.info(f"Resolving ID using proxy: {proxy['http']}")
+
+            res = self.session.get(
+                self.base_url,
+                params=params,
+                proxies=proxy,
+                timeout=20
+            )
+
             data = res.json()
 
             if "place_results" in data and data["place_results"].get("data_id"):
@@ -64,7 +100,7 @@ class ReviewScraper:
             return None
 
     # =========================
-    # STEP 2: SERPAPI REVIEWS
+    # SERPAPI REVIEWS
     # =========================
     def get_reviews_serpapi(self, identifier, count=20):
         if not self.api_key:
@@ -79,70 +115,75 @@ class ReviewScraper:
             "engine": "google_maps_reviews",
             "data_id": identifier,
             "api_key": self.api_key,
-            "num": count,
-            "sort_by": "newest"
+            "num": count
         }
 
         try:
-            logger.info("📡 Fetching reviews via SerpApi...")
-            res = self.session.get(self.base_url, params=params, timeout=30)
+            proxy = self.get_proxy()
+
+            logger.info(f"Fetching SerpApi with proxy: {proxy['http']}")
+
+            res = self.session.get(
+                self.base_url,
+                params=params,
+                proxies=proxy,
+                timeout=30
+            )
+
             res.raise_for_status()
-
             data = res.json()
-            reviews = data.get("reviews", [])
 
-            return [
-                {
-                    "user": r.get("user", {}).get("name"),
-                    "rating": r.get("rating"),
-                    "text": r.get("snippet") or r.get("text"),
-                    "date": r.get("date"),
-                    "source": "serpapi"
-                }
-                for r in reviews
-            ]
+            return data.get("reviews", [])
 
         except Exception as e:
-            logger.error(f"❌ SerpApi failed: {e}")
+            logger.error(f"SerpApi failed: {e}")
             return []
 
     # =========================
-    # STEP 3: PLAYWRIGHT FALLBACK
+    # PLAYWRIGHT WITH PROXY
     # =========================
     async def get_reviews_playwright(self, query, max_reviews=20):
-        logger.info("🚀 Playwright scraping started...")
+        logger.info("🚀 Playwright scraping with proxy...")
 
         reviews = []
+        proxy_url = next(self.proxy_pool)
 
         try:
+            proxy_parts = proxy_url.replace("http://", "").split("@")
+            creds, host = proxy_parts
+            username, password = creds.split(":")
+            server = f"http://{host}"
+
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
+                browser = await p.chromium.launch(
+                    headless=True,
+                    proxy={
+                        "server": server,
+                        "username": username,
+                        "password": password
+                    }
+                )
+
                 context = await browser.new_context()
                 page = await context.new_page()
 
                 await stealth_async(page)
 
-                # Open Google Maps
                 await page.goto(f"https://www.google.com/maps/search/{query}")
                 await page.wait_for_timeout(5000)
 
-                # Click first result
                 try:
                     await page.click('a.hfpxzc', timeout=5000)
                 except:
-                    logger.warning("Could not click first result")
+                    pass
 
                 await page.wait_for_timeout(5000)
 
-                # Click reviews
                 try:
-                    await page.click('button[jsaction="pane.reviewChart.moreReviews"]', timeout=5000)
+                    await page.click('button[jsaction="pane.reviewChart.moreReviews"]')
                 except:
-                    logger.warning("Could not click reviews button")
+                    pass
 
-                await page.wait_for_timeout(5000)
-
-                # Scroll reviews
                 for _ in range(10):
                     await page.mouse.wheel(0, 3000)
                     await asyncio.sleep(2)
@@ -152,14 +193,12 @@ class ReviewScraper:
                 for el in elements[:max_reviews]:
                     try:
                         user = await el.query_selector('div.d4r55')
-                        rating = await el.query_selector('span.kvMYJc')
                         text = await el.query_selector('span.wiI7pd')
 
                         reviews.append({
                             "user": await user.inner_text() if user else None,
-                            "rating": await rating.get_attribute("aria-label") if rating else None,
                             "text": await text.inner_text() if text else None,
-                            "source": "playwright"
+                            "source": "playwright_proxy"
                         })
                     except:
                         continue
@@ -167,12 +206,12 @@ class ReviewScraper:
                 await browser.close()
 
         except Exception as e:
-            logger.error(f"❌ Playwright failed: {e}")
+            logger.error(f"Playwright proxy failed: {e}")
 
         return reviews
 
     # =========================
-    # MAIN HYBRID FUNCTION
+    # MAIN FUNCTION
     # =========================
     async def get_reviews(self, identifier, count=20):
 
@@ -180,20 +219,13 @@ class ReviewScraper:
         reviews = self.get_reviews_serpapi(identifier, count)
 
         if reviews:
-            logger.info(f"✅ SerpApi success: {len(reviews)} reviews")
+            logger.info(f"✅ SerpApi success: {len(reviews)}")
             return reviews
 
-        # 2. Fallback to Playwright
-        logger.warning("⚠️ Switching to Playwright scraping...")
+        # 2. Fallback Playwright
+        logger.warning("⚠️ Switching to Playwright with proxy...")
 
-        reviews = await self.get_reviews_playwright(identifier, count)
-
-        if reviews:
-            logger.info(f"✅ Playwright success: {len(reviews)} reviews")
-        else:
-            logger.error("❌ No reviews found from both methods")
-
-        return reviews
+        return await self.get_reviews_playwright(identifier, count)
 
 
 # =========================
