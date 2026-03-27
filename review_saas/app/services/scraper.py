@@ -3,22 +3,26 @@ import json
 import os
 
 class ReviewScraper:
-    """
-    Core Scraper class using SerpApi for high reliability on Railway.
-    """
     def __init__(self):
-        # Your SerpApi Key from the dashboard screenshot
+        # Your SerpApi Key
         self.api_key = os.getenv("SERPAPI_KEY", "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d")
         self.base_url = "https://serpapi.com/search.json"
 
-    def get_reviews(self, data_id, count=20):
+    def get_reviews(self, identifier, count=20):
+        """
+        SerpApi can use 'data_id' or 'place_id' depending on the engine.
+        We will attempt to use the provided identifier as the data_id for Google Maps.
+        """
         params = {
             "engine": "google_maps_reviews",
-            "data_id": data_id,
             "api_key": self.api_key,
             "num": count,
             "sort_by": "newest"
         }
+        
+        # Determine if we should use place_id or data_id parameter
+        # SerpApi Google Maps Reviews engine specifically prefers 'data_id'
+        params["data_id"] = identifier
 
         try:
             response = requests.get(self.base_url, params=params, timeout=30)
@@ -32,29 +36,27 @@ class ReviewScraper:
                 processed.append({
                     "user": item.get("user", {}).get("name", "Anonymous"),
                     "rating": item.get("rating"),
-                    "text": item.get("snippet", ""), # 'text' is often expected by sentiment models
+                    "text": item.get("snippet", ""), 
                     "date": item.get("date")
                 })
             return processed
 
         except Exception as e:
-            print(f"Scraper Error: {e}")
+            print(f"Scraper Error for {identifier}: {e}")
             return []
 
-# --- CRITICAL: Wrapper function for your main.py import ---
+# --- FIXED WRAPPER ---
 
-def fetch_reviews(data_id):
+def fetch_reviews(data_id=None, **kwargs):
     """
-    This function matches the import in your app/main.py:
-    from app.services.scraper import fetch_reviews
+    Fixed to handle 'place_id' keyword argument from app.reviews.
     """
+    # If main.py passes place_id=..., we grab it here
+    identifier = data_id or kwargs.get('place_id')
+    
+    if not identifier:
+        print("[!] No identifier (data_id or place_id) provided to fetch_reviews")
+        return []
+        
     scraper = ReviewScraper()
-    return scraper.get_reviews(data_id)
-
-# ---------------------------------------------------------
-
-if __name__ == "__main__":
-    # Local testing logic
-    test_id = "0x3919016e789d2c5f:0x39223700b0808b2d"
-    results = fetch_reviews(test_id)
-    print(f"Found {len(results)} reviews.")
+    return scraper.get_reviews(identifier)
