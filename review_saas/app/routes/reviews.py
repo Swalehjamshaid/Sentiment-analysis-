@@ -3,7 +3,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List
 
 from app.core.db import get_session
 from app.core.models import Review, Company
@@ -13,33 +12,43 @@ router = APIRouter(prefix="/reviews", tags=["Reviews"])
 
 
 # =========================
-# FETCH + STORE REVIEWS
+# INGEST REVIEWS (MAIN API USED BY DASHBOARD)
 # =========================
-@router.post("/fetch/{company_id}")
-async def fetch_and_store_reviews(
+@router.post("/ingest/{company_id}")
+async def ingest_reviews(
     company_id: int,
     limit: int = 100,
     db: AsyncSession = Depends(get_session)
 ):
+    """
+    Dashboard Trigger:
+    Fetch reviews from SERPAPI and store in DB
+    """
+
+    # 1. Validate company
     result = await db.execute(select(Company).where(Company.id == company_id))
     company = result.scalar_one_or_none()
 
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
 
+    # 2. Fetch reviews using your scraper
     scraped_reviews = await fetch_reviews(
         company_id=company_id,
         session=db,
+        place_id=company.place_id,  # IMPORTANT (uses Google Place ID)
         target_limit=limit
     )
 
     if not scraped_reviews:
         return {
             "status": "warning",
-            "message": "No reviews fetched",
-            "inserted": 0
+            "reviews_count": 0,
+            "inserted": 0,
+            "message": "No reviews fetched"
         }
 
+    # 3. Insert into DB (avoid duplicates)
     inserted_count = 0
 
     for r in scraped_reviews:
@@ -48,6 +57,7 @@ async def fetch_and_store_reviews(
                 Review.google_review_id == r["google_review_id"]
             )
         )
+
         if existing.scalar_one_or_none():
             continue
 
@@ -68,15 +78,15 @@ async def fetch_and_store_reviews(
 
     return {
         "status": "success",
-        "fetched": len(scraped_reviews),
+        "reviews_count": len(scraped_reviews),  # frontend uses this
         "inserted": inserted_count
     }
 
 
 # =========================
-# GET REVIEWS
+# GET REVIEWS (OPTIONAL)
 # =========================
-@router.get("/{company_id}", response_model=List[dict])
+@router.get("/{company_id}")
 async def get_reviews(
     company_id: int,
     db: AsyncSession = Depends(get_session)
