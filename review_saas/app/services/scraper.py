@@ -3,6 +3,7 @@ import requests
 import json
 import logging
 from time import sleep
+import asyncio
 
 # =========================
 # Logging
@@ -18,7 +19,9 @@ if not SERP_API_KEY:
     logger.error("SERP_API_KEY is not set! Exiting scraper.")
     raise ValueError("SERP_API_KEY environment variable is missing.")
 
-
+# =========================
+# Scraper Class
+# =========================
 class ReviewScraper:
     """Robust scraper using SerpApi for Google Reviews."""
 
@@ -50,10 +53,13 @@ class ReviewScraper:
                 response = requests.get(self.BASE_URL, params=params, timeout=30)
                 data = response.json()
 
-                logger.info(f"SerpApi Raw Response: {json.dumps(data, indent=2)[:1000]}...")
+                if "error" in data:
+                    logger.error(f"SerpApi error: {data['error']}")
+                    return []
 
                 reviews = data.get("reviews", [])
 
+                # If no reviews and no place_id, try first local result
                 if not reviews and not place_id:
                     candidate = data.get("local_results", {}).get("places", [])
                     if candidate:
@@ -78,16 +84,17 @@ class ReviewScraper:
 
         return []
 
-
 # =========================
-# Module-level wrapper
+# Module-level scraper
 # =========================
 scraper_instance = ReviewScraper()
 
-
-def fetch_reviews(company_name=None, name=None, limit=300, place_id=None):
+# =========================
+# Async wrapper for FastAPI
+# =========================
+async def fetch_reviews(company_name=None, name=None, limit=300, place_id=None):
     """
-    Module-level wrapper compatible with all existing routes.
+    Async wrapper compatible with FastAPI routes.
     Accepts:
         - company_name (preferred)
         - name (fallback)
@@ -97,7 +104,9 @@ def fetch_reviews(company_name=None, name=None, limit=300, place_id=None):
     target_name = company_name or name
     if not target_name:
         raise ValueError("Either company_name or name must be provided to fetch reviews.")
-    return scraper_instance.fetch_reviews(target_name, limit=limit, place_id=place_id)
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, scraper_instance.fetch_reviews, target_name, limit, place_id)
 
 
 # =========================
@@ -106,7 +115,7 @@ def fetch_reviews(company_name=None, name=None, limit=300, place_id=None):
 if __name__ == "__main__":
     companies = ["Villa The Grand Buffet", "Bahria Town"]
     for company in companies:
-        reviews = fetch_reviews(name=company)
+        reviews = asyncio.run(fetch_reviews(name=company))
         if not reviews:
             logger.info(f"No reviews returned for {company}")
         else:
