@@ -1,219 +1,83 @@
-import asyncio
-import random
-import logging
 import requests
-import os
-from datetime import datetime
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+import json
+import logging
 
-# =========================
-# LOGGING
-# =========================
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger("scraper")
+# Setup logging
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+logger = logging.getLogger("ReviewScraper")
 
+class SerpApiReviewScraper:
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.base_url = "https://serpapi.com/search.json"
 
-class SaaSReviewScraper:
-    def __init__(self):
-        self.api_key = os.getenv("SERP_API_KEY")
-        self.scrapeless_key = os.getenv("SCRAPELESS_API_KEY")
-
-        if not self.api_key:
-            raise ValueError("❌ SERP_API_KEY not set")
-
-        # =========================
-        # PROXY POOL
-        # =========================
-        self.proxies = [
-            {
-                "server": "http://31.59.20.176:6754",
-                "username": "dkgjitgr",
-                "password": "uzeqkqwjvmqe"
-            }
-        ]
-
-    # =========================
-    # PROXY ROTATION
-    # =========================
-    def get_proxy(self):
-        if not self.proxies:
-            return None
-        proxy = random.choice(self.proxies)
-        return {
-            "server": proxy["server"],
-            "username": proxy["username"],
-            "password": proxy["password"]
-        }
-
-    # =========================
-    # SERPAPI → PLACE ID
-    # =========================
-    def get_place_id(self, query):
+    def get_reviews_by_query(self, query, review_limit=20):
+        """
+        Full pipeline: Find the place, then extract its reviews.
+        """
         try:
-            logger.info(f"🔍 Resolving place_id for: {query}")
-
-            url = "https://serpapi.com/search.json"
-            params = {
+            # Step 1: Find the place to get the unique data_id
+            logger.info(f"Searching for place: {query}")
+            search_params = {
                 "engine": "google_maps",
                 "q": query,
                 "api_key": self.api_key
             }
+            
+            search_res = requests.get(self.base_url, params=search_params)
+            search_res.raise_for_status()
+            search_data = search_res.json()
 
-            res = requests.get(url, params=params, timeout=20)
-
-            if res.status_code != 200:
-                logger.error(f"SerpAPI error: {res.text}")
-                return None
-
-            data = res.json()
-            place_id = data.get("place_results", {}).get("place_id")
-
-            if not place_id:
-                logger.warning("⚠️ No place_id found")
-                return None
-
-            logger.info(f"✅ place_id: {place_id}")
-            return place_id
-
-        except Exception as e:
-            logger.error(f"❌ SerpAPI failed: {e}")
-            return None
-
-    # =========================
-    # PLAYWRIGHT SCRAPER
-    # =========================
-    async def scrape_playwright(self, place_id, limit=50, use_proxy=True):
-        reviews = []
-        url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-
-        for attempt in range(2):  # Retry logic
-            try:
-                proxy_config = self.get_proxy() if use_proxy else None
-                pw_proxy = {
-                    "server": proxy_config["server"],
-                    "username": proxy_config["username"],
-                    "password": proxy_config["password"]
-                } if proxy_config else None
-
-                logger.info(f"🚀 Playwright start (proxy={use_proxy}) attempt {attempt + 1}")
-
-                async with async_playwright() as p:
-                    browser = await p.chromium.launch(headless=True, proxy=pw_proxy)
-                    page = await browser.new_page()
-
-                    await page.goto(url, timeout=90000, wait_until="networkidle")
-                    await page.wait_for_timeout(5000)
-
-                    # Scroll to load reviews
-                    for _ in range(7):
-                        await page.mouse.wheel(0, 5000)
-                        await page.wait_for_timeout(2000)
-
-                    cards = await page.query_selector_all(".jftiEf")
-
-                    for idx, c in enumerate(cards):
-                        if idx >= limit:
-                            break
-                        try:
-                            author = await c.query_selector_eval(".d4r55", "el => el.innerText")
-                            rating = await c.query_selector_eval(".kvMYJc", "el => el.getAttribute('aria-label')")
-                            text = await c.query_selector_eval(".wiI7pd", "el => el.innerText")
-
-                            reviews.append({
-                                "author": author,
-                                "rating": rating,
-                                "text": text,
-                                "source": "google_maps",
-                                "scraped_at": datetime.utcnow().isoformat()
-                            })
-                        except:
-                            continue
-
-                    await browser.close()
-                    logger.info(f"✅ Playwright reviews: {len(reviews)}")
-                    return reviews
-
-            except PlaywrightTimeoutError:
-                logger.warning("⚠️ Playwright timeout, retrying...")
-                continue
-            except Exception as e:
-                logger.error(f"❌ Playwright failed: {e}")
-                break
-
-        return []
-
-    # =========================
-    # SCRAPELESS BACKUP
-    # =========================
-    def scrape_scrapeless(self, query):
-        if not self.scrapeless_key:
-            return []
-
-        try:
-            logger.info("⚡ Scrapeless fallback")
-
-            url = "https://api.scrapeless.com/v1/scrape"
-            headers = {"Authorization": f"Bearer {self.scrapeless_key}"}
-            payload = {"query": query, "source": "google_maps_reviews"}
-
-            res = requests.post(url, json=payload, headers=headers, timeout=20)
-            if res.status_code == 200:
-                return res.json().get("reviews", [])
-
-            return []
-
-        except Exception as e:
-            logger.error(f"❌ Scrapeless failed: {e}")
-            return []
-
-    # =========================
-    # MAIN PIPELINE
-    # =========================
-    async def get_reviews(self, place_id=None, query=None, limit=50):
-        logger.info(f"🚀 START: place_id={place_id} query={query}")
-
-        if not place_id:
-            if not query:
-                logger.error("❌ No query or place_id provided")
+            # Identify the data_id (required for the reviews engine)
+            place_results = search_data.get("place_results")
+            if not place_results:
+                logger.error("No specific place found for this query.")
                 return []
-            place_id = self.get_place_id(query)
-            if not place_id:
-                logger.warning("⚠️ No place_id → Scrapeless")
-                return self.scrape_scrapeless(query)
+            
+            data_id = place_results.get("data_id")
+            logger.info(f"Found Place: {place_results.get('title')} (ID: {data_id})")
 
-        # Step 2: Playwright with proxy
-        reviews = await self.scrape_playwright(place_id, limit, use_proxy=True)
+            # Step 2: Fetch the reviews using the data_id
+            logger.info(f"Fetching up to {review_limit} reviews...")
+            review_params = {
+                "engine": "google_maps_reviews",
+                "data_id": data_id,
+                "api_key": self.api_key,
+                "num": review_limit
+            }
+            
+            review_res = requests.get(self.base_url, params=review_params)
+            review_res.raise_for_status()
+            reviews = review_res.json().get("reviews", [])
 
-        # Step 3: Retry without proxy
-        if not reviews:
-            logger.warning("⚠️ Retry without proxy")
-            reviews = await self.scrape_playwright(place_id, limit, use_proxy=False)
+            return self._format_results(reviews)
 
-        # Step 4: Scrapeless fallback
-        if not reviews and query:
-            logger.warning("⚠️ Scrapeless fallback")
-            reviews = self.scrape_scrapeless(query)
+        except Exception as e:
+            logger.error(f"Scraping failed: {e}")
+            return []
 
-        logger.info(f"🎯 FINAL COUNT: {len(reviews)}")
-        return reviews
+    def _format_results(self, reviews):
+        """Clean and structure the raw API response."""
+        extracted_data = []
+        for r in reviews:
+            extracted_data.append({
+                "user": r.get("user", {}).get("name"),
+                "rating": r.get("rating"),
+                "date": r.get("date"),
+                "snippet": r.get("snippet", "No text provided"),
+                "likes": r.get("likes", 0)
+            })
+        return extracted_data
 
+# --- RUNNING THE SCRAPER ---
+# Note: Ensure you have regenerated your key if you haven't already.
+MY_API_KEY = "f9f41e452ea716cale760081b94763a404c9ele07aef30def9c6a05391890e8d"
 
-# =========================
-# ✅ FETCH_REVIEWS FUNCTION
-# =========================
-async def fetch_reviews(place_id=None, query=None, limit=50):
-    scraper = SaaSReviewScraper()
-    return await scraper.get_reviews(place_id=place_id, query=query, limit=limit)
+scraper = SerpApiReviewScraper(MY_API_KEY)
+results = scraper.get_reviews_by_query("The British Museum", review_limit=10)
 
-
-# =========================
-# OPTIONAL BULK FUNCTION
-# =========================
-async def bulk_scrape(queries):
-    scraper = SaaSReviewScraper()
-    tasks = [scraper.get_reviews(query=q) for q in queries]
-    results = await asyncio.gather(*tasks)
-    return dict(zip(queries, results))
+# Output results
+if results:
+    print(json.dumps(results, indent=2))
+else:
+    print("No reviews found.")
