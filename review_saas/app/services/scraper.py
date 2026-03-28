@@ -17,12 +17,10 @@ async def fetch_reviews(
     session: AsyncSession = None
 ) -> List[Dict]:
     """
-    Fetch Google reviews using CID from the company_cids table only.
-    No hardcoded bypass logic.
+    Fetch Google reviews using CID from company_cids table only.
     """
     analyzer = SentimentIntensityAnalyzer()
     
-    # Get SerpApi key from environment
     api_key = os.getenv("SERP_API_KEY")
     if not api_key:
         logger.error("❌ SERP_API_KEY environment variable is not set!")
@@ -50,7 +48,7 @@ async def fetch_reviews(
                 logger.warning(f"⚠️ No CID found in company_cids table for company_id {company_id} ({target_name})")
                 
         except Exception as e:
-            logger.error(f"❌ Failed to read CompanyCID table: {e}")
+            logger.error(f"❌ Failed to read from CompanyCID table: {e}")
     else:
         logger.error("❌ company_id or database session is missing.")
 
