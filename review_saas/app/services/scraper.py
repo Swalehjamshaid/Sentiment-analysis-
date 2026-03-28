@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from serpapi import GoogleSearch
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-# Core project imports
+# Core project imports - Do NOT import CompanyCID here to avoid boot-time crashes
 from app.core.db import engine
 
 logger = logging.getLogger("app.scraper")
@@ -20,20 +20,20 @@ async def fetch_reviews(
     session: AsyncSession = None
 ) -> List[Dict[str, Optional[str]]]:
     """
-    100% Complete Scraper:
-    - Checks DB for CID to save API credits.
-    - Resolves Place ID to CID via SerpApi.
-    - Falls back to Name Search if ID resolution fails.
+    ULTIMATE SCRAPER:
+    - Resolves Google Place ID (ChIJ) to CID (Data ID).
+    - Precision fallback for Miami/Lahore locations.
+    - Safe-import logic to prevent Railway Worker Boot Errors.
     """
     analyzer = SentimentIntensityAnalyzer()
     api_key = os.getenv("SERP_API_KEY", "f9f41e452ea716cale760081b94763a404c9ele07aef30def9c6a05391890e8d")
     cid = None
-    target_name = name or "Restaurant Lahore"
+    target_name = name or "Business"
 
-    # 1. DATABASE CID CHECK
+    # --- 1. DATABASE CID CACHE CHECK ---
     if company_id and session:
         try:
-            # Inline import prevents 'ImportError' if table is being created
+            # Inline import prevents the 'ImportError' during Gunicorn boot
             from app.core.models import CompanyCID
             result = await session.execute(
                 select(CompanyCID).where(CompanyCID.company_id == company_id)
@@ -41,14 +41,15 @@ async def fetch_reviews(
             db_entry = result.scalar_one_or_none()
             if db_entry:
                 cid = db_entry.cid
-                logger.info(f"✅ Using cached CID from Database: {cid}")
+                logger.info(f"✅ Using cached CID from DB: {cid}")
         except Exception:
-            logger.info("ℹ️ CompanyCID table not detected. Proceeding to API resolution.")
+            # If the table doesn't exist yet, we just skip the cache and hit the API
+            logger.info("ℹ️ CompanyCID table not detected. Resolving via SerpApi.")
 
-    # 2. RESOLVE CID VIA SERPAPI
+    # --- 2. SERPAPI RESOLUTION (Place ID -> CID) ---
     if not cid:
         try:
-            # Attempt 1: Resolve using Google Place ID (ChIJ...)
+            # Attempt A: Direct Place ID resolution (Using the ID from your DB screenshot)
             if place_id:
                 search = GoogleSearch({
                     "engine": "google_maps",
@@ -58,40 +59,43 @@ async def fetch_reviews(
                 })
                 cid = search.get_dict().get("place_results", {}).get("data_id")
 
-            # Attempt 2: Resolve using Company Name (e.g. Salt'n Pepper)
+            # Attempt B: Precision Name + "Reviews" search (Fixes E11EVEN MIAMI resolution)
             if not cid:
-                logger.warning(f"⚠️ ID Resolution failed. Searching by Name: {target_name}")
+                logger.warning(f"⚠️ ID Resolution failed for {place_id}. Trying Precision Search: {target_name}")
                 search_fb = GoogleSearch({
                     "engine": "google_maps",
-                    "q": target_name,
+                    "q": f"{target_name} reviews", 
                     "api_key": api_key
                 })
                 fb_res = search_fb.get_dict()
+                
+                # Check local results (common for venues and restaurants in Lahore/Miami)
                 local = fb_res.get("local_results", [])
                 place_fb = fb_res.get("place_results") or (local[0] if local else {})
                 cid = place_fb.get("data_id")
 
-            # SAVE RESOLVED CID TO DB
+            # --- 3. CACHE THE RESOLVED CID ---
             if cid and company_id and session:
                 try:
                     from app.core.models import CompanyCID
-                    new_cid_entry = CompanyCID(company_id=company_id, cid=cid)
-                    session.add(new_cid_entry)
-                    # We commit here so the CID is saved even if review-fetching fails later
+                    new_cache = CompanyCID(company_id=company_id, cid=cid)
+                    session.add(new_cache)
                     await session.commit()
-                except:
+                    logger.info(f"💾 CID {cid} cached for {target_name}")
+                except Exception as db_err:
                     await session.rollback()
+                    logger.warning(f"⚠️ Could not cache CID: {db_err}")
 
         except Exception as e:
-            logger.error(f"❌ CID Resolution Error: {e}")
+            logger.error(f"❌ Resolution Critical Failure: {e}")
 
     if not cid:
-        logger.error(f"❌ Failed to resolve a valid CID for {target_name}")
+        logger.error(f"❌ Failed to resolve CID for {target_name}. Search query was too broad.")
         return []
 
-    # 3. FETCH REVIEWS
+    # --- 4. FETCH ACTUAL REVIEWS ---
     try:
-        logging.info(f"📍 CID Resolved: {cid}. Pulling {limit} reviews...")
+        logging.info(f"📍 CID Resolved: {cid}. Pulling up to {limit} reviews...")
         search_reviews = GoogleSearch({
             "engine": "google_maps_reviews",
             "data_id": cid,
