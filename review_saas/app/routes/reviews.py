@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 # Core project imports
 from app.core.db import get_session
-from app.core.models import Review, Company # DO NOT import CompanyCID here
+from app.core.models import Review, Company 
 from app.services.scraper import fetch_reviews
 
 router = APIRouter(tags=["reviews"])
@@ -35,9 +35,9 @@ async def ingest_reviews(
 ):
     """
     Triggers the ingest process.
-    Passes the session and company name to the scraper for CID resolution/caching.
+    Matches the scraper keys to the database model perfectly.
     """
-    # 1. Fetch Company from Database
+    # 1. Fetch Company details from Database
     result = await session.execute(select(Company).where(Company.id == company_id))
     company = result.scalar_one_or_none()
     
@@ -50,7 +50,7 @@ async def ingest_reviews(
     try:
         logger.info(f"🚀 Starting Ingest for: {target_name}")
 
-        # 2. Call Scraper with Session for caching and Name for resolution
+        # 2. Call Scraper
         scraped_data = await fetch_reviews(
             place_id=target_id, 
             company_id=company_id, 
