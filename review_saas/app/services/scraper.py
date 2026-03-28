@@ -1,101 +1,68 @@
-# filename: app/services/scraper.py
+# filename: app/routes/reviews.py
 import logging
-import asyncio
-from typing import List, Dict, Any, Optional
-from serpapi import GoogleSearch  # The official SerpApi Library
-from sqlalchemy import select
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import text
 
-# Internal imports
-from app.core.models import Company
+from app.core.db import get_session
+from app.services.scraper import fetch_reviews
+from app.core.models import Review
 
-logger = logging.getLogger("app.scraper")
+logger = logging.getLogger("app.reviews")
+router = APIRouter(prefix="/reviews", tags=["Reviews"])
 
-# --- SERPAPI CONFIGURATION ---
-# Your verified API Key from the provided dashboard image
-SERPAPI_KEY = "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d"
-
-async def fetch_reviews(
-    company_id: int,
-    session: AsyncSession,
-    place_id: Optional[str] = None,
-    limit: int = 50,
-    **kwargs
-) -> List[Dict[Any, Any]]:
+@router.get("/ingest_100/{company_id}")
+async def ingest_100_reviews(company_id: int, db: AsyncSession = Depends(get_session)):
     """
-    STABLE 2026 SERPAPI ENGINE:
-    - Step 1: Discover Business 'place_id' via Search.
-    - Step 2: Fetch exact structured review data.
+    DEEP INGEST: Fetches 100 reviews and forces a Postgres Commit.
     """
-    all_reviews = []
+    logger.info(f"🚀 Database Sync Started for Company: {company_id}")
     
     try:
-        # 1. Resolve Company Name
-        res = await session.execute(select(Company).where(Company.id == company_id))
-        company = res.scalar_one_or_none()
+        # 1. Fetch data from Scraper
+        data = await fetch_reviews(company_id=company_id, session=db, target_limit=100)
         
-        # Determine the search query (e.g., 'Bahria Town' or 'Villa The Grand Buffet')
-        search_query = place_id if place_id else (company.name if company else "Villa The Grand Buffet")
+        if not data:
+            logger.warning("⚠️ Scraper returned 0 results. Nothing to save.")
+            return {"status": "info", "message": "No reviews found."}
 
-        logger.info(f"🛰️ SerpApi Discovery: Finding official Place ID for '{search_query}'")
+        # 2. Use db.begin() to ensure an ATOMIC TRANSACTION
+        # This is the most reliable way to save to Railway Postgres
+        async with db.begin():
+            saved_count = 0
+            for r in data:
+                # Prepare the insert statement with ON CONFLICT DO NOTHING
+                # This prevents crashes if the review already exists
+                stmt = insert(Review).values(
+                    company_id=company_id,
+                    google_review_id=r["google_review_id"],
+                    author_name=r["author_name"],
+                    rating=r["rating"],
+                    text=r["text"],
+                    google_review_time=r["google_review_time"],
+                    review_likes=r.get("likes", 0),
+                    source_platform="Google",
+                    is_praise=True if r["rating"] >= 4 else False,
+                    is_complaint=True if r["rating"] <= 2 else False,
+                    first_seen_at=datetime.utcnow(),
+                    last_updated_at=datetime.utcnow()
+                ).on_conflict_do_nothing(index_elements=['google_review_id'])
+                
+                result = await db.execute(stmt)
+                if result.rowcount > 0:
+                    saved_count += 1
 
-        # 2. STEP 1: Discover the Official Place ID
-        # Google Maps engine requires this ID to guarantee correct results
-        search_params = {
-            "engine": "google",
-            "q": search_query,
-            "api_key": SERPAPI_KEY,
-            "gl": "pk" # Location set to Pakistan to match your local results
+            logger.info(f"✅ Transaction Complete: {saved_count} new reviews written to disk.")
+
+        return {
+            "status": "success", 
+            "fetched": len(data), 
+            "new_saved": saved_count,
+            "message": "Data is now permanent in Postgres."
         }
-
-        def run_id_discovery():
-            search = GoogleSearch(search_params)
-            results = search.get_dict()
-            # Priority 1: Local Results list
-            local_list = results.get("local_results", [])
-            if local_list:
-                return local_list[0].get("place_id")
-            # Priority 2: Knowledge Graph
-            return results.get("knowledge_graph", {}).get("place_id")
-
-        discovered_id = await asyncio.to_thread(run_id_discovery)
-
-        if not discovered_id:
-            logger.error(f"❌ SerpApi could not locate an official Place ID for: {search_query}")
-            return []
-
-        logger.info(f"✅ ID Found: {discovered_id}. Step 2: Extracting exact reviews...")
-
-        # 3. STEP 2: Fetch Exact Reviews via the Discovered ID
-        review_params = {
-            "engine": "google_maps_reviews",
-            "place_id": discovered_id,
-            "api_key": SERPAPI_KEY,
-            "hl": "en"
-        }
-
-        def run_data_fetch():
-            search = GoogleSearch(review_params)
-            return search.get_dict()
-
-        results = await asyncio.to_thread(run_data_fetch)
-        raw_reviews = results.get("reviews", [])
-
-        # 4. MAP TO DATABASE COLUMNS (Ensures Dashboard Population)
-        for i, r in enumerate(raw_reviews[:limit]):
-            all_reviews.append({
-                "google_review_id": r.get("review_id"),
-                "author_name": r.get("user", {}).get("name") or "Google User",
-                "rating": int(r.get("rating", 5)),
-                "text": r.get("text") or r.get("snippet") or "Verified Review Content",
-                "google_review_time": r.get("date"),
-                "review_likes": r.get("likes", 0),
-                "author_id": r.get("user", {}).get("contributor_id")
-            })
-
-        logger.info(f"✅ Success: Captured {len(all_reviews)} reviews via SerpApi SDK.")
 
     except Exception as e:
-        logger.error(f"❌ SerpApi Library Error: {str(e)}", exc_info=True)
-        
-    return all_reviews
+        logger.error(f"❌ Critical Database Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Database Sync Failed: {str(e)}")
