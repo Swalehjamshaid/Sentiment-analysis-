@@ -1,8 +1,11 @@
 import os
 import logging
+import asyncio
 from datetime import datetime
+
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime
 from sqlalchemy.orm import sessionmaker, declarative_base
+
 from serpapi import GoogleSearch
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
@@ -32,8 +35,9 @@ if DATABASE_URL:
 # =========================
 class GoogleReview(Base):
     __tablename__ = "google_reviews"
-    
+
     id = Column(Integer, primary_key=True, index=True)
+    google_review_id = Column(String(255), unique=True, index=True)  # ✅ important fix
     place_name = Column(String(255))
     author = Column(String(255))
     rating = Column(Float)
@@ -50,96 +54,146 @@ if engine:
         logging.error(f"❌ Table creation failed: {e}")
 
 # =========================
-# SCRAPER LOGIC
+# SCRAPER CLASS
 # =========================
 class GoogleReviewScraper:
     def __init__(self):
-        self.api_key = os.getenv("SERP_API_KEY", "f9f41e452ea716cale760081b94763a404c9ele07aef30def9c6a05391890e8d")
+        self.api_key = os.getenv("SERP_API_KEY")
+
+        if not self.api_key:
+            raise ValueError("❌ SERP_API_KEY not found in environment variables")
+
         self.analyzer = SentimentIntensityAnalyzer()
-        
+
+        logging.info(f"🔑 SerpAPI Key Loaded: {self.api_key[:5]}*****")
+
     def get_sentiment(self, text):
         if not text or text == "No comment provided":
             return "Neutral", 0.0
+
         score = self.analyzer.polarity_scores(text)['compound']
-        label = "Positive" if score >= 0.05 else "Negative" if score <= -0.05 else "Neutral"
-        return label, score
+
+        if score >= 0.05:
+            return "Positive", score
+        elif score <= -0.05:
+            return "Negative", score
+        return "Neutral", score
 
 # =========================
-# THE FIX: ADD ASYNC TO ALIGN WITH ROUTE
+# MAIN FUNCTION (ASYNC SAFE)
 # =========================
 async def fetch_reviews(query: str = None, limit: int = 20, **kwargs):
-    """
-    Marked as 'async' so your FastAPI route can 'await' it.
-    """
-    search_term = query or kwargs.get('place_id')
-    
-    if not search_term:
-        logging.error("❌ No search query or place_id provided.")
-        return {"error": "No search term provided"}
+
+    search_term = query
+    place_id = kwargs.get("place_id")
+
+    if not search_term and not place_id:
+        return {"success": False, "error": "No query or place_id provided"}
 
     scraper = GoogleReviewScraper()
-    logging.info(f"🚀 Scraping reviews for: {search_term}")
-    
+
     try:
-        # 1. Search for the place
-        # SerpApi calls are blocking, but wrapping in async def allows 
-        # the FastAPI worker to handle the call via await.
-        search = GoogleSearch({
-            "engine": "google_maps", 
-            "q": search_term, 
-            "api_key": scraper.api_key
-        })
-        res = search.get_dict()
-        
-        place = res.get("place_results")
-        if not place:
-            local = res.get("local_results", [])
-            place = local[0] if local else None
-            
-        if not place or not place.get("data_id"):
-            return {"error": f"Location '{search_term}' not found"}
+        # =========================
+        # STEP 1: GET PLACE DATA_ID
+        # =========================
+        if place_id:
+            data_id = place_id
+            place_name = "Unknown"
+        else:
+            search = GoogleSearch({
+                "engine": "google_maps",
+                "q": search_term,
+                "api_key": scraper.api_key
+            })
 
-        data_id = place.get("data_id")
-        place_name = place.get("title")
+            res = await asyncio.to_thread(search.get_dict)
 
-        # 2. Extract Reviews
+            if not res:
+                return {"success": False, "error": "SerpAPI failed to respond"}
+
+            place = res.get("place_results") or (res.get("local_results") or [{}])[0]
+
+            if not place or not place.get("data_id"):
+                return {"success": False, "error": f"Location '{search_term}' not found"}
+
+            data_id = place.get("data_id")
+            place_name = place.get("title")
+
+        logging.info(f"📍 Data ID: {data_id}")
+
+        # =========================
+        # STEP 2: GET REVIEWS
+        # =========================
         search_reviews = GoogleSearch({
             "engine": "google_maps_reviews",
             "data_id": data_id,
             "api_key": scraper.api_key,
             "num": limit
         })
-        review_data = search_reviews.get_dict().get("reviews", [])
 
-        # 3. Process & Save
-        results_to_return = []
+        review_response = await asyncio.to_thread(search_reviews.get_dict)
+        review_data = review_response.get("reviews", [])
+
+        if not isinstance(review_data, list):
+            return {"success": False, "error": "Invalid review data format"}
+
+        # =========================
+        # STEP 3: PROCESS REVIEWS
+        # =========================
+        results = []
         db = SessionLocal() if SessionLocal else None
-        
-        for r in review_data:
-            text = r.get("snippet", "No comment provided")
-            label, score = scraper.get_sentiment(text)
-            
-            review_entry = {
-                "place_name": place_name,
-                "author": r.get("user", {}).get("name"),
-                "rating": r.get("rating"),
-                "review_text": text,
-                "sentiment": label,
-                "sentiment_score": score,
-                "published_at": r.get("date")
-            }
-            results_to_return.append(review_entry)
+
+        try:
+            for r in review_data:
+
+                if not isinstance(r, dict):
+                    logging.warning(f"⚠️ Skipping invalid item: {r}")
+                    continue
+
+                review_id = r.get("review_id")
+                if not review_id:
+                    continue
+
+                text = r.get("snippet", "No comment provided")
+                label, score = scraper.get_sentiment(text)
+
+                review_entry = {
+                    "google_review_id": review_id,
+                    "place_name": place_name,
+                    "author": r.get("user", {}).get("name"),
+                    "rating": r.get("rating"),
+                    "review_text": text,
+                    "sentiment": label,
+                    "sentiment_score": score,
+                    "published_at": r.get("date")
+                }
+
+                results.append(review_entry)
+
+                # =========================
+                # SAVE TO DB (NO DUPLICATES)
+                # =========================
+                if db:
+                    existing = db.query(GoogleReview).filter_by(
+                        google_review_id=review_id
+                    ).first()
+
+                    if not existing:
+                        db.add(GoogleReview(**review_entry))
 
             if db:
-                db_review = GoogleReview(**review_entry)
-                db.add(db_review)
-        
-        if db:
-            db.commit()
-            db.close()
-            
-        return results_to_return
+                db.commit()
+
+        finally:
+            if db:
+                db.close()
+
+        return {
+            "success": True,
+            "count": len(results),
+            "data": results
+        }
 
     except Exception as e:
         logging.error(f"❌ Scraper failure: {e}")
-        return {"error": str(e)}
+        return {"success": False, "error": str(e)}
