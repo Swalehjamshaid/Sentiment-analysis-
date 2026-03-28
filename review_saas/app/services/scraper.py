@@ -65,14 +65,12 @@ class GoogleReviewScraper:
         return label, score
 
 # =========================
-# THE FIX: HANDLING UNEXPECTED KWARGS
+# THE FIX: ADD ASYNC TO ALIGN WITH ROUTE
 # =========================
-def fetch_reviews(query: str = None, limit: int = 20, **kwargs):
+async def fetch_reviews(query: str = None, limit: int = 20, **kwargs):
     """
-    Accepts 'query', 'limit', and any other arguments (like 'place_id') 
-    sent by the FastAPI route to prevent TypeErrors.
+    Marked as 'async' so your FastAPI route can 'await' it.
     """
-    # If the route sends 'place_id' instead of 'query', we use it as the search term
     search_term = query or kwargs.get('place_id')
     
     if not search_term:
@@ -84,6 +82,8 @@ def fetch_reviews(query: str = None, limit: int = 20, **kwargs):
     
     try:
         # 1. Search for the place
+        # SerpApi calls are blocking, but wrapping in async def allows 
+        # the FastAPI worker to handle the call via await.
         search = GoogleSearch({
             "engine": "google_maps", 
             "q": search_term, 
