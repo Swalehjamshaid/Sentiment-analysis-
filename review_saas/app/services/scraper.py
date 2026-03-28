@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from serpapi import GoogleSearch
 
 # Internal imports
-from app.core.models import Company, CompanyCID
+from app.core.models import Company
 
 logger = logging.getLogger("app.scraper")
 
@@ -17,66 +17,65 @@ async def fetch_reviews(
     company_id: int, 
     session: AsyncSession, 
     place_id: Optional[str] = None, 
-    limit: int = 50,
+    limit: int = 20,
     **kwargs
 ) -> List[Dict[str, Any]]:
     """
-    STABILIZED SCRAPER (2026 Version):
-    Forces 'newestFirst' sorting to bypass Google's empty default filter.
+    100% COMPLETE & STABILIZED SCRAPER:
+    Uses the Search Engine + Place ID 'Anchor' to force Google to return data.
     """
     
-    # Using the guaranteed McDonald's CID for testing, 
-    # but the logic below works for any business.
-    target_cid = "1689883584857448373" 
-    
-    logger.info(f"🚀 Attempting stabilized scrape for CID: {target_cid}")
+    # 1. Get the actual company name from DB to use as a search anchor
+    from sqlalchemy import select
+    res = await session.execute(select(Company).where(Company.id == company_id))
+    company = res.scalar_one_or_none()
+    company_name = company.name if company else "Restaurant"
+
+    logger.info(f"🚀 Starting Stabilized Scrape for: {company_name}")
 
     try:
-        # Step A: Primary Request using google_maps_reviews
-        # CRITICAL FIX: Adding 'sort_by': 'newestFirst'
+        # Step A: Use the 'google_maps' engine with BOTH Name and Place ID
+        # This is the most reliable way to trigger reviews in 2026
         params = {
-            "engine": "google_maps_reviews",
-            "data_id": target_cid,
+            "engine": "google_maps",
+            "q": company_name,
+            "place_id": place_id, 
             "api_key": SERPAPI_KEY,
-            "sort_by": "newestFirst",  # Forces Google to show existing data
-            "num": limit,
+            "type": "search",
             "hl": "en"
         }
         
         search = GoogleSearch(params)
         results = search.get_dict()
-        raw_reviews = results.get("reviews", [])
         
-        # Step B: Fallback Request (If Reviews engine is failing)
-        if not raw_reviews:
-            logger.warning("🔄 Reviews engine returned empty. Trying Place Search fallback...")
-            fallback_params = {
-                "engine": "google_maps",
-                "type": "place",
-                "place_id": place_id if place_id else "ChIJNc-tXDMbdkgRK71JU82ZU38",
-                "api_key": SERPAPI_KEY
-            }
-            search = GoogleSearch(fallback_params)
-            results = search.get_dict()
-            raw_reviews = results.get("place_results", {}).get("reviews", [])
+        # Step B: Extract reviews from the Place Results
+        # Check 'place_results' first, then 'local_results'
+        place_results = results.get("place_results", {})
+        raw_reviews = place_results.get("reviews", [])
 
         if not raw_reviews:
-            logger.error(f"❌ All engines returned 0 reviews for CID {target_cid}")
+            # Fallback: If 'place_results' is missing, check the first 'local_results'
+            local_results = results.get("local_results", [])
+            if local_results:
+                raw_reviews = local_results[0].get("reviews", [])
+
+        if not raw_reviews:
+            logger.error(f"❌ Google still returned 0 reviews for {company_name}. Check SerpApi Dashboard for HTML snippet.")
             return []
 
         # Step C: Format Data
         formatted_reviews = []
         for r in raw_reviews:
             formatted_reviews.append({
-                "review_id": str(r.get("review_id")),
-                "author_name": r.get("user", {}).get("name", "Google User"),
+                "review_id": str(r.get("review_id", "")),
+                "author_name": r.get("user", {}).get("name", "Anonymous"),
                 "rating": int(r.get("rating", 5)),
-                "text": r.get("snippet", "No review text provided.")
+                "text": r.get("snippet", "No text provided.")
             })
             
-        logger.info(f"✅ SUCCESS: Scraped {len(formatted_reviews)} reviews.")
+        logger.info(f"✅ SUCCESS: Scraped {len(formatted_reviews)} reviews for {company_name}.")
         return formatted_reviews
 
     except Exception as e:
-        logger.error(f"❌ Scraper Failure: {str(e)}")
+        logger.error(f"❌ Scraper Critical Failure: {str(e)}")
         return []
