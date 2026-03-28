@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 # =========================
 # SerpApi Key
 # =========================
-SERP_API_KEY = os.getenv("SERP_API_KEY")  # Make sure this is set in Railway env
+SERP_API_KEY = os.getenv("SERP_API_KEY")
 
 if not SERP_API_KEY:
     logger.error("SERP_API_KEY is not set! Exiting scraper.")
@@ -22,8 +22,9 @@ if not SERP_API_KEY:
 
 class ReviewScraper:
     """
-    Scraper using SerpApi for Google Reviews.
-    Handles empty results and retries.
+    Robust scraper using SerpApi for Google Reviews.
+    Uses company name first, falls back to place_id if available.
+    Handles retries and logging.
     """
 
     BASE_URL = "https://serpapi.com/search.json"
@@ -32,12 +33,11 @@ class ReviewScraper:
         self.max_retries = max_retries
         self.retry_delay = retry_delay
 
-    def fetch_reviews(self, company_name: str, limit=300):
+    def fetch_reviews(self, company_name: str, limit=300, place_id: str = None):
         """
-        Fetch reviews for a given company name using SerpApi
+        Fetch reviews using company_name or place_id
         """
         logger.info(f"Fetching reviews for {company_name} (limit={limit})")
-
         params = {
             "engine": "google_maps",
             "q": company_name,
@@ -47,30 +47,40 @@ class ReviewScraper:
             "api_key": SERP_API_KEY
         }
 
+        # Use place_id if provided
+        if place_id:
+            params["type"] = "place"
+            params["place_id"] = place_id
+            params.pop("q", None)  # Remove name query
+
         for attempt in range(1, self.max_retries + 1):
             try:
                 response = requests.get(self.BASE_URL, params=params, timeout=30)
                 data = response.json()
 
-                # Log full raw response for debugging
                 logger.info(f"SerpApi Raw Response: {json.dumps(data, indent=2)[:1000]}...")
 
                 reviews = data.get("reviews", [])
 
-                if not reviews:
-                    logger.warning(f"No reviews found on attempt {attempt} for {company_name}")
-                    if attempt < self.max_retries:
-                        logger.info(f"Retrying in {self.retry_delay} seconds...")
-                        sleep(self.retry_delay)
-                    continue
+                if not reviews and not place_id:
+                    # Fallback: Try to get place_id from first result
+                    candidate = data.get("local_results", {}).get("places", [])
+                    if candidate:
+                        first_place_id = candidate[0].get("place_id")
+                        if first_place_id:
+                            logger.info(f"No reviews found. Retrying with place_id: {first_place_id}")
+                            return self.fetch_reviews(company_name, limit=limit, place_id=first_place_id)
 
-                # Limit reviews if needed
-                return reviews[:limit]
+                if reviews:
+                    return reviews[:limit]
+
+                logger.warning(f"No reviews found on attempt {attempt} for {company_name}")
+                if attempt < self.max_retries:
+                    sleep(self.retry_delay)
 
             except Exception as e:
                 logger.error(f"Error fetching reviews (attempt {attempt}): {e}")
                 if attempt < self.max_retries:
-                    logger.info(f"Retrying in {self.retry_delay} seconds...")
                     sleep(self.retry_delay)
                 else:
                     return []
@@ -79,18 +89,25 @@ class ReviewScraper:
 
 
 # =========================
-# Example usage
+# Module-level wrapper
+# =========================
+scraper_instance = ReviewScraper()
+
+
+def fetch_reviews(company_name, limit=300):
+    return scraper_instance.fetch_reviews(company_name, limit)
+
+
+# =========================
+# Standalone test
 # =========================
 if __name__ == "__main__":
-    scraper = ReviewScraper()
-
     companies = ["Villa The Grand Buffet", "Bahria Town"]
     for company in companies:
-        reviews = scraper.fetch_reviews(company)
+        reviews = fetch_reviews(company)
         if not reviews:
-            logger.info(f"ℹ️ No reviews returned for {company}")
+            logger.info(f"No reviews returned for {company}")
         else:
-            logger.info(f"✅ Fetched {len(reviews)} reviews for {company}")
-            # Save to JSON file
+            logger.info(f"Fetched {len(reviews)} reviews for {company}")
             with open(f"{company.replace(' ', '_')}_reviews.json", "w", encoding="utf-8") as f:
                 json.dump(reviews, f, ensure_ascii=False, indent=2)
