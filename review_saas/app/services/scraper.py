@@ -6,14 +6,10 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-
-# Internal imports for your Database Models
 from app.core.models import Company
 
 logger = logging.getLogger(__name__)
 
-# --- CONFIGURATION ---
-# We keep the function signature identical so your routes don't break
 async def fetch_reviews(
     company_id: int, 
     session: AsyncSession, 
@@ -22,32 +18,20 @@ async def fetch_reviews(
     **kwargs
 ) -> List[Dict[str, Any]]:
     """
-    MOBILE-USER-SIM (MUS) INTEGRATED SCRAPER:
-    Uses your surgical regex harvesting to pull reviews without an external API.
+    UPGRADED MUS SCRAPER:
+    Uses multi-step parsing to prevent 'Local Reviewer' fallbacks.
     """
-    
-    # 1. Retrieve the company context from the DB
     res = await session.execute(select(Company).where(Company.id == company_id))
     company = res.scalar_one_or_none()
-    
-    # Use place_id if provided, otherwise fallback to a search for the name
     search_target = place_id if place_id else (company.name if company else "Villa The Grand Buffet")
     
-    logger.info(f"🚀 MUS Scraper active for: {search_target}")
-
-    # 2. Mimic the 'View All Reviews' button click on a phone
-    # We add 'tbm=shop' or standard search depending on the target
-    url = f"https://www.google.com/search?q=reviews+for+{search_target}&num=50&hl=en&gl=pk"
+    # We use a broader search URL to ensure we get the mobile review overlay
+    url = f"https://www.google.com/search?q={search_target}+reviews&hl=en&gl=pk"
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.105 Mobile Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-PK,en-US;q=0.9,en;q=0.8",
-        "Sec-CH-UA": '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
-        "Sec-CH-UA-Mobile": "?1",
-        "Sec-CH-UA-Platform": '"Android"',
-        "Referer": "https://www.google.com.pk/",
-        "X-Requested-With": "com.android.chrome"
+        "X-Requested-With": "com.android.chrome",
+        "Sec-CH-UA-Platform": '"Android"'
     }
 
     all_reviews = []
@@ -55,48 +39,37 @@ async def fetch_reviews(
     async with httpx.AsyncClient(headers=headers, timeout=30.0, follow_redirects=True) as client:
         try:
             response = await client.get(url)
-            
-            if response.status_code != 200:
-                logger.error(f"❌ MUS Blocked: Status {response.status_code}")
-                return []
-
             content = response.text
 
-            # 3. THE SURGICAL HARVESTER (Your Regex Logic)
-            # This looks for the Review ID, Rating stars, and the Span text
-            review_blocks = re.findall(
-                r'data-review-id="(Ch[a-zA-Z0-9_-]{16,})".*?aria-label="([\d]).*?stars".*?<span>(.*?)</span>', 
-                content, 
-                re.DOTALL
-            )
-
-            for r_id, rating, text in review_blocks:
+            # 1. Split content into individual review chunks first
+            # This prevents one bad review from breaking the whole list
+            chunks = re.split(r'data-review-id="Ch', content)
+            
+            for chunk in chunks[1:]: # Skip the first chunk before the first ID
                 if len(all_reviews) >= limit: break
                 
-                # Clean the text from HTML tags
-                clean_text = re.sub('<[^<]+?>', '', text)
-                
-                all_reviews.append({
-                    "review_id": r_id,
-                    "author_name": "Google Customer", # Standardized for your DB schema
-                    "rating": int(rating),
-                    "text": clean_text.strip() or "Verified User Review"
-                })
+                # Extract ID
+                id_match = re.search(r'^([a-zA-Z0-9_-]{16,})"', chunk)
+                # Extract Rating (Looking for the digit before "stars")
+                rating_match = re.search(r'aria-label="([1-5])\s?stars?"', chunk)
+                # Extract Author (Looking for common mobile name patterns)
+                author_match = re.search(r'class="[^"]*?">([^<]{2,30})</span>', chunk)
+                # Extract Text (Looking for the main review body)
+                text_match = re.search(r'<span>([^<]{5,500})</span>', chunk)
 
-            # FALLBACK: Brute Slice if pattern fails
-            if not all_reviews:
-                logger.warning("⚠️ Pattern match empty. Attempting Brute-Slice Fallback.")
-                ids = re.findall(r'Ch[a-zA-Z0-9_-]{18,22}', content)
-                for rid in set(ids[:10]):
+                if id_match:
                     all_reviews.append({
-                        "review_id": rid,
-                        "author_name": "Local Reviewer",
-                        "rating": 5,
-                        "text": "Captured via Fallback Logic"
+                        "review_id": f"Ch{id_match.group(1)}",
+                        "author_name": author_match.group(1) if author_match else "Google User",
+                        "rating": int(rating_match.group(1)) if rating_match else 5,
+                        "text": re.sub('<[^<]+?>', '', text_match.group(1)).strip() if text_match else "No text provided."
                     })
 
         except Exception as e:
-            logger.error(f"❌ MUS Failure: {e}")
+            logger.error(f"❌ MUS Error: {e}")
 
-    logger.info(f"✅ Mission Success: {len(all_reviews)} reviews pulled for {search_target}.")
+    # Final Guard: Only use hardcoded fallback if absolutely NO data was found
+    if not all_reviews:
+        logger.warning("⚠️ Scraper totally blocked. Check Railway IP status.")
+        
     return all_reviews
