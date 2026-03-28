@@ -1,83 +1,154 @@
+import os
 import requests
 import json
+import csv
 import logging
+from datetime import datetime
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-logger = logging.getLogger("ReviewScraper")
+# =========================
+# LOGGING CONFIGURATION
+# =========================
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger("SerpApiScraper")
 
-class SerpApiReviewScraper:
-    def __init__(self, api_key):
-        self.api_key = api_key
-        self.base_url = "https://serpapi.com/search.json"
-
-    def get_reviews_by_query(self, query, review_limit=20):
+class GoogleReviewScraper:
+    def __init__(self):
         """
-        Full pipeline: Find the place, then extract its reviews.
+        Initializes the scraper using the SerpApi key from environment variables.
+        Fallback to the hardcoded key if the environment variable is not set.
+        """
+        self.api_key = os.getenv("SERP_API_KEY", "f9f41e452ea716cale760081b94763a404c9ele07aef30def9c6a05391890e8d")
+        self.base_url = "https://serpapi.com/search.json"
+        
+        if not self.api_key:
+            logger.error("❌ SERP_API_KEY is missing. Please set it in your environment or Railway variables.")
+
+    def fetch_reviews(self, query, total_limit=50):
+        """
+        Complete pipeline to:
+        1. Find the place's unique 'data_id' via Google Maps Engine.
+        2. Extract reviews using the Google Maps Reviews Engine.
+        3. Handle pagination automatically.
         """
         try:
-            # Step 1: Find the place to get the unique data_id
-            logger.info(f"Searching for place: {query}")
+            # STEP 1: Search for the location to get the data_id
+            logger.info(f"🔍 Searching for location: {query}")
             search_params = {
                 "engine": "google_maps",
                 "q": query,
                 "api_key": self.api_key
             }
             
-            search_res = requests.get(self.base_url, params=search_params)
-            search_res.raise_for_status()
-            search_data = search_res.json()
+            search_response = requests.get(self.base_url, params=search_params, timeout=30)
+            search_response.raise_for_status()
+            search_results = search_response.json()
 
-            # Identify the data_id (required for the reviews engine)
-            place_results = search_data.get("place_results")
-            if not place_results:
-                logger.error("No specific place found for this query.")
+            # Extract data_id from place_results or local_results
+            place = search_results.get("place_results")
+            if not place:
+                local_results = search_results.get("local_results", [])
+                if not local_results:
+                    logger.warning(f"⚠️ No results found for query: {query}")
+                    return []
+                place = local_results[0]
+
+            data_id = place.get("data_id")
+            place_name = place.get("title")
+            
+            if not data_id:
+                logger.error("❌ Could not resolve a data_id for this location.")
                 return []
-            
-            data_id = place_results.get("data_id")
-            logger.info(f"Found Place: {place_results.get('title')} (ID: {data_id})")
 
-            # Step 2: Fetch the reviews using the data_id
-            logger.info(f"Fetching up to {review_limit} reviews...")
-            review_params = {
-                "engine": "google_maps_reviews",
-                "data_id": data_id,
-                "api_key": self.api_key,
-                "num": review_limit
-            }
-            
-            review_res = requests.get(self.base_url, params=review_params)
-            review_res.raise_for_status()
-            reviews = review_res.json().get("reviews", [])
+            logger.info(f"✅ Target Found: {place_name} (ID: {data_id})")
 
-            return self._format_results(reviews)
+            # STEP 2: Fetch reviews with pagination support
+            all_reviews = []
+            next_page_token = None
+            
+            while len(all_reviews) < total_limit:
+                review_params = {
+                    "engine": "google_maps_reviews",
+                    "data_id": data_id,
+                    "api_key": self.api_key,
+                    "next_page_token": next_page_token
+                }
+                
+                logger.info(f"📥 Fetching reviews... (Current count: {len(all_reviews)})")
+                res = requests.get(self.base_url, params=review_params, timeout=30)
+                res.raise_for_status()
+                data = res.json()
+                
+                batch = data.get("reviews", [])
+                if not batch:
+                    logger.info("No more reviews available for this location.")
+                    break
+                
+                for r in batch:
+                    if len(all_reviews) >= total_limit:
+                        break
+                    
+                    all_reviews.append({
+                        "place_name": place_name,
+                        "author": r.get("user", {}).get("name"),
+                        "rating": r.get("rating"),
+                        "text": r.get("snippet", "No comment provided"),
+                        "published_at": r.get("date"),
+                        "extracted_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    })
+                
+                # Update token for next page
+                next_page_token = data.get("serpapi_pagination", {}).get("next_page_token")
+                if not next_page_token:
+                    break
+
+            logger.info(f"🎯 Extraction Complete. Total Reviews: {len(all_reviews)}")
+            return all_reviews
 
         except Exception as e:
-            logger.error(f"Scraping failed: {e}")
+            logger.error(f"❌ Scraper failed: {e}")
             return []
 
-    def _format_results(self, reviews):
-        """Clean and structure the raw API response."""
-        extracted_data = []
-        for r in reviews:
-            extracted_data.append({
-                "user": r.get("user", {}).get("name"),
-                "rating": r.get("rating"),
-                "date": r.get("date"),
-                "snippet": r.get("snippet", "No text provided"),
-                "likes": r.get("likes", 0)
-            })
-        return extracted_data
+    def save_to_csv(self, reviews, filename="google_reviews.csv"):
+        """
+        Saves the structured review data into a CSV file.
+        """
+        if not reviews:
+            logger.warning("No data found to save.")
+            return
 
-# --- RUNNING THE SCRAPER ---
-# Note: Ensure you have regenerated your key if you haven't already.
-MY_API_KEY = "f9f41e452ea716cale760081b94763a404c9ele07aef30def9c6a05391890e8d"
+        keys = reviews[0].keys()
+        try:
+            with open(filename, 'w', newline='', encoding='utf-8') as f:
+                dict_writer = csv.DictWriter(f, fieldnames=keys)
+                dict_writer.writeheader()
+                dict_writer.writerows(reviews)
+            logger.info(f"💾 File successfully saved as: {filename}")
+        except Exception as e:
+            logger.error(f"❌ Failed to save CSV: {e}")
 
-scraper = SerpApiReviewScraper(MY_API_KEY)
-results = scraper.get_reviews_by_query("The British Museum", review_limit=10)
-
-# Output results
-if results:
-    print(json.dumps(results, indent=2))
-else:
-    print("No reviews found.")
+# =========================
+# MAIN EXECUTION
+# =========================
+if __name__ == "__main__":
+    # Initialize the Scraper
+    scraper = GoogleReviewScraper()
+    
+    # Specify the target and limit
+    target_query = "Badshahi Mosque Lahore"
+    max_reviews = 50
+    
+    # Run pipeline
+    extracted_data = scraper.fetch_reviews(target_query, total_limit=max_reviews)
+    
+    # Save results
+    if extracted_data:
+        scraper.save_to_csv(extracted_data)
+        
+        # Display sample output
+        print("\n--- Preview of First Result ---")
+        print(json.dumps(extracted_data[0], indent=2))
+    else:
+        print("No reviews were extracted. Check your API credits or search query.")
