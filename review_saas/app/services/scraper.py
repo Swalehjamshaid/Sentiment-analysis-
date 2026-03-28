@@ -95,8 +95,11 @@ class ReviewScraper:
 scraper_instance = ReviewScraper()
 
 
-def fetch_reviews(company_name, limit=300):
-    return scraper_instance.fetch_reviews(company_name, limit)
+def fetch_reviews(company_name, limit=300, place_id=None):
+    """
+    Module-level wrapper that allows optional place_id argument
+    """
+    return scraper_instance.fetch_reviews(company_name, limit=limit, place_id=place_id)
 
 
 # =========================
