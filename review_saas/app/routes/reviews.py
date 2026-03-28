@@ -7,27 +7,26 @@ import logging
 from app.core.db import get_session
 from app.services.scraper import fetch_reviews
 
-# Setup dedicated logging for this router
+# Setup dedicated logging
 logger = logging.getLogger("app.reviews")
 
-# Define the router with the /reviews prefix
 router = APIRouter(prefix="/reviews", tags=["Reviews"])
 
-# In-memory company list for testing/initial ingest logic
-COMPANIES = [
-    {"id": 1, "name": "Villa The Grand Buffet"},
-    {"id": 2, "name": "Bahria Town"}
-]
 
 @router.get("/ingest_all")
-async def ingest_reviews(db: AsyncSession = Depends(get_session)):
+async def ingest_reviews_all(db: AsyncSession = Depends(get_session)):
     """
-    GLOBAL INGEST TRIGGER:
+    GLOBAL INGEST TRIGGER
     Visit: https://your-project.up.railway.app/reviews/ingest_all
-    
-    This calls the Hybrid Scraper (curl_cffi + AgentQL) for all listed companies.
     """
     logger.info("🚀 GLOBAL INGEST START: Processing all companies...")
+
+    # You can expand this list or later fetch from database
+    COMPANIES = [
+        {"id": 1, "name": "Gloria Jeans Coffees DHA Phase 5"},
+        {"id": 4, "name": "E11EVEN MIAMI"},   # Add your other companies here
+    ]
+
     results = []
 
     for company in COMPANIES:
@@ -35,19 +34,18 @@ async def ingest_reviews(db: AsyncSession = Depends(get_session)):
         company_name = company["name"]
 
         try:
-            logger.info(f"🔍 Starting Ingest for: {company_name} (ID: {company_id})")
-            
-            # ✅ Calls the 100% complete Hybrid Scraper
-            # We pass the name into place_id to ensure AgentQL finds the right business
+            logger.info(f"🔍 Starting Ingest for: {company_name} (Company ID: {company_id})")
+
+            # Call the updated hybrid scraper
             scraped_data = await fetch_reviews(
-                company_id=company_id, 
+                company_id=company_id,
                 session=db,
-                place_id=company_name, 
-                limit=50
+                place_id=company_name,      # Used as fallback
+                limit=30                    # You can increase this
             )
 
             if not scraped_data:
-                logger.warning(f"⚠️ No reviews returned for {company_name}. Check ScrapeOps Proxy/AgentQL Key.")
+                logger.warning(f"⚠️ No reviews returned for {company_name}")
                 review_count = 0
             else:
                 logger.info(f"✅ SUCCESS: Fetched {len(scraped_data)} reviews for {company_name}")
@@ -56,12 +54,12 @@ async def ingest_reviews(db: AsyncSession = Depends(get_session)):
             results.append({
                 "company_id": company_id,
                 "company_name": company_name,
-                "reviews_count": review_count,
-                "status": "completed"
+                "reviews_fetched": review_count,
+                "status": "success" if review_count > 0 else "no_reviews"
             })
 
         except Exception as e:
-            logger.error(f"❌ CRITICAL ERROR for {company_name}: {str(e)}")
+            logger.error(f"❌ ERROR ingesting {company_name}: {str(e)}", exc_info=True)
             results.append({
                 "company_id": company_id,
                 "company_name": company_name,
@@ -70,12 +68,68 @@ async def ingest_reviews(db: AsyncSession = Depends(get_session)):
             })
 
     logger.info(f"🏁 GLOBAL INGEST COMPLETE: Processed {len(COMPANIES)} companies.")
+    
     return {
-        "message": "Ingest process finished. Check Railway logs for details.",
-        "ingest_results": results
+        "message": "Global ingest process completed. Check logs for details.",
+        "total_companies": len(COMPANIES),
+        "results": results
     }
+
+
+@router.post("/ingest/{company_id}")
+async def ingest_single_company(
+    company_id: int,
+    db: AsyncSession = Depends(get_session)
+):
+    """
+    Ingest reviews for a single company by ID
+    Example: POST /reviews/ingest/1
+    """
+    try:
+        logger.info(f"🚀 Starting single ingest for Company ID: {company_id}")
+
+        # Optional: Fetch company name for better logging
+        from app.core.models import Company
+        result = await db.execute(select(Company).where(Company.id == company_id))
+        company = result.scalar_one_or_none()
+
+        company_name = company.name if company else f"Company-{company_id}"
+
+        scraped_data = await fetch_reviews(
+            company_id=company_id,
+            session=db,
+            place_id=company_name,
+            limit=30
+        )
+
+        if not scraped_data:
+            return {
+                "status": "warning",
+                "company_id": company_id,
+                "company_name": company_name,
+                "message": "No reviews were fetched. Check logs for details."
+            }
+
+        logger.info(f"✅ Successfully fetched {len(scraped_data)} reviews for {company_name}")
+
+        return {
+            "status": "success",
+            "company_id": company_id,
+            "company_name": company_name,
+            "reviews_fetched": len(scraped_data),
+            "message": "Reviews fetched successfully."
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Failed to ingest company {company_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/status/{company_id}")
 async def get_ingest_status(company_id: int):
-    """Simple status check for a specific company."""
-    return {"company_id": company_id, "status": "Ready for ingest"}
+    """Simple status check"""
+    return {
+        "company_id": company_id,
+        "status": "Ready for ingest",
+        "message": "Use /ingest/{company_id} or /ingest_all"
+    }
