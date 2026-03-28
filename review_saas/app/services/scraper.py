@@ -7,49 +7,47 @@ from sqlalchemy import select
 from serpapi import GoogleSearch
 
 # Internal imports
-from app.core.models import CompanyCID
+from app.core.models import Company, CompanyCID
 
-# --- 1. SETUP LOGGING ---
 logger = logging.getLogger("app.scraper")
 
-# --- 2. CONFIGURATION ---
 # Your SerpApi Key
 SERPAPI_KEY = "f9f41e452ea716cale760081b94763a404c9ele07aef30def9c6a05391890e8d"
 
-# --- 3. CID RESOLUTION (The "Fixer") ---
-
-async def resolve_cid_via_serpapi(place_id: str) -> Optional[str]:
+async def resolve_cid_via_serpapi(company_name: str, place_id: str) -> Optional[str]:
     """
-    Calls SerpApi to find the unique CID (data_id) using a Google Place ID.
-    Used if the database doesn't have the CID yet.
+    Improved Resolver: Tries Place ID first, then falls back to Name search.
     """
     try:
-        logger.info(f"🔍 Searching SerpApi for Place ID: {place_id}")
+        # Try 1: Search by Place ID
+        logger.info(f"🔍 SerpApi: Trying Place ID resolution for {company_name}")
         params = {
             "engine": "google_maps",
             "q": place_id,
             "api_key": SERPAPI_KEY
         }
-        # SerpApi library is synchronous, we call it directly
         search = GoogleSearch(params)
         results = search.get_dict()
-
-        # Extract CID from 'place_results'
         cid = results.get("place_results", {}).get("data_id")
 
-        # Fallback: Check 'local_results' if place_results is empty
+        # Try 2: Fallback to Name + Place ID if first try failed
         if not cid:
+            logger.info(f"🔄 Fallback: Searching by Name '{company_name}'")
+            params["q"] = company_name
+            search = GoogleSearch(params)
+            results = search.get_dict()
+            
+            # Check local results for a matching place_id
             local_results = results.get("local_results", [])
-            if local_results:
-                cid = local_results[0].get("data_id")
+            for res in local_results:
+                if res.get("place_id") == place_id or company_name.lower() in res.get("title", "").lower():
+                    cid = res.get("data_id")
+                    break
         
         return cid
     except Exception as e:
-        logger.error(f"❌ SerpApi API Error during resolution: {str(e)}")
+        logger.error(f"❌ SerpApi Resolution Error: {str(e)}")
         return None
-
-# --- 4. MAIN SCRAPER FUNCTION (fetch_reviews) ---
-# This name MUST match the import in app/routes/reviews.py
 
 async def fetch_reviews(
     company_id: int, 
@@ -72,11 +70,16 @@ async def fetch_reviews(
     target_cid = None
     if cid_record:
         target_cid = cid_record.cid
-        logger.info(f"✅ Found CID in DB for Company {company_id}: {target_cid}")
     elif place_id:
-        # Step B: Auto-Fix (Resolve and Save)
-        logger.warning(f"⚠️ CID missing for Company {company_id}. Resolving...")
-        target_cid = await resolve_cid_via_serpapi(place_id)
+        # Get company name for better search fallback
+        comp_stmt = select(Company).where(Company.id == company_id)
+        comp_result = await session.execute(comp_stmt)
+        company = comp_result.scalar_one_or_none()
+        company_name = company.name if company else "Unknown"
+
+        # Step B: Auto-Fix
+        logger.warning(f"⚠️ CID missing for {company_name}. Attempting smart resolution...")
+        target_cid = await resolve_cid_via_serpapi(company_name, place_id)
         
         if target_cid:
             new_cid = CompanyCID(
@@ -85,14 +88,14 @@ async def fetch_reviews(
                 place_id=place_id
             )
             session.add(new_cid)
-            await session.commit() # Save permanently to DB
-            logger.info(f"🔥 AUTO-FIX: Saved CID {target_cid} to database.")
+            await session.commit() 
+            logger.info(f"🔥 AUTO-FIX: Saved CID {target_cid} for {company_name}")
 
     if not target_cid:
-        logger.error(f"❌ No CID available for Company {company_id}. Aborting.")
+        logger.error(f"❌ No CID available for Company {company_id}. Ingest failed.")
         return []
 
-    # Step C: Fetch Reviews using SerpApi
+    # Step C: Fetch Reviews
     try:
         logger.info(f"🚀 Scraping reviews for CID: {target_cid}")
         params = {
@@ -106,17 +109,15 @@ async def fetch_reviews(
         
         raw_reviews = results.get("reviews", [])
         
-        # Step D: Format exactly how app/routes/reviews.py expects it
-        formatted_reviews = []
-        for r in raw_reviews:
-            formatted_reviews.append({
+        return [
+            {
                 "review_id": r.get("review_id"),
                 "author_name": r.get("user", {}).get("name", "Anonymous"),
                 "rating": r.get("rating", 0),
                 "text": r.get("snippet", "")
-            })
-            
-        return formatted_reviews
+            }
+            for r in raw_reviews
+        ]
 
     except Exception as e:
         logger.error(f"❌ Scraping Error: {str(e)}")
