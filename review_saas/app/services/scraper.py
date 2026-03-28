@@ -8,20 +8,30 @@ from serpapi import GoogleSearch
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 # =========================
-# CONFIGURATION & DATABASE
+# DATABASE CONFIGURATION
 # =========================
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger("RailwayScraper")
+# Railway provides DATABASE_URL. We must ensure it uses the 'postgresql+psycopg' 
+# dialect to match the 'psycopg' (v3) library in your requirements.txt
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
-# Railway provides a DATABASE_URL environment variable automatically
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/postgres")
-# Fix for SQLAlchemy if Railway uses 'postgres://' instead of 'postgresql://'
 if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    # Change postgres:// to postgresql+psycopg:// for Psycopg 3 compatibility
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
 Base = declarative_base()
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Only create engine if we have a URL to avoid boot errors
+engine = None
+SessionLocal = None
+
+if DATABASE_URL:
+    try:
+        engine = create_engine(DATABASE_URL)
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    except Exception as e:
+        logging.error(f"❌ Database Engine Error: {e}")
 
 # =========================
 # DATABASE MODEL
@@ -39,11 +49,12 @@ class GoogleReview(Base):
     published_at = Column(String(100))
     extracted_at = Column(DateTime, default=datetime.utcnow)
 
-# Create tables in Railway
-Base.metadata.create_all(bind=engine)
+# Create tables if database is connected
+if engine:
+    Base.metadata.create_all(bind=engine)
 
 # =========================
-# SCRAPER CLASS
+# LOGIC & EXPORTED FUNCTION
 # =========================
 class GoogleReviewScraper:
     def __init__(self):
@@ -57,59 +68,70 @@ class GoogleReviewScraper:
         label = "Positive" if score >= 0.05 else "Negative" if score <= -0.05 else "Neutral"
         return label, score
 
-    def run_pipeline(self, query, limit=20):
-        try:
-            # 1. Search for Location
-            search = GoogleSearch({"engine": "google_maps", "q": query, "api_key": self.api_key})
-            res = search.get_dict()
-            place = res.get("place_results") or res.get("local_results", [{}])[0]
+def fetch_reviews(query: str, limit: int = 20):
+    """
+    Main function called by app/routes/reviews.py
+    """
+    scraper = GoogleReviewScraper()
+    logging.info(f"🚀 Starting scrape for: {query}")
+    
+    try:
+        # 1. Get Data ID
+        search = GoogleSearch({"engine": "google_maps", "q": query, "api_key": scraper.api_key})
+        res = search.get_dict()
+        
+        # Check for results safely
+        place = res.get("place_results")
+        if not place:
+            local = res.get("local_results", [])
+            place = local[0] if local else None
             
-            data_id = place.get("data_id")
-            place_name = place.get("title")
-            
-            if not data_id:
-                logger.error("Location not found.")
-                return
+        if not place or not place.get("data_id"):
+            logging.error("❌ Location not found via SerpApi")
+            return {"error": "Location not found"}
 
-            # 2. Fetch Reviews
-            logger.info(f"Scraping {place_name}...")
-            search_reviews = GoogleSearch({
-                "engine": "google_maps_reviews",
-                "data_id": data_id,
-                "api_key": self.api_key,
-                "num": limit
-            })
-            review_data = search_reviews.get_dict().get("reviews", [])
+        data_id = place.get("data_id")
+        place_name = place.get("title")
 
-            # 3. Save to Railway Database
-            db = SessionLocal()
-            for r in review_data:
-                text = r.get("snippet", "No comment provided")
-                label, score = self.get_sentiment(text)
-                
-                new_review = GoogleReview(
-                    place_name=place_name,
-                    author=r.get("user", {}).get("name"),
-                    rating=r.get("rating"),
-                    review_text=text,
-                    sentiment=label,
-                    sentiment_score=score,
-                    published_at=r.get("date")
-                )
-                db.add(new_review)
+        # 2. Get Reviews
+        search_reviews = GoogleSearch({
+            "engine": "google_maps_reviews",
+            "data_id": data_id,
+            "api_key": scraper.api_key,
+            "num": limit
+        })
+        review_data = search_reviews.get_dict().get("reviews", [])
+
+        # 3. Process and Save
+        final_results = []
+        db = SessionLocal() if SessionLocal else None
+        
+        for r in review_data:
+            text = r.get("snippet", "No comment provided")
+            label, score = scraper.get_sentiment(text)
             
+            review_entry = {
+                "place_name": place_name,
+                "author": r.get("user", {}).get("name"),
+                "rating": r.get("rating"),
+                "review_text": text,
+                "sentiment": label,
+                "sentiment_score": score,
+                "published_at": r.get("date")
+            }
+            final_results.append(review_entry)
+
+            if db:
+                db_review = GoogleReview(**review_entry)
+                db.add(db_review)
+        
+        if db:
             db.commit()
             db.close()
-            logger.info(f"✅ Successfully saved {len(review_data)} reviews to Railway Database.")
+            
+        logging.info(f"✅ Scrape successful. Processed {len(final_results)} reviews.")
+        return final_results
 
-        except Exception as e:
-            logger.error(f"❌ Pipeline failed: {e}")
-
-# =========================
-# EXECUTION
-# =========================
-if __name__ == "__main__":
-    scraper = GoogleReviewScraper()
-    # Change this to any landmark or business
-    target = "Badshahi Mosque Lahore"
-    scraper.run_pipeline(target, limit=20)
+    except Exception as e:
+        logging.error(f"❌ Scraper critical failure: {e}")
+        return {"error": str(e)}
