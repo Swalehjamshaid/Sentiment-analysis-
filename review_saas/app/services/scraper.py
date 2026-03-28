@@ -1,49 +1,72 @@
+import os
 import asyncio
+from typing import List, Optional, Dict
+from serpapi import GoogleSearch
+from sqlalchemy.ext.asyncio import AsyncSession
 import logging
-from typing import List, Dict, Optional
-
-# For HTTP requests
-import httpx
 
 logger = logging.getLogger("app.scraper")
 
+# Ensure you have SERP_API_KEY in your environment
+SERP_API_KEY = os.getenv("SERP_API_KEY")
+
+if not SERP_API_KEY:
+    raise RuntimeError("SERP_API_KEY environment variable not set!")
+
 
 async def fetch_reviews(
-    place_id: str,
-    name: str,
-    limit: int = 100,
-) -> List[Dict[str, Optional[str]]]:
+    place_id: Optional[str] = None,
+    name: Optional[str] = None,
+    limit: int = 50,
+    session: Optional[AsyncSession] = None,
+    company_id: Optional[int] = None,  # NEW: accept company_id
+) -> List[Dict]:
     """
-    Fetch reviews for a given company using a Google Place ID.
-    Returns a list of review dicts with keys:
-        - review_id
-        - author_name
-        - rating
-        - text
-        - time (optional)
+    Fetch Google reviews using SerpApi.
+    Returns a list of review dicts ready for database ingestion.
     """
 
-    # --- Dummy example using HTTPX ---
-    # Replace this with your real API / SERP call / Playwright logic
-    # For example, SERPAPI or Scrapeless API request
-    # Ensure the returned dict matches your DB structure
+    if not place_id and not name:
+        raise ValueError("Must provide either place_id or name to fetch reviews.")
 
-    logger.info(f"Fetching reviews for {name} (Place ID: {place_id})")
+    logger.info(f"Fetching reviews for {name or place_id} (limit={limit})")
 
-    # Simulate async fetch
-    await asyncio.sleep(1)
+    # SerpApi parameters
+    params = {
+        "engine": "google_reviews",
+        "google_place_id": place_id,  # Google Place ID
+        "api_key": SERP_API_KEY,
+        "hl": "en",
+    }
 
-    reviews: List[Dict[str, Optional[str]]] = []
+    # Run search using SerpApi
+    try:
+        search = GoogleSearch(params)
+        results = search.get_dict()
+    except Exception as e:
+        logger.error(f"SerpApi fetch failed: {str(e)}")
+        return []
 
-    # Dummy placeholder data
-    for i in range(1, min(limit, 5) + 1):
-        reviews.append({
-            "review_id": f"{place_id}-{i}",
-            "author_name": f"User {i}",
-            "rating": 5 - (i % 5),
-            "text": f"This is a sample review {i} for {name}.",
-            "time": None,
+    reviews = results.get("reviews", [])
+    if not reviews:
+        logger.info("No reviews found from SerpApi")
+        return []
+
+    # Limit reviews
+    reviews = reviews[:limit]
+
+    # Map SerpApi review structure to our DB structure
+    formatted_reviews = []
+    for rev in reviews:
+        formatted_reviews.append({
+            "company_id": company_id,
+            "review_id": rev.get("review_id") or rev.get("user") + str(rev.get("time")),
+            "author_name": rev.get("user_name"),
+            "rating": rev.get("rating"),
+            "text": rev.get("snippet"),
+            "google_review_time": rev.get("time"),
+            "source_platform": "Google",
         })
 
-    logger.info(f"Fetched {len(reviews)} reviews for {name}")
-    return reviews
+    logger.info(f"Fetched {len(formatted_reviews)} reviews for {name or place_id}")
+    return formatted_reviews
