@@ -1,74 +1,139 @@
 # filename: app/routes/reviews.py
-import logging
-from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import text
+from sqlalchemy import select
+from typing import List
 
-from app.core.db import get_session
+from app.core.database import get_db
+from app.core.models import Review, Company
 from app.services.scraper import fetch_reviews
-from app.core.models import Review
 
-logger = logging.getLogger("app.reviews")
 router = APIRouter(prefix="/reviews", tags=["Reviews"])
 
-@router.get("/ingest_100/{company_id}")
-async def ingest_100_reviews(company_id: int, db: AsyncSession = Depends(get_session)):
+
+# =========================
+# FETCH + STORE REVIEWS
+# =========================
+@router.post("/fetch/{company_id}")
+async def fetch_and_store_reviews(
+    company_id: int,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db)
+):
     """
-    DEEP INGEST: Fetches 100 reviews and FORCES a Postgres Commit.
+    Fetch reviews from SERPAPI and store in DB
     """
-    logger.info(f"🚀 Database Sync Triggered for Company ID: {company_id}")
-    
-    try:
-        # 1. Fetch data from SerpApi via Scraper
-        # Note: target_limit=100 ensures we get the full batch
-        data = await fetch_reviews(company_id=company_id, session=db, target_limit=100)
-        
-        if not data:
-            logger.warning("⚠️ Scraper returned 0 results.")
-            return {"status": "info", "message": "No reviews found."}
 
-        # 2. THE FIX: USE AN ATOMIC TRANSACTION
-        # async with db.begin() ensures that if the loop finishes, it COMMITS to disk.
-        async with db.begin():
-            new_saved_count = 0
-            
-            for r in data:
-                # Prepare the PostgreSQL UPSERT (Insert or Update)
-                # Matches your exact columns from the Railway screenshots
-                stmt = insert(Review).values(
-                    company_id=company_id,
-                    google_review_id=r["google_review_id"],
-                    author_name=r["author_name"],
-                    rating=r["rating"],
-                    text=r["text"],
-                    google_review_time=r["google_review_time"],
-                    review_likes=r.get("likes", 0),
-                    source_platform="Google",
-                    # Sentiment defaults for your dashboard
-                    is_praise=True if r["rating"] >= 4 else False,
-                    is_complaint=True if r["rating"] <= 2 else False,
-                    first_seen_at=datetime.utcnow(),
-                    last_updated_at=datetime.utcnow()
-                ).on_conflict_do_nothing(index_elements=['google_review_id'])
-                
-                result = await db.execute(stmt)
-                
-                # Check if this was a new row or a duplicate
-                if result.rowcount > 0:
-                    new_saved_count += 1
+    # 1. Validate company
+    result = await db.execute(select(Company).where(Company.id == company_id))
+    company = result.scalar_one_or_none()
 
-            logger.info(f"✅ Transaction Finished: {new_saved_count} new reviews stored in Postgres.")
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
 
+    # 2. Fetch from scraper
+    scraped_reviews = await fetch_reviews(
+        company_id=company_id,
+        session=db,
+        target_limit=limit
+    )
+
+    if not scraped_reviews:
         return {
-            "status": "success", 
-            "total_fetched": len(data), 
-            "newly_saved": new_saved_count,
-            "message": "Data is now permanent in your Railway Postgres database."
+            "status": "warning",
+            "message": "No reviews fetched",
+            "inserted": 0
         }
 
-    except Exception as e:
-        logger.error(f"❌ CRITICAL DATABASE ERROR: {str(e)}", exc_info=True)
-        # We don't need to manually rollback because 'async with db.begin()' handles it
-        raise HTTPException(status_code=500, detail=f"Postgres Write Failed: {str(e)}")
+    # 3. Insert into DB (avoid duplicates)
+    inserted_count = 0
+
+    for r in scraped_reviews:
+        # Check duplicate via google_review_id
+        existing = await db.execute(
+            select(Review).where(
+                Review.google_review_id == r["google_review_id"]
+            )
+        )
+        if existing.scalar_one_or_none():
+            continue
+
+        new_review = Review(
+            company_id=company_id,
+            google_review_id=r["google_review_id"],
+            author_name=r["author_name"],
+            rating=r["rating"],
+            text=r["text"],
+            google_review_time=r["google_review_time"],
+            likes=r["likes"]
+        )
+
+        db.add(new_review)
+        inserted_count += 1
+
+    await db.commit()
+
+    return {
+        "status": "success",
+        "fetched": len(scraped_reviews),
+        "inserted": inserted_count
+    }
+
+
+# =========================
+# GET REVIEWS BY COMPANY
+# =========================
+@router.get("/{company_id}", response_model=List[dict])
+async def get_reviews(
+    company_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get stored reviews for a company
+    """
+
+    result = await db.execute(
+        select(Review).where(Review.company_id == company_id)
+    )
+    reviews = result.scalars().all()
+
+    return [
+        {
+            "id": r.id,
+            "author_name": r.author_name,
+            "rating": r.rating,
+            "text": r.text,
+            "date": r.google_review_time,
+            "likes": r.likes
+        }
+        for r in reviews
+    ]
+
+
+# =========================
+# DELETE REVIEWS (OPTIONAL)
+# =========================
+@router.delete("/{company_id}")
+async def delete_reviews(
+    company_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Delete all reviews of a company
+    """
+
+    result = await db.execute(
+        select(Review).where(Review.company_id == company_id)
+    )
+    reviews = result.scalars().all()
+
+    if not reviews:
+        return {"message": "No reviews to delete"}
+
+    for r in reviews:
+        await db.delete(r)
+
+    await db.commit()
+
+    return {"status": "deleted", "count": len(reviews)}
