@@ -14,18 +14,13 @@ logger = logging.getLogger(__name__)
 # SerpApi Key
 # =========================
 SERP_API_KEY = os.getenv("SERP_API_KEY")
-
 if not SERP_API_KEY:
     logger.error("SERP_API_KEY is not set! Exiting scraper.")
     raise ValueError("SERP_API_KEY environment variable is missing.")
 
 
 class ReviewScraper:
-    """
-    Robust scraper using SerpApi for Google Reviews.
-    Uses company name first, falls back to place_id if available.
-    Handles retries and logging.
-    """
+    """Robust scraper using SerpApi for Google Reviews."""
 
     BASE_URL = "https://serpapi.com/search.json"
 
@@ -34,9 +29,7 @@ class ReviewScraper:
         self.retry_delay = retry_delay
 
     def fetch_reviews(self, company_name: str, limit=300, place_id: str = None):
-        """
-        Fetch reviews using company_name or place_id
-        """
+        """Fetch reviews using company_name or place_id"""
         logger.info(f"Fetching reviews for {company_name} (limit={limit})")
         params = {
             "engine": "google_maps",
@@ -47,24 +40,21 @@ class ReviewScraper:
             "api_key": SERP_API_KEY
         }
 
-        # Use place_id if provided
         if place_id:
             params["type"] = "place"
             params["place_id"] = place_id
-            params.pop("q", None)  # Remove name query
+            params.pop("q", None)
 
         for attempt in range(1, self.max_retries + 1):
             try:
                 response = requests.get(self.BASE_URL, params=params, timeout=30)
                 data = response.json()
 
-                # Log raw response for debugging (first 1000 chars)
                 logger.info(f"SerpApi Raw Response: {json.dumps(data, indent=2)[:1000]}...")
 
                 reviews = data.get("reviews", [])
 
                 if not reviews and not place_id:
-                    # Fallback: Try to get place_id from first result
                     candidate = data.get("local_results", {}).get("places", [])
                     if candidate:
                         first_place_id = candidate[0].get("place_id")
@@ -95,11 +85,19 @@ class ReviewScraper:
 scraper_instance = ReviewScraper()
 
 
-def fetch_reviews(company_name, limit=300, place_id=None):
+def fetch_reviews(company_name=None, name=None, limit=300, place_id=None):
     """
-    Module-level wrapper that allows optional place_id argument
+    Module-level wrapper compatible with all existing routes.
+    Accepts:
+        - company_name (preferred)
+        - name (fallback)
+        - limit
+        - place_id
     """
-    return scraper_instance.fetch_reviews(company_name, limit=limit, place_id=place_id)
+    target_name = company_name or name
+    if not target_name:
+        raise ValueError("Either company_name or name must be provided to fetch reviews.")
+    return scraper_instance.fetch_reviews(target_name, limit=limit, place_id=place_id)
 
 
 # =========================
@@ -108,7 +106,7 @@ def fetch_reviews(company_name, limit=300, place_id=None):
 if __name__ == "__main__":
     companies = ["Villa The Grand Buffet", "Bahria Town"]
     for company in companies:
-        reviews = fetch_reviews(company)
+        reviews = fetch_reviews(name=company)
         if not reviews:
             logger.info(f"No reviews returned for {company}")
         else:
