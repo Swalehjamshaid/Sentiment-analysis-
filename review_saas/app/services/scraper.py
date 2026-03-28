@@ -1,6 +1,7 @@
 import os
 import logging
 from typing import List, Dict, Optional
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from serpapi import GoogleSearch
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -14,54 +15,52 @@ async def fetch_reviews(
     limit: int = 300,
     name: Optional[str] = None,
     session: AsyncSession = None
-) -> List[Dict[str, Optional[str]]]:
+) -> List[Dict]:
     """
-    Fetches reviews using CID from PostgreSQL database only.
-    No hardcoded bypass.
+    Fetch Google reviews using CID from the company_cids table only.
+    No hardcoded bypass logic.
     """
     analyzer = SentimentIntensityAnalyzer()
     
+    # Get SerpApi key from environment
     api_key = os.getenv("SERP_API_KEY")
     if not api_key:
-        logger.error("❌ SERP_API_KEY environment variable is missing!")
+        logger.error("❌ SERP_API_KEY environment variable is not set!")
         return []
 
     cid = None
-    target_name = (name or "Business").upper()
+    target_name = (name or "Unknown Business").strip()
 
-    # ==================== SAFE DATABASE LOOKUP ====================
+    # ==================== 1. Get CID from Database ====================
     if company_id and session:
         try:
-            # Import inside try block to prevent crash if model doesn't exist
             from app.core.models import CompanyCID
             
-            logger.info(f"📋 Looking up CID in database for company_id: {company_id} ({target_name})")
-            
+            logger.info(f"📋 Looking up CID for company_id={company_id} | Name: {target_name}")
+
             result = await session.execute(
                 select(CompanyCID).where(CompanyCID.company_id == company_id)
             )
             db_entry = result.scalar_one_or_none()
-            
+
             if db_entry and db_entry.cid:
                 cid = db_entry.cid
-                logger.info(f"✅ CID loaded from database: {cid}")
+                logger.info(f"✅ CID successfully loaded from database: {cid}")
             else:
-                logger.warning(f"⚠️ No CID found in CompanyCID table for company_id {company_id}")
+                logger.warning(f"⚠️ No CID found in company_cids table for company_id {company_id} ({target_name})")
                 
-        except ImportError:
-            logger.error("❌ Model 'CompanyCID' not found in app.core.models")
         except Exception as e:
-            logger.error(f"❌ Database lookup error: {e}", exc_info=False)
+            logger.error(f"❌ Failed to read CompanyCID table: {e}")
     else:
-        logger.error("❌ Missing company_id or database session")
+        logger.error("❌ company_id or database session is missing.")
 
     if not cid:
-        logger.error(f"❌ No CID available in database for {target_name}. Cannot proceed.")
+        logger.error(f"❌ No CID available in database for '{target_name}'. Cannot fetch reviews.")
         return []
 
-    # ==================== FETCH REVIEWS ====================
+    # ==================== 2. Fetch Reviews from SerpApi ====================
     try:
-        logger.info(f"📍 Fetching reviews using CID from DB: {cid}")
+        logger.info(f"📍 Calling SerpApi for CID: {cid} | Limit: {limit}")
 
         params = {
             "engine": "google_maps_reviews",
@@ -71,7 +70,7 @@ async def fetch_reviews(
             "no_cache": True,
         }
 
-        # Primary attempt
+        # First attempt: Newest reviews
         search_params = params.copy()
         search_params.update({
             "sort_by": "newestFirst",
@@ -82,12 +81,15 @@ async def fetch_reviews(
         results = search_reviews.get_dict()
         raw_reviews = results.get("reviews", [])
 
+        # Detailed logging
         metadata = results.get("search_metadata", {})
-        logger.info(f"SerpApi status: {metadata.get('status')} | Reviews returned: {len(raw_reviews)}")
+        logger.info(f"SerpApi Status: {metadata.get('status')} | "
+                   f"Reviews Returned: {len(raw_reviews)} | "
+                   f"Time Taken: {metadata.get('time_taken')}s")
 
-        # Fallback if zero reviews
+        # Fallback if no reviews
         if len(raw_reviews) == 0:
-            logger.warning("⚠️ No reviews from first attempt. Trying fallback...")
+            logger.warning(f"⚠️ SerpApi returned 0 reviews. Trying fallback (most relevant)...")
             search_params = params.copy()
             search_params.update({
                 "sort_by": "qualityScore",
@@ -95,9 +97,9 @@ async def fetch_reviews(
             })
             search_reviews = GoogleSearch(search_params)
             raw_reviews = search_reviews.get_dict().get("reviews", [])
-            logger.info(f"Fallback returned {len(raw_reviews)} reviews.")
+            logger.info(f"Fallback attempt returned {len(raw_reviews)} reviews.")
 
-        # Convert to final format
+        # Process reviews
         final_results = []
         for r in raw_reviews[:limit]:
             body = r.get("snippet") or r.get("text") or r.get("content") or "No comment"
@@ -112,9 +114,9 @@ async def fetch_reviews(
                 "date": r.get("date") or r.get("published_date"),
             })
 
-        logger.info(f"✅ Successfully captured {len(final_results)} reviews.")
+        logger.info(f"✅ Successfully captured {len(final_results)} reviews for '{target_name}'.")
         return final_results
 
     except Exception as e:
-        logger.error(f"❌ Failed to fetch reviews for CID {cid}: {e}", exc_info=True)
+        logger.error(f"❌ SerpApi request failed for CID {cid}: {str(e)}", exc_info=True)
         return []
