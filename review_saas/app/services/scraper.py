@@ -5,10 +5,10 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-# This is the correct import for google-search-results==2.4.2
+# Standard import for the google-search-results library
 from serpapi import GoogleSearch 
 
-# Internal imports for your Database Models
+# Internal imports for Database Models
 from app.core.models import Company
 
 # --- 1. SETUP LOGGING ---
@@ -27,22 +27,21 @@ async def fetch_reviews(
     **kwargs
 ) -> List[Dict[str, Any]]:
     """
-    FINAL STABILIZED SCRAPER:
-    Uses the GoogleSearch class to ensure 100% compatibility with your 
-    requirements.txt and bypasses '0 reviews' using Lahore local context.
+    STABILIZED DOUBLE-PASS SCRAPER:
+    Pass 1: Identifies the correct business and retrieves the Place ID.
+    Pass 2: Uses the Place ID to pull the deep 'reviews' array.
     """
     
-    # 1. Retrieve the company name from your DB
+    # Retrieve the company name from the database
     res = await session.execute(select(Company).where(Company.id == company_id))
     company = res.scalar_one_or_none()
     company_name = company.name if company else "Villa The Grand Buffet"
 
-    logger.info(f"🚀 Starting Stabilized Ingest for: {company_name}")
+    logger.info(f"🚀 Starting Ingest for: {company_name}")
 
     try:
-        # Step A: Setup Search Parameters
-        # Using 'google_maps' engine with local Lahore context
-        params = {
+        # --- STEP 1: FIND THE BUSINESS ID ---
+        search_params = {
             "engine": "google_maps",
             "q": company_name,
             "type": "search",
@@ -51,53 +50,50 @@ async def fetch_reviews(
             "api_key": SERPAPI_KEY
         }
         
-        # Step B: Execute Search using the GoogleSearch class
-        search = GoogleSearch(params)
+        search = GoogleSearch(search_params)
         results = search.get_dict()
         
-        formatted_reviews = []
+        target_place_id = None
         
-        # Path 1: Extract from 'place_results' (Direct Hit)
+        # Check if we got a direct Business Profile or a list of search results
         if "place_results" in results:
-            raw_reviews = results["place_results"].get("reviews", [])
-            for r in raw_reviews:
-                formatted_reviews.append({
-                    "review_id": str(r.get("review_id", "id_missing")),
-                    "author_name": r.get("user", {}).get("name", "Google User"),
-                    "rating": int(r.get("rating", 5)),
-                    "text": r.get("snippet", "No review text provided.")
-                })
-
-        # Path 2: Extract from 'local_results' (List view fallback)
+            target_place_id = results["place_results"].get("place_id")
         elif "local_results" in results and len(results["local_results"]) > 0:
-            first_place = results["local_results"][0]
-            target_place_id = first_place.get("place_id")
-            
-            if target_place_id:
-                logger.info(f"🔄 Found Place ID: {target_place_id}. Fetching specific reviews...")
-                r_params = {
-                    "engine": "google_maps_reviews",
-                    "place_id": target_place_id,
-                    "hl": "en",
-                    "api_key": SERPAPI_KEY
-                }
-                r_search = GoogleSearch(r_params)
-                r_results = r_search.get_dict()
-                for r in r_results.get("reviews", []):
-                    formatted_reviews.append({
-                        "review_id": str(r.get("review_id")),
-                        "author_name": r.get("user", {}).get("name", "Anonymous"),
-                        "rating": int(r.get("rating", 5)),
-                        "text": r.get("snippet", "No review text provided.")
-                    })
+            # We pick the first local result as the most relevant match
+            target_place_id = results["local_results"][0].get("place_id")
 
-        if not formatted_reviews:
-            logger.error(f"❌ Scraper found business data but no review objects for {company_name}.")
+        if not target_place_id:
+            logger.error(f"❌ Verification Failed: Could not find a Place ID for {company_name}")
             return []
 
-        logger.info(f"✅ SUCCESS: Formatted {len(formatted_reviews)} reviews.")
+        # --- STEP 2: FETCH THE ACTUAL REVIEWS ---
+        logger.info(f"🎯 Business Verified (ID: {target_place_id}). Fetching reviews...")
+        
+        review_params = {
+            "engine": "google_maps_reviews",
+            "place_id": target_place_id,
+            "api_key": SERPAPI_KEY,
+            "hl": "en",
+            "sort_by": "newestFirst" # Critical for 2026 data stability
+        }
+        
+        review_search = GoogleSearch(review_params)
+        review_results = review_search.get_dict()
+        raw_reviews = review_results.get("reviews", [])
+
+        # --- STEP 3: FORMAT FOR DATABASE ---
+        formatted_reviews = []
+        for r in raw_reviews:
+            formatted_reviews.append({
+                "review_id": str(r.get("review_id", "id_missing")),
+                "author_name": r.get("user", {}).get("name", "Google User"),
+                "rating": int(r.get("rating", 5)),
+                "text": r.get("snippet", "No text provided.")
+            })
+            
+        logger.info(f"✅ SUCCESS: {len(formatted_reviews)} reviews retrieved for {company_name}.")
         return formatted_reviews
 
     except Exception as e:
-        logger.error(f"❌ SCRAPER CRITICAL FAILURE: {str(e)}")
+        logger.error(f"❌ SCRAPER CRITICAL ERROR: {str(e)}")
         return []
