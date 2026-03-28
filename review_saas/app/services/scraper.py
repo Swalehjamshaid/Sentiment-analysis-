@@ -1,88 +1,128 @@
-# filename: app/services/scraper.py
+import os
 import logging
-import agentql
 import asyncio
 from typing import List, Dict, Any, Optional
+
+import agentql
 from curl_cffi.requests import AsyncSession as CurlSession
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-# Internal imports for your specific Database Models
-from app.core.models import Company
+# Internal imports
+from app.core.models import Company, CompanyCID
 
-# Define a specific logger for the scraper
 logger = logging.getLogger("app.scraper")
 
-# --- 2026 STEALTH CONFIGURATION ---
-# Using the ScrapeOps Residential Proxy from your verified dashboard
+# --- STEALTH CONFIGURATION ---
 PROXY_URL = "http://scrapeops:d3879aef-d2a6-4422-9b6d-34ff899a638b@residential-proxy.scrapeops.io:8181"
 
+
 async def fetch_reviews(
-    company_id: int, 
-    session: AsyncSession, 
-    place_id: Optional[str] = None, 
-    limit: int = 20,
+    company_id: int,
+    session: AsyncSession,
+    place_id: Optional[str] = None,
+    limit: int = 30,
     **kwargs
 ) -> List[Dict[str, Any]]:
     """
-    ULTIMATE HYBRID SCRAPER (TLS + AGENTIC):
-    Bypasses blocks via curl_cffi and extracts data via AgentQL AI.
+    Hybrid Scraper: First tries CID from company_cids table,
+    falls back to google_place_id, then uses stealth + AgentQL.
     """
-    
-    # 1. Resolve Target
-    res = await session.execute(select(Company).where(Company.id == company_id))
-    company = res.scalar_one_or_none()
-    search_target = place_id if place_id else (company.name if company else "Villa The Grand Buffet")
-    
-    url = f"https://www.google.com/search?q={search_target}+reviews&hl=en&gl=pk"
-    
     all_reviews = []
-    logger.info(f"🔍 SCRAPER START: Targeting '{search_target}'")
+    target_name = "Unknown"
 
     try:
-        # 2. THE STEALTH FETCH (Network Layer)
-        # Using chrome120 impersonation to match real mobile browser fingerprints
+        # 1. Get Company details
+        res = await session.execute(select(Company).where(Company.id == company_id))
+        company = res.scalar_one_or_none()
+
+        if not company:
+            logger.error(f"❌ Company with id {company_id} not found.")
+            return []
+
+        target_name = company.name
+        logger.info(f"🚀 Starting review scrape for: {target_name} (ID: {company_id})")
+
+        # 2. Get CID from database (Priority)
+        cid = None
+        try:
+            cid_res = await session.execute(
+                select(CompanyCID).where(CompanyCID.company_id == company_id)
+            )
+            cid_entry = cid_res.scalar_one_or_none()
+            if cid_entry and cid_entry.cid:
+                cid = cid_entry.cid
+                logger.info(f"✅ CID loaded from database: {cid}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not read CompanyCID table: {e}")
+
+        # 3. Build search URL
+        if cid:
+            # Better to use direct Maps URL with CID when available
+            search_url = f"https://www.google.com/maps/place/?q=place_id:{cid}&hl=en"
+            logger.info(f"Using CID-based URL: {search_url}")
+        elif place_id or company.google_place_id:
+            pid = place_id or company.google_place_id
+            search_url = f"https://www.google.com/maps/place/?q=place_id:{pid}&hl=en"
+            logger.info(f"Using google_place_id: {pid}")
+        else:
+            # Fallback to search
+            search_url = f"https://www.google.com/search?q={target_name}+reviews&hl=en&gl=pk"
+            logger.info(f"Using keyword search: {target_name} reviews")
+
+        # 4. Stealth HTTP Request with ScrapeOps Proxy
         async with CurlSession(impersonate="chrome120") as s:
-            logger.info(f"🛰️ Sending TLS-Fingerprinted request via ScrapeOps...")
-            
+            logger.info(f"🛰️ Fetching page with TLS fingerprint via ScrapeOps proxy...")
+
             response = await s.get(
-                url,
+                search_url,
                 proxies={"http": PROXY_URL, "https": PROXY_URL},
-                timeout=30
+                timeout=45,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept-Language": "en-US,en;q=0.9",
+                }
             )
 
             if response.status_code != 200:
-                logger.error(f"❌ BLOCKED: Status {response.status_code}. Google rejected the fingerprint.")
+                logger.error(f"❌ Request blocked or failed. Status: {response.status_code}")
                 return []
 
-            logger.info(f"✅ HTML Received ({len(response.text)} bytes). Starting AgentQL parsing...")
+            logger.info(f"✅ Page fetched successfully ({len(response.text)} bytes)")
 
-            # 3. THE AGENTIC EXTRACTION (Vision Layer)
-            QUERY = """
-            {
-                reviews_container[] {
-                    author_name,
-                    rating_val,
-                    review_body_text
-                }
+        # 5. AgentQL Extraction - Improved Query
+        QUERY = """
+        {
+            reviews[] {
+                author_name,
+                rating,
+                review_text,
+                review_date,
+                likes_count
             }
-            """
-            
-            # Using AgentQL's static HTML parser (much faster than a full browser)
-            data = agentql.parse_html(response.text, QUERY)
-            raw_data = data.get("reviews_container", [])
+        }
+        """
 
-            # 4. FORMATTING
-            for i, r in enumerate(raw_data[:limit]):
-                all_reviews.append({
-                    "review_id": f"HYB-{company_id}-{i}",
-                    "author_name": r.get("author_name") or "Google User",
-                    "rating": 5, # Defaulting for test stability
-                    "text": r.get("review_body_text") or "Verified Review Content"
-                })
+        logger.info("🤖 Parsing page with AgentQL...")
+        data = agentql.parse_html(response.text, QUERY)
+
+        raw_reviews = data.get("reviews", []) or []
+
+        # 6. Format output to match your Review model
+        for i, r in enumerate(raw_reviews[:limit]):
+            all_reviews.append({
+                "review_id": f"AGQL-{company_id}-{i}",
+                "author_name": r.get("author_name") or "Google User",
+                "rating": int(r.get("rating") or 5),
+                "text": r.get("review_text") or r.get("review_body_text") or "No review text available",
+                "date": r.get("review_date"),
+                "likes": r.get("likes_count", 0)
+            })
+
+        logger.info(f"✅ AgentQL extracted {len(all_reviews)} reviews.")
 
     except Exception as e:
-        logger.error(f"❌ SCRAPER CRITICAL ERROR: {str(e)}", exc_info=True)
+        logger.error(f"❌ Scraper failed for company {company_id} ({target_name}): {str(e)}", exc_info=True)
 
-    logger.info(f"🏁 SCRAPER FINISHED: Captured {len(all_reviews)} reviews.")
+    logger.info(f"🏁 Scraper finished for {target_name}: Captured {len(all_reviews)} reviews.")
     return all_reviews
