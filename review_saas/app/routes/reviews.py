@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 # Core project imports
 from app.core.db import get_session
-from app.core.models import Review, Company
+from app.core.models import Review, Company # CompanyCID removed from here
 from app.services.scraper import fetch_reviews
 
 router = APIRouter(tags=["reviews"])
@@ -33,23 +33,23 @@ async def ingest_reviews(
     company_id: int, 
     session: AsyncSession = Depends(get_session)
 ):
-    # 1. Fetch Company details from Database
+    # 1. Fetch Company from DB
     result = await session.execute(select(Company).where(Company.id == company_id))
     company = result.scalar_one_or_none()
     
     if not company:
-        raise HTTPException(status_code=404, detail="Company record not found.")
+        raise HTTPException(status_code=404, detail="Company not found.")
 
     target_name = str(company.name)
     target_id = company.google_place_id 
     
     if not target_id:
-        raise HTTPException(status_code=400, detail="Company missing Google Place ID.")
+        raise HTTPException(status_code=400, detail="Missing Google Place ID.")
 
     try:
-        logger.info(f"🚀 Initializing Ingest for: {target_name}")
+        logger.info(f"🚀 Starting Ingest for: {target_name}")
 
-        # 2. Call Scraper with Session and Name
+        # 2. Call Scraper (Pass session and name for CID resolution)
         scraped_data = await fetch_reviews(
             place_id=target_id, 
             company_id=company_id, 
@@ -59,9 +59,9 @@ async def ingest_reviews(
         )
         
         if not scraped_data:
-            return {"status": "success", "message": "No reviews found.", "new_reviews_added": 0}
+            return {"status": "success", "message": "No data found.", "new_reviews_added": 0}
 
-        # 3. Save to Database with Duplicate Prevention
+        # 3. Persistence with Duplicate Prevention
         new_count = 0
         for item in scraped_data:
             check = await session.execute(
@@ -87,8 +87,7 @@ async def ingest_reviews(
         return {
             "status": "success",
             "company_name": target_name,
-            "new_reviews_added": new_count,
-            "total_fetched": len(scraped_data)
+            "new_reviews_added": new_count
         }
 
     except Exception as e:
