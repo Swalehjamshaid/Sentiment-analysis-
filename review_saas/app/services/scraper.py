@@ -1,123 +1,118 @@
 import os
+import asyncio
 import logging
-from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime
-from sqlalchemy.orm import sessionmaker, declarative_base
+from typing import List, Dict, Optional
 from serpapi import GoogleSearch
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-# =================================================================
-# 1. DATABASE CONFIGURATION
-# =================================================================
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+logger = logging.getLogger("app.scraper")
+logger.setLevel(logging.INFO)
 
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
-elif DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+SERP_API_KEY = os.getenv("SERP_API_KEY")
+if not SERP_API_KEY:
+    logger.warning("⚠️ SERP_API_KEY not set. Scraper may fail.")
 
-Base = declarative_base()
-engine = create_engine(DATABASE_URL, pool_pre_ping=True) if DATABASE_URL else None
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) if engine else None
+analyzer = SentimentIntensityAnalyzer()
 
-class GoogleReviewRaw(Base):
-    __tablename__ = "google_reviews_raw"
-    id = Column(Integer, primary_key=True)
-    review_id = Column(String(255), unique=True)
-    author_name = Column(String(255))
-    rating = Column(Float)
-    text = Column(Text)
-    sentiment = Column(String(50))
-    extracted_at = Column(DateTime, default=datetime.utcnow)
 
-if engine:
-    Base.metadata.create_all(bind=engine)
-
-# =================================================================
-# 2. THE FINAL RESOLVER SCRAPER
-# =================================================================
-async def fetch_reviews(place_id: str = None, limit: int = 300, **kwargs):
+async def fetch_reviews(place_id: Optional[str] = None, name: Optional[str] = None, limit: int = 300) -> List[Dict]:
     """
-    CRITICAL FIX: 
-    Uses the company name passed from the router to ensure 
-    fallback searches are precise (e.g., 'Salt'n Pepper' instead of 'Google Business').
+    Robust async scraper for Google reviews using SerpAPI.
+    - Tries CID resolution first
+    - Falls back to search by name if CID fails
+    - Handles 0 reviews gracefully
     """
-    api_key = os.getenv("SERP_API_KEY", "f9f41e452ea716cale760081b94763a404c9ele07aef30def9c6a05391890e8d")
-    analyzer = SentimentIntensityAnalyzer()
-    
+    if not place_id and not name:
+        logger.error("❌ fetch_reviews called without place_id or name.")
+        return []
+
+    target_name = name or "Restaurant"
     target_id = place_id
-    # If the router doesn't pass 'name', we use this hardcoded map for your specific DB entries
-    target_name = kwargs.get('name')
-    
-    if not target_name or target_name == "Google Business":
-        id_map = {
-            "ChIJe2LWbaIIGTkRZhr_Fbyvkvs": "Gloria Jeans Coffees DHA Phase 5 Lahore",
-            "ChIJDVYKpFEEGTkRp_XASXZ21Tc": "Salt'n Pepper Village Lahore",
-            "ChIJ8S6kk9YJGtkRWK6XHzCKsrA": "McDonald's Lahore"
-        }
-        target_name = id_map.get(target_id, "Restaurant Lahore")
 
-    logging.info(f"🚀 [Scraper] Ingesting: {target_name} ({target_id})")
-    
+    # Optional hardcoded map for legacy places
+    id_map = {
+        "ChIJDVYKpFEEGTkRp_XASXZ21Tc": "Salt'n Pepper Village Lahore",
+        "ChIJe2LWbaIIGTkRZhr_Fbyvkvs": "Gloria Jeans Coffees DHA Phase 5 Lahore",
+        "ChIJ8S6kk9YJGtkRWK6XHzCKsrA": "McDonald's Lahore"
+    }
+    if not name and place_id in id_map:
+        target_name = id_map[place_id]
+
+    logger.info(f"🚀 [Scraper] Starting ingestion: {target_name} ({target_id})")
+
+    # Async helper to run blocking SerpAPI calls
+    async def serpapi_call(params: dict) -> dict:
+        loop = asyncio.get_event_loop()
+        try:
+            return await loop.run_in_executor(None, lambda: GoogleSearch(params).get_dict())
+        except Exception as e:
+            logger.error(f"❌ SerpAPI call failed: {e}")
+            return {}
+
     try:
-        # STEP 1: RESOLVE PLACE ID TO CID
-        search_resolver = GoogleSearch({
-            "engine": "google_maps",
-            "place_id": target_id,
-            "api_key": api_key,
-            "no_cache": True 
-        })
-        res = search_resolver.get_dict()
-        data_id = res.get("place_results", {}).get("data_id")
+        # 1️⃣ Resolve CID if place_id provided
+        data_id = None
+        if target_id:
+            resolver_params = {
+                "engine": "google_maps",
+                "place_id": target_id,
+                "api_key": SERP_API_KEY,
+                "no_cache": True
+            }
+            res = await serpapi_call(resolver_params)
+            data_id = res.get("place_results", {}).get("data_id")
 
-        # STEP 2: PRECISION FALLBACK
+        # 2️⃣ Fallback: search by name
         if not data_id:
-            logging.warning(f"⚠️ ID Resolution failed. Searching by Name: {target_name}")
-            search_fb = GoogleSearch({
+            logger.warning(f"⚠️ CID not found. Searching by name: {target_name}")
+            search_params = {
                 "engine": "google_maps",
                 "q": target_name,
-                "api_key": api_key
-            })
-            fb_res = search_fb.get_dict()
-            local = fb_res.get("local_results", [])
-            place_fb = fb_res.get("place_results") or (local[0] if local else {})
-            data_id = place_fb.get("data_id")
+                "api_key": SERP_API_KEY,
+                "no_cache": True
+            }
+            search_res = await serpapi_call(search_params)
+            local_results = search_res.get("local_results") or []
+            place_results = search_res.get("place_results") or (local_results[0] if local_results else {})
+            data_id = place_results.get("data_id")
 
         if not data_id:
-            logging.error(f"❌ Failed to find CID for {target_name}")
+            logger.error(f"❌ Failed to resolve CID for {target_name}. Returning empty list.")
             return []
 
-        # STEP 3: FETCH ACTUAL REVIEWS
-        logging.info(f"📍 CID Resolved: {data_id}. Fetching reviews...")
-        review_params = {
+        # 3️⃣ Fetch reviews
+        logger.info(f"📍 CID Resolved: {data_id}. Fetching reviews...")
+        reviews_params = {
             "engine": "google_maps_reviews",
             "data_id": data_id,
-            "api_key": api_key,
+            "api_key": SERP_API_KEY,
             "num": limit,
             "no_cache": True,
             "sort_by": "newest"
         }
-        
-        search_reviews = GoogleSearch(review_params)
-        raw_reviews = search_reviews.get_dict().get("reviews", [])
+        review_res = await serpapi_call(reviews_params)
+        raw_reviews = review_res.get("reviews", [])
 
-        # STEP 4: DATA MAPPING FOR REVIEWS.PY
-        final_results = []
-        for r in raw_reviews:
-            body = r.get("snippet") or r.get("text") or "No comment"
-            vs = analyzer.polarity_scores(body)
-            
-            final_results.append({
+        if not raw_reviews:
+            logger.warning(f"⚠️ 0 reviews found for {target_name} (CID: {data_id})")
+            return []
+
+        # 4️⃣ Map reviews
+        final_reviews = []
+        for r in raw_reviews[:limit]:
+            text = r.get("snippet") or r.get("text") or "No comment"
+            sentiment = analyzer.polarity_scores(text)
+            final_reviews.append({
                 "review_id": r.get("review_id"),
                 "author_name": r.get("user", {}).get("name", "Anonymous"),
                 "rating": r.get("rating", 0),
-                "text": body,
-                "sentiment": "Positive" if vs['compound'] >= 0.05 else "Negative"
+                "text": text,
+                "sentiment": "Positive" if sentiment["compound"] >= 0.05 else "Negative"
             })
-        
-        logging.info(f"✅ Success: Captured {len(final_results)} reviews.")
-        return final_results
+
+        logger.info(f"✅ Fetched {len(final_reviews)} reviews for {target_name}")
+        return final_reviews
 
     except Exception as e:
-        logging.error(f"❌ Scraper failure: {e}")
+        logger.error(f"❌ Scraper exception for {target_name}: {e}", exc_info=True)
         return []
