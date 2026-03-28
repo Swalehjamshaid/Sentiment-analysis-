@@ -2,7 +2,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from typing import List, Optional
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
@@ -10,7 +9,7 @@ from pydantic import BaseModel
 
 # Core project imports
 from app.core.db import get_session
-from app.core.models import Review, Company # CompanyCID removed from here
+from app.core.models import Review, Company # DO NOT import CompanyCID here
 from app.services.scraper import fetch_reviews
 
 router = APIRouter(tags=["reviews"])
@@ -33,7 +32,11 @@ async def ingest_reviews(
     company_id: int, 
     session: AsyncSession = Depends(get_session)
 ):
-    # 1. Fetch Company from DB
+    """
+    Triggers the ingest process.
+    Passes the session and company name to the scraper for CID resolution/caching.
+    """
+    # 1. Fetch Company from Database
     result = await session.execute(select(Company).where(Company.id == company_id))
     company = result.scalar_one_or_none()
     
@@ -43,13 +46,10 @@ async def ingest_reviews(
     target_name = str(company.name)
     target_id = company.google_place_id 
     
-    if not target_id:
-        raise HTTPException(status_code=400, detail="Missing Google Place ID.")
-
     try:
         logger.info(f"🚀 Starting Ingest for: {target_name}")
 
-        # 2. Call Scraper (Pass session and name for CID resolution)
+        # 2. Call Scraper with Session for caching and Name for resolution
         scraped_data = await fetch_reviews(
             place_id=target_id, 
             company_id=company_id, 
@@ -59,7 +59,7 @@ async def ingest_reviews(
         )
         
         if not scraped_data:
-            return {"status": "success", "message": "No data found.", "new_reviews_added": 0}
+            return {"status": "success", "message": "No reviews found.", "new_reviews_added": 0}
 
         # 3. Persistence with Duplicate Prevention
         new_count = 0
@@ -85,9 +85,10 @@ async def ingest_reviews(
 
         await session.commit()
         return {
-            "status": "success",
-            "company_name": target_name,
-            "new_reviews_added": new_count
+            "status": "success", 
+            "company_name": target_name, 
+            "new_reviews_added": new_count,
+            "total_fetched": len(scraped_data)
         }
 
     except Exception as e:
