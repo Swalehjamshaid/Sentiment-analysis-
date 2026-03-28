@@ -2,18 +2,21 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
+
 from pydantic import BaseModel
 
 # Core project imports
 from app.core.db import get_session
-from app.core.models import Review, Company 
-from app.services.scraper import fetch_reviews
+from app.core.models import Review, Company
+from app.services.scraper import fetch_reviews   # Make sure path is correct
 
 router = APIRouter(tags=["reviews"])
 logger = logging.getLogger("app.reviews")
+
 
 class ReviewResponse(BaseModel):
     id: int
@@ -27,49 +30,61 @@ class ReviewResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 @router.post("/reviews/ingest/{company_id}")
 async def ingest_reviews(
-    company_id: int, 
+    company_id: int,
     session: AsyncSession = Depends(get_session)
 ):
-    # 1. Fetch Company
-    result = await session.execute(select(Company).where(Company.id == company_id))
-    company = result.scalar_one_or_none()
+    """Ingest Google reviews for a company - uses CID from database only"""
     
+    # 1. Fetch Company
+    result = await session.execute(
+        select(Company).where(Company.id == company_id)
+    )
+    company = result.scalar_one_or_none()
+   
     if not company:
         raise HTTPException(status_code=404, detail="Company not found.")
 
     target_name = str(company.name)
-    target_id = company.google_place_id 
-    
-    try:
-        logger.info(f"🚀 Starting Ingest for: {target_name}")
+    target_place_id = company.google_place_id  # Keeping for potential future use
 
-        # 2. Scrape Data
+    try:
+        logger.info(f"🚀 Starting Ingest for: {target_name} (Company ID: {company_id})")
+
+        # 2. Fetch reviews - ONLY from database CID (no bypass)
         scraped_data = await fetch_reviews(
-            place_id=target_id, 
-            company_id=company_id, 
+            place_id=target_place_id,      # still passing in case needed later
+            company_id=company_id,         # This is what fetch_reviews will use
             name=target_name,
             limit=300,
             session=session
         )
-        
+       
         if not scraped_data:
-            return {"status": "success", "message": "No reviews found.", "new_reviews_added": 0}
+            logger.info(f"ℹ️ No reviews returned for {target_name}")
+            return {
+                "status": "success", 
+                "message": "No reviews found or CID not available in database.", 
+                "new_reviews_added": 0
+            }
 
-        # 3. Persistence
+        # 3. Save new reviews only (avoid duplicates)
         new_count = 0
         for item in scraped_data:
+            # Check if review already exists
             check = await session.execute(
                 select(Review).where(
                     Review.company_id == company_id,
-                    Review.google_review_id == item["review_id"]
+                    Review.google_review_id == item.get("review_id")
                 )
             )
+            
             if not check.scalar_one_or_none():
                 new_review = Review(
                     company_id=company_id,
-                    google_review_id=item["review_id"],
+                    google_review_id=item.get("review_id"),
                     author_name=item.get("author_name", "Anonymous"),
                     rating=item.get("rating", 0),
                     text=item.get("text", ""),
@@ -80,26 +95,39 @@ async def ingest_reviews(
                 new_count += 1
 
         await session.commit()
-        return {"status": "success", "company_name": target_name, "new_reviews_added": new_count}
+
+        logger.info(f"✅ Ingest completed for {target_name}: {new_count} new reviews added.")
+        
+        return {
+            "status": "success", 
+            "company_name": target_name, 
+            "new_reviews_added": new_count,
+            "total_scraped": len(scraped_data)
+        }
 
     except Exception as e:
         await session.rollback()
-        logger.error(f"❌ Ingest error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"❌ Ingest error for company {company_id} ({target_name}): {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
 
 @router.get("/reviews", response_model=List[ReviewResponse])
 async def list_reviews(
     company_id: Optional[int] = Query(None),
     session: AsyncSession = Depends(get_session)
 ):
+    """List reviews, optionally filtered by company"""
     query = select(Review)
     if company_id:
         query = query.where(Review.company_id == company_id)
+    
     result = await session.execute(query.order_by(Review.id.desc()))
     return result.scalars().all()
 
+
 @router.delete("/reviews/{review_id}")
 async def delete_review(review_id: int, session: AsyncSession = Depends(get_session)):
+    """Delete a specific review"""
     await session.execute(delete(Review).where(Review.id == review_id))
     await session.commit()
     return {"status": "success", "message": "Review deleted."}
