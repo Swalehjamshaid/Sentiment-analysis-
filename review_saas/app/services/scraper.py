@@ -7,11 +7,12 @@ from serpapi import GoogleSearch
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 # =================================================================
-# 1. DATABASE CONFIGURATION (Psycopg 3 Aligned)
+# 1. DATABASE CONFIGURATION (Psycopg 3 & Railway Aligned)
 # =================================================================
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 # Fix for 'ModuleNotFoundError: No module named psycopg2'
+# Forces SQLAlchemy to use the psycopg v3 driver in your requirements.txt
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
 elif DATABASE_URL.startswith("postgresql://"):
@@ -21,7 +22,7 @@ Base = declarative_base()
 engine = create_engine(DATABASE_URL, pool_pre_ping=True) if DATABASE_URL else None
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) if engine else None
 
-# Internal Raw Tracking Table
+# Internal Raw Tracking Table for Scraper History
 class GoogleReviewRaw(Base):
     __tablename__ = "google_reviews_raw"
     id = Column(Integer, primary_key=True)
@@ -44,7 +45,7 @@ if engine:
 # =================================================================
 class GoogleReviewScraper:
     def __init__(self):
-        # Fallback key included, but prefers Railway Environment Variable
+        # API Key from your Railway Environment Variables
         self.api_key = os.getenv("SERP_API_KEY", "f9f41e452ea716cale760081b94763a404c9ele07aef30def9c6a05391890e8d")
         self.analyzer = SentimentIntensityAnalyzer()
         
@@ -60,22 +61,25 @@ class GoogleReviewScraper:
 # =================================================================
 async def fetch_reviews(place_id: str = None, limit: int = 300, **kwargs):
     """
-    100% Integrated with SerpApi and reviews.py Router.
-    - Resolves ChIJ IDs to CIDs (Data IDs)
-    - Returns keys: review_id, author_name, rating, text
+    ULTIMATE INTEGRATION:
+    - Resolves ChIJ IDs to CIDs (Data IDs) to prevent 0-review results.
+    - Matches keys for your reviews.py router (review_id, author_name, text).
+    - Forces SerpApi dashboard updates with no_cache: True.
     """
     scraper = GoogleReviewScraper()
     target_id = place_id or kwargs.get('place_id')
+    # Use the name passed from company.name in the router for fallback
+    target_name = kwargs.get('name') or "Google Business"
     
     if not target_id:
         logging.error("❌ No target ID (Place ID) provided.")
         return []
 
-    logging.info(f"🚀 [Scraper] Integrated Search for ID: {target_id}")
+    logging.info(f"🚀 [Scraper] Integrated Search for: {target_name} ({target_id})")
     
     try:
         # STEP 1: RESOLVE PLACE ID TO CID (DATA_ID)
-        # This is the "Handshake" that prevents 0-review results
+        # Using the direct 'place_id' parameter for exact mapping
         search_resolver = GoogleSearch({
             "engine": "google_maps",
             "place_id": target_id,
@@ -86,22 +90,34 @@ async def fetch_reviews(place_id: str = None, limit: int = 300, **kwargs):
         
         place_info = res.get("place_results", {})
         data_id = place_info.get("data_id")
-        place_name = place_info.get("title", "Google Business")
+        resolved_name = place_info.get("title", target_name)
 
-        # Fallback if place_id resolution is blocked by Google
+        # FALLBACK: If direct ID resolution fails, search by Name
         if not data_id:
-            logging.warning(f"⚠️ Falling back to name-search for {target_id}")
-            name_query = kwargs.get('name') or "Restaurant Lahore"
-            search_fb = GoogleSearch({"engine": "google_maps", "q": name_query, "api_key": scraper.api_key})
-            data_id = (search_fb.get_dict().get("place_results", {})).get("data_id") or target_id
+            logging.warning(f"⚠️ ID resolution failed for {target_id}. Searching by Name: {target_name}")
+            search_fb = GoogleSearch({
+                "engine": "google_maps", 
+                "q": target_name, 
+                "api_key": scraper.api_key
+            })
+            fb_res = search_fb.get_dict()
+            local_results = fb_res.get("local_results", [])
+            place_fb = fb_res.get("place_results") or (local_results[0] if local_results else {})
+            data_id = place_fb.get("data_id")
+            resolved_name = place_fb.get("title", target_name)
+
+        if not data_id:
+            logging.error(f"❌ Failed to resolve a valid CID for {target_id}")
+            return []
 
         # STEP 2: FETCH ACTUAL REVIEWS
+        logging.info(f"📍 CID Resolved: {data_id}. Fetching reviews...")
         review_params = {
             "engine": "google_maps_reviews",
             "data_id": data_id,
             "api_key": scraper.api_key,
             "num": limit,
-            "no_cache": True, # Ensures dashboard update on SerpApi
+            "no_cache": True, # Bypass cache to update your dashboard count
             "sort_by": "newest"
         }
         
@@ -116,7 +132,7 @@ async def fetch_reviews(place_id: str = None, limit: int = 300, **kwargs):
             review_body = r.get("snippet") or r.get("text") or "No comment provided"
             label, score = scraper.get_sentiment(review_body)
             
-            # Key alignment for your router's persistence loop
+            # This dictionary matches exactly what app/routes/reviews.py expects
             item = {
                 "review_id": r.get("review_id") or f"id_{hash(review_body)}",
                 "author_name": r.get("user", {}).get("name", "Anonymous"),
@@ -127,7 +143,7 @@ async def fetch_reviews(place_id: str = None, limit: int = 300, **kwargs):
             }
             final_results.append(item)
 
-            # Log to raw internal table
+            # Persistence to raw internal table
             if db:
                 try:
                     db.add(GoogleReviewRaw(
@@ -139,13 +155,13 @@ async def fetch_reviews(place_id: str = None, limit: int = 300, **kwargs):
                         sentiment_score=score
                     ))
                 except:
-                    pass # Skip existing duplicates
+                    pass # Prevent crash on existing duplicates
         
         if db:
             db.commit()
             db.close()
             
-        logging.info(f"✅ Success: Captured {len(final_results)} reviews for {place_name}")
+        logging.info(f"✅ Success: Captured {len(final_results)} reviews for {resolved_name}")
         return final_results
 
     except Exception as e:
