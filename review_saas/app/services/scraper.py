@@ -1,95 +1,63 @@
+# app/services/scraper.py
 import os
-import csv
 import asyncio
 import logging
-from app.services.scraper import ReviewScraper
+from typing import List, Dict, Optional
+from serpapi import GoogleSearch
 
-# =========================
-# LOGGING CONFIG
-# =========================
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
-logger = logging.getLogger("ReviewsIngestor")
+logger = logging.getLogger("app.scraper")
 
-# =========================
-# MULTI-BUSINESS LIST
-# Replace with your real place names and IDs
-# =========================
-BUSINESSES = [
-    {"name": "Salt'n Pepper Village Lahore", "place_id": "ChIJN1t_tDeuEmsRUsoyG83frY4"},
-    {"name": "Food Street Karachi", "place_id": "ChIJSx6rE9vFzDkR_F5PQhLwG3Y"},
-    # Add more businesses here
-]
+# Make sure SERP_API_KEY is set in your environment
+SERP_API_KEY = os.getenv("SERP_API_KEY")
 
-# =========================
-# CSV OUTPUT SETTINGS
-# =========================
-OUTPUT_CSV = "reviews_output.csv"
-CSV_FIELDS = [
-    "place_name", "review_id", "author_name", "rating", "text", "time"
-]
-
-# =========================
-# ASYNC INGEST FUNCTION
-# =========================
-async def ingest_place(scraper: ReviewScraper, business: dict):
+# --------------------------- Fetch Reviews ---------------------------
+async def fetch_reviews(place_id: str, limit: int = 100) -> List[Dict[str, Optional[str]]]:
     """
-    Fetch and return reviews for a single business
+    Fetch Google reviews using SerpAPI for a given place_id.
+    Returns a list of dictionaries compatible with your Review DB model:
+      - review_id
+      - author_name
+      - rating
+      - text
+      - time (optional, UTC timestamp)
     """
-    place_name = business["name"]
-    place_id = business["place_id"]
-    logger.info(f"Fetching reviews for: {place_name}")
+    reviews: List[Dict[str, Optional[str]]] = []
 
-    # Fetch reviews
-    reviews = scraper.fetch_reviews(place_id)
-    if not reviews:
-        logger.warning(f"No reviews found for {place_name}")
-        return []
+    if not place_id:
+        logger.warning("No Place ID provided to fetch_reviews")
+        return reviews
 
-    processed_reviews = []
-    for item in reviews:
-        if not isinstance(item, dict):
-            continue
-        processed_reviews.append({
-            "place_name": place_name,
-            "review_id": item.get("review_id", ""),
-            "author_name": item.get("user_name", ""),
-            "rating": item.get("rating", ""),
-            "text": item.get("text", ""),
-            "time": item.get("time", "")
-        })
-    return processed_reviews
+    params = {
+        "engine": "google_reviews",
+        "google_place_id": place_id,
+        "api_key": SERP_API_KEY,
+        "hl": "en",
+        "num": 100  # SerpAPI max reviews per request
+    }
 
-# =========================
-# MAIN ASYNC FUNCTION
-# =========================
-async def main():
-    scraper = ReviewScraper()
-    all_reviews = []
+    try:
+        # SerpAPI is blocking; run in executor to avoid blocking event loop
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, lambda: GoogleSearch(params).get_dict())
 
-    # Run all businesses concurrently
-    tasks = [ingest_place(scraper, b) for b in BUSINESSES]
-    results = await asyncio.gather(*tasks)
+        fetched_reviews = response.get("reviews", [])
+        if not fetched_reviews:
+            logger.info(f"No reviews found for place_id: {place_id}")
+            return reviews
 
-    # Flatten results
-    for res in results:
-        if res:
-            all_reviews.extend(res)
+        # Limit the reviews as requested
+        for r in fetched_reviews[:limit]:
+            reviews.append({
+                "review_id": r.get("review_id") or r.get("id"),  # fallback keys
+                "author_name": r.get("user_name"),
+                "rating": r.get("rating"),
+                "text": r.get("text"),
+                "time": r.get("time")  # optional, can be converted to datetime in ingestion
+            })
 
-    # Save to CSV
-    if all_reviews:
-        with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
-            writer.writeheader()
-            writer.writerows(all_reviews)
-        logger.info(f"Saved {len(all_reviews)} reviews to {OUTPUT_CSV}")
-    else:
-        logger.warning("No reviews fetched for any business.")
+        logger.info(f"Fetched {len(reviews)} reviews from SerpAPI for place_id: {place_id}")
 
-# =========================
-# RUN SCRIPT
-# =========================
-if __name__ == "__main__":
-    asyncio.run(main())
+    except Exception as e:
+        logger.error(f"Error fetching reviews for {place_id}: {str(e)}", exc_info=True)
+
+    return reviews
