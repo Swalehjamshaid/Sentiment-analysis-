@@ -58,6 +58,7 @@ class ReviewScraper:
                 response = requests.get(self.BASE_URL, params=params, timeout=30)
                 data = response.json()
 
+                # Log raw response for debugging (first 1000 chars)
                 logger.info(f"SerpApi Raw Response: {json.dumps(data, indent=2)[:1000]}...")
 
                 reviews = data.get("reviews", [])
