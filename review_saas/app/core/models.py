@@ -2,7 +2,6 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-
 from sqlalchemy import (
     Integer,
     String,
@@ -17,13 +16,13 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
 
-# Use the shared Base from the DB module to ensure the same metadata/engine
+# Use the shared Base from the DB module
 from app.core.db import Base
 
 # ---------------------------------------------------
 # SCHEMA VERSION (Crucial for app/main.py lifecycle checks)
 # ---------------------------------------------------
-SCHEMA_VERSION = "22.0.5-new-tables-added"
+SCHEMA_VERSION = "23.0.5-new-tables-added"
 
 # ---------------------------------------------------
 # Users Table
@@ -33,7 +32,6 @@ class User(Base):
     Represents the system users/administrators.
     """
     __tablename__ = "users"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
@@ -48,6 +46,7 @@ class User(Base):
     # Relationships
     companies = relationship("Company", back_populates="owner")
 
+
 # ---------------------------------------------------
 # Companies Table
 # ---------------------------------------------------
@@ -56,7 +55,6 @@ class Company(Base):
     Represents business locations being tracked for reviews and competition.
     """
     __tablename__ = "companies"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     owner_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
 
@@ -105,12 +103,24 @@ class Company(Base):
     # Sync tracking
     last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), 
+        server_default=func.now(), 
+        onupdate=func.now()
+    )
 
     # Relationships
     owner = relationship("User", back_populates="companies")
     reviews = relationship("Review", back_populates="company", cascade="all, delete-orphan")
     competitors = relationship("Competitor", back_populates="company", cascade="all, delete-orphan")
+    
+    # NEW: Link to CompanyCID
+    cid_info: Mapped[Optional["CompanyCID"]] = relationship(
+        "CompanyCID", 
+        back_populates="company", 
+        uselist=False
+    )
+
 
 # ---------------------------------------------------
 # Reviews Table
@@ -123,9 +133,10 @@ class Review(Base):
     __table_args__ = (
         UniqueConstraint("company_id", "google_review_id", name="_company_review_uc"),
     )
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    company_id: Mapped[int] = mapped_column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    company_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False
+    )
 
     # Identifiers
     google_review_id: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
@@ -186,10 +197,15 @@ class Review(Base):
 
     # Sync Tracking
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    last_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    last_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), 
+        server_default=func.now(), 
+        onupdate=func.now()
+    )
 
     # Relationship
     company: Mapped["Company"] = relationship("Company", back_populates="reviews")
+
 
 # ---------------------------------------------------
 # Competitors Table
@@ -199,10 +215,10 @@ class Competitor(Base):
     Represents local business competitors discovered near a company location.
     """
     __tablename__ = "competitors"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    company_id: Mapped[int] = mapped_column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
-
+    company_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     place_id: Mapped[Optional[str]] = mapped_column(String(512))
     rating: Mapped[Optional[float]] = mapped_column(Float)
@@ -215,6 +231,7 @@ class Competitor(Base):
 
     # Relationship
     company = relationship("Company", back_populates="competitors")
+
 
 # ---------------------------------------------------
 # Notifications Table
@@ -231,6 +248,7 @@ class Notification(Base):
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+
 # ---------------------------------------------------
 # Audit Logs Table
 # ---------------------------------------------------
@@ -246,6 +264,7 @@ class AuditLog(Base):
     ip_address: Mapped[Optional[str]] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+
 # ---------------------------------------------------
 # Config Table
 # ---------------------------------------------------
@@ -256,3 +275,40 @@ class Config(Base):
     __tablename__ = "config"
     key: Mapped[str] = mapped_column(String(255), primary_key=True)
     value: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+
+
+# ---------------------------------------------------
+# CompanyCID Table - NEW MODEL
+# ---------------------------------------------------
+class CompanyCID(Base):
+    """
+    Stores the Google Maps CID (data_id) for each company.
+    This is required for fetching reviews via SerpApi google_maps_reviews engine.
+    """
+    __tablename__ = "company_cids"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    
+    company_id: Mapped[int] = mapped_column(
+        Integer, 
+        ForeignKey("companies.id", ondelete="CASCADE"), 
+        unique=True, 
+        nullable=False,
+        index=True
+    )
+    
+    cid: Mapped[str] = mapped_column(String(100), nullable=False)          # Google internal CID
+    place_id: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), 
+        server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), 
+        server_default=func.now(), 
+        onupdate=func.now()
+    )
+
+    # Relationship
+    company: Mapped["Company"] = relationship("Company", back_populates="cid_info")
