@@ -1,27 +1,27 @@
-# filename: app/services/scraper_service.py
+# filename: app/services/scraper.py
+from __future__ import annotations
 import logging
 from typing import Optional, List, Dict, Any
-from datetime import datetime
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from serpapi import GoogleSearch
 
-# Import your shared Base and Models
-from app.core.db import Base, engine
-from app.core.models import Company, CompanyCID, Review
+# Internal imports
+from app.core.models import CompanyCID
 
 # --- 1. SETUP LOGGING ---
 logger = logging.getLogger("app.scraper")
-logging.basicConfig(level=logging.INFO)
 
 # --- 2. CONFIGURATION ---
-# Your verified SerpApi Key
+# Your SerpApi Key
 SERPAPI_KEY = "f9f41e452ea716cale760081b94763a404c9ele07aef30def9c6a05391890e8d"
 
-# --- 3. CID RESOLUTION LOGIC (The "Fixer") ---
+# --- 3. CID RESOLUTION (The "Fixer") ---
 
-def resolve_cid_from_google(place_id: str) -> Optional[str]:
+async def resolve_cid_via_serpapi(place_id: str) -> Optional[str]:
     """
     Calls SerpApi to find the unique CID (data_id) using a Google Place ID.
+    Used if the database doesn't have the CID yet.
     """
     try:
         logger.info(f"🔍 Searching SerpApi for Place ID: {place_id}")
@@ -30,12 +30,12 @@ def resolve_cid_from_google(place_id: str) -> Optional[str]:
             "q": place_id,
             "api_key": SERPAPI_KEY
         }
+        # SerpApi library is synchronous, we call it directly
         search = GoogleSearch(params)
         results = search.get_dict()
 
-        # Try to extract CID from 'place_results'
-        place_results = results.get("place_results", {})
-        cid = place_results.get("data_id")
+        # Extract CID from 'place_results'
+        cid = results.get("place_results", {}).get("data_id")
 
         # Fallback: Check 'local_results' if place_results is empty
         if not cid:
@@ -48,106 +48,76 @@ def resolve_cid_from_google(place_id: str) -> Optional[str]:
         logger.error(f"❌ SerpApi API Error during resolution: {str(e)}")
         return None
 
-def get_or_fix_company_cid(db: Session, company_id: int) -> Optional[str]:
+# --- 4. MAIN SCRAPER FUNCTION (fetch_reviews) ---
+# This name MUST match the import in app/routes/reviews.py
+
+async def fetch_reviews(
+    company_id: int, 
+    session: AsyncSession, 
+    place_id: Optional[str] = None, 
+    limit: int = 100,
+    **kwargs
+) -> List[Dict[str, Any]]:
     """
-    Checks DB for CID. If missing, finds it via API and SAVES it to DB.
+    Unified Scraper Logic:
+    1. Checks DB for existing CID.
+    2. If missing, resolves via API and SAVES it to the DB.
+    3. Fetches reviews and returns them to the FastAPI route.
     """
-    # Step 1: Check the company_cids table
-    cid_record = db.query(CompanyCID).filter(CompanyCID.company_id == company_id).first()
+    # Step A: Check for existing CID in database
+    stmt = select(CompanyCID).where(CompanyCID.company_id == company_id)
+    result = await session.execute(stmt)
+    cid_record = result.scalar_one_or_none()
     
+    target_cid = None
     if cid_record:
-        return cid_record.cid
-
-    # Step 2: If missing, get the Company's Google Place ID
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company or not company.google_place_id:
-        logger.error(f"❌ Error: Company {company_id} has no Google Place ID in DB.")
-        return None
-
-    logger.warning(f"⚠️ CID missing for '{company.name}'. Resolving via SerpApi...")
-
-    # Step 3: Use SerpApi to find the CID string
-    resolved_cid = resolve_cid_from_google(company.google_place_id)
-
-    if resolved_cid:
-        try:
-            # Step 4: SAVE PERMANENTLY to company_cids table
-            new_entry = CompanyCID(
-                company_id=company.id,
-                cid=resolved_cid,
-                place_id=company.google_place_id
+        target_cid = cid_record.cid
+        logger.info(f"✅ Found CID in DB for Company {company_id}: {target_cid}")
+    elif place_id:
+        # Step B: Auto-Fix (Resolve and Save)
+        logger.warning(f"⚠️ CID missing for Company {company_id}. Resolving...")
+        target_cid = await resolve_cid_via_serpapi(place_id)
+        
+        if target_cid:
+            new_cid = CompanyCID(
+                company_id=company_id,
+                cid=target_cid,
+                place_id=place_id
             )
-            db.add(new_entry)
-            db.commit()
-            logger.info(f"✅ AUTO-FIX SUCCESS: Saved CID {resolved_cid} for {company.name}")
-            return resolved_cid
-        except Exception as e:
-            db.rollback()
-            logger.error(f"❌ Database Save Error: {str(e)}")
-            return resolved_cid 
-    
-    return None
+            session.add(new_cid)
+            await session.commit() # Save permanently to DB
+            logger.info(f"🔥 AUTO-FIX: Saved CID {target_cid} to database.")
 
-# --- 4. REVIEW INGESTION & SAVING LOGIC ---
+    if not target_cid:
+        logger.error(f"❌ No CID available for Company {company_id}. Aborting.")
+        return []
 
-def run_full_review_ingest(db: Session, company_id: int):
-    """
-    The master function to fix the CID and download reviews into the DB.
-    """
-    # 1. Ensure we have a CID (This handles the 'No CID found' error)
-    cid = get_or_fix_company_cid(db, company_id)
-
-    if not cid:
-        logger.error(f"🛑 Aborting Ingest: Could not obtain CID for Company {company_id}")
-        return
-
-    # 2. Fetch reviews from SerpApi
-    logger.info(f"🚀 Starting Review Scrape for CID: {cid}")
-    
-    params = {
-        "engine": "google_maps_reviews",
-        "data_id": cid,
-        "api_key": SERPAPI_KEY,
-        "hl": "en",
-        "sort_by": "newest"
-    }
-
+    # Step C: Fetch Reviews using SerpApi
     try:
+        logger.info(f"🚀 Scraping reviews for CID: {target_cid}")
+        params = {
+            "engine": "google_maps_reviews",
+            "data_id": target_cid,
+            "api_key": SERPAPI_KEY,
+            "num": limit
+        }
         search = GoogleSearch(params)
         results = search.get_dict()
-        reviews_list = results.get("reviews", [])
         
-        if not reviews_list:
-            logger.info(f"ℹ️ No reviews found on Google for CID {cid}")
-            return
-
-        # 3. Save reviews to the 'reviews' table
-        new_count = 0
-        for r in reviews_list:
-            review_id = r.get("review_id")
-            
-            # Check if this specific review is already in our DB
-            existing = db.query(Review).filter(Review.google_review_id == review_id).first()
-            
-            if not existing:
-                new_review = Review(
-                    company_id=company_id,
-                    google_review_id=review_id,
-                    author_name=r.get("user", {}).get("name"),
-                    rating=int(r.get("rating", 0)),
-                    text=r.get("snippet", ""),
-                    google_review_time=datetime.fromtimestamp(r.get("timestamp", datetime.now().timestamp())),
-                    source_platform="Google"
-                )
-                db.add(new_review)
-                new_count += 1
+        raw_reviews = results.get("reviews", [])
         
-        db.commit()
-        logger.info(f"✅ Success: Processed {len(reviews_list)} reviews. Added {new_count} new records.")
+        # Step D: Format exactly how app/routes/reviews.py expects it
+        formatted_reviews = []
+        for r in raw_reviews:
+            formatted_reviews.append({
+                "review_id": r.get("review_id"),
+                "author_name": r.get("user", {}).get("name", "Anonymous"),
+                "rating": r.get("rating", 0),
+                "text": r.get("snippet", "")
+            })
+            
+        return formatted_reviews
 
     except Exception as e:
-        logger.error(f"❌ Review Ingest Error: {str(e)}")
-
-# --- 5. INITIALIZATION (Optional: Create tables if they don't exist) ---
-def init_db():
-    Base.metadata.create_all(bind=engine)
+        logger.error(f"❌ Scraping Error: {str(e)}")
+        return []
