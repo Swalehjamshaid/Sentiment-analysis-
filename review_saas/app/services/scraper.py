@@ -5,7 +5,7 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-# This uses the Client class as shown in your code snippet
+# This matches the library shown in your SerpApi dashboard screenshot
 import serpapi
 
 # Internal imports for your Database Models
@@ -15,7 +15,7 @@ from app.core.models import Company
 logger = logging.getLogger("app.scraper")
 
 # --- 2. CONFIGURATION ---
-# Your verified SerpApi Key
+# Your Private API Key from the screenshot (f9f4...0e8d)
 SERPAPI_KEY = "f9f41e452ea716cale760081b94763a404c9ele07aef30def9c6a05391890e8d"
 
 # --- 3. MAIN SCRAPER FUNCTION ---
@@ -23,29 +23,31 @@ async def fetch_reviews(
     company_id: int, 
     session: AsyncSession, 
     place_id: Optional[str] = None, 
-    limit: int = 20,
+    limit: int = 50,
     **kwargs
 ) -> List[Dict[str, Any]]:
     """
-    JSON-MAPPED CLIENT SCRAPER (2026):
-    Uses the serpapi.Client to target Google Maps local results.
-    Bypasses empty returns by providing local Lahore context.
+    STABILIZED CLIENT SCRAPER:
+    Uses the serpapi.Client approach from your screenshot.
+    Targets Google Maps specifically to retrieve review text.
     """
     
-    # Get the company name from DB to ensure we are searching for the right business
+    # 1. Retrieve the company name from your DB to use as a search anchor
     res = await session.execute(select(Company).where(Company.id == company_id))
     company = res.scalar_one_or_none()
+    
+    # Anchor name for search context
     company_name = company.name if company else "Villa The Grand Buffet"
 
-    logger.info(f"🚀 Starting Ingest for: {company_name}")
+    logger.info(f"🚀 Starting Client-based Ingest for: {company_name}")
 
     try:
-        # Step A: Initialize the Client
+        # Step A: Initialize the Client exactly as shown in your screenshot
         client = serpapi.Client(api_key=SERPAPI_KEY)
         
-        # Step B: Execute Search
-        # We use 'google_maps' because your JSON showed local_results are found here.
-        # hl=en and location are added to bypass Google's consent/cookie walls.
+        # Step B: Perform the Search
+        # We use 'google_maps' as the engine to find the place_id and reviews
+        # hl=en and location are added to ensure Google returns reviews in English
         results = client.search({
             "engine": "google_maps",
             "q": company_name,
@@ -54,30 +56,27 @@ async def fetch_reviews(
             "hl": "en"
         })
         
-        # Step C: Extract reviews from the JSON hierarchy
         formatted_reviews = []
         
-        # Path 1: Check 'place_results' (Direct hit on a single business)
+        # Path 1: Extract from 'place_results' (Direct Hit)
         if "place_results" in results:
             raw_reviews = results["place_results"].get("reviews", [])
             for r in raw_reviews:
                 formatted_reviews.append({
-                    "review_id": str(r.get("review_id", "id")),
+                    "review_id": str(r.get("review_id", "id_missing")),
                     "author_name": r.get("user", {}).get("name", "Google User"),
                     "rating": int(r.get("rating", 5)),
-                    "text": r.get("snippet", "No review text.")
+                    "text": r.get("snippet", "No review text provided.")
                 })
 
-        # Path 2: Check 'local_results' (Found in your specific JSON snippet)
+        # Path 2: Extract from 'local_results' (List view, as seen in your JSON snippet)
         elif "local_results" in results:
-            # Grab the first matching business in the list
             first_place = results["local_results"][0]
-            logger.info(f"📍 Found Business: {first_place.get('title')} with {first_place.get('reviews')} reviews.")
-            
-            # If the search results only show a summary, we use the Place ID to get full reviews
             target_place_id = first_place.get("place_id")
+            
             if target_place_id:
-                logger.info(f"🔄 Fetching full reviews for Place ID: {target_place_id}")
+                logger.info(f"🔄 Found Place ID: {target_place_id}. Fetching deep review list...")
+                # Call the specific reviews engine using the found ID
                 review_results = client.search({
                     "engine": "google_maps_reviews",
                     "place_id": target_place_id,
@@ -88,14 +87,14 @@ async def fetch_reviews(
                         "review_id": str(r.get("review_id")),
                         "author_name": r.get("user", {}).get("name", "Anonymous"),
                         "rating": int(r.get("rating", 5)),
-                        "text": r.get("snippet", "No text.")
+                        "text": r.get("snippet", "No review text.")
                     })
 
         if not formatted_reviews:
-            logger.error(f"❌ Scraper found the business but no review objects were available.")
+            logger.error(f"❌ Scraper found the business but no reviews were available in the response.")
             return []
 
-        logger.info(f"✅ SUCCESS: Formatted {len(formatted_reviews)} reviews.")
+        logger.info(f"✅ SUCCESS: Formatted {len(formatted_reviews)} reviews for processing.")
         return formatted_reviews
 
     except Exception as e:
