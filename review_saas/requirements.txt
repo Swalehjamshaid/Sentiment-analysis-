@@ -3,7 +3,7 @@
 # =========================
 setuptools==68.2.2
 wheel==0.43.0
-playwright>=1.49.0
+playwright==1.45.0
 pytest-playwright==0.5.2
 agentql==0.4.0
 google-search-results==2.4.2
