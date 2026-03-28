@@ -20,9 +20,9 @@ from sqlalchemy.sql import func
 from app.core.db import Base
 
 # ---------------------------------------------------
-# SCHEMA VERSION (Crucial for app/main.py lifecycle checks)
+# SCHEMA VERSION (Updated to trigger the new table)
 # ---------------------------------------------------
-SCHEMA_VERSION = "23.0.5-new-tables-added"
+SCHEMA_VERSION = "24.0.6-added-company-cid-table"
 
 # ---------------------------------------------------
 # Users Table
@@ -114,7 +114,7 @@ class Company(Base):
     reviews = relationship("Review", back_populates="company", cascade="all, delete-orphan")
     competitors = relationship("Competitor", back_populates="company", cascade="all, delete-orphan")
     
-    # NEW: Link to CompanyCID
+    # Link to CompanyCID
     cid_info: Mapped[Optional["CompanyCID"]] = relationship(
         "CompanyCID", 
         back_populates="company", 
@@ -278,12 +278,11 @@ class Config(Base):
 
 
 # ---------------------------------------------------
-# CompanyCID Table - NEW MODEL
+# CompanyCID Table
 # ---------------------------------------------------
 class CompanyCID(Base):
     """
     Stores the Google Maps CID (data_id) for each company.
-    This is required for fetching reviews via SerpApi google_maps_reviews engine.
     """
     __tablename__ = "company_cids"
 
@@ -297,7 +296,7 @@ class CompanyCID(Base):
         index=True
     )
     
-    cid: Mapped[str] = mapped_column(String(100), nullable=False)          # Google internal CID
+    cid: Mapped[str] = mapped_column(String(100), nullable=False)
     place_id: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     
     created_at: Mapped[datetime] = mapped_column(
