@@ -6,13 +6,12 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
-
 from pydantic import BaseModel
 
 # Core project imports
 from app.core.db import get_session
 from app.core.models import Review, Company
-from app.services.scraper import fetch_reviews   # Make sure path is correct
+from app.services.scraper import fetch_reviews   # Updated scraper
 
 router = APIRouter(tags=["reviews"])
 logger = logging.getLogger("app.reviews")
@@ -37,7 +36,7 @@ async def ingest_reviews(
     session: AsyncSession = Depends(get_session)
 ):
     """Ingest Google reviews for a company - uses CID from database only"""
-    
+
     # 1. Fetch Company
     result = await session.execute(
         select(Company).where(Company.id == company_id)
@@ -53,13 +52,11 @@ async def ingest_reviews(
     try:
         logger.info(f"🚀 Starting Ingest for: {target_name} (Company ID: {company_id})")
 
-        # 2. Fetch reviews - ONLY from database CID (no bypass)
+        # 2. Fetch reviews from scraper (no company_id or session passed)
         scraped_data = await fetch_reviews(
-            place_id=target_place_id,      # still passing in case needed later
-            company_id=company_id,         # This is what fetch_reviews will use
+            place_id=target_place_id,
             name=target_name,
-            limit=300,
-            session=session
+            limit=300
         )
        
         if not scraped_data:
