@@ -1,72 +1,96 @@
 import os
-import asyncio
-from typing import List, Optional, Dict
-from serpapi import GoogleSearch
-from sqlalchemy.ext.asyncio import AsyncSession
+import requests
+import json
 import logging
+from time import sleep
 
-logger = logging.getLogger("app.scraper")
+# =========================
+# Logging
+# =========================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Ensure you have SERP_API_KEY in your environment
-SERP_API_KEY = os.getenv("SERP_API_KEY")
+# =========================
+# SerpApi Key
+# =========================
+SERP_API_KEY = os.getenv("SERP_API_KEY")  # Make sure this is set in Railway env
 
 if not SERP_API_KEY:
-    raise RuntimeError("SERP_API_KEY environment variable not set!")
+    logger.error("SERP_API_KEY is not set! Exiting scraper.")
+    raise ValueError("SERP_API_KEY environment variable is missing.")
 
 
-async def fetch_reviews(
-    place_id: Optional[str] = None,
-    name: Optional[str] = None,
-    limit: int = 50,
-    session: Optional[AsyncSession] = None,
-    company_id: Optional[int] = None,  # NEW: accept company_id
-) -> List[Dict]:
+class ReviewScraper:
     """
-    Fetch Google reviews using SerpApi.
-    Returns a list of review dicts ready for database ingestion.
+    Scraper using SerpApi for Google Reviews.
+    Handles empty results and retries.
     """
 
-    if not place_id and not name:
-        raise ValueError("Must provide either place_id or name to fetch reviews.")
+    BASE_URL = "https://serpapi.com/search.json"
 
-    logger.info(f"Fetching reviews for {name or place_id} (limit={limit})")
+    def __init__(self, max_retries=3, retry_delay=2):
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
 
-    # SerpApi parameters
-    params = {
-        "engine": "google_reviews",
-        "google_place_id": place_id,  # Google Place ID
-        "api_key": SERP_API_KEY,
-        "hl": "en",
-    }
+    def fetch_reviews(self, company_name: str, limit=300):
+        """
+        Fetch reviews for a given company name using SerpApi
+        """
+        logger.info(f"Fetching reviews for {company_name} (limit={limit})")
 
-    # Run search using SerpApi
-    try:
-        search = GoogleSearch(params)
-        results = search.get_dict()
-    except Exception as e:
-        logger.error(f"SerpApi fetch failed: {str(e)}")
+        params = {
+            "engine": "google_maps",
+            "q": company_name,
+            "google_domain": "google.com",
+            "type": "search",
+            "hl": "en",
+            "api_key": SERP_API_KEY
+        }
+
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                response = requests.get(self.BASE_URL, params=params, timeout=30)
+                data = response.json()
+
+                # Log full raw response for debugging
+                logger.info(f"SerpApi Raw Response: {json.dumps(data, indent=2)[:1000]}...")
+
+                reviews = data.get("reviews", [])
+
+                if not reviews:
+                    logger.warning(f"No reviews found on attempt {attempt} for {company_name}")
+                    if attempt < self.max_retries:
+                        logger.info(f"Retrying in {self.retry_delay} seconds...")
+                        sleep(self.retry_delay)
+                    continue
+
+                # Limit reviews if needed
+                return reviews[:limit]
+
+            except Exception as e:
+                logger.error(f"Error fetching reviews (attempt {attempt}): {e}")
+                if attempt < self.max_retries:
+                    logger.info(f"Retrying in {self.retry_delay} seconds...")
+                    sleep(self.retry_delay)
+                else:
+                    return []
+
         return []
 
-    reviews = results.get("reviews", [])
-    if not reviews:
-        logger.info("No reviews found from SerpApi")
-        return []
 
-    # Limit reviews
-    reviews = reviews[:limit]
+# =========================
+# Example usage
+# =========================
+if __name__ == "__main__":
+    scraper = ReviewScraper()
 
-    # Map SerpApi review structure to our DB structure
-    formatted_reviews = []
-    for rev in reviews:
-        formatted_reviews.append({
-            "company_id": company_id,
-            "review_id": rev.get("review_id") or rev.get("user") + str(rev.get("time")),
-            "author_name": rev.get("user_name"),
-            "rating": rev.get("rating"),
-            "text": rev.get("snippet"),
-            "google_review_time": rev.get("time"),
-            "source_platform": "Google",
-        })
-
-    logger.info(f"Fetched {len(formatted_reviews)} reviews for {name or place_id}")
-    return formatted_reviews
+    companies = ["Villa The Grand Buffet", "Bahria Town"]
+    for company in companies:
+        reviews = scraper.fetch_reviews(company)
+        if not reviews:
+            logger.info(f"ℹ️ No reviews returned for {company}")
+        else:
+            logger.info(f"✅ Fetched {len(reviews)} reviews for {company}")
+            # Save to JSON file
+            with open(f"{company.replace(' ', '_')}_reviews.json", "w", encoding="utf-8") as f:
+                json.dump(reviews, f, ensure_ascii=False, indent=2)
