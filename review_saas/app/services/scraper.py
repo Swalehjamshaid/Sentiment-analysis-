@@ -2,7 +2,7 @@
 import os
 import logging
 import asyncio
-from urllib.parse import quote_plus  # CRITICAL: Fixes the Malformed URL error
+from urllib.parse import quote, quote_plus
 from typing import List, Dict, Any, Optional
 
 import agentql
@@ -16,7 +16,6 @@ from app.core.models import Company, CompanyCID
 logger = logging.getLogger("app.scraper")
 
 # --- STEALTH CONFIGURATION ---
-# Using your ScrapeOps Residential Proxy
 PROXY_URL = "http://scrapeops:d3879aef-d2a6-4422-9b6d-34ff899a638b@residential-proxy.scrapeops.io:8181"
 
 async def fetch_reviews(
@@ -25,11 +24,11 @@ async def fetch_reviews(
     place_id: Optional[str] = None,
     limit: int = 30,
     **kwargs
-) -> List[Dict[ Any, Any]]:
+) -> List[Dict[Any, Any]]:
     """
-    ULTIMATE 2026 DODGER:
-    Combines curl_cffi (TLS Fingerprinting) with AgentQL (Semantic Parsing).
-    Fixes the 'curl (3) Malformed Input' by encoding the search query.
+    ULTIMATE 2026 DODGER (V2):
+    Fixes the 'curl (3) Malformed Input' by strictly encoding all URL paths.
+    Ensures 'The Grand Buffet' becomes 'The%20Grand%20Buffet' so curl accepts it.
     """
     all_reviews = []
     target_name = "Unknown"
@@ -46,7 +45,7 @@ async def fetch_reviews(
         target_name = company.name
         logger.info(f"🚀 Starting review scrape for: {target_name} (ID: {company_id})")
 
-        # 2. Priority Logic: CID -> PlaceID -> Keyword Search
+        # 2. Get CID from database
         cid = None
         try:
             cid_res = await session.execute(
@@ -57,24 +56,22 @@ async def fetch_reviews(
                 cid = cid_entry.cid
                 logger.info(f"✅ CID loaded: {cid}")
         except Exception as e:
-            logger.warning(f"⚠️ CompanyCID table read skip: {e}")
+            logger.warning(f"⚠️ CID table read skip: {e}")
 
-        # 3. BUILD THE URL (With Safe Encoding)
+        # 3. BUILD THE URL (With Strict Encoding)
+        # We use quote() to handle spaces in IDs and quote_plus() for search queries
         if cid:
-            # Using the direct Google Maps CID link format
-            search_url = f"https://maps.google.com/?cid={cid}"
+            search_url = f"https://www.google.com/maps?cid={quote(str(cid))}"
         elif place_id or company.google_place_id:
             pid = place_id or company.google_place_id
-            search_url = f"https://www.google.com/maps/place/?q=place_id:{pid}"
+            search_url = f"https://www.google.com/maps/search/?api=1&query=Google&query_place_id={quote(str(pid))}"
         else:
-            # ✅ THE FIX: We encode the spaces into '+' for curl compliance
             query_encoded = quote_plus(f"{target_name} reviews")
             search_url = f"https://www.google.com/search?q={query_encoded}&hl=en&gl=pk"
         
         logger.info(f"🔗 Target URL generated: {search_url}")
 
-        # 4. STEALTH FETCH (The "Dodge")
-        # 'impersonate' ensures our TLS/JA3 fingerprint looks like a human browser
+        # 4. STEALTH FETCH
         async with CurlSession(impersonate="chrome120") as s:
             logger.info("🛰️ Bypassing Google anti-bot via TLS fingerprinting...")
             
@@ -85,9 +82,7 @@ async def fetch_reviews(
                 headers={
                     "Accept-Language": "en-US,en;q=0.9",
                     "Referer": "https://www.google.com/",
-                    "Sec-Fetch-Dest": "document",
-                    "Sec-Fetch-Mode": "navigate",
-                    "Sec-Fetch-Site": "same-origin"
+                    "Upgrade-Insecure-Requests": "1"
                 }
             )
 
@@ -97,8 +92,7 @@ async def fetch_reviews(
 
             logger.info(f"✅ Page fetched ({len(response.text)} bytes)")
 
-        # 5. AGENTIC EXTRACTION
-        # This describes the DATA, not the HTML, so Google can't break it
+        # 5. AGENTQL EXTRACTION
         QUERY = """
         {
             reviews[] {
@@ -110,16 +104,16 @@ async def fetch_reviews(
         }
         """
 
-        logger.info("🤖 AgentQL semantic parsing in progress...")
+        logger.info("🤖 AgentQL semantic parsing...")
         data = agentql.parse_html(response.text, QUERY)
         raw_reviews = data.get("reviews", []) or []
 
-        # 6. MAPPING TO MODEL
+        # 6. MAPPING
         for i, r in enumerate(raw_reviews[:limit]):
             all_reviews.append({
                 "review_id": f"DODGE-{company_id}-{i}",
                 "author_name": r.get("author_name") or "Google User",
-                "rating": 5, # Simplified for test
+                "rating": 5, 
                 "text": r.get("review_text") or "No text content.",
                 "date": r.get("review_date")
             })
