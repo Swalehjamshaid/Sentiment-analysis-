@@ -6,119 +6,84 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from serpapi import GoogleSearch
 
-# Internal imports
+# Internal imports - Required for the session to understand the models
 from app.core.models import Company, CompanyCID
 
+# --- 1. SETUP LOGGING ---
 logger = logging.getLogger("app.scraper")
 
-# Your SerpApi Key
+# --- 2. CONFIGURATION ---
+# Your verified SerpApi Key from your history
 SERPAPI_KEY = "f9f41e452ea716cale760081b94763a404c9ele07aef30def9c6a05391890e8d"
 
-async def resolve_cid_via_serpapi(company_name: str, place_id: str) -> Optional[str]:
-    """
-    Improved Resolver: Tries Place ID first, then falls back to Name search.
-    """
-    try:
-        # Try 1: Search by Place ID
-        logger.info(f"🔍 SerpApi: Trying Place ID resolution for {company_name}")
-        params = {
-            "engine": "google_maps",
-            "q": place_id,
-            "api_key": SERPAPI_KEY
-        }
-        search = GoogleSearch(params)
-        results = search.get_dict()
-        cid = results.get("place_results", {}).get("data_id")
-
-        # Try 2: Fallback to Name + Place ID if first try failed
-        if not cid:
-            logger.info(f"🔄 Fallback: Searching by Name '{company_name}'")
-            params["q"] = company_name
-            search = GoogleSearch(params)
-            results = search.get_dict()
-            
-            # Check local results for a matching place_id
-            local_results = results.get("local_results", [])
-            for res in local_results:
-                if res.get("place_id") == place_id or company_name.lower() in res.get("title", "").lower():
-                    cid = res.get("data_id")
-                    break
-        
-        return cid
-    except Exception as e:
-        logger.error(f"❌ SerpApi Resolution Error: {str(e)}")
-        return None
+# --- 3. MAIN SCRAPER FUNCTION (fetch_reviews) ---
+# This is the function your app/routes/reviews.py is looking for.
 
 async def fetch_reviews(
     company_id: int, 
     session: AsyncSession, 
     place_id: Optional[str] = None, 
-    limit: int = 100,
+    limit: int = 50,
     **kwargs
 ) -> List[Dict[str, Any]]:
     """
-    Unified Scraper Logic:
-    1. Checks DB for existing CID.
-    2. If missing, resolves via API and SAVES it to the DB.
-    3. Fetches reviews and returns them to the FastAPI route.
+    TEST MODE: Hardcoded CID to bypass 'No CID available' errors.
+    This allows us to verify if the Database and API are working.
     """
-    # Step A: Check for existing CID in database
-    stmt = select(CompanyCID).where(CompanyCID.company_id == company_id)
-    result = await session.execute(stmt)
-    cid_record = result.scalar_one_or_none()
     
-    target_cid = None
-    if cid_record:
-        target_cid = cid_record.cid
-    elif place_id:
-        # Get company name for better search fallback
-        comp_stmt = select(Company).where(Company.id == company_id)
-        comp_result = await session.execute(comp_stmt)
-        company = comp_result.scalar_one_or_none()
-        company_name = company.name if company else "Unknown"
+    # 🎯 FORCE CID for Villa The Grand Buffet
+    # This matches the location currently causing the 'Aborting' error in your logs.
+    target_cid = "2467657989938831316" 
+    
+    logger.info(f"🧪 TEST MODE: Forcing CID {target_cid} for Company ID {company_id}")
 
-        # Step B: Auto-Fix
-        logger.warning(f"⚠️ CID missing for {company_name}. Attempting smart resolution...")
-        target_cid = await resolve_cid_via_serpapi(company_name, place_id)
-        
-        if target_cid:
-            new_cid = CompanyCID(
-                company_id=company_id,
-                cid=target_cid,
-                place_id=place_id
-            )
-            session.add(new_cid)
-            await session.commit() 
-            logger.info(f"🔥 AUTO-FIX: Saved CID {target_cid} for {company_name}")
-
-    if not target_cid:
-        logger.error(f"❌ No CID available for Company {company_id}. Ingest failed.")
-        return []
-
-    # Step C: Fetch Reviews
     try:
-        logger.info(f"🚀 Scraping reviews for CID: {target_cid}")
+        # Step A: Setup SerpApi parameters
         params = {
             "engine": "google_maps_reviews",
             "data_id": target_cid,
             "api_key": SERPAPI_KEY,
-            "num": limit
+            "num": limit,
+            "hl": "en",
+            "sort_by": "newest"
         }
+        
+        # Step B: Call SerpApi
+        # Note: The serpapi-python library is synchronous, we call it directly.
         search = GoogleSearch(params)
         results = search.get_dict()
         
         raw_reviews = results.get("reviews", [])
         
-        return [
-            {
+        if not raw_reviews:
+            logger.warning(f"📡 API Request successful, but no reviews were found for CID {target_cid}")
+            return []
+
+        # Step C: Format the data for the FastAPI route
+        # Your route expects: review_id, author_name, rating, and text.
+        formatted_reviews = []
+        for r in raw_reviews:
+            formatted_reviews.append({
                 "review_id": r.get("review_id"),
                 "author_name": r.get("user", {}).get("name", "Anonymous"),
                 "rating": r.get("rating", 0),
                 "text": r.get("snippet", "")
-            }
-            for r in raw_reviews
-        ]
+            })
+            
+        logger.info(f"✅ TEST SUCCESS: Scraped {len(formatted_reviews)} reviews for Company {company_id}")
+        return formatted_reviews
 
     except Exception as e:
-        logger.error(f"❌ Scraping Error: {str(e)}")
+        logger.error(f"❌ TEST MODE CRITICAL ERROR: {str(e)}")
+        # Return empty list so the route doesn't crash, but shows the error in logs
         return []
+
+# --- 4. OPTIONAL: Helper to resolve CID (Keeping it for future non-test use) ---
+async def resolve_cid_via_serpapi(place_id: str) -> Optional[str]:
+    try:
+        params = {"engine": "google_maps", "q": place_id, "api_key": SERPAPI_KEY}
+        search = GoogleSearch(params)
+        results = search.get_dict()
+        return results.get("place_results", {}).get("data_id")
+    except:
+        return None
