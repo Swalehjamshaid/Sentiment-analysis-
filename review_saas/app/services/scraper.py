@@ -2,33 +2,27 @@ import os
 import logging
 from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, declarative_base
 from serpapi import GoogleSearch
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 # =========================
 # DATABASE CONFIGURATION
 # =========================
-# Railway provides DATABASE_URL. We must ensure it uses the 'postgresql+psycopg' 
-# dialect to match the 'psycopg' (v3) library in your requirements.txt
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 if DATABASE_URL.startswith("postgres://"):
-    # Change postgres:// to postgresql+psycopg:// for Psycopg 3 compatibility
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
 elif DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
 Base = declarative_base()
-
-# Only create engine if we have a URL to avoid boot errors
 engine = None
 SessionLocal = None
 
 if DATABASE_URL:
     try:
-        engine = create_engine(DATABASE_URL)
+        engine = create_engine(DATABASE_URL, pool_pre_ping=True)
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     except Exception as e:
         logging.error(f"❌ Database Engine Error: {e}")
@@ -49,12 +43,14 @@ class GoogleReview(Base):
     published_at = Column(String(100))
     extracted_at = Column(DateTime, default=datetime.utcnow)
 
-# Create tables if database is connected
 if engine:
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        logging.error(f"❌ Table creation failed: {e}")
 
 # =========================
-# LOGIC & EXPORTED FUNCTION
+# SCRAPER LOGIC
 # =========================
 class GoogleReviewScraper:
     def __init__(self):
@@ -68,32 +64,45 @@ class GoogleReviewScraper:
         label = "Positive" if score >= 0.05 else "Negative" if score <= -0.05 else "Neutral"
         return label, score
 
-def fetch_reviews(query: str, limit: int = 20):
+# =========================
+# THE FIX: HANDLING UNEXPECTED KWARGS
+# =========================
+def fetch_reviews(query: str = None, limit: int = 20, **kwargs):
     """
-    Main function called by app/routes/reviews.py
+    Accepts 'query', 'limit', and any other arguments (like 'place_id') 
+    sent by the FastAPI route to prevent TypeErrors.
     """
+    # If the route sends 'place_id' instead of 'query', we use it as the search term
+    search_term = query or kwargs.get('place_id')
+    
+    if not search_term:
+        logging.error("❌ No search query or place_id provided.")
+        return {"error": "No search term provided"}
+
     scraper = GoogleReviewScraper()
-    logging.info(f"🚀 Starting scrape for: {query}")
+    logging.info(f"🚀 Scraping reviews for: {search_term}")
     
     try:
-        # 1. Get Data ID
-        search = GoogleSearch({"engine": "google_maps", "q": query, "api_key": scraper.api_key})
+        # 1. Search for the place
+        search = GoogleSearch({
+            "engine": "google_maps", 
+            "q": search_term, 
+            "api_key": scraper.api_key
+        })
         res = search.get_dict()
         
-        # Check for results safely
         place = res.get("place_results")
         if not place:
             local = res.get("local_results", [])
             place = local[0] if local else None
             
         if not place or not place.get("data_id"):
-            logging.error("❌ Location not found via SerpApi")
-            return {"error": "Location not found"}
+            return {"error": f"Location '{search_term}' not found"}
 
         data_id = place.get("data_id")
         place_name = place.get("title")
 
-        # 2. Get Reviews
+        # 2. Extract Reviews
         search_reviews = GoogleSearch({
             "engine": "google_maps_reviews",
             "data_id": data_id,
@@ -102,8 +111,8 @@ def fetch_reviews(query: str, limit: int = 20):
         })
         review_data = search_reviews.get_dict().get("reviews", [])
 
-        # 3. Process and Save
-        final_results = []
+        # 3. Process & Save
+        results_to_return = []
         db = SessionLocal() if SessionLocal else None
         
         for r in review_data:
@@ -119,7 +128,7 @@ def fetch_reviews(query: str, limit: int = 20):
                 "sentiment_score": score,
                 "published_at": r.get("date")
             }
-            final_results.append(review_entry)
+            results_to_return.append(review_entry)
 
             if db:
                 db_review = GoogleReview(**review_entry)
@@ -129,9 +138,8 @@ def fetch_reviews(query: str, limit: int = 20):
             db.commit()
             db.close()
             
-        logging.info(f"✅ Scrape successful. Processed {len(final_results)} reviews.")
-        return final_results
+        return results_to_return
 
     except Exception as e:
-        logging.error(f"❌ Scraper critical failure: {e}")
+        logging.error(f"❌ Scraper failure: {e}")
         return {"error": str(e)}
