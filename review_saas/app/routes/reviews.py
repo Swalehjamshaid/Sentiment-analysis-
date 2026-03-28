@@ -2,7 +2,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from typing import List, Optional
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
@@ -33,11 +32,7 @@ async def ingest_reviews(
     company_id: int, 
     session: AsyncSession = Depends(get_session)
 ):
-    """
-    Triggers the ingest process.
-    Matches the scraper keys to the database model perfectly.
-    """
-    # 1. Fetch Company details from Database
+    # 1. Fetch Company
     result = await session.execute(select(Company).where(Company.id == company_id))
     company = result.scalar_one_or_none()
     
@@ -50,7 +45,7 @@ async def ingest_reviews(
     try:
         logger.info(f"🚀 Starting Ingest for: {target_name}")
 
-        # 2. Call Scraper
+        # 2. Scrape Data
         scraped_data = await fetch_reviews(
             place_id=target_id, 
             company_id=company_id, 
@@ -62,7 +57,7 @@ async def ingest_reviews(
         if not scraped_data:
             return {"status": "success", "message": "No reviews found.", "new_reviews_added": 0}
 
-        # 3. Persistence with Duplicate Prevention
+        # 3. Persistence
         new_count = 0
         for item in scraped_data:
             check = await session.execute(
@@ -85,15 +80,11 @@ async def ingest_reviews(
                 new_count += 1
 
         await session.commit()
-        return {
-            "status": "success", 
-            "company_name": target_name, 
-            "new_reviews_added": new_count
-        }
+        return {"status": "success", "company_name": target_name, "new_reviews_added": new_count}
 
     except Exception as e:
         await session.rollback()
-        logger.error(f"❌ Ingest Error: {str(e)}")
+        logger.error(f"❌ Ingest error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/reviews", response_model=List[ReviewResponse])
