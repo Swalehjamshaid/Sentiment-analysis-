@@ -1,86 +1,95 @@
-# =========================
-# --- CRITICAL & SCRAPING ---
-# =========================
+# =========================================================
+# CORE BUILD
+# =========================================================
 setuptools==68.2.2
 wheel==0.43.0
-google-search-results==2.4.2
-curl_cffi==0.7.0b4
-playwright==1.45.0
-pytest-playwright==0.5.2
-agentql==0.4.0
+
+# =========================================================
+# WEB FRAMEWORK (FASTAPI STACK)
+# =========================================================
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+gunicorn==23.0.0
+jinja2==3.1.3
+python-multipart==0.0.9
+pydantic==2.7.4
+pydantic-settings==2.2.1
+anyio==4.3.0
+python-dotenv==1.0.1
+
+# =========================================================
+# DATABASE (ASYNC + POSTGRES)
+# =========================================================
+SQLAlchemy==2.0.29
+asyncpg==0.29.0
+psycopg[binary]==3.1.18
+aiosqlite==0.20.0
+alembic==1.13.1
+greenlet==3.0.3
+
+# =========================================================
+# SCRAPING (MODERN STACK)
+# =========================================================
+google-search-results==2.4.2   # SerpAPI
+patchright==1.45.0            # 🔥 Modern Playwright replacement
+playwright==1.45.0            # fallback compatibility
 pyee==11.1.0
 
-# =========================
-# --- DATABASE ---
-# =========================
-gunicorn==23.0.0
-asyncpg==0.31.0
-aiosqlite==0.20.0
-SQLAlchemy>=2.0.48
-psycopg[binary]==3.2.4
-alembic==1.18.4
-greenlet>=1.1.0
+# OPTIONAL (if needed for stealth extensions)
+# playwright-stealth==1.0.6
 
-# =========================
-# --- DATA PROCESSING ---
-# =========================
-pandas==2.2.3
+# =========================================================
+# HTTP / NETWORKING
+# =========================================================
+httpx[http2]==0.27.0
+requests==2.31.0
+urllib3==2.2.1
+charset-normalizer==3.3.2
+
+# =========================================================
+# DATA PROCESSING
+# =========================================================
+pandas==2.2.2
 numpy==1.26.4
-openpyxl==3.1.5
+openpyxl==3.1.2
+lxml==5.2.1
+Pillow==10.4.0
 reportlab==4.1.0
-Pillow==11.1.0
-lxml==5.3.0
 
-# =========================
-# --- AI & SENTIMENT ---
-# =========================
-textblob==0.18.0.post0
+# =========================================================
+# AI / NLP / SENTIMENT
+# =========================================================
 vaderSentiment==3.3.2
+textblob==0.18.0.post0
 langdetect==1.0.9
-nltk>=3.9
-openai==1.51.0
+nltk==3.8.1
+openai==1.30.1
 
-# =========================
-# --- WEB FRAMEWORK ---
-# =========================
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-jinja2==3.1.4
-python-multipart==0.0.9
-pydantic==2.9.2
-pydantic-settings==2.4.0
-python-dotenv==1.0.1
-anyio==4.4.0
-
-# =========================
-# --- SECURITY & AUTH ---
-# =========================
-email-validator==2.2.0
+# =========================================================
+# SECURITY / AUTH
+# =========================================================
+email-validator==2.1.1
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 python-jose[cryptography]==3.3.0
-authlib==1.3.1
+authlib==1.3.0
 pyotp==2.9.0
-itsdangerous>=2.2.0
+itsdangerous==2.2.0
 
-# =========================
-# --- UTILS ---
-# =========================
-httpx[http2]==0.26.0
-requests==2.32.3
-urllib3==2.2.1
-charset-normalizer==3.3.2
-orjson==3.10.7
+# =========================================================
+# UTILITIES
+# =========================================================
+orjson==3.10.6
 python-dateutil==2.9.0.post0
 python-slugify==8.0.4
 apscheduler==3.10.4
-tenacity==9.0.0
+tenacity==8.2.3
 bleach==6.1.0
 
-# =========================
-# --- GOOGLE API ---
-# =========================
-googlemaps>=4.10.0
-google-api-python-client>=2.150.0
-google-auth>=2.35.0
-google-auth-oauthlib>=1.2.1
+# =========================================================
+# GOOGLE APIs (OPTIONAL)
+# =========================================================
+googlemaps==4.10.0
+google-api-python-client==2.126.0
+google-auth==2.29.0
+google-auth-oauthlib==1.2.0
