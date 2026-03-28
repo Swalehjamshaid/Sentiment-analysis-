@@ -1,131 +1,114 @@
-# app/services/scraper.py
-import os
+from __future__ import annotations
 import logging
 from datetime import datetime
-from typing import List, Dict, Optional
-from sqlalchemy import select
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from serpapi import GoogleSearch
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from sqlalchemy import select, delete
+from pydantic import BaseModel
 
 # Core project imports
 from app.core.db import get_session
-from app.core.models import CompanyCID  # Table to store CID for companies
+from app.core.models import Review, Company
+from app.services.scraper import fetch_reviews
 
-logger = logging.getLogger("app.scraper")
+router = APIRouter(tags=["reviews"])
+logger = logging.getLogger("app.reviews")
 
-# ---------------------------
-# FETCH REVIEWS FUNCTION
-# ---------------------------
-async def fetch_reviews(
-    place_id: Optional[str] = None,
-    company_id: Optional[int] = None,
-    limit: int = 300,
-    name: Optional[str] = None,
-    session: AsyncSession = None
-) -> List[Dict[str, Optional[str]]]:
-    """
-    Fetch Google reviews using SerpAPI.
-    - First checks DB for CID (company_id required)
-    - Falls back to SerpAPI search if CID not in DB
-    Returns list of dicts compatible with Review DB model
-    """
-    analyzer = SentimentIntensityAnalyzer()
-    api_key = os.getenv("SERP_API_KEY", "")
-    cid = None
+class ReviewResponse(BaseModel):
+    id: int
+    company_id: int
+    google_review_id: str
+    author_name: Optional[str] = None
+    rating: Optional[int] = 0
+    text: Optional[str] = None
+    google_review_time: Optional[datetime] = None
 
-    # ---------------------------
-    # 1. CHECK DATABASE FOR CID
-    # ---------------------------
-    if company_id and session:
-        try:
-            result = await session.execute(
-                select(CompanyCID).where(CompanyCID.company_id == company_id)
-            )
-            db_entry = result.scalar_one_or_none()
-            if db_entry and db_entry.cid:
-                cid = db_entry.cid
-                logger.info(f"✅ Using CID from DB: {cid}")
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to check CID in DB: {e}")
+    class Config:
+        from_attributes = True
 
-    target_name = name or "Restaurant"
+@router.post("/reviews/ingest/{company_id}")
+async def ingest_reviews(
+    company_id: int, 
+    session: AsyncSession = Depends(get_session)
+):
+    # 1. Fetch Company details from Database
+    result = await session.execute(select(Company).where(Company.id == company_id))
+    company = result.scalar_one_or_none()
+    
+    if not company:
+        raise HTTPException(status_code=404, detail="Company record not found.")
 
-    # ---------------------------
-    # 2. FALLBACK TO SERPAPI IF NO CID
-    # ---------------------------
-    if not cid:
-        try:
-            # First attempt with place_id
-            if place_id:
-                search_resolver = GoogleSearch({
-                    "engine": "google_maps",
-                    "place_id": place_id,
-                    "api_key": api_key,
-                    "no_cache": True
-                })
-                res = search_resolver.get_dict()
-                cid = res.get("place_results", {}).get("data_id")
+    target_name = str(company.name)
+    target_id = company.google_place_id 
+    
+    if not target_id:
+        raise HTTPException(status_code=400, detail="Company missing Google Place ID.")
 
-            # Fallback by name search
-            if not cid:
-                logger.info(f"⚠️ CID not found via place_id. Searching by name: {target_name}")
-                search_fb = GoogleSearch({
-                    "engine": "google_maps",
-                    "q": target_name,
-                    "api_key": api_key
-                })
-                fb_res = search_fb.get_dict()
-                local = fb_res.get("local_results", [])
-                place_fb = fb_res.get("place_results") or (local[0] if local else {})
-                cid = place_fb.get("data_id")
-
-            if not cid:
-                logger.error(f"❌ Failed to resolve CID for {target_name}")
-                return []
-
-            # Save CID to DB for future
-            if company_id and session:
-                db_entry = CompanyCID(company_id=company_id, cid=cid)
-                session.add(db_entry)
-                await session.commit()
-                logger.info(f"💾 Saved new CID {cid} to DB for company_id {company_id}")
-
-        except Exception as e:
-            logger.error(f"❌ SerpAPI CID resolution failed: {e}")
-            return []
-
-    # ---------------------------
-    # 3. FETCH REVIEWS
-    # ---------------------------
     try:
-        review_params = {
-            "engine": "google_maps_reviews",
-            "data_id": cid,
-            "api_key": api_key,
-            "num": limit,
-            "no_cache": True,
-            "sort_by": "newest"
+        logger.info(f"🚀 Initializing Ingest for: {target_name}")
+
+        # 2. Call Scraper with Session and Name
+        scraped_data = await fetch_reviews(
+            place_id=target_id, 
+            company_id=company_id, 
+            name=target_name,
+            limit=300,
+            session=session
+        )
+        
+        if not scraped_data:
+            return {"status": "success", "message": "No reviews found.", "new_reviews_added": 0}
+
+        # 3. Save to Database with Duplicate Prevention
+        new_count = 0
+        for item in scraped_data:
+            check = await session.execute(
+                select(Review).where(
+                    Review.company_id == company_id,
+                    Review.google_review_id == item["review_id"]
+                )
+            )
+            if not check.scalar_one_or_none():
+                new_review = Review(
+                    company_id=company_id,
+                    google_review_id=item["review_id"],
+                    author_name=item.get("author_name", "Anonymous"),
+                    rating=item.get("rating", 0),
+                    text=item.get("text", ""),
+                    source_platform="Google",
+                    first_seen_at=datetime.utcnow()
+                )
+                session.add(new_review)
+                new_count += 1
+
+        await session.commit()
+        return {
+            "status": "success",
+            "company_name": target_name,
+            "new_reviews_added": new_count,
+            "total_fetched": len(scraped_data)
         }
-        search_reviews = GoogleSearch(review_params)
-        raw_reviews = search_reviews.get_dict().get("reviews", [])
-
-        final_results = []
-        for r in raw_reviews:
-            body = r.get("snippet") or r.get("text") or "No comment"
-            vs = analyzer.polarity_scores(body)
-
-            final_results.append({
-                "review_id": r.get("review_id"),
-                "author_name": r.get("user", {}).get("name", "Anonymous"),
-                "rating": r.get("rating", 0),
-                "text": body,
-                "sentiment": "Positive" if vs['compound'] >= 0.05 else "Negative"
-            })
-
-        logger.info(f"✅ Captured {len(final_results)} reviews for CID {cid}")
-        return final_results
 
     except Exception as e:
-        logger.error(f"❌ Review fetch failure: {e}")
-        return []
+        await session.rollback()
+        logger.error(f"❌ Ingest Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/reviews", response_model=List[ReviewResponse])
+async def list_reviews(
+    company_id: Optional[int] = Query(None),
+    session: AsyncSession = Depends(get_session)
+):
+    query = select(Review)
+    if company_id:
+        query = query.where(Review.company_id == company_id)
+    result = await session.execute(query.order_by(Review.id.desc()))
+    return result.scalars().all()
+
+@router.delete("/reviews/{review_id}")
+async def delete_review(review_id: int, session: AsyncSession = Depends(get_session)):
+    await session.execute(delete(Review).where(Review.id == review_id))
+    await session.commit()
+    return {"status": "success", "message": "Review deleted."}
