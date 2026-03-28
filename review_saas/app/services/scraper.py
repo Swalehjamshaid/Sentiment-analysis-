@@ -1,81 +1,154 @@
-# filename: app/services/scraper.py
+# app/services/scraper.py
+
+import os
 import asyncio
 import logging
-from typing import List, Dict, Any, Optional
-from playwright.async_api import async_playwright
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from typing import List, Dict, Optional
+from serpapi import GoogleSearch
 
-# Internal imports
-from app.core.models import Company
+logger = logging.getLogger("app.scraper")
 
-logger = logging.getLogger(__name__)
+SERP_API_KEY = os.getenv("SERP_API_KEY")
 
-# --- ADVANCED CONFIGURATION ---
-# Using the ScrapeOps Residential Proxy to bypass high-security blocks
-PROXY_URL = "http://scrapeops:d3879aef-d2a6-4422-9b6d-34ff899a638b@residential-proxy.scrapeops.io:8181"
 
+# =========================================================
+# RUN BLOCKING SERPAPI IN THREAD (IMPORTANT FOR FASTAPI)
+# =========================================================
+async def run_serpapi(params: dict):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: GoogleSearch(params).get_dict()
+    )
+
+
+# =========================================================
+# MAIN FETCH FUNCTION (ALIGNED WITH reviews.py)
+# =========================================================
 async def fetch_reviews(
-    company_id: int, 
-    session: AsyncSession, 
-    place_id: Optional[str] = None, 
-    limit: int = 10,
-    **kwargs
-) -> List[Dict[str, Any]]:
-    """
-    PLAYWRIGHT MISSION-CRITICAL SCRAPER:
-    Restored function name to 'fetch_reviews' to fix the ImportError.
-    Automates a real browser to fetch data from any target URL.
-    """
-    
-    # 1. Resolve Target URL
-    # If no URL is passed in place_id, we use a default Amazon test link
-    target_url = place_id if place_id and place_id.startswith("http") else "https://www.amazon.com/dp/B08N5WRWNW"
-    
-    all_data = []
-    
-    async with async_playwright() as p:
-        try:
-            logger.info(f"🚀 Playwright launching for: {target_url}")
-            
-            # Launch Stealth Browser with Proxy
-            browser = await p.chromium.launch(
-                headless=True,
-                proxy={"server": PROXY_URL}
-            )
-            
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-            )
-            
-            page = await context.new_page()
-            
-            # Navigate and wait for content
-            await page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
-            
-            # 2. EXTRACTION LOGIC
-            # This is currently set for Amazon. You can update selectors as needed.
-            review_elements = page.locator("[data-hook='review']")
-            count = await review_elements.count()
+    place_id: str,
+    limit: int = 300,
+    name: Optional[str] = None
+) -> List[Dict]:
 
-            for i in range(min(count, limit)):
-                element = review_elements.nth(i)
-                
-                # Fetching details safely
-                author = await element.locator(".a-profile-name").text_content() if await element.locator(".a-profile-name").count() > 0 else "User"
-                body = await element.locator(".review-text-content").text_content() if await element.locator(".review-text-content").count() > 0 else ""
-                
-                all_data.append({
-                    "review_id": f"EXT-{i}",
-                    "author_name": author.strip(),
-                    "rating": 5, # Simplified for test
-                    "text": body.strip() if body else "Verified Review"
-                })
-                
-            await browser.close()
+    """
+    Production-ready Google Reviews scraper using SerpAPI.
+
+    Flow:
+    1. Resolve Place ID → CID (data_id)
+    2. Fallback: Search by name if needed
+    3. Fetch reviews using CID
+    4. Return clean structured data
+    """
+
+    if not SERP_API_KEY:
+        logger.error("❌ SERP_API_KEY is missing")
+        return []
+
+    if not place_id:
+        logger.error("❌ place_id is required")
+        return []
+
+    target_name = name or "Business"
+
+    try:
+        logger.info(f"🚀 Scraping started for: {target_name}")
+
+        # =====================================================
+        # STEP 1: RESOLVE CID USING PLACE_ID
+        # =====================================================
+        cid = None
+
+        try:
+            params = {
+                "engine": "google_maps",
+                "place_id": place_id,
+                "api_key": SERP_API_KEY,
+                "no_cache": True
+            }
+
+            response = await run_serpapi(params)
+            cid = response.get("place_results", {}).get("data_id")
 
         except Exception as e:
-            logger.error(f"❌ Scraper Logic Failed: {e}")
+            logger.warning(f"⚠️ Place ID resolution failed: {e}")
 
-    logger.info(f"✅ Ingest Complete: Captured {len(all_data)} items.")
-    return all_data
+        # =====================================================
+        # STEP 2: FALLBACK USING NAME SEARCH
+        # =====================================================
+        if not cid:
+            logger.warning(f"⚠️ Falling back to name search: {target_name}")
+
+            try:
+                params = {
+                    "engine": "google_maps",
+                    "q": target_name,
+                    "api_key": SERP_API_KEY
+                }
+
+                response = await run_serpapi(params)
+
+                # Try direct place_results
+                cid = response.get("place_results", {}).get("data_id")
+
+                # Fallback to first local result
+                if not cid:
+                    local = response.get("local_results", [])
+                    if local:
+                        cid = local[0].get("data_id")
+
+            except Exception as e:
+                logger.error(f"❌ Name fallback failed: {e}")
+
+        # =====================================================
+        # FAIL SAFE
+        # =====================================================
+        if not cid:
+            logger.error(f"❌ CID not found for: {target_name}")
+            return []
+
+        logger.info(f"📍 CID resolved: {cid}")
+
+        # =====================================================
+        # STEP 3: FETCH REVIEWS
+        # =====================================================
+        params = {
+            "engine": "google_maps_reviews",
+            "data_id": cid,
+            "api_key": SERP_API_KEY,
+            "sort_by": "newest",
+            "num": min(limit, 100)  # SerpAPI limit per request
+        }
+
+        response = await run_serpapi(params)
+        raw_reviews = response.get("reviews", [])
+
+        if not raw_reviews:
+            logger.warning(f"⚠️ No reviews returned from API")
+            return []
+
+        # =====================================================
+        # STEP 4: FORMAT DATA (MATCH reviews.py)
+        # =====================================================
+        final_results = []
+
+        for r in raw_reviews:
+
+            review_id = r.get("review_id") or r.get("id")
+            if not review_id:
+                continue
+
+            final_results.append({
+                "review_id": review_id,
+                "author_name": r.get("user", {}).get("name", "Anonymous"),
+                "rating": r.get("rating", 0),
+                "text": r.get("snippet") or r.get("text") or "",
+            })
+
+        logger.info(f"✅ Fetched {len(final_results)} reviews for {target_name}")
+
+        return final_results
+
+    except Exception as e:
+        logger.error(f"❌ Scraper crash: {str(e)}", exc_info=True)
+        return []
