@@ -1,154 +1,101 @@
-# app/services/scraper.py
-
-import os
 import asyncio
-import logging
 from typing import List, Dict, Optional
-from serpapi import GoogleSearch
+from playwright.async_api import async_playwright
+from playwright_stealth import stealth_async
+import logging
 
-logger = logging.getLogger("app.scraper")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-SERP_API_KEY = os.getenv("SERP_API_KEY")
-
-
-# =========================================================
-# RUN BLOCKING SERPAPI IN THREAD (IMPORTANT FOR FASTAPI)
-# =========================================================
-async def run_serpapi(params: dict):
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(
-        None,
-        lambda: GoogleSearch(params).get_dict()
-    )
-
-
-# =========================================================
-# MAIN FETCH FUNCTION (ALIGNED WITH reviews.py)
-# =========================================================
+# =============================
+# SCRAPER FUNCTION
+# =============================
 async def fetch_reviews(
     place_id: str,
-    limit: int = 300,
-    name: Optional[str] = None
+    name: Optional[str] = None,
+    limit: int = 300
 ) -> List[Dict]:
-
     """
-    Production-ready Google Reviews scraper using SerpAPI.
+    Scrape Google Reviews for a given place_id.
 
-    Flow:
-    1. Resolve Place ID → CID (data_id)
-    2. Fallback: Search by name if needed
-    3. Fetch reviews using CID
-    4. Return clean structured data
+    Args:
+        place_id (str): Google Maps Place ID
+        name (Optional[str]): Friendly name for logging
+        limit (int): Maximum number of reviews to fetch
+
+    Returns:
+        List[Dict]: List of reviews with author, rating, date, text
     """
+    reviews: List[Dict] = []
 
-    if not SERP_API_KEY:
-        logger.error("❌ SERP_API_KEY is missing")
-        return []
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context()
 
-    if not place_id:
-        logger.error("❌ place_id is required")
-        return []
-
-    target_name = name or "Business"
-
-    try:
-        logger.info(f"🚀 Scraping started for: {target_name}")
-
-        # =====================================================
-        # STEP 1: RESOLVE CID USING PLACE_ID
-        # =====================================================
-        cid = None
+        page = await context.new_page()
+        await stealth_async(page)  # Make browser undetectable
 
         try:
-            params = {
-                "engine": "google_maps",
-                "place_id": place_id,
-                "api_key": SERP_API_KEY,
-                "no_cache": True
-            }
+            url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+            await page.goto(url, timeout=60000)
 
-            response = await run_serpapi(params)
-            cid = response.get("place_results", {}).get("data_id")
+            # Wait for reviews section
+            await page.wait_for_selector("button[jsaction*='pane.review']", timeout=15000)
+
+            # Click to open reviews
+            review_button = await page.query_selector("button[jsaction*='pane.review']")
+            if review_button:
+                await review_button.click()
+                await asyncio.sleep(2)
+
+            # Scroll reviews
+            last_height = 0
+            scroll_attempt = 0
+            while len(reviews) < limit and scroll_attempt < 20:
+                review_elements = await page.query_selector_all("div[class*='ODSEW-ShBeI-content']")
+                for elem in review_elements[len(reviews):]:
+                    try:
+                        author = await elem.query_selector_eval(".d4r55", "el => el.textContent")
+                        rating = await elem.query_selector_eval(".kvMYJc", "el => el.getAttribute('aria-label')")
+                        date = await elem.query_selector_eval(".rsqaWe", "el => el.textContent")
+                        text = await elem.query_selector_eval(".MyEned", "el => el.textContent")
+                        reviews.append({
+                            "author": author.strip() if author else "",
+                            "rating": rating.strip() if rating else "",
+                            "date": date.strip() if date else "",
+                            "text": text.strip() if text else ""
+                        })
+                    except Exception:
+                        continue
+
+                # Scroll container
+                container = await page.query_selector("div[class*='m6QErb']")
+                if container:
+                    await container.evaluate("(el) => el.scrollBy(0, 1000)")
+                    await asyncio.sleep(1)
+                    scroll_attempt += 1
+                else:
+                    break
+
+                # Stop if no new reviews
+                new_height = await container.evaluate("(el) => el.scrollHeight") if container else 0
+                if new_height == last_height:
+                    break
+                last_height = new_height
+
+            logger.info(f"Scraped {len(reviews)} reviews for {name or place_id}")
 
         except Exception as e:
-            logger.warning(f"⚠️ Place ID resolution failed: {e}")
+            logger.error(f"Error scraping reviews for {name or place_id}: {e}")
+        finally:
+            await browser.close()
 
-        # =====================================================
-        # STEP 2: FALLBACK USING NAME SEARCH
-        # =====================================================
-        if not cid:
-            logger.warning(f"⚠️ Falling back to name search: {target_name}")
+    return reviews
 
-            try:
-                params = {
-                    "engine": "google_maps",
-                    "q": target_name,
-                    "api_key": SERP_API_KEY
-                }
-
-                response = await run_serpapi(params)
-
-                # Try direct place_results
-                cid = response.get("place_results", {}).get("data_id")
-
-                # Fallback to first local result
-                if not cid:
-                    local = response.get("local_results", [])
-                    if local:
-                        cid = local[0].get("data_id")
-
-            except Exception as e:
-                logger.error(f"❌ Name fallback failed: {e}")
-
-        # =====================================================
-        # FAIL SAFE
-        # =====================================================
-        if not cid:
-            logger.error(f"❌ CID not found for: {target_name}")
-            return []
-
-        logger.info(f"📍 CID resolved: {cid}")
-
-        # =====================================================
-        # STEP 3: FETCH REVIEWS
-        # =====================================================
-        params = {
-            "engine": "google_maps_reviews",
-            "data_id": cid,
-            "api_key": SERP_API_KEY,
-            "sort_by": "newest",
-            "num": min(limit, 100)  # SerpAPI limit per request
-        }
-
-        response = await run_serpapi(params)
-        raw_reviews = response.get("reviews", [])
-
-        if not raw_reviews:
-            logger.warning(f"⚠️ No reviews returned from API")
-            return []
-
-        # =====================================================
-        # STEP 4: FORMAT DATA (MATCH reviews.py)
-        # =====================================================
-        final_results = []
-
-        for r in raw_reviews:
-
-            review_id = r.get("review_id") or r.get("id")
-            if not review_id:
-                continue
-
-            final_results.append({
-                "review_id": review_id,
-                "author_name": r.get("user", {}).get("name", "Anonymous"),
-                "rating": r.get("rating", 0),
-                "text": r.get("snippet") or r.get("text") or "",
-            })
-
-        logger.info(f"✅ Fetched {len(final_results)} reviews for {target_name}")
-
-        return final_results
-
-    except Exception as e:
-        logger.error(f"❌ Scraper crash: {str(e)}", exc_info=True)
-        return []
+# =============================
+# TESTING SCRIPT
+# =============================
+if __name__ == "__main__":
+    test_place_id = "ChIJN1t_tDeuEmsRUsoyG83frY4"  # Replace with real Place ID
+    data = asyncio.run(fetch_reviews(place_id=test_place_id, name="Test Place", limit=50))
+    print(f"Fetched {len(data)} reviews")
