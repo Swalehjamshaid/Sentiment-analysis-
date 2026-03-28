@@ -5,17 +5,17 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-# This is the primary library from your requirements.txt
-from serpapi import GoogleSearch 
+# This uses the Client class as shown in your code snippet
+import serpapi
 
-# Internal imports for Database Models
+# Internal imports for your Database Models
 from app.core.models import Company
 
 # --- 1. SETUP LOGGING ---
 logger = logging.getLogger("app.scraper")
 
 # --- 2. CONFIGURATION ---
-# Your verified SerpApi Key from your dashboard
+# Your verified SerpApi Key
 SERPAPI_KEY = "f9f41e452ea716cale760081b94763a404c9ele07aef30def9c6a05391890e8d"
 
 # --- 3. MAIN SCRAPER FUNCTION ---
@@ -23,75 +23,79 @@ async def fetch_reviews(
     company_id: int, 
     session: AsyncSession, 
     place_id: Optional[str] = None, 
-    limit: int = 50,
+    limit: int = 20,
     **kwargs
 ) -> List[Dict[str, Any]]:
     """
-    STABILIZED PRODUCTION SCRAPER (2026):
-    Bypasses empty results by switching to the 'google_maps' (Place) engine.
-    This provides a more robust data return for Pakistani businesses.
+    JSON-MAPPED CLIENT SCRAPER (2026):
+    Uses the serpapi.Client to target Google Maps local results.
+    Bypasses empty returns by providing local Lahore context.
     """
     
-    # 🎯 TEST TARGET: (McDonald's Lahore - Guaranteed Review Data)
-    # Using this CID helps us verify that the entire pipeline (Scraper -> DB) works.
-    target_cid = "1689883584857448373" 
+    # Get the company name from DB to ensure we are searching for the right business
+    res = await session.execute(select(Company).where(Company.id == company_id))
+    company = res.scalar_one_or_none()
+    company_name = company.name if company else "Villa The Grand Buffet"
 
-    logger.info(f"🚀 Starting Stabilized Scrape for Company ID {company_id}")
+    logger.info(f"🚀 Starting Ingest for: {company_name}")
 
     try:
-        # Step A: Setup Search Parameters
-        # engine: 'google_maps' is more reliable than 'google_maps_reviews' in 2026
-        # data_id: Formatted as a Hex string (0x0:0x...) which Google prefers
-        # location: Sets the local context to Lahore to unlock regional data
-        params = {
+        # Step A: Initialize the Client
+        client = serpapi.Client(api_key=SERPAPI_KEY)
+        
+        # Step B: Execute Search
+        # We use 'google_maps' because your JSON showed local_results are found here.
+        # hl=en and location are added to bypass Google's consent/cookie walls.
+        results = client.search({
             "engine": "google_maps",
-            "type": "place",
-            "data_id": f"0x0:0x{int(target_cid):x}", 
-            "api_key": SERPAPI_KEY,
-            "hl": "en",
-            "location": "Lahore, Punjab, Pakistan"
-        }
+            "q": company_name,
+            "type": "search",
+            "location": "Lahore, Punjab, Pakistan",
+            "hl": "en"
+        })
         
-        # Step B: Execute the search
-        search = GoogleSearch(params)
-        results = search.get_dict()
+        # Step C: Extract reviews from the JSON hierarchy
+        formatted_reviews = []
         
-        # Step C: Extract reviews from the Place Profile results
-        place_results = results.get("place_results", {})
-        raw_reviews = place_results.get("reviews", [])
-        
-        # Fallback: If place_id path is empty, try a direct query-based search
-        if not raw_reviews:
-            logger.warning("🔄 ID-based search returned 0. Trying direct keyword search...")
-            fallback_params = {
-                "engine": "google_maps",
-                "q": "McDonald's Lahore",
-                "api_key": SERPAPI_KEY,
-                "location": "Lahore, Pakistan"
-            }
-            fallback_search = GoogleSearch(fallback_params)
-            fallback_results = fallback_search.get_dict()
-            
-            # Extract from the first local search result found
-            local_results = fallback_results.get("local_results", [])
-            if local_results:
-                raw_reviews = local_results[0].get("reviews", [])
+        # Path 1: Check 'place_results' (Direct hit on a single business)
+        if "place_results" in results:
+            raw_reviews = results["place_results"].get("reviews", [])
+            for r in raw_reviews:
+                formatted_reviews.append({
+                    "review_id": str(r.get("review_id", "id")),
+                    "author_name": r.get("user", {}).get("name", "Google User"),
+                    "rating": int(r.get("rating", 5)),
+                    "text": r.get("snippet", "No review text.")
+                })
 
-        if not raw_reviews:
-            logger.error(f"❌ Scraper Failure: Google returned 0 reviews. Inspect SerpApi HTML for blocks.")
+        # Path 2: Check 'local_results' (Found in your specific JSON snippet)
+        elif "local_results" in results:
+            # Grab the first matching business in the list
+            first_place = results["local_results"][0]
+            logger.info(f"📍 Found Business: {first_place.get('title')} with {first_place.get('reviews')} reviews.")
+            
+            # If the search results only show a summary, we use the Place ID to get full reviews
+            target_place_id = first_place.get("place_id")
+            if target_place_id:
+                logger.info(f"🔄 Fetching full reviews for Place ID: {target_place_id}")
+                review_results = client.search({
+                    "engine": "google_maps_reviews",
+                    "place_id": target_place_id,
+                    "hl": "en"
+                })
+                for r in review_results.get("reviews", []):
+                    formatted_reviews.append({
+                        "review_id": str(r.get("review_id")),
+                        "author_name": r.get("user", {}).get("name", "Anonymous"),
+                        "rating": int(r.get("rating", 5)),
+                        "text": r.get("snippet", "No text.")
+                    })
+
+        if not formatted_reviews:
+            logger.error(f"❌ Scraper found the business but no review objects were available.")
             return []
 
-        # Step D: Format Data for your Railway Database
-        formatted_reviews = []
-        for r in raw_reviews:
-            formatted_reviews.append({
-                "review_id": str(r.get("review_id", "id_missing")),
-                "author_name": r.get("user", {}).get("name", "Google User"),
-                "rating": int(r.get("rating", 5)),
-                "text": r.get("snippet", "No review text provided.")
-            })
-            
-        logger.info(f"✅ SUCCESS: {len(formatted_reviews)} reviews fetched and mapped.")
+        logger.info(f"✅ SUCCESS: Formatted {len(formatted_reviews)} reviews.")
         return formatted_reviews
 
     except Exception as e:
