@@ -2,6 +2,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
@@ -87,8 +88,7 @@ async def ingest_reviews(
         return {
             "status": "success", 
             "company_name": target_name, 
-            "new_reviews_added": new_count,
-            "total_fetched": len(scraped_data)
+            "new_reviews_added": new_count
         }
 
     except Exception as e:
