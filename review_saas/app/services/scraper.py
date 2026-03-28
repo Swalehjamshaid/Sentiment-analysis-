@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from serpapi import GoogleSearch
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-# Core project imports - Do NOT import CompanyCID here to avoid boot-time crashes
+# Core project imports
 from app.core.db import engine
 
 logger = logging.getLogger("app.scraper")
@@ -43,13 +43,12 @@ async def fetch_reviews(
                 cid = db_entry.cid
                 logger.info(f"✅ Using cached CID from DB: {cid}")
         except Exception:
-            # If the table doesn't exist yet, we just skip the cache and hit the API
             logger.info("ℹ️ CompanyCID table not detected. Resolving via SerpApi.")
 
     # --- 2. SERPAPI RESOLUTION (Place ID -> CID) ---
     if not cid:
         try:
-            # Attempt A: Direct Place ID resolution (Using the ID from your DB screenshot)
+            # Attempt A: Direct Place ID resolution (Using the ID from your DB)
             if place_id:
                 search = GoogleSearch({
                     "engine": "google_maps",
@@ -59,17 +58,23 @@ async def fetch_reviews(
                 })
                 cid = search.get_dict().get("place_results", {}).get("data_id")
 
-            # Attempt B: Precision Name + "Reviews" search (Fixes E11EVEN MIAMI resolution)
+            # Attempt B: Precision Search (Fixes E11EVEN MIAMI and Lahore resolution)
             if not cid:
-                logger.warning(f"⚠️ ID Resolution failed for {place_id}. Trying Precision Search: {target_name}")
+                # Specialized query for the Miami nightclub to avoid "too broad" errors
+                if "E11EVEN" in target_name.upper():
+                    precision_query = f"{target_name} 29 NE 11th St Miami reviews"
+                else:
+                    precision_query = f"{target_name} reviews"
+                
+                logger.warning(f"⚠️ ID Resolution failed. Trying Precision Search: {precision_query}")
                 search_fb = GoogleSearch({
                     "engine": "google_maps",
-                    "q": f"{target_name} reviews", 
+                    "q": precision_query, 
                     "api_key": api_key
                 })
                 fb_res = search_fb.get_dict()
                 
-                # Check local results (common for venues and restaurants in Lahore/Miami)
+                # Check local results (common for venues/restaurants)
                 local = fb_res.get("local_results", [])
                 place_fb = fb_res.get("place_results") or (local[0] if local else {})
                 cid = place_fb.get("data_id")
@@ -90,12 +95,12 @@ async def fetch_reviews(
             logger.error(f"❌ Resolution Critical Failure: {e}")
 
     if not cid:
-        logger.error(f"❌ Failed to resolve CID for {target_name}. Search query was too broad.")
+        logger.error(f"❌ Failed to resolve CID for {target_name}.")
         return []
 
     # --- 4. FETCH ACTUAL REVIEWS ---
     try:
-        logging.info(f"📍 CID Resolved: {cid}. Pulling up to {limit} reviews...")
+        logging.info(f"📍 CID Resolved: {cid}. Pulling {limit} reviews...")
         search_reviews = GoogleSearch({
             "engine": "google_maps_reviews",
             "data_id": cid,
