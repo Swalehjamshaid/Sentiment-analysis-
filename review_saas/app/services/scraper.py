@@ -1,68 +1,81 @@
-# filename: app/routes/reviews.py
+# filename: app/services/scraper.py
 import logging
-from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+import asyncio
+from typing import List, Dict, Any, Optional
+from serpapi import GoogleSearch
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import text
+from app.core.models import Company
 
-from app.core.db import get_session
-from app.services.scraper import fetch_reviews
-from app.core.models import Review
+logger = logging.getLogger("app.scraper")
 
-logger = logging.getLogger("app.reviews")
-router = APIRouter(prefix="/reviews", tags=["Reviews"])
+# --- SERPAPI CONFIGURATION ---
+SERPAPI_KEY = "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d"
 
-@router.get("/ingest_100/{company_id}")
-async def ingest_100_reviews(company_id: int, db: AsyncSession = Depends(get_session)):
+async def fetch_reviews(
+    company_id: int,
+    session: AsyncSession,
+    place_id: Optional[str] = None,
+    target_limit: int = 100,
+    **kwargs
+) -> List[Dict[Any, Any]]:
     """
-    DEEP INGEST: Fetches 100 reviews and forces a Postgres Commit.
+    STABLE SERPAPI FETCH: 
+    Loops through pages to get up to 100 reviews.
     """
-    logger.info(f"🚀 Database Sync Started for Company: {company_id}")
-    
+    all_reviews = []
     try:
-        # 1. Fetch data from Scraper
-        data = await fetch_reviews(company_id=company_id, session=db, target_limit=100)
+        res = await session.execute(select(Company).where(Company.id == company_id))
+        company = res.scalar_one_or_none()
+        query = place_id if place_id else (company.name if company else "Villa The Grand Buffet")
+
+        # Step 1: Discover Place ID
+        search_params = {"engine": "google", "q": query, "api_key": SERPAPI_KEY, "gl": "pk"}
         
-        if not data:
-            logger.warning("⚠️ Scraper returned 0 results. Nothing to save.")
-            return {"status": "info", "message": "No reviews found."}
+        def get_id():
+            results = GoogleSearch(search_params).get_dict()
+            local = results.get("local_results", [{}])
+            return local[0].get("place_id") or results.get("knowledge_graph", {}).get("place_id")
 
-        # 2. Use db.begin() to ensure an ATOMIC TRANSACTION
-        # This is the most reliable way to save to Railway Postgres
-        async with db.begin():
-            saved_count = 0
-            for r in data:
-                # Prepare the insert statement with ON CONFLICT DO NOTHING
-                # This prevents crashes if the review already exists
-                stmt = insert(Review).values(
-                    company_id=company_id,
-                    google_review_id=r["google_review_id"],
-                    author_name=r["author_name"],
-                    rating=r["rating"],
-                    text=r["text"],
-                    google_review_time=r["google_review_time"],
-                    review_likes=r.get("likes", 0),
-                    source_platform="Google",
-                    is_praise=True if r["rating"] >= 4 else False,
-                    is_complaint=True if r["rating"] <= 2 else False,
-                    first_seen_at=datetime.utcnow(),
-                    last_updated_at=datetime.utcnow()
-                ).on_conflict_do_nothing(index_elements=['google_review_id'])
-                
-                result = await db.execute(stmt)
-                if result.rowcount > 0:
-                    saved_count += 1
+        target_id = await asyncio.to_thread(get_id)
+        if not target_id:
+            logger.error(f"❌ ID not found for {query}")
+            return []
 
-            logger.info(f"✅ Transaction Complete: {saved_count} new reviews written to disk.")
+        # Step 2: Paginated Fetch
+        next_page_token = None
+        while len(all_reviews) < target_limit:
+            params = {
+                "engine": "google_maps_reviews",
+                "place_id": target_id,
+                "api_key": SERPAPI_KEY,
+                "next_page_token": next_page_token
+            }
+            
+            def fetch_data():
+                return GoogleSearch(params).get_dict()
 
-        return {
-            "status": "success", 
-            "fetched": len(data), 
-            "new_saved": saved_count,
-            "message": "Data is now permanent in Postgres."
-        }
+            results = await asyncio.to_thread(fetch_data)
+            reviews = results.get("reviews", [])
+            if not reviews:
+                break
+
+            for r in reviews:
+                if len(all_reviews) < target_limit:
+                    all_reviews.append({
+                        "google_review_id": r.get("review_id"),
+                        "author_name": r.get("user", {}).get("name"),
+                        "rating": int(r.get("rating", 5)),
+                        "text": r.get("text") or r.get("snippet") or "No content",
+                        "google_review_time": r.get("date"),
+                        "likes": r.get("likes", 0)
+                    })
+
+            next_page_token = results.get("serpapi_pagination", {}).get("next_page_token")
+            if not next_page_token:
+                break
 
     except Exception as e:
-        logger.error(f"❌ Critical Database Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Database Sync Failed: {str(e)}")
+        logger.error(f"❌ Scraper error: {e}")
+    
+    return all_reviews
