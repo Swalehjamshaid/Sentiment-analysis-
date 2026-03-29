@@ -57,7 +57,8 @@ async def ingest_reviews(
     # Save reviews — ONLY fields that EXIST in Review model
     for r in reviews:
         review_url = r.get("google_review_id")
-        if not review_url:
+        if not review_url or not str(review_url).strip():  # skip invalid review IDs
+            logger.warning(f"⚠️ Skipping review with missing google_review_id: {r}")
             continue
 
         # Duplicate check
@@ -74,7 +75,7 @@ async def ingest_reviews(
             review_url=review_url,
             rating=r.get("rating", 5),
             text=r.get("text", ""),
-            first_seen_at=_parse_date(r.get("google_review_time"))  # ✅ fixed
+            first_seen_at=_parse_date(r.get("google_review_time"))
         )
 
         db.add(review)
