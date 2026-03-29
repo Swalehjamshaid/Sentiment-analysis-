@@ -39,7 +39,7 @@ async def ingest_reviews(
 
     logger.info(f"🏢 Company loaded: id={company.id}, name='{company.name}'")
 
-    # Fetch reviews from scraper (no scraper logic changed)
+    # Fetch reviews from scraper (NO scraper logic changed)
     reviews = await fetch_reviews(
         company_id=company.id,
         session=db
@@ -54,7 +54,7 @@ async def ingest_reviews(
 
     saved_count = 0
 
-    # Save reviews — ONLY fields that exist in Review model
+    # Save reviews — ONLY fields that EXIST in Review model
     for r in reviews:
         review_url = r.get("google_review_id")
         if not review_url:
@@ -74,7 +74,7 @@ async def ingest_reviews(
             review_url=review_url,
             rating=r.get("rating", 5),
             text=r.get("text", ""),
-            created_at=_parse_date(r.get("google_review_time"))
+            first_seen_at=_parse_date(r.get("google_review_time"))  # ✅ fixed
         )
 
         db.add(review)
