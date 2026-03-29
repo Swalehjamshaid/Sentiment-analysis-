@@ -13,10 +13,7 @@ logger = logging.getLogger("app.scraper")
 # ------------------------------------------------------------------
 # SERPAPI CONFIGURATION
 # ------------------------------------------------------------------
-# NOTE: Logic unchanged — still uses the same key and engine.
-# You may later move this to env without affecting behavior.
 SERPAPI_KEY = "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d"
-
 
 async def fetch_reviews(
     company_id: int,
@@ -26,64 +23,61 @@ async def fetch_reviews(
     **kwargs
 ) -> List[Dict[str, Any]]:
     """
-    STABLE SERPAPI FETCH (UNCHANGED LOGIC)
-
-    Flow:
-    1. Load company (for fallback name)
-    2. Discover Google Place ID if not provided
-    3. Fetch Google reviews via google_maps_reviews
-    4. Paginate until target_limit reached
+    FIXED SCRAPER:
+    Checks if query is already a Place ID to avoid discovery failure.
     """
 
     all_reviews: List[Dict[str, Any]] = []
 
     try:
-        # --------------------------------------------------------------
-        # 1. Load company (name fallback only)
-        # --------------------------------------------------------------
-        result = await session.execute(
-            select(Company).where(Company.id == company_id)
-        )
-        company = result.scalar_one_or_none()
-
-        query = (
-            place_id
-            if place_id
-            else (company.name if company else "Villa The Grand Buffet")
-        )
-
-        logger.info(
-            f"🔍 Starting review scrape | company_id={company_id} | query='{query}'"
-        )
-
-        # --------------------------------------------------------------
-        # 2. Discover Place ID (UNCHANGED STRATEGY)
-        # --------------------------------------------------------------
-        search_params = {
-            "engine": "google",
-            "q": query,
-            "api_key": SERPAPI_KEY,
-            "gl": "pk"
-        }
-
-        def discover_place_id() -> Optional[str]:
-            result = GoogleSearch(search_params).get_dict()
-            local_results = result.get("local_results", [{}])
-            return (
-                local_results[0].get("place_id")
-                or result.get("knowledge_graph", {}).get("place_id")
+        # 1. Determine the target Place ID
+        # Priority: Function Argument > Database Record
+        target_place_id = place_id
+        
+        if not target_place_id:
+            result = await session.execute(
+                select(Company).where(Company.id == company_id)
             )
+            company = result.scalar_one_or_none()
+            target_place_id = company.google_place_id if company else None
 
-        target_place_id = await asyncio.to_thread(discover_place_id)
+        # --------------------------------------------------------------
+        # 2. Smart Discovery (FIXED)
+        # --------------------------------------------------------------
+        # If target_place_id starts with 'ChIJ', it's already a valid ID. 
+        # We skip the discovery search entirely.
+        
+        if not target_place_id or not target_place_id.startswith("ChIJ"):
+            # Fallback to search by name if ID is missing or malformed
+            query = target_place_id or "Villa The Grand Buffet"
+            logger.info(f"🔍 Searching for Place ID for query: '{query}'")
+            
+            search_params = {
+                "engine": "google",
+                "q": query,
+                "api_key": SERPAPI_KEY,
+                "gl": "pk"
+            }
+
+            def discover_id():
+                search = GoogleSearch(search_params)
+                res = search.get_dict()
+                # Check Local Results or Knowledge Graph
+                return (
+                    res.get("local_results", [{}])[0].get("place_id") or 
+                    res.get("knowledge_graph", {}).get("place_id")
+                )
+
+            target_place_id = await asyncio.to_thread(discover_id)
 
         if not target_place_id:
-            logger.error(f"❌ Google Place ID not found for query='{query}'")
+            logger.error("❌ Could not determine a valid Google Place ID")
             return []
 
-        logger.info(f"📍 Discovered place_id={target_place_id}")
+        logger.info(f"📍 Using Place ID for Fetch: {target_place_id}")
 
         # --------------------------------------------------------------
-        # 3. Paginated Review Fetch (UNCHANGED FLOW)
+        # 3. Paginated Review Fetch
         # --------------------------------------------------------------
         next_page_token: Optional[str] = None
 
@@ -95,10 +89,7 @@ async def fetch_reviews(
                 "next_page_token": next_page_token
             }
 
-            def fetch_page():
-                return GoogleSearch(params).get_dict()
-
-            results = await asyncio.to_thread(fetch_page)
+            results = await asyncio.to_thread(lambda: GoogleSearch(params).get_dict())
             reviews = results.get("reviews", [])
 
             if not reviews:
@@ -108,34 +99,24 @@ async def fetch_reviews(
             for r in reviews:
                 if len(all_reviews) >= target_limit:
                     break
-
+                
+                # Mapping SerpApi structure to our Database structure
                 all_reviews.append({
                     "google_review_id": r.get("review_id"),
                     "author_name": r.get("user", {}).get("name"),
                     "rating": int(r.get("rating", 5)),
-                    "text": (
-                        r.get("text")
-                        or r.get("snippet")
-                        or "No content"
-                    ),
+                    "text": r.get("text") or r.get("snippet") or "No content",
                     "google_review_time": r.get("date"),
                     "likes": r.get("likes", 0)
                 })
 
-            next_page_token = (
-                results
-                .get("serpapi_pagination", {})
-                .get("next_page_token")
-            )
-
+            next_page_token = results.get("serpapi_pagination", {}).get("next_page_token")
             if not next_page_token:
                 break
 
-        logger.info(
-            f"✅ Scraping complete | reviews_collected={len(all_reviews)}"
-        )
+        logger.info(f"✅ Scraping complete | reviews_collected={len(all_reviews)}")
 
     except Exception as exc:
-        logger.exception(f"❌ Scraper error: {exc}")
+        logger.error(f"❌ Scraper critical failure: {exc}")
 
     return all_reviews
