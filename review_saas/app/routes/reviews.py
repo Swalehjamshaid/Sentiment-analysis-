@@ -1,126 +1,199 @@
 import logging
-from datetime import datetime
-from typing import Dict, Any
-
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Dict, Any, List
+from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from textblob import TextBlob
 
-# Core imports
-from app.core.db import get_session
-from app.core import models
+# Internal imports aligned with your project structure
+from app.core.models import Review, Company
 from app.services.scraper import fetch_reviews
 
 logger = logging.getLogger("app.reviews")
 
-router = APIRouter()
+# =====================================================
+# 🛠 AI & DATA HELPERS
+# =====================================================
 
-# =====================================================
-# 🛠 HELPERS
-# =====================================================
 def calculate_sentiment(text: str) -> float:
-    """Calculates polarity score (-1.0 to 1.0) for the dashboard charts."""
+    """
+    Calculates polarity score (-1.0 to 1.0).
+    Required for Sentiment Trend and Emotion Radar charts.
+    """
     if not text or text == "No content":
         return 0.0
     try:
-        return round(TextBlob(text).sentiment.polarity, 2)
-    except Exception:
+        # Standard sentiment analysis using TextBlob
+        analysis = TextBlob(text)
+        return round(analysis.sentiment.polarity, 2)
+    except Exception as e:
+        logger.error(f"Sentiment Analysis Error: {e}")
         return 0.0
 
-def _parse_date(date_str: str) -> datetime:
-    """Standardizes date input for the database."""
-    return datetime.utcnow()
-
 # =====================================================
-# 🚀 INGEST REVIEWS (SYNC BUTTON)
+# 🚀 CORE SERVICE FUNCTIONS
 # =====================================================
-@router.post("/reviews/ingest/{company_id}")
-async def ingest_reviews(
-    company_id: int,
-    db: AsyncSession = Depends(get_session)
-):
-    logger.info(f"🚀 Sync triggered for company_id={company_id}")
 
-    # 1️⃣ Load company
-    result = await db.execute(
-        select(models.Company).where(models.Company.id == company_id)
-    )
-    company = result.scalar_one_or_none()
+async def sync_reviews_for_company(
+    session: AsyncSession, 
+    company_id: int, 
+    target_limit: int = 100
+) -> Dict[str, Any]:
+    """
+    Orchestrates the scraping and database persistence.
+    Matched to: document.getElementById("syncBtn").onclick (HTML)
+    """
+    try:
+        # 1. Load Company
+        res = await session.execute(select(Company).where(Company.id == company_id))
+        company = res.scalar_one_or_none()
+        
+        if not company:
+            return {"status": "error", "message": "Business entity not found"}
 
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+        logger.info(f"🔄 Sync triggered for {company.name}")
 
-    logger.info(f"🏢 Company loaded: id={company.id}, name='{company.name}'")
+        # 2. Fetch raw reviews from Scraper
+        raw_reviews = await fetch_reviews(
+            company_id=company_id, 
+            session=session, 
+            place_id=company.google_place_id,
+            target_limit=target_limit
+        )
 
-    # 2️⃣ Fetch reviews from Scraper
-    # Note: Scraper provides google_review_id, author_name, rating, text
-    reviews_data = await fetch_reviews(
-        company_id=company.id,
-        name=company.name,
-        session=db
-    )
+        new_count = 0
+        for r in raw_reviews:
+            g_id = r.get("google_review_id")
+            
+            if not g_id:
+                continue
 
-    if not reviews_data:
-        logger.warning("⚠️ No reviews fetched from scraper")
+            # 3. Duplicate Check
+            stmt = select(Review).where(Review.google_review_id == g_id)
+            existing = await session.execute(stmt)
+            if existing.scalar_one_or_none():
+                continue
+
+            # 4. Process Sentiment
+            text_body = r.get("text") or "No content"
+            sentiment = calculate_sentiment(text_body)
+
+            # 5. Create Model Instance (Aligned with 24.0.7 Schema)
+            new_review = Review(
+                company_id=company_id,
+                google_review_id=g_id,
+                author_name=r.get("author_name", "Anonymous"),
+                rating=int(r.get("rating", 0)),
+                text=text_body,
+                sentiment_score=sentiment,
+                source_platform="Google",
+                # Packs extra SerpApi data into the JSON meta column
+                meta={
+                    "likes": r.get("likes", 0),
+                    "google_time": r.get("google_review_time")
+                },
+                created_at=datetime.utcnow()
+            )
+            session.add(new_review)
+            new_count += 1
+
+        if new_count > 0:
+            await session.commit()
+            logger.info(f"✅ Successfully saved {new_count} reviews for {company.name}")
+        
         return {
-            "status": "warning",
-            "reviews_saved": 0
+            "status": "success", 
+            "reviews_count": new_count
         }
 
-    saved_count = 0
+    except Exception as e:
+        await session.rollback()
+        logger.error(f"❌ Sync Failed: {str(e)}")
+        return {"status": "error", "message": str(e)}
 
-    # 3️⃣ Save reviews
-    for r in reviews_data:
-        # Extract the ID precisely as seen in your logs
-        google_review_id = r.get("google_review_id")
 
-        # Hard safety check to prevent empty records
-        if not google_review_id or not str(google_review_id).strip():
-            logger.warning(f"⚠️ Skipping review with missing google_review_id: {r.get('author_name')}")
-            continue
+async def get_dashboard_insights(
+    session: AsyncSession, 
+    company_id: int, 
+    start_str: str, 
+    end_str: str
+) -> Dict[str, Any]:
+    """
+    Prepares data for Chart.js and KPI cards.
+    Matched to: async function triggerAllLoads() (HTML)
+    """
+    # Parse dates from frontend
+    start = datetime.strptime(start_str, '%Y-%m-%d')
+    end = datetime.strptime(end_str, '%Y-%m-%d') + timedelta(days=1)
 
-        # Deduplication check
-        existing = await db.execute(
-            select(models.Review).where(
-                models.Review.google_review_id == google_review_id
-            )
-        )
-        if existing.scalar_one_or_none():
-            continue
+    # Fetch reviews in range
+    stmt = select(Review).where(
+        Review.company_id == company_id,
+        Review.created_at >= start,
+        Review.created_at <= end
+    )
+    res = await session.execute(stmt)
+    reviews = res.scalars().all()
 
-        # Logic: Perform Sentiment Analysis before saving
-        # This is critical for the 'Customer Emotion Radar' and 'Sentiment Trend' in HTML
-        text_content = r.get("text") or "No content"
-        sentiment_score = calculate_sentiment(text_content)
+    total = len(reviews)
+    avg_rating = round(sum(r.rating for r in reviews) / total, 1) if total > 0 else 0.0
 
-        # Create the Review object
-        review = models.Review(
-            company_id=company.id,
-            google_review_id=google_review_id,
-            author_name=r.get("author_name", "Anonymous"),
-            rating=int(r.get("rating", 0)),
-            text=text_content,
-            sentiment_score=sentiment_score, # Required for Chart.js
-            source_platform="Google",
-            first_seen_at=_parse_date(r.get("google_review_time")),
-            # Pack likes/time into meta if your schema supports it
-            meta={
-                "likes": r.get("likes", 0),
-                "google_time": r.get("google_review_time")
-            }
-        )
+    # 1. Bar Chart: Rating Distribution (chartRatings)
+    dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    for r in reviews:
+        dist[r.rating] = dist.get(r.rating, 0) + 1
 
-        db.add(review)
-        saved_count += 1
-
-    # Finalize the transaction
-    if saved_count > 0:
-        await db.commit()
+    # 2. Line Chart: Sentiment Trend (chartMonthly)
+    trend_map = {}
+    for r in reviews:
+        day = r.created_at.strftime('%Y-%m-%d')
+        if day not in trend_map: trend_map[day] = []
+        trend_map[day].append(r.sentiment_score)
     
-    logger.info(f"✅ Sync complete | company: {company.name} | saved: {saved_count}")
+    sentiment_trend = [
+        {"date": d, "avg": round(sum(s)/len(s), 2)} 
+        for d, s in sorted(trend_map.items())
+    ]
 
+    # 3. Radar Chart: Emotions (chartEmotions)
+    emotions = {
+        "Positive": len([r for r in reviews if r.sentiment_score > 0.2]),
+        "Neutral": len([r for r in reviews if -0.2 <= r.sentiment_score <= 0.2]),
+        "Negative": len([r for r in reviews if r.sentiment_score < -0.2]),
+        "Critical": len([r for r in reviews if r.rating <= 2]),
+        "Satisfaction": len([r for r in reviews if r.rating >= 4])
+    }
+
+    # 100% Match to the JSON structure expected by dashboard.html
     return {
-        "status": "success",
-        "reviews_saved": saved_count
+        "metadata": {"total_reviews": total},
+        "kpis": {
+            "benchmark": {"your_avg": avg_rating},
+            "reputation_score": int(avg_rating * 20)
+        },
+        "visualizations": {
+            "ratings": list(dist.values()),
+            "sentiment_trend": sentiment_trend,
+            "emotions": emotions
+        }
+    }
+
+
+async def get_revenue_risk_data(session: AsyncSession, company_id: int) -> Dict[str, Any]:
+    """
+    Matched to: fetch(`/api/dashboard/revenue?company_id=${cid}`) (HTML)
+    """
+    res = await session.execute(select(Review).where(Review.company_id == company_id))
+    reviews = res.scalars().all()
+    total = len(reviews)
+    
+    if total == 0:
+        return {"risk_percent": 0, "impact": "N/A"}
+
+    neg = len([r for r in reviews if r.rating <= 2])
+    risk_pct = int((neg / total) * 100)
+    
+    return {
+        "risk_percent": risk_pct,
+        "impact": "CRITICAL" if risk_pct > 25 else "HIGH" if risk_pct > 15 else "STABLE"
     }
