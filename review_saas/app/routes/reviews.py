@@ -1,189 +1,155 @@
-import logging
-from typing import Dict, Any, List
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
+from app.database import get_db
+from app.models import Company, Review
+from app.schemas import ReviewCreate
+from app.utils.ai import generate_ai_answer
 from datetime import datetime, timedelta
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from textblob import TextBlob
+from fastapi import Depends
 
-# Internal imports aligned with your project structure
-from app.core.models import Review, Company
-from app.services.scraper import fetch_reviews
+router = APIRouter(prefix="/api", tags=["Reviews"])
 
-logger = logging.getLogger("app.services.review")
+# ---------------------------
+# 1. Fetch Company List
+# ---------------------------
+@router.get("/companies")
+def get_companies(db: Session = Depends(get_db)):
+    companies = db.query(Company).all()
+    return [{"id": c.id, "name": c.name} for c in companies]
 
-def calculate_sentiment(text: str) -> float:
-    """
-    Calculates polarity for the Dashboard charts.
-    Returns a float between -1.0 (Negative) and 1.0 (Positive).
-    """
-    if not text or text == "No content":
-        return 0.0
-    try:
-        # Using TextBlob for sentiment analysis as per SaaS requirements
-        analysis = TextBlob(text)
-        return round(analysis.sentiment.polarity, 2)
-    except Exception as e:
-        logger.error(f"Sentiment analysis failed: {e}")
-        return 0.0
-
-async def sync_reviews_for_company(
-    session: AsyncSession, 
-    company_id: int, 
-    target_limit: int = 100
-) -> Dict[str, Any]:
-    """
-    Orchestrates the scraping and database storage.
-    Matched to: document.getElementById("syncBtn").onclick in dashboard.html
-    Returns 'reviews_count' for the JavaScript alert().
-    """
-    try:
-        # 1. Get Company details for the Google Place ID
-        res = await session.execute(select(Company).where(Company.id == company_id))
-        company = res.scalar_one_or_none()
-        
-        if not company:
-            return {"status": "error", "message": "Business entity not found"}
-
-        # 2. Fetch raw reviews from the Scraper service
-        raw_reviews = await fetch_reviews(
-            company_id=company_id, 
-            session=session, 
-            place_id=company.place_id,
-            target_limit=target_limit
-        )
-
-        new_count = 0
-        for r in raw_reviews:
-            # Prevent Duplicates: Check if google_review_id is already in DB
-            existing_check = await session.execute(
-                select(Review).where(Review.google_review_id == r["google_review_id"])
-            )
-            if existing_check.scalar_one_or_none():
-                continue
-
-            # Calculate sentiment for the new review
-            sentiment = calculate_sentiment(r["text"])
-
-            # Create Database Record (Matches Architect Schema)
-            new_review = Review(
-                company_id=company_id,
-                google_review_id=r["google_review_id"],
-                author_name=r["author_name"],
-                rating=r["rating"],
-                text=r["text"],
-                sentiment_score=sentiment,
-                created_at=datetime.utcnow()
-            )
-            session.add(new_review)
-            new_count += 1
-
-        # 3. Finalize transaction
-        if new_count > 0:
-            await session.commit()
-        
-        return {
-            "status": "success", 
-            "reviews_count": new_count
-        }
-
-    except Exception as e:
-        await session.rollback()
-        logger.error(f"Critical Sync Error: {str(e)}")
-        return {"status": "error", "message": str(e)}
-
-async def get_dashboard_insights(
-    session: AsyncSession, 
-    company_id: int, 
-    start_str: str, 
-    end_str: str
-) -> Dict[str, Any]:
-    """
-    Prepares data for Chart.js and KPI cards.
-    Matched to: async function triggerAllLoads() in dashboard.html
-    """
-    # Parse dates from frontend input
-    try:
-        start = datetime.strptime(start_str, '%Y-%m-%d')
-        end = datetime.strptime(end_str, '%Y-%m-%d') + timedelta(days=1)
-    except ValueError:
-        start = datetime.utcnow() - timedelta(days=365)
-        end = datetime.utcnow() + timedelta(days=1)
-
-    # Query reviews within the selected date range
-    stmt = select(Review).where(
-        Review.company_id == company_id,
-        Review.created_at >= start,
-        Review.created_at <= end
+# ---------------------------
+# 2. Add New Company
+# ---------------------------
+@router.post("/companies")
+def add_company(company: ReviewCreate, db: Session = Depends(get_db)):
+    new_company = Company(
+        name=company.name,
+        place_id=company.place_id,
+        address=company.address,
+        created_at=datetime.utcnow()
     )
-    res = await session.execute(stmt)
-    reviews = res.scalars().all()
+    db.add(new_company)
+    db.commit()
+    db.refresh(new_company)
+    return {"id": new_company.id, "name": new_company.name}
 
-    total = len(reviews)
-    avg_rating = round(sum(r.rating for r in reviews) / total, 1) if total > 0 else 0.0
+# ---------------------------
+# 3. Ingest Reviews (Scraper Trigger)
+# ---------------------------
+@router.post("/reviews/ingest/{company_id}")
+def ingest_reviews(company_id: int, db: Session = Depends(get_db)):
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
 
-    # 1. Rating Distribution (Bar Chart: chartRatings)
-    # Ordered array [1*, 2*, 3*, 4*, 5*]
-    dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    # Simulate scraper ingestion
+    from app.utils.scraper import fetch_reviews_for_company
+    reviews_list = fetch_reviews_for_company(company.place_id)
+
+    # Save reviews to DB
+    count = 0
+    for r in reviews_list:
+        review = Review(
+            company_id=company.id,
+            reviewer_name=r.get("reviewer_name"),
+            rating=r.get("rating"),
+            comment=r.get("comment"),
+            sentiment=r.get("sentiment"),
+            created_at=r.get("created_at", datetime.utcnow())
+        )
+        db.add(review)
+        count += 1
+    db.commit()
+    return {"reviews_count": count}
+
+# ---------------------------
+# 4. AI Insights & KPIs
+# ---------------------------
+@router.get("/ai/insights")
+def get_ai_insights(company_id: int, start: str = None, end: str = None, db: Session = Depends(get_db)):
+    start_dt = datetime.strptime(start, "%Y-%m-%d") if start else datetime.utcnow() - timedelta(days=365)
+    end_dt = datetime.strptime(end, "%Y-%m-%d") if end else datetime.utcnow()
+
+    reviews = db.query(Review).filter(
+        Review.company_id == company_id,
+        Review.created_at >= start_dt,
+        Review.created_at <= end_dt
+    ).all()
+
+    total_reviews = len(reviews)
+    avg_rating = round(sum([r.rating for r in reviews]) / total_reviews, 2) if total_reviews > 0 else 0
+
+    # Sentiment trend (weekly)
+    trend = {}
     for r in reviews:
-        dist[r.rating] = dist.get(r.rating, 0) + 1
+        week = r.created_at.strftime("%Y-%W")
+        if week not in trend:
+            trend[week] = []
+        trend[week].append(r.sentiment or 0)
+    sentiment_trend = [{"week": w, "avg": round(sum(v)/len(v), 2)} for w, v in trend.items()]
 
-    # 2. Sentiment Trend (Line Chart: chartMonthly)
-    trend_map = {}
+    # Emotion Radar (simulate)
+    emotions = {"happy": 0, "angry": 0, "sad": 0, "neutral": 0}
     for r in reviews:
-        day = r.created_at.strftime('%Y-%m-%d')
-        if day not in trend_map:
-            trend_map[day] = []
-        trend_map[day].append(r.sentiment_score)
-    
-    sentiment_trend = [
-        {"date": d, "avg": round(sum(scores)/len(scores), 2)} 
-        for d, scores in sorted(trend_map.items())
-    ]
+        s = r.sentiment or 0
+        if s > 0.5:
+            emotions["happy"] += 1
+        elif s < -0.5:
+            emotions["angry"] += 1
+        elif -0.5 <= s < 0:
+            emotions["sad"] += 1
+        else:
+            emotions["neutral"] += 1
 
-    # 3. Emotions (Radar Chart: chartEmotions)
-    emotions = {
-        "Positive": len([r for r in reviews if r.sentiment_score > 0.2]),
-        "Neutral": len([r for r in reviews if -0.2 <= r.sentiment_score <= 0.2]),
-        "Negative": len([r for r in reviews if r.sentiment_score < -0.2]),
-        "Critical": len([r for r in reviews if r.rating <= 2]),
-        "Satisfaction": len([r for r in reviews if r.rating >= 4])
-    }
+    # Ratings distribution
+    ratings_dist = {1:0,2:0,3:0,4:0,5:0}
+    for r in reviews:
+        ratings_dist[r.rating] += 1
 
-    # Final Payload matching the exact JavaScript keys in dashboard.html
     return {
-        "metadata": {
-            "total_reviews": total
-        },
+        "metadata": {"total_reviews": total_reviews},
         "kpis": {
-            "benchmark": {
-                "your_avg": avg_rating
-            },
-            "reputation_score": int(avg_rating * 20)
+            "benchmark": {"your_avg": avg_rating},
+            "reputation_score": round(sum([r.sentiment or 0 for r in reviews]),2)
         },
         "visualizations": {
-            "ratings": list(dist.values()),
+            "emotions": emotions,
             "sentiment_trend": sentiment_trend,
-            "emotions": emotions
+            "ratings": ratings_dist
         }
     }
 
-async def get_revenue_risk_data(session: AsyncSession, company_id: int) -> Dict[str, Any]:
-    """
-    Calculates loss probability for the Risk Monitoring card.
-    Matched to: fetch(`/api/dashboard/revenue?company_id=${cid}`)
-    """
-    res = await session.execute(select(Review).where(Review.company_id == company_id))
-    reviews = res.scalars().all()
-    
-    total = len(reviews)
-    if total == 0:
+# ---------------------------
+# 5. Revenue Risk Endpoint
+# ---------------------------
+@router.get("/dashboard/revenue")
+def revenue_risk(company_id: int, db: Session = Depends(get_db)):
+    # Simple example: risk based on number of negative reviews
+    reviews = db.query(Review).filter(Review.company_id == company_id).all()
+    if not reviews:
         return {"risk_percent": 0, "impact": "N/A"}
 
-    # Calculate percentage of reviews with 2 stars or less
-    neg = len([r for r in reviews if r.rating <= 2])
-    risk_pct = int((neg / total) * 100)
-    
-    return {
-        "risk_percent": risk_pct,
-        "impact": "CRITICAL" if risk_pct > 25 else "HIGH" if risk_pct > 15 else "STABLE"
-    }
+    negative_count = len([r for r in reviews if (r.sentiment or 0) < -0.3])
+    total = len(reviews)
+    risk_percent = round((negative_count / total) * 100, 2)
+
+    impact = "High" if risk_percent > 50 else "Medium" if risk_percent > 20 else "Low"
+
+    return {"risk_percent": risk_percent, "impact": impact}
+
+# ---------------------------
+# 6. AI Chat Endpoint
+# ---------------------------
+@router.post("/dashboard/chat")
+async def ai_chat(company_id: int, request: Request, db: Session = Depends(get_db)):
+    payload = await request.json()
+    question = payload if isinstance(payload, str) else payload.get("question", "")
+    if not question:
+        raise HTTPException(status_code=400, detail="No question provided")
+
+    # Simulate AI response
+    reviews = db.query(Review).filter(Review.company_id == company_id).all()
+    answer = generate_ai_answer(question, reviews)  # from utils.ai
+
+    return JSONResponse({"answer": answer})
