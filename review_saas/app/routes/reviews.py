@@ -1,10 +1,13 @@
 import logging
 from datetime import datetime
+from typing import Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from textblob import TextBlob
 
+# Core imports
 from app.core.db import get_session
 from app.core import models
 from app.services.scraper import fetch_reviews
@@ -13,6 +16,21 @@ logger = logging.getLogger("app.reviews")
 
 router = APIRouter()
 
+# =====================================================
+# 🛠 HELPERS
+# =====================================================
+def calculate_sentiment(text: str) -> float:
+    """Calculates polarity score (-1.0 to 1.0) for the dashboard charts."""
+    if not text or text == "No content":
+        return 0.0
+    try:
+        return round(TextBlob(text).sentiment.polarity, 2)
+    except Exception:
+        return 0.0
+
+def _parse_date(date_str: str) -> datetime:
+    """Standardizes date input for the database."""
+    return datetime.utcnow()
 
 # =====================================================
 # 🚀 INGEST REVIEWS (SYNC BUTTON)
@@ -35,15 +53,16 @@ async def ingest_reviews(
 
     logger.info(f"🏢 Company loaded: id={company.id}, name='{company.name}'")
 
-    # 2️⃣ Fetch reviews
-    reviews = await fetch_reviews(
+    # 2️⃣ Fetch reviews from Scraper
+    # Note: Scraper provides google_review_id, author_name, rating, text
+    reviews_data = await fetch_reviews(
         company_id=company.id,
         name=company.name,
         session=db
     )
 
-    if not reviews:
-        logger.warning("⚠️ No reviews fetched")
+    if not reviews_data:
+        logger.warning("⚠️ No reviews fetched from scraper")
         return {
             "status": "warning",
             "reviews_saved": 0
@@ -52,18 +71,16 @@ async def ingest_reviews(
     saved_count = 0
 
     # 3️⃣ Save reviews
-    for r in reviews:
-        # ✅ CORRECT KEY (THIS IS THE FIX)
+    for r in reviews_data:
+        # Extract the ID precisely as seen in your logs
         google_review_id = r.get("google_review_id")
 
-        # ✅ HARD SAFETY CHECK
+        # Hard safety check to prevent empty records
         if not google_review_id or not str(google_review_id).strip():
-            logger.warning(
-                f"⚠️ Skipping review with truly missing google_review_id: {r}"
-            )
+            logger.warning(f"⚠️ Skipping review with missing google_review_id: {r.get('author_name')}")
             continue
 
-        # ✅ Deduplication
+        # Deduplication check
         existing = await db.execute(
             select(models.Review).where(
                 models.Review.google_review_id == google_review_id
@@ -72,38 +89,38 @@ async def ingest_reviews(
         if existing.scalar_one_or_none():
             continue
 
+        # Logic: Perform Sentiment Analysis before saving
+        # This is critical for the 'Customer Emotion Radar' and 'Sentiment Trend' in HTML
+        text_content = r.get("text") or "No content"
+        sentiment_score = calculate_sentiment(text_content)
+
+        # Create the Review object
         review = models.Review(
             company_id=company.id,
             google_review_id=google_review_id,
-            review_url=r.get("review_url"),
             author_name=r.get("author_name", "Anonymous"),
-            rating=r.get("rating", 0),
-            text=r.get("text", ""),
+            rating=int(r.get("rating", 0)),
+            text=text_content,
+            sentiment_score=sentiment_score, # Required for Chart.js
             source_platform="Google",
-            first_seen_at=_parse_date(r.get("google_review_time"))
+            first_seen_at=_parse_date(r.get("google_review_time")),
+            # Pack likes/time into meta if your schema supports it
+            meta={
+                "likes": r.get("likes", 0),
+                "google_time": r.get("google_review_time")
+            }
         )
 
         db.add(review)
         saved_count += 1
 
-    await db.commit()
-
-    logger.info(
-        f"✅ Sync complete for company_id={company.id}, "
-        f"reviews_saved={saved_count}"
-    )
+    # Finalize the transaction
+    if saved_count > 0:
+        await db.commit()
+    
+    logger.info(f"✅ Sync complete | company: {company.name} | saved: {saved_count}")
 
     return {
         "status": "success",
         "reviews_saved": saved_count
     }
-
-
-# =====================================================
-# 🛠 HELPER
-# =====================================================
-def _parse_date(date_str):
-    try:
-        return datetime.utcnow()
-    except Exception:
-        return datetime.utcnow()
