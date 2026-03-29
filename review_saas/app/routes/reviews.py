@@ -11,25 +11,31 @@ from app.services.scraper import fetch_reviews
 from app.core.models import Review
 
 logger = logging.getLogger("app.reviews")
+
+# Router definition
 router = APIRouter(prefix="/reviews", tags=["Reviews"])
 
 @router.get("/ingest_100/{company_id}")
 async def ingest_100_reviews(company_id: int, db: AsyncSession = Depends(get_session)):
     """
-    DEEP INGEST: Fetches 100 reviews and FORCES a Postgres Commit.
+    100% COMPLETE INGEST:
+    Triggers the SerpApi scraper and FORCES the Postgres save.
     """
-    logger.info(f"🚀 DATABASE SYNC START: Company ID {company_id}")
+    logger.info(f"🚀 MANUAL TRIGGER: Ingesting 100 reviews for Company {company_id}")
     
     try:
-        # 1. Fetch 100 reviews from scraper
+        # 1. Fetch 100 reviews from your scraper
+        # This will now appear in your logs as soon as you hit the URL
         data = await fetch_reviews(company_id=company_id, session=db, target_limit=100)
         
         if not data:
-            return {"status": "info", "message": "No data found to save."}
+            logger.warning("⚠️ Scraper returned 0 reviews. Check SerpApi API Key/Credits.")
+            return {"status": "info", "message": "No reviews found to fetch."}
 
-        # 2. ATOMIC TRANSACTION: This forces the save to Railway
+        # 2. FORCE THE SAVE (The Atomic Transaction)
+        # This is the fix for "fetched but not saved"
         async with db.begin():
-            new_saved = 0
+            new_count = 0
             for r in data:
                 stmt = insert(Review).values(
                     company_id=company_id,
@@ -38,9 +44,9 @@ async def ingest_100_reviews(company_id: int, db: AsyncSession = Depends(get_ses
                     rating=r["rating"],
                     text=r["text"],
                     google_review_time=r["google_review_time"],
-                    review_likes=r["likes"],
+                    review_likes=r.get("likes", 0),
                     source_platform="Google",
-                    # Metrics for Dashboard
+                    # Dashboard Metrics
                     is_praise=True if r["rating"] >= 4 else False,
                     is_complaint=True if r["rating"] <= 2 else False,
                     first_seen_at=datetime.utcnow(),
@@ -49,22 +55,23 @@ async def ingest_100_reviews(company_id: int, db: AsyncSession = Depends(get_ses
                 
                 result = await db.execute(stmt)
                 if result.rowcount > 0:
-                    new_saved += 1
+                    new_count += 1
 
-        logger.info(f"✅ DATABASE SYNC COMPLETE: {new_saved} new records stored.")
+        logger.info(f"✅ SUCCESS: {new_count} new reviews saved to Postgres.")
+        
         return {
-            "status": "success", 
-            "total_fetched": len(data), 
-            "newly_saved": new_saved,
-            "message": "100 reviews are now permanent in Postgres."
+            "status": "success",
+            "fetched": len(data),
+            "newly_saved": new_count,
+            "message": f"Successfully ingested {new_count} reviews."
         }
 
     except Exception as e:
-        logger.error(f"❌ DB Sync Failed: {str(e)}", exc_info=True)
+        logger.error(f"❌ DATABASE ERROR: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/status/{company_id}")
-async def get_db_count(company_id: int, db: AsyncSession = Depends(get_session)):
-    """Verify how many reviews are actually in the DB."""
+@router.get("/check_db/{company_id}")
+async def check_db(company_id: int, db: AsyncSession = Depends(get_session)):
+    """Helper to verify if data is actually there."""
     res = await db.execute(select(func.count(Review.id)).where(Review.company_id == company_id))
-    return {"total_in_db": res.scalar()}
+    return {"total_records_in_postgres": res.scalar()}
