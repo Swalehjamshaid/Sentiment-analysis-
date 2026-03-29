@@ -1,40 +1,39 @@
 import logging
 from typing import Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from textblob import TextBlob
 
-# Internal imports matching your file structure
+# Internal imports
 from app.core.models import Review, Company
 from app.services.scraper import fetch_reviews
 
 logger = logging.getLogger("app.reviews")
 
-# =====================================================
-# 🚀 CORE DATA PIPELINE (100% COMPLETE)
-# =====================================================
+def calculate_sentiment(text: str) -> float:
+    """Calculates polarity score (-1.0 to 1.0) for charts."""
+    if not text or text == "No content":
+        return 0.0
+    try:
+        return round(TextBlob(text).sentiment.polarity, 2)
+    except Exception:
+        return 0.0
 
 async def sync_reviews_for_company(
     session: AsyncSession, 
     company_id: int, 
     target_limit: int = 100
 ) -> Dict[str, Any]:
-    """
-    1. Receives company_id from Frontend.
-    2. Calls Scraper (scraper.py).
-    3. Saves results directly to Postgres.
-    """
+    """Scraper -> Sentiment -> Postgres Mapping."""
     try:
-        # 1. Identify the Business in the Database
+        # 1. Load Company
         res = await session.execute(select(Company).where(Company.id == company_id))
         company = res.scalar_one_or_none()
-        
         if not company:
-            logger.error(f"❌ Company ID {company_id} not found in database.")
             return {"status": "error", "message": "Business not found"}
 
-        # 2. Trigger the Scraper (scraper.py)
-        # Passes the place_id stored in your 'companies' table
+        # 2. Fetch from your SerpApi Scraper (scraper.py)
         raw_reviews = await fetch_reviews(
             company_id=company_id, 
             session=session, 
@@ -42,60 +41,47 @@ async def sync_reviews_for_company(
             target_limit=target_limit
         )
 
-        if not raw_reviews:
-            logger.warning(f"⚠️ Scraper returned 0 results for {company.name}")
-            return {"status": "success", "reviews_count": 0}
-
-        saved_count = 0
+        new_count = 0
         for r in raw_reviews:
+            # Matches 'review_id' mapped to 'google_review_id' in scraper.py
             g_id = r.get("google_review_id")
-            
-            if not g_id:
-                continue
+            if not g_id: continue
 
-            # 3. Duplicate Prevention (Check if ID exists in Postgres)
+            # 3. Duplicate Check
             stmt = select(Review).where(Review.google_review_id == g_id)
             existing = await session.execute(stmt)
-            if existing.scalar_one_or_none():
-                continue
+            if existing.scalar_one_or_none(): continue
 
-            # 4. Map Scraper Data to Postgres Columns
+            # 4. Process and Save (v24.0.7 Schema)
+            sentiment = calculate_sentiment(r.get("text", ""))
             new_review = Review(
                 company_id=company_id,
                 google_review_id=g_id,
                 author_name=r.get("author_name", "Anonymous"),
                 rating=int(r.get("rating", 0)),
                 text=r.get("text", "No content"),
+                sentiment_score=sentiment,
                 source_platform="Google",
-                # Save extra data (likes/time) into the JSON meta column
+                # Packs likes and time into the JSON meta column
                 meta={
                     "likes": r.get("likes", 0),
                     "google_time": r.get("google_review_time")
                 },
                 created_at=datetime.utcnow()
             )
-            
             session.add(new_review)
             new_count += 1
 
-        # 5. Commit all records to Postgres
         if new_count > 0:
             await session.commit()
             logger.info(f"✅ Saved {new_count} reviews to Postgres for {company.name}")
         
-        return {
-            "status": "success", 
-            "reviews_count": new_count
-        }
+        return {"status": "success", "reviews_count": new_count}
 
     except Exception as e:
         await session.rollback()
-        logger.error(f"❌ Database Save Error: {str(e)}")
+        logger.error(f"❌ Sync failed: {e}")
         return {"status": "error", "message": str(e)}
-
-# =====================================================
-# 📊 DASHBOARD DATA AGGREGATION
-# =====================================================
 
 async def get_dashboard_insights(
     session: AsyncSession, 
@@ -103,24 +89,43 @@ async def get_dashboard_insights(
     start_str: str, 
     end_str: str
 ) -> Dict[str, Any]:
-    """Provides the counts and ratings for the UI cards."""
-    # Simple query to get total count for the 'Absolute Total Records' card
-    stmt = select(Review).where(Review.company_id == company_id)
+    """Matches the visualization logic needed for dashboard.html"""
+    try:
+        start = datetime.strptime(start_str, '%Y-%m-%d')
+        end = datetime.strptime(end_str, '%Y-%m-%d') + timedelta(days=1)
+    except:
+        end = datetime.utcnow()
+        start = end - timedelta(days=30)
+
+    stmt = select(Review).where(
+        Review.company_id == company_id,
+        Review.created_at >= start,
+        Review.created_at <= end
+    )
     res = await session.execute(stmt)
     reviews = res.scalars().all()
 
     total = len(reviews)
-    
-    # Return structure matching your dashboard.html triggerAllLoads()
+    avg_rating = round(sum(r.rating for r in reviews) / total, 1) if total > 0 else 0.0
+
+    # UI Aggregations
+    dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    for r in reviews: dist[r.rating] += 1
+
+    emotions = {
+        "Positive": len([r for r in reviews if r.sentiment_score > 0.2]),
+        "Neutral": len([r for r in reviews if -0.2 <= r.sentiment_score <= 0.2]),
+        "Negative": len([r for r in reviews if r.sentiment_score < -0.2]),
+        "Critical": len([r for r in reviews if r.rating <= 2]),
+        "Satisfaction": len([r for r in reviews if r.rating >= 4])
+    }
+
     return {
         "metadata": {"total_reviews": total},
-        "kpis": {
-            "benchmark": {"your_avg": 0.0}, # Placeholder
-            "reputation_score": 0
-        },
+        "kpis": {"benchmark": {"your_avg": avg_rating}, "reputation_score": int(avg_rating * 20)},
         "visualizations": {
-            "ratings": [0,0,0,0,0],
-            "sentiment_trend": [],
-            "emotions": {}
+            "ratings": list(dist.values()), 
+            "sentiment_trend": [], # Simplified for now
+            "emotions": emotions
         }
     }
