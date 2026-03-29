@@ -1,3 +1,5 @@
+# Filename: app/routes/reviews.py
+
 import logging
 from datetime import datetime
 
@@ -9,12 +11,16 @@ from app.core.db import get_session
 from app.core import models
 from app.services.scraper import fetch_reviews
 
-# Correct logger initialization
+# ---------------------------
+# Logger
+# ---------------------------
 logger = logging.getLogger("app.reviews")
 
 router = APIRouter()
 
-
+# ---------------------------
+# API Endpoint: Ingest Reviews
+# ---------------------------
 @router.post("/reviews/ingest/{company_id}")
 async def ingest_reviews(
     company_id: int,
@@ -68,7 +74,6 @@ async def ingest_reviews(
             review_url=review_url,
             rating=r.get("rating", 5),
             text=r.get("text", ""),
-            sentiment=None,
             created_at=_parse_date(r.get("google_review_time"))
         )
 
@@ -88,6 +93,9 @@ async def ingest_reviews(
     }
 
 
+# ---------------------------
+# Helper: Parse Date
+# ---------------------------
 def _parse_date(date_str):
     try:
         return datetime.fromisoformat(date_str) if date_str else datetime.utcnow()
