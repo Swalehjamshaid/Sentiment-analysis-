@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from textblob import TextBlob
 
-# Internal imports aligned with your core models and scraper
+# Internal imports aligned with your project structure
 from app.core.models import Review, Company
 from app.services.scraper import fetch_reviews
 
@@ -33,7 +33,8 @@ async def sync_reviews_for_company(
 ) -> Dict[str, Any]:
     """
     Orchestrates the scraping and database storage.
-    Matched to: document.getElementById("syncBtn").onclick
+    Matched to: document.getElementById("syncBtn").onclick in dashboard.html
+    Returns 'reviews_count' for the JavaScript alert().
     """
     try:
         # 1. Get Company details for the Google Place ID
@@ -63,7 +64,7 @@ async def sync_reviews_for_company(
             # Calculate sentiment for the new review
             sentiment = calculate_sentiment(r["text"])
 
-            # Create Database Record
+            # Create Database Record (Matches Architect Schema)
             new_review = Review(
                 company_id=company_id,
                 google_review_id=r["google_review_id"],
@@ -98,11 +99,15 @@ async def get_dashboard_insights(
 ) -> Dict[str, Any]:
     """
     Prepares data for Chart.js and KPI cards.
-    Matched to: async function triggerAllLoads()
+    Matched to: async function triggerAllLoads() in dashboard.html
     """
     # Parse dates from frontend input
-    start = datetime.strptime(start_str, '%Y-%m-%d')
-    end = datetime.strptime(end_str, '%Y-%m-%d') + timedelta(days=1)
+    try:
+        start = datetime.strptime(start_str, '%Y-%m-%d')
+        end = datetime.strptime(end_str, '%Y-%m-%d') + timedelta(days=1)
+    except ValueError:
+        start = datetime.utcnow() - timedelta(days=365)
+        end = datetime.utcnow() + timedelta(days=1)
 
     # Query reviews within the selected date range
     stmt = select(Review).where(
@@ -144,7 +149,7 @@ async def get_dashboard_insights(
         "Satisfaction": len([r for r in reviews if r.rating >= 4])
     }
 
-    # Final Payload matching the JavaScript keys in dashboard.html
+    # Final Payload matching the exact JavaScript keys in dashboard.html
     return {
         "metadata": {
             "total_reviews": total
