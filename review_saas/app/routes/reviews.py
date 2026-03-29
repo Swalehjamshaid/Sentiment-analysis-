@@ -1,77 +1,106 @@
-# filename: app/routes/reviews.py
 import logging
-from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from typing import List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import select, func
+from sqlalchemy import select
+from textblob import TextBlob  # Assuming TextBlob for sentiment as per SaaS goals
 
-from app.core.db import get_session
-from app.services.scraper import fetch_reviews 
-from app.core.models import Review
+from app.core.models import Review, Company
+from app.services.scraper import fetch_reviews
 
-logger = logging.getLogger("app.reviews")
+logger = logging.getLogger("app.services.review")
 
-# Router definition
-router = APIRouter(prefix="/reviews", tags=["Reviews"])
-
-@router.get("/ingest_100/{company_id}")
-async def ingest_100_reviews(company_id: int, db: AsyncSession = Depends(get_session)):
+def calculate_sentiment(text: str) -> float:
     """
-    100% COMPLETE INGEST:
-    Triggers the SerpApi scraper and FORCES the Postgres save.
+    Calculates a sentiment score between -1.0 (Negative) and 1.0 (Positive).
     """
-    logger.info(f"🚀 MANUAL TRIGGER: Ingesting 100 reviews for Company {company_id}")
-    
+    if not text or text == "No content":
+        return 0.0
+    return TextBlob(text).sentiment.polarity
+
+async def sync_reviews_for_company(
+    session: AsyncSession, 
+    company_id: int, 
+    target_limit: int = 100
+) -> Dict[str, Any]:
+    """
+    Orchestrates the scraping, sentiment analysis, and database storage.
+    """
     try:
-        # 1. Fetch 100 reviews from your scraper
-        # This will now appear in your logs as soon as you hit the URL
-        data = await fetch_reviews(company_id=company_id, session=db, target_limit=100)
+        # 1. Verify Company exists
+        res = await session.execute(select(Company).where(Company.id == company_id))
+        company = res.scalar_one_or_none()
         
-        if not data:
-            logger.warning("⚠️ Scraper returned 0 reviews. Check SerpApi API Key/Credits.")
-            return {"status": "info", "message": "No reviews found to fetch."}
+        if not company:
+            return {"status": "error", "message": f"Company ID {company_id} not found"}
 
-        # 2. FORCE THE SAVE (The Atomic Transaction)
-        # This is the fix for "fetched but not saved"
-        async with db.begin():
-            new_count = 0
-            for r in data:
-                stmt = insert(Review).values(
-                    company_id=company_id,
-                    google_review_id=r["google_review_id"],
-                    author_name=r["author_name"],
-                    rating=r["rating"],
-                    text=r["text"],
-                    google_review_time=r["google_review_time"],
-                    review_likes=r.get("likes", 0),
-                    source_platform="Google",
-                    # Dashboard Metrics
-                    is_praise=True if r["rating"] >= 4 else False,
-                    is_complaint=True if r["rating"] <= 2 else False,
-                    first_seen_at=datetime.utcnow(),
-                    last_updated_at=datetime.utcnow()
-                ).on_conflict_do_nothing(index_elements=['google_review_id'])
-                
-                result = await db.execute(stmt)
-                if result.rowcount > 0:
-                    new_count += 1
+        # 2. Fetch raw data from the Scraper service
+        # Uses the place_id stored in the Company model or falls back to name
+        raw_reviews = await fetch_reviews(
+            company_id=company_id, 
+            session=session, 
+            place_id=company.place_id,
+            target_limit=target_limit
+        )
 
-        logger.info(f"✅ SUCCESS: {new_count} new reviews saved to Postgres.")
+        if not raw_reviews:
+            return {"status": "warning", "message": "No new reviews found via SerpApi"}
+
+        new_count = 0
+        for r in raw_reviews:
+            # 3. Prevent Duplicates: Check if review already exists
+            existing_check = await session.execute(
+                select(Review).where(Review.google_review_id == r["google_review_id"])
+            )
+            if existing_check.scalar_one_or_none():
+                continue
+
+            # 4. Perform Sentiment Analysis
+            sentiment_score = calculate_sentiment(r["text"])
+
+            # 5. Create Model Instance (Aligned with the Architect doc)
+            new_review = Review(
+                company_id=company_id,
+                google_review_id=r["google_review_id"],
+                author_name=r["author_name"],
+                rating=r["rating"],
+                text=r["text"],
+                sentiment_score=sentiment_score,
+                # Additional fields from your scraper
+                meta={
+                    "likes": r.get("likes", 0),
+                    "original_date": r.get("google_review_time")
+                }
+            )
+            session.add(new_review)
+            new_count += 1
+
+        # 6. Commit changes to Database
+        if new_count > 0:
+            await session.commit()
+            logger.info(f"Successfully synced {new_count} reviews for {company.name}")
         
         return {
-            "status": "success",
-            "fetched": len(data),
-            "newly_saved": new_count,
-            "message": f"Successfully ingested {new_count} reviews."
+            "status": "success", 
+            "new_reviews_added": new_count,
+            "total_fetched": len(raw_reviews)
         }
 
     except Exception as e:
-        logger.error(f"❌ DATABASE ERROR: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        await session.rollback()
+        logger.error(f"Failed to sync reviews: {str(e)}")
+        return {"status": "error", "message": str(e)}
 
-@router.get("/check_db/{company_id}")
-async def check_db(company_id: int, db: AsyncSession = Depends(get_session)):
-    """Helper to verify if data is actually there."""
-    res = await db.execute(select(func.count(Review.id)).where(Review.company_id == company_id))
-    return {"total_records_in_postgres": res.scalar()}
+async def get_dashboard_stats(session: AsyncSession, company_id: int):
+    """
+    Helper to fetch stats specifically for the Chart.js frontend.
+    """
+    result = await session.execute(
+        select(Review).where(Review.company_id == company_id)
+    )
+    reviews = result.scalars().all()
+    
+    return {
+        "total": len(reviews),
+        "avg_rating": sum(r.rating for r in reviews) / len(reviews) if reviews else 0,
+        "sentiment_avg": sum(r.sentiment_score for r in reviews) / len(reviews) if reviews else 0
+    }
