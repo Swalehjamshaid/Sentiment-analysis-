@@ -1,5 +1,3 @@
-# app/routes/reviews.py
-
 import logging
 from datetime import datetime
 
@@ -11,7 +9,6 @@ from app.core.db import get_session
 from app.core import models
 from app.services.scraper import fetch_reviews
 
-# ✅ FIX 1: Correct logger initialization
 logger = logging.getLogger("app.reviews")
 
 router = APIRouter()
@@ -22,13 +19,8 @@ async def ingest_reviews(
     company_id: int,
     db: AsyncSession = Depends(get_session)
 ):
-    """
-    Trigger live review sync for a company.
-    """
-
     logger.info(f"🚀 Sync triggered for company_id={company_id}")
 
-    # ✅ FIX 2: Load company safely
     result = await db.execute(
         select(models.Company).where(models.Company.id == company_id)
     )
@@ -39,14 +31,13 @@ async def ingest_reviews(
 
     logger.info(f"🏢 Company loaded: id={company.id}, name='{company.name}'")
 
-    # ✅ FIX 3: Call scraper (UNCHANGED logic)
     reviews = await fetch_reviews(
         company_id=company.id,
         session=db
     )
 
     if not reviews:
-        logger.warning("⚠️ No reviews fetched from scraper")
+        logger.warning("⚠️ No reviews fetched")
         return {
             "status": "warning",
             "reviews_saved": 0
@@ -54,14 +45,11 @@ async def ingest_reviews(
 
     saved_count = 0
 
-    # ✅ FIX 4: Correct field mapping from scraper → DB
     for r in reviews:
-        review_id = r.get("google_review_id")  # ✅ CRITICAL FIX
-
+        review_id = r.get("google_review_id")
         if not review_id:
             continue
 
-        # ✅ Skip duplicates
         existing = await db.execute(
             select(models.Review).where(
                 models.Review.review_id == review_id
@@ -96,10 +84,8 @@ async def ingest_reviews(
     }
 
 
-# ✅ Helper: Safe date parser
 def _parse_date(date_str):
     try:
         return datetime.fromisoformat(date_str) if date_str else datetime.utcnow()
     except Exception:
         return datetime.utcnow()
-``
