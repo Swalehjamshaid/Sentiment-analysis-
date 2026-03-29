@@ -22,7 +22,7 @@ from app.core.db import Base
 # ---------------------------------------------------
 # SCHEMA VERSION (Updated to trigger the new table)
 # ---------------------------------------------------
-SCHEMA_VERSION = "24.0.6-added-company-cid-table"
+SCHEMA_VERSION = "25.0.6-added-company-cid-table"
 
 # ---------------------------------------------------
 # Users Table
