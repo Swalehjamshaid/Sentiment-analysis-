@@ -1,139 +1,97 @@
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+import requests
+import os
 import logging
-import asyncio
-from typing import List, Dict, Any, Optional
-from datetime import datetime
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from textblob import TextBlob
 
-# Internal imports aligned with your project structure
-from app.core.models import Review, Company
-from app.services.scraper import fetch_reviews
+# =========================
+# INIT
+# =========================
+router = APIRouter()
+logger = logging.getLogger(__name__)
 
-logger = logging.getLogger("app.services.review")
+SERP_API_KEY = os.getenv("SERP_API_KEY")
 
-def calculate_sentiment(text: str) -> float:
+
+# =========================
+# REQUEST MODEL (Dashboard)
+# =========================
+class ReviewRequest(BaseModel):
+    place_id: str
+
+
+# =========================
+# CORE FUNCTION
+# =========================
+def fetch_reviews_from_serpapi(place_id: str):
+    if not SERP_API_KEY:
+        raise Exception("SERP_API_KEY not set")
+
+    url = "https://serpapi.com/search.json"
+
+    params = {
+        "engine": "google_maps_reviews",
+        "place_id": place_id,
+        "api_key": SERP_API_KEY
+    }
+
+    response = requests.get(url, params=params)
+    data = response.json()
+
+    reviews = []
+
+    for r in data.get("reviews", []):
+        reviews.append({
+            "user": r.get("user", {}).get("name"),
+            "rating": r.get("rating"),
+            "comment": r.get("snippet"),
+            "date": r.get("date")
+        })
+
+    return reviews
+
+
+# =========================
+# POST API (Dashboard Trigger)
+# =========================
+@router.post("/reviews/fetch")
+def fetch_reviews(payload: ReviewRequest):
     """
-    Analyzes text to return a polarity score between -1.0 and 1.0.
-    Used for the Dashboard Sentiment doughnut chart.
+    Triggered from dashboard
     """
-    if not text or text == "No content":
-        return 0.0
     try:
-        analysis = TextBlob(text)
-        return round(analysis.sentiment.polarity, 2)
-    except Exception as e:
-        logger.error(f"Sentiment analysis failed: {e}")
-        return 0.0
+        logger.info(f"📥 Fetching reviews for place_id: {payload.place_id}")
 
-async def sync_reviews_for_company(
-    session: AsyncSession, 
-    company_id: int, 
-    target_limit: int = 100
-) -> Dict[str, Any]:
-    """
-    Main orchestration service:
-    1. Fetches raw data from SerpApi via scraper.py
-    2. Filters out existing reviews using google_review_id
-    3. Calculates sentiment for new reviews
-    4. Saves to database and commits session
-    """
-    try:
-        # Step 1: Fetch Company details to get the stored place_id
-        stmt = select(Company).where(Company.id == company_id)
-        result = await session.execute(stmt)
-        company = result.scalar_one_or_none()
-        
-        if not company:
-            return {"status": "error", "message": f"Company ID {company_id} not found"}
-
-        logger.info(f"🔄 Starting sync for {company.name} (ID: {company_id})")
-
-        # Step 2: Get raw review data from Scraper
-        # Pass the company.place_id if it exists, otherwise scraper falls back to name
-        raw_data = await fetch_reviews(
-            company_id=company_id, 
-            session=session, 
-            place_id=company.place_id,
-            target_limit=target_limit
-        )
-
-        if not raw_data:
-            return {
-                "status": "success", 
-                "message": "No reviews found or rate limited", 
-                "new_reviews_added": 0
-            }
-
-        new_count = 0
-        added_reviews = []
-
-        # Step 3: Process each review
-        for r in raw_data:
-            google_id = r.get("google_review_id")
-            
-            # Duplicate Check: Only add if google_review_id isn't in DB
-            dup_stmt = select(Review).where(Review.google_review_id == google_id)
-            dup_result = await session.execute(dup_stmt)
-            if dup_result.scalar_one_or_none():
-                continue
-
-            # Calculate Sentiment
-            review_text = r.get("text", "No content")
-            sentiment = calculate_sentiment(review_text)
-
-            # Map to SQLAlchemy Model (as per Architect doc)
-            new_review = Review(
-                company_id=company_id,
-                google_review_id=google_id,
-                author_name=r.get("author_name"),
-                rating=r.get("rating", 5),
-                text=review_text,
-                sentiment_score=sentiment,
-                # Store extra data like likes in a JSON 'meta' column if it exists
-                # Or use created_at from the scraper date string
-                created_at=datetime.utcnow() 
-            )
-            
-            session.add(new_review)
-            added_reviews.append(new_review)
-            new_count += 1
-
-        # Step 4: Finalize Database Transaction
-        if new_count > 0:
-            await session.commit()
-            logger.info(f"✅ Successfully added {new_count} new reviews for {company.name}")
-        else:
-            logger.info(f"ℹ️ No new reviews to add for {company.name}")
+        reviews = fetch_reviews_from_serpapi(payload.place_id)
 
         return {
             "status": "success",
-            "company_name": company.name,
-            "new_reviews_added": new_count,
-            "total_processed": len(raw_data)
+            "total_reviews": len(reviews),
+            "reviews": reviews
         }
 
     except Exception as e:
-        await session.rollback()
-        logger.error(f"❌ Critical error in sync_reviews_for_company: {str(e)}")
-        return {"status": "error", "message": f"Sync failed: {str(e)}"}
+        logger.error(f"❌ Error fetching reviews: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-async def get_review_metrics(session: AsyncSession, company_id: int) -> Dict[str, Any]:
+
+# =========================
+# GET API (Testing)
+# =========================
+@router.get("/reviews")
+def get_reviews(place_id: str):
     """
-    Retrieves summary metrics for a company to feed the frontend cards.
+    For browser testing
+    Example: /api/reviews?place_id=XXXX
     """
-    stmt = select(Review).where(Review.company_id == company_id)
-    result = await session.execute(stmt)
-    reviews = result.scalars().all()
-    
-    if not reviews:
-        return {"total": 0, "average_rating": 0, "sentiment": "N/A"}
-        
-    avg_rating = sum(r.rating for r in reviews) / len(reviews)
-    avg_sentiment = sum(r.sentiment_score for r in reviews) / len(reviews)
-    
-    return {
-        "total": len(reviews),
-        "average_rating": round(avg_rating, 2),
-        "average_sentiment": round(avg_sentiment, 2)
-    }
+    try:
+        reviews = fetch_reviews_from_serpapi(place_id)
+
+        return {
+            "status": "success",
+            "total_reviews": len(reviews),
+            "reviews": reviews
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
