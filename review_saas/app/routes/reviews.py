@@ -54,6 +54,7 @@ async def sync_reviews_for_company(
         logger.info(f"🔄 Sync triggered for {company.name}")
 
         # 2. Fetch raw reviews from Scraper
+        # Uses the google_place_id stored in the Company model
         raw_reviews = await fetch_reviews(
             company_id=company_id, 
             session=session, 
@@ -78,7 +79,7 @@ async def sync_reviews_for_company(
             text_body = r.get("text") or "No content"
             sentiment = calculate_sentiment(text_body)
 
-            # 5. Create Model Instance (Aligned with 24.0.7 Schema)
+            # 5. Create Model Instance (Aligned with v24.0.7 Schema)
             new_review = Review(
                 company_id=company_id,
                 google_review_id=g_id,
@@ -123,8 +124,13 @@ async def get_dashboard_insights(
     Matched to: async function triggerAllLoads() (HTML)
     """
     # Parse dates from frontend
-    start = datetime.strptime(start_str, '%Y-%m-%d')
-    end = datetime.strptime(end_str, '%Y-%m-%d') + timedelta(days=1)
+    try:
+        start = datetime.strptime(start_str, '%Y-%m-%d')
+        end = datetime.strptime(end_str, '%Y-%m-%d') + timedelta(days=1)
+    except ValueError:
+        # Fallback to last 30 days if date parsing fails
+        end = datetime.utcnow()
+        start = end - timedelta(days=30)
 
     # Fetch reviews in range
     stmt = select(Review).where(
@@ -139,6 +145,7 @@ async def get_dashboard_insights(
     avg_rating = round(sum(r.rating for r in reviews) / total, 1) if total > 0 else 0.0
 
     # 1. Bar Chart: Rating Distribution (chartRatings)
+    # Javascript expects an array ordered from 1* to 5*
     dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
     for r in reviews:
         dist[r.rating] = dist.get(r.rating, 0) + 1
@@ -156,6 +163,7 @@ async def get_dashboard_insights(
     ]
 
     # 3. Radar Chart: Emotions (chartEmotions)
+    # JS expects: Object.keys(vis.emotions)
     emotions = {
         "Positive": len([r for r in reviews if r.sentiment_score > 0.2]),
         "Neutral": len([r for r in reviews if -0.2 <= r.sentiment_score <= 0.2]),
@@ -164,7 +172,7 @@ async def get_dashboard_insights(
         "Satisfaction": len([r for r in reviews if r.rating >= 4])
     }
 
-    # 100% Match to the JSON structure expected by dashboard.html
+    # 100% Match to the JSON structure expected by dashboard.html triggerAllLoads()
     return {
         "metadata": {"total_reviews": total},
         "kpis": {
@@ -190,6 +198,7 @@ async def get_revenue_risk_data(session: AsyncSession, company_id: int) -> Dict[
     if total == 0:
         return {"risk_percent": 0, "impact": "N/A"}
 
+    # Percentage of negative reviews (1-2 stars)
     neg = len([r for r in reviews if r.rating <= 2])
     risk_pct = int((neg / total) * 100)
     
