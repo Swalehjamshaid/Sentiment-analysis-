@@ -1,3 +1,6 @@
+# app/routes/reviews.py
+
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -5,15 +8,15 @@ from datetime import datetime
 
 from app.core.db import get_session
 from app.core import models
-
-# ✅ Correct import (FUNCTION, not CLASS)
 from app.services.scraper import fetch_reviews
+
+logger = logging.getLogger("app.reviews")
 
 router = APIRouter()
 
 
 # =====================================================
-# 🚀 INGEST REVIEWS (CONNECTED TO FRONTEND SYNC BUTTON)
+# 🚀 INGEST REVIEWS (SYNC BUTTON)
 # =====================================================
 @router.post("/reviews/ingest/{company_id}")
 async def ingest_reviews(
@@ -25,35 +28,48 @@ async def ingest_reviews(
     POST /api/reviews/ingest/{company_id}
     """
 
+    # ✅ LOG EVERY TRIGGER (THIS FIXES YOUR ISSUE)
+    logger.info(f"🚀 Sync triggered for company_id={company_id}")
+
     try:
-        # 1️⃣ Get company
+        # 1️⃣ Load company
         result = await db.execute(
             select(models.Company).where(models.Company.id == company_id)
         )
         company = result.scalar_one_or_none()
 
         if not company:
+            logger.warning(f"❌ Company not found: {company_id}")
             raise HTTPException(status_code=404, detail="Company not found")
 
-        # ❗ No place_id check anymore
-        # CID is resolved internally by the scraper
+        logger.info(
+            f"🏢 Company loaded: id={company.id}, name='{company.name}'"
+        )
 
-        # 2️⃣ Run scraper (CID‑based)
+        # 2️⃣ Run scraper (CID-based)
         reviews_data = await fetch_reviews(
             company_id=company.id,
             name=company.name,
             session=db
         )
 
+        # ✅ IF NO REVIEWS, EXPLAIN WHY
         if not reviews_data:
+            logger.warning(
+                f"⚠️ No reviews fetched for company_id={company.id}. "
+                f"Likely missing CID in company_cids table."
+            )
             return {
-                "status": "success",
+                "status": "warning",
                 "reviews_count": 0,
-                "message": "No new reviews found"
+                "message": (
+                    "Sync executed but no reviews were fetched. "
+                    "Check if Google CID is configured for this company."
+                )
             }
 
-        # 3️⃣ Insert into DB (avoid duplicates)
-        saved_count = 0
+        # 3️⃣ Insert reviews (deduplicated)
+        saved = 0
 
         for r in reviews_data:
             review_id = r.get("review_id")
@@ -79,58 +95,60 @@ async def ingest_reviews(
             )
 
             db.add(review)
-            saved_count += 1
+            saved += 1
 
         await db.commit()
 
+        logger.info(
+            f"✅ Sync complete for company_id={company.id}, "
+            f"reviews_saved={saved}"
+        )
+
         return {
             "status": "success",
-            "reviews_count": saved_count
+            "reviews_count": saved
         }
 
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("❌ Review ingestion failed")
         raise HTTPException(
             status_code=500,
-            detail=f"Review ingestion failed: {str(e)}"
+            detail="Review ingestion failed"
         )
 
 
 # =====================================================
-# 📊 GET REVIEWS (FOR DEBUG / UI)
+# 📊 GET REVIEWS
 # =====================================================
 @router.get("/reviews/{company_id}")
 async def get_reviews(
     company_id: int,
     db: AsyncSession = Depends(get_session)
 ):
-    try:
-        result = await db.execute(
-            select(models.Review).where(
-                models.Review.company_id == company_id
-            )
+    result = await db.execute(
+        select(models.Review).where(
+            models.Review.company_id == company_id
         )
-        reviews = result.scalars().all()
+    )
+    reviews = result.scalars().all()
 
-        return [
-            {
-                "id": r.id,
-                "author": r.author,
-                "rating": r.rating,
-                "text": r.text,
-                "sentiment": r.sentiment,
-                "date": r.created_at
-            }
-            for r in reviews
-        ]
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return [
+        {
+            "id": r.id,
+            "author": r.author,
+            "rating": r.rating,
+            "text": r.text,
+            "sentiment": r.sentiment,
+            "date": r.created_at
+        }
+        for r in reviews
+    ]
 
 
 # =====================================================
-# 🛠 HELPER: DATE PARSER
+# 🛠 HELPER
 # =====================================================
 def _parse_date(date_str):
     try:
