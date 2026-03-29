@@ -1,108 +1,139 @@
 import logging
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+import asyncio
+from typing import List, Dict, Any, Optional
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select
+from textblob import TextBlob
 
-from app.core.database import get_db
+# Internal imports aligned with your project structure
 from app.core.models import Review, Company
-from app.services.review import sync_reviews_for_company
+from app.services.scraper import fetch_reviews
 
-# Initialize the router that app/main.py is searching for
-router = APIRouter()
-logger = logging.getLogger("app.routes.reviews")
+logger = logging.getLogger("app.services.review")
 
-@router.get("/reviews", response_model=Dict[str, Any])
-async def get_all_reviews(
-    company_id: Optional[int] = None,
-    limit: int = Query(10, ge=1, le=100),
-    offset: int = 0,
-    db: AsyncSession = Depends(get_db)
-):
+def calculate_sentiment(text: str) -> float:
     """
-    Retrieves reviews from the database with optional filtering by company.
-    Used by the Chart.js frontend to populate the dashboard.
+    Analyzes text to return a polarity score between -1.0 and 1.0.
+    Used for the Dashboard Sentiment doughnut chart.
+    """
+    if not text or text == "No content":
+        return 0.0
+    try:
+        analysis = TextBlob(text)
+        return round(analysis.sentiment.polarity, 2)
+    except Exception as e:
+        logger.error(f"Sentiment analysis failed: {e}")
+        return 0.0
+
+async def sync_reviews_for_company(
+    session: AsyncSession, 
+    company_id: int, 
+    target_limit: int = 100
+) -> Dict[str, Any]:
+    """
+    Main orchestration service:
+    1. Fetches raw data from SerpApi via scraper.py
+    2. Filters out existing reviews using google_review_id
+    3. Calculates sentiment for new reviews
+    4. Saves to database and commits session
     """
     try:
-        query = select(Review).order_by(desc(Review.created_at))
+        # Step 1: Fetch Company details to get the stored place_id
+        stmt = select(Company).where(Company.id == company_id)
+        result = await session.execute(stmt)
+        company = result.scalar_one_or_none()
         
-        if company_id:
-            query = query.where(Review.company_id == company_id)
+        if not company:
+            return {"status": "error", "message": f"Company ID {company_id} not found"}
+
+        logger.info(f"🔄 Starting sync for {company.name} (ID: {company_id})")
+
+        # Step 2: Get raw review data from Scraper
+        # Pass the company.place_id if it exists, otherwise scraper falls back to name
+        raw_data = await fetch_reviews(
+            company_id=company_id, 
+            session=session, 
+            place_id=company.place_id,
+            target_limit=target_limit
+        )
+
+        if not raw_data:
+            return {
+                "status": "success", 
+                "message": "No reviews found or rate limited", 
+                "new_reviews_added": 0
+            }
+
+        new_count = 0
+        added_reviews = []
+
+        # Step 3: Process each review
+        for r in raw_data:
+            google_id = r.get("google_review_id")
             
-        result = await db.execute(query.offset(offset).limit(limit))
-        reviews = result.scalars().all()
-        
-        # Format the response for the frontend table and charts
+            # Duplicate Check: Only add if google_review_id isn't in DB
+            dup_stmt = select(Review).where(Review.google_review_id == google_id)
+            dup_result = await session.execute(dup_stmt)
+            if dup_result.scalar_one_or_none():
+                continue
+
+            # Calculate Sentiment
+            review_text = r.get("text", "No content")
+            sentiment = calculate_sentiment(review_text)
+
+            # Map to SQLAlchemy Model (as per Architect doc)
+            new_review = Review(
+                company_id=company_id,
+                google_review_id=google_id,
+                author_name=r.get("author_name"),
+                rating=r.get("rating", 5),
+                text=review_text,
+                sentiment_score=sentiment,
+                # Store extra data like likes in a JSON 'meta' column if it exists
+                # Or use created_at from the scraper date string
+                created_at=datetime.utcnow() 
+            )
+            
+            session.add(new_review)
+            added_reviews.append(new_review)
+            new_count += 1
+
+        # Step 4: Finalize Database Transaction
+        if new_count > 0:
+            await session.commit()
+            logger.info(f"✅ Successfully added {new_count} new reviews for {company.name}")
+        else:
+            logger.info(f"ℹ️ No new reviews to add for {company.name}")
+
         return {
             "status": "success",
-            "count": len(reviews),
-            "data": [
-                {
-                    "id": r.id,
-                    "author": r.author_name,
-                    "rating": r.rating,
-                    "text": r.text,
-                    "sentiment": r.sentiment_score,
-                    "date": r.created_at.isoformat() if r.created_at else None,
-                    "google_id": r.google_review_id
-                } for r in reviews
-            ]
+            "company_name": company.name,
+            "new_reviews_added": new_count,
+            "total_processed": len(raw_data)
         }
+
     except Exception as e:
-        logger.error(f"Error fetching reviews: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error while fetching reviews")
+        await session.rollback()
+        logger.error(f"❌ Critical error in sync_reviews_for_company: {str(e)}")
+        return {"status": "error", "message": f"Sync failed: {str(e)}"}
 
-@router.post("/reviews/sync/{company_id}")
-async def sync_reviews(
-    company_id: int, 
-    limit: int = 100, 
-    db: AsyncSession = Depends(get_db)
-):
+async def get_review_metrics(session: AsyncSession, company_id: int) -> Dict[str, Any]:
     """
-    Trigger point for the Scraper service to fetch new data from SerpApi,
-    calculate sentiment, and save to the database.
+    Retrieves summary metrics for a company to feed the frontend cards.
     """
-    # Verify company existence before proceeding
-    company_res = await db.execute(select(Company).where(Company.id == company_id))
-    company = company_res.scalar_one_or_none()
-    
-    if not company:
-        raise HTTPException(status_code=404, detail=f"Company with ID {company_id} not found")
-
-    # Call the service layer orchestration
-    result = await sync_reviews_for_company(db, company_id, target_limit=limit)
-    
-    if result["status"] == "error":
-        raise HTTPException(status_code=500, detail=result["message"])
-        
-    return result
-
-@router.get("/reviews/stats/{company_id}")
-async def get_review_stats(company_id: int, db: AsyncSession = Depends(get_db)):
-    """
-    Provides aggregated metrics (Avg Rating, Sentiment Distribution) 
-    specifically for the Dashboard KPI cards.
-    """
-    result = await db.execute(select(Review).where(Review.company_id == company_id))
+    stmt = select(Review).where(Review.company_id == company_id)
+    result = await session.execute(stmt)
     reviews = result.scalars().all()
     
     if not reviews:
-        return {
-            "total_reviews": 0,
-            "average_rating": 0,
-            "sentiment_summary": {"positive": 0, "neutral": 0, "negative": 0}
-        }
-
-    pos = len([r for r in reviews if r.sentiment_score > 0.1])
-    neu = len([r for r in reviews if -0.1 <= r.sentiment_score <= 0.1])
-    neg = len([r for r in reviews if r.sentiment_score < -0.1])
-
+        return {"total": 0, "average_rating": 0, "sentiment": "N/A"}
+        
+    avg_rating = sum(r.rating for r in reviews) / len(reviews)
+    avg_sentiment = sum(r.sentiment_score for r in reviews) / len(reviews)
+    
     return {
-        "total_reviews": len(reviews),
-        "average_rating": round(sum(r.rating for r in reviews) / len(reviews), 2),
-        "sentiment_summary": {
-            "positive": pos,
-            "neutral": neu,
-            "negative": neg
-        }
+        "total": len(reviews),
+        "average_rating": round(avg_rating, 2),
+        "average_sentiment": round(avg_sentiment, 2)
     }
