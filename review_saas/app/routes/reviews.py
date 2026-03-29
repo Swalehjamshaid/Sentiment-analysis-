@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from app.services.scraper import ReviewScraper
-from app.models.company import Company   # make sure this exists
-from app.database import get_db          # adjust if your path differs
+from app.models.company import Company
+from app.models.review import Review
+from app.database import get_db
 import logging
 
 router = APIRouter()
@@ -11,65 +12,58 @@ logger = logging.getLogger(__name__)
 scraper = ReviewScraper()
 
 
-# =========================
-# 🔥 SYNC REVIEWS (MAIN API)
-# =========================
 @router.post("/reviews/ingest/{company_id}")
 def ingest_reviews(company_id: int, db: Session = Depends(get_db)):
-    """
-    Triggered by frontend Sync button
-    """
 
     try:
         logger.info(f"📥 Sync started for company_id: {company_id}")
 
-        # ✅ STEP 1: Get company from DB
+        # ✅ STEP 1: Get company
         company = db.query(Company).filter(Company.id == company_id).first()
 
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 
         if not company.place_id:
-            raise HTTPException(status_code=400, detail="Place ID missing")
+            raise HTTPException(status_code=400, detail="Missing place_id")
 
-        # ✅ STEP 2: Fetch reviews via scraper
+        # ✅ STEP 2: Fetch reviews
         result = scraper.fetch_reviews(company.place_id)
-
         reviews = result["reviews"]
 
-        # ⚠️ OPTIONAL (future): Save reviews to DB here
+        saved_count = 0
+
+        # ✅ STEP 3: Save to DB (NO DUPLICATES)
+        for r in reviews:
+
+            exists = db.query(Review).filter(
+                Review.company_id == company_id,
+                Review.comment == r["comment"]
+            ).first()
+
+            if exists:
+                continue
+
+            new_review = Review(
+                company_id=company_id,
+                user=r["user"],
+                rating=r["rating"],
+                comment=r["comment"],
+                date=r["date"]
+            )
+
+            db.add(new_review)
+            saved_count += 1
+
+        db.commit()
 
         return {
             "status": "success",
             "company_id": company_id,
-            "reviews_count": result["reviews_count"],
-            "reviews": reviews
+            "reviews_fetched": len(reviews),
+            "reviews_saved": saved_count
         }
-
-    except HTTPException as he:
-        raise he
 
     except Exception as e:
         logger.error(f"❌ Sync error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# =========================
-# 🧪 TEST API (OPTIONAL)
-# =========================
-@router.get("/reviews/test")
-def test_reviews(place_id: str):
-    """
-    Direct test endpoint
-    """
-    try:
-        result = scraper.fetch_reviews(place_id)
-
-        return {
-            "status": "success",
-            "reviews_count": result["reviews_count"],
-            "reviews": result["reviews"]
-        }
-
-    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
