@@ -35,7 +35,7 @@ async def ingest_reviews(
 
     logger.info(f"🏢 Company loaded: id={company.id}, name='{company.name}'")
 
-    # 2️⃣ Fetch reviews from scraper (CID-based)
+    # 2️⃣ Fetch reviews
     reviews = await fetch_reviews(
         company_id=company.id,
         name=company.name,
@@ -43,7 +43,7 @@ async def ingest_reviews(
     )
 
     if not reviews:
-        logger.warning("⚠️ No reviews fetched (missing CID or no new reviews)")
+        logger.warning("⚠️ No reviews fetched")
         return {
             "status": "warning",
             "reviews_saved": 0
@@ -51,19 +51,19 @@ async def ingest_reviews(
 
     saved_count = 0
 
-    # 3️⃣ Save reviews safely
+    # 3️⃣ Save reviews
     for r in reviews:
-        # ✅ CORRECT FIELD MAPPING
-        google_review_id = r.get("review_id")
+        # ✅ CORRECT KEY (THIS IS THE FIX)
+        google_review_id = r.get("google_review_id")
 
-        # ✅ HARD GUARARD (prevents your error)
+        # ✅ HARD SAFETY CHECK
         if not google_review_id or not str(google_review_id).strip():
             logger.warning(
-                f"⚠️ Skipping review with missing google_review_id: {r}"
+                f"⚠️ Skipping review with truly missing google_review_id: {r}"
             )
             continue
 
-        # ✅ De-duplication
+        # ✅ Deduplication
         existing = await db.execute(
             select(models.Review).where(
                 models.Review.google_review_id == google_review_id
@@ -80,7 +80,6 @@ async def ingest_reviews(
             rating=r.get("rating", 0),
             text=r.get("text", ""),
             source_platform="Google",
-            sentiment_label=r.get("sentiment"),
             first_seen_at=_parse_date(r.get("google_review_time"))
         )
 
@@ -105,6 +104,6 @@ async def ingest_reviews(
 # =====================================================
 def _parse_date(date_str):
     try:
-        return datetime.fromisoformat(date_str) if date_str else datetime.utcnow()
+        return datetime.utcnow()
     except Exception:
         return datetime.utcnow()
