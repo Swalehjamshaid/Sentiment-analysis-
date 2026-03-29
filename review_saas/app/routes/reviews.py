@@ -9,7 +9,7 @@ from app.core.db import get_session
 from app.core import models
 from app.services.scraper import fetch_reviews
 
-# Correct logger usage
+# Correct logger initialization
 logger = logging.getLogger("app.reviews")
 
 router = APIRouter()
@@ -20,13 +20,9 @@ async def ingest_reviews(
     company_id: int,
     db: AsyncSession = Depends(get_session)
 ):
-    """
-    Fetch reviews via scraper and save them into PostgreSQL.
-    """
-
     logger.info(f"🚀 Sync triggered for company_id={company_id}")
 
-    # 1. Load company
+    # Load company
     result = await db.execute(
         select(models.Company).where(models.Company.id == company_id)
     )
@@ -37,14 +33,14 @@ async def ingest_reviews(
 
     logger.info(f"🏢 Company loaded: id={company.id}, name='{company.name}'")
 
-    # 2. Fetch reviews (scraper logic unchanged)
+    # Fetch reviews from scraper (NO scraper logic changed)
     reviews = await fetch_reviews(
         company_id=company.id,
         session=db
     )
 
     if not reviews:
-        logger.warning("⚠️ No reviews fetched from scraper")
+        logger.warning("⚠️ No reviews fetched")
         return {
             "status": "warning",
             "reviews_saved": 0
@@ -52,15 +48,13 @@ async def ingest_reviews(
 
     saved_count = 0
 
-    # 3. Save reviews into DB
+    # Save reviews — ONLY fields that EXIST in Review model
     for r in reviews:
-
-        # ✅ Use correct existing column in Review model
         review_url = r.get("google_review_id")
         if not review_url:
             continue
 
-        # ✅ Prevent duplicates
+        # Duplicate check
         existing = await db.execute(
             select(models.Review).where(
                 models.Review.review_url == review_url
@@ -72,7 +66,6 @@ async def ingest_reviews(
         review = models.Review(
             company_id=company.id,
             review_url=review_url,
-            author=r.get("author_name"),
             rating=r.get("rating", 5),
             text=r.get("text", ""),
             sentiment=None,
@@ -96,12 +89,7 @@ async def ingest_reviews(
 
 
 def _parse_date(date_str):
-    """
-    Safely parse ISO date strings.
-    """
     try:
-        if not date_str:
-            return datetime.utcnow()
-        return datetime.fromisoformat(date_str)
+        return datetime.fromisoformat(date_str) if date_str else datetime.utcnow()
     except Exception:
         return datetime.utcnow()
