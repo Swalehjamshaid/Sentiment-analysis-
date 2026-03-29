@@ -1,155 +1,128 @@
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
-from app.database import get_db
-from app.models import Company, Review
-from app.schemas import ReviewCreate
-from app.utils.ai import generate_ai_answer
-from datetime import datetime, timedelta
-from fastapi import Depends
+# app/routes/reviews.py
 
-router = APIRouter(prefix="/api", tags=["Reviews"])
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from datetime import datetime
 
-# ---------------------------
-# 1. Fetch Company List
-# ---------------------------
-@router.get("/companies")
-def get_companies(db: Session = Depends(get_db)):
-    companies = db.query(Company).all()
-    return [{"id": c.id, "name": c.name} for c in companies]
+from app.core.db import get_session
+from app.core import models
 
-# ---------------------------
-# 2. Add New Company
-# ---------------------------
-@router.post("/companies")
-def add_company(company: ReviewCreate, db: Session = Depends(get_db)):
-    new_company = Company(
-        name=company.name,
-        place_id=company.place_id,
-        address=company.address,
-        created_at=datetime.utcnow()
-    )
-    db.add(new_company)
-    db.commit()
-    db.refresh(new_company)
-    return {"id": new_company.id, "name": new_company.name}
+# IMPORTANT: adjust this import if your scraper path is different
+from app.services.scraper import ReviewScraper
 
-# ---------------------------
-# 3. Ingest Reviews (Scraper Trigger)
-# ---------------------------
+router = APIRouter()
+
+
+# =====================================================
+# 🚀 INGEST REVIEWS (CONNECTED TO FRONTEND SYNC BUTTON)
+# =====================================================
 @router.post("/reviews/ingest/{company_id}")
-def ingest_reviews(company_id: int, db: Session = Depends(get_db)):
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+async def ingest_reviews(company_id: int, db: AsyncSession = Depends(get_session)):
+    """
+    Called by:
+    FRONTEND → Sync Live Data button
 
-    # Simulate scraper ingestion
-    from app.utils.scraper import fetch_reviews_for_company
-    reviews_list = fetch_reviews_for_company(company.place_id)
+    Endpoint:
+    POST /api/reviews/ingest/{company_id}
+    """
 
-    # Save reviews to DB
-    count = 0
-    for r in reviews_list:
-        review = Review(
-            company_id=company.id,
-            reviewer_name=r.get("reviewer_name"),
-            rating=r.get("rating"),
-            comment=r.get("comment"),
-            sentiment=r.get("sentiment"),
-            created_at=r.get("created_at", datetime.utcnow())
+    try:
+        # 1. Get company
+        result = await db.execute(
+            select(models.Company).where(models.Company.id == company_id)
         )
-        db.add(review)
-        count += 1
-    db.commit()
-    return {"reviews_count": count}
+        company = result.scalar_one_or_none()
 
-# ---------------------------
-# 4. AI Insights & KPIs
-# ---------------------------
-@router.get("/ai/insights")
-def get_ai_insights(company_id: int, start: str = None, end: str = None, db: Session = Depends(get_db)):
-    start_dt = datetime.strptime(start, "%Y-%m-%d") if start else datetime.utcnow() - timedelta(days=365)
-    end_dt = datetime.strptime(end, "%Y-%m-%d") if end else datetime.utcnow()
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
 
-    reviews = db.query(Review).filter(
-        Review.company_id == company_id,
-        Review.created_at >= start_dt,
-        Review.created_at <= end_dt
-    ).all()
+        if not company.place_id:
+            raise HTTPException(status_code=400, detail="Missing place_id")
 
-    total_reviews = len(reviews)
-    avg_rating = round(sum([r.rating for r in reviews]) / total_reviews, 2) if total_reviews > 0 else 0
+        # 2. Run scraper
+        scraper = ReviewScraper()
+        reviews_data = await scraper.fetch_reviews(company.place_id)
 
-    # Sentiment trend (weekly)
-    trend = {}
-    for r in reviews:
-        week = r.created_at.strftime("%Y-%W")
-        if week not in trend:
-            trend[week] = []
-        trend[week].append(r.sentiment or 0)
-    sentiment_trend = [{"week": w, "avg": round(sum(v)/len(v), 2)} for w, v in trend.items()]
+        if not reviews_data:
+            return {
+                "status": "success",
+                "reviews_count": 0,
+                "message": "No new reviews found"
+            }
 
-    # Emotion Radar (simulate)
-    emotions = {"happy": 0, "angry": 0, "sad": 0, "neutral": 0}
-    for r in reviews:
-        s = r.sentiment or 0
-        if s > 0.5:
-            emotions["happy"] += 1
-        elif s < -0.5:
-            emotions["angry"] += 1
-        elif -0.5 <= s < 0:
-            emotions["sad"] += 1
-        else:
-            emotions["neutral"] += 1
+        # 3. Insert into DB (avoid duplicates)
+        saved_count = 0
 
-    # Ratings distribution
-    ratings_dist = {1:0,2:0,3:0,4:0,5:0}
-    for r in reviews:
-        ratings_dist[r.rating] += 1
+        for r in reviews_data:
+            review_id = r.get("review_id")
 
-    return {
-        "metadata": {"total_reviews": total_reviews},
-        "kpis": {
-            "benchmark": {"your_avg": avg_rating},
-            "reputation_score": round(sum([r.sentiment or 0 for r in reviews]),2)
-        },
-        "visualizations": {
-            "emotions": emotions,
-            "sentiment_trend": sentiment_trend,
-            "ratings": ratings_dist
+            # Check duplicate
+            existing = await db.execute(
+                select(models.Review).where(models.Review.review_id == review_id)
+            )
+            if existing.scalar_one_or_none():
+                continue
+
+            review = models.Review(
+                company_id=company.id,
+                review_id=review_id,
+                author=r.get("author"),
+                rating=r.get("rating", 0),
+                text=r.get("text", ""),
+                sentiment=r.get("sentiment", 0),
+                created_at=_parse_date(r.get("date"))
+            )
+
+            db.add(review)
+            saved_count += 1
+
+        await db.commit()
+
+        return {
+            "status": "success",
+            "reviews_count": saved_count
         }
-    }
 
-# ---------------------------
-# 5. Revenue Risk Endpoint
-# ---------------------------
-@router.get("/dashboard/revenue")
-def revenue_risk(company_id: int, db: Session = Depends(get_db)):
-    # Simple example: risk based on number of negative reviews
-    reviews = db.query(Review).filter(Review.company_id == company_id).all()
-    if not reviews:
-        return {"risk_percent": 0, "impact": "N/A"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    negative_count = len([r for r in reviews if (r.sentiment or 0) < -0.3])
-    total = len(reviews)
-    risk_percent = round((negative_count / total) * 100, 2)
 
-    impact = "High" if risk_percent > 50 else "Medium" if risk_percent > 20 else "Low"
+# =====================================================
+# 📊 OPTIONAL: GET REVIEWS (FOR DEBUG / EXTENSIONS)
+# =====================================================
+@router.get("/reviews/{company_id}")
+async def get_reviews(company_id: int, db: AsyncSession = Depends(get_session)):
+    try:
+        result = await db.execute(
+            select(models.Review).where(models.Review.company_id == company_id)
+        )
+        reviews = result.scalars().all()
 
-    return {"risk_percent": risk_percent, "impact": impact}
+        return [
+            {
+                "id": r.id,
+                "author": r.author,
+                "rating": r.rating,
+                "text": r.text,
+                "sentiment": r.sentiment,
+                "date": r.created_at
+            }
+            for r in reviews
+        ]
 
-# ---------------------------
-# 6. AI Chat Endpoint
-# ---------------------------
-@router.post("/dashboard/chat")
-async def ai_chat(company_id: int, request: Request, db: Session = Depends(get_db)):
-    payload = await request.json()
-    question = payload if isinstance(payload, str) else payload.get("question", "")
-    if not question:
-        raise HTTPException(status_code=400, detail="No question provided")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    # Simulate AI response
-    reviews = db.query(Review).filter(Review.company_id == company_id).all()
-    answer = generate_ai_answer(question, reviews)  # from utils.ai
 
-    return JSONResponse({"answer": answer})
+# =====================================================
+# 🛠 HELPER: DATE PARSER
+# =====================================================
+def _parse_date(date_str):
+    try:
+        if not date_str:
+            return datetime.utcnow()
+
+        return datetime.fromisoformat(date_str)
+    except:
+        return datetime.utcnow()
