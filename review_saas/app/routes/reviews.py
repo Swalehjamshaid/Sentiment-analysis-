@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from textblob import TextBlob
 
-# Internal imports aligned with your project structure
+# Internal imports aligned with your core models and scraper
 from app.core.models import Review, Company
 from app.services.scraper import fetch_reviews
 
@@ -18,7 +18,7 @@ logger = logging.getLogger("app.reviews")
 def calculate_sentiment(text: str) -> float:
     """
     Calculates polarity score (-1.0 to 1.0).
-    Required for Sentiment Trend and Emotion Radar charts.
+    Required for Sentiment Trend and Emotion Radar charts in the HTML.
     """
     if not text or text == "No content":
         return 0.0
@@ -41,7 +41,8 @@ async def sync_reviews_for_company(
 ) -> Dict[str, Any]:
     """
     Orchestrates the scraping and database persistence.
-    Matched to: document.getElementById("syncBtn").onclick (HTML)
+    Matched to: document.getElementById("syncBtn").onclick in dashboard.html
+    Returns 'reviews_count' for the JavaScript alert().
     """
     try:
         # 1. Load Company
@@ -51,10 +52,10 @@ async def sync_reviews_for_company(
         if not company:
             return {"status": "error", "message": "Business entity not found"}
 
-        logger.info(f"🔄 Sync triggered for {company.name}")
+        logger.info(f"🔄 Sync triggered for {company.name} (ID: {company_id})")
 
         # 2. Fetch raw reviews from Scraper
-        # Uses the google_place_id stored in the Company model
+        # Uses the google_place_id/place_id stored in the Company model
         raw_reviews = await fetch_reviews(
             company_id=company_id, 
             session=session, 
@@ -88,7 +89,7 @@ async def sync_reviews_for_company(
                 text=text_body,
                 sentiment_score=sentiment,
                 source_platform="Google",
-                # Packs extra SerpApi data into the JSON meta column
+                # Packs extra SerpApi data into the JSON 'meta' column to avoid TypeErrors
                 meta={
                     "likes": r.get("likes", 0),
                     "google_time": r.get("google_review_time")
@@ -98,6 +99,7 @@ async def sync_reviews_for_company(
             session.add(new_review)
             new_count += 1
 
+        # 6. Finalize Transaction
         if new_count > 0:
             await session.commit()
             logger.info(f"✅ Successfully saved {new_count} reviews for {company.name}")
@@ -121,14 +123,14 @@ async def get_dashboard_insights(
 ) -> Dict[str, Any]:
     """
     Prepares data for Chart.js and KPI cards.
-    Matched to: async function triggerAllLoads() (HTML)
+    Matched to: async function triggerAllLoads() in dashboard.html
     """
-    # Parse dates from frontend
+    # Parse dates from frontend input
     try:
         start = datetime.strptime(start_str, '%Y-%m-%d')
         end = datetime.strptime(end_str, '%Y-%m-%d') + timedelta(days=1)
-    except ValueError:
-        # Fallback to last 30 days if date parsing fails
+    except (ValueError, TypeError):
+        # Fallback if date strings are empty or malformed
         end = datetime.utcnow()
         start = end - timedelta(days=30)
 
@@ -145,7 +147,7 @@ async def get_dashboard_insights(
     avg_rating = round(sum(r.rating for r in reviews) / total, 1) if total > 0 else 0.0
 
     # 1. Bar Chart: Rating Distribution (chartRatings)
-    # Javascript expects an array ordered from 1* to 5*
+    # Ordered array [1*, 2*, 3*, 4*, 5*]
     dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
     for r in reviews:
         dist[r.rating] = dist.get(r.rating, 0) + 1
@@ -163,7 +165,7 @@ async def get_dashboard_insights(
     ]
 
     # 3. Radar Chart: Emotions (chartEmotions)
-    # JS expects: Object.keys(vis.emotions)
+    # JS expects: Object.keys(vis.emotions) for labels
     emotions = {
         "Positive": len([r for r in reviews if r.sentiment_score > 0.2]),
         "Neutral": len([r for r in reviews if -0.2 <= r.sentiment_score <= 0.2]),
@@ -189,7 +191,8 @@ async def get_dashboard_insights(
 
 async def get_revenue_risk_data(session: AsyncSession, company_id: int) -> Dict[str, Any]:
     """
-    Matched to: fetch(`/api/dashboard/revenue?company_id=${cid}`) (HTML)
+    Calculates loss probability for the red Risk Monitoring card.
+    Matched to: fetch(`/api/dashboard/revenue?company_id=${cid}`) in dashboard.html
     """
     res = await session.execute(select(Review).where(Review.company_id == company_id))
     reviews = res.scalars().all()
