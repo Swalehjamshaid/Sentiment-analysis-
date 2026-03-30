@@ -4,9 +4,9 @@ from __future__ import annotations
 import logging
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 
-from fastapi import APIRouter, Depends, Body
+from fastapi import APIRouter, Depends, Body, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import and_, select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,26 +16,31 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from app.core.db import get_session
 from app.core.models import Company, Review
 
-router = APIRouter(prefix="/api", tags=["Dashboard"]) # Prefix changed to match frontend calls
-logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api", tags=["Dashboard"])
+logger = logging.getLogger("dashboard")
+logging.basicConfig(level=logging.INFO)
+
 analyzer = SentimentIntensityAnalyzer()
 
 # ---------------- HELPERS ----------------
 def safe_date(val: Optional[str], default: datetime) -> datetime:
     try:
-        if not val: return default
+        if not val:
+            return default
         d = datetime.fromisoformat(val.replace("Z", "+00:00"))
         return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
-    except Exception:
+    except Exception as e:
+        logger.error(f"Date parse error: {e}")
         return default
+
 
 # ---------------- CORE ANALYSIS ----------------
 async def analyze_company(
     session: AsyncSession, company_id: int, start_d: datetime, end_d: datetime
 ) -> Optional[Dict[str, Any]]:
-    """
-    Core engine. Uses OR logic for google_review_time and first_seen_at.
-    """
+
+    logger.info(f"[ANALYZE] company_id={company_id}")
+
     stmt = (
         select(Review)
         .where(
@@ -51,7 +56,10 @@ async def analyze_company(
     res = await session.execute(stmt)
     reviews = res.scalars().all()
 
-    if not reviews: return None
+    logger.info(f"[ANALYZE] total_reviews={len(reviews)}")
+
+    if not reviews:
+        return None
 
     sentiments, ratings, texts = [], [], []
     trend_map = defaultdict(list)
@@ -60,19 +68,22 @@ async def analyze_company(
     for r in reviews:
         text_content = (r.text or "")
         score = analyzer.polarity_scores(text_content)["compound"]
-        
+
         sentiments.append(score)
         ratings.append(r.rating if r.rating is not None else 0)
         texts.append(text_content)
 
-        # Map emotions for Radar Chart
-        if score > 0.5: emotions_list.append("Joy")
-        elif score > 0.1: emotions_list.append("Trust")
-        elif score < -0.5: emotions_list.append("Anger")
-        elif score < -0.1: emotions_list.append("Disgust")
-        else: emotions_list.append("Neutral")
+        if score > 0.5:
+            emotions_list.append("Joy")
+        elif score > 0.1:
+            emotions_list.append("Trust")
+        elif score < -0.5:
+            emotions_list.append("Anger")
+        elif score < -0.1:
+            emotions_list.append("Disgust")
+        else:
+            emotions_list.append("Neutral")
 
-        # Map weekly trend for Line Chart
         plot_date = r.google_review_time or r.first_seen_at
         if plot_date:
             week_key = plot_date.strftime("%Y-W%U")
@@ -82,8 +93,11 @@ async def analyze_company(
     avg_rating = round(sum(ratings) / total_count, 2) if total_count else 0.0
     sentiment_avg = round(sum(sentiments) / total_count, 2) if total_count else 0.0
 
-    sentiment_trend = [{"week": w, "avg": round(sum(v)/len(v), 2)} for w, v in sorted(trend_map.items())]
-    
+    sentiment_trend = [
+        {"week": w, "avg": round(sum(v) / len(v), 2)}
+        for w, v in sorted(trend_map.items())
+    ]
+
     counts = Counter(ratings)
     rating_dist = {f"{i}★": counts.get(i, 0) for i in range(1, 6)}
 
@@ -99,7 +113,8 @@ async def analyze_company(
         }
     }
 
-# ---------------- ROUTES ALIGNED TO FRONTEND ----------------
+
+# ---------------- ROUTES ----------------
 
 @router.get("/ai/insights")
 async def ai_insights_endpoint(
@@ -108,61 +123,86 @@ async def ai_insights_endpoint(
     end: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
 ):
-    """
-    CRITICAL: This matches the frontend call to /api/ai/insights.
-    It populates Absolute Total Records, Avg Rating, and all 3 Charts.
-    """
+    logger.info("[API HIT] /api/ai/insights")
+
     start_d = safe_date(start, datetime.now(timezone.utc) - timedelta(days=365))
     end_d = safe_date(end, datetime.now(timezone.utc))
 
     data = await analyze_company(session, company_id, start_d, end_d)
-    
+
     if not data:
         return JSONResponse(content={"status": "no_data"}, status_code=200)
 
-    # Payload structured EXACTLY for your JavaScript frontend
     return {
-        "metadata": { "total_reviews": data["total_reviews"] },
+        "metadata": {"total_reviews": data["total_reviews"]},
         "kpis": {
-            "benchmark": { "your_avg": data["avg_rating"] },
+            "benchmark": {"your_avg": data["avg_rating"]},
             "reputation_score": int((data["sentiment"] + 1) * 50)
         },
         "visualizations": data["visualizations"]
     }
 
+
 @router.get("/dashboard/revenue")
 async def revenue_endpoint(company_id: int, session: AsyncSession = Depends(get_session)):
-    """
-    Populates the red Revenue Risk Monitoring card.
-    """
+    logger.info("[API HIT] /api/dashboard/revenue")
+
     data = await analyze_company(
-        session, company_id, 
-        datetime.now(timezone.utc) - timedelta(days=365), 
+        session,
+        company_id,
+        datetime.now(timezone.utc) - timedelta(days=365),
         datetime.now(timezone.utc)
     )
-    if not data: return {"risk_percent": 0, "impact": "N/A"}
+
+    if not data:
+        return {"risk_percent": 0, "impact": "N/A"}
 
     risk_val = (1 - data["sentiment"]) * 50
+
     return {
         "risk_percent": round(risk_val, 2),
         "impact": "CRITICAL" if risk_val > 40 else "HIGH" if risk_val > 20 else "LOW"
     }
 
+
 @router.post("/dashboard/chat")
 async def chat_endpoint(
+    request: Request,
     company_id: int,
-    question: str = Body(...),
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Populates the AI Strategy Consultant chat window.
+    ✅ NOW FULLY COMPATIBLE WITH YOUR FRONTEND
+    Accepts BOTH:
+    - raw string
+    - JSON {question: "..."}
     """
+
+    logger.info("[API HIT] /api/dashboard/chat")
+
+    try:
+        body = await request.json()
+
+        # Handle both formats
+        if isinstance(body, str):
+            question = body
+        elif isinstance(body, dict):
+            question = body.get("question", "")
+        else:
+            question = ""
+    except Exception:
+        question = ""
+
     data = await analyze_company(
-        session, company_id, 
-        datetime.now(timezone.utc) - timedelta(days=365), 
+        session,
+        company_id,
+        datetime.now(timezone.utc) - timedelta(days=365),
         datetime.now(timezone.utc)
     )
-    if not data: return {"answer": "No data found."}
+
+    if not data:
+        return {"answer": "No data found."}
 
     ans = f"Business Rating: {data['avg_rating']}. Analysis complete."
+
     return {"answer": ans}
