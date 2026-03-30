@@ -15,16 +15,18 @@ logger = logging.getLogger("app.scraper")
 # ------------------------------------------------------------------
 SERPAPI_KEY = "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d"
 
-async def fetch_reviews(
-    company_id: int,
-    session: AsyncSession,
+# --- FIXED: Renamed to match the import 'fetch_reviews_from_google' ---
+async def fetch_reviews_from_google(
     place_id: Optional[str] = None,
+    company_id: Optional[int] = None,
+    session: Optional[AsyncSession] = None,
     target_limit: int = 100,
     **kwargs
 ) -> List[Dict[str, Any]]:
     """
     FIXED SCRAPER:
     Checks if query is already a Place ID to avoid discovery failure.
+    Matches the function name expected by app/routes/reviews.py.
     """
 
     all_reviews: List[Dict[str, Any]] = []
@@ -34,7 +36,7 @@ async def fetch_reviews(
         # Priority: Function Argument > Database Record
         target_place_id = place_id
         
-        if not target_place_id:
+        if not target_place_id and company_id and session:
             result = await session.execute(
                 select(Company).where(Company.id == company_id)
             )
