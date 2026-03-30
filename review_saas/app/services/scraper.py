@@ -13,8 +13,11 @@ from app.core.models import Company
 
 logger = logging.getLogger("app.scraper")
 
-# Get API Key from Environment or Fallback
-SERPAPI_KEY = os.getenv("SERP_API_KEY", "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d")
+# --- API KEY RECOVERY LOGIC ---
+# This pulls from Railway Variables first, then falls back to your hardcoded key.
+# .strip() is used to remove hidden spaces that cause "Invalid API Key" errors.
+raw_key = os.getenv("SERP_API_KEY", "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d")
+SERPAPI_KEY = raw_key.strip()
 
 def parse_relative_date(date_text: str) -> datetime:
     """
@@ -66,15 +69,21 @@ async def fetch_reviews_from_google(
             if target_place_id:
                 logger.info(f"🔍 Found Place ID in DB: {target_place_id}")
 
-        # 2. Search Fallback if ID is missing
+        # 2. Search Fallback if ID is missing or broken
         if not target_place_id or len(target_place_id) < 5:
-            # If we don't have an ID, we search by name
-            query = "Villa The Grand Buffet Lahore" # More specific query
+            query = "Villa The Grand Buffet Lahore"
             logger.info(f"📡 No Place ID found, searching Google for: {query}")
             
-            search_params = {"engine": "google", "q": query, "api_key": SERPAPI_KEY, "gl": "pk"}
+            search_params = {
+                "engine": "google", 
+                "q": query, 
+                "api_key": SERPAPI_KEY, 
+                "gl": "pk"
+            }
+            
             def discover_id():
-                res = GoogleSearch(search_params).get_dict()
+                search = GoogleSearch(search_params)
+                res = search.get_dict()
                 return res.get("local_results", [{}])[0].get("place_id") or \
                        res.get("knowledge_graph", {}).get("place_id")
             
@@ -84,7 +93,7 @@ async def fetch_reviews_from_google(
             logger.error("❌ Failed to resolve a Google Place ID. Cannot fetch reviews.")
             return []
 
-        logger.info(f"🚀 Starting fetch for Place ID: {target_place_id}")
+        logger.info(f"🚀 Starting fetch for Place ID: {target_place_id} using key: {SERPAPI_KEY[:5]}***")
 
         next_page_token: Optional[str] = None
 
@@ -100,19 +109,18 @@ async def fetch_reviews_from_google(
 
             results = await asyncio.to_thread(lambda: GoogleSearch(params).get_dict())
             
-            # Check for API Errors
+            # Check for API Errors (Crucial for debugging Railway)
             if "error" in results:
-                logger.error(f"SerpApi Error: {results['error']}")
+                logger.error(f"❌ SerpApi Error: {results['error']}")
                 break
 
             reviews = results.get("reviews", [])
-            logger.info(f"📄 Fetched page: {len(reviews)} reviews found.")
+            logger.info(f"📄 Page Result: {len(reviews)} reviews found.")
 
             if not reviews:
                 break
 
             for r in reviews:
-                # Original Date Logic
                 raw_date = r.get("date", "")
                 parsed_date = parse_relative_date(raw_date)
 
@@ -125,13 +133,13 @@ async def fetch_reviews_from_google(
                     "review_likes": r.get("likes", 0)
                 })
 
-            # Check if we hit the limit or end of pages
+            # Check for pagination
             next_page_token = results.get("serpapi_pagination", {}).get("next_page_token")
             
             if not next_page_token or len(all_reviews) >= target_limit:
                 break
 
-        logger.info(f"✅ Total reviews collected for processing: {len(all_reviews)}")
+        logger.info(f"✅ Total reviews collected: {len(all_reviews)}")
 
     except Exception as exc:
         logger.error(f"❌ Scraper critical failure: {exc}")
