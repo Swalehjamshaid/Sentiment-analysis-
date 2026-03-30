@@ -2,6 +2,9 @@ gunicorn==21.2.0
 gevent==23.9.1
 greenlet==3.0.1
 uvicorn[standard]==0.30.6
+fastapi==0.115.0
+jinja2==3.1.4
+python-multipart==0.0.12
 langchain==0.3.0
 langgraph==0.2.30
 openai==1.50.0
@@ -26,13 +29,10 @@ langdetect==1.0.9
 pandas==2.2.3
 polars==1.6.0
 numpy==1.26.4
-fastapi==0.115.0
-jinja2==3.1.4
-python-multipart==0.0.12
 googlemaps>=4.10.0
 google-api-python-client>=2.149.0
 SQLAlchemy==2.0.31
-psycopg[binary]==3.3.2
+psycopg2-binary==2.9.9
 alembic==1.18.4
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
