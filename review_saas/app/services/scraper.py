@@ -38,7 +38,7 @@ async def fetch_reviews_from_google(
     company_id: Optional[int] = None,
     session: Optional[AsyncSession] = None,
     target_limit: int = 100,
-    days_back: int = 3650, # INCREASED: Now looks back 10 years (3650 days)
+    days_back: int = 3650, 
     **kwargs
 ) -> List[Dict[str, Any]]:
     all_reviews: List[Dict[str, Any]] = []
@@ -47,6 +47,7 @@ async def fetch_reviews_from_google(
         # 1. Check current count in DB
         current_db_count = 0
         if session and company_id:
+            # We count how many reviews we already have for THIS specific company
             count_stmt = select(func.count(Review.id)).where(Review.company_id == company_id)
             count_res = await session.execute(count_stmt)
             current_db_count = count_res.scalar() or 0
@@ -60,10 +61,10 @@ async def fetch_reviews_from_google(
         if not target_place_id:
             return []
 
-        # 2. Define the Cutoff (Extended to 10 years)
         cutoff_date = datetime.utcnow() - timedelta(days=days_back)
         
-        logger.info(f"🚀 Deep Sync: Skipping {current_db_count} reviews. Target: {target_limit} more. History limit: {cutoff_date.date()}")
+        # LOGIC: If we have 100 reviews, we skip 100. If we have 200, we skip 200.
+        logger.info(f"🚀 Deep Sync: DB already has {current_db_count}. Fetching NEXT {target_limit} older reviews.")
         
         next_page_token: Optional[str] = None
         total_seen_on_google = 0
@@ -85,13 +86,13 @@ async def fetch_reviews_from_google(
 
             reviews = results.get("reviews", [])
             if not reviews:
-                logger.info("ℹ️ No more reviews available from Google.")
                 break
 
             for r in reviews:
                 total_seen_on_google += 1
                 
-                # Skip reviews we already have
+                # --- THE SKIP ATTRIBUTE ---
+                # We skip everything we already have in our database
                 if total_seen_on_google <= current_db_count:
                     continue
 
@@ -100,9 +101,7 @@ async def fetch_reviews_from_google(
                 
                 parsed_date = parse_relative_date(r.get("date", ""))
                 
-                # Stop if review is older than 10 years
                 if parsed_date < cutoff_date:
-                    logger.info(f"🛑 Reached 10-year limit. Stopping.")
                     return all_reviews
 
                 all_reviews.append({
@@ -118,7 +117,7 @@ async def fetch_reviews_from_google(
             if not next_page_token:
                 break
 
-        logger.info(f"✅ Deep Sync Complete: Collected {len(all_reviews)} reviews.")
+        logger.info(f"✅ Collected {len(all_reviews)} BRAND NEW older reviews.")
 
     except Exception as exc:
         logger.error(f"❌ Scraper failure: {exc}")
