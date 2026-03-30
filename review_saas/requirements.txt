@@ -1,49 +1,60 @@
-# --- Server & Worker Fixes ---
-gunicorn==21.2.0
-gevent==23.9.1
-greenlet==3.0.1
-uvicorn[standard]==0.30.6
+# ================================
+# 🚀 FASTAPI CORE (Backend Server)
+# ================================
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+gunicorn==23.0.0
 
-# --- AI & LLM Orchestration ---
-langchain==0.3.0
-langgraph==0.2.30
-openai==1.50.0
-anthropic==0.35.0
-google-generativeai==0.8.0
-pydantic-ai==0.0.14
+# ================================
+# 🎨 TEMPLATE ENGINE (CRITICAL FIX)
+# ================================
+jinja2==3.1.3
 
-# --- Browser & Scraping (Playwright Optimized) ---
-playwright==1.45.0
-beautifulsoup4==4.12.3
-html5lib==1.1
+# ================================
+# 📦 REQUEST HANDLING & API CALLS
+# ================================
+requests==2.31.0
+aiohttp==3.9.3
+python-multipart==0.0.6
 
-# --- Vector Database & RAG ---
-chromadb==0.5.5
-sentence-transformers==3.1.1
-pypdf==4.3.1
-
-# --- Sentiment & Data Processing ---
-textblob==0.18.0.post0
-vaderSentiment==3.3.2
-langdetect==1.0.9
-pandas==2.2.3
-polars==1.6.0
-
-# --- Web Framework & APIs ---
-fastapi==0.115.0
-jinja2==3.1.4
-python-multipart==0.0.12
-googlemaps>=4.10.0
-google-api-python-client>=2.149.0
-
-# --- Database & Security ---
-SQLAlchemy==2.0.31
-psycopg[binary]==3.3.2
-alembic==1.18.4
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.0.1
-
-# --- Utilities ---
+# ================================
+# 🧠 DATA VALIDATION & ENV
+# ================================
+pydantic==2.6.4
 python-dotenv==1.0.1
-apscheduler==3.10.4
+
+# ================================
+# 🗄️ DATABASE
+# ================================
+sqlalchemy==2.0.29
+
+# ================================
+# 📊 DATA PROCESSING (DASHBOARD)
+# ================================
+pandas==2.1.4
+numpy==1.24.4
+
+# ================================
+# 📈 VISUALIZATION
+# ================================
+plotly==5.20.0
+
+# ================================
+# ☁️ NLP (TEXT PROCESSING)
+# ================================
+nltk==3.8.1
+
+# ================================
+# 📤 EXPORT (EXCEL FILES)
+# ================================
+openpyxl==3.1.2
+
+# ================================
+# 🌐 GOOGLE API INTEGRATION
+# ================================
+google-api-python-client==2.118.0
+
+# ================================
+# 🎭 PLAYWRIGHT (SCRAPER ENGINE)
+# ================================
+playwright==1.45.0
