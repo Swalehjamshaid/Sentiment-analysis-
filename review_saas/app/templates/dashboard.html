@@ -4,13 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Review Intelligence AI Dashboard</title>
-
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-
     <style>
-        :root { 
+        :root {
             --primary-grad: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
             --ai-grad: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
             --danger-grad: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
@@ -27,17 +25,15 @@
         .chat-user { background: #6366f1; color: white; align-self: flex-end; }
         .chart-wrapper { height: 280px; position: relative; }
         .btn-pill { border-radius: 50px; padding: 10px 25px; font-weight: 600; }
-        
+       
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
         [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
         [data-theme="dark"] .bg-light { background: #334155 !important; color: white; }
-        
+       
         .pac-container { z-index: 9999 !important; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); border: none; }
     </style>
 </head>
-
 <body>
-
 <nav class="navbar navbar-expand-lg navbar-dark p-3 shadow-lg">
     <div class="container-fluid">
         <span class="navbar-brand fw-bold fs-4"><i class="bi bi-robot me-2"></i>Review Intel AI</span>
@@ -50,7 +46,6 @@
         </div>
     </div>
 </nav>
-
 <div class="container-fluid">
     <div class="row g-3 align-items-end mb-4 p-4 bg-white rounded-4 shadow-sm">
         <div class="col-md-3">
@@ -72,7 +67,6 @@
             </div>
         </div>
     </div>
-
     <div class="row g-3 mb-4 text-center">
         <div class="col-md-3">
             <div class="card total-review-card p-4 h-100 shadow-sm">
@@ -97,7 +91,6 @@
             </div>
         </div>
     </div>
-
     <div class="row g-4 mb-4">
         <div class="col-lg-8">
             <div class="row g-4">
@@ -115,7 +108,6 @@
                 </div>
             </div>
         </div>
-
         <div class="col-lg-4">
             <div class="ai-badge">STRATEGY CONSULTANT (AI CHAT)</div>
             <div class="card border-0 shadow-sm h-100">
@@ -132,7 +124,6 @@
         </div>
     </div>
 </div>
-
 <div class="modal fade" id="addCompanyModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <form id="addCompanyForm" class="modal-content shadow-lg border-0">
@@ -143,7 +134,7 @@
             <div class="modal-body p-4">
                 <label class="small fw-bold text-muted mb-2">SEARCH GOOGLE MAPS</label>
                 <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Enter business name or address...">
-                
+               
                 <div class="p-4 bg-light rounded-4">
                     <div class="mb-3">
                         <label class="small fw-bold text-muted">BUSINESS NAME</label>
@@ -165,10 +156,8 @@
         </form>
     </div>
 </div>
-
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-
 <script>
 let chartInstances = {};
 
@@ -194,91 +183,98 @@ async function loadCompanies() {
         const res = await fetch("/api/companies");
         const data = await res.json();
         const sel = document.getElementById("companySelect");
-        if (data && data.length > 0) {
-            sel.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
-            triggerAllLoads();
+        if (data && data.companies && data.companies.length > 0) {
+            sel.innerHTML = data.companies.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+            if (sel.options.length > 0) {
+                sel.value = sel.options[0].value;
+            }
         } else {
-            sel.innerHTML = `<option value="">No businesses added</option>`;
+            sel.innerHTML = `<option value="">No businesses added yet</option>`;
         }
-    } catch (e) { console.error("Load Failed:", e); }
+    } catch (e) { 
+        console.error("Load Companies Failed:", e); 
+    }
 }
 
-// 3. Main Data Fetch (KPIs + Revenue + AI)
+// 3. Main Data Fetch
 async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
-    const start = document.getElementById("startDate").value || "2023-01-01";
+    const start = document.getElementById("startDate").value || "2024-01-01";
     const end = document.getElementById("endDate").value || new Date().toISOString().split('T')[0];
-    
+   
     if (!cid) return;
 
     try {
-        // Fetch AI Insights & Metadata
-        const res = await fetch(`/api/ai/insights?company_id=${cid}&start=${start}&end=${end}`);
+        const res = await fetch(`/api/dashboard/ai/insights?company_id=${cid}&start=${start}&end=${end}`);
         const data = await res.json();
 
-        if (data.visualizations) {
+        if (data.metadata) {
             document.getElementById("kpiTotal").innerText = data.metadata.total_reviews || 0;
-            document.getElementById("kpiRating").innerText = data.kpis.benchmark.your_avg || "0.0";
-            document.getElementById("riskSentiment").innerText = data.kpis.reputation_score || "0";
+        }
+        if (data.kpis) {
+            document.getElementById("kpiRating").innerText = data.kpis.average_rating || data.kpis.benchmark?.your_avg || "—";
+            document.getElementById("riskSentiment").innerText = data.kpis.reputation_score || "—";
+        }
+
+        if (data.visualizations) {
             renderCharts(data.visualizations);
         }
 
-        // Fetch Revenue Risk
         const revRes = await fetch(`/api/dashboard/revenue?company_id=${cid}`);
         const revData = await revRes.json();
         document.getElementById("riskPct").innerText = (revData.risk_percent || 0) + "%";
         document.getElementById("riskImpact").innerText = revData.impact || "N/A";
-    } catch (e) { console.error("Dashboard Load Error:", e); }
+
+    } catch (e) { 
+        console.error("Dashboard Load Error:", e); 
+    }
 }
 
 // 4. Chart Rendering
 function renderCharts(vis) {
-    // Radar Chart: Emotions
     const radarCtx = document.getElementById("chartEmotions");
     if(chartInstances.emotions) chartInstances.emotions.destroy();
     chartInstances.emotions = new Chart(radarCtx, {
         type: 'radar',
         data: {
             labels: Object.keys(vis.emotions || {}),
-            datasets: [{ 
-                label: 'Intensity', 
-                data: Object.values(vis.emotions || {}), 
-                backgroundColor: 'rgba(168, 85, 247, 0.2)', 
-                borderColor: '#a855f7' 
+            datasets: [{
+                label: 'Intensity',
+                data: Object.values(vis.emotions || {}),
+                backgroundColor: 'rgba(168, 85, 247, 0.2)',
+                borderColor: '#a855f7'
             }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
 
-    // Line Chart: Sentiment Trend
     const lineCtx = document.getElementById("chartMonthly");
     if(chartInstances.monthly) chartInstances.monthly.destroy();
     chartInstances.monthly = new Chart(lineCtx, {
         type: 'line',
         data: {
-            labels: (vis.sentiment_trend || []).map(d => d.week || d.date),
-            datasets: [{ 
-                label: 'Avg Sentiment', 
-                data: (vis.sentiment_trend || []).map(d => d.avg), 
-                borderColor: '#10b981', 
+            labels: (vis.sentiment_trend || []).map(d => d.week || d.month || "Week"),
+            datasets: [{
+                label: 'Avg Sentiment',
+                data: (vis.sentiment_trend || []).map(d => d.avg),
+                borderColor: '#10b981',
                 backgroundColor: 'rgba(16, 185, 129, 0.1)',
                 fill: true,
-                tension: 0.3 
+                tension: 0.3
             }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
 
-    // Bar Chart: Ratings
     const barCtx = document.getElementById("chartRatings");
     if(chartInstances.ratings) chartInstances.ratings.destroy();
     chartInstances.ratings = new Chart(barCtx, {
         type: 'bar',
         data: {
             labels: ['1★', '2★', '3★', '4★', '5★'],
-            datasets: [{ 
-                label: 'Reviews', 
-                data: vis.ratings ? Object.values(vis.ratings) : [0,0,0,0,0], 
+            datasets: [{
+                label: 'Reviews',
+                data: vis.ratings ? Object.values(vis.ratings) : [0,0,0,0,0],
                 backgroundColor: '#6366f1',
                 borderRadius: 8
             }]
@@ -287,24 +283,20 @@ function renderCharts(vis) {
     });
 }
 
-// 5. Sync Button (Playwright Scraper)
+// 5. Sync Button
 document.getElementById("syncBtn").onclick = async () => {
     const cid = document.getElementById("companySelect").value;
     const btn = document.getElementById("syncBtn");
     if (!cid) return;
-
     btn.disabled = true;
     btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Syncing...`;
-
     try {
         const res = await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
         const result = await res.json();
-        
-        // Give the DB a moment to process before reloading
-        setTimeout(() => { 
-            triggerAllLoads(); 
-            btn.disabled = false; 
-            btn.innerHTML = "Sync Live Data"; 
+        setTimeout(() => {
+            triggerAllLoads();
+            btn.disabled = false;
+            btn.innerHTML = "Sync Live Data";
             alert(`Sync Complete! Found ${result.reviews_count || 0} reviews.`);
         }, 1500);
     } catch (e) {
@@ -322,17 +314,15 @@ document.getElementById('addCompanyForm').onsubmit = async (e) => {
         place_id: document.getElementById('placeId').value,
         address: document.getElementById('companyAddress').value
     };
-    
     if (!payload.place_id) {
         alert("Please search and select a business first.");
         return;
     }
-
     try {
-        const res = await fetch('/api/companies', { 
-            method: 'POST', 
-            headers: {'Content-Type': 'application/json'}, 
-            body: JSON.stringify(payload) 
+        const res = await fetch('/api/companies', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
         });
         if (res.ok) {
             alert("Business Linked Successfully!");
@@ -344,7 +334,7 @@ document.getElementById('addCompanyForm').onsubmit = async (e) => {
 // 7. AI Chat Integration
 document.getElementById("chatBtn").onclick = async () => {
     const input = document.getElementById("chatInput");
-    const msg = input.value;
+    const msg = input.value.trim();
     const cid = document.getElementById("companySelect").value;
     if(!msg || !cid) return;
 
@@ -354,10 +344,10 @@ document.getElementById("chatBtn").onclick = async () => {
     win.scrollTop = win.scrollHeight;
 
     try {
-        const res = await fetch(`/api/dashboard/chat?company_id=${cid}`, { 
-            method: 'POST', 
-            headers: {'Content-Type': 'application/json'}, 
-            body: JSON.stringify(msg) 
+        const res = await fetch(`/api/dashboard/chat?company_id=${cid}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ message: msg })
         });
         const data = await res.json();
         win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Expert:</strong> ${data.answer}</div>`;
@@ -378,8 +368,13 @@ document.getElementById("toggleTheme").onclick = () => {
 document.addEventListener("DOMContentLoaded", () => {
     loadCompanies();
     initGoogleAutocomplete();
+    
+    setTimeout(() => {
+        if (document.getElementById("companySelect").value) {
+            triggerAllLoads();
+        }
+    }, 1000);
 });
 </script>
-
 </body>
 </html>
