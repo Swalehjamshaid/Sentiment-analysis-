@@ -3,11 +3,13 @@ fastapi==0.110.0
 uvicorn[standard]==0.27.1
 gunicorn==23.0.0
 
-# --- Database Stack (THE NEW FIX) ---
-# This fixes: ModuleNotFoundError: No module named 'sqlalchemy'
+# --- Database & Async Stack (THE NEW FIX) ---
+# Resolves: ModuleNotFoundError: No module named 'asyncpg'
 sqlalchemy==2.0.28
+asyncpg==0.29.0
 psycopg2-binary==2.9.9
 alembic==1.13.1
+greenlet==3.0.3
 
 # --- Settings & Environment ---
 pydantic==2.6.3
