@@ -100,12 +100,12 @@ bokeh==3.5.0
 gradio==4.44.0
 
 # =========================
-# --- POWERFUL AI CHATBOT & ANALYSIS (Python 3.10 Compatible) ---
+# --- AI CHATBOT & ANALYSIS (Python 3.10 Safe Versions) ---
 # =========================
 langchain==0.2.16
 langchain-community==0.2.16
-langgraph==0.1.19          # Fixed version that exists for Python 3.10
-llama-index==0.10.68
+langgraph==0.1.19          # Safe version for Python 3.10
+llama-index==0.10.68       # Older stable version
 sentence-transformers==3.0.1
 litellm==1.0.0
 faiss-cpu==1.8.0
