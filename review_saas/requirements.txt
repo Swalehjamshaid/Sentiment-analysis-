@@ -1,10 +1,10 @@
-# --- Core Server & Process Fixes ---
+# --- Server & Worker Fixes ---
 gunicorn==21.2.0
 gevent==23.9.1
 greenlet==3.0.1
 uvicorn[standard]==0.30.6
 
-# --- AI Chatbot & LLM Orchestration ---
+# --- AI & LLM Orchestration ---
 langchain==0.3.0
 langgraph==0.2.30
 openai==1.50.0
@@ -12,17 +12,17 @@ anthropic==0.35.0
 google-generativeai==0.8.0
 pydantic-ai==0.0.14
 
-# --- Browser Automation (For the AI to Browse) ---
+# --- Browser & Scraping (Playwright Optimized) ---
 playwright==1.45.0
 beautifulsoup4==4.12.3
 html5lib==1.1
 
-# --- Vector Memory & RAG ---
+# --- Vector Database & RAG ---
 chromadb==0.5.5
 sentence-transformers==3.1.1
 pypdf==4.3.1
 
-# --- Sentiment Analysis & Data ---
+# --- Sentiment & Data Processing ---
 textblob==0.18.0.post0
 vaderSentiment==3.3.2
 langdetect==1.0.9
@@ -44,6 +44,6 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 
-# --- Infrastructure ---
+# --- Utilities ---
 python-dotenv==1.0.1
 apscheduler==3.10.4
