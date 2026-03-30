@@ -6,16 +6,14 @@ from typing import List, Dict, Any, Optional
 import re
 
 from serpapi import GoogleSearch
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.models import Company
+from app.core.models import Company, Review
 
 logger = logging.getLogger("app.scraper")
 
-# --- FORCE KEY LOGIC ---
-# Using the key from your screenshot. 
-# Added .strip() to remove hidden spaces that cause "Invalid API Key" errors.
+# --- API KEY ---
 SERPAPI_KEY = "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d".strip()
 
 def parse_relative_date(date_text: str) -> datetime:
@@ -38,33 +36,33 @@ async def fetch_reviews_from_google(
     place_id: Optional[str] = None,
     company_id: Optional[int] = None,
     session: Optional[AsyncSession] = None,
-    target_limit: int = 100, # Reduced to 100 as requested
+    target_limit: int = 100,
     **kwargs
 ) -> List[Dict[str, Any]]:
     all_reviews: List[Dict[str, Any]] = []
 
     try:
+        # 1. Determine how many reviews we ALREADY have to set the offset
+        current_count = 0
+        if session and company_id:
+            count_stmt = select(func.count(Review.id)).where(Review.company_id == company_id)
+            count_res = await session.execute(count_stmt)
+            current_count = count_res.scalar() or 0
+
         target_place_id = place_id
-        
         if not target_place_id and company_id and session:
             result = await session.execute(select(Company).where(Company.id == company_id))
             company = result.scalar_one_or_none()
             target_place_id = company.google_place_id if company else None
 
         if not target_place_id:
-            # Fallback search if ID is missing
-            query = "Villa The Grand Buffet Lahore"
-            search_params = {"engine": "google", "q": query, "api_key": SERPAPI_KEY}
-            def discover():
-                res = GoogleSearch(search_params).get_dict()
-                return res.get("local_results", [{}])[0].get("place_id")
-            target_place_id = await asyncio.to_thread(discover)
-
-        if not target_place_id:
             return []
 
-        logger.info(f"🚀 Syncing 100 Newest Reviews for: {target_place_id}")
+        # LOGIC: We will skip the newest 'current_count' reviews to find the next 100 older ones
+        logger.info(f"🚀 Syncing: Skipping first {current_count} reviews to find {target_limit} more for {target_place_id}")
+        
         next_page_token: Optional[str] = None
+        total_processed_from_google = 0
 
         while len(all_reviews) < target_limit:
             params = {
@@ -72,7 +70,7 @@ async def fetch_reviews_from_google(
                 "place_id": target_place_id,
                 "api_key": SERPAPI_KEY,
                 "next_page_token": next_page_token,
-                "sort_by": "newest" # Pulls from latest to previous
+                "sort_by": "newest"
             }
 
             results = await asyncio.to_thread(lambda: GoogleSearch(params).get_dict())
@@ -86,6 +84,12 @@ async def fetch_reviews_from_google(
                 break
 
             for r in reviews:
+                total_processed_from_google += 1
+                
+                # OFFSET CHECK: If we already have 50 reviews, skip the first 50 we see on Google
+                if total_processed_from_google <= current_count:
+                    continue
+
                 if len(all_reviews) >= target_limit:
                     break
                 
@@ -102,7 +106,7 @@ async def fetch_reviews_from_google(
             if not next_page_token:
                 break
 
-        logger.info(f"✅ Collected {len(all_reviews)} reviews.")
+        logger.info(f"✅ Offset Sync Complete: Collected {len(all_reviews)} new older reviews.")
 
     except Exception as exc:
         logger.error(f"❌ Scraper failure: {exc}")
