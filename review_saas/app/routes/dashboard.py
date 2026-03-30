@@ -8,7 +8,7 @@ from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from fastapi.responses import JSONResponse
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -32,7 +32,9 @@ def safe_date(val: Optional[str], default: datetime) -> datetime:
     try:
         if not val:
             return default
-        d = datetime.fromisoformat(val.replace("Z", "+00:00"))
+        # Replace Z with UTC offset for compatibility
+        clean_val = val.replace("Z", "+00:00")
+        d = datetime.fromisoformat(clean_val)
         return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
     except Exception:
         return default
@@ -46,14 +48,10 @@ def sentiment_label(score: float) -> str:
 
 def detect_intent(question: str) -> str:
     q = (question or "").lower()
-    if "rating" in q:
-        return "rating"
-    if "issue" in q or "problem" in q:
-        return "issues"
-    if "improve" in q or "better" in q:
-        return "improve"
-    if "good" in q or "strength" in q:
-        return "strengths"
+    if "rating" in q: return "rating"
+    if "issue" in q or "problem" in q: return "issues"
+    if "improve" in q or "better" in q: return "improve"
+    if "good" in q or "strength" in q: return "strengths"
     return "general"
 
 # ---------------- CORE ANALYSIS ----------------
@@ -61,25 +59,26 @@ async def analyze_company(
     session: AsyncSession, company_id: int, start_d: datetime, end_d: datetime
 ) -> Optional[Dict[str, Any]]:
     """
-    Loads all reviews for a company in the date window and computes base aggregates.
-    Returns None if no data is found.
+    Loads all reviews for a company in the date window.
+    REFINED: Uses OR logic to ensure reviews are caught by scraped date OR sync date.
     """
     stmt = (
         select(Review)
         .where(
-            and_(
-                Review.company_id == company_id,
-                Review.google_review_time >= start_d,
-                Review.google_review_time <= end_d,
+            Review.company_id == company_id,
+            or_(
+                and_(Review.google_review_time >= start_d, Review.google_review_time <= end_d),
+                and_(Review.first_seen_at >= start_d, Review.first_seen_at <= end_d)
             )
         )
-        .order_by(Review.google_review_time.desc())
+        .order_by(Review.first_seen_at.desc())
     )
 
     res = await session.execute(stmt)
     reviews = res.scalars().all()
 
     if not reviews:
+        logger.info(f"No reviews found for company {company_id} in range {start_d} to {end_d}")
         return None
 
     sentiments: List[float] = []
@@ -91,11 +90,13 @@ async def analyze_company(
         text = (r.text or "")
         score = analyzer.polarity_scores(text)["compound"]
         sentiments.append(score)
-        ratings.append(r.rating)
+        ratings.append(r.rating if r.rating is not None else 0)
         texts.append(text)
 
-        if r.google_review_time:
-            key = r.google_review_time.strftime("%Y-%m")
+        # Use whichever date is available for the chart mapping
+        display_date = r.google_review_time or r.first_seen_at
+        if display_date:
+            key = display_date.strftime("%Y-%m")
             monthly[key].append(score)
 
     total_count = len(reviews)
@@ -111,7 +112,7 @@ async def analyze_company(
         "avg_rating": avg_rating,
         "sentiment": sentiment_avg,
         "total_reviews": total_count,
-        "texts": texts,          # For AI/chat analysis
+        "texts": texts,
         "monthly": monthly_data,
         "ratings": ratings,
         "sentiments": sentiments,
@@ -122,15 +123,12 @@ async def get_dashboard_insights(
 ) -> Optional[Dict[str, Any]]:
     """
     Produces the exact payload used by /api/dashboard/insights.
-    Useful for reuse by other routers (e.g., /api/ai/insights).
     """
     data = await analyze_company(session, company_id, start_d, end_d)
     if not data:
         return None
 
-    # Risk is inversely proportional to sentiment (as per your prior logic)
     risk = round((1 - data["sentiment"]) * 100, 2)
-
     emotions = [
         "Happy" if s > 0.5 else "Angry" if s < -0.3 else "Neutral"
         for s in data["sentiments"]
@@ -159,12 +157,13 @@ async def dashboard(
     end: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
 ):
+    # Defaulting to 1 year lookback to ensure Jan/Feb 2026 data is captured
     start_d = safe_date(start, datetime.now(timezone.utc) - timedelta(days=365))
     end_d = safe_date(end, datetime.now(timezone.utc))
 
     payload = await get_dashboard_insights(session, company_id, start_d, end_d)
     if not payload:
-        return {"status": "no_data"}
+        return JSONResponse(content={"status": "no_data"}, status_code=200)
 
     return JSONResponse(content=payload)
 
@@ -172,17 +171,15 @@ async def dashboard(
 @router.post("/chat")
 async def chatbot(
     company_id: int,
-    question: str = Body(...),
+    question: str = Body(..., embed=True),
     session: AsyncSession = Depends(get_session),
 ):
     data = await analyze_company(
-        session,
-        company_id,
-        datetime.now(timezone.utc) - timedelta(days=365),
-        datetime.now(timezone.utc),
+        session, company_id, 
+        datetime.now(timezone.utc) - timedelta(days=365), 
+        datetime.now(timezone.utc)
     )
-    if not data:
-        return {"answer": "No data available"}
+    if not data: return {"answer": "No data available"}
 
     intent = detect_intent(question)
     words = " ".join(data["texts"]).lower().split()
@@ -191,27 +188,15 @@ async def chatbot(
     strengths = [w for w, _ in common[3:]]
 
     if intent == "rating":
-        answer = (
-            f"Your average rating is {data['avg_rating']}. "
-            f"Based on feedback, primary drivers are {', '.join(issues)}."
-        )
+        answer = f"Your average rating is {data['avg_rating']}. Drivers include {', '.join(issues)}."
     elif intent == "issues":
-        answer = (
-            f"Identified concerns include: {', '.join(issues)}. "
-            f"Customers often mention these in negative contexts."
-        )
+        answer = f"Identified concerns: {', '.join(issues)}."
     elif intent == "strengths":
-        answer = (
-            f"Your business strengths include: {', '.join(strengths)}. "
-            f"These are frequently mentioned in high-rating reviews."
-        )
+        answer = f"Strengths: {', '.join(strengths)}."
     elif intent == "improve":
-        answer = (
-            f"To improve, focus on addressing {', '.join(issues)}. "
-            f"Strengthening operations in these areas will likely boost your CSAT."
-        )
+        answer = f"To improve, focus on {', '.join(issues)}."
     else:
-        answer = f"Overview: Rating {data['avg_rating']} across {data['total_reviews']} total reviews."
+        answer = f"Overview: Rating {data['avg_rating']} across {data['total_reviews']} reviews."
 
     return {"answer": answer}
 
@@ -224,32 +209,27 @@ async def compare(
     results = []
     for cid in company_ids:
         data = await analyze_company(
-            session,
-            cid,
-            datetime.now(timezone.utc) - timedelta(days=365),
-            datetime.now(timezone.utc),
+            session, cid, 
+            datetime.now(timezone.utc) - timedelta(days=365), 
+            datetime.now(timezone.utc)
         )
         if data:
-            results.append(
-                {
-                    "company_id": cid,
-                    "rating": data["avg_rating"],
-                    "reviews": data["total_reviews"],
-                }
-            )
+            results.append({
+                "company_id": cid,
+                "rating": data["avg_rating"],
+                "reviews": data["total_reviews"],
+            })
     return {"comparison": results}
 
 # ---------------- REVENUE & RISK ----------------
 @router.get("/revenue")
 async def revenue(company_id: int, session: AsyncSession = Depends(get_session)):
     data = await analyze_company(
-        session,
-        company_id,
-        datetime.now(timezone.utc) - timedelta(days=365),
-        datetime.now(timezone.utc),
+        session, company_id, 
+        datetime.now(timezone.utc) - timedelta(days=365), 
+        datetime.now(timezone.utc)
     )
-    if not data:
-        return {"status": "no_data"}
+    if not data: return {"status": "no_data"}
     risk = (1 - data["sentiment"]) * 100
     return {
         "risk_percent": round(risk, 2),
@@ -258,13 +238,8 @@ async def revenue(company_id: int, session: AsyncSession = Depends(get_session))
 
 # ---------------- AUTO REPLY ----------------
 @router.post("/reply")
-async def reply(review_text: str = Body(...)):
+async def reply(review_text: str = Body(..., embed=True)):
     score = analyzer.polarity_scores(review_text)["compound"]
     if score > 0:
-        return {
-            "reply": "Thank you for your kind words! We are thrilled you enjoyed your experience."
-        }
-    else:
-        return {
-            "reply": "We are sorry to hear about your experience. Please reach out to our management so we can make this right."
-        }
+        return {"reply": "Thank you for your kind words! We are thrilled you enjoyed your experience."}
+    return {"reply": "We are sorry to hear about your experience. Please reach out so we can make this right."}
