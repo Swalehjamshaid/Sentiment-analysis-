@@ -25,11 +25,11 @@
         .chat-user { background: #6366f1; color: white; align-self: flex-end; }
         .chart-wrapper { height: 280px; position: relative; }
         .btn-pill { border-radius: 50px; padding: 10px 25px; font-weight: 600; }
-       
+        
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
         [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
         [data-theme="dark"] .bg-light { background: #334155 !important; color: white; }
-       
+        
         .pac-container { z-index: 9999 !important; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); border: none; }
     </style>
 </head>
@@ -134,7 +134,7 @@
             <div class="modal-body p-4">
                 <label class="small fw-bold text-muted mb-2">SEARCH GOOGLE MAPS</label>
                 <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Enter business name or address...">
-               
+                
                 <div class="p-4 bg-light rounded-4">
                     <div class="mb-3">
                         <label class="small fw-bold text-muted">BUSINESS NAME</label>
@@ -177,23 +177,14 @@ function initGoogleAutocomplete() {
     });
 }
 
-// 2. Load Company List - FIXED & IMPROVED (Now properly reads from your Postgres)
+// 2. Load Company List
 async function loadCompanies() {
     try {
-        console.log("🔄 Fetching companies from /api/companies...");
         const res = await fetch("/api/companies");
-        
-        if (!res.ok) {
-            throw new Error(`HTTP error! status: ${res.status}`);
-        }
-        
         const data = await res.json();
-        console.log("📊 Companies API Response:", data);   // Helpful for debugging
-
         const sel = document.getElementById("companySelect");
         let companies = [];
 
-        // Handle different possible response formats from your companies router
         if (data && data.companies && Array.isArray(data.companies)) {
             companies = data.companies;
         } else if (Array.isArray(data)) {
@@ -208,21 +199,14 @@ async function loadCompanies() {
                 return `<option value="${c.id}">${name}</option>`;
             }).join("");
             
-            // Auto-select the first company
             sel.value = companies[0].id;
-            console.log(`✅ Loaded ${companies.length} businesses successfully`);
-            
-            // Auto load dashboard data for the first business
-            setTimeout(() => {
-                triggerAllLoads();
-            }, 800);
+            setTimeout(() => { triggerAllLoads(); }, 800);
         } else {
             sel.innerHTML = `<option value="">No businesses added yet</option>`;
-            console.log("⚠️ No companies returned from API");
         }
     } catch (e) { 
         console.error("❌ Load Companies Failed:", e); 
-        document.getElementById("companySelect").innerHTML = `<option value="">Error loading businesses - Check Console</option>`;
+        document.getElementById("companySelect").innerHTML = `<option value="">Error loading businesses</option>`;
     }
 }
 
@@ -231,7 +215,7 @@ async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
     const start = document.getElementById("startDate").value || "2024-01-01";
     const end = document.getElementById("endDate").value || new Date().toISOString().split('T')[0];
-   
+    
     if (!cid) return;
 
     try {
@@ -361,7 +345,7 @@ document.getElementById('addCompanyForm').onsubmit = async (e) => {
     } catch (e) { console.error("Save Failed:", e); }
 };
 
-// 7. AI Chat Integration
+// 7. AI Chat Integration - ALIGNED WITH CHATBOT.PY
 document.getElementById("chatBtn").onclick = async () => {
     const input = document.getElementById("chatInput");
     const msg = input.value.trim();
@@ -374,10 +358,14 @@ document.getElementById("chatBtn").onclick = async () => {
     win.scrollTop = win.scrollHeight;
 
     try {
-        const res = await fetch(`/api/dashboard/chat?company_id=${cid}`, {
+        // Updated to send company_id inside JSON body to match chatbot.py
+        const res = await fetch(`/api/chatbot/chat`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ message: msg })
+            body: JSON.stringify({ 
+                message: msg,
+                company_id: cid 
+            })
         });
         const data = await res.json();
         win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Expert:</strong> ${data.answer}</div>`;
