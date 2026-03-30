@@ -1,55 +1,53 @@
-# --- SERVER & WORKER FIXES ---
+# Web server & ASGI
+uvicorn==0.30.6
+fastapi==0.115.0
 gunicorn==21.2.0
-gevent==23.9.1
-greenlet==3.0.1
-uvicorn[standard]==0.30.6
+gevent==23.8.1
+greenlet==2.0.2
 
-# --- AI & LLM (Flexible versions to fix LangGraph error) ---
-langchain>=0.3.0
-langgraph>=0.2.0
-openai>=1.50.0
-anthropic>=0.35.0
-google-generativeai>=0.8.0
-pydantic-ai>=0.0.14
-
-# --- BROWSER & SCRAPING ---
+# Scraping & browsers
 playwright==1.45.0
-beautifulsoup4==4.12.3
 selenium==4.25.0
-requests==2.32.3
-lxml==5.3.0
-html5lib==1.1
 cloudscraper==1.2.71
 selectolax==0.3.21
+lxml==5.3.0
+html5lib==1.1
+requests==2.32.3
 
-# --- MEMORY & DATA ---
-chromadb>=0.5.5
-sentence-transformers>=3.1.1
-pypdf==4.3.1
-tiktoken>=0.7.0
+# AI / NLP
 textblob==0.18.0.post0
 vaderSentiment==3.3.2
 langdetect==1.0.9
+sentence-transformers>=3.1.1
+chromadb>=0.5.5
+openai>=2.30.0
+google-generativeai>=0.8.6
+anthropic>=0.35.0
+pydantic-ai>=0.0.14
+langchain>=0.3.0
+langgraph>=0.2.0
+
+# PDF / Docs
+pypdf==4.3.1
+
+# Data
+numpy==1.26.4
 pandas==2.2.3
 polars==1.6.0
-numpy==1.26.4
 
-# --- FRAMEWORK & APIS ---
-fastapi==0.115.0
+# DB / Auth
+SQLAlchemy==2.0.31
+psycopg2-binary==2.9.9
+alembic==1.18.4
+python-jose==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+
+# Misc
+python-dotenv==1.0.1
+APScheduler==3.10.4
+httpx==0.27.2
 jinja2==3.1.4
 python-multipart==0.0.12
 googlemaps>=4.10.0
 google-api-python-client>=2.149.0
-
-# --- DATABASE & SECURITY ---
-SQLAlchemy==2.0.31
-psycopg2-binary==2.9.9
-alembic==1.18.4
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.0.1
-
-# --- UTILS ---
-python-dotenv==1.0.1
-apscheduler==3.10.4
-httpx==0.27.2
