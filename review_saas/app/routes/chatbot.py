@@ -17,12 +17,14 @@ logger = logging.getLogger(__name__)
 API_KEY = "AIzaSyB-J-JRHFepz-oKtre8zM3iXucAdM7BBn4"
 
 model = None
+
+# ✅ Safe Gemini Init (FIXED)
 try:
     genai.configure(api_key=API_KEY)
-    model = genai.GenerativeModel("gemini-pro")
-    logger.info("Gemini AI initialized successfully")
+    model = genai.GenerativeModel("gemini-1.5-flash")  # ✅ FIX: more stable than gemini-pro
+    logger.info("✅ Gemini initialized successfully")
 except Exception as e:
-    logger.error(f"Gemini Config Error: {e}")
+    logger.error(f"❌ Gemini Config Error: {e}")
     model = None
 
 
@@ -75,68 +77,71 @@ async def chat_api(
         rev_res = await session.execute(rev_stmt)
         reviews = rev_res.scalars().all()
 
-        # Railway Logs
-        logger.info(f"--- Chatbot Analysis for: {company.name} ---")
-        logger.info(f"Reviews found: {len(reviews)}")
+        print(f"--- Chatbot Analysis for: {company.name} ---")
+        print(f"Reviews found: {len(reviews)}")
 
-        # 6. AI Response
-        if model:
+        # 6. AI Processing
+        if not model:
+            return JSONResponse({
+                "answer": "AI Expert: Gemini AI Model is not initialized."
+            })
+
+        try:
             if reviews:
-                review_context = "\n".join([
-                    f"Rating: {r.rating}* | {r.text or ''}" for r in reviews
-                ])
+                review_context = "\n".join(
+                    [f"Rating: {r.rating}* | {r.text}" for r in reviews if r.text]
+                )
 
                 prompt = f"""
 You are a Business Consultant for {company.name}.
 
-Analyze these customer reviews from our database:
+Analyze these customer reviews:
 {review_context}
 
 User Question: {user_message}
 
-Instruction: Provide a professional, concise answer based ONLY on the review data.
+Give a clear, short, professional answer based ONLY on reviews.
 """
             else:
                 prompt = f"""
-The user is asking about {company.name}, but there are no reviews in the database.
-Tell them to click 'Sync Live Data'.
+The business {company.name} has no reviews yet.
 
-User asked: {user_message}
+Tell user to click 'Sync Live Data'.
+
+User Question: {user_message}
 """
 
-            try:
-                response = model.generate_content(prompt)
+            # ✅ FIX: Add timeout + safe call
+            response = model.generate_content(
+                prompt,
+                request_options={"timeout": 30}
+            )
 
-                # Safe extraction
-                answer_text = None
-                if response:
-                    if hasattr(response, "text") and response.text:
-                        answer_text = response.text
-                    elif hasattr(response, "candidates") and response.candidates:
-                        try:
-                            answer_text = response.candidates[0].content.parts[0].text
-                        except Exception:
-                            answer_text = None
+            # ✅ FIX: Strong response validation
+            if not response:
+                raise Exception("Empty response from Gemini")
 
-                if answer_text:
-                    return JSONResponse({"answer": answer_text.strip()})
-                else:
-                    return JSONResponse({
-                        "answer": "AI Expert: I processed the data but the AI did not return text. Please try again."
-                    })
+            if hasattr(response, "text") and response.text:
+                return JSONResponse({"answer": response.text})
 
-            except Exception as ai_error:
-                logger.error(f"Gemini Runtime Error: {ai_error}")
-                return JSONResponse({
-                    "answer": "AI Expert: AI processing failed. Please try again."
-                })
+            # fallback extraction
+            if hasattr(response, "candidates"):
+                try:
+                    text = response.candidates[0].content.parts[0].text
+                    return JSONResponse({"answer": text})
+                except Exception:
+                    pass
 
-        return JSONResponse({
-            "answer": "AI Expert: Gemini AI Model is not initialized."
-        })
+            raise Exception("No valid text in Gemini response")
+
+        except Exception as ai_error:
+            logger.error(f"❌ Gemini Runtime Error: {ai_error}")
+            return JSONResponse({
+                "answer": "AI Expert: I'm having trouble retrieving a response. Please try again."
+            })
 
     except Exception as e:
-        logger.error(f"Chatbot Critical Error: {e}", exc_info=True)
+        logger.error(f"🔥 Chatbot Critical Error: {e}")
         return JSONResponse({
             "answer": f"AI Expert Error: {str(e)}"
         }, status_code=500)
