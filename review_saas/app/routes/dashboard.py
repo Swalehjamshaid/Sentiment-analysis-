@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Request, Depends, Query, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, desc
 from starlette.templating import Jinja2Templates
 
 # AI Sentiment & Analysis Libraries
@@ -45,7 +45,6 @@ async def revenue_api(
     session: AsyncSession = Depends(get_session),
     current_user: dict = Depends(get_current_user)
 ):
-    # Query: Get all reviews for the specific company
     result = await session.execute(
         select(Review).where(Review.company_id == company_id)
     )
@@ -65,17 +64,15 @@ async def revenue_api(
     total_reviews = len(reviews)
     avg_rating = round(sum(r.rating for r in reviews) / total_reviews, 1)
 
-    # Analyze negative sentiment using VADER
     negative_count = 0
     for review in reviews:
         if review.text:
             score = vader_analyzer.polarity_scores(review.text)
-            if score['compound'] < -0.05:   # Standard Negative Threshold
+            if score['compound'] < -0.05:
                 negative_count += 1
 
     negative_percent = round((negative_count / total_reviews) * 100, 1)
 
-    # Risk Calculation Logic
     risk_percent = max(5, min(48, int(negative_percent * 1.3 + (5.0 - avg_rating) * 12)))
     impact = "High" if risk_percent > 32 else "Medium" if risk_percent > 16 else "Low"
     reputation_score = max(55, min(97, int(avg_rating * 19.5)))
@@ -101,7 +98,6 @@ async def ai_insights(
     session: AsyncSession = Depends(get_session),
     current_user: dict = Depends(get_current_user)
 ):
-    # Query real reviews from database
     query = select(Review).where(Review.company_id == company_id)
     result = await session.execute(query)
     reviews = result.scalars().all()
@@ -116,17 +112,13 @@ async def ai_insights(
         total_reviews = len(reviews)
         avg_rating = round(sum(r.rating for r in reviews) / total_reviews, 1)
 
-        # Sentiment Distribution using VADER
         pos, neu, neg = 0, 0, 0
         ratings = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
         
         for r in reviews:
-            # Rating Map
             r_val = int(r.rating)
             if 1 <= r_val <= 5:
                 ratings[r_val] += 1
-            
-            # Emotion Map
             if r.text:
                 score = vader_analyzer.polarity_scores(r.text)['compound']
                 if score >= 0.05: pos += 1
@@ -141,8 +133,6 @@ async def ai_insights(
             "Neutral": round(neu * 100 / total_mapped),
             "Negative": round(neg * 100 / total_mapped)
         }
-
-        # Sentiment Trend logic (Last 8 periods)
         sentiment_trend = [{"week": f"W{i}", "avg": round(random.uniform(3.8, 4.7), 1)} for i in range(1, 9)]
 
     recommendations = [
@@ -171,7 +161,23 @@ async def ai_insights(
     })
 
 # ---------------------------------------------------------
-# 4. Powerful Context-Aware AI Chatbot
+# 4. Recent Reviews (New: Fetches last 100 records)
+# ---------------------------------------------------------
+@router.get("/reviews/recent")
+async def get_recent_reviews(
+    company_id: int = Query(...),
+    session: AsyncSession = Depends(get_session),
+    current_user: dict = Depends(get_current_user)
+):
+    query = select(Review).where(Review.company_id == company_id).order_by(desc(Review.id)).limit(100)
+    result = await session.execute(query)
+    reviews = result.scalars().all()
+    return JSONResponse({
+        "reviews": [{"id": r.id, "rating": r.rating, "text": r.text} for r in reviews]
+    })
+
+# ---------------------------------------------------------
+# 5. Powerful AI Chatbot (Company-Aware Strategy)
 # ---------------------------------------------------------
 @router.post("/chat")
 async def chat_api(
@@ -184,43 +190,43 @@ async def chat_api(
     user_message = body.get("message", "").strip()
 
     if not user_message or not company_id:
-        return JSONResponse({"answer": "I am ready. Please select a company and ask about your review performance."})
+        return JSONResponse({"answer": "AI Expert: I'm ready. Please select a company to begin analysis."})
 
-    # Retrieve real data context for the bot
-    result = await session.execute(select(Review).where(Review.company_id == company_id))
-    reviews = result.scalars().all()
+    # Fetch Company & Review Context
+    comp_res = await session.execute(select(Company).where(Company.id == company_id))
+    company = comp_res.scalar_one_or_none()
+    company_name = company.name if company else "this entity"
+
+    rev_res = await session.execute(select(Review).where(Review.company_id == company_id))
+    reviews = rev_res.scalars().all()
     total = len(reviews)
     
     if total == 0:
-        return JSONResponse({"answer": "I don't see any data for this company yet. Please upload reviews to start the analysis."})
+        return JSONResponse({"answer": f"AI Expert: I have no data records for {company_name} yet."})
 
     avg_rating = round(sum(r.rating for r in reviews) / total, 1)
     msg_lower = user_message.lower()
 
-    # Advanced Rule-Based Context Engine (Power Level: High)
-    if any(k in msg_lower for k in ["rating", "average", "score", "performance"]):
-        answer = f"Your current average rating is {avg_rating}/5. Based on {total} reviews, your reputation is solid but has room for growth through engagement."
+    # Strategy Consultant logic specifically for the current company
+    if any(k in msg_lower for k in ["rating", "score", "performance", "current"]):
+        answer = f"AI Expert: For **{company_name}**, the average rating is {avg_rating}/5. Your reputation score of {int(avg_rating * 20)}% is based on {total} active records."
     
     elif any(k in msg_lower for k in ["risk", "revenue", "loss", "money"]):
         neg_p = len([r for r in reviews if r.rating < 3]) / total * 100
         risk_lvl = "High" if neg_p > 20 else "Medium" if neg_p > 10 else "Low"
-        answer = f"Revenue Risk is currently {risk_lvl}. You have {int(neg_p)}% negative feedback which correlates to a potential loss in repeat customers."
+        answer = f"AI Expert: The Revenue Risk for **{company_name}** is {risk_lvl}. Approximately {int(neg_p)}% of your customers are expressing dissatisfaction."
     
     elif any(k in msg_lower for k in ["improve", "better", "fix", "complaint"]):
-        # Fetching a real negative snippet if available
-        bad_review = next((r.text[:75] + "..." for r in reviews if r.rating < 3 and r.text), "general service speed")
-        answer = f"The top area for improvement is {bad_review}. Focusing on this will directly improve your VADER sentiment scores."
+        bad_review = next((r.text[:65] + "..." for r in reviews if r.rating < 3 and r.text), "general service")
+        answer = f"AI Expert: To improve **{company_name}**, we must address issues like: '{bad_review}'. Improving this will stabilize your impact level."
     
     else:
-        answer = f"Analysis complete for {total} reviews. Sentiment is currently {'Positive' if avg_rating > 3.5 else 'Mixed'}. Should I analyze your sentiment trend or specific complaints?"
+        answer = f"AI Expert: Analysis for **{company_name}** is complete. With a {avg_rating} average, your current strategy should focus on retaining your positive sentiment leaders."
 
-    return JSONResponse({
-        "answer": answer,
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    })
+    return JSONResponse({"answer": answer, "timestamp": datetime.now(timezone.utc).isoformat()})
 
 # ---------------------------------------------------------
-# 5. Helper: Company Dropdown List
+# 6. Helper: Company Dropdown List
 # ---------------------------------------------------------
 @router.get("/companies")
 async def get_user_companies(
