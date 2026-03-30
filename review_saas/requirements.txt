@@ -1,5 +1,5 @@
 # --- SERVER & WORKER FIXES ---
-itsdangerous==2.2.2
+itsdangerous==2.2.0
 gunicorn==21.2.0
 gevent==23.9.1
 greenlet==3.0.3
