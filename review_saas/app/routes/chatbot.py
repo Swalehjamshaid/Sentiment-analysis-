@@ -11,22 +11,21 @@ from app.core.db import get_session
 from app.core.models import Review, Company
 
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
-
-# Set up logging so you can see errors in Railway terminal
 logger = logging.getLogger(__name__)
 
 # --- AI Configuration ---
-API_KEY = os.getenv("GEMINI_API_KEY")
+# 1. Pulls the key from Railway. 
+# 2. Uses .strip() to fix any accidental spaces in the Railway UI.
+raw_key = os.getenv("GEMINI_API_KEY", "AIzaSyB-J-JRHFepz-oKtre8zM3iXucAdM7BBn4")
+API_KEY = raw_key.strip()
 
-if API_KEY:
-    try:
-        genai.configure(api_key=API_KEY)
-        model = genai.GenerativeModel('gemini-1.5-flash')
-    except Exception as e:
-        logger.error(f"Failed to configure Gemini: {e}")
-        model = None
-else:
-    logger.warning("GEMINI_API_KEY not found in environment variables")
+try:
+    genai.configure(api_key=API_KEY)
+    # Changed to gemini-pro for better stability on Free Tier keys
+    model = genai.GenerativeModel('gemini-pro')
+    logger.info("Chatbot: Gemini configured successfully.")
+except Exception as e:
+    logger.error(f"Chatbot: Configuration Error: {e}")
     model = None
 
 def get_current_user(request: Request):
@@ -46,43 +45,55 @@ async def chat_api(
         company_id = body.get("company_id")
         user_message = body.get("message", "").strip()
 
-        if not user_message or not company_id:
-            return JSONResponse({"answer": "AI Expert: Please select a company and type your question."})
+        # Validation: Check for message and company selection
+        if not user_message:
+            return JSONResponse({"answer": "AI Expert: Please type a question."})
+        
+        if not company_id:
+            return JSONResponse({"answer": "AI Expert: Please select a business on the dashboard first."})
 
         # 1. Fetch Company & Reviews
         comp_res = await session.execute(select(Company).where(Company.id == company_id))
         company = comp_res.scalar_one_or_none()
         
         if not company:
-            return JSONResponse({"answer": "AI Expert: Business not found."})
+            return JSONResponse({"answer": "AI Expert: Selected business not found."})
 
+        # Limit to 30 reviews to stay within Gemini Free Tier safety limits
         rev_res = await session.execute(
-            select(Review).where(Review.company_id == company_id).limit(50)
+            select(Review).where(Review.company_id == company_id).limit(30)
         )
         reviews = rev_res.scalars().all()
         
-        # 2. Build AI Context
-        review_context = "\n".join([f"Rating: {r.rating} | {r.text}" for r in reviews])
-        
-        # 3. Call AI
-        if model:
-            full_prompt = (
-                f"You are a consultant for {company.name}. Based on these reviews:\n"
-                f"{review_context}\n\n"
-                f"User asks: {user_message}"
-            )
-            # Use a timeout or try/except specifically for the AI generation
-            try:
-                response = model.generate_content(full_prompt)
-                ai_answer = response.text
-            except Exception as ai_err:
-                logger.error(f"Gemini Generation Error: {ai_err}")
-                ai_answer = "AI Expert: I could not generate a response. Please check your API quota or key status."
-        else:
-            ai_answer = "AI Expert: Gemini API is not configured. Please check Railway environment variables."
+        if not reviews:
+            return JSONResponse({"answer": f"AI Expert: I've connected to **{company.name}**, but no review data has been synced yet."})
 
-        return JSONResponse({"answer": ai_answer})
+        # 2. Prepare context for AI
+        review_context = "\n".join([f"Rating: {r.rating} | Text: {r.text}" for r in reviews])
+
+        # 3. Generate AI Response
+        if model:
+            try:
+                system_prompt = (
+                    f"You are a Business Consultant for {company.name}.\n"
+                    f"Analyze these latest reviews:\n{review_context}\n\n"
+                    f"User Question: {user_message}\n"
+                    f"Provide a helpful, professional, and concise answer."
+                )
+                
+                response = model.generate_content(system_prompt)
+                
+                if response and response.text:
+                    return JSONResponse({"answer": response.text})
+                else:
+                    return JSONResponse({"answer": "AI Expert: I analyzed the data but couldn't form a response. Try asking specifically about the complaints."})
+            
+            except Exception as ai_err:
+                logger.error(f"Gemini AI Error: {ai_err}")
+                return JSONResponse({"answer": "AI Expert: The AI service is currently busy or hit a quota limit. Please try again in 1 minute."})
+        
+        return JSONResponse({"answer": "AI Expert: Gemini is not configured. Check your API Key in Railway Variables."})
 
     except Exception as e:
         logger.error(f"General Chatbot Error: {e}")
-        return JSONResponse({"answer": f"AI Expert: System Error ({str(e)})"}, status_code=500)
+        return JSONResponse({"answer": "AI Expert: System Error. Please refresh and try again."}, status_code=500)
