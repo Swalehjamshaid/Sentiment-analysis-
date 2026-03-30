@@ -1,187 +1,193 @@
-import sys
-import os
-import logging
-from contextlib import asynccontextmanager
-from typing import Optional, Tuple
-
-from fastapi import FastAPI, Request, Depends, Form
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
-from starlette.middleware.sessions import SessionMiddleware
-from starlette.staticfiles import StaticFiles
-from starlette.templating import Jinja2Templates
-from sqlalchemy import select
+# File: app/routes/dashboard.py
+from fastapi import APIRouter, Request, Depends, HTTPException, Query
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+from typing import Optional
+import random
+from datetime import datetime, timedelta
 
-# Fix for Docker / Gunicorn import issues
-sys.path.insert(0, "/app")
-
-# Core imports
-from app.core.config import settings
-from app.core.db import init_models, get_session, SessionLocal, engine
-from app.core import models
-from app.core.models import User, SCHEMA_VERSION, Config as ConfigModel
-
-# Routers
-from app.routes import auth, companies, dashboard, reviews, exports, google_check
-
-# --------------------------- Logging ---------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-logger = logging.getLogger("app.main")
-
-# --------------------------- Schema Helpers ---------------------------
-async def _get_stored_schema_version(session: AsyncSession) -> Optional[str]:
-    res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
-    row = res.scalar_one_or_none()
-    return row.value if row else None
-
-async def _set_stored_schema_version(session: AsyncSession, new_value: str) -> None:
-    res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
-    row = res.scalar_one_or_none()
-    if row:
-        row.value = new_value
-    else:
-        row = ConfigModel(key="SCHEMA_VERSION", value=new_value)
-        session.add(row)
-    await session.commit()
-
-async def check_schema_version_change() -> Tuple[bool, Optional[str], str]:
-    async with SessionLocal() as session:
-        old_version = await _get_stored_schema_version(session)
-        new_version = str(SCHEMA_VERSION)
-        if old_version is None:
-            await _set_stored_schema_version(session, new_version)
-            logger.info("📦 Initialized SCHEMA_VERSION: %s", new_version)
-            return False, None, new_version
-        if old_version != new_version:
-            logger.warning("🧩 SCHEMA changed: %s → %s", old_version, new_version)
-            return True, old_version, new_version
-        logger.info("✅ SCHEMA_VERSION verified: %s", new_version)
-        return False, old_version, new_version
-
-async def reset_database_schema():
-    async with engine.begin() as conn:
-        await conn.run_sync(models.Base.metadata.drop_all)
-        logger.warning("🧨 Dropped all tables")
-        await conn.run_sync(models.Base.metadata.create_all)
-        logger.info("🧱 Recreated all tables")
-
-# --------------------------- Lifespan ---------------------------
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("🚀 Application Startup Started...")
-    try:
-        await init_models()
-        changed, old_v, new_v = await check_schema_version_change()
-        if changed:
-            await reset_database_schema()
-            async with SessionLocal() as session:
-                await _set_stored_schema_version(session, new_v)
-        app.state.schema_version = new_v
-        logger.info("✅ SCHEMA_VERSION verified: %s", new_v)
-        logger.info("🚀 Application Startup Complete")
-    except Exception as e:
-        logger.error(f"❌ Error during startup: {e}")
-    yield
-    logger.info("🛑 Application Shutdown Started...")
-
-# --------------------------- App Init ---------------------------
-app = FastAPI(
-    title=getattr(settings, "APP_NAME", "Review SaaS AI"),
-    lifespan=lifespan,
-)
-
-# --------------------------- Middleware ---------------------------
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=os.getenv("SECRET_KEY", "super-secret-key"),
-)
-
-# --------------------------- Static & Templates ---------------------------
-if os.path.exists("app/static"):
-    app.mount("/static", StaticFiles(directory="app/static"), name="static")
+from app.core.db import get_session
+from app.core.models import User, Company, Review
+from starlette.templating import Jinja2Templates
 
 templates = Jinja2Templates(directory="app/templates")
+router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
-# --------------------------- Auth Helper ---------------------------
+
+# -------------------------------
+# Helper: Get Current User
+# -------------------------------
 def get_current_user(request: Request):
-    return request.session.get("user")
-
-# --------------------------- Views ---------------------------
-@app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
-    if get_current_user(request):
-        return RedirectResponse("/dashboard")
-    return RedirectResponse("/login")
-
-@app.get("/login", response_class=HTMLResponse)
-async def login_get(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
-
-@app.post("/login")
-async def login_post(
-    request: Request,
-    email: str = Form(...),
-    password: str = Form(...),
-    session: AsyncSession = Depends(get_session),
-):
-    result = await session.execute(select(User).where(User.email == email))
-    user = result.scalars().first()
-    if not user or password != user.hashed_password:
-        return templates.TemplateResponse(
-            "login.html",
-            {"request": request, "error": "Invalid credentials"}
-        )
-    request.session["user"] = {
-        "id": user.id,
-        "email": user.email,
-        "name": user.name,
-    }
-    return RedirectResponse("/dashboard", status_code=303)
-
-@app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard_view(request: Request):
-    user = get_current_user(request)
+    user = request.session.get("user")
     if not user:
-        return RedirectResponse("/login")
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return user
+
+
+# -------------------------------
+# Dashboard Home Page
+# -------------------------------
+@router.get("/", response_class=HTMLResponse)
+async def dashboard_home(request: Request):
+    user = get_current_user(request)
     return templates.TemplateResponse(
         "dashboard.html",
         {
             "request": request,
             "user": user,
-            "schema_version": getattr(app.state, "schema_version", ""),
-        },
+            "page_title": "Dashboard"
+        }
     )
 
-@app.get("/logout")
-async def logout(request: Request):
-    request.session.clear()
-    return RedirectResponse("/login")
 
-# --------------------------- Routers ---------------------------
-logger.info("🔗 Mounting all routers...")
-app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
-app.include_router(companies.router, prefix="/api", tags=["companies"])
-app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
-app.include_router(reviews.router, prefix="/api", tags=["reviews"])
-app.include_router(exports.router, prefix="/api", tags=["exports"])
-app.include_router(google_check.router, prefix="/api", tags=["google_check"])
-logger.info("🔗 All routers mounted correctly")
+# -------------------------------
+# Revenue Risk API - Improved
+# -------------------------------
+@router.get("/revenue")
+async def revenue_api(
+    company_id: int = Query(..., description="Company ID"),
+    session: AsyncSession = Depends(get_session),
+    current_user: dict = Depends(get_current_user)
+):
+    # TODO: In production, verify that user has access to this company
+    
+    # For now, returning realistic dummy data
+    risk_percent = random.randint(8, 42)
+    
+    return JSONResponse({
+        "company_id": company_id,
+        "risk_percent": risk_percent,
+        "impact": "High" if risk_percent > 30 else "Medium" if risk_percent > 15 else "Low",
+        "reputation_score": random.randint(45, 98),
+        "last_updated": datetime.utcnow().isoformat(),
+        "trend": random.choice(["improving", "declining", "stable"]),
+        "factors": [
+            "Recent negative reviews",
+            "Response rate below 40%",
+            "Competitor outperforming in key areas"
+        ][:random.randint(1, 3)]
+    })
 
-# --------------------------- Run (local/testing only) ---------------------------
-if __name__ == "__main__":
-    import uvicorn
-    # Read PORT from env (Railway sets this automatically)
-    port = int(os.environ.get("PORT", 8080))
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
+
+# -------------------------------
+# AI Chat API - Improved
+# -------------------------------
+@router.post("/chat")
+async def chat_api(
+    company_id: int,
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    try:
+        body = await request.json()
+        user_message = body.get("message", "")
+        
+        if not user_message or len(user_message.strip()) < 2:
+            raise HTTPException(status_code=400, detail="Message too short")
+
+        # Simulate AI thinking time + smarter response
+        responses = [
+            f"Based on recent reviews for company {company_id}, customers are particularly happy with your service speed.",
+            "I noticed a spike in 'delivery delay' complaints in the last 7 days. Would you like me to analyze this further?",
+            "Your overall sentiment score has improved by 12% this month. Great work on customer support!",
+            "Recommendation: Increase response rate to reviews. Currently at ~35%, best performers maintain >70%.",
+            "Top 3 issues mentioned recently: 1) Pricing transparency 2) Wait times 3) Product quality consistency."
+        ]
+
+        return JSONResponse({
+            "answer": random.choice(responses),
+            "company_id": company_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "confidence": round(random.uniform(0.75, 0.98), 2)
+        })
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to process chat request")
+
+
+# -------------------------------
+# AI Insights API - Much Improved
+# -------------------------------
+@router.get("/ai/insights")
+async def ai_insights(
+    company_id: int = Query(..., description="Company ID"),
+    start: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    session: AsyncSession = Depends(get_session),
+    current_user: dict = Depends(get_current_user)
+):
+    # TODO: Add real database queries in production
+    # For now, generating rich, realistic dummy data
+
+    total_reviews = random.randint(245, 1240)
+
+    return JSONResponse({
+        "metadata": {
+            "company_id": company_id,
+            "total_reviews": total_reviews,
+            "date_range": {
+                "start": start or (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d"),
+                "end": end or datetime.utcnow().strftime("%Y-%m-%d")
+            },
+            "generated_at": datetime.utcnow().isoformat()
+        },
+        "kpis": {
+            "average_rating": round(random.uniform(3.8, 4.7), 1),
+            "benchmark": {
+                "your_avg": round(random.uniform(3.8, 4.7), 2),
+                "industry_avg": round(random.uniform(3.9, 4.4), 2),
+                "top_performers": round(random.uniform(4.5, 4.9), 2)
+            },
+            "reputation_score": random.randint(68, 96),
+            "response_rate": round(random.uniform(35, 92), 1),
+            "review_growth": random.randint(-15, 45)
+        },
+        "visualizations": {
+            "emotions": {
+                "Positive": random.randint(65, 89),
+                "Neutral": random.randint(8, 25),
+                "Negative": random.randint(3, 18)
+            },
+            "sentiment_trend": [
+                {"week": f"W{i}", "avg": round(random.uniform(3.6, 4.8), 1)}
+                for i in range(1, 9)
+            ],
+            "ratings_distribution": {
+                1: random.randint(2, 15),
+                2: random.randint(8, 35),
+                3: random.randint(25, 80),
+                4: random.randint(60, 180),
+                5: random.randint(90, 320)
+            },
+            "monthly_trend": [
+                {
+                    "month": (datetime.utcnow() - timedelta(days=30*i)).strftime("%b"),
+                    "reviews": random.randint(40, 180),
+                    "avg_rating": round(random.uniform(3.7, 4.8), 1)
+                }
+                for i in range(6)
+            ]
+        },
+        "recommendations": [
+            "Improve response time to negative reviews (currently 48 hours average)",
+            "Focus on 'Value for Money' mentions in marketing",
+            "Consider loyalty program to boost 5-star reviews"
+        ]
+    })
+
+
+# Optional: Add a companies list endpoint for the dashboard sidebar
+@router.get("/companies")
+async def get_user_companies(
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session)
+):
+    # In real implementation, query companies user has access to
+    return JSONResponse({
+        "companies": [
+            {"id": 1, "name": "Acme Corp", "rating": 4.3},
+            {"id": 2, "name": "TechFlow Solutions", "rating": 4.7},
+            {"id": 3, "name": "GreenLife Stores", "rating": 3.9}
+        ]
+    })
