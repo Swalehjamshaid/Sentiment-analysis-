@@ -1,66 +1,43 @@
-# -------------------------------
-# 🚀 FastAPI Backend Core
-# -------------------------------
-fastapi>=0.104.0          # Main web framework for APIs & dashboard backend
-uvicorn[standard]>=0.23.0 # ASGI server to run FastAPI (includes websockets, reload, etc.)
-gunicorn>=23.0.0          # Production-grade process manager (used in Railway/Docker)
+# --- CRITICAL PRODUCTION FIXES ---
+gunicorn==21.2.0
+gevent==23.9.1
+greenlet==3.0.1
+uvicorn[standard]==0.30.6
 
-# -------------------------------
-# 🎨 Templates (FIXES YOUR ERROR)
-# -------------------------------
-jinja2>=3.1.2             # REQUIRED for Jinja2Templates (fixes your crash)
-jinja2-time>=0.2.0        # Adds time/date filters inside templates
+# --- AI CORE & ORCHESTRATION ---
+langchain==0.3.0            # Core orchestration
+langgraph==0.2.30           # For complex, multi-step agent workflows
+openai==1.50.0              # Support for GPT-4o and latest models
+anthropic==0.35.0           # Support for Claude 3.5 Sonnet
+pydantic-ai==0.0.14         # 2026 standard for type-safe AI agents
+google-generativeai==0.8.0  # Gemini Pro integration
 
-# -------------------------------
-# 📦 Request Handling
-# -------------------------------
-python-multipart>=0.0.6   # Needed for form-data (file uploads, login forms)
-requests>=2.31.0          # HTTP requests (APIs like Google Reviews, SerpAPI)
-aiohttp>=3.9.2            # Async HTTP requests (faster scraping / APIs)
+# --- VECTOR DATABASE & RAG ---
+chromadb==0.5.5             # Local vector storage for "memory"
+pinecone-client==5.0.1      # Cloud vector storage (optional)
+sentence-transformers==3.1.1 # Local embeddings support
+pypdf==4.3.1                # For reading PDF knowledge bases
 
-# -------------------------------
-# 🧠 Data Validation & Settings
-# -------------------------------
-pydantic>=2.6.0           # Data validation (used heavily in FastAPI)
-python-dotenv>=1.0.0      # Load environment variables (.env support)
+# --- DATA & WEB FRAMEWORK ---
+fastapi==0.115.0
+jinja2==3.1.4
+python-multipart==0.0.12
+pandas==2.2.3               # Data handling
+polars==1.6.0               # High-performance data (2026 trend)
 
-# -------------------------------
-# 🗄️ Database Layer
-# -------------------------------
-sqlalchemy>=2.0.0         # ORM for database operations
-databases>=0.7.0          # Async DB support (optional but useful for FastAPI)
+# --- YOUR SENTIMENT & API STACK ---
+textblob==0.18.0.post0
+vaderSentiment==3.3.2
+googlemaps>=4.10.0
+google-api-python-client>=2.149.0
 
-# -------------------------------
-# 📊 Data Analysis (Dashboard Features)
-# -------------------------------
-pandas>=2.1.0             # Data processing (reviews, aggregation)
-numpy>=1.26.0             # Numerical operations (used by pandas/sklearn)
+# --- DATABASE & SECURITY ---
+SQLAlchemy==2.0.31
+psycopg[binary]==3.3.2
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 
-# -------------------------------
-# 📈 Visualization (Dashboard UI)
-# -------------------------------
-matplotlib>=3.8.0         # Graphs (fallback plotting)
-seaborn>=0.12.0           # Statistical visualizations
-plotly>=5.17.0            # Interactive dashboard charts (recommended)
-
-# -------------------------------
-# ☁️ Word Cloud & NLP
-# -------------------------------
-wordcloud>=1.9.2          # Word cloud generation
-nltk>=3.8.1               # Text processing (sentiment prep, tokenization)
-
-# -------------------------------
-# 🤖 Machine Learning (Forecasting)
-# -------------------------------
-scikit-learn>=1.3.0       # Linear regression (ratings forecast, trends)
-
-# -------------------------------
-# 📤 Export Features
-# -------------------------------
-openpyxl>=3.1.0           # Export data to Excel (.xlsx files)
-
-# -------------------------------
-# 🌐 Google API Integration
-# -------------------------------
-google-api-python-client>=2.100.0  # Google APIs (reviews, places, etc.)
-oauth2client>=4.1.3                # Authentication for Google APIs
+# --- UTILS ---
+python-dotenv==1.0.1        # Manage API keys securely
+apscheduler==3.10.4         # Background tasks
