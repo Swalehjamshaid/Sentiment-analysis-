@@ -1,76 +1,57 @@
-# =====================================================
-# Web Framework
-# =====================================================
-fastapi==0.111.0
-starlette==0.37.2
+# --- SERVER & PERFORMANCE (Fixes Gunicorn/Python 3.10 crashes) ---
+gunicorn==21.2.0
+gevent==23.9.1
+greenlet==3.0.1
+uvicorn[standard]==0.30.6
 
-# =====================================================
-# ASGI / WSGI Server
-# =====================================================
-uvicorn[standard]==0.29.0
-gunicorn==23.0.0
+# --- AI CHATBOT & AGENT ORCHESTRATION ---
+langchain==0.3.0
+langgraph==0.2.30
+openai==1.50.0
+anthropic==0.35.0
+google-generativeai==0.8.0
+pydantic-ai==0.0.14
 
-# =====================================================
-# Templates & Sessions
-# =====================================================
-jinja2==3.1.3
-python-multipart==0.0.9
-itsdangerous==2.1.2
+# --- DATA SCRAPING & BROWSER AUTOMATION ---
+playwright==1.45.0
+beautifulsoup4==4.12.3
+selenium==4.25.0
+requests==2.32.3
+lxml==5.3.0
+html5lib==1.1
+cloudscraper==1.2.71
+selectolax==0.3.21
 
-# =====================================================
-# Database (Async SQLAlchemy)
-# =====================================================
-SQLAlchemy==2.0.29
-asyncpg==0.29.0
-psycopg[binary]==3.1.18
-greenlet==3.0.3
+# --- VECTOR DATABASE & RAG (Chatbot Memory) ---
+chromadb==0.5.5
+sentence-transformers==3.1.1
+pypdf==4.3.1
+tiktoken==0.7.0
 
-# =====================================================
-# Authentication & Security
-# =====================================================
+# --- SENTIMENT ANALYSIS & DATA SCIENCE ---
+textblob==0.18.0.post0
+vaderSentiment==3.3.2
+langdetect==1.0.9
+pandas==2.2.3
+polars==1.6.0
+numpy==1.26.4
+
+# --- WEB FRAMEWORK & APIS ---
+fastapi==0.115.0
+jinja2==3.1.4
+python-multipart==0.0.12
+googlemaps>=4.10.0
+google-api-python-client>=2.149.0
+
+# --- DATABASE & SECURITY ---
+SQLAlchemy==2.0.31
+psycopg[binary]==3.3.2
+alembic==1.18.4
+python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
-python-jose[cryptography]==3.3.0
-cryptography==42.0.0
-email-validator==2.2.0
 
-# =====================================================
-# Google APIs (Reviews / Places)
-# =====================================================
-google-api-python-client==2.150.0
-google-auth==2.35.0
-google-auth-oauthlib==1.2.1
-googlemaps==4.10.0
-
-# =====================================================
-# AI & NLP
-# =====================================================
-vaderSentiment==3.3.2
-nltk==3.9.1
-langdetect==1.0.9
-regex==2024.11.6
-
-# =====================================================
-# Generative AI (Gemini)
-# =====================================================
-google-generativeai==0.8.1
-tenacity==8.5.0
-
-# =====================================================
-# Data Processing
-# =====================================================
-numpy==1.26.4
-pandas==2.2.0
-
-# =====================================================
-# Reporting (PDF)
-# =====================================================
-reportlab==4.1.0
-
-# =====================================================
-# Utilities
-# =====================================================
+# --- INFRASTRUCTURE & UTILS ---
 python-dotenv==1.0.1
-aiofiles==23.2.1
-orjson==3.10.7
-``
+apscheduler==3.10.4
+httpx==0.27.2
