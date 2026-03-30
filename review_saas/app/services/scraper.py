@@ -9,11 +9,13 @@ from serpapi import GoogleSearch
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Core Models
 from app.core.models import Company, Review
 
 logger = logging.getLogger("app.scraper")
 
-# Verified API Key
+# --- API KEY ---
+# Cleaned to ensure no hidden spaces from Railway variables
 SERPAPI_KEY = "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d".strip()
 
 def parse_relative_date(date_text: str) -> datetime:
@@ -23,6 +25,7 @@ def parse_relative_date(date_text: str) -> datetime:
     match = re.search(r'(\d+)', date_text)
     quantity = int(match.group(1)) if match else 1
     date_text = date_text.lower()
+    
     if 'second' in date_text: return now - timedelta(seconds=quantity)
     elif 'minute' in date_text: return now - timedelta(minutes=quantity)
     elif 'hour' in date_text: return now - timedelta(hours=quantity)
@@ -37,17 +40,18 @@ async def fetch_reviews_from_google(
     company_id: Optional[int] = None,
     session: Optional[AsyncSession] = None,
     target_limit: int = 100,
+    days_back: int = 365, # Flexible date criteria (default 1 year)
     **kwargs
 ) -> List[Dict[str, Any]]:
     all_reviews: List[Dict[str, Any]] = []
 
     try:
-        # 1. Check existing count to set the skip offset
-        current_count = 0
+        # 1. DATABASE ATTRIBUTE: Check current count to set the skip offset
+        current_db_count = 0
         if session and company_id:
             count_stmt = select(func.count(Review.id)).where(Review.company_id == company_id)
             count_res = await session.execute(count_stmt)
-            current_count = count_res.scalar() or 0
+            current_db_count = count_res.scalar() or 0
 
         target_place_id = place_id
         if not target_place_id and company_id and session:
@@ -58,10 +62,13 @@ async def fetch_reviews_from_google(
         if not target_place_id:
             return []
 
-        logger.info(f"🚀 Syncing: Skipping first {current_count} reviews to find {target_limit} more for {target_place_id}")
+        # 2. DATE CRITERIA: Define how far back we are willing to go
+        cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+        
+        logger.info(f"🚀 Flexible Sync: Skipping {current_db_count} to find {target_limit} more older reviews for {target_place_id}")
         
         next_page_token: Optional[str] = None
-        total_processed = 0
+        total_seen_on_google = 0
 
         while len(all_reviews) < target_limit:
             params = {
@@ -69,7 +76,7 @@ async def fetch_reviews_from_google(
                 "place_id": target_place_id,
                 "api_key": SERPAPI_KEY,
                 "next_page_token": next_page_token,
-                "sort_by": "newest"
+                "sort_by": "newest" # Keeps the timeline aligned
             }
 
             results = await asyncio.to_thread(lambda: GoogleSearch(params).get_dict())
@@ -83,21 +90,28 @@ async def fetch_reviews_from_google(
                 break
 
             for r in reviews:
-                total_processed += 1
+                total_seen_on_google += 1
                 
-                # If we already have this many in the DB, skip them
-                if total_processed <= current_count:
+                # DUPLICATION ATTRIBUTE: Skip reviews we already have in the DB
+                if total_seen_on_google <= current_db_count:
                     continue
 
                 if len(all_reviews) >= target_limit:
                     break
                 
+                parsed_date = parse_relative_date(r.get("date", ""))
+                
+                # DATE ALIGNMENT: Only add if within our flexible date criteria
+                if parsed_date < cutoff_date:
+                    logger.info(f"🛑 Reached date cutoff ({parsed_date.date()}). Stopping.")
+                    return all_reviews
+
                 all_reviews.append({
                     "google_review_id": r.get("review_id"),
                     "author_name": r.get("user", {}).get("name"),
                     "rating": int(r.get("rating", 5)),
                     "text": r.get("text") or r.get("snippet") or "No content",
-                    "google_review_time": parse_relative_date(r.get("date", "")),
+                    "google_review_time": parsed_date,
                     "review_likes": r.get("likes", 0)
                 })
 
@@ -105,7 +119,7 @@ async def fetch_reviews_from_google(
             if not next_page_token:
                 break
 
-        logger.info(f"✅ Offset Sync Complete: Collected {len(all_reviews)} new older reviews.")
+        logger.info(f"✅ Sync Successful: Collected {len(all_reviews)} additional older reviews.")
 
     except Exception as exc:
         logger.error(f"❌ Scraper failure: {exc}")
