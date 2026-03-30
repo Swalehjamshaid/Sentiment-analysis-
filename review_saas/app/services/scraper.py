@@ -9,13 +9,11 @@ from serpapi import GoogleSearch
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Core Models
 from app.core.models import Company, Review
 
 logger = logging.getLogger("app.scraper")
 
-# --- API KEY ---
-# Cleaned to ensure no hidden spaces from Railway variables
+# Verified API Key
 SERPAPI_KEY = "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d".strip()
 
 def parse_relative_date(date_text: str) -> datetime:
@@ -40,13 +38,13 @@ async def fetch_reviews_from_google(
     company_id: Optional[int] = None,
     session: Optional[AsyncSession] = None,
     target_limit: int = 100,
-    days_back: int = 365, # Flexible date criteria (default 1 year)
+    days_back: int = 3650, # INCREASED: Now looks back 10 years (3650 days)
     **kwargs
 ) -> List[Dict[str, Any]]:
     all_reviews: List[Dict[str, Any]] = []
 
     try:
-        # 1. DATABASE ATTRIBUTE: Check current count to set the skip offset
+        # 1. Check current count in DB
         current_db_count = 0
         if session and company_id:
             count_stmt = select(func.count(Review.id)).where(Review.company_id == company_id)
@@ -62,10 +60,10 @@ async def fetch_reviews_from_google(
         if not target_place_id:
             return []
 
-        # 2. DATE CRITERIA: Define how far back we are willing to go
+        # 2. Define the Cutoff (Extended to 10 years)
         cutoff_date = datetime.utcnow() - timedelta(days=days_back)
         
-        logger.info(f"🚀 Flexible Sync: Skipping {current_db_count} to find {target_limit} more older reviews for {target_place_id}")
+        logger.info(f"🚀 Deep Sync: Skipping {current_db_count} reviews. Target: {target_limit} more. History limit: {cutoff_date.date()}")
         
         next_page_token: Optional[str] = None
         total_seen_on_google = 0
@@ -76,7 +74,7 @@ async def fetch_reviews_from_google(
                 "place_id": target_place_id,
                 "api_key": SERPAPI_KEY,
                 "next_page_token": next_page_token,
-                "sort_by": "newest" # Keeps the timeline aligned
+                "sort_by": "newest"
             }
 
             results = await asyncio.to_thread(lambda: GoogleSearch(params).get_dict())
@@ -87,12 +85,13 @@ async def fetch_reviews_from_google(
 
             reviews = results.get("reviews", [])
             if not reviews:
+                logger.info("ℹ️ No more reviews available from Google.")
                 break
 
             for r in reviews:
                 total_seen_on_google += 1
                 
-                # DUPLICATION ATTRIBUTE: Skip reviews we already have in the DB
+                # Skip reviews we already have
                 if total_seen_on_google <= current_db_count:
                     continue
 
@@ -101,9 +100,9 @@ async def fetch_reviews_from_google(
                 
                 parsed_date = parse_relative_date(r.get("date", ""))
                 
-                # DATE ALIGNMENT: Only add if within our flexible date criteria
+                # Stop if review is older than 10 years
                 if parsed_date < cutoff_date:
-                    logger.info(f"🛑 Reached date cutoff ({parsed_date.date()}). Stopping.")
+                    logger.info(f"🛑 Reached 10-year limit. Stopping.")
                     return all_reviews
 
                 all_reviews.append({
@@ -119,7 +118,7 @@ async def fetch_reviews_from_google(
             if not next_page_token:
                 break
 
-        logger.info(f"✅ Sync Successful: Collected {len(all_reviews)} additional older reviews.")
+        logger.info(f"✅ Deep Sync Complete: Collected {len(all_reviews)} reviews.")
 
     except Exception as exc:
         logger.error(f"❌ Scraper failure: {exc}")
