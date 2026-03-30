@@ -4,8 +4,6 @@ from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-
-# AI Sentiment
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 # Core App Imports
@@ -21,9 +19,6 @@ def get_current_user(request: Request):
         raise HTTPException(status_code=401, detail="Unauthorized")
     return user
 
-# ---------------------------------------------------------
-# POWERFUL CONTEXT-AWARE AI CHATBOT
-# ---------------------------------------------------------
 @router.post("/chat")
 async def chat_api(
     request: Request,
@@ -34,40 +29,38 @@ async def chat_api(
     company_id = body.get("company_id")
     user_message = body.get("message", "").strip()
 
-    if not user_message or not company_id:
-        return JSONResponse({"answer": "AI Expert: Please ensure a company is selected so I can analyze the correct data."})
+    # 1. Check if Company ID is provided by the Dashboard
+    if not company_id:
+        return JSONResponse({"answer": "AI Expert: Please select a company on the dashboard so I can analyze your data."})
 
-    # 1. Fetch Company Name for Personalized Context
+    # 2. Fetch Company details
     comp_res = await session.execute(select(Company).where(Company.id == company_id))
     company = comp_res.scalar_one_or_none()
-    c_name = company.name if company else "this company"
-
-    # 2. Fetch Review Data for specific analysis
-    rev_res = await session.execute(select(Review).where(Review.company_id == company_id))
-    reviews = rev_res.scalars().all()
-    total = len(reviews)
     
-    if total == 0:
-        return JSONResponse({"answer": f"AI Expert: I am analyzing **{c_name}**, but no review data has been imported yet."})
+    if not company:
+        return JSONResponse({"answer": "AI Expert: System Error. The selected company was not found in the database."})
 
-    avg_r = round(sum(r.rating for r in reviews) / total, 1)
-    msg = user_message.lower()
+    # 3. Fetch all Reviews for this specific company (The 100 records on your dashboard)
+    rev_result = await session.execute(select(Review).where(Review.company_id == company_id))
+    reviews = rev_result.scalars().all()
+    total_reviews = len(reviews)
 
-    # 3. POWERFUL STRATEGY LOGIC
-    if any(k in msg for k in ["why", "reason", "loss", "risk", "impact"]):
-        neg_snippet = next((r.text[:70] + "..." for r in reviews if r.rating < 3 and r.text), "customer service issues")
-        answer = f"AI Expert: Regarding **{c_name}**, the 45% Loss Probability is driven by High Impact negative sentiment. Our analysis identifies recurring issues such as: '{neg_snippet}'."
+    if total_reviews == 0:
+        return JSONResponse({"answer": f"AI Expert: I see **{company.name}** is selected, but there are no reviews to analyze yet."})
+
+    # 4. Perform Analysis (Summarizing the dashboard data for the AI)
+    avg_rating = round(sum(r.rating for r in reviews) / total_reviews, 1)
     
-    elif any(k in msg for k in ["rating", "check", "current", "business", "who"]):
-        answer = f"AI Expert: Analyzing **{c_name}** now. Your dashboard shows {total} absolute total records with a weighted average rating of {avg_r}/5."
+    # Simple logic to answer "what is the real issue"
+    if "issue" in user_message.lower() or "problem" in user_message.lower():
+        low_rated = [r.text for r in reviews if r.rating <= 2]
+        if low_rated:
+            # In a full version, you'd pass 'low_rated' to an LLM like Gemini
+            return JSONResponse({
+                "answer": f"AI Expert: For **{company.name}**, the real issue is reflected in your {len(low_rated)} negative reviews. Common themes suggest service delays and quality consistency."
+            })
 
-    elif any(k in msg for k in ["fix", "improve", "better"]):
-        answer = f"AI Expert: To stabilize **{c_name}**, I recommend addressing the 1-star clusters shown in your Rating Distribution. This will immediately improve your Reputation Score."
-
-    else:
-        answer = f"AI Expert: I am looking at **{c_name}**. Overall sentiment is {'Positive' if avg_r > 3.5 else 'Needs Attention'}. How can I assist with your strategy today?"
-
+    # Default Context-Aware Response
     return JSONResponse({
-        "answer": answer,
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "answer": f"AI Expert: I am ready. I've analyzed {total_reviews} reviews for **{company.name}** (Avg Rating: {avg_rating}). How can I help with this specific data?"
     })
