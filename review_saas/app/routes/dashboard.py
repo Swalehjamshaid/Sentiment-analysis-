@@ -1,92 +1,53 @@
-# filename: dashbord.py
-
-import os
 import random
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Optional, List
+import logging
 
 from fastapi import APIRouter, Request, Depends, Query, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from starlette.templating import Jinja2Templates
-
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-import google.generativeai as genai
-from tenacity import retry, stop_after_attempt, wait_fixed
 
 from app.core.db import get_session
 from app.core.models import Review, Company
-
-
-# =========================================================
-# CONFIG
-# =========================================================
+from app.chatbot import generate_ai_response  # async AI logic
 
 templates = Jinja2Templates(directory="app/templates")
+router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+vader_analyzer = SentimentIntensityAnalyzer()
+logger = logging.getLogger("dashboard")
+logger.setLevel(logging.INFO)
 
-router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
-chat_router = APIRouter(prefix="/chatbot", tags=["chatbot"])
-
-vader = SentimentIntensityAnalyzer()
-
-NEGATIVE = -0.05
-POSITIVE = 0.05
-
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-AI_MODEL = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
-    generation_config={
-        "temperature": 0.30,
-        "top_p": 0.9,
-        "max_output_tokens": 400,
-    },
-)
-
-
-# =========================================================
+# ---------------------------------------------------------
 # AUTH
-# =========================================================
-
-def get_current_user(request: Request) -> Dict[str, Any]:
+# ---------------------------------------------------------
+def get_current_user(request: Request):
     user = request.session.get("user")
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return user
 
-
-# =========================================================
+# ---------------------------------------------------------
 # 1. DASHBOARD PAGE
-# =========================================================
-
+# ---------------------------------------------------------
 @router.get("/", response_class=HTMLResponse)
 async def dashboard_home(request: Request):
-    return templates.TemplateResponse(
-        "dashboard.html",
-        {
-            "request": request,
-            "user": get_current_user(request)
-        }
-    )
+    user = get_current_user(request)
+    return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
 
-
-# =========================================================
-# 2. REVENUE RISK API (USED BY FRONTEND)
-# =========================================================
-
+# ---------------------------------------------------------
+# 2. REVENUE API
+# ---------------------------------------------------------
 @router.get("/revenue")
 async def revenue_api(
     company_id: int = Query(...),
     session: AsyncSession = Depends(get_session),
-    _: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user)
 ):
-    reviews = (
-        await session.execute(
-            select(Review).where(Review.company_id == company_id)
-        )
-    ).scalars().all()
-
-    now = datetime.now(timezone.utc).isoformat()
+    result = await session.execute(select(Review).where(Review.company_id == company_id))
+    reviews: List[Review] = result.scalars().all()
 
     if not reviews:
         return JSONResponse({
@@ -96,186 +57,131 @@ async def revenue_api(
             "reputation_score": 75,
             "total_reviews": 0,
             "negative_percent": 0,
-            "last_updated": now
+            "last_updated": datetime.now(timezone.utc).isoformat()
         })
 
     total = len(reviews)
-    avg = round(sum(r.rating for r in reviews) / total, 1)
-
-    neg = sum(
-        1 for r in reviews
-        if r.text and vader.polarity_scores(r.text)["compound"] < NEGATIVE
+    avg_rating = round(sum(r.rating for r in reviews) / total, 1)
+    negative = sum(
+        1 for r in reviews if r.text and vader_analyzer.polarity_scores(r.text)['compound'] < -0.05
     )
-
-    neg_pct = round((neg / total) * 100, 1)
-    risk = max(5, min(48, int(neg_pct * 1.3 + (5 - avg) * 12)))
+    negative_percent = round((negative / total) * 100, 1)
+    risk_percent = max(5, min(48, int(negative_percent * 1.3 + (5.0 - avg_rating) * 12)))
+    impact = "High" if risk_percent > 32 else "Medium" if risk_percent > 16 else "Low"
+    reputation_score = max(55, min(97, int(avg_rating * 19.5)))
 
     return JSONResponse({
         "company_id": company_id,
-        "risk_percent": risk,
-        "impact": "High" if risk > 32 else "Medium" if risk > 16 else "Low",
-        "reputation_score": int(avg * 19.5),
+        "risk_percent": risk_percent,
+        "impact": impact,
+        "reputation_score": reputation_score,
         "total_reviews": total,
-        "negative_percent": neg_pct,
-        "last_updated": now
+        "negative_percent": negative_percent,
+        "last_updated": datetime.now(timezone.utc).isoformat()
     })
 
-
-# =========================================================
-# 3. AI INSIGHTS (CORE DASHBOARD DATA)
-# =========================================================
-
+# ---------------------------------------------------------
+# 3. AI INSIGHTS (All reviews, analytics)
+# ---------------------------------------------------------
 @router.get("/ai/insights")
 async def ai_insights(
     company_id: int = Query(...),
     start: Optional[str] = None,
     end: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
-    _: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user)
 ):
-    reviews = (
-        await session.execute(
-            select(Review).where(Review.company_id == company_id)
-        )
-    ).scalars().all()
+    # Fetch all reviews dynamically
+    query = select(Review).where(Review.company_id == company_id)
+    if start:
+        query = query.where(Review.created_at >= datetime.fromisoformat(start))
+    if end:
+        query = query.where(Review.created_at <= datetime.fromisoformat(end))
+    result = await session.execute(query)
+    reviews: List[Review] = result.scalars().all()
 
-    now = datetime.now(timezone.utc).isoformat()
-
-    if not reviews:
+    total = len(reviews)
+    if total == 0:
         return JSONResponse({
-            "metadata": {
-                "company_id": company_id,
-                "total_reviews": 0,
-                "generated_at": now
-            },
-            "kpis": {
-                "average_rating": 0,
-                "reputation_score": 70,
-                "response_rate": 60
-            },
+            "metadata": {"company_id": company_id, "total_reviews": 0, "generated_at": datetime.now(timezone.utc).isoformat()},
+            "kpis": {"average_rating": 0, "reputation_score": 70, "response_rate": 60},
             "visualizations": {
                 "emotions": {"Positive": 50, "Neutral": 30, "Negative": 20},
                 "sentiment_trend": [{"week": f"W{i}", "avg": 4.0} for i in range(1, 9)],
-                "ratings": {i: 0 for i in range(1, 6)}
+                "ratings": {i: 0 for i in range(1,6)}
             },
             "ai_recommendations": ["No data yet. Click Sync Live Data."]
         })
 
-    total = len(reviews)
-    avg = round(sum(r.rating for r in reviews) / total, 1)
-
-    emotions = {"Positive": 0, "Neutral": 0, "Negative": 0}
-    ratings = {i: 0 for i in range(1, 6)}
+    # KPI Calculations
+    avg_rating = round(sum(r.rating for r in reviews)/total,1)
+    pos = neg = neu = 0
+    ratings = {i: 0 for i in range(1,6)}
 
     for r in reviews:
-        if 1 <= int(r.rating) <= 5:
-            ratings[int(r.rating)] += 1
+        ratings[int(r.rating)] += 1 if 1 <= int(r.rating) <= 5 else 0
         if r.text:
-            score = vader.polarity_scores(r.text)["compound"]
-            if score >= POSITIVE:
-                emotions["Positive"] += 1
-            elif score <= NEGATIVE:
-                emotions["Negative"] += 1
+            score = vader_analyzer.polarity_scores(r.text)['compound']
+            if score >= 0.05:
+                pos += 1
+            elif score <= -0.05:
+                neg += 1
             else:
-                emotions["Neutral"] += 1
+                neu += 1
         else:
-            emotions["Neutral"] += 1
+            neu += 1
+    total_map = pos + neg + neu or 1
 
-    base = sum(emotions.values()) or 1
-    emotions = {k: round(v * 100 / base) for k, v in emotions.items()}
+    # Visualizations
+    visualizations = {
+        "emotions": {
+            "Positive": round(pos*100/total_map),
+            "Neutral": round(neu*100/total_map),
+            "Negative": round(neg*100/total_map)
+        },
+        "sentiment_trend": [
+            {"week": f"W{i}", "avg": round(random.uniform(3.8,4.7),1)}
+            for i in range(1, 9)
+        ],
+        "ratings": ratings
+    }
+
+    # AI Recommendations
+    ai_recommendations = [
+        f"Avg rating {avg_rating} → Improve response speed",
+        "Respond to negative reviews quickly",
+        "Leverage top-rated experiences in marketing"
+    ]
 
     return JSONResponse({
-        "metadata": {
-            "company_id": company_id,
-            "total_reviews": total,
-            "generated_at": now
-        },
-        "kpis": {
-            "average_rating": avg,
-            "reputation_score": int(avg * 19.8),
-            "response_rate": 65
-        },
-        "visualizations": {
-            "emotions": emotions,
-            "sentiment_trend": [
-                {"week": f"W{i}", "avg": round(random.uniform(3.8, 4.7), 1)}
-                for i in range(1, 9)
-            ],
-            "ratings": ratings
-        },
-        "ai_recommendations": [
-            "Respond to negative reviews within 24 hours",
-            "Highlight 5-star reviews in marketing",
-            "Track recurring issues weekly"
-        ]
+        "metadata": {"company_id": company_id, "total_reviews": total, "generated_at": datetime.now(timezone.utc).isoformat()},
+        "kpis": {"average_rating": avg_rating, "reputation_score": int(avg_rating*19.8), "response_rate": 65},
+        "visualizations": visualizations,
+        "ai_recommendations": ai_recommendations,
+        "reviews": [{"id": r.id, "rating": r.rating, "text": r.text} for r in reviews]  # <-- all reviews
     })
 
-
-# =========================================================
-# 4. AI CHAT (STRATEGY CONSULTANT)
-# =========================================================
-
-@retry(stop=stop_after_attempt(2), wait=wait_fixed(0.5))
-def _ask_ai(prompt: str) -> str:
-    return AI_MODEL.generate_content(prompt).text.strip()
-
-
-@chat_router.post("/chat")
-async def chat_api(
-    request: Request,
-    session: AsyncSession = Depends(get_session),
-    _: dict = Depends(get_current_user),
-):
-    body = await request.json()
-    msg = (body.get("message") or "").strip()
-    company_id = body.get("company_id")
-
-    if not msg or not company_id:
-        return JSONResponse({
-            "answer": "Please select a business and ask a question."
-        })
-
-    company = (
-        await session.execute(
-            select(Company).where(Company.id == company_id)
-        )
-    ).scalar_one_or_none()
-
-    name = company.name if company else "this business"
-
-    reviews = (
-        await session.execute(
-            select(Review).where(Review.company_id == company_id)
-        )
-    ).scalars().all()
-
-    if not reviews:
-        return JSONResponse({
-            "answer": f"No review data is available yet for {name}."
-        })
-
-    avg = round(sum(r.rating for r in reviews) / len(reviews), 1)
-
-    prompt = f"""
-You are an AI business consultant.
-
-Company: {name}
-Average Rating: {avg}/5
-
-User Question:
-{msg}
-
-Answer clearly and concisely (max 5 sentences).
-"""
-
+# ---------------------------------------------------------
+# 4. AI CHAT (Improved)
+# ---------------------------------------------------------
+@router.post("/chat")
+async def chat_api(request: Request, session: AsyncSession = Depends(get_session), current_user: dict = Depends(get_current_user)):
     try:
-        answer = _ask_ai(prompt)
-    except Exception:
-        answer = (
-            f"{name} is performing steadily. "
-            "Focus on improving consistency and response quality."
-        )
+        body = await request.json()
+        company_id = body.get("company_id")
+        msg = body.get("message","").strip()
 
-    return JSONResponse({
-        "answer": answer
-    })
+        if not msg or not company_id:
+            return JSONResponse({"answer": "AI Expert: Please select a business and ask a question."})
+
+        company = (await session.execute(select(Company).where(Company.id == company_id))).scalar_one_or_none()
+        name = company.name if company else "this business"
+
+        reviews = (await session.execute(select(Review).where(Review.company_id == company_id))).scalars().all()
+        context = [r.text for r in reviews[-100:]]  # last 100 reviews for AI context
+        answer = await generate_ai_response(msg, context)
+
+        return JSONResponse({"answer": answer, "timestamp": datetime.now(timezone.utc).isoformat()})
+    except Exception as e:
+        logger.exception("Chatbot error")
+        return JSONResponse({"answer": "AI Expert: I'm having trouble retrieving a response."})
