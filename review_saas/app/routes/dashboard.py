@@ -1,145 +1,144 @@
-from fastapi import APIRouter, Depends, Query, Body
-from sqlalchemy.orm import Session
-from collections import defaultdict
-from datetime import datetime
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from typing import List
+import asyncio
 import random
+from datetime import datetime
 
-# ✅ FIXED IMPORT (IMPORTANT)
-from app.database import get_db
+# ==========================
+# APP INIT
+# ==========================
+app = FastAPI(title="Review Intelligence AI Dashboard")
 
-from app.models.review import Review
-from app.models.company import Company
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Adjust for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# ✅ PREFIX MUST MATCH FRONTEND CALLS
-router = APIRouter(prefix="/api", tags=["Dashboard"])
+# Serve static files if needed (CSS/JS/Images)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# ==========================
+# MOCK DATABASE / MODELS
+# ==========================
+class Company(BaseModel):
+    id: int
+    name: str
+    place_id: str
+    address: str
 
-# =====================================================
-# 🔥 AI INSIGHTS (MAIN ANALYZE BUTTON)
-# URL: /api/ai/insights
-# =====================================================
-@router.get("/ai/insights")
-def get_ai_insights(
-    company_id: int = Query(...),
-    start: str = Query(...),
-    end: str = Query(...),
-    db: Session = Depends(get_db)
-):
-    try:
-        start_date = datetime.fromisoformat(start)
-        end_date = datetime.fromisoformat(end)
+class Review(BaseModel):
+    id: int
+    company_id: int
+    rating: int
+    sentiment: float
+    emotion: str
+    date: str
 
-        reviews = db.query(Review).filter(
-            Review.company_id == company_id,
-            Review.created_at >= start_date,
-            Review.created_at <= end_date
-        ).all()
+# In-memory storage for demonstration
+COMPANIES = [
+    Company(id=1, name="Cafe Blue", place_id="abc123", address="123 Blue St"),
+    Company(id=2, name="Tech Shop", place_id="def456", address="456 Tech Ave"),
+]
+REVIEWS = []
 
-        total_reviews = len(reviews)
+# ==========================
+# DASHBOARD ROUTE
+# ==========================
+@app.get("/", response_class=HTMLResponse)
+async def dashboard():
+    with open("templates/dashboard.html", "r", encoding="utf-8") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content)
 
-        # ================= KPIs =================
-        avg_rating = round(
-            sum(r.rating for r in reviews) / total_reviews, 2
-        ) if total_reviews > 0 else 0
+# ==========================
+# COMPANIES API
+# ==========================
+@app.get("/api/companies", response_model=List[Company])
+async def get_companies():
+    return COMPANIES
 
-        reputation_score = int(avg_rating * 20)  # scale 0–100
+@app.post("/api/companies", response_model=Company)
+async def add_company(company: Company):
+    new_id = max([c.id for c in COMPANIES] + [0]) + 1
+    new_company = Company(id=new_id, **company.dict())
+    COMPANIES.append(new_company)
+    return new_company
 
-        # ================= RATINGS =================
-        ratings = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-        for r in reviews:
-            if r.rating in ratings:
-                ratings[r.rating] += 1
-
-        # ================= TREND =================
-        trend = defaultdict(list)
-        for r in reviews:
-            key = r.created_at.strftime("%Y-%m-%d")
-            trend[key].append(r.rating)
-
-        sentiment_trend = [
-            {"date": k, "avg": round(sum(v) / len(v), 2)}
-            for k, v in trend.items()
-        ]
-
-        sentiment_trend.sort(key=lambda x: x["date"])
-
-        # ================= EMOTIONS (AI MOCK) =================
-        emotions = {
-            "Happy": random.randint(20, 80),
-            "Angry": random.randint(5, 40),
-            "Neutral": random.randint(10, 60),
-            "Sad": random.randint(5, 30),
-            "Surprised": random.randint(5, 25)
+# ==========================
+# AI INSIGHTS & KPI API
+# ==========================
+@app.get("/api/ai/insights")
+async def ai_insights(company_id: int, start: str = "2023-01-01", end: str = None):
+    end = end or datetime.today().strftime("%Y-%m-%d")
+    # Mock KPIs & visualizations
+    data = {
+        "metadata": {"total_reviews": random.randint(50, 500)},
+        "kpis": {
+            "benchmark": {"your_avg": round(random.uniform(3.0, 5.0), 2)},
+            "reputation_score": round(random.uniform(50, 100), 2)
+        },
+        "visualizations": {
+            "emotions": {"Happy": random.randint(10,50), "Angry": random.randint(0,10), "Sad": random.randint(0,5)},
+            "sentiment_trend": [{"week": f"W{i}", "avg": round(random.uniform(2.5, 5.0),2)} for i in range(1,13)],
+            "ratings": {str(i): random.randint(0,50) for i in range(1,6)}
         }
-
-        # ================= RESPONSE =================
-        return {
-            "metadata": {
-                "total_reviews": total_reviews
-            },
-            "kpis": {
-                "benchmark": {
-                    "your_avg": avg_rating
-                },
-                "reputation_score": reputation_score
-            },
-            "visualizations": {
-                "emotions": emotions,
-                "sentiment_trend": sentiment_trend,
-                "ratings": ratings
-            }
-        }
-
-    except Exception as e:
-        return {"error": str(e)}
-
-
-# =====================================================
-# 🔥 REVENUE RISK
-# URL: /api/dashboard/revenue
-# =====================================================
-@router.get("/dashboard/revenue")
-def revenue_risk(company_id: int, db: Session = Depends(get_db)):
-    reviews = db.query(Review).filter(
-        Review.company_id == company_id
-    ).all()
-
-    total = len(reviews)
-    low_reviews = len([r for r in reviews if r.rating <= 2])
-
-    risk_percent = int((low_reviews / total) * 100) if total else 0
-
-    if risk_percent > 50:
-        impact = "HIGH"
-    elif risk_percent > 25:
-        impact = "MEDIUM"
-    else:
-        impact = "LOW"
-
-    return {
-        "risk_percent": risk_percent,
-        "impact": impact
     }
+    return JSONResponse(content=data)
 
-
-# =====================================================
-# 🔥 AI CHAT
-# URL: /api/dashboard/chat
-# =====================================================
-@router.post("/dashboard/chat")
-def chat_ai(
-    company_id: int,
-    message: str = Body(...),
-    db: Session = Depends(get_db)
-):
-    reviews = db.query(Review).filter(
-        Review.company_id == company_id
-    ).all()
-
-    avg = round(
-        sum(r.rating for r in reviews) / len(reviews), 2
-    ) if reviews else 0
-
-    return {
-        "answer": f"Based on your current rating ({avg}), improve service speed, staff behavior, and complaint resolution."
+# ==========================
+# REVENUE RISK API
+# ==========================
+@app.get("/api/dashboard/revenue")
+async def revenue_risk(company_id: int):
+    data = {
+        "risk_percent": random.randint(5,50),
+        "impact": random.choice(["Low","Medium","High"]),
     }
+    return JSONResponse(content=data)
+
+# ==========================
+# AI CHAT API
+# ==========================
+@app.post("/api/dashboard/chat")
+async def chat(company_id: int, request: Request):
+    payload = await request.json()
+    question = payload if isinstance(payload, str) else str(payload)
+    # Mock AI response
+    answers = [
+        "Focus on improving your 4★ reviews.",
+        "Customer sentiment is trending positive.",
+        "Consider addressing negative feedback quickly."
+    ]
+    return {"answer": random.choice(answers)}
+
+# ==========================
+# SYNC REVIEWS / INGEST
+# ==========================
+@app.post("/api/reviews/ingest/{company_id}")
+async def ingest_reviews(company_id: int):
+    # Placeholder for your Playwright or SerpAPI logic
+    new_reviews = random.randint(5,20)
+    for _ in range(new_reviews):
+        REVIEWS.append(
+            Review(
+                id=len(REVIEWS)+1,
+                company_id=company_id,
+                rating=random.randint(1,5),
+                sentiment=round(random.uniform(1.0,5.0),2),
+                emotion=random.choice(["Happy","Sad","Angry"]),
+                date=datetime.today().strftime("%Y-%m-%d")
+            )
+        )
+    return {"reviews_count": new_reviews}
+
+# ==========================
+# RUN APP
+# ==========================
+# Use: uvicorn dashboard:app --reload
