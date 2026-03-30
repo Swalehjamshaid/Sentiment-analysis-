@@ -46,6 +46,7 @@
         </div>
     </div>
 </nav>
+
 <div class="container-fluid">
     <div class="row g-3 align-items-end mb-4 p-4 bg-white rounded-4 shadow-sm">
         <div class="col-md-3">
@@ -67,6 +68,7 @@
             </div>
         </div>
     </div>
+
     <div class="row g-3 mb-4 text-center">
         <div class="col-md-3">
             <div class="card total-review-card p-4 h-100 shadow-sm">
@@ -91,6 +93,7 @@
             </div>
         </div>
     </div>
+
     <div class="row g-4 mb-4">
         <div class="col-lg-8">
             <div class="row g-4">
@@ -124,6 +127,7 @@
         </div>
     </div>
 </div>
+
 <div class="modal fade" id="addCompanyModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <form id="addCompanyForm" class="modal-content shadow-lg border-0">
@@ -134,7 +138,6 @@
             <div class="modal-body p-4">
                 <label class="small fw-bold text-muted mb-2">SEARCH GOOGLE MAPS</label>
                 <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Enter business name or address...">
-                
                 <div class="p-4 bg-light rounded-4">
                     <div class="mb-3">
                         <label class="small fw-bold text-muted">BUSINESS NAME</label>
@@ -156,6 +159,7 @@
         </form>
     </div>
 </div>
+
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
@@ -198,7 +202,6 @@ async function loadCompanies() {
                 const name = c.name || c.business_name || "Unnamed Business";
                 return `<option value="${c.id}">${name}</option>`;
             }).join("");
-            
             sel.value = companies[0].id;
             setTimeout(() => { triggerAllLoads(); }, 800);
         } else {
@@ -206,7 +209,6 @@ async function loadCompanies() {
         }
     } catch (e) { 
         console.error("❌ Load Companies Failed:", e); 
-        document.getElementById("companySelect").innerHTML = `<option value="">Error loading businesses</option>`;
     }
 }
 
@@ -215,33 +217,23 @@ async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
     const start = document.getElementById("startDate").value || "2024-01-01";
     const end = document.getElementById("endDate").value || new Date().toISOString().split('T')[0];
-    
     if (!cid) return;
 
     try {
         const res = await fetch(`/api/dashboard/ai/insights?company_id=${cid}&start=${start}&end=${end}`);
         const data = await res.json();
-
-        if (data.metadata) {
-            document.getElementById("kpiTotal").innerText = data.metadata.total_reviews || 0;
-        }
+        if (data.metadata) document.getElementById("kpiTotal").innerText = data.metadata.total_reviews || 0;
         if (data.kpis) {
             document.getElementById("kpiRating").innerText = data.kpis.average_rating || data.kpis.benchmark?.your_avg || "—";
             document.getElementById("riskSentiment").innerText = data.kpis.reputation_score || "—";
         }
-
-        if (data.visualizations) {
-            renderCharts(data.visualizations);
-        }
-
+        if (data.visualizations) renderCharts(data.visualizations);
+        
         const revRes = await fetch(`/api/dashboard/revenue?company_id=${cid}`);
         const revData = await revRes.json();
         document.getElementById("riskPct").innerText = (revData.risk_percent || 0) + "%";
         document.getElementById("riskImpact").innerText = revData.impact || "N/A";
-
-    } catch (e) { 
-        console.error("Dashboard Load Error:", e); 
-    }
+    } catch (e) { console.error("Dashboard Load Error:", e); }
 }
 
 // 4. Chart Rendering
@@ -314,7 +306,6 @@ document.getElementById("syncBtn").onclick = async () => {
             alert(`Sync Complete! Found ${result.reviews_count || 0} reviews.`);
         }, 1500);
     } catch (e) {
-        alert("Sync failed. Check server logs.");
         btn.disabled = false;
         btn.innerHTML = "Sync Live Data";
     }
@@ -328,24 +319,17 @@ document.getElementById('addCompanyForm').onsubmit = async (e) => {
         place_id: document.getElementById('placeId').value,
         address: document.getElementById('companyAddress').value
     };
-    if (!payload.place_id) {
-        alert("Please search and select a business first.");
-        return;
-    }
     try {
         const res = await fetch('/api/companies', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(payload)
         });
-        if (res.ok) {
-            alert("Business Linked Successfully!");
-            location.reload();
-        }
+        if (res.ok) { location.reload(); }
     } catch (e) { console.error("Save Failed:", e); }
 };
 
-// 7. AI Chat Integration - ALIGNED WITH CHATBOT.PY
+// 7. AI Chat Integration - FIXED PATH & DATA BINDING
 document.getElementById("chatBtn").onclick = async () => {
     const input = document.getElementById("chatInput");
     const msg = input.value.trim();
@@ -358,8 +342,8 @@ document.getElementById("chatBtn").onclick = async () => {
     win.scrollTop = win.scrollHeight;
 
     try {
-        // Updated to send company_id inside JSON body to match chatbot.py
-        const res = await fetch(`/api/chatbot/chat`, {
+        // Pointing directly to the chatbot router prefix defined in chatbot.py
+        const res = await fetch('/chatbot/chat', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ 
@@ -368,10 +352,11 @@ document.getElementById("chatBtn").onclick = async () => {
             })
         });
         const data = await res.json();
-        win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Expert:</strong> ${data.answer}</div>`;
+        const responseText = data.answer || "I'm having trouble retrieving a response.";
+        win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Expert:</strong> ${responseText}</div>`;
         win.scrollTop = win.scrollHeight;
     } catch (e) {
-        win.innerHTML += `<div class="chat-msg chat-ai text-danger">Error connecting to AI.</div>`;
+        win.innerHTML += `<div class="chat-msg chat-ai text-danger">Error connecting to AI expert.</div>`;
     }
 };
 
