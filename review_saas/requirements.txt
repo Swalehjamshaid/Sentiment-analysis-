@@ -1,9 +1,9 @@
-# Core System
+# --- Build Tools (Crucial to be at the top) ---
 setuptools>=68.2.2
 wheel>=0.43.0
 pip>=23.1.2
 
-# Web & API
+# --- Web & API ---
 fastapi>=0.111.0,<0.112.0
 uvicorn>=0.29.0,<0.30.0
 gunicorn>=23.0.0,<24.0.0
@@ -11,66 +11,66 @@ starlette>=0.37.2,<0.38.0
 python-multipart>=0.0.9
 Jinja2>=3.1.3
 
-# Database
+# --- Database ---
 SQLAlchemy>=2.0.29,<2.1.0
 asyncpg>=0.29.0,<0.30.0
-psycopg>=3.1.18,<3.2.0
+psycopg[binary]>=3.1.18  # Using [binary] avoids needing libpq-dev on the system
 aiosqlite>=0.20.0,<0.21.0
 alembic>=1.13.1,<1.14.0
 greenlet>=3.0.3,<3.1.0
 
-# HTTP & Networking
-requests>=2.32.3,<2.33.0
-httpx>=0.26.0,<0.27.0
-urllib3>=2.2.1,<2.3.0
+# --- HTTP & Networking ---
+requests>=2.32.3
+httpx>=0.26.0
+urllib3>=2.2.1
 charset-normalizer>=3.3.2
-httplib2>=0.31.2
+httplib2>=0.22.0
 google-api-python-client>=2.150.0
 google-auth>=2.35.0
 google-auth-oauthlib>=1.2.1
 googlemaps>=4.10.0
 google-search-results>=2.4.2
 
-# Playwright & Scraping
+# --- Playwright & Scraping ---
 playwright>=1.45.0
 pytest-playwright>=0.5.2
 tf-playwright-stealth>=1.2.0
-curl_cffi>=0.7.0b4
+curl_cffi>=0.7.0          # Removed 'b4' for more stable build
 agentql>=0.4.0
-fake-http-header>=0.3.5,<0.4.0
+fake-http-header>=0.3.5
 
-# Data & NLP
-pandas>=2.2.3
+# --- Data & NLP ---
+pandas>=2.2.0
 numpy>=1.26.4
 openpyxl>=3.1.5
 reportlab>=4.1.0
-Pillow>=11.1.0
+Pillow>=10.0.0
 lxml>=5.3.0
 textblob>=0.18.0
 vaderSentiment>=3.3.2
 langdetect>=1.0.9
 nltk>=3.9.1
 orjson>=3.10.7
-joblib>=1.5.3
-regex>=2026.3.32
-tqdm>=4.67.3
+joblib>=1.4.0
+regex                     # Fixed: Removed future-dated version causing build fail
+tqdm>=4.66.0
 
-# Auth & Security
+# --- Auth & Security ---
 bcrypt>=4.0.1
 python-jose>=3.3.0
 authlib>=1.3.1
 pyotp>=2.9.0
 rsa>=4.9
-cryptography>=46.0.6
+cryptography>=42.0.0
 email-validator>=2.2.0
 
-# Scheduling & Async
+# --- Scheduling & Async ---
 apscheduler>=3.10.4
-tenacity>=9.0.0
-async-timeout>=5.0.1
-exceptiongroup>=1.3.1
+tenacity>=8.5.0
+async-timeout>=4.0.0
+exceptiongroup>=1.2.0
 
-# Visualization
+# --- Visualization ---
 plotly>=5.24.0
 dash>=2.17.0
 streamlit>=1.38.0
@@ -79,28 +79,28 @@ altair>=5.4.0
 bokeh>=3.5.0
 gradio>=4.44.0
 
-# AI & LLM
-langchain>=0.2.16
-langchain-community>=0.2.16
-langgraph>=0.1.19
-llama-index>=0.10.68
+# --- AI & LLM ---
+langchain>=0.2.0
+langchain-community>=0.2.0
+langgraph>=0.1.0
+llama-index>=0.10.0
 litellm>=1.0.0
 faiss-cpu>=1.8.0
 transformers>=4.44.2
 
-# Utility & Others
-ujson>=5.12.0
+# --- Utility & Others ---
+ujson>=5.10.0
 annotated-types>=0.4.0
 pydantic-core>=2.18.4
-markupsafe>=3.0.3
-Mako>=1.3.10
+markupsafe>=2.1.0
+Mako>=1.3.0
 aiofiles>=23.2.1
-pytest>=8.4.2
-pytest-asyncio>=0.23.8
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
 pytest-base-url>=2.1.0
 text-unidecode>=1.3
-pytz>=2026.1.post1
-tzdata>=2025.3
+pytz                      # Fixed: Removed future-dated version
+tzdata>=2024.1
 tzlocal>=4.3
 webencodings>=0.5.1
-typing-extensions>=4.15.0
+typing-extensions>=4.10.0
