@@ -177,22 +177,52 @@ function initGoogleAutocomplete() {
     });
 }
 
-// 2. Load Company List
+// 2. Load Company List - FIXED & IMPROVED (Now properly reads from your Postgres)
 async function loadCompanies() {
     try {
+        console.log("🔄 Fetching companies from /api/companies...");
         const res = await fetch("/api/companies");
+        
+        if (!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        
         const data = await res.json();
+        console.log("📊 Companies API Response:", data);   // Helpful for debugging
+
         const sel = document.getElementById("companySelect");
-        if (data && data.companies && data.companies.length > 0) {
-            sel.innerHTML = data.companies.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
-            if (sel.options.length > 0) {
-                sel.value = sel.options[0].value;
-            }
+        let companies = [];
+
+        // Handle different possible response formats from your companies router
+        if (data && data.companies && Array.isArray(data.companies)) {
+            companies = data.companies;
+        } else if (Array.isArray(data)) {
+            companies = data;
+        } else if (data && data.data && Array.isArray(data.data)) {
+            companies = data.data;
+        }
+
+        if (companies.length > 0) {
+            sel.innerHTML = companies.map(c => {
+                const name = c.name || c.business_name || "Unnamed Business";
+                return `<option value="${c.id}">${name}</option>`;
+            }).join("");
+            
+            // Auto-select the first company
+            sel.value = companies[0].id;
+            console.log(`✅ Loaded ${companies.length} businesses successfully`);
+            
+            // Auto load dashboard data for the first business
+            setTimeout(() => {
+                triggerAllLoads();
+            }, 800);
         } else {
             sel.innerHTML = `<option value="">No businesses added yet</option>`;
+            console.log("⚠️ No companies returned from API");
         }
     } catch (e) { 
-        console.error("Load Companies Failed:", e); 
+        console.error("❌ Load Companies Failed:", e); 
+        document.getElementById("companySelect").innerHTML = `<option value="">Error loading businesses - Check Console</option>`;
     }
 }
 
@@ -368,12 +398,6 @@ document.getElementById("toggleTheme").onclick = () => {
 document.addEventListener("DOMContentLoaded", () => {
     loadCompanies();
     initGoogleAutocomplete();
-    
-    setTimeout(() => {
-        if (document.getElementById("companySelect").value) {
-            triggerAllLoads();
-        }
-    }, 1000);
 });
 </script>
 </body>
