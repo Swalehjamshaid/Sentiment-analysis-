@@ -92,22 +92,22 @@ google-auth-oauthlib==1.2.1
 # --- DASHBOARD & VISUALIZATION ---
 # =========================
 plotly==5.24.0
-dash==2.17.0                    # Downgraded for Python 3.10 compatibility
-streamlit==1.38.0               # Stable version for Python 3.10
+dash==2.17.0
+streamlit==1.38.0
 panel==1.4.4
 altair==5.4.0
 bokeh==3.5.0
-gradio==4.44.0                  # Stable for Python 3.10
+gradio==4.44.0
 
 # =========================
-# --- POWERFUL AI CHATBOT & ANALYSIS (Compatible with Python 3.10) ---
+# --- POWERFUL AI CHATBOT & ANALYSIS (Python 3.10 Compatible) ---
 # =========================
-langchain==0.2.16               # Latest compatible with Python 3.10
+langchain==0.2.16
 langchain-community==0.2.16
-langgraph==0.1.20
-llama-index==0.10.68            # Stable version
+langgraph==0.1.19          # Fixed version that exists for Python 3.10
+llama-index==0.10.68
 sentence-transformers==3.0.1
 litellm==1.0.0
 faiss-cpu==1.8.0
 huggingface-hub==0.24.0
-transformers==4.44.2            # Compatible version
+transformers==4.44.2
