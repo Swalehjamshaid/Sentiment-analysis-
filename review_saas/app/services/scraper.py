@@ -13,7 +13,7 @@ from app.core.models import Company
 
 logger = logging.getLogger("app.scraper")
 
-# Using Railway environment variable with hardcoded fallback
+# Get API Key from Environment or Fallback
 SERPAPI_KEY = os.getenv("SERP_API_KEY", "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d")
 
 def parse_relative_date(date_text: str) -> datetime:
@@ -24,7 +24,6 @@ def parse_relative_date(date_text: str) -> datetime:
         return datetime.utcnow()
     
     now = datetime.utcnow()
-    # Extract the number from the string
     match = re.search(r'(\d+)', date_text)
     quantity = int(match.group(1)) if match else 1
     
@@ -51,7 +50,7 @@ async def fetch_reviews_from_google(
     place_id: Optional[str] = None,
     company_id: Optional[int] = None,
     session: Optional[AsyncSession] = None,
-    target_limit: int = 500, # Minimum target set to 500
+    target_limit: int = 500,
     **kwargs
 ) -> List[Dict[str, Any]]:
     all_reviews: List[Dict[str, Any]] = []
@@ -59,70 +58,80 @@ async def fetch_reviews_from_google(
     try:
         target_place_id = place_id
         
-        # Attribute: ID Discovery from DB
+        # 1. Database Lookup for Place ID
         if not target_place_id and company_id and session:
             result = await session.execute(select(Company).where(Company.id == company_id))
             company = result.scalar_one_or_none()
             target_place_id = company.google_place_id if company else None
+            if target_place_id:
+                logger.info(f"🔍 Found Place ID in DB: {target_place_id}")
 
-        # Attribute: ID Discovery via Search fallback
-        if not target_place_id or not target_place_id.startswith("ChIJ"):
-            query = target_place_id or "Villa The Grand Buffet"
+        # 2. Search Fallback if ID is missing
+        if not target_place_id or len(target_place_id) < 5:
+            # If we don't have an ID, we search by name
+            query = "Villa The Grand Buffet Lahore" # More specific query
+            logger.info(f"📡 No Place ID found, searching Google for: {query}")
+            
             search_params = {"engine": "google", "q": query, "api_key": SERPAPI_KEY, "gl": "pk"}
             def discover_id():
                 res = GoogleSearch(search_params).get_dict()
-                return res.get("local_results", [{}])[0].get("place_id") or res.get("knowledge_graph", {}).get("place_id")
+                return res.get("local_results", [{}])[0].get("place_id") or \
+                       res.get("knowledge_graph", {}).get("place_id")
+            
             target_place_id = await asyncio.to_thread(discover_id)
 
         if not target_place_id:
+            logger.error("❌ Failed to resolve a Google Place ID. Cannot fetch reviews.")
             return []
+
+        logger.info(f"🚀 Starting fetch for Place ID: {target_place_id}")
 
         next_page_token: Optional[str] = None
 
-        # CONTINUOUS FETCH LOGIC:
-        # Loops until it hits the minimum (500) OR until Google has no more reviews left.
+        # 3. The Fetch Loop
         while True:
             params = {
                 "engine": "google_maps_reviews",
                 "place_id": target_place_id,
                 "api_key": SERPAPI_KEY,
                 "next_page_token": next_page_token,
-                "sort_by": "newest" # Attribute: Ensures fetching based on date range (newest first)
+                "sort_by": "newest"
             }
 
             results = await asyncio.to_thread(lambda: GoogleSearch(params).get_dict())
+            
+            # Check for API Errors
+            if "error" in results:
+                logger.error(f"SerpApi Error: {results['error']}")
+                break
+
             reviews = results.get("reviews", [])
+            logger.info(f"📄 Fetched page: {len(reviews)} reviews found.")
 
             if not reviews:
                 break
 
             for r in reviews:
-                # Attribute: Date range parsing
+                # Original Date Logic
                 raw_date = r.get("date", "")
                 parsed_date = parse_relative_date(raw_date)
 
-                # Attribute: Original Output Mapping
                 all_reviews.append({
                     "google_review_id": r.get("review_id"),
                     "author_name": r.get("user", {}).get("name"),
                     "rating": int(r.get("rating", 5)),
                     "text": r.get("text") or r.get("snippet") or "No content",
-                    "google_review_time": parsed_date, 
+                    "google_review_time": parsed_date,
                     "review_likes": r.get("likes", 0)
                 })
 
-            # Check for next page
+            # Check if we hit the limit or end of pages
             next_page_token = results.get("serpapi_pagination", {}).get("next_page_token")
             
-            # If we have reached 500 and there is no specific date-range stop logic in kwargs,
-            # we can continue or stop based on the availability of data.
-            if not next_page_token:
+            if not next_page_token or len(all_reviews) >= target_limit:
                 break
-                
-            # If you want it to be truly "no limit", we only break when next_page_token is gone.
-            # We only keep the 500 as a 'minimum' check.
-            if len(all_reviews) >= target_limit and not next_page_token:
-                break
+
+        logger.info(f"✅ Total reviews collected for processing: {len(all_reviews)}")
 
     except Exception as exc:
         logger.error(f"❌ Scraper critical failure: {exc}")
