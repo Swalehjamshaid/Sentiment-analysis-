@@ -50,7 +50,7 @@ lxml==5.3.0
 # =========================
 # --- AI & SENTIMENT ---
 # =========================
-textblob==0.18.0.post0
+textblob==0.18.0
 vaderSentiment==3.3.2
 langdetect==1.0.9
 nltk==3.9.1
@@ -74,7 +74,7 @@ requests==2.32.3
 urllib3==2.2.1
 charset-normalizer==3.3.2
 orjson==3.10.7
-python-dateutil==2.9.0.post0
+python-dateutil==2.9.0
 python-slugify==8.0.4
 apscheduler==3.10.4
 tenacity==9.0.0
@@ -104,8 +104,8 @@ gradio==4.44.0
 # =========================
 langchain==0.2.16
 langchain-community==0.2.16
-langgraph==0.1.19          # Safe version for Python 3.10
-llama-index==0.10.68       # Older stable version
+langgraph==0.1.19
+llama-index==0.10.68
 sentence-transformers==3.0.1
 litellm==1.0.0
 faiss-cpu==1.8.0
