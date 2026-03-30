@@ -13,7 +13,7 @@ from app.core.models import Company, Review
 
 logger = logging.getLogger("app.scraper")
 
-# --- API KEY ---
+# Verified API Key
 SERPAPI_KEY = "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d".strip()
 
 def parse_relative_date(date_text: str) -> datetime:
@@ -42,7 +42,7 @@ async def fetch_reviews_from_google(
     all_reviews: List[Dict[str, Any]] = []
 
     try:
-        # 1. Determine how many reviews we ALREADY have to set the offset
+        # 1. Check existing count to set the skip offset
         current_count = 0
         if session and company_id:
             count_stmt = select(func.count(Review.id)).where(Review.company_id == company_id)
@@ -58,11 +58,10 @@ async def fetch_reviews_from_google(
         if not target_place_id:
             return []
 
-        # LOGIC: We will skip the newest 'current_count' reviews to find the next 100 older ones
         logger.info(f"🚀 Syncing: Skipping first {current_count} reviews to find {target_limit} more for {target_place_id}")
         
         next_page_token: Optional[str] = None
-        total_processed_from_google = 0
+        total_processed = 0
 
         while len(all_reviews) < target_limit:
             params = {
@@ -84,10 +83,10 @@ async def fetch_reviews_from_google(
                 break
 
             for r in reviews:
-                total_processed_from_google += 1
+                total_processed += 1
                 
-                # OFFSET CHECK: If we already have 50 reviews, skip the first 50 we see on Google
-                if total_processed_from_google <= current_count:
+                # If we already have this many in the DB, skip them
+                if total_processed <= current_count:
                     continue
 
                 if len(all_reviews) >= target_limit:
