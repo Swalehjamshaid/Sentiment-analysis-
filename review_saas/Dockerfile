@@ -1,36 +1,34 @@
-# Official Playwright Python image (compatible with playwright==1.45.0)
+# Use the official Playwright Python image as the base
 FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
 
+# Set the working directory
 WORKDIR /app
 
-# System dependencies for building packages
+# 1. Install essential system build tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and configure timeouts for large downloads
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip config set global.timeout 900 && \
-    pip config set global.retries 10
+# 2. Upgrade pip to the latest version
+RUN pip install --no-cache-dir --upgrade pip
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-
-# Install all dependencies with PyTorch CPU index
-# This is the critical line for torch + torchvision + torchaudio
+# 3. INSTALL PYTORCH SEPARATELY (The Heavy Part)
+# We do this first so it's cached and doesn't crash during the full requirements install
 RUN pip install --no-cache-dir \
-    --default-timeout=900 \
+    --default-timeout=1000 \
     --index-url https://download.pytorch.org/whl/cpu \
-    -r requirements.txt
+    torch==2.2.0 torchvision==0.17.0 torchaudio==2.2.0
 
-# Install Playwright browsers (MUST come after pip install playwright)
-RUN playwright install --with-deps chromium
+# 4. Copy and install the rest of your requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir --default-timeout=1000 -r requirements.txt
 
-# Copy your application code
+# 5. Copy the rest of your application code
 COPY . .
 
-EXPOSE 8080
+# 6. Ensure Playwright browsers are installed (since we are in a Playwright image)
+RUN playwright install --with-deps chromium
 
-# Start command — change "main:app" if your FastAPI app is in a different file or named differently
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# 7. Start the application (adjust 'main.py' to your entry point file)
+CMD ["python", "main.py"]
