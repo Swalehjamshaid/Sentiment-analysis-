@@ -13,8 +13,9 @@ jinja2==3.1.4
 python-multipart==0.0.12
 itsdangerous>=2.0.0
 
-# --- DATABASE & ORM ---
+# --- DATABASE & ORM (Async Fix Included) ---
 sqlalchemy[asyncio]==2.0.31
+asyncpg==0.29.0
 psycopg2-binary==2.9.9
 alembic==1.18.4
 
