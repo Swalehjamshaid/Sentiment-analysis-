@@ -127,7 +127,12 @@ async def root(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_get(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    # FIXED: Added request=request to fix unhashable type error
+    return templates.TemplateResponse(
+        request=request, 
+        name="login.html", 
+        context={"email_hint": "roy.jamshaid@gmail.com"}
+    )
 
 @app.post("/login")
 async def login_post(
@@ -136,13 +141,18 @@ async def login_post(
     password: str = Form(...),
     session: AsyncSession = Depends(get_session),
 ):
+    # Search for Jamshaid's email
     result = await session.execute(select(User).where(User.email == email))
     user = result.scalars().first()
+    
+    # Check credentials
     if not user or password != user.hashed_password:
         return templates.TemplateResponse(
-            "login.html",
-            {"request": request, "error": "Invalid credentials"}
+            request=request, 
+            name="login.html", 
+            context={"request": request, "error": "Invalid credentials", "email": email}
         )
+    
     request.session["user"] = {
         "id": user.id,
         "email": user.email,
@@ -155,13 +165,15 @@ async def dashboard_view(request: Request):
     user = get_current_user(request)
     if not user:
         return RedirectResponse("/login")
+    
+    # FIXED: Explicit request and context for Jinja2
     return templates.TemplateResponse(
-        "dashboard.html",
-        {
-            "request": request,
+        request=request,
+        name="dashboard.html",
+        context={
             "user": user,
             "schema_version": getattr(app.state, "schema_version", ""),
-        },
+        }
     )
 
 @app.get("/logout")
@@ -179,9 +191,8 @@ app.include_router(exports.router, prefix="/api", tags=["exports"])
 app.include_router(google_check.router, prefix="/api", tags=["google_check"])
 logger.info("🔗 All routers mounted correctly")
 
-# --------------------------- Run (local/testing only) ---------------------------
+# --------------------------- Run ---------------------------
 if __name__ == "__main__":
     import uvicorn
-    # Read PORT from env (Railway sets this automatically)
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
