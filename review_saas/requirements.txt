@@ -26,7 +26,9 @@ proxybroker==0.3.2
 nltk==3.8.1
 textblob==0.17.1
 transformers==4.42.2
-torch==2.1.1                    # Normal version (will be overridden by index-url)
+torch==2.1.1
+torchvision==0.16.1
+torchaudio==2.1.1
 sentence-transformers==2.2.2
 
 # === Data Analysis ===
