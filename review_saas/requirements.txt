@@ -5,9 +5,9 @@ gunicorn
 starlette
 
 # === Database & ORM ===
-# Using 1.4.52 to maintain compatibility with the 'databases' library
-sqlalchemy==1.4.52
-databases==0.7.0
+# Upgraded to 2.0+ to support 'async_sessionmaker' used in your code
+sqlalchemy>=2.0.0
+databases
 asyncpg==0.27.0
 python-multipart==0.0.6
 
