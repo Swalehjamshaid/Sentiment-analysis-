@@ -33,7 +33,7 @@ def safe_avg(values: List[float]) -> float:
     return round(sum(values) / len(values), 2) if values else 0.0
 
 def safe_date(val: Optional[str]) -> Optional[datetime]:
-    """Parses ISO strings, handling Z and offset formats."""
+    """Parses ISO strings, handling Z and offset formats from browser."""
     if not val: return None
     try:
         # Standardize format for Python fromisoformat
@@ -42,33 +42,33 @@ def safe_date(val: Optional[str]) -> Optional[datetime]:
         return None
 
 def month_label(dt: datetime) -> str:
-    """Standardizes time labels for the Trend Chart (e.g., 'Mar 31')."""
+    """Standardizes time labels for the Trend Chart."""
     return dt.strftime("%b %d") if dt else "Unknown"
 
 # =========================================================
-# MAIN ANALYTICS ENDPOINT (STRICT INTEGRATION)
+# MAIN ANALYTICS ENDPOINT (PERMANENT INTEGRATION)
 # =========================================================
 @router.get("/ai/insights")
 async def analyze_business(
     company_id: int = Query(...),
-    # IMPORTANT: Handle both clean and URL-encoded "amp;" variants from browser
+    # 🔗 PERMANENT FIX: Handle clean AND URL-encoded "amp;" variants
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
     amp_start: Optional[str] = Query(None, alias="amp;start"),
     amp_end: Optional[str] = Query(None, alias="amp;end"),
     session: AsyncSession = Depends(get_session),
 ):
-    # Resolve the correct date parameters from either alias
+    # Logic to pick whichever version the browser sent
     start_val = start or amp_start
     end_val = end or amp_end
     
     start_dt = safe_date(start_val)
     end_dt = safe_date(end_val)
 
-    # Base Database Query for Company reviews
+    # 🔎 Base Query - Querying your 300+ reviews from Postgres
     query = select(Review).where(Review.company_id == company_id)
     
-    # Apply date filtering if provided by UI
+    # Apply date filtering if provided, otherwise fetch all
     if start_dt and end_dt:
         query = query.where(
             and_(
@@ -80,12 +80,12 @@ async def analyze_business(
     result = await session.execute(query)
     reviews = result.scalars().all()
 
-    # Safety check for empty results
+    # Safety check for empty results (Stops UI from crashing)
     if not reviews:
         return _empty_dashboard()
 
     # -----------------------------------------------------
-    # DATA AGGREGATION & ATTRIBUTE MAPPING
+    # DATA AGGREGATION (MAPS 1:1 TO DASHBOARD.HTML)
     # -----------------------------------------------------
     ratings_dist = {i: 0 for i in range(1, 6)}
     emotions = {"Positive": 0, "Neutral": 0, "Negative": 0}
@@ -93,29 +93,29 @@ async def analyze_business(
     word_corpus = []
     
     for r in reviews:
-        # 1. Rating Distribution (Bar Chart)
+        # 1. Rating Distribution (For the Bar Chart)
         rating = r.rating or 0
         if 1 <= rating <= 5:
             ratings_dist[int(rating)] += 1
 
-        # 2. Sentiment/Emotion Mapping (Radar Chart)
+        # 2. Sentiment/Emotion Mapping (For the Radar Chart)
         score = getattr(r, "sentiment_score", 0) or 0
         if score >= 0.25: emotions["Positive"] += 1
         elif score <= -0.25: emotions["Negative"] += 1
         else: emotions["Neutral"] += 1
 
-        # 3. Time Series Data (Trend Line)
+        # 3. Time Series Data (For the Line Chart)
         time_ref = r.google_review_time or r.first_seen_at
         if time_ref:
             label = month_label(time_ref)
             daily_logs[label].append(rating)
 
-        # 4. Keyword Processing (Cloud Badges)
+        # 4. Keyword Processing (For Word Badges)
         text = (r.text or "").lower()
         if text:
-            # Extract meaningful words (length > 4)
-            found_words = re.findall(r'\b[a-z]{5,}\b', text)
-            word_corpus.extend(found_words)
+            # Simple cleaning: words > 4 chars
+            words = re.findall(r'\b[a-z]{5,}\b', text)
+            word_corpus.extend(words)
 
     # -----------------------------------------------------
     # KPI CALCULATIONS
@@ -130,7 +130,7 @@ async def analyze_business(
     reputation_score = int(((promoters - detractors) / total_count) * 100) if total_count > 0 else 0
 
     # -----------------------------------------------------
-    # FINAL JSON CONTRACT (UI EXPECTS THIS KEYS)
+    # FINAL UI CONTRACT (DO NOT CHANGE KEYS)
     # -----------------------------------------------------
     
     # Sort Trend Data Chronologically
@@ -139,11 +139,11 @@ async def analyze_business(
         for label, ratings in daily_logs.items()
     ]
 
-    # Clean and Count Keywords
+    # Keyword Badges
     stop_words = {'about', 'there', 'their', 'would', 'really', 'place', 'service', 'great', 'business'}
     keywords_list = [
         {"text": w, "value": c}
-        for w, c in Counter(word_corpus).most_common(20)
+        for w, c in Counter(word_corpus).most_common(15)
         if w not in stop_words
     ]
 
@@ -178,12 +178,11 @@ async def chatbot_explain(
     
     q = question.lower()
     if "why" in q:
-        answer = "Rating shifts are typically caused by recent changes in customer perception or service quality spikes."
-    elif "risk" in q or "revenue" in q:
-        risk_lvl = "High" if avg < 3.5 else "Low"
-        answer = f"Based on your rating of {round(avg, 2)}, revenue risk is currently {risk_lvl}."
+        answer = "The rating variance is currently tied to changes in customer service volume."
+    elif "risk" in q:
+        answer = f"Revenue risk is {'High' if avg < 3.5 else 'Low'} based on your {round(avg, 2)} star rating."
     else:
-        answer = f"Your current business health is {round(avg, 2)}/5.0 stars. I recommend engaging with detractor reviews."
+        answer = f"Your current rating is {round(avg, 2)}. Focus on your detractors to improve NPS."
 
     return {"answer": answer}
 
@@ -219,8 +218,8 @@ async def executive_report_pdf(company_id: int, session: AsyncSession = Depends(
     pdf.drawString(50, 750, "Review Intelligence Executive Report")
     pdf.setFont("Helvetica", 12)
     pdf.drawString(50, 720, f"Business ID: {company_id}")
-    pdf.drawString(50, 700, f"Average Rating: {round(avg or 0, 2)}")
-    pdf.drawString(50, 680, f"Total Review Volume: {count or 0}")
+    pdf.drawString(50, 700, f"Total Reviews: {count or 0}")
+    pdf.drawString(50, 680, f"Average Rating: {round(avg or 0, 2)}")
     pdf.showPage()
     pdf.save()
     buffer.seek(0)
@@ -232,7 +231,7 @@ async def executive_report_pdf(company_id: int, session: AsyncSession = Depends(
     )
 
 # =========================================================
-# SAFE EMPTY RESPONSE (PREVENTS UI CRASH)
+# SAFE EMPTY STATE (PREVENTS UI CRASH)
 # =========================================================
 def _empty_dashboard():
     return JSONResponse({
