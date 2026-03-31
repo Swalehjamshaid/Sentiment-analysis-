@@ -1,272 +1,223 @@
-# filename: app/routes/dashboard.py
-# ==========================================================
-# FINAL PRODUCTION DASHBOARD (FULL INTEGRATION)
-# ==========================================================
-
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func
 from datetime import datetime
-from collections import defaultdict, Counter, deque
+from collections import defaultdict, Counter
 from io import BytesIO
-import re
 
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.pdfgen import canvas
 
 from app.core.db import get_session
 from app.core.models import Review
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
-# ==========================================================
-# CHAT MEMORY
-# ==========================================================
-CHAT_MEMORY = {}
-MAX_MEMORY = 10
-
-def remember(cid, role, msg):
-    mem = CHAT_MEMORY.setdefault(cid, [])
-    mem.append({"role": role, "message": msg})
-    if len(mem) > MAX_MEMORY:
-        mem.pop(0)
-
-def recall(cid):
-    return CHAT_MEMORY.get(cid, [])
 
 # ==========================================================
-# KEYWORD EXTRACTION (REQUIRED FOR FRONTEND)
+# Helpers
 # ==========================================================
-def extract_keywords(reviews):
-    text = " ".join([(r.review_text or "") for r in reviews]).lower()
-    words = re.findall(r'\b[a-z]{4,}\b', text)
 
-    stopwords = {
-        "this","that","with","have","very","from","they","their",
-        "there","about","would","could","should","been","were"
-    }
+def month_label(dt: datetime) -> str:
+    return dt.strftime("%b %Y")
 
-    words = [w for w in words if w not in stopwords]
-    freq = Counter(words).most_common(20)
 
-    return [{"text": w, "value": c} for w, c in freq]
+def safe_avg(values):
+    return round(sum(values) / len(values), 2) if values else 0
+
 
 # ==========================================================
-# ANALYTICS ENGINE
+# MAIN DASHBOARD ENDPOINT (100% MATCHES FRONTEND)
 # ==========================================================
-def compute_analytics(reviews):
+@router.get("/ai/insights")
+async def analyze_business(
+    company_id: int = Query(...),
+
+    # ✅ accept both normal and "&amp;"-polluted params
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+
+    amp_start: str | None = Query(None, alias="amp;start"),
+    amp_end: str | None = Query(None, alias="amp;end"),
+
+    session: AsyncSession = Depends(get_session),
+):
+    # Resolve broken front-end params
+    start_val = start or amp_start
+    end_val = end or amp_end
+
+    try:
+        start_dt = datetime.fromisoformat(start_val) if start_val else datetime(2000, 1, 1)
+        end_dt = datetime.fromisoformat(end_val) if end_val else datetime.utcnow()
+    except Exception:
+        start_dt = datetime(2000, 1, 1)
+        end_dt = datetime.utcnow()
+
+    result = await session.execute(
+        select(Review).where(
+            Review.company_id == company_id,
+            Review.google_review_time >= start_dt,
+            Review.google_review_time <= end_dt
+        )
+    )
+    reviews = result.scalars().all()
+
     if not reviews:
-        return None
+        return _empty_dashboard()
 
-    total = len(reviews)
+    # KPIs
+    ratings_list = [r.rating for r in reviews if isinstance(r.rating, (int, float))]
+    avg_rating = safe_avg(ratings_list)
+    reputation_score = int((avg_rating / 5) * 100) if avg_rating else 0
 
-    ratings = []
-    sentiments = []
+    # Rating distribution
+    ratings_dist = {i: 0 for i in range(1, 6)}
 
-    rating_dist = {1:0,2:0,3:0,4:0,5:0}
-    emotions = {"Positive":0,"Neutral":0,"Negative":0}
+    # Sentiment
+    emotions = {"Positive": 0, "Neutral": 0, "Negative": 0}
 
-    daily = defaultdict(list)
+    # Month-wise trend
+    monthly_map = defaultdict(list)
 
-    responded = 0
-    complaints = 0
+    # Keywords
+    words = []
 
     for r in reviews:
-        rating = r.rating or 0
-        sentiment = r.sentiment_score or 0
+        if r.rating in ratings_dist:
+            ratings_dist[r.rating] += 1
 
-        ratings.append(rating)
-        sentiments.append(sentiment)
-
-        if rating in rating_dist:
-            rating_dist[rating] += 1
-
-        if sentiment >= 0.25:
+        score = r.sentiment_score or 0
+        if score >= 0.25:
             emotions["Positive"] += 1
-        elif sentiment <= -0.25:
+        elif score <= -0.25:
             emotions["Negative"] += 1
         else:
             emotions["Neutral"] += 1
 
         if r.google_review_time:
-            d = r.google_review_time.strftime("%Y-%m-%d")
-            daily[d].append(rating)
+            month = month_label(r.google_review_time)
+            monthly_map[month].append(r.rating or 0)
 
-        if getattr(r, "review_reply_text", None):
-            responded += 1
+        if r.text:
+            words.extend(r.text.lower().split())
 
-        if getattr(r, "is_complaint", False):
-            complaints += 1
+    sentiment_trend = [
+        {"week": m, "avg": safe_avg(v)}
+        for m, v in sorted(monthly_map.items())
+    ]
 
-    avg_rating = round(sum(ratings)/len(ratings), 2)
-    reputation = int((avg_rating/5)*100)
-
-    # 7-day smoothing trend
-    trend = []
-    window = deque(maxlen=7)
-
-    for d in sorted(daily):
-        avg = sum(daily[d])/len(daily[d])
-        window.append(avg)
-
-        trend.append({
-            "week": d,
-            "avg": round(sum(window)/len(window), 2)
-        })
+    keywords = [
+        {"text": w, "value": c}
+        for w, c in Counter(words).most_common(15)
+    ]
 
     return {
-        "total_reviews": total,
-        "average_rating": avg_rating,
-        "reputation_score": reputation,
-        "ratings": rating_dist,
-        "emotions": emotions,
-        "sentiment_trend": trend,
-        "response_rate": round((responded/total)*100, 2),
-        "complaint_ratio": round((complaints/total)*100, 2),
-        "keywords": extract_keywords(reviews)
-    }
-
-# ==========================================================
-# MAIN ENDPOINT (THIS DRIVES YOUR DASHBOARD)
-# ==========================================================
-@router.get("/ai/insights")
-async def insights(
-    company_id: int = Query(...),
-    start: str = Query(...),
-    end: str = Query(...),
-    session: AsyncSession = Depends(get_session)
-):
-    try:
-        start_dt = datetime.fromisoformat(start)
-        end_dt = datetime.fromisoformat(end)
-    except:
-        return _empty()
-
-    result = await session.execute(
-        select(Review).where(
-            and_(
-                Review.company_id == company_id,
-                or_(
-                    Review.google_review_time.is_(None),
-                    and_(
-                        Review.google_review_time >= start_dt,
-                        Review.google_review_time <= end_dt
-                    )
-                )
-            )
-        )
-    )
-
-    reviews = result.scalars().all()
-    data = compute_analytics(reviews)
-
-    if not data:
-        return _empty()
-
-    return {
-        "metadata": {
-            "total_reviews": data["total_reviews"]
-        },
+        "metadata": {"total_reviews": len(reviews)},
         "kpis": {
-            "average_rating": data["average_rating"],
-            "reputation_score": data["reputation_score"]
+            "average_rating": avg_rating,
+            "reputation_score": reputation_score
         },
         "visualizations": {
-            "ratings": data["ratings"],
-            "emotions": data["emotions"],
-            "sentiment_trend": data["sentiment_trend"],
-            "keywords": data["keywords"]
+            "ratings": ratings_dist,
+            "emotions": emotions,
+            "sentiment_trend": sentiment_trend,
+            "keywords": keywords
         }
     }
 
+
 # ==========================================================
-# CHATBOT (WORKING WITH FRONTEND)
+# CHATBOT (Frontend expects this EXACT path)
 # ==========================================================
 @router.get("/chatbot/explain/{company_id}")
-async def chatbot(company_id: int, question: str, session: AsyncSession = Depends(get_session)):
-    result = await session.execute(
-        select(Review).where(Review.company_id == company_id)
-    )
-    data = compute_analytics(result.scalars().all())
-
-    if not data:
-        return {"answer": "No data available."}
-
-    q = question.lower()
-
-    if "rating" in q:
-        answer = f"Average rating is {data['average_rating']}"
-    elif "sentiment" in q:
-        top = max(data["emotions"], key=data["emotions"].get)
-        answer = f"Customers are mostly {top}"
-    elif "risk" in q:
-        answer = f"Reputation score is {data['reputation_score']}"
-    else:
-        answer = "Performance is stable. Focus on low ratings."
-
-    remember(company_id, "user", question)
-    remember(company_id, "ai", answer)
-
-    return {"answer": answer, "memory": recall(company_id)}
-
-# ==========================================================
-# REVENUE RISK
-# ==========================================================
-@router.get("/revenue")
-async def revenue(company_id: int, session: AsyncSession = Depends(get_session)):
+async def chatbot_explain(
+    company_id: int,
+    question: str,
+    session: AsyncSession = Depends(get_session),
+):
     result = await session.execute(
         select(func.avg(Review.rating)).where(Review.company_id == company_id)
     )
+    avg_rating = result.scalar() or 0
 
-    avg = result.scalar() or 0
+    # Always return something (frontend requirement)
+    answer = (
+        f"Based on recent reviews, the average rating is {round(avg_rating, 2)}. "
+        "Customer sentiment suggests focusing on service consistency and response quality."
+    )
+
+    if "why" in question.lower():
+        answer = (
+            "Recent changes are driven by shifts in monthly review sentiment "
+            "and rating distribution."
+        )
+
+    return {"answer": answer}
+
+
+# ==========================================================
+# REVENUE RISK (Used by UI)
+# ==========================================================
+@router.get("/revenue")
+async def revenue(
+    company_id: int = Query(...),
+    session: AsyncSession = Depends(get_session),
+):
+    res = await session.execute(
+        select(func.avg(Review.rating)).where(Review.company_id == company_id)
+    )
+    avg = res.scalar() or 0
 
     if avg >= 4:
         return {"risk_percent": 10, "impact": "Low"}
     elif avg >= 3:
         return {"risk_percent": 40, "impact": "Medium"}
-    else:
-        return {"risk_percent": 80, "impact": "High"}
+    return {"risk_percent": 80, "impact": "High"}
+
 
 # ==========================================================
-# PDF REPORT
+# EXECUTIVE PDF REPORT (Download button)
 # ==========================================================
 @router.get("/executive-report/pdf/{company_id}")
-async def report(company_id: int, session: AsyncSession = Depends(get_session)):
-    result = await session.execute(
-        select(Review).where(Review.company_id == company_id)
+async def executive_report_pdf(
+    company_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    res = await session.execute(
+        select(func.avg(Review.rating), func.count(Review.id))
+        .where(Review.company_id == company_id)
     )
-    data = compute_analytics(result.scalars().all())
+    avg_rating, count = res.first()
 
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer)
-    styles = getSampleStyleSheet()
+    pdf = canvas.Canvas(buffer)
+    pdf.setFont("Helvetica", 12)
 
-    content = []
-    content.append(Paragraph("Executive Report", styles["Title"]))
-    content.append(Spacer(1, 10))
+    pdf.drawString(50, 750, "Executive Review Intelligence Report")
+    pdf.drawString(50, 720, f"Company ID: {company_id}")
+    pdf.drawString(50, 690, f"Average Rating: {round(avg_rating or 0, 2)}")
+    pdf.drawString(50, 660, f"Total Reviews: {count or 0}")
+    pdf.drawString(50, 630, "Recommendation: Maintain service quality and respond to feedback.")
 
-    if data:
-        content.append(Paragraph(f"Avg Rating: {data['average_rating']}", styles["Normal"]))
-        content.append(Paragraph(f"Reputation Score: {data['reputation_score']}", styles["Normal"]))
-        content.append(Paragraph(f"Response Rate: {data['response_rate']}%", styles["Normal"]))
-
-    doc.build(content)
+    pdf.showPage()
+    pdf.save()
     buffer.seek(0)
 
-    return StreamingResponse(buffer, media_type="application/pdf")
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=review_report.pdf"}
+    )
 
-# ==========================================================
-# EMPTY RESPONSE (IMPORTANT FOR FRONTEND STABILITY)
-# ==========================================================
-def _empty():
-    return {
+
+def _empty_dashboard():
+    return JSONResponse({
         "metadata": {"total_reviews": 0},
         "kpis": {"average_rating": 0, "reputation_score": 0},
         "visualizations": {
-            "ratings": {1:0,2:0,3:0,4:0,5:0},
-            "emotions": {"Positive":0,"Neutral":0,"Negative":0},
+            "ratings": {i: 0 for i in range(1, 6)},
+            "emotions": {"Positive": 0, "Neutral": 0, "Negative": 0},
             "sentiment_trend": [],
             "keywords": []
         }
-    }
+    })
