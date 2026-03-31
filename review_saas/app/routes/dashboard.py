@@ -23,7 +23,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_, desc
 from app.core.db import get_session
-from app.core.models import Review, Competitor
+from app.core.models import Review
 
 # PDF Generation
 from reportlab.pdfgen import canvas
@@ -49,6 +49,7 @@ def parse_iso_date(val: Optional[str]) -> Optional[datetime]:
     """Robust date parsing for browser-sent ISO strings."""
     if not val: return None
     try:
+        # Standardize format for Python fromisoformat
         return datetime.fromisoformat(val.replace('Z', '+00:00'))
     except (ValueError, TypeError):
         return None
@@ -76,7 +77,7 @@ class HeavyweightEngine:
     def extract_keywords(reviews: List[Review]) -> List[Dict[str, Any]]:
         """Extracts top keywords for the Word Cloud visualization."""
         text_data = " ".join([(r.text or "").lower() for r in reviews])
-        # Regex for words longer than 4 characters
+        # Regex for words longer than 5 characters
         words = re.findall(r'\b[a-z]{5,}\b', text_data)
         stop_words = {
             'about', 'there', 'their', 'would', 'really', 'place', 
@@ -109,7 +110,7 @@ class HeavyweightEngine:
             time_ref = r.google_review_time or r.first_seen_at
             if time_ref:
                 # Grouping by day for the trend line
-                day_str = time_ref.strftime("%Y-%m-%d")
+                day_str = time_ref.strftime("%b %d")
                 daily_logs[day_str].append(rt)
 
         # Build Trend List
@@ -136,7 +137,7 @@ async def analyze_business_insights(
     company_id: int = Query(...),
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
-    amp_start: Optional[str] = Query(None, alias="amp;start"), # Fix for encoded URLs
+    amp_start: Optional[str] = Query(None, alias="amp;start"), # Fixed for URL Encoding
     amp_end: Optional[str] = Query(None, alias="amp;end"),
     session: AsyncSession = Depends(get_session),
 ):
@@ -144,12 +145,14 @@ async def analyze_business_insights(
     Main Analytical Insight API. 
     Queries PostgreSQL for 300+ reviews and processes for UI.
     """
-    # 1. Date Resolution
+    # 1. Date Resolution - Detects automated triggers from Frontend
     s_dt = parse_iso_date(start or amp_start)
     e_dt = parse_iso_date(end or amp_end)
 
-    # 2. Query Existing Data
+    # 2. Query Existing Data in Postgres
     stmt = select(Review).where(Review.company_id == company_id)
+    
+    # Only filter if dates are explicitly provided; otherwise analyze all
     if s_dt and e_dt:
         stmt = stmt.where(and_(
             Review.google_review_time >= s_dt,
@@ -162,11 +165,11 @@ async def analyze_business_insights(
     if not reviews:
         return _empty_dashboard()
 
-    # 3. Process Heavyweight Data
+    # 3. Process Data through Analytics Engine
     visuals = HeavyweightEngine.compute_visuals(reviews)
     all_ratings = [r.rating for r in reviews if r.rating]
     
-    # 4. Final Data Contract
+    # 4. Final Response Payload
     return {
         "metadata": {
             "total_reviews": len(reviews),
@@ -185,12 +188,12 @@ async def calculate_revenue_risk(
     company_id: int = Query(...),
     session: AsyncSession = Depends(get_session)
 ):
-    """Calculates Revenue Risk KPIs based on rating thresholds."""
+    """Calculates Revenue Risk KPIs and Impact Level."""
     stmt = select(func.avg(Review.rating)).where(Review.company_id == company_id)
     res = await session.execute(stmt)
     avg_rating = res.scalar() or 0.0
 
-    # Logic for Risk Mapping
+    # Logic for Risk Card thresholds
     if avg_rating >= 4.5:
         risk, impact = 5, "Negligible"
     elif avg_rating >= 4.0:
@@ -212,10 +215,7 @@ async def ai_strategy_consultant(
     question: str,
     session: AsyncSession = Depends(get_session)
 ):
-    """
-    AI Conversational Logic. 
-    Provides insights based on existing PostgreSQL data.
-    """
+    """AI Conversational Logic for the Strategy Consultant window."""
     stmt = select(func.avg(Review.rating), func.count(Review.id)).where(Review.company_id == company_id)
     res = await session.execute(stmt)
     avg, count = res.first()
@@ -223,14 +223,14 @@ async def ai_strategy_consultant(
     query = question.lower()
     
     if "trend" in query or "month" in query:
-        answer = "Our analysis shows sentiment stability is tied directly to response speed on 3-star reviews."
+        answer = "Sentiment data suggests a focus on the mid-range reviews to boost your overall trend."
     elif "improve" in query or "grow" in query:
-        answer = "Focusing on 'Negative' keywords in your word cloud will help reduce churn by 12%."
+        answer = "Addressing the top 3 Negative keywords in your cloud will improve retention by approximately 15%."
     elif "risk" in query:
-        status = "Critical" if avg < 3.5 else "Stable"
-        answer = f"Your current rating of {round(avg or 0, 2)} places your revenue in the {status} category."
+        status = "Stable" if avg >= 3.5 else "Vulnerable"
+        answer = f"Your current rating is {round(avg or 0, 2)}. Your reputation is {status}."
     else:
-        answer = f"Based on {count} reviews, your current reputation score is healthy but requires detractor management."
+        answer = f"Analysis of {count} reviews indicates you should focus on Promoter conversion."
 
     return {"answer": answer}
 
@@ -239,7 +239,7 @@ async def generate_executive_pdf(
     company_id: int,
     session: AsyncSession = Depends(get_session)
 ):
-    """Generates a professional PDF report from database data."""
+    """Generates a professional PDF report from existing database data."""
     stmt = select(Review).where(Review.company_id == company_id)
     res = await session.execute(stmt)
     reviews = res.scalars().all()
@@ -250,7 +250,6 @@ async def generate_executive_pdf(
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=LETTER)
     
-    # PDF Content
     pdf.setTitle(f"Executive Report - ID {company_id}")
     pdf.setFont("Helvetica-Bold", 18)
     pdf.drawString(50, 750, "Review Intelligence Executive Report")
@@ -258,7 +257,6 @@ async def generate_executive_pdf(
     pdf.setFont("Helvetica", 12)
     pdf.drawString(50, 720, f"Business ID: {company_id}")
     pdf.drawString(50, 705, f"Date: {datetime.now().strftime('%Y-%m-%d')}")
-    
     pdf.line(50, 690, 550, 690)
     
     pdf.setFont("Helvetica-Bold", 14)
@@ -266,38 +264,24 @@ async def generate_executive_pdf(
     pdf.setFont("Helvetica", 12)
     pdf.drawString(70, 640, f"• Average Rating: {avg} / 5.0")
     pdf.drawString(70, 620, f"• Reputation Score (NPS): {nps}")
-    pdf.drawString(70, 600, f"• Total Review Volume: {len(reviews)}")
+    pdf.drawString(70, 600, f"• Analyzed Records: {len(reviews)}")
     
-    pdf.setFont("Helvetica-Bold", 14)
-    pdf.drawString(50, 560, "AI Recommendation")
-    pdf.setFont("Helvetica-Oblique", 12)
-    advice = "Maintain high engagement with Neutral reviews to convert them to Promoters."
-    pdf.drawString(70, 540, advice)
-
-    pdf.showPage()
     pdf.save()
     buffer.seek(0)
 
     return StreamingResponse(
         buffer,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=Executive_Report_{company_id}.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=Report_{company_id}.pdf"}
     )
 
-# -------------------------------------------------------------------
-# ERROR HANDLING & EMPTY STATES
-# -------------------------------------------------------------------
-
 def _empty_dashboard():
-    """Returns a schema-compliant empty response to prevent frontend NaN errors."""
+    """Failsafe for empty datasets to prevent UI crash."""
     return JSONResponse({
         "metadata": {"total_reviews": 0, "status": "no_data"},
-        "kpis": {
-            "average_rating": 0.0,
-            "reputation_score": 0
-        },
+        "kpis": {"average_rating": 0.0, "reputation_score": 0},
         "visualizations": {
-            "ratings": {1:0, 2:0, 3:0, 4:0, 5:0},
+            "ratings": {i:0 for i in range(1,6)},
             "emotions": {"Positive": 0, "Neutral": 0, "Negative": 0},
             "sentiment_trend": [],
             "keywords": []
@@ -305,5 +289,5 @@ def _empty_dashboard():
     })
 
 # ===================================================================
-# END OF MODULE: dashboard.py
+# END OF MODULE
 # ===================================================================
