@@ -124,7 +124,7 @@
             <div class="col-md-5">
                 <div class="d-flex gap-2">
                     <button id="loadBtn" onclick="triggerAllLoads()" class="btn btn-primary w-50 btn-pill shadow-sm">Analyze Business</button>
-                    <button id="syncBtn" class="btn btn-success w-50 btn-pill shadow-sm">Sync Live Data</button>
+                    <button id="syncBtn" onclick="syncData()" class="btn btn-success w-50 btn-pill shadow-sm">Sync Live Data</button>
                 </div>
             </div>
         </div>
@@ -194,7 +194,7 @@
                         </div>
                         <div class="input-group mt-auto">
                             <input type="text" id="chatInput" class="form-control border-0 bg-light p-3" placeholder="Ask about growth trends...">
-                            <button id="chatBtn" class="btn btn-primary px-4"><i class="bi bi-send"></i></button>
+                            <button id="chatBtn" onclick="askAI()" class="btn btn-primary px-4"><i class="bi bi-send"></i></button>
                         </div>
                     </div>
                 </div>
@@ -229,67 +229,35 @@
 
     <script>
         let chartInstances = {};
-        const DASHBOARD_CONFIG = {
-            endpoints: {
-                insights: "/dashboard/ai/insights",
-                chat: "/dashboard/chatbot/explain",
-                revenue: "/dashboard/revenue",
-                report: "/dashboard/executive-report/pdf",
-                companies: "/api/companies"
-            }
+        const ENDPOINTS = {
+            insights: "/dashboard/ai/insights",
+            chat: "/dashboard/chatbot/explain",
+            revenue: "/dashboard/revenue",
+            report: "/dashboard/executive-report/pdf",
+            companies: "/api/companies"
         };
-
-        function initGoogleAutocomplete() {
-            const input = document.getElementById('googleSearchInput');
-            const autocomplete = new google.maps.places.Autocomplete(input);
-            autocomplete.addListener('place_changed', function() {
-                const place = autocomplete.getPlace();
-                document.getElementById('companyName').value = place.name || "";
-                document.getElementById('placeId').value = place.place_id || "";
-                document.getElementById('companyAddress').value = place.formatted_address || "";
-            });
-        }
-
-        async function loadCompanies() {
-            try {
-                const response = await fetch(DASHBOARD_CONFIG.endpoints.companies);
-                const data = await response.json();
-                const sel = document.getElementById("companySelect");
-                const companies = data.companies || data.data || data;
-
-                if (Array.isArray(companies) && companies.length > 0) {
-                    sel.innerHTML = companies.map(c => `<option value="${c.id}">${c.name || "Unnamed"}</option>`).join("");
-                    sel.value = companies[0].id;
-                    setTimeout(() => triggerAllLoads(), 500);
-                }
-            } catch (e) { console.error("Load failed", e); }
-        }
 
         async function triggerAllLoads() {
             const cid = document.getElementById("companySelect").value;
-            const start = document.getElementById("startDate").value || "2000-01-01";
+            const start = document.getElementById("startDate").value || "2010-01-01";
             const end = document.getElementById("endDate").value || new Date().toISOString().split('T')[0];
             if (!cid) return;
 
             document.getElementById("loadBtn").innerText = "Analyzing...";
 
             try {
-                // INSIGHTS Fetch
-                const iRes = await fetch(`${DASHBOARD_CONFIG.endpoints.insights}?company_id=${cid}&start=${start}&end=${end}`);
-                const iData = await iRes.json();
+                const res = await fetch(`${ENDPOINTS.insights}?company_id=${cid}&start=${start}&end=${end}`);
+                const data = await res.json();
 
-                if (iData.kpis) {
-                    document.getElementById("kpiTotal").innerText = iData.metadata.total_reviews || 0;
-                    document.getElementById("kpiRating").innerText = iData.kpis.average_rating || "—";
-                    document.getElementById("riskSentiment").innerText = iData.kpis.reputation_score || "—";
-                }
-                if (iData.visualizations) {
-                    renderCharts(iData.visualizations);
-                    renderKeywordCloud(iData.visualizations.keywords);
+                if (data.kpis) {
+                    document.getElementById("kpiTotal").innerText = data.metadata.total_reviews || 0;
+                    document.getElementById("kpiRating").innerText = data.kpis.average_rating || "—";
+                    document.getElementById("riskSentiment").innerText = data.kpis.reputation_score || "—";
+                    renderCharts(data.visualizations);
+                    renderKeywords(data.visualizations.keywords);
                 }
 
-                // REVENUE Fetch
-                const rRes = await fetch(`${DASHBOARD_CONFIG.endpoints.revenue}?company_id=${cid}`);
+                const rRes = await fetch(`${ENDPOINTS.revenue}?company_id=${cid}`);
                 const rData = await rRes.json();
                 document.getElementById("riskPct").innerText = (rData.risk_percent || 0) + "%";
                 document.getElementById("riskImpact").innerText = rData.impact || "N/A";
@@ -298,123 +266,86 @@
             finally { document.getElementById("loadBtn").innerText = "Analyze Business"; }
         }
 
-        function renderKeywordCloud(keywords) {
-            const container = document.getElementById("keywordContainer");
-            if (!keywords || keywords.length === 0) { container.innerHTML = "No keywords."; return; }
-            container.innerHTML = keywords.map(kw => `<span class="badge bg-light text-dark border p-2">${kw.text} (${kw.value})</span>`).join("");
-        }
-
         function renderCharts(vis) {
-            // Emotion Radar
-            const radarCtx = document.getElementById("chartEmotions").getContext('2d');
-            if (chartInstances.emotions) chartInstances.emotions.destroy();
-            chartInstances.emotions = new Chart(radarCtx, {
-                type: 'radar',
-                data: {
-                    labels: Object.keys(vis.emotions || {}),
-                    datasets: [{
-                        label: 'Intensity',
-                        data: Object.values(vis.emotions || {}),
-                        backgroundColor: 'rgba(168, 85, 247, 0.2)',
-                        borderColor: '#a855f7'
-                    }]
-                },
+            // Radar
+            if(chartInstances.emotions) chartInstances.emotions.destroy();
+            chartInstances.emotions = new Chart(document.getElementById("chartEmotions"), { 
+                type: 'radar', 
+                data: { labels: Object.keys(vis.emotions), datasets: [{ label: 'Intensity', data: Object.values(vis.emotions), backgroundColor: 'rgba(168, 85, 247, 0.2)', borderColor: '#a855f7' }] },
                 options: { responsive: true, maintainAspectRatio: false }
             });
-
-            // Trend Line
-            const lineCtx = document.getElementById("chartMonthly").getContext('2d');
-            if (chartInstances.monthly) chartInstances.monthly.destroy();
-            chartInstances.monthly = new Chart(lineCtx, {
-                type: 'line',
-                data: {
-                    labels: (vis.sentiment_trend || []).map(d => d.week),
-                    datasets: [{
-                        label: 'Rating',
-                        data: (vis.sentiment_trend || []).map(d => d.avg),
-                        borderColor: '#10b981',
-                        fill: true,
-                        tension: 0.4
-                    }]
-                },
+            // Trend
+            if(chartInstances.monthly) chartInstances.monthly.destroy();
+            chartInstances.monthly = new Chart(document.getElementById("chartMonthly"), { 
+                type: 'line', 
+                data: { labels: vis.sentiment_trend.map(d => d.week), datasets: [{ label: 'Rating', data: vis.sentiment_trend.map(d => d.avg), borderColor: '#10b981', fill: true, tension: 0.4 }] },
                 options: { responsive: true, maintainAspectRatio: false }
             });
-
-            // Ratings Bar
-            const barCtx = document.getElementById("chartRatings").getContext('2d');
-            if (chartInstances.ratings) chartInstances.ratings.destroy();
-            chartInstances.ratings = new Chart(barCtx, {
-                type: 'bar',
-                data: {
-                    labels: ['1★', '2★', '3★', '4★', '5★'],
-                    datasets: [{
-                        label: 'Count',
-                        data: vis.ratings ? Object.values(vis.ratings) : [0,0,0,0,0],
-                        backgroundColor: '#6366f1'
-                    }]
-                },
+            // Bar
+            if(chartInstances.ratings) chartInstances.ratings.destroy();
+            chartInstances.ratings = new Chart(document.getElementById("chartRatings"), { 
+                type: 'bar', 
+                data: { labels: ['1★','2★','3★','4★','5★'], datasets: [{ label: 'Review Count', data: Object.values(vis.ratings), backgroundColor: '#6366f1' }] },
                 options: { responsive: true, maintainAspectRatio: false }
             });
         }
 
-        document.getElementById("chatBtn").onclick = async () => {
-            const input = document.getElementById("chatInput");
-            const msg = input.value.trim();
-            const cid = document.getElementById("companySelect").value;
-            if (!msg || !cid) return;
+        function renderKeywords(kws) {
+            document.getElementById("keywordContainer").innerHTML = kws.map(k => `<span class="badge bg-light text-dark border p-2 m-1">${k.text} (${k.value})</span>`).join("");
+        }
 
+        async function askAI() {
+            const input = document.getElementById("chatInput");
+            const cid = document.getElementById("companySelect").value;
             const win = document.getElementById("chatWindow");
+            const msg = input.value.trim();
+            if(!msg || !cid) return;
+
             win.innerHTML += `<div class="chat-msg chat-user">${msg}</div>`;
             input.value = "";
+            
+            const res = await fetch(`${ENDPOINTS.chat}/${cid}?question=${encodeURIComponent(msg)}`);
+            const data = await res.json();
+            win.innerHTML += `<div class="chat-msg chat-ai">Consultant: ${data.answer}</div>`;
             win.scrollTop = win.scrollHeight;
-
-            try {
-                const res = await fetch(`${DASHBOARD_CONFIG.endpoints.chat}/${cid}?question=${encodeURIComponent(msg)}`);
-                const data = await res.json();
-                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI:</strong> ${data.answer}</div>`;
-                win.scrollTop = win.scrollHeight;
-            } catch (e) { win.innerHTML += `<div class="chat-msg chat-ai text-danger">Error.</div>`; }
-        };
-
-        document.getElementById("syncBtn").onclick = async () => {
-            const cid = document.getElementById("companySelect").value;
-            if (!cid) return;
-            const btn = document.getElementById("syncBtn");
-            btn.innerHTML = "Syncing...";
-            await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
-            triggerAllLoads();
-            btn.innerHTML = "Sync Live Data";
-        };
-
-        function downloadReport() {
-            const cid = document.getElementById("companySelect").value;
-            window.location.href = `${DASHBOARD_CONFIG.endpoints.report}/${cid}`;
         }
 
-        document.getElementById('addCompanyForm').onsubmit = async (e) => {
-            e.preventDefault();
-            const payload = {
-                name: document.getElementById('companyName').value,
-                place_id: document.getElementById('placeId').value,
-                address: document.getElementById('companyAddress').value
-            };
-            await fetch('/api/companies', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
+        async function syncData() {
+            const cid = document.getElementById("companySelect").value;
+            const btn = document.getElementById("syncBtn");
+            btn.innerText = "Syncing...";
+            await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
+            triggerAllLoads();
+            btn.innerText = "Sync Live Data";
+        }
+
+        async function loadCompanies() {
+            const res = await fetch(ENDPOINTS.companies);
+            const list = await res.json();
+            const sel = document.getElementById("companySelect");
+            sel.innerHTML = (list.companies || list).map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+            if(sel.value) triggerAllLoads();
+        }
+
+        function initGoogleAutocomplete() {
+            const input = document.getElementById('googleSearchInput');
+            const autocomplete = new google.maps.places.Autocomplete(input);
+            autocomplete.addListener('place_changed', () => {
+                const p = autocomplete.getPlace();
+                document.getElementById('companyName').value = p.name;
+                document.getElementById('placeId').value = p.place_id;
+                document.getElementById('companyAddress').value = p.formatted_address;
             });
-            location.reload();
-        };
+        }
 
         document.getElementById("toggleTheme").onclick = () => {
             const root = document.documentElement;
             root.setAttribute("data-theme", root.getAttribute("data-theme") === "light" ? "dark" : "light");
         };
 
-        document.addEventListener("DOMContentLoaded", () => {
-            loadCompanies();
-            initGoogleAutocomplete();
-        });
+        function downloadReport() { window.location.href = `${ENDPOINTS.report}/${document.getElementById("companySelect").value}`; }
+
+        window.onload = () => { loadCompanies(); initGoogleAutocomplete(); };
     </script>
 </body>
 </html>
