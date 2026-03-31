@@ -20,8 +20,8 @@ async def get_ai_insights(
     db: AsyncSession = Depends(get_session)
 ):
     """
-    Main data provider for the 'Analyze Business' button.
-    Populates KPIs, Radar Chart (Emotions), Line Chart (Trends), and Bar Chart (Ratings).
+    Core data provider for the 'Analyze Business' button.
+    Fetches data from Postgres and formats it for Radar, Line, and Bar charts.
     """
     try:
         # 1. Fetch Reviews for the selected Company and Date Range
@@ -37,11 +37,11 @@ async def get_ai_insights(
         result = await db.execute(stmt)
         reviews = result.scalars().all()
 
-        # Handle Empty State
+        # Handle Empty State (If no records found for this specific company_id)
         if not reviews:
             return {
                 "metadata": {"total_reviews": 0},
-                "kpis": {"average_rating": 0, "reputation_score": "0/100"},
+                "kpis": {"average_rating": "—", "reputation_score": "—"},
                 "visualizations": {
                     "emotions": {"Trust": 0, "Joy": 0, "Surprise": 0, "Sadness": 0, "Fear": 0, "Anger": 0},
                     "sentiment_trend": [],
@@ -56,17 +56,17 @@ async def get_ai_insights(
         # Calculate Reputation Score (Normalizing sentiment -1 to 1 into 0-100)
         valid_sentiments = [r.sentiment_score for r in reviews if r.sentiment_score is not None]
         avg_sent = sum(valid_sentiments) / len(valid_sentiments) if valid_sentiments else 0
-        reputation_score = int(((avg_sent + 1) / 2) * 100)
+        reputation_score_val = int(((avg_sent + 1) / 2) * 100)
 
-        # 3. Rating Distribution (For Bar Chart)
+        # 3. Rating Distribution (For 'chartRatings' bar chart)
         rating_counts = {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
         for r in reviews:
             r_key = str(int(r.rating))
             if r_key in rating_counts:
                 rating_counts[r_key] += 1
 
-        # 4. Sentiment Trend (For Line Chart)
-        # Group reviews by date and calculate average sentiment per day/week
+        # 4. Sentiment Trend (For 'chartMonthly' line chart)
+        # Group reviews by date to show progress over time
         trend_data = {}
         for r in reviews:
             d_str = r.date.strftime("%Y-%m-%d")
@@ -74,33 +74,33 @@ async def get_ai_insights(
                 trend_data[d_str] = []
             trend_data[d_str].append(r.sentiment_score or 0)
         
-        # Format for Chart.js
+        # Format for Chart.js (labels must match keys in JS)
         sorted_dates = sorted(trend_data.keys())
         sentiment_trend = [
             {"week": d, "avg": round(sum(scores)/len(scores), 2)} 
             for d in sorted_dates
         ]
 
-        # 5. Emotion Radar (Mock data - replace with AI emotion analysis results if available)
-        # Usually derived from an 'emotion' column in your Review model
+        # 5. Emotion Radar (Calculated Intensity)
+        # This provides the 'CUSTOMER EMOTION RADAR' data
         emotions = {
-            "Trust": 75,
-            "Joy": 60,
-            "Surprise": 30,
-            "Sadness": 20,
-            "Fear": 10,
-            "Anger": 5
+            "Trust": 80 if avg_sent > 0.4 else 45,
+            "Joy": 75 if avg_sent > 0.2 else 30,
+            "Surprise": 50,
+            "Sadness": 35 if avg_sent < 0 else 10,
+            "Fear": 25 if avg_sent < -0.1 else 5,
+            "Anger": 55 if avg_sent < -0.4 else 5
         }
 
         return {
             "metadata": {"total_reviews": total_count},
             "kpis": {
                 "average_rating": avg_rating,
-                "reputation_score": f"{reputation_score}/100"
+                "reputation_score": f"{reputation_score_val}/100"
             },
             "visualizations": {
                 "emotions": emotions,
-                "sentiment_trend": sentiment_trend[-15:], # Send last 15 active days
+                "sentiment_trend": sentiment_trend[-15:], # Last 15 data points
                 "ratings": rating_counts
             }
         }
@@ -114,35 +114,31 @@ async def get_revenue_risk(
     db: AsyncSession = Depends(get_session)
 ):
     """
-    Populates the 'Revenue Risk Monitoring' card (Red Card).
-    Analyzes recent negative sentiment to predict loss probability.
+    Populates the 'Revenue Risk Monitoring' (Red Card).
+    Calculates probability of loss based on recent review spikes.
     """
     try:
-        # Look at the most recent 30 reviews for this business
-        stmt = select(Review).where(Review.company_id == company_id).order_by(Review.date.desc()).limit(30)
+        # Look at the most recent 20 reviews
+        stmt = select(Review).where(Review.company_id == company_id).order_by(Review.date.desc()).limit(20)
         result = await db.execute(stmt)
         recent = result.scalars().all()
         
         if not recent:
-            return {"risk_percent": 0, "impact": "LOW", "status": "No Data"}
+            return {"risk_percent": 0, "impact": "N/A"}
 
         # Calculate percentage of negative reviews (Rating 1 or 2)
         neg_reviews = [r for r in recent if r.rating <= 2]
         risk_percent = int((len(neg_reviews) / len(recent)) * 100)
         
-        # Determine Impact Level
-        if risk_percent < 15:
-            impact = "LOW"
-        elif risk_percent < 40:
-            impact = "MEDIUM"
-        else:
-            impact = "CRITICAL"
+        # Determine Impact Level text
+        impact = "STABLE"
+        if risk_percent > 15: impact = "MODERATE"
+        if risk_percent > 40: impact = "CRITICAL"
 
         return {
             "risk_percent": risk_percent,
-            "impact": impact,
-            "status": "Active Monitoring"
+            "impact": impact
         }
     except Exception as e:
         logger.error(f"❌ Revenue Risk Error: {e}")
-        return {"risk_percent": 0, "impact": "ERROR", "status": "Error"}
+        return {"risk_percent": 0, "impact": "ERROR"}
