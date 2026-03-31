@@ -1,23 +1,27 @@
 # filename: app/routes/dashboard.py
 # ==========================================================
-# REVIEW INTELLIGENCE DASHBOARD
-# Syntax-SAFE, Contract-SAFE, Time-Series Enhanced
+# REVIEW INTELLIGENCE DASHBOARD (FINAL ✅ FULLY INTEGRATED)
 # ==========================================================
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func, and_
 from datetime import datetime
-from collections import defaultdict, deque
+from collections import defaultdict
 
 from app.core.db import get_session
 from app.core.models import Review
 
-# main.py already mounts this router with prefix="/api"
+# ----------------------------
+# Router
+# ----------------------------
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
+# ==========================================================
+# MAIN DASHBOARD / AI INSIGHTS
+# ==========================================================
 @router.get("/ai/insights")
 async def analyze_business(
     company_id: int = Query(...),
@@ -26,12 +30,11 @@ async def analyze_business(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Dashboard analytics provider.
-    INPUT AND OUTPUT CONTRACT UNCHANGED.
+    Backend for dashboard panels and chat board.
     """
 
     # ----------------------------
-    # Date parsing (defensive)
+    # SAFE DATE PARSING
     # ----------------------------
     try:
         start_dt = datetime.fromisoformat(start)
@@ -40,22 +43,18 @@ async def analyze_business(
         return _empty_dashboard_response()
 
     # ----------------------------
-    # Fetch all reviews safely
+    # FETCH REVIEWS
     # ----------------------------
-    stmt = select(Review).where(
-        and_(
-            Review.company_id == company_id,
-            or_(
-                Review.google_review_time.is_(None),
-                and_(
-                    Review.google_review_time >= start_dt,
-                    Review.google_review_time <= end_dt,
-                )
+    result = await session.execute(
+        select(Review).where(
+            and_(
+                Review.company_id == company_id,
+                (Review.google_review_time == None) |
+                ((Review.google_review_time >= start_dt) &
+                 (Review.google_review_time <= end_dt))
             )
         )
     )
-
-    result = await session.execute(stmt)
     reviews = result.scalars().all()
     total_reviews = len(reviews)
 
@@ -63,87 +62,83 @@ async def analyze_business(
         return _empty_dashboard_response()
 
     # ----------------------------
-    # KPIs
+    # KPI CALCULATIONS
     # ----------------------------
-    ratings = [r.rating for r in reviews if isinstance(r.rating, (int, float))]
-    sentiments = [
-        r.sentiment_score
-        for r in reviews
-        if isinstance(r.sentiment_score, (int, float))
-    ]
-
-    avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0
+    valid_ratings = [r.rating for r in reviews if r.rating is not None]
+    avg_rating = round(sum(valid_ratings) / len(valid_ratings), 2) if valid_ratings else 0
     reputation_score = int((avg_rating / 5) * 100) if avg_rating else 0
 
     # ----------------------------
-    # Distribution + emotions
+    # VISUALIZATION DATA
     # ----------------------------
-    rating_distribution = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-    emotion_buckets = {"Positive": 0, "Neutral": 0, "Negative": 0}
+    ratings = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    emotions = {"Positive": 0, "Neutral": 0, "Negative": 0}
+    trend_map = defaultdict(list)
+    chat_board_messages = []
 
     for r in reviews:
-        if r.rating in rating_distribution:
-            rating_distribution[r.rating] += 1
+        # Rating distribution
+        if r.rating in ratings:
+            ratings[r.rating] += 1
 
-        s = r.sentiment_score or 0
-        if s >= 0.25:
-            emotion_buckets["Positive"] += 1
-        elif s <= -0.25:
-            emotion_buckets["Negative"] += 1
+        # Sentiment buckets
+        score = r.sentiment_score if r.sentiment_score is not None else 0
+        if score >= 0.25:
+            emotions["Positive"] += 1
+        elif score <= -0.25:
+            emotions["Negative"] += 1
         else:
-            emotion_buckets["Neutral"] += 1
+            emotions["Neutral"] += 1
 
-    # ----------------------------
-    # Time-series trend (rolling)
-    # ----------------------------
-    daily_map = defaultdict(list)
-    for r in reviews:
+        # Trend mapping
         if r.google_review_time:
             day = r.google_review_time.strftime("%Y-%m-%d")
-            daily_map[day].append(r.rating or 0)
+            trend_map[day].append(r.rating or 0)
 
-    ordered_days = sorted(daily_map.keys())
-    rolling = deque(maxlen=7)
-    sentiment_trend = []
+        # Chat board messages
+        if r.comment and r.comment.strip():
+            chat_board_messages.append({
+                "review_id": r.id,
+                "rating": r.rating,
+                "sentiment_score": score,
+                "comment": r.comment,
+                "date": r.google_review_time.strftime("%Y-%m-%d %H:%M") if r.google_review_time else None
+            })
 
-    for day in ordered_days:
-        day_avg = round(sum(daily_map[day]) / len(daily_map[day]), 2)
-        rolling.append(day_avg)
-        rolling_avg = round(sum(rolling) / len(rolling), 2)
-
-        sentiment_trend.append({
-            "week": day,
-            "avg": rolling_avg
-        })
+    sentiment_trend = [
+        {"week": d, "avg": round(sum(vals) / len(vals), 2)}
+        for d, vals in sorted(trend_map.items())
+        if len(vals) > 0
+    ]
 
     # ----------------------------
-    # Final response (UNCHANGED)
+    # FINAL RESPONSE
     # ----------------------------
     return {
-        "metadata": {
-            "total_reviews": total_reviews
-        },
+        "metadata": {"total_reviews": total_reviews},
         "kpis": {
             "average_rating": avg_rating,
             "reputation_score": reputation_score
         },
         "visualizations": {
-            "ratings": rating_distribution,
-            "emotions": emotion_buckets,
+            "ratings": ratings,
+            "emotions": emotions,
             "sentiment_trend": sentiment_trend
-        }
+        },
+        "chat_board": chat_board_messages
     }
 
 
+# ==========================================================
+# REVENUE RISK MONITORING
+# ==========================================================
 @router.get("/revenue")
 async def revenue_risk(
     company_id: int = Query(...),
     session: AsyncSession = Depends(get_session),
 ):
     result = await session.execute(
-        select(func.avg(Review.rating)).where(
-            Review.company_id == company_id
-        )
+        select(func.avg(Review.rating)).where(Review.company_id == company_id)
     )
     avg = result.scalar() or 0
 
@@ -151,26 +146,21 @@ async def revenue_risk(
         return {"risk_percent": 10, "impact": "Low"}
     elif avg >= 3:
         return {"risk_percent": 40, "impact": "Medium"}
-    return {"risk_percent": 80, "impact": "High"}
+    else:
+        return {"risk_percent": 80, "impact": "High"}
 
 
+# ==========================================================
+# HELPER: EMPTY DASHBOARD RESPONSE
+# ==========================================================
 def _empty_dashboard_response():
     return JSONResponse({
-        "metadata": {
-            "total_reviews": 0
-        },
-        "kpis": {
-            "average_rating": 0,
-            "reputation_score": 0
-        },
+        "metadata": {"total_reviews": 0},
+        "kpis": {"average_rating": 0, "reputation_score": 0},
         "visualizations": {
             "ratings": {1: 0, 2: 0, 3: 0, 4: 0, 5: 0},
-            "emotions": {
-                "Positive": 0,
-                "Neutral": 0,
-                "Negative": 0
-            },
+            "emotions": {"Positive": 0, "Neutral": 0, "Negative": 0},
             "sentiment_trend": []
-        }
+        },
+        "chat_board": []
     })
-``
