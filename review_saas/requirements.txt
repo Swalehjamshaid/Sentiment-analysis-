@@ -16,7 +16,7 @@ python-multipart==0.0.6
 requests==2.32.0
 beautifulsoup4==4.12.2
 playwright==1.45.0
-selenium==4.41.0          # Fixed: 4.12.2 was yanked
+selenium==4.41.0
 httpx==0.24.0
 
 # === Proxies ===
@@ -26,7 +26,7 @@ proxybroker==0.5.10
 nltk==3.8.1
 textblob==0.17.1
 transformers==4.42.2
-torch==2.1.1
+torch==2.1.1+cpu          # Added +cpu for lighter & more reliable install
 sentence-transformers==2.2.2
 
 # === Data Analysis ===
