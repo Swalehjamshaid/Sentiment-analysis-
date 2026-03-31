@@ -1,13 +1,12 @@
 # === Web Framework & Server ===
-fastapi
-uvicorn
-gunicorn
-starlette
+fastapi==0.111.1
+uvicorn==0.24.0
+gunicorn==25.3.0
+starlette==0.29.2
 
 # === Database & ORM ===
-# Using 2.0+ to support 'async_sessionmaker' found in your app/core/db.py
 sqlalchemy>=2.0.0
-databases
+databases==0.7.2
 asyncpg==0.27.0
 python-multipart==0.0.6
 
@@ -18,7 +17,7 @@ playwright==1.45.0
 selenium==4.21.0
 httpx==0.27.0
 proxybroker2==2.0.0a4
-google-search-results
+google-search-results==2.0.2
 
 # === NLP & AI (Sentiment Analysis) ===
 nltk==3.8.1
@@ -27,23 +26,23 @@ transformers==4.42.2
 sentence-transformers==2.2.2
 
 # === Data & Math ===
-pandas
-numpy
-scipy
-scikit-learn
-statsmodels
+pandas==2.1.1
+numpy==1.26.4
+scipy==1.12.3
+scikit-learn==1.3.3
+statsmodels==1.2.3
 
 # === Visualization & Export ===
-matplotlib
-seaborn
-plotly
-wordcloud
-dash
-reportlab
+matplotlib==3.8.0
+seaborn==0.13.3
+plotly==6.2.3
+wordcloud==1.9.2
+dash==3.9.0
+reportlab==4.0.3
 
 # === Utilities & Security ===
 pydantic==2.7.4
-pydantic-settings
+pydantic-settings==2.0.5
 openpyxl==3.1.3
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
