@@ -1,61 +1,61 @@
-# Web Framework
+# === Web Framework ===
 fastapi==0.111.1
 uvicorn==0.24.0
 gunicorn==23.0.0
 
-# Database & ORM
+# === Database & ORM ===
 sqlalchemy==2.0.22
 databases==0.8.1
 asyncpg==0.27.0
 
-# Middleware & CORS
+# === Middleware & CORS ===
 starlette==0.29.0
 python-multipart==0.0.6
 
-# HTTP Requests & Scraping
+# === HTTP Requests & Scraping ===
 requests==2.32.0
 beautifulsoup4==4.12.2
 playwright==1.45.0
 selenium==4.12.2
 httpx==0.24.0
 
-# Proxies
+# === Proxies ===
 proxybroker==0.5.10
 
-# NLP & Sentiment Analysis
+# === NLP & Sentiment Analysis ===
 nltk==3.8.1
 textblob==0.17.1
 transformers==4.42.2
 torch==2.1.1
 sentence-transformers==2.2.2
 
-# Data Analysis
+# === Data Analysis ===
 pandas==2.1.1
 numpy==1.26.2
 scipy==1.11.2
 
-# Forecasting / Regression
+# === Forecasting / Regression ===
 scikit-learn==1.3.2
 statsmodels==0.14.0
 
-# Visualization
+# === Visualization ===
 matplotlib==3.8.0
 seaborn==0.12.2
 plotly==5.18.0
 wordcloud==1.9.2
 dash==3.17.0
 
-# Excel / Reports
+# === Excel / Reports ===
 openpyxl==3.1.3
 xlrd==2.1.0
 xlsxwriter==3.1.2
 
-# Authentication & Security
+# === Authentication & Security ===
 python-jose==3.3.0
 passlib[bcrypt]==1.7.4
 pyjwt==2.8.0
 
-# Environment & Utilities
+# === Environment & Utilities ===
 python-dotenv==1.0.0
 pydantic==2.4.0
 loguru==0.7.0
