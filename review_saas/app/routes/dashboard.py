@@ -1,27 +1,25 @@
 # filename: app/routes/dashboard.py
 # ==========================================================
-# REVIEW INTELLIGENCE DASHBOARD (FINAL ✅)
+# REVIEW INTELLIGENCE DASHBOARD (FINAL ✅ FIXED)
 # ==========================================================
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_
 from datetime import datetime
 from collections import defaultdict
 
 from app.core.db import get_session
 from app.core.models import Review
 
-# ✅ IMPORTANT:
-# main.py already uses prefix="/api"
-# so we MUST NOT repeat "/api" here
+# ✅ DO NOT CHANGE (matches main.py prefix="/api")
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
 
 # ==========================================================
 # ANALYZE BUSINESS (MAIN DASHBOARD ENDPOINT)
 # ==========================================================
-
 @router.get("/ai/insights")
 async def analyze_business(
     company_id: int = Query(...),
@@ -30,12 +28,11 @@ async def analyze_business(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Backend data provider for dashboard.html.
-    Frontend handles visualization (Chart.js).
+    Backend data provider for dashboard.html
     """
 
     # ------------------------------------------------------
-    # Parse dates safely (frontend uses YYYY-MM-DD)
+    # SAFE DATE PARSING (FIXED)
     # ------------------------------------------------------
     try:
         start_dt = datetime.fromisoformat(start)
@@ -44,45 +41,62 @@ async def analyze_business(
         return _empty_dashboard_response()
 
     # ------------------------------------------------------
-    # Fetch reviews from PostgreSQL (✅ correct column)
+    # FETCH REVIEWS (FIXED CORE ISSUE 🔥)
     # ------------------------------------------------------
     result = await session.execute(
         select(Review).where(
-            Review.company_id == company_id,
-            Review.google_review_time >= start_dt,
-            Review.google_review_time <= end_dt
+            and_(
+                Review.company_id == company_id,
+                # ✅ IMPORTANT FIX: allow NULL dates (your DB may have them)
+                (Review.google_review_time == None) |
+                (
+                    (Review.google_review_time >= start_dt) &
+                    (Review.google_review_time <= end_dt)
+                )
+            )
         )
     )
-    reviews = result.scalars().all()
 
+    reviews = result.scalars().all()
     total_reviews = len(reviews)
 
+    # ------------------------------------------------------
+    # EMPTY CASE
+    # ------------------------------------------------------
     if total_reviews == 0:
         return _empty_dashboard_response()
 
     # ------------------------------------------------------
-    # KPI calculations
+    # KPI CALCULATIONS (SAFE)
     # ------------------------------------------------------
+    valid_ratings = [r.rating for r in reviews if r.rating is not None]
+
     avg_rating = round(
-        sum((r.rating or 0) for r in reviews) / total_reviews,
-        2
-    )
+        sum(valid_ratings) / len(valid_ratings), 2
+    ) if valid_ratings else 0
 
-    reputation_score = int((avg_rating / 5) * 100)
+    reputation_score = int((avg_rating / 5) * 100) if avg_rating else 0
 
     # ------------------------------------------------------
-    # Rating distribution (BAR chart)
+    # VISUALIZATION DATA
     # ------------------------------------------------------
     ratings = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
     emotions = {"Positive": 0, "Neutral": 0, "Negative": 0}
     trend_map = defaultdict(list)
 
     for r in reviews:
+
+        # ---------------------------
+        # Rating Distribution
+        # ---------------------------
         if r.rating in ratings:
             ratings[r.rating] += 1
 
-        # sentiment buckets
-        score = r.sentiment_score or 0
+        # ---------------------------
+        # Sentiment Buckets (SAFE)
+        # ---------------------------
+        score = r.sentiment_score if r.sentiment_score is not None else 0
+
         if score >= 0.25:
             emotions["Positive"] += 1
         elif score <= -0.25:
@@ -90,17 +104,21 @@ async def analyze_business(
         else:
             emotions["Neutral"] += 1
 
-        # sentiment trend by date
-        day = r.google_review_time.strftime("%Y-%m-%d")
-        trend_map[day].append(r.rating or 0)
+        # ---------------------------
+        # Trend (FIXED NULL ISSUE)
+        # ---------------------------
+        if r.google_review_time:
+            day = r.google_review_time.strftime("%Y-%m-%d")
+            trend_map[day].append(r.rating or 0)
 
     sentiment_trend = [
         {"week": d, "avg": round(sum(vals) / len(vals), 2)}
         for d, vals in sorted(trend_map.items())
+        if len(vals) > 0
     ]
 
     # ------------------------------------------------------
-    # FINAL RESPONSE (MATCHES dashboard.html EXACTLY)
+    # FINAL RESPONSE (UNCHANGED STRUCTURE ✅)
     # ------------------------------------------------------
     return {
         "metadata": {
@@ -119,23 +137,19 @@ async def analyze_business(
 
 
 # ==========================================================
-# REVENUE RISK MONITORING
+# REVENUE RISK MONITORING (UNCHANGED + SAFE)
 # ==========================================================
-
 @router.get("/revenue")
 async def revenue_risk(
     company_id: int = Query(...),
     session: AsyncSession = Depends(get_session),
 ):
-    """
-    Used by dashboard.html Revenue Risk card.
-    """
-
     result = await session.execute(
         select(func.avg(Review.rating)).where(
             Review.company_id == company_id
         )
     )
+
     avg = result.scalar() or 0
 
     if avg >= 4:
@@ -149,7 +163,6 @@ async def revenue_risk(
 # ==========================================================
 # HELPER: EMPTY STATE RESPONSE
 # ==========================================================
-
 def _empty_dashboard_response():
     return JSONResponse({
         "metadata": {"total_reviews": 0},
