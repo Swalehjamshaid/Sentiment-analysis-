@@ -4,374 +4,666 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Review Intelligence AI Dashboard</title>
+    
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
     <style>
+        /* * GLOBAL COLOR VARIABLES
+         * These define the visual identity of the SaaS platform.
+         */
         :root {
             --primary-grad: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
             --ai-grad: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
             --danger-grad: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+            --transition-speed: 0.3s;
         }
-        body { background-color: #f8fafc; padding:24px; font-family: 'Inter', sans-serif; transition: background 0.3s; }
-        .navbar { background: var(--primary-grad) !important; border-radius: 15px !important; margin-bottom: 25px; border: none; }
-        .card { border: none; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-        .total-review-card { background: var(--primary-grad); color: white; border-radius: 24px; }
-        .risk-card { background: var(--danger-grad); color: white; border-radius: 24px; }
-        .ai-badge { background: var(--ai-grad); color: white; padding: 5px 15px; border-radius: 10px; font-size: 0.75rem; font-weight: bold; margin-bottom: 10px; display: inline-block; }
-        #chatWindow { height: 350px; overflow-y: auto; background: #f1f5f9; border-radius: 15px; padding: 20px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; }
-        .chat-msg { margin-bottom: 15px; padding: 10px 15px; border-radius: 15px; max-width: 85%; }
-        .chat-ai { background: white; color: #1e293b; border: 1px solid #e2e8f0; align-self: flex-start; }
-        .chat-user { background: #6366f1; color: white; align-self: flex-end; }
+
+        /* * LAYOUT & TYPOGRAPHY
+         */
+        body { 
+            background-color: #f8fafc; 
+            padding: 24px; 
+            font-family: 'Inter', sans-serif; 
+            transition: background var(--transition-speed); 
+        }
+
+        /* * NAVIGATION & BRANDING
+         */
+        .navbar { 
+            background: var(--primary-grad) !important; 
+            border-radius: 15px !important; 
+            margin-bottom: 25px; 
+            border: none; 
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        /* * CARD SYSTEM
+         */
+        .card { 
+            border: none; 
+            border-radius: 20px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05); 
+            transition: transform 0.2s ease-in-out;
+        }
+        
+        .card:hover {
+            transform: translateY(-2px);
+        }
+
+        .total-review-card { 
+            background: var(--primary-grad); 
+            color: white; 
+            border-radius: 24px; 
+        }
+
+        .risk-card { 
+            background: var(--danger-grad); 
+            color: white; 
+            border-radius: 24px; 
+        }
+
+        /* * AI COMPONENT STYLING
+         */
+        .ai-badge { 
+            background: var(--ai-grad); 
+            color: white; 
+            padding: 5px 15px; 
+            border-radius: 10px; 
+            font-size: 0.75rem; 
+            font-weight: bold; 
+            margin-bottom: 10px; 
+            display: inline-block; 
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* * CHAT INTERFACE
+         */
+        #chatWindow { 
+            height: 350px; 
+            overflow-y: auto; 
+            background: #f1f5f9; 
+            border-radius: 15px; 
+            padding: 20px; 
+            border: 1px solid #e2e8f0; 
+            display: flex; 
+            flex-direction: column; 
+            scroll-behavior: smooth;
+        }
+
+        .chat-msg { 
+            margin-bottom: 15px; 
+            padding: 12px 18px; 
+            border-radius: 18px; 
+            max-width: 85%; 
+            font-size: 0.95rem;
+            line-height: 1.4;
+        }
+
+        .chat-ai { 
+            background: white; 
+            color: #1e293b; 
+            border: 1px solid #e2e8f0; 
+            align-self: flex-start; 
+            border-bottom-left-radius: 4px;
+        }
+
+        .chat-user { 
+            background: #6366f1; 
+            color: white; 
+            align-self: flex-end; 
+            border-bottom-right-radius: 4px;
+            box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.3);
+        }
+
+        /* * COMPONENT UTILITIES
+         */
         .chart-wrapper { height: 280px; position: relative; }
         .btn-pill { border-radius: 50px; padding: 10px 25px; font-weight: 600; }
         
+        /* * DARK MODE THEMING
+         */
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
         [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
         [data-theme="dark"] .bg-light { background: #334155 !important; color: white; }
+        [data-theme="dark"] #chatWindow { background: #0f172a; border-color: #334155; }
+        [data-theme="dark"] .chat-ai { background: #334155; color: white; border-color: #475569; }
+        [data-theme="dark"] .text-muted { color: #94a3b8 !important; }
         
-        .pac-container { z-index: 9999 !important; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); border: none; }
+        /* Google Places Autocomplete Styling */
+        .pac-container { 
+            z-index: 9999 !important; 
+            border-radius: 10px; 
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1); 
+            border: none; 
+            margin-top: 5px;
+        }
+        
+        /* Loading States */
+        .loading-shimmer {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
     </style>
 </head>
 <body>
-<nav class="navbar navbar-expand-lg navbar-dark p-3 shadow-lg">
-    <div class="container-fluid">
-        <span class="navbar-brand fw-bold fs-4"><i class="bi bi-robot me-2"></i>Review Intel AI</span>
-        <div class="d-flex gap-2">
-            <button class="btn btn-success btn-sm rounded-pill px-4 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
-                <i class="bi bi-plus-circle me-1"></i> Add Business
-            </button>
-            <button id="toggleTheme" class="btn btn-light btn-sm rounded-pill px-3">Theme</button>
-            <form action="/logout" method="post" class="m-0"><button class="btn btn-danger btn-sm rounded-pill px-3">Logout</button></form>
-        </div>
-    </div>
-</nav>
 
-<div class="container-fluid">
-    <div class="row g-3 align-items-end mb-4 p-4 bg-white rounded-4 shadow-sm">
-        <div class="col-md-3">
-            <label class="form-label fw-bold text-muted small">ACTIVE ENTITY</label>
-            <select id="companySelect" class="form-select border-0 bg-light py-2 shadow-none"></select>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label fw-bold text-muted small">START DATE</label>
-            <input id="startDate" type="date" class="form-control border-0 bg-light shadow-none">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label fw-bold text-muted small">END DATE</label>
-            <input id="endDate" type="date" class="form-control border-0 bg-light shadow-none">
-        </div>
-        <div class="col-md-5">
+    <nav class="navbar navbar-expand-lg navbar-dark p-3 shadow-lg">
+        <div class="container-fluid">
+            <span class="navbar-brand fw-bold fs-4">
+                <i class="bi bi-robot me-2"></i>Review Intel AI
+            </span>
             <div class="d-flex gap-2">
-                <button id="loadBtn" onclick="triggerAllLoads()" class="btn btn-primary w-50 btn-pill shadow-sm">Analyze Business</button>
-                <button id="syncBtn" class="btn btn-success w-50 btn-pill shadow-sm">Sync Live Data</button>
+                <button class="btn btn-light btn-sm rounded-pill px-4 fw-bold shadow-sm" onclick="downloadReport()">
+                    <i class="bi bi-file-earmark-pdf me-1"></i> Report
+                </button>
+                <button class="btn btn-success btn-sm rounded-pill px-4 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+                    <i class="bi bi-plus-circle me-1"></i> Add Business
+                </button>
+                <button id="toggleTheme" class="btn btn-light btn-sm rounded-pill px-3">Theme</button>
+                <form action="/logout" method="post" class="m-0">
+                    <button class="btn btn-danger btn-sm rounded-pill px-3">Logout</button>
+                </form>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row g-3 align-items-end mb-4 p-4 bg-white rounded-4 shadow-sm">
+            <div class="col-md-3">
+                <label class="form-label fw-bold text-muted small">ACTIVE ENTITY</label>
+                <select id="companySelect" class="form-select border-0 bg-light py-2 shadow-none">
+                    </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-bold text-muted small">START DATE</label>
+                <input id="startDate" type="date" class="form-control border-0 bg-light shadow-none">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-bold text-muted small">END DATE</label>
+                <input id="endDate" type="date" class="form-control border-0 bg-light shadow-none">
+            </div>
+            <div class="col-md-5">
+                <div class="d-flex gap-2">
+                    <button id="loadBtn" onclick="triggerAllLoads()" class="btn btn-primary w-50 btn-pill shadow-sm">
+                        Analyze Business
+                    </button>
+                    <button id="syncBtn" class="btn btn-success w-50 btn-pill shadow-sm">
+                        Sync Live Data
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-4 text-center">
+            <div class="col-md-3">
+                <div class="card total-review-card p-4 h-100 shadow-sm">
+                    <div class="text-uppercase small fw-bold opacity-75">Absolute Total Records</div>
+                    <div id="kpiTotal" class="display-4 fw-bold">0</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card p-4 h-100 shadow-sm border-start border-primary border-4">
+                    <div class="text-muted small fw-bold">AVG RATING</div>
+                    <div id="kpiRating" class="display-4 fw-bold text-primary">—</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card risk-card p-4 h-100 shadow-lg">
+                    <div class="small fw-bold opacity-75 text-uppercase">Revenue Risk Monitoring</div>
+                    <div class="d-flex justify-content-around align-items-center mt-2">
+                        <div>
+                            <small class="d-block">Loss Probability</small>
+                            <span id="riskPct" class="h2 fw-bold">—</span>
+                        </div>
+                        <div>
+                            <small class="d-block">Impact Level</small>
+                            <span id="riskImpact" class="h2 fw-bold">—</span>
+                        </div>
+                        <div>
+                            <small class="d-block">Reputation Score</small>
+                            <span id="riskSentiment" class="h2 fw-bold">—</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4 mb-4">
+            <div class="col-lg-8">
+                <div class="row g-4">
+                    <div class="col-md-6">
+                        <div class="ai-badge">CUSTOMER EMOTION RADAR</div>
+                        <div class="card p-3 shadow-sm">
+                            <div class="chart-wrapper">
+                                <canvas id="chartEmotions"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="ai-badge">SENTIMENT TREND</div>
+                        <div class="card p-3 shadow-sm">
+                            <div class="chart-wrapper">
+                                <canvas id="chartMonthly"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="ai-badge">RATING DISTRIBUTION</div>
+                        <div class="card p-3 shadow-sm">
+                            <div class="chart-wrapper">
+                                <canvas id="chartRatings"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="ai-badge">AI KEYWORD EXTRACTION</div>
+                        <div id="keywordContainer" class="card p-4 bg-white shadow-sm d-flex flex-wrap gap-2 justify-content-center">
+                            </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="ai-badge">STRATEGY CONSULTANT (AI CHAT)</div>
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-body d-flex flex-column">
+                        <div id="chatWindow" class="mb-3">
+                            <div class="chat-msg chat-ai">
+                                Dashboard connected. Select a business and click "Analyze" to begin strategic session.
+                            </div>
+                        </div>
+                        <div class="input-group mt-auto">
+                            <input type="text" id="chatInput" class="form-control border-0 bg-light p-3" placeholder="Ask about growth trends...">
+                            <button id="chatBtn" class="btn btn-primary px-4">
+                                <i class="bi bi-send"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
-    <div class="row g-3 mb-4 text-center">
-        <div class="col-md-3">
-            <div class="card total-review-card p-4 h-100 shadow-sm">
-                <div class="text-uppercase small fw-bold opacity-75">Absolute Total Records</div>
-                <div id="kpiTotal" class="display-4 fw-bold">0</div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card p-4 h-100 shadow-sm border-start border-primary border-4">
-                <div class="text-muted small fw-bold">AVG RATING</div>
-                <div id="kpiRating" class="display-4 fw-bold text-primary">—</div>
-            </div>
-        </div>
-        <div class="col-md-6">
-            <div class="card risk-card p-4 h-100 shadow-lg">
-                <div class="small fw-bold opacity-75 text-uppercase">Revenue Risk Monitoring</div>
-                <div class="d-flex justify-content-around align-items-center mt-2">
-                    <div><small class="d-block">Loss Probability</small><span id="riskPct" class="h2 fw-bold">—</span></div>
-                    <div><small class="d-block">Impact Level</small><span id="riskImpact" class="h2 fw-bold">—</span></div>
-                    <div><small class="d-block">Reputation Score</small><span id="riskSentiment" class="h2 fw-bold">—</span></div>
+    <div class="modal fade" id="addCompanyModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <form id="addCompanyForm" class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-success text-white p-4">
+                    <h5 class="modal-title fw-bold">Link New Business</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row g-4 mb-4">
-        <div class="col-lg-8">
-            <div class="row g-4">
-                <div class="col-md-6">
-                    <div class="ai-badge">CUSTOMER EMOTION RADAR</div>
-                    <div class="card p-3 shadow-sm"><div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div></div>
-                </div>
-                <div class="col-md-6">
-                    <div class="ai-badge">SENTIMENT TREND</div>
-                    <div class="card p-3 shadow-sm"><div class="chart-wrapper"><canvas id="chartMonthly"></canvas></div></div>
-                </div>
-                <div class="col-12">
-                    <div class="ai-badge">RATING DISTRIBUTION</div>
-                    <div class="card p-3 shadow-sm"><div class="chart-wrapper"><canvas id="chartRatings"></canvas></div></div>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-4">
-            <div class="ai-badge">STRATEGY CONSULTANT (AI CHAT)</div>
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body d-flex flex-column">
-                    <div id="chatWindow" class="mb-3">
-                        <div class="chat-msg chat-ai">Dashboard connected. Select a business and click "Analyze".</div>
-                    </div>
-                    <div class="input-group mt-auto">
-                        <input type="text" id="chatInput" class="form-control border-0 bg-light p-3" placeholder="Type question...">
-                        <button id="chatBtn" class="btn btn-primary px-4"><i class="bi bi-send"></i></button>
+                <div class="modal-body p-4">
+                    <label class="small fw-bold text-muted mb-2">SEARCH GOOGLE MAPS</label>
+                    <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Enter business name or address...">
+                    
+                    <div class="p-4 bg-light rounded-4">
+                        <div class="mb-3">
+                            <label class="small fw-bold text-muted">BUSINESS NAME</label>
+                            <input id="companyName" class="form-control border-0" readonly placeholder="Waiting for selection...">
+                        </div>
+                        <div class="mb-3">
+                            <label class="small fw-bold text-muted">GOOGLE PLACE ID (CRITICAL)</label>
+                            <input id="placeId" class="form-control border-0" readonly placeholder="Will auto-fill...">
+                        </div>
+                        <div class="mb-3">
+                            <label class="small fw-bold text-muted">FORMATTED ADDRESS</label>
+                            <input id="companyAddress" class="form-control border-0" readonly placeholder="...">
+                        </div>
                     </div>
                 </div>
-            </div>
+                <div class="modal-footer border-0 p-4">
+                    <button type="submit" class="btn btn-success w-100 rounded-pill fw-bold py-3 shadow">
+                        Verify & Save Business
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
-</div>
 
-<div class="modal fade" id="addCompanyModal" tabindex="-1">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <form id="addCompanyForm" class="modal-content shadow-lg border-0">
-            <div class="modal-header bg-success text-white p-4">
-                <h5 class="modal-title fw-bold">Link New Business</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body p-4">
-                <label class="small fw-bold text-muted mb-2">SEARCH GOOGLE MAPS</label>
-                <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Enter business name or address...">
-                <div class="p-4 bg-light rounded-4">
-                    <div class="mb-3">
-                        <label class="small fw-bold text-muted">BUSINESS NAME</label>
-                        <input id="companyName" class="form-control border-0" readonly placeholder="Waiting for selection...">
-                    </div>
-                    <div class="mb-3">
-                        <label class="small fw-bold text-muted">GOOGLE PLACE ID (CRITICAL)</label>
-                        <input id="placeId" class="form-control border-0" readonly placeholder="Will auto-fill...">
-                    </div>
-                    <div class="mb-3">
-                        <label class="small fw-bold text-muted">FORMATTED ADDRESS</label>
-                        <input id="companyAddress" class="form-control border-0" readonly placeholder="...">
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer border-0 p-4">
-                <button type="submit" class="btn btn-success w-100 rounded-pill fw-bold py-3 shadow">Verify & Save Business</button>
-            </div>
-        </form>
-    </div>
-</div>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-let chartInstances = {};
+    <script>
+        /**
+         * GLOBAL STATE MANAGER
+         */
+        let chartInstances = {};
+        const DASHBOARD_CONFIG = {
+            endpoints: {
+                insights: "/dashboard/ai/insights",
+                chat: "/dashboard/chatbot/explain",
+                revenue: "/dashboard/revenue",
+                report: "/dashboard/executive-report/pdf",
+                companies: "/api/companies"
+            }
+        };
 
-// 1. Google Autocomplete Integration
-function initGoogleAutocomplete() {
-    const input = document.getElementById('googleSearchInput');
-    const autocomplete = new google.maps.places.Autocomplete(input);
-    autocomplete.addListener('place_changed', function() {
-        const place = autocomplete.getPlace();
-        if (!place.place_id) {
-            alert("Please select a business from the dropdown list.");
-            return;
+        /**
+         * 1. GOOGLE MAPS AUTOCOMPLETE
+         * Handles place selection and data injection into modal form.
+         */
+        function initGoogleAutocomplete() {
+            console.info("Initializing Google Places Autocomplete...");
+            const input = document.getElementById('googleSearchInput');
+            const autocomplete = new google.maps.places.Autocomplete(input);
+            
+            autocomplete.addListener('place_changed', function() {
+                const place = autocomplete.getPlace();
+                if (!place.place_id) {
+                    alert("System Error: No Place ID detected. Please select from the dropdown.");
+                    return;
+                }
+                
+                // Binding data to hidden/readonly inputs
+                document.getElementById('companyName').value = place.name || "";
+                document.getElementById('placeId').value = place.place_id || "";
+                document.getElementById('companyAddress').value = place.formatted_address || "";
+                console.log("Place Selected:", place.place_id);
+            });
         }
-        document.getElementById('companyName').value = place.name || "";
-        document.getElementById('placeId').value = place.place_id || "";
-        document.getElementById('companyAddress').value = place.formatted_address || "";
-    });
-}
 
-// 2. Load Company List
-async function loadCompanies() {
-    try {
-        const res = await fetch("/api/companies");
-        const data = await res.json();
-        const sel = document.getElementById("companySelect");
-        let companies = [];
+        /**
+         * 2. DATA ORCHESTRATION
+         * Loads initial business list and triggers dashboard refresh.
+         */
+        async function loadCompanies() {
+            try {
+                const response = await fetch(DASHBOARD_CONFIG.endpoints.companies);
+                const data = await response.json();
+                const sel = document.getElementById("companySelect");
+                
+                // Robust array extraction (handles nested data objects)
+                const companies = data.companies || data.data || data;
 
-        if (data && data.companies && Array.isArray(data.companies)) {
-            companies = data.companies;
-        } else if (Array.isArray(data)) {
-            companies = data;
-        } else if (data && data.data && Array.isArray(data.data)) {
-            companies = data.data;
+                if (Array.isArray(companies) && companies.length > 0) {
+                    sel.innerHTML = companies.map(c => {
+                        const displayName = c.name || c.business_name || "Unnamed Entity";
+                        return `<option value="${c.id}">${displayName}</option>`;
+                    }).join("");
+                    
+                    sel.value = companies[0].id;
+                    // Trigger first-load with delay to allow DOM settle
+                    setTimeout(() => { triggerAllLoads(); }, 500);
+                } else {
+                    sel.innerHTML = `<option value="">No businesses found</option>`;
+                }
+            } catch (error) {
+                console.error("Critical Error: Failed to fetch companies", error);
+            }
         }
 
-        if (companies.length > 0) {
-            sel.innerHTML = companies.map(c => {
-                const name = c.name || c.business_name || "Unnamed Business";
-                return `<option value="${c.id}">${name}</option>`;
+        /**
+         * 3. MAIN DASHBOARD REFRESH
+         * Fetches all analytics, KPIs, and risk metrics.
+         */
+        async function triggerAllLoads() {
+            const cid = document.getElementById("companySelect").value;
+            const start = document.getElementById("startDate").value || "2000-01-01";
+            const end = document.getElementById("endDate").value || new Date().toISOString().split('T')[0];
+            
+            if (!cid) return;
+
+            // UI Feedback
+            document.getElementById("loadBtn").innerHTML = `<span class="spinner-border spinner-border-sm"></span> Analysis Active`;
+
+            try {
+                /** FETCH INSIGHTS **/
+                const insightUrl = `${DASHBOARD_CONFIG.endpoints.insights}?company_id=${cid}&start=${start}&end=${end}`;
+                const iRes = await fetch(insightUrl);
+                const iData = await iRes.json();
+
+                // KPI Injection
+                if (iData.metadata) {
+                    document.getElementById("kpiTotal").innerText = iData.metadata.total_reviews || 0;
+                }
+                if (iData.kpis) {
+                    document.getElementById("kpiRating").innerText = iData.kpis.average_rating || "—";
+                    document.getElementById("riskSentiment").innerText = iData.kpis.reputation_score || "—";
+                }
+
+                // Visualization Injection
+                if (iData.visualizations) {
+                    renderCharts(iData.visualizations);
+                    renderKeywordCloud(iData.visualizations.keywords);
+                }
+
+                /** FETCH REVENUE RISK **/
+                const rRes = await fetch(`${DASHBOARD_CONFIG.endpoints.revenue}?company_id=${cid}`);
+                const rData = await rRes.json();
+                document.getElementById("riskPct").innerText = (rData.risk_percent || 0) + "%";
+                document.getElementById("riskImpact").innerText = rData.impact || "N/A";
+
+            } catch (error) {
+                console.error("Analysis Pipeline Failed:", error);
+            } finally {
+                document.getElementById("loadBtn").innerText = "Analyze Business";
+            }
+        }
+
+        /**
+         * 4. KEYWORD CLOUD RENDERER
+         * Creates visual tokens for extracted keywords.
+         */
+        function renderKeywordCloud(keywords) {
+            const container = document.getElementById("keywordContainer");
+            if (!keywords || keywords.length === 0) {
+                container.innerHTML = `<small class="text-muted">Not enough textual data for extraction.</small>`;
+                return;
+            }
+            
+            container.innerHTML = keywords.map(kw => {
+                return `<span class="badge bg-light text-dark border p-2">${kw.text} (${kw.value})</span>`;
             }).join("");
-            sel.value = companies[0].id;
-            setTimeout(() => { triggerAllLoads(); }, 800);
-        } else {
-            sel.innerHTML = `<option value="">No businesses added yet</option>`;
         }
-    } catch (e) { 
-        console.error("❌ Load Companies Failed:", e); 
-    }
-}
 
-// 3. Main Data Fetch
-async function triggerAllLoads() {
-    const cid = document.getElementById("companySelect").value;
-    const start = document.getElementById("startDate").value || "2024-01-01";
-    const end = document.getElementById("endDate").value || new Date().toISOString().split('T')[0];
-    if (!cid) return;
+        /**
+         * 5. CHART.JS INTEGRATION
+         * Handles the lifecycle of canvas-based visualizations.
+         */
+        function renderCharts(vis) {
+            console.info("Re-rendering visualization layers...");
 
-    try {
-        const res = await fetch(`/api/dashboard/ai/insights?company_id=${cid}&start=${start}&end=${end}`);
-        const data = await res.json();
-        if (data.metadata) document.getElementById("kpiTotal").innerText = data.metadata.total_reviews || 0;
-        if (data.kpis) {
-            document.getElementById("kpiRating").innerText = data.kpis.average_rating || data.kpis.benchmark?.your_avg || "—";
-            document.getElementById("riskSentiment").innerText = data.kpis.reputation_score || "—";
+            // --- RADAR: EMOTIONS ---
+            const radarCtx = document.getElementById("chartEmotions").getContext('2d');
+            if (chartInstances.emotions) chartInstances.emotions.destroy();
+            chartInstances.emotions = new Chart(radarCtx, {
+                type: 'radar',
+                data: {
+                    labels: Object.keys(vis.emotions || {}),
+                    datasets: [{
+                        label: 'Emotional Amplitude',
+                        data: Object.values(vis.emotions || {}),
+                        backgroundColor: 'rgba(168, 85, 247, 0.2)',
+                        borderColor: '#a855f7',
+                        borderWidth: 2,
+                        pointBackgroundColor: '#a855f7'
+                    }]
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { r: { beginAtZero: true, grid: { color: '#e2e8f0' } } }
+                }
+            });
+
+            // --- LINE: TREND ---
+            const lineCtx = document.getElementById("chartMonthly").getContext('2d');
+            if (chartInstances.monthly) chartInstances.monthly.destroy();
+            chartInstances.monthly = new Chart(lineCtx, {
+                type: 'line',
+                data: {
+                    labels: (vis.sentiment_trend || []).map(d => d.week || "Point"),
+                    datasets: [{
+                        label: 'Moving Average',
+                        data: (vis.sentiment_trend || []).map(d => d.avg),
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 2
+                    }]
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: false, grid: { color: '#f1f5f9' } } }
+                }
+            });
+
+            // --- BAR: DISTRIBUTION ---
+            const barCtx = document.getElementById("chartRatings").getContext('2d');
+            if (chartInstances.ratings) chartInstances.ratings.destroy();
+            chartInstances.ratings = new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['1★', '2★', '3★', '4★', '5★'],
+                    datasets: [{
+                        label: 'Total Reviews',
+                        data: vis.ratings ? Object.values(vis.ratings) : [0,0,0,0,0],
+                        backgroundColor: '#6366f1',
+                        borderRadius: 8,
+                        barThickness: 30
+                    }]
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { 
+                        x: { grid: { display: false } },
+                        y: { beginAtZero: true, grid: { color: '#f1f5f9' } }
+                    }
+                }
+            });
         }
-        if (data.visualizations) renderCharts(data.visualizations);
-        
-        const revRes = await fetch(`/api/dashboard/revenue?company_id=${cid}`);
-        const revData = await revRes.json();
-        document.getElementById("riskPct").innerText = (revData.risk_percent || 0) + "%";
-        document.getElementById("riskImpact").innerText = revData.impact || "N/A";
-    } catch (e) { console.error("Dashboard Load Error:", e); }
-}
 
-// 4. Chart Rendering
-function renderCharts(vis) {
-    const radarCtx = document.getElementById("chartEmotions");
-    if(chartInstances.emotions) chartInstances.emotions.destroy();
-    chartInstances.emotions = new Chart(radarCtx, {
-        type: 'radar',
-        data: {
-            labels: Object.keys(vis.emotions || {}),
-            datasets: [{
-                label: 'Intensity',
-                data: Object.values(vis.emotions || {}),
-                backgroundColor: 'rgba(168, 85, 247, 0.2)',
-                borderColor: '#a855f7'
-            }]
-        },
-        options: { responsive: true, maintainAspectRatio: false }
-    });
+        /**
+         * 6. AI STRATEGY SESSION (Chat)
+         * Connects user queries to the AI interpretation engine.
+         */
+        document.getElementById("chatBtn").onclick = async () => {
+            const input = document.getElementById("chatInput");
+            const msg = input.value.trim();
+            const cid = document.getElementById("companySelect").value;
+            
+            if (!msg || !cid) return;
 
-    const lineCtx = document.getElementById("chartMonthly");
-    if(chartInstances.monthly) chartInstances.monthly.destroy();
-    chartInstances.monthly = new Chart(lineCtx, {
-        type: 'line',
-        data: {
-            labels: (vis.sentiment_trend || []).map(d => d.week || d.month || "Week"),
-            datasets: [{
-                label: 'Avg Sentiment',
-                data: (vis.sentiment_trend || []).map(d => d.avg),
-                borderColor: '#10b981',
-                backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                fill: true,
-                tension: 0.3
-            }]
-        },
-        options: { responsive: true, maintainAspectRatio: false }
-    });
+            // Update UI immediately (Optimistic UI)
+            const win = document.getElementById("chatWindow");
+            win.innerHTML += `<div class="chat-msg chat-user">${msg}</div>`;
+            input.value = "";
+            win.scrollTop = win.scrollHeight;
 
-    const barCtx = document.getElementById("chartRatings");
-    if(chartInstances.ratings) chartInstances.ratings.destroy();
-    chartInstances.ratings = new Chart(barCtx, {
-        type: 'bar',
-        data: {
-            labels: ['1★', '2★', '3★', '4★', '5★'],
-            datasets: [{
-                label: 'Reviews',
-                data: vis.ratings ? Object.values(vis.ratings) : [0,0,0,0,0],
-                backgroundColor: '#6366f1',
-                borderRadius: 8
-            }]
-        },
-        options: { responsive: true, maintainAspectRatio: false }
-    });
-}
+            try {
+                const response = await fetch(`${DASHBOARD_CONFIG.endpoints.chat}/${cid}?question=${encodeURIComponent(msg)}`);
+                const data = await response.json();
+                
+                const aiResponse = data.answer || "Intelligence service unavailable.";
+                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Intelligence:</strong> ${aiResponse}</div>`;
+                win.scrollTop = win.scrollHeight;
+            } catch (error) {
+                win.innerHTML += `<div class="chat-msg chat-ai text-danger">Network Error: AI service unreachable.</div>`;
+            }
+        };
 
-// 5. Sync Button
-document.getElementById("syncBtn").onclick = async () => {
-    const cid = document.getElementById("companySelect").value;
-    const btn = document.getElementById("syncBtn");
-    if (!cid) return;
-    btn.disabled = true;
-    btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Syncing...`;
-    try {
-        const res = await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
-        const result = await res.json();
-        setTimeout(() => {
-            triggerAllLoads();
-            btn.disabled = false;
-            btn.innerHTML = "Sync Live Data";
-            alert(`Sync Complete! Found ${result.reviews_count || 0} reviews.`);
-        }, 1500);
-    } catch (e) {
-        btn.disabled = false;
-        btn.innerHTML = "Sync Live Data";
-    }
-};
+        /**
+         * 7. LIVE DATA SYNC
+         * Triggers Google Review ingestion in backend.
+         */
+        document.getElementById("syncBtn").onclick = async () => {
+            const cid = document.getElementById("companySelect").value;
+            const btn = document.getElementById("syncBtn");
+            if (!cid) return;
 
-// 6. Add Company Form
-document.getElementById('addCompanyForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const payload = {
-        name: document.getElementById('companyName').value,
-        place_id: document.getElementById('placeId').value,
-        address: document.getElementById('companyAddress').value
-    };
-    try {
-        const res = await fetch('/api/companies', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
+            btn.disabled = true;
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Syncing...`;
+
+            try {
+                const res = await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
+                const result = await res.json();
+                
+                console.info("Sync Pulse Success:", result);
+                setTimeout(() => {
+                    triggerAllLoads();
+                    btn.disabled = false;
+                    btn.innerHTML = "Sync Live Data";
+                    alert(`Ingestion Successful: Added ${result.reviews_count || 0} records.`);
+                }, 1500);
+            } catch (e) {
+                console.error("Sync Protocol Interrupted");
+                btn.disabled = false;
+                btn.innerHTML = "Sync Live Data";
+            }
+        };
+
+        /**
+         * 8. PDF REPORT GENERATOR
+         */
+        function downloadReport() {
+            const cid = document.getElementById("companySelect").value;
+            if (!cid) { alert("Selection Required"); return; }
+            window.location.href = `${DASHBOARD_CONFIG.endpoints.report}/${cid}`;
+        }
+
+        /**
+         * 9. ENTITY ADDITION HANDLER
+         */
+        document.getElementById('addCompanyForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const payload = {
+                name: document.getElementById('companyName').value,
+                place_id: document.getElementById('placeId').value,
+                address: document.getElementById('companyAddress').value
+            };
+            
+            try {
+                const res = await fetch('/api/companies', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                
+                if (res.ok) {
+                    location.reload(); 
+                } else {
+                    alert("Validation Error: Could not save entity.");
+                }
+            } catch (err) {
+                console.error("Database Write Exception:", err);
+            }
+        };
+
+        /**
+         * 10. THEME MANAGEMENT
+         */
+        document.getElementById("toggleTheme").onclick = () => {
+            const root = document.documentElement;
+            const nextTheme = root.getAttribute("data-theme") === "light" ? "dark" : "light";
+            root.setAttribute("data-theme", nextTheme);
+            console.log("Theme context shifted to:", nextTheme);
+        };
+
+        /**
+         * BOOTSTRAP KICKOFF
+         */
+        document.addEventListener("DOMContentLoaded", () => {
+            console.info("ReviewIntel Dashboard Version 2.5 Initialized.");
+            loadCompanies();
+            initGoogleAutocomplete();
         });
-        if (res.ok) { location.reload(); }
-    } catch (e) { console.error("Save Failed:", e); }
-};
 
-// 7. AI Chat Integration - FIXED PATH & DATA BINDING
-document.getElementById("chatBtn").onclick = async () => {
-    const input = document.getElementById("chatInput");
-    const msg = input.value.trim();
-    const cid = document.getElementById("companySelect").value;
-    if(!msg || !cid) return;
-
-    const win = document.getElementById("chatWindow");
-    win.innerHTML += `<div class="chat-msg chat-user">${msg}</div>`;
-    input.value = "";
-    win.scrollTop = win.scrollHeight;
-
-    try {
-        // Pointing directly to the chatbot router prefix defined in chatbot.py
-        const res = await fetch('/chatbot/chat', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ 
-                message: msg,
-                company_id: cid 
-            })
-        });
-        const data = await res.json();
-        const responseText = data.answer || "I'm having trouble retrieving a response.";
-        win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Expert:</strong> ${responseText}</div>`;
-        win.scrollTop = win.scrollHeight;
-    } catch (e) {
-        win.innerHTML += `<div class="chat-msg chat-ai text-danger">Error connecting to AI expert.</div>`;
-    }
-};
-
-// 8. Theme Toggle
-document.getElementById("toggleTheme").onclick = () => {
-    const current = document.documentElement.getAttribute("data-theme");
-    const target = current === "light" ? "dark" : "light";
-    document.documentElement.setAttribute("data-theme", target);
-};
-
-// Initial Setup
-document.addEventListener("DOMContentLoaded", () => {
-    loadCompanies();
-    initGoogleAutocomplete();
-});
-</script>
-</body>
+    </script>
+    
+    </body>
 </html>
