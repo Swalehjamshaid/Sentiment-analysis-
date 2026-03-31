@@ -20,13 +20,13 @@ selenium==4.41.0
 httpx==0.24.0
 
 # === Proxies ===
-proxybroker==0.3.2          # Fixed: 0.5.10 never existed (latest is 0.3.2)
+proxybroker==0.3.2
 
 # === NLP & Sentiment Analysis ===
 nltk==3.8.1
 textblob==0.17.1
 transformers==4.42.2
-torch==2.1.1+cpu            # CPU-only for smaller & more reliable build
+torch==2.1.1                    # Normal version (will be overridden by index-url)
 sentence-transformers==2.2.2
 
 # === Data Analysis ===
