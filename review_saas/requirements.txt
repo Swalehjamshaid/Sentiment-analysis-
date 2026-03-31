@@ -14,51 +14,56 @@ python-multipart==0.0.6
 
 # === HTTP Requests & Scraping ===
 requests==2.32.0
-beautifulsoup4==4.12.2
+# Using newer BS4 for better Python 3.12 support
+beautifulsoup4==4.12.3
 playwright==1.45.0
-selenium==4.41.0
-httpx==0.24.0
+selenium==4.21.0
+httpx==0.27.0
 
 # === Proxies ===
-proxybroker==0.3.2
+proxybroker2==0.3.3
 
 # === NLP & Sentiment Analysis ===
 nltk==3.8.1
-textblob==0.17.1
+textblob==0.18.0
 transformers==4.42.2
+# Note: Torch versions must match the manual install in Dockerfile
 torch==2.1.1
 torchvision==0.16.1
 torchaudio==2.1.1
 sentence-transformers==2.2.2
 
 # === Data Analysis ===
-pandas==2.1.1
-numpy==1.26.2
-scipy==1.11.2
+pandas==2.2.2
+numpy==1.26.4
+scipy==1.13.1
 
 # === Forecasting / Regression ===
-scikit-learn==1.3.2
-statsmodels==0.14.0
+scikit-learn==1.5.0
+statsmodels==0.14.2
 
 # === Visualization ===
-matplotlib==3.8.0
-seaborn==0.12.2
-plotly==5.18.0
-wordcloud==1.9.2
-dash==3.17.0
+matplotlib==3.9.0
+seaborn==0.13.2
+plotly==5.22.0
+wordcloud==1.9.3
+# Changed to 4.1.0 to ensure Python 3.12 compatibility per your error logs
+dash==4.1.0
 
 # === Excel / Reports ===
 openpyxl==3.1.3
-xlrd==2.1.0
-xlsxwriter==3.1.2
+xlrd==2.0.1
+xlsxwriter==3.2.0
 
 # === Authentication & Security ===
-python-jose==3.3.0
+python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 pyjwt==2.8.0
 
 # === Environment & Utilities ===
-python-dotenv==1.0.0
-pydantic==2.4.0
-loguru==0.7.0
-tqdm==4.66.1
+python-dotenv==1.0.1
+# Upgraded Pydantic to v2.7+ for FastAPI 0.111 compatibility
+pydantic==2.7.4
+pydantic-settings==2.3.4
+loguru==0.7.2
+tqdm==4.66.4
