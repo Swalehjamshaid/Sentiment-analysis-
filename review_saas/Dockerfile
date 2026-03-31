@@ -1,28 +1,23 @@
-# Use the official Playwright Python image
 FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
 
-# Set working directory
 WORKDIR /app
 
-# Copy only requirements first (better caching)
+# 1. Install system-level dependencies first
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Upgrade pip
+RUN pip install --no-cache-dir --upgrade pip
+
+# 3. Copy only requirements to leverage Docker cache
 COPY requirements.txt .
 
-# Upgrade pip and install dependencies in one step to reduce layers
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# 4. Install python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the application code
+# 5. Copy the rest of your app
 COPY . .
 
-# Install Playwright browsers
-RUN playwright install chromium
-
-# Environment variables
-ENV PYTHONPATH=.
-ENV PORT=8080
-
-# Expose port
-EXPOSE 8080
-
-# Command to run the FastAPI app using Gunicorn + Uvicorn worker
-CMD gunicorn -w 1 -k uvicorn.workers.UvicornWorker --timeout 300 --bind 0.0.0.0:8080 app.main:app
+# 6. Railway expects a start command
+CMD ["python", "main.py"]
