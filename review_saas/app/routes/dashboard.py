@@ -1,6 +1,6 @@
 # filename: app/routes/dashboard.py
 # ==========================================================
-# FULLY INTEGRATED DASHBOARD (FRONTEND + BACKEND MATCHED)
+# FINAL PRODUCTION DASHBOARD (FULL INTEGRATION)
 # ==========================================================
 
 from fastapi import APIRouter, Depends, Query
@@ -16,7 +16,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
 from app.core.db import get_session
-from app.core.models import Review, Competitor
+from app.core.models import Review
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -26,40 +26,41 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 CHAT_MEMORY = {}
 MAX_MEMORY = 10
 
-def remember(company_id, role, message):
-    mem = CHAT_MEMORY.setdefault(company_id, [])
-    mem.append({"role": role, "message": message})
+def remember(cid, role, msg):
+    mem = CHAT_MEMORY.setdefault(cid, [])
+    mem.append({"role": role, "message": msg})
     if len(mem) > MAX_MEMORY:
         mem.pop(0)
 
-def recall(company_id):
-    return CHAT_MEMORY.get(company_id, [])
+def recall(cid):
+    return CHAT_MEMORY.get(cid, [])
 
 # ==========================================================
-# KEYWORD EXTRACTION (FOR YOUR FRONTEND)
+# KEYWORD EXTRACTION (REQUIRED FOR FRONTEND)
 # ==========================================================
-def extract_keywords(reviews, top_n=20):
-    text = " ".join([r.review_text or "" for r in reviews]).lower()
+def extract_keywords(reviews):
+    text = " ".join([(r.review_text or "") for r in reviews]).lower()
     words = re.findall(r'\b[a-z]{4,}\b', text)
 
     stopwords = {
-        "this","that","with","have","very","from","they","their","there",
-        "about","would","could","should","been","were","your","what"
+        "this","that","with","have","very","from","they","their",
+        "there","about","would","could","should","been","were"
     }
 
     words = [w for w in words if w not in stopwords]
-    freq = Counter(words).most_common(top_n)
+    freq = Counter(words).most_common(20)
 
     return [{"text": w, "value": c} for w, c in freq]
 
 # ==========================================================
-# CORE ANALYTICS ENGINE
+# ANALYTICS ENGINE
 # ==========================================================
 def compute_analytics(reviews):
     if not reviews:
         return None
 
     total = len(reviews)
+
     ratings = []
     sentiments = []
 
@@ -67,7 +68,6 @@ def compute_analytics(reviews):
     emotions = {"Positive":0,"Neutral":0,"Negative":0}
 
     daily = defaultdict(list)
-    monthly = defaultdict(list)
 
     responded = 0
     complaints = 0
@@ -82,7 +82,6 @@ def compute_analytics(reviews):
         if rating in rating_dist:
             rating_dist[rating] += 1
 
-        # Emotion classification
         if sentiment >= 0.25:
             emotions["Positive"] += 1
         elif sentiment <= -0.25:
@@ -90,36 +89,31 @@ def compute_analytics(reviews):
         else:
             emotions["Neutral"] += 1
 
-        # Time grouping
         if r.google_review_time:
             d = r.google_review_time.strftime("%Y-%m-%d")
-            m = r.google_review_time.strftime("%b %Y")
             daily[d].append(rating)
-            monthly[m].append(sentiment)
 
-        # Response + complaints
         if getattr(r, "review_reply_text", None):
             responded += 1
+
         if getattr(r, "is_complaint", False):
             complaints += 1
 
     avg_rating = round(sum(ratings)/len(ratings), 2)
     reputation = int((avg_rating/5)*100)
 
-    # Trend smoothing (7-day rolling)
+    # 7-day smoothing trend
     trend = []
     window = deque(maxlen=7)
 
     for d in sorted(daily):
-        avg = sum(daily[d]) / len(daily[d])
+        avg = sum(daily[d])/len(daily[d])
         window.append(avg)
+
         trend.append({
             "week": d,
             "avg": round(sum(window)/len(window), 2)
         })
-
-    # Keywords
-    keywords = extract_keywords(reviews)
 
     return {
         "total_reviews": total,
@@ -130,17 +124,17 @@ def compute_analytics(reviews):
         "sentiment_trend": trend,
         "response_rate": round((responded/total)*100, 2),
         "complaint_ratio": round((complaints/total)*100, 2),
-        "keywords": keywords
+        "keywords": extract_keywords(reviews)
     }
 
 # ==========================================================
-# MAIN INSIGHTS (MATCHES YOUR FRONTEND EXACTLY)
+# MAIN ENDPOINT (THIS DRIVES YOUR DASHBOARD)
 # ==========================================================
 @router.get("/ai/insights")
 async def insights(
-    company_id: int,
-    start: str,
-    end: str,
+    company_id: int = Query(...),
+    start: str = Query(...),
+    end: str = Query(...),
     session: AsyncSession = Depends(get_session)
 ):
     try:
@@ -149,7 +143,7 @@ async def insights(
     except:
         return _empty()
 
-    res = await session.execute(
+    result = await session.execute(
         select(Review).where(
             and_(
                 Review.company_id == company_id,
@@ -164,14 +158,16 @@ async def insights(
         )
     )
 
-    reviews = res.scalars().all()
+    reviews = result.scalars().all()
     data = compute_analytics(reviews)
 
     if not data:
         return _empty()
 
     return {
-        "metadata": {"total_reviews": data["total_reviews"]},
+        "metadata": {
+            "total_reviews": data["total_reviews"]
+        },
         "kpis": {
             "average_rating": data["average_rating"],
             "reputation_score": data["reputation_score"]
@@ -180,17 +176,19 @@ async def insights(
             "ratings": data["ratings"],
             "emotions": data["emotions"],
             "sentiment_trend": data["sentiment_trend"],
-            "keywords": data["keywords"]   # ✅ IMPORTANT (frontend uses this)
+            "keywords": data["keywords"]
         }
     }
 
 # ==========================================================
-# CHATBOT (CONNECTED TO FRONTEND)
+# CHATBOT (WORKING WITH FRONTEND)
 # ==========================================================
 @router.get("/chatbot/explain/{company_id}")
 async def chatbot(company_id: int, question: str, session: AsyncSession = Depends(get_session)):
-    res = await session.execute(select(Review).where(Review.company_id == company_id))
-    data = compute_analytics(res.scalars().all())
+    result = await session.execute(
+        select(Review).where(Review.company_id == company_id)
+    )
+    data = compute_analytics(result.scalars().all())
 
     if not data:
         return {"answer": "No data available."}
@@ -198,29 +196,30 @@ async def chatbot(company_id: int, question: str, session: AsyncSession = Depend
     q = question.lower()
 
     if "rating" in q:
-        ans = f"Your average rating is {data['average_rating']}."
+        answer = f"Average rating is {data['average_rating']}"
     elif "sentiment" in q:
         top = max(data["emotions"], key=data["emotions"].get)
-        ans = f"Customer sentiment is mostly {top}."
-    elif "improve" in q:
-        ans = "Focus on complaints and low ratings to improve performance."
+        answer = f"Customers are mostly {top}"
+    elif "risk" in q:
+        answer = f"Reputation score is {data['reputation_score']}"
     else:
-        ans = "Your business is performing steadily. Monitor trends for growth."
+        answer = "Performance is stable. Focus on low ratings."
 
     remember(company_id, "user", question)
-    remember(company_id, "ai", ans)
+    remember(company_id, "ai", answer)
 
-    return {"answer": ans, "memory": recall(company_id)}
+    return {"answer": answer, "memory": recall(company_id)}
 
 # ==========================================================
-# REVENUE RISK (MATCHES FRONTEND)
+# REVENUE RISK
 # ==========================================================
 @router.get("/revenue")
 async def revenue(company_id: int, session: AsyncSession = Depends(get_session)):
-    res = await session.execute(
+    result = await session.execute(
         select(func.avg(Review.rating)).where(Review.company_id == company_id)
     )
-    avg = res.scalar() or 0
+
+    avg = result.scalar() or 0
 
     if avg >= 4:
         return {"risk_percent": 10, "impact": "Low"}
@@ -230,34 +229,35 @@ async def revenue(company_id: int, session: AsyncSession = Depends(get_session))
         return {"risk_percent": 80, "impact": "High"}
 
 # ==========================================================
-# PDF REPORT (FIXED FOR PRODUCTION)
+# PDF REPORT
 # ==========================================================
 @router.get("/executive-report/pdf/{company_id}")
-async def pdf(company_id: int, session: AsyncSession = Depends(get_session)):
-    res = await session.execute(select(Review).where(Review.company_id == company_id))
-    data = compute_analytics(res.scalars().all())
+async def report(company_id: int, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        select(Review).where(Review.company_id == company_id)
+    )
+    data = compute_analytics(result.scalars().all())
 
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer)
     styles = getSampleStyleSheet()
 
-    elements = []
-
-    elements.append(Paragraph("Executive Report", styles["Title"]))
-    elements.append(Spacer(1, 10))
+    content = []
+    content.append(Paragraph("Executive Report", styles["Title"]))
+    content.append(Spacer(1, 10))
 
     if data:
-        elements.append(Paragraph(f"Avg Rating: {data['average_rating']}", styles["Normal"]))
-        elements.append(Paragraph(f"Reputation Score: {data['reputation_score']}", styles["Normal"]))
-        elements.append(Paragraph(f"Response Rate: {data['response_rate']}%", styles["Normal"]))
+        content.append(Paragraph(f"Avg Rating: {data['average_rating']}", styles["Normal"]))
+        content.append(Paragraph(f"Reputation Score: {data['reputation_score']}", styles["Normal"]))
+        content.append(Paragraph(f"Response Rate: {data['response_rate']}%", styles["Normal"]))
 
-    doc.build(elements)
+    doc.build(content)
     buffer.seek(0)
 
     return StreamingResponse(buffer, media_type="application/pdf")
 
 # ==========================================================
-# EMPTY RESPONSE
+# EMPTY RESPONSE (IMPORTANT FOR FRONTEND STABILITY)
 # ==========================================================
 def _empty():
     return {
