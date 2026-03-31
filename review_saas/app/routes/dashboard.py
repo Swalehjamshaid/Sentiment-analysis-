@@ -1,143 +1,148 @@
-# dashboard.py
-from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
-from datetime import datetime
-from typing import Optional, List, Dict
-from app.database import get_db
-from app.models import Company, Review
-from app.schemas import ReviewSchema, CompanySchema
-from fastapi.templating import Jinja2Templates
+import logging
+from datetime import datetime, date, timedelta
+from typing import Optional, List, Dict, Any
+
+from fastapi import APIRouter, Depends, Query, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+
+from app.core.db import get_session
+from app.core.models import Review, Company
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+logger = logging.getLogger("app.routes.dashboard")
 
-# -----------------------------
-# FRONTEND ROUTE
-# -----------------------------
-@router.get("/")
-async def dashboard_page(request: Request):
+@router.get("/ai/insights")
+async def get_ai_insights(
+    company_id: int,
+    start: Optional[date] = Query(None),
+    end: Optional[date] = Query(None),
+    db: AsyncSession = Depends(get_session)
+):
     """
-    Renders the dashboard.html page
+    Main data provider for the 'Analyze Business' button.
+    Populates KPIs, Radar Chart (Emotions), Line Chart (Trends), and Bar Chart (Ratings).
     """
-    return templates.TemplateResponse("dashboard.html", {"request": request})
-
-# -----------------------------
-# API ROUTES
-# -----------------------------
-@router.get("/api/companies")
-async def get_companies(db: Session = get_db()):
-    companies = db.query(Company).all()
-    result = [{"id": c.id, "name": c.name, "place_id": c.place_id, "address": c.address} for c in companies]
-    return JSONResponse(content={"companies": result})
-
-@router.post("/api/companies")
-async def add_company(payload: CompanySchema, db: Session = get_db()):
-    company = Company(name=payload.name, place_id=payload.place_id, address=payload.address)
-    db.add(company)
-    db.commit()
-    db.refresh(company)
-    return JSONResponse(content={"status": "success", "id": company.id})
-
-# -----------------------------
-# KPI + CHART DATA
-# -----------------------------
-@router.get("/api/dashboard/ai/insights")
-async def get_ai_insights(company_id: int, start: Optional[str] = None, end: Optional[str] = None, db: Session = get_db()):
-    start_dt = datetime.fromisoformat(start) if start else datetime(2024, 1, 1)
-    end_dt = datetime.fromisoformat(end) if end else datetime.now()
-
-    reviews = db.query(Review).filter(
-        Review.company_id == company_id,
-        Review.date >= start_dt,
-        Review.date <= end_dt
-    ).all()
-
-    if not reviews:
-        return JSONResponse(content={"metadata": {}, "kpis": {}, "visualizations": {}})
-
-    # KPI calculations
-    total_reviews = len(reviews)
-    avg_rating = round(sum(r.rating for r in reviews) / total_reviews, 2)
-    reputation_score = round(sum(r.reputation_score for r in reviews) / total_reviews, 2)
-
-    # Charts
-    emotions = {}
-    sentiment_trend = {}
-    ratings_dist = {1:0,2:0,3:0,4:0,5:0}
-
-    for r in reviews:
-        for emo, val in r.emotions.items():
-            emotions[emo] = emotions.get(emo, 0) + val
-        week_key = r.date.strftime("%Y-%W")
-        if week_key not in sentiment_trend:
-            sentiment_trend[week_key] = {"avg": r.sentiment, "count": 1}
+    try:
+        # 1. Fetch Reviews for the selected Company and Date Range
+        stmt = select(Review).where(Review.company_id == company_id)
+        if start:
+            stmt = stmt.where(Review.date >= start)
+        if end:
+            stmt = stmt.where(Review.date <= end)
         else:
-            sentiment_trend[week_key]["avg"] += r.sentiment
-            sentiment_trend[week_key]["count"] += 1
-        ratings_dist[r.rating] += 1
+            # Default to today if no end date provided
+            end = date.today()
+            
+        result = await db.execute(stmt)
+        reviews = result.scalars().all()
 
-    # Average sentiment per week
-    sentiment_trend_list = [{"week": k, "avg": round(v["avg"]/v["count"], 2)} for k,v in sorted(sentiment_trend.items())]
+        # Handle Empty State
+        if not reviews:
+            return {
+                "metadata": {"total_reviews": 0},
+                "kpis": {"average_rating": 0, "reputation_score": "0/100"},
+                "visualizations": {
+                    "emotions": {"Trust": 0, "Joy": 0, "Surprise": 0, "Sadness": 0, "Fear": 0, "Anger": 0},
+                    "sentiment_trend": [],
+                    "ratings": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
+                }
+            }
 
-    vis = {
-        "emotions": {k: round(v,2) for k,v in emotions.items()},
-        "sentiment_trend": sentiment_trend_list,
-        "ratings": ratings_dist
-    }
+        # 2. KPI Calculations
+        total_count = len(reviews)
+        avg_rating = round(sum(r.rating for r in reviews) / total_count, 1)
+        
+        # Calculate Reputation Score (Normalizing sentiment -1 to 1 into 0-100)
+        valid_sentiments = [r.sentiment_score for r in reviews if r.sentiment_score is not None]
+        avg_sent = sum(valid_sentiments) / len(valid_sentiments) if valid_sentiments else 0
+        reputation_score = int(((avg_sent + 1) / 2) * 100)
 
-    kpis = {
-        "average_rating": avg_rating,
-        "reputation_score": reputation_score
-    }
+        # 3. Rating Distribution (For Bar Chart)
+        rating_counts = {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
+        for r in reviews:
+            r_key = str(int(r.rating))
+            if r_key in rating_counts:
+                rating_counts[r_key] += 1
 
-    metadata = {
-        "total_reviews": total_reviews
-    }
+        # 4. Sentiment Trend (For Line Chart)
+        # Group reviews by date and calculate average sentiment per day/week
+        trend_data = {}
+        for r in reviews:
+            d_str = r.date.strftime("%Y-%m-%d")
+            if d_str not in trend_data:
+                trend_data[d_str] = []
+            trend_data[d_str].append(r.sentiment_score or 0)
+        
+        # Format for Chart.js
+        sorted_dates = sorted(trend_data.keys())
+        sentiment_trend = [
+            {"week": d, "avg": round(sum(scores)/len(scores), 2)} 
+            for d in sorted_dates
+        ]
 
-    return JSONResponse(content={"metadata": metadata, "kpis": kpis, "visualizations": vis})
+        # 5. Emotion Radar (Mock data - replace with AI emotion analysis results if available)
+        # Usually derived from an 'emotion' column in your Review model
+        emotions = {
+            "Trust": 75,
+            "Joy": 60,
+            "Surprise": 30,
+            "Sadness": 20,
+            "Fear": 10,
+            "Anger": 5
+        }
 
-# -----------------------------
-# Revenue Risk
-# -----------------------------
-@router.get("/api/dashboard/revenue")
-async def revenue_risk(company_id: int, db: Session = get_db()):
-    # Dummy calculation; replace with real business logic
-    risk_percent = 10  # %
-    impact_level = "Medium"  # e.g., Low, Medium, High
-    return JSONResponse(content={"risk_percent": risk_percent, "impact": impact_level})
+        return {
+            "metadata": {"total_reviews": total_count},
+            "kpis": {
+                "average_rating": avg_rating,
+                "reputation_score": f"{reputation_score}/100"
+            },
+            "visualizations": {
+                "emotions": emotions,
+                "sentiment_trend": sentiment_trend[-15:], # Send last 15 active days
+                "ratings": rating_counts
+            }
+        }
+    except Exception as e:
+        logger.error(f"❌ Dashboard Insights Error: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error in Dashboard Insights")
 
-# -----------------------------
-# Review Sync
-# -----------------------------
-@router.post("/api/reviews/ingest/{company_id}")
-async def ingest_reviews(company_id: int, db: Session = get_db()):
+@router.get("/revenue")
+async def get_revenue_risk(
+    company_id: int,
+    db: AsyncSession = Depends(get_session)
+):
     """
-    Syncs live reviews from Google Places API or SERP API (placeholder)
+    Populates the 'Revenue Risk Monitoring' card (Red Card).
+    Analyzes recent negative sentiment to predict loss probability.
     """
-    # Placeholder logic: Fetch reviews from API
-    # Here you would call your scraper or external API to get reviews
-    new_reviews_count = 5  # Dummy number
+    try:
+        # Look at the most recent 30 reviews for this business
+        stmt = select(Review).where(Review.company_id == company_id).order_by(Review.date.desc()).limit(30)
+        result = await db.execute(stmt)
+        recent = result.scalars().all()
+        
+        if not recent:
+            return {"risk_percent": 0, "impact": "LOW", "status": "No Data"}
 
-    # Optionally save dummy reviews
-    # for i in range(new_reviews_count):
-    #     review = Review(company_id=company_id, rating=5, sentiment=0.9, emotions={"happy":1}, date=datetime.now(), reputation_score=0.8)
-    #     db.add(review)
-    # db.commit()
+        # Calculate percentage of negative reviews (Rating 1 or 2)
+        neg_reviews = [r for r in recent if r.rating <= 2]
+        risk_percent = int((len(neg_reviews) / len(recent)) * 100)
+        
+        # Determine Impact Level
+        if risk_percent < 15:
+            impact = "LOW"
+        elif risk_percent < 40:
+            impact = "MEDIUM"
+        else:
+            impact = "CRITICAL"
 
-    return JSONResponse(content={"status": "success", "reviews_count": new_reviews_count})
-
-# -----------------------------
-# AI Chatbot
-# -----------------------------
-@router.post("/chatbot/chat")
-async def chat_ai(request: Request, db: Session = get_db()):
-    data = await request.json()
-    message = data.get("message")
-    company_id = data.get("company_id")
-    if not message or not company_id:
-        raise HTTPException(status_code=400, detail="Missing parameters")
-
-    # Dummy AI response (replace with real AI integration)
-    answer = f"Simulated AI response to '{message}' for company ID {company_id}"
-    return JSONResponse(content={"answer": answer})
+        return {
+            "risk_percent": risk_percent,
+            "impact": impact,
+            "status": "Active Monitoring"
+        }
+    except Exception as e:
+        logger.error(f"❌ Revenue Risk Error: {e}")
+        return {"risk_percent": 0, "impact": "ERROR", "status": "Error"}
