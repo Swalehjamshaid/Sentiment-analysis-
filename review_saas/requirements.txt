@@ -1,63 +1,62 @@
-# --- SERVER & CONCURRENCY ---
-gunicorn==21.2.0
-gevent==23.9.1
-greenlet==3.0.3
-uvicorn[standard]==0.30.6
+# Web Framework
+fastapi==0.111.1
+uvicorn==0.24.0
+gunicorn==23.0.0
 
-# --- CORE FRAMEWORK & SETTINGS ---
-fastapi==0.115.0
-pydantic>=2.0.0
-pydantic-settings==2.4.0
-starlette==0.38.6
-jinja2==3.1.4
-python-multipart==0.0.12
-itsdangerous>=2.0.0
+# Database & ORM
+sqlalchemy==2.0.22
+databases==0.7.2
+asyncpg==0.27.0
 
-# --- DATABASE & ORM (Async Fix Included) ---
-sqlalchemy[asyncio]==2.0.31
-asyncpg==0.29.0
-psycopg2-binary==2.9.9
-alembic==1.18.4
+# Middleware & CORS
+starlette==0.29.0
+python-multipart==0.0.6
 
-# --- AI & AGENTS ---
-langchain>=0.3.0
-langgraph>=0.2.0
-openai>=1.50.0
-anthropic>=0.35.0
-google-generativeai>=0.8.0
-pydantic-ai>=0.0.14
-
-# --- SCRAPING & BROWSING ---
-google-search-results==2.4.2
+# HTTP Requests & Scraping
+requests==2.32.0
+beautifulsoup4==4.12.2
 playwright==1.45.0
-beautifulsoup4==4.12.3
-selenium==4.25.0
-requests==2.32.3
-lxml==5.3.0
-html5lib==1.1
-cloudscraper==1.2.71
-selectolax==0.3.21
+selenium==4.12.2
+httpx==0.24.0
 
-# --- ANALYTICS & UTILS ---
-textblob==0.18.0.post0
-vaderSentiment==3.3.2
-langdetect==1.0.9
-pandas==2.2.3
-polars==1.6.0
-numpy==1.26.4
-python-dotenv==1.0.1
-apscheduler==3.10.4
-httpx==0.27.2
-googlemaps>=4.10.0
-google-api-python-client>=2.149.0
+# Proxies
+proxybroker==0.5.10
 
-# --- SECURITY & AUTH ---
-python-jose[cryptography]==3.3.0
+# NLP & Sentiment Analysis
+nltk==3.8.1
+textblob==0.17.1
+transformers==4.42.2
+torch==2.1.1
+sentence-transformers==2.2.2
+
+# Data Analysis
+pandas==2.1.1
+numpy==1.26.2
+scipy==1.11.2
+
+# Forecasting / Regression
+scikit-learn==1.3.2
+statsmodels==0.14.0
+
+# Visualization
+matplotlib==3.8.0
+seaborn==0.12.2
+plotly==5.18.0
+wordcloud==1.9.2
+dash==3.17.0
+
+# Excel / Reports
+openpyxl==3.1.3
+xlrd==2.1.0
+xlsxwriter==3.1.2
+
+# Authentication & Security
+python-jose==3.3.0
 passlib[bcrypt]==1.7.4
-bcrypt==4.0.1
+pyjwt==2.8.0
 
-# --- MEMORY & RAG ---
-chromadb>=0.5.5
-sentence-transformers>=3.1.1
-pypdf==4.3.1
-tiktoken>=0.7.0
+# Environment & Utilities
+python-dotenv==1.0.0
+pydantic==2.4.0
+loguru==0.7.0
+tqdm==4.66.1
