@@ -124,7 +124,7 @@
             <div class="col-md-5">
                 <div class="d-flex gap-2">
                     <button id="loadBtn" onclick="triggerAllLoads()" class="btn btn-primary w-50 btn-pill shadow-sm">Analyze Business</button>
-                    <button id="syncBtn" onclick="syncData()" class="btn btn-success w-50 btn-pill shadow-sm">Sync Live Data</button>
+                    <button id="syncBtn" class="btn btn-success w-50 btn-pill shadow-sm">Sync Live Data</button>
                 </div>
             </div>
         </div>
@@ -147,15 +147,15 @@
                     <div class="small fw-bold opacity-75 text-uppercase">Revenue Risk Monitoring</div>
                     <div class="d-flex justify-content-around align-items-center mt-2">
                         <div>
-                            <small class="d-block">Loss Probability</small>
+                            <small class="d-block text-uppercase opacity-75 small">Loss Probability</small>
                             <span id="riskPct" class="h2 fw-bold">—</span>
                         </div>
                         <div>
-                            <small class="d-block">Impact Level</small>
+                            <small class="d-block text-uppercase opacity-75 small">Impact Level</small>
                             <span id="riskImpact" class="h2 fw-bold">—</span>
                         </div>
                         <div>
-                            <small class="d-block">Reputation Score</small>
+                            <small class="d-block text-uppercase opacity-75 small">Reputation Score</small>
                             <span id="riskSentiment" class="h2 fw-bold">—</span>
                         </div>
                     </div>
@@ -212,9 +212,18 @@
                 <div class="modal-body p-4">
                     <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Enter business name...">
                     <div class="p-4 bg-light rounded-4">
-                        <div class="mb-3"><label class="small fw-bold">NAME</label><input id="companyName" class="form-control border-0" readonly></div>
-                        <div class="mb-3"><label class="small fw-bold">PLACE ID</label><input id="placeId" class="form-control border-0" readonly></div>
-                        <div class="mb-3"><label class="small fw-bold">ADDRESS</label><input id="companyAddress" class="form-control border-0" readonly></div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold text-muted small">NAME</label>
+                            <input id="companyName" class="form-control border-0" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold text-muted small">PLACE ID</label>
+                            <input id="placeId" class="form-control border-0" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold text-muted small">ADDRESS</label>
+                            <input id="companyAddress" class="form-control border-0" readonly>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer border-0 p-4">
@@ -229,69 +238,122 @@
 
     <script>
         let chartInstances = {};
-        const ENDPOINTS = {
-            insights: "/dashboard/ai/insights",
-            chat: "/dashboard/chatbot/explain",
-            revenue: "/dashboard/revenue",
-            report: "/dashboard/executive-report/pdf",
-            companies: "/api/companies"
+        const DASHBOARD_CONFIG = {
+            endpoints: {
+                insights: "/dashboard/ai/insights",
+                chat: "/dashboard/chatbot/explain",
+                revenue: "/dashboard/revenue",
+                report: "/dashboard/executive-report/pdf",
+                companies: "/api/companies"
+            }
         };
+
+        // UI Helpers
+        function setElementText(id, text) {
+            const el = document.getElementById(id);
+            if (el) el.innerText = text;
+        }
 
         async function triggerAllLoads() {
             const cid = document.getElementById("companySelect").value;
             const start = document.getElementById("startDate").value || "2010-01-01";
             const end = document.getElementById("endDate").value || new Date().toISOString().split('T')[0];
+            
             if (!cid) return;
-
-            document.getElementById("loadBtn").innerText = "Analyzing...";
+            const loadBtn = document.getElementById("loadBtn");
+            loadBtn.innerText = "Analyzing...";
 
             try {
-                const res = await fetch(`${ENDPOINTS.insights}?company_id=${cid}&start=${start}&end=${end}`);
+                // 1. Fetch KPI & Chart Data
+                const res = await fetch(`${DASHBOARD_CONFIG.endpoints.insights}?company_id=${cid}&start=${start}&end=${end}`);
                 const data = await res.json();
 
                 if (data.kpis) {
-                    document.getElementById("kpiTotal").innerText = data.metadata.total_reviews || 0;
-                    document.getElementById("kpiRating").innerText = data.kpis.average_rating || "—";
-                    document.getElementById("riskSentiment").innerText = data.kpis.reputation_score || "—";
+                    setElementText("kpiTotal", data.metadata.total_reviews || 0);
+                    setElementText("kpiRating", data.kpis.average_rating || "—");
+                    setElementText("riskSentiment", data.kpis.reputation_score || "—");
                     renderCharts(data.visualizations);
-                    renderKeywords(data.visualizations.keywords);
+                    renderKeywordCloud(data.visualizations.keywords);
                 }
 
-                const rRes = await fetch(`${ENDPOINTS.revenue}?company_id=${cid}`);
+                // 2. Fetch Risk Assessment
+                const rRes = await fetch(`${DASHBOARD_CONFIG.endpoints.revenue}?company_id=${cid}`);
                 const rData = await rRes.json();
-                document.getElementById("riskPct").innerText = (rData.risk_percent || 0) + "%";
-                document.getElementById("riskImpact").innerText = rData.impact || "N/A";
+                setElementText("riskPct", (rData.risk_percent || 0) + "%");
+                setElementText("riskImpact", rData.impact || "N/A");
 
-            } catch (e) { console.error("Sync failed", e); }
-            finally { document.getElementById("loadBtn").innerText = "Analyze Business"; }
+            } catch (e) { 
+                console.error("Dashboard Sync Failed:", e); 
+            } finally { 
+                loadBtn.innerText = "Analyze Business"; 
+            }
         }
 
         function renderCharts(vis) {
-            // Radar
-            if(chartInstances.emotions) chartInstances.emotions.destroy();
-            chartInstances.emotions = new Chart(document.getElementById("chartEmotions"), { 
-                type: 'radar', 
-                data: { labels: Object.keys(vis.emotions), datasets: [{ label: 'Intensity', data: Object.values(vis.emotions), backgroundColor: 'rgba(168, 85, 247, 0.2)', borderColor: '#a855f7' }] },
-                options: { responsive: true, maintainAspectRatio: false }
+            // Emotion Radar
+            const radarCtx = document.getElementById("chartEmotions").getContext('2d');
+            if (chartInstances.emotions) chartInstances.emotions.destroy();
+            chartInstances.emotions = new Chart(radarCtx, {
+                type: 'radar',
+                data: {
+                    labels: Object.keys(vis.emotions || {}),
+                    datasets: [{
+                        label: 'Intensity',
+                        data: Object.values(vis.emotions || {}),
+                        backgroundColor: 'rgba(168, 85, 247, 0.2)',
+                        borderColor: '#a855f7',
+                        pointBackgroundColor: '#a855f7'
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
-            // Trend
-            if(chartInstances.monthly) chartInstances.monthly.destroy();
-            chartInstances.monthly = new Chart(document.getElementById("chartMonthly"), { 
-                type: 'line', 
-                data: { labels: vis.sentiment_trend.map(d => d.week), datasets: [{ label: 'Rating', data: vis.sentiment_trend.map(d => d.avg), borderColor: '#10b981', fill: true, tension: 0.4 }] },
-                options: { responsive: true, maintainAspectRatio: false }
+
+            // Sentiment Trend Line
+            const lineCtx = document.getElementById("chartMonthly").getContext('2d');
+            if (chartInstances.monthly) chartInstances.monthly.destroy();
+            chartInstances.monthly = new Chart(lineCtx, {
+                type: 'line',
+                data: {
+                    labels: (vis.sentiment_trend || []).map(d => d.week),
+                    datasets: [{
+                        label: 'Rating',
+                        data: (vis.sentiment_trend || []).map(d => d.avg),
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 1, max: 5 } } }
             });
-            // Bar
-            if(chartInstances.ratings) chartInstances.ratings.destroy();
-            chartInstances.ratings = new Chart(document.getElementById("chartRatings"), { 
-                type: 'bar', 
-                data: { labels: ['1★','2★','3★','4★','5★'], datasets: [{ label: 'Review Count', data: Object.values(vis.ratings), backgroundColor: '#6366f1' }] },
-                options: { responsive: true, maintainAspectRatio: false }
+
+            // Distribution Bar
+            const barCtx = document.getElementById("chartRatings").getContext('2d');
+            if (chartInstances.ratings) chartInstances.ratings.destroy();
+            chartInstances.ratings = new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['1★', '2★', '3★', '4★', '5★'],
+                    datasets: [{
+                        label: 'Count',
+                        data: vis.ratings ? Object.values(vis.ratings) : [0,0,0,0,0],
+                        backgroundColor: '#6366f1',
+                        borderRadius: 8
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
         }
 
-        function renderKeywords(kws) {
-            document.getElementById("keywordContainer").innerHTML = kws.map(k => `<span class="badge bg-light text-dark border p-2 m-1">${k.text} (${k.value})</span>`).join("");
+        function renderKeywordCloud(keywords) {
+            const container = document.getElementById("keywordContainer");
+            if (!keywords || keywords.length === 0) { 
+                container.innerHTML = "<span class='text-muted'>No data for word cloud.</span>"; 
+                return; 
+            }
+            container.innerHTML = keywords.map(kw => 
+                `<span class="badge bg-light text-dark border p-2 m-1 fw-semibold">${kw.text} (${kw.value})</span>`
+            ).join("");
         }
 
         async function askAI() {
@@ -303,49 +365,70 @@
 
             win.innerHTML += `<div class="chat-msg chat-user">${msg}</div>`;
             input.value = "";
-            
-            const res = await fetch(`${ENDPOINTS.chat}/${cid}?question=${encodeURIComponent(msg)}`);
-            const data = await res.json();
-            win.innerHTML += `<div class="chat-msg chat-ai">Consultant: ${data.answer}</div>`;
             win.scrollTop = win.scrollHeight;
+
+            try {
+                const res = await fetch(`${DASHBOARD_CONFIG.endpoints.chat}/${cid}?question=${encodeURIComponent(msg)}`);
+                const data = await res.json();
+                win.innerHTML += `<div class="chat-msg chat-ai"><strong>Consultant:</strong> ${data.answer}</div>`;
+                win.scrollTop = win.scrollHeight;
+            } catch (e) { 
+                win.innerHTML += `<div class="chat-msg chat-ai text-danger">Connection lost.</div>`; 
+            }
         }
 
-        async function syncData() {
+        document.getElementById("syncBtn").onclick = async () => {
             const cid = document.getElementById("companySelect").value;
+            if (!cid) return;
             const btn = document.getElementById("syncBtn");
-            btn.innerText = "Syncing...";
-            await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
-            triggerAllLoads();
-            btn.innerText = "Sync Live Data";
-        }
+            const original = btn.innerHTML;
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Syncing...`;
+            try {
+                await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
+                await triggerAllLoads();
+            } finally {
+                btn.innerHTML = original;
+            }
+        };
 
         async function loadCompanies() {
-            const res = await fetch(ENDPOINTS.companies);
-            const list = await res.json();
-            const sel = document.getElementById("companySelect");
-            sel.innerHTML = (list.companies || list).map(c => `<option value="${c.id}">${c.name}</option>`).join("");
-            if(sel.value) triggerAllLoads();
+            try {
+                const response = await fetch(DASHBOARD_CONFIG.endpoints.companies);
+                const list = await response.json();
+                const sel = document.getElementById("companySelect");
+                const companies = list.companies || list;
+                sel.innerHTML = companies.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+                if(sel.value) triggerAllLoads();
+            } catch (e) { console.error("Companies Load Error", e); }
         }
 
         function initGoogleAutocomplete() {
             const input = document.getElementById('googleSearchInput');
+            if(!input) return;
             const autocomplete = new google.maps.places.Autocomplete(input);
             autocomplete.addListener('place_changed', () => {
                 const p = autocomplete.getPlace();
-                document.getElementById('companyName').value = p.name;
-                document.getElementById('placeId').value = p.place_id;
-                document.getElementById('companyAddress').value = p.formatted_address;
+                document.getElementById('companyName').value = p.name || "";
+                document.getElementById('placeId').value = p.place_id || "";
+                document.getElementById('companyAddress').value = p.formatted_address || "";
             });
         }
 
         document.getElementById("toggleTheme").onclick = () => {
             const root = document.documentElement;
-            root.setAttribute("data-theme", root.getAttribute("data-theme") === "light" ? "dark" : "light");
+            const current = root.getAttribute("data-theme");
+            root.setAttribute("data-theme", current === "light" ? "dark" : "light");
         };
 
-        function downloadReport() { window.location.href = `${ENDPOINTS.report}/${document.getElementById("companySelect").value}`; }
+        function downloadReport() {
+            const cid = document.getElementById("companySelect").value;
+            if (cid) window.location.href = `${DASHBOARD_CONFIG.endpoints.report}/${cid}`;
+        }
 
-        window.onload = () => { loadCompanies(); initGoogleAutocomplete(); };
+        window.onload = () => { 
+            loadCompanies(); 
+            initGoogleAutocomplete(); 
+        };
     </script>
 </body>
 </html>
