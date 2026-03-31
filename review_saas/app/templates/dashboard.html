@@ -12,9 +12,6 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
     <style>
-        /* * GLOBAL COLOR VARIABLES
-         * These define the visual identity of the SaaS platform.
-         */
         :root {
             --primary-grad: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
             --ai-grad: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
@@ -22,8 +19,6 @@
             --transition-speed: 0.3s;
         }
 
-        /* * LAYOUT & TYPOGRAPHY
-         */
         body { 
             background-color: #f8fafc; 
             padding: 24px; 
@@ -31,8 +26,6 @@
             transition: background var(--transition-speed); 
         }
 
-        /* * NAVIGATION & BRANDING
-         */
         .navbar { 
             background: var(--primary-grad) !important; 
             border-radius: 15px !important; 
@@ -41,8 +34,6 @@
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
         }
 
-        /* * CARD SYSTEM
-         */
         .card { 
             border: none; 
             border-radius: 20px; 
@@ -50,24 +41,11 @@
             transition: transform 0.2s ease-in-out;
         }
         
-        .card:hover {
-            transform: translateY(-2px);
-        }
+        .card:hover { transform: translateY(-2px); }
 
-        .total-review-card { 
-            background: var(--primary-grad); 
-            color: white; 
-            border-radius: 24px; 
-        }
+        .total-review-card { background: var(--primary-grad); color: white; border-radius: 24px; }
+        .risk-card { background: var(--danger-grad); color: white; border-radius: 24px; }
 
-        .risk-card { 
-            background: var(--danger-grad); 
-            color: white; 
-            border-radius: 24px; 
-        }
-
-        /* * AI COMPONENT STYLING
-         */
         .ai-badge { 
             background: var(--ai-grad); 
             color: white; 
@@ -78,11 +56,8 @@
             margin-bottom: 10px; 
             display: inline-block; 
             text-transform: uppercase;
-            letter-spacing: 0.5px;
         }
 
-        /* * CHAT INTERFACE
-         */
         #chatWindow { 
             height: 350px; 
             overflow-y: auto; 
@@ -92,67 +67,22 @@
             border: 1px solid #e2e8f0; 
             display: flex; 
             flex-direction: column; 
-            scroll-behavior: smooth;
         }
 
-        .chat-msg { 
-            margin-bottom: 15px; 
-            padding: 12px 18px; 
-            border-radius: 18px; 
-            max-width: 85%; 
-            font-size: 0.95rem;
-            line-height: 1.4;
-        }
+        .chat-msg { margin-bottom: 15px; padding: 12px 18px; border-radius: 18px; max-width: 85%; font-size: 0.95rem; }
+        .chat-ai { background: white; color: #1e293b; border: 1px solid #e2e8f0; align-self: flex-start; border-bottom-left-radius: 4px; }
+        .chat-user { background: #6366f1; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
 
-        .chat-ai { 
-            background: white; 
-            color: #1e293b; 
-            border: 1px solid #e2e8f0; 
-            align-self: flex-start; 
-            border-bottom-left-radius: 4px;
-        }
-
-        .chat-user { 
-            background: #6366f1; 
-            color: white; 
-            align-self: flex-end; 
-            border-bottom-right-radius: 4px;
-            box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.3);
-        }
-
-        /* * COMPONENT UTILITIES
-         */
         .chart-wrapper { height: 280px; position: relative; }
         .btn-pill { border-radius: 50px; padding: 10px 25px; font-weight: 600; }
         
-        /* * DARK MODE THEMING
-         */
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
         [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
         [data-theme="dark"] .bg-light { background: #334155 !important; color: white; }
         [data-theme="dark"] #chatWindow { background: #0f172a; border-color: #334155; }
         [data-theme="dark"] .chat-ai { background: #334155; color: white; border-color: #475569; }
-        [data-theme="dark"] .text-muted { color: #94a3b8 !important; }
         
-        /* Google Places Autocomplete Styling */
-        .pac-container { 
-            z-index: 9999 !important; 
-            border-radius: 10px; 
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1); 
-            border: none; 
-            margin-top: 5px;
-        }
-        
-        /* Loading States */
-        .loading-shimmer {
-            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s infinite;
-        }
-        @keyframes shimmer {
-            0% { background-position: -200% 0; }
-            100% { background-position: 200% 0; }
-        }
+        .pac-container { z-index: 9999 !important; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); border: none; }
     </style>
 </head>
 <body>
@@ -181,8 +111,7 @@
         <div class="row g-3 align-items-end mb-4 p-4 bg-white rounded-4 shadow-sm">
             <div class="col-md-3">
                 <label class="form-label fw-bold text-muted small">ACTIVE ENTITY</label>
-                <select id="companySelect" class="form-select border-0 bg-light py-2 shadow-none">
-                    </select>
+                <select id="companySelect" class="form-select border-0 bg-light py-2 shadow-none"></select>
             </div>
             <div class="col-md-2">
                 <label class="form-label fw-bold text-muted small">START DATE</label>
@@ -194,12 +123,8 @@
             </div>
             <div class="col-md-5">
                 <div class="d-flex gap-2">
-                    <button id="loadBtn" onclick="triggerAllLoads()" class="btn btn-primary w-50 btn-pill shadow-sm">
-                        Analyze Business
-                    </button>
-                    <button id="syncBtn" class="btn btn-success w-50 btn-pill shadow-sm">
-                        Sync Live Data
-                    </button>
+                    <button id="loadBtn" onclick="triggerAllLoads()" class="btn btn-primary w-50 btn-pill shadow-sm">Analyze Business</button>
+                    <button id="syncBtn" class="btn btn-success w-50 btn-pill shadow-sm">Sync Live Data</button>
                 </div>
             </div>
         </div>
@@ -243,32 +168,19 @@
                 <div class="row g-4">
                     <div class="col-md-6">
                         <div class="ai-badge">CUSTOMER EMOTION RADAR</div>
-                        <div class="card p-3 shadow-sm">
-                            <div class="chart-wrapper">
-                                <canvas id="chartEmotions"></canvas>
-                            </div>
-                        </div>
+                        <div class="card p-3 shadow-sm"><div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div></div>
                     </div>
                     <div class="col-md-6">
                         <div class="ai-badge">SENTIMENT TREND</div>
-                        <div class="card p-3 shadow-sm">
-                            <div class="chart-wrapper">
-                                <canvas id="chartMonthly"></canvas>
-                            </div>
-                        </div>
+                        <div class="card p-3 shadow-sm"><div class="chart-wrapper"><canvas id="chartMonthly"></canvas></div></div>
                     </div>
                     <div class="col-12">
                         <div class="ai-badge">RATING DISTRIBUTION</div>
-                        <div class="card p-3 shadow-sm">
-                            <div class="chart-wrapper">
-                                <canvas id="chartRatings"></canvas>
-                            </div>
-                        </div>
+                        <div class="card p-3 shadow-sm"><div class="chart-wrapper"><canvas id="chartRatings"></canvas></div></div>
                     </div>
                     <div class="col-12">
                         <div class="ai-badge">AI KEYWORD EXTRACTION</div>
-                        <div id="keywordContainer" class="card p-4 bg-white shadow-sm d-flex flex-wrap gap-2 justify-content-center">
-                            </div>
+                        <div id="keywordContainer" class="card p-4 bg-white shadow-sm d-flex flex-wrap gap-2 justify-content-center"></div>
                     </div>
                 </div>
             </div>
@@ -278,15 +190,11 @@
                 <div class="card border-0 shadow-sm h-100">
                     <div class="card-body d-flex flex-column">
                         <div id="chatWindow" class="mb-3">
-                            <div class="chat-msg chat-ai">
-                                Dashboard connected. Select a business and click "Analyze" to begin strategic session.
-                            </div>
+                            <div class="chat-msg chat-ai">Dashboard connected. Select a business and click "Analyze" to begin.</div>
                         </div>
                         <div class="input-group mt-auto">
                             <input type="text" id="chatInput" class="form-control border-0 bg-light p-3" placeholder="Ask about growth trends...">
-                            <button id="chatBtn" class="btn btn-primary px-4">
-                                <i class="bi bi-send"></i>
-                            </button>
+                            <button id="chatBtn" class="btn btn-primary px-4"><i class="bi bi-send"></i></button>
                         </div>
                     </div>
                 </div>
@@ -302,28 +210,15 @@
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body p-4">
-                    <label class="small fw-bold text-muted mb-2">SEARCH GOOGLE MAPS</label>
-                    <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Enter business name or address...">
-                    
+                    <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Enter business name...">
                     <div class="p-4 bg-light rounded-4">
-                        <div class="mb-3">
-                            <label class="small fw-bold text-muted">BUSINESS NAME</label>
-                            <input id="companyName" class="form-control border-0" readonly placeholder="Waiting for selection...">
-                        </div>
-                        <div class="mb-3">
-                            <label class="small fw-bold text-muted">GOOGLE PLACE ID (CRITICAL)</label>
-                            <input id="placeId" class="form-control border-0" readonly placeholder="Will auto-fill...">
-                        </div>
-                        <div class="mb-3">
-                            <label class="small fw-bold text-muted">FORMATTED ADDRESS</label>
-                            <input id="companyAddress" class="form-control border-0" readonly placeholder="...">
-                        </div>
+                        <div class="mb-3"><label class="small fw-bold">NAME</label><input id="companyName" class="form-control border-0" readonly></div>
+                        <div class="mb-3"><label class="small fw-bold">PLACE ID</label><input id="placeId" class="form-control border-0" readonly></div>
+                        <div class="mb-3"><label class="small fw-bold">ADDRESS</label><input id="companyAddress" class="form-control border-0" readonly></div>
                     </div>
                 </div>
                 <div class="modal-footer border-0 p-4">
-                    <button type="submit" class="btn btn-success w-100 rounded-pill fw-bold py-3 shadow">
-                        Verify & Save Business
-                    </button>
+                    <button type="submit" class="btn btn-success w-100 rounded-pill fw-bold py-3 shadow">Save Business</button>
                 </div>
             </form>
         </div>
@@ -333,9 +228,6 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
-        /**
-         * GLOBAL STATE MANAGER
-         */
         let chartInstances = {};
         const DASHBOARD_CONFIG = {
             endpoints: {
@@ -347,132 +239,73 @@
             }
         };
 
-        /**
-         * 1. GOOGLE MAPS AUTOCOMPLETE
-         * Handles place selection and data injection into modal form.
-         */
         function initGoogleAutocomplete() {
-            console.info("Initializing Google Places Autocomplete...");
             const input = document.getElementById('googleSearchInput');
             const autocomplete = new google.maps.places.Autocomplete(input);
-            
             autocomplete.addListener('place_changed', function() {
                 const place = autocomplete.getPlace();
-                if (!place.place_id) {
-                    alert("System Error: No Place ID detected. Please select from the dropdown.");
-                    return;
-                }
-                
-                // Binding data to hidden/readonly inputs
                 document.getElementById('companyName').value = place.name || "";
                 document.getElementById('placeId').value = place.place_id || "";
                 document.getElementById('companyAddress').value = place.formatted_address || "";
-                console.log("Place Selected:", place.place_id);
             });
         }
 
-        /**
-         * 2. DATA ORCHESTRATION
-         * Loads initial business list and triggers dashboard refresh.
-         */
         async function loadCompanies() {
             try {
                 const response = await fetch(DASHBOARD_CONFIG.endpoints.companies);
                 const data = await response.json();
                 const sel = document.getElementById("companySelect");
-                
-                // Robust array extraction (handles nested data objects)
                 const companies = data.companies || data.data || data;
 
                 if (Array.isArray(companies) && companies.length > 0) {
-                    sel.innerHTML = companies.map(c => {
-                        const displayName = c.name || c.business_name || "Unnamed Entity";
-                        return `<option value="${c.id}">${displayName}</option>`;
-                    }).join("");
-                    
+                    sel.innerHTML = companies.map(c => `<option value="${c.id}">${c.name || "Unnamed"}</option>`).join("");
                     sel.value = companies[0].id;
-                    // Trigger first-load with delay to allow DOM settle
-                    setTimeout(() => { triggerAllLoads(); }, 500);
-                } else {
-                    sel.innerHTML = `<option value="">No businesses found</option>`;
+                    setTimeout(() => triggerAllLoads(), 500);
                 }
-            } catch (error) {
-                console.error("Critical Error: Failed to fetch companies", error);
-            }
+            } catch (e) { console.error("Load failed", e); }
         }
 
-        /**
-         * 3. MAIN DASHBOARD REFRESH
-         * Fetches all analytics, KPIs, and risk metrics.
-         */
         async function triggerAllLoads() {
             const cid = document.getElementById("companySelect").value;
             const start = document.getElementById("startDate").value || "2000-01-01";
             const end = document.getElementById("endDate").value || new Date().toISOString().split('T')[0];
-            
             if (!cid) return;
 
-            // UI Feedback
-            document.getElementById("loadBtn").innerHTML = `<span class="spinner-border spinner-border-sm"></span> Analysis Active`;
+            document.getElementById("loadBtn").innerText = "Analyzing...";
 
             try {
-                /** FETCH INSIGHTS **/
-                const insightUrl = `${DASHBOARD_CONFIG.endpoints.insights}?company_id=${cid}&start=${start}&end=${end}`;
-                const iRes = await fetch(insightUrl);
+                // INSIGHTS Fetch
+                const iRes = await fetch(`${DASHBOARD_CONFIG.endpoints.insights}?company_id=${cid}&start=${start}&end=${end}`);
                 const iData = await iRes.json();
 
-                // KPI Injection
-                if (iData.metadata) {
-                    document.getElementById("kpiTotal").innerText = iData.metadata.total_reviews || 0;
-                }
                 if (iData.kpis) {
+                    document.getElementById("kpiTotal").innerText = iData.metadata.total_reviews || 0;
                     document.getElementById("kpiRating").innerText = iData.kpis.average_rating || "—";
                     document.getElementById("riskSentiment").innerText = iData.kpis.reputation_score || "—";
                 }
-
-                // Visualization Injection
                 if (iData.visualizations) {
                     renderCharts(iData.visualizations);
                     renderKeywordCloud(iData.visualizations.keywords);
                 }
 
-                /** FETCH REVENUE RISK **/
+                // REVENUE Fetch
                 const rRes = await fetch(`${DASHBOARD_CONFIG.endpoints.revenue}?company_id=${cid}`);
                 const rData = await rRes.json();
                 document.getElementById("riskPct").innerText = (rData.risk_percent || 0) + "%";
                 document.getElementById("riskImpact").innerText = rData.impact || "N/A";
 
-            } catch (error) {
-                console.error("Analysis Pipeline Failed:", error);
-            } finally {
-                document.getElementById("loadBtn").innerText = "Analyze Business";
-            }
+            } catch (e) { console.error("Sync failed", e); }
+            finally { document.getElementById("loadBtn").innerText = "Analyze Business"; }
         }
 
-        /**
-         * 4. KEYWORD CLOUD RENDERER
-         * Creates visual tokens for extracted keywords.
-         */
         function renderKeywordCloud(keywords) {
             const container = document.getElementById("keywordContainer");
-            if (!keywords || keywords.length === 0) {
-                container.innerHTML = `<small class="text-muted">Not enough textual data for extraction.</small>`;
-                return;
-            }
-            
-            container.innerHTML = keywords.map(kw => {
-                return `<span class="badge bg-light text-dark border p-2">${kw.text} (${kw.value})</span>`;
-            }).join("");
+            if (!keywords || keywords.length === 0) { container.innerHTML = "No keywords."; return; }
+            container.innerHTML = keywords.map(kw => `<span class="badge bg-light text-dark border p-2">${kw.text} (${kw.value})</span>`).join("");
         }
 
-        /**
-         * 5. CHART.JS INTEGRATION
-         * Handles the lifecycle of canvas-based visualizations.
-         */
         function renderCharts(vis) {
-            console.info("Re-rendering visualization layers...");
-
-            // --- RADAR: EMOTIONS ---
+            // Emotion Radar
             const radarCtx = document.getElementById("chartEmotions").getContext('2d');
             if (chartInstances.emotions) chartInstances.emotions.destroy();
             chartInstances.emotions = new Chart(radarCtx, {
@@ -480,48 +313,34 @@
                 data: {
                     labels: Object.keys(vis.emotions || {}),
                     datasets: [{
-                        label: 'Emotional Amplitude',
+                        label: 'Intensity',
                         data: Object.values(vis.emotions || {}),
                         backgroundColor: 'rgba(168, 85, 247, 0.2)',
-                        borderColor: '#a855f7',
-                        borderWidth: 2,
-                        pointBackgroundColor: '#a855f7'
+                        borderColor: '#a855f7'
                     }]
                 },
-                options: { 
-                    responsive: true, 
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: { r: { beginAtZero: true, grid: { color: '#e2e8f0' } } }
-                }
+                options: { responsive: true, maintainAspectRatio: false }
             });
 
-            // --- LINE: TREND ---
+            // Trend Line
             const lineCtx = document.getElementById("chartMonthly").getContext('2d');
             if (chartInstances.monthly) chartInstances.monthly.destroy();
             chartInstances.monthly = new Chart(lineCtx, {
                 type: 'line',
                 data: {
-                    labels: (vis.sentiment_trend || []).map(d => d.week || "Point"),
+                    labels: (vis.sentiment_trend || []).map(d => d.week),
                     datasets: [{
-                        label: 'Moving Average',
+                        label: 'Rating',
                         data: (vis.sentiment_trend || []).map(d => d.avg),
                         borderColor: '#10b981',
-                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
                         fill: true,
-                        tension: 0.4,
-                        pointRadius: 2
+                        tension: 0.4
                     }]
                 },
-                options: { 
-                    responsive: true, 
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: { y: { beginAtZero: false, grid: { color: '#f1f5f9' } } }
-                }
+                options: { responsive: true, maintainAspectRatio: false }
             });
 
-            // --- BAR: DISTRIBUTION ---
+            // Ratings Bar
             const barCtx = document.getElementById("chartRatings").getContext('2d');
             if (chartInstances.ratings) chartInstances.ratings.destroy();
             chartInstances.ratings = new Chart(barCtx, {
@@ -529,96 +348,49 @@
                 data: {
                     labels: ['1★', '2★', '3★', '4★', '5★'],
                     datasets: [{
-                        label: 'Total Reviews',
+                        label: 'Count',
                         data: vis.ratings ? Object.values(vis.ratings) : [0,0,0,0,0],
-                        backgroundColor: '#6366f1',
-                        borderRadius: 8,
-                        barThickness: 30
+                        backgroundColor: '#6366f1'
                     }]
                 },
-                options: { 
-                    responsive: true, 
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: { 
-                        x: { grid: { display: false } },
-                        y: { beginAtZero: true, grid: { color: '#f1f5f9' } }
-                    }
-                }
+                options: { responsive: true, maintainAspectRatio: false }
             });
         }
 
-        /**
-         * 6. AI STRATEGY SESSION (Chat)
-         * Connects user queries to the AI interpretation engine.
-         */
         document.getElementById("chatBtn").onclick = async () => {
             const input = document.getElementById("chatInput");
             const msg = input.value.trim();
             const cid = document.getElementById("companySelect").value;
-            
             if (!msg || !cid) return;
 
-            // Update UI immediately (Optimistic UI)
             const win = document.getElementById("chatWindow");
             win.innerHTML += `<div class="chat-msg chat-user">${msg}</div>`;
             input.value = "";
             win.scrollTop = win.scrollHeight;
 
             try {
-                const response = await fetch(`${DASHBOARD_CONFIG.endpoints.chat}/${cid}?question=${encodeURIComponent(msg)}`);
-                const data = await response.json();
-                
-                const aiResponse = data.answer || "Intelligence service unavailable.";
-                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Intelligence:</strong> ${aiResponse}</div>`;
+                const res = await fetch(`${DASHBOARD_CONFIG.endpoints.chat}/${cid}?question=${encodeURIComponent(msg)}`);
+                const data = await res.json();
+                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI:</strong> ${data.answer}</div>`;
                 win.scrollTop = win.scrollHeight;
-            } catch (error) {
-                win.innerHTML += `<div class="chat-msg chat-ai text-danger">Network Error: AI service unreachable.</div>`;
-            }
+            } catch (e) { win.innerHTML += `<div class="chat-msg chat-ai text-danger">Error.</div>`; }
         };
 
-        /**
-         * 7. LIVE DATA SYNC
-         * Triggers Google Review ingestion in backend.
-         */
         document.getElementById("syncBtn").onclick = async () => {
             const cid = document.getElementById("companySelect").value;
-            const btn = document.getElementById("syncBtn");
             if (!cid) return;
-
-            btn.disabled = true;
-            btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Syncing...`;
-
-            try {
-                const res = await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
-                const result = await res.json();
-                
-                console.info("Sync Pulse Success:", result);
-                setTimeout(() => {
-                    triggerAllLoads();
-                    btn.disabled = false;
-                    btn.innerHTML = "Sync Live Data";
-                    alert(`Ingestion Successful: Added ${result.reviews_count || 0} records.`);
-                }, 1500);
-            } catch (e) {
-                console.error("Sync Protocol Interrupted");
-                btn.disabled = false;
-                btn.innerHTML = "Sync Live Data";
-            }
+            const btn = document.getElementById("syncBtn");
+            btn.innerHTML = "Syncing...";
+            await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
+            triggerAllLoads();
+            btn.innerHTML = "Sync Live Data";
         };
 
-        /**
-         * 8. PDF REPORT GENERATOR
-         */
         function downloadReport() {
             const cid = document.getElementById("companySelect").value;
-            if (!cid) { alert("Selection Required"); return; }
             window.location.href = `${DASHBOARD_CONFIG.endpoints.report}/${cid}`;
         }
 
-        /**
-         * 9. ENTITY ADDITION HANDLER
-         */
         document.getElementById('addCompanyForm').onsubmit = async (e) => {
             e.preventDefault();
             const payload = {
@@ -626,44 +398,23 @@
                 place_id: document.getElementById('placeId').value,
                 address: document.getElementById('companyAddress').value
             };
-            
-            try {
-                const res = await fetch('/api/companies', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload)
-                });
-                
-                if (res.ok) {
-                    location.reload(); 
-                } else {
-                    alert("Validation Error: Could not save entity.");
-                }
-            } catch (err) {
-                console.error("Database Write Exception:", err);
-            }
+            await fetch('/api/companies', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            location.reload();
         };
 
-        /**
-         * 10. THEME MANAGEMENT
-         */
         document.getElementById("toggleTheme").onclick = () => {
             const root = document.documentElement;
-            const nextTheme = root.getAttribute("data-theme") === "light" ? "dark" : "light";
-            root.setAttribute("data-theme", nextTheme);
-            console.log("Theme context shifted to:", nextTheme);
+            root.setAttribute("data-theme", root.getAttribute("data-theme") === "light" ? "dark" : "light");
         };
 
-        /**
-         * BOOTSTRAP KICKOFF
-         */
         document.addEventListener("DOMContentLoaded", () => {
-            console.info("ReviewIntel Dashboard Version 2.5 Initialized.");
             loadCompanies();
             initGoogleAutocomplete();
         });
-
     </script>
-    
-    </body>
+</body>
 </html>
