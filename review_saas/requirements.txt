@@ -1,56 +1,40 @@
-# === Web Framework & Server ===
-# Removed version locks to allow FastAPI and Starlette to sync automatically
+# === Web Framework ===
 fastapi
 uvicorn
 gunicorn
 starlette
 
-# === Database & ORM ===
+# === Database ===
 sqlalchemy==2.0.22
 databases==0.7.0
 asyncpg==0.27.0
-
-# === Middleware ===
 python-multipart==0.0.6
 
-# === Scraping & HTTP ===
+# === Scraping ===
 requests==2.32.0
 beautifulsoup4==4.12.3
 playwright==1.45.0
 selenium==4.21.0
 httpx==0.27.0
-
-# === Proxies ===
-# Fixed version for proxybroker2 compatible with Python 3.10
 proxybroker2==2.0.0a4
 
-# === NLP & AI (Sentiment Analysis) ===
-# These match the pre-installed Torch in your Dockerfile
+# === AI & NLP ===
 nltk==3.8.1
 textblob==0.18.0
 transformers==4.42.2
-torch==2.1.1
-torchvision==0.16.1
-torchaudio==2.1.1
 sentence-transformers==2.2.2
 
-# === Data & Math ===
-# Removed locks to prevent "Requires-Python >=3.11" errors
+# === Data & Viz ===
 pandas
 numpy
 scipy
 scikit-learn
-statsmodels
-
-# === Visualization ===
-# Removed locks to allow compatibility with the Web Frameworks
 matplotlib
 seaborn
 plotly
-wordcloud
 dash
 
-# === Utilities & Security ===
+# === Utilities ===
 openpyxl==3.1.3
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
