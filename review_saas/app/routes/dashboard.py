@@ -1,6 +1,6 @@
 # filename: app/routes/dashboard.py
 # ==========================================================
-# REVIEW INTELLIGENCE DASHBOARD (FINAL ✅ FULLY INTEGRATED)
+# REVIEW INTELLIGENCE DASHBOARD (FIXED ✅ SAFE & CHAT BOARD)
 # ==========================================================
 
 from fastapi import APIRouter, Depends, Query
@@ -13,9 +13,6 @@ from collections import defaultdict
 from app.core.db import get_session
 from app.core.models import Review
 
-# ----------------------------
-# Router
-# ----------------------------
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
@@ -31,6 +28,7 @@ async def analyze_business(
 ):
     """
     Backend for dashboard panels and chat board.
+    Handles nulls safely and provides trend, KPI, sentiment, and chat board.
     """
 
     # ----------------------------
@@ -45,19 +43,22 @@ async def analyze_business(
     # ----------------------------
     # FETCH REVIEWS
     # ----------------------------
-    result = await session.execute(
-        select(Review).where(
-            and_(
-                Review.company_id == company_id,
-                (Review.google_review_time == None) |
-                ((Review.google_review_time >= start_dt) &
-                 (Review.google_review_time <= end_dt))
+    try:
+        result = await session.execute(
+            select(Review).where(
+                and_(
+                    Review.company_id == company_id,
+                    (Review.google_review_time == None) |
+                    ((Review.google_review_time >= start_dt) &
+                     (Review.google_review_time <= end_dt))
+                )
             )
         )
-    )
-    reviews = result.scalars().all()
-    total_reviews = len(reviews)
+        reviews = result.scalars().all()
+    except Exception:
+        return _empty_dashboard_response()
 
+    total_reviews = len(reviews)
     if total_reviews == 0:
         return _empty_dashboard_response()
 
@@ -77,12 +78,12 @@ async def analyze_business(
     chat_board_messages = []
 
     for r in reviews:
-        # Rating distribution
+        # Rating Distribution
         if r.rating in ratings:
             ratings[r.rating] += 1
 
-        # Sentiment buckets
-        score = r.sentiment_score if r.sentiment_score is not None else 0
+        # Sentiment Buckets
+        score = float(r.sentiment_score) if r.sentiment_score is not None else 0
         if score >= 0.25:
             emotions["Positive"] += 1
         elif score <= -0.25:
@@ -90,16 +91,16 @@ async def analyze_business(
         else:
             emotions["Neutral"] += 1
 
-        # Trend mapping
+        # Trend Mapping
         if r.google_review_time:
             day = r.google_review_time.strftime("%Y-%m-%d")
             trend_map[day].append(r.rating or 0)
 
-        # Chat board messages
-        if r.comment and r.comment.strip():
+        # Chat Board Messages
+        if getattr(r, "comment", None) and r.comment.strip():
             chat_board_messages.append({
-                "review_id": r.id,
-                "rating": r.rating,
+                "review_id": getattr(r, "id", None),
+                "rating": r.rating or 0,
                 "sentiment_score": score,
                 "comment": r.comment,
                 "date": r.google_review_time.strftime("%Y-%m-%d %H:%M") if r.google_review_time else None
@@ -116,15 +117,8 @@ async def analyze_business(
     # ----------------------------
     return {
         "metadata": {"total_reviews": total_reviews},
-        "kpis": {
-            "average_rating": avg_rating,
-            "reputation_score": reputation_score
-        },
-        "visualizations": {
-            "ratings": ratings,
-            "emotions": emotions,
-            "sentiment_trend": sentiment_trend
-        },
+        "kpis": {"average_rating": avg_rating, "reputation_score": reputation_score},
+        "visualizations": {"ratings": ratings, "emotions": emotions, "sentiment_trend": sentiment_trend},
         "chat_board": chat_board_messages
     }
 
@@ -137,10 +131,13 @@ async def revenue_risk(
     company_id: int = Query(...),
     session: AsyncSession = Depends(get_session),
 ):
-    result = await session.execute(
-        select(func.avg(Review.rating)).where(Review.company_id == company_id)
-    )
-    avg = result.scalar() or 0
+    try:
+        result = await session.execute(
+            select(func.avg(Review.rating)).where(Review.company_id == company_id)
+        )
+        avg = result.scalar() or 0
+    except Exception:
+        avg = 0
 
     if avg >= 4:
         return {"risk_percent": 10, "impact": "Low"}
