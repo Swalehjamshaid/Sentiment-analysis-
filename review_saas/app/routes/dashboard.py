@@ -1,144 +1,202 @@
-import logging
-from datetime import datetime, date, timedelta
-from typing import Optional, List, Dict, Any
+# filename: app/routes/dashboard.py
+# ✅ Clean backend data provider for Dashboard
+# ✅ Analytics & charts handled on FRONTEND
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+import logging
+from datetime import datetime
+from typing import Optional, Dict, Any
+
+from fastapi import APIRouter, Depends, Query, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from starlette.templating import Jinja2Templates
 
 from app.core.db import get_session
-from app.core.models import Review, Company
+from app.core.models import Review
 
-router = APIRouter()
+router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 logger = logging.getLogger("app.routes.dashboard")
 
+templates = Jinja2Templates(directory="app/templates")
+
+# ======================================================
+# HELPER — DATE PARSER (SAFE)
+# ======================================================
+
+def parse_date(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except Exception:
+        return None
+
+
+# ======================================================
+# 1️⃣ DASHBOARD PAGE (HTML)
+# ======================================================
+
+@router.get("/", response_class=HTMLResponse)
+async def dashboard_page(request: Request):
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+        }
+    )
+
+
+# ======================================================
+# 2️⃣ CORE DATA API — USED BY "Analyze Business"
+# ======================================================
+
 @router.get("/ai/insights")
-async def get_ai_insights(
-    company_id: int,
-    start: Optional[date] = Query(None),
-    end: Optional[date] = Query(None),
-    db: AsyncSession = Depends(get_session)
+async def dashboard_data(
+    company_id: int = Query(...),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    session: AsyncSession = Depends(get_session),
 ):
     """
-    Core data provider for the 'Analyze Business' button.
-    Fetches data from Postgres and formats it for Radar, Line, and Bar charts.
+    Returns RAW, FRONTEND‑READY data.
+    Frontend (Chart.js) performs the visualization & analysis.
     """
-    try:
-        # 1. Fetch Reviews for the selected Company and Date Range
-        stmt = select(Review).where(Review.company_id == company_id)
-        if start:
-            stmt = stmt.where(Review.date >= start)
-        if end:
-            stmt = stmt.where(Review.date <= end)
-        else:
-            # Default to today if no end date provided
-            end = date.today()
-            
-        result = await db.execute(stmt)
-        reviews = result.scalars().all()
 
-        # Handle Empty State (If no records found for this specific company_id)
-        if not reviews:
-            return {
-                "metadata": {"total_reviews": 0},
-                "kpis": {"average_rating": "—", "reputation_score": "—"},
-                "visualizations": {
-                    "emotions": {"Trust": 0, "Joy": 0, "Surprise": 0, "Sadness": 0, "Fear": 0, "Anger": 0},
-                    "sentiment_trend": [],
-                    "ratings": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
-                }
-            }
+    start_dt = parse_date(start)
+    end_dt = parse_date(end)
 
-        # 2. KPI Calculations
-        total_count = len(reviews)
-        avg_rating = round(sum(r.rating for r in reviews) / total_count, 1)
-        
-        # Calculate Reputation Score (Normalizing sentiment -1 to 1 into 0-100)
-        valid_sentiments = [r.sentiment_score for r in reviews if r.sentiment_score is not None]
-        avg_sent = sum(valid_sentiments) / len(valid_sentiments) if valid_sentiments else 0
-        reputation_score_val = int(((avg_sent + 1) / 2) * 100)
+    stmt = select(Review).where(Review.company_id == company_id)
 
-        # 3. Rating Distribution (For 'chartRatings' bar chart)
-        rating_counts = {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
-        for r in reviews:
-            r_key = str(int(r.rating))
-            if r_key in rating_counts:
-                rating_counts[r_key] += 1
+    if start_dt:
+        stmt = stmt.where(Review.created_at >= start_dt)
+    if end_dt:
+        stmt = stmt.where(Review.created_at <= end_dt)
 
-        # 4. Sentiment Trend (For 'chartMonthly' line chart)
-        # Group reviews by date to show progress over time
-        trend_data = {}
-        for r in reviews:
-            d_str = r.date.strftime("%Y-%m-%d")
-            if d_str not in trend_data:
-                trend_data[d_str] = []
-            trend_data[d_str].append(r.sentiment_score or 0)
-        
-        # Format for Chart.js (labels must match keys in JS)
-        sorted_dates = sorted(trend_data.keys())
-        sentiment_trend = [
-            {"week": d, "avg": round(sum(scores)/len(scores), 2)} 
-            for d in sorted_dates
-        ]
+    result = await session.execute(stmt)
+    reviews = result.scalars().all()
 
-        # 5. Emotion Radar (Calculated Intensity)
-        # This provides the 'CUSTOMER EMOTION RADAR' data
-        emotions = {
-            "Trust": 80 if avg_sent > 0.4 else 45,
-            "Joy": 75 if avg_sent > 0.2 else 30,
-            "Surprise": 50,
-            "Sadness": 35 if avg_sent < 0 else 10,
-            "Fear": 25 if avg_sent < -0.1 else 5,
-            "Anger": 55 if avg_sent < -0.4 else 5
-        }
-
-        return {
-            "metadata": {"total_reviews": total_count},
+    # ---------------------------
+    # EMPTY STATE
+    # ---------------------------
+    if not reviews:
+        return JSONResponse({
+            "metadata": {
+                "company_id": company_id,
+                "total_reviews": 0
+            },
             "kpis": {
-                "average_rating": avg_rating,
-                "reputation_score": f"{reputation_score_val}/100"
+                "average_rating": 0,
+                "reputation_score": 0
             },
             "visualizations": {
-                "emotions": emotions,
-                "sentiment_trend": sentiment_trend[-15:], # Last 15 data points
-                "ratings": rating_counts
+                "emotions": {
+                    "Positive": 0,
+                    "Neutral": 0,
+                    "Negative": 0
+                },
+                "sentiment_trend": [],
+                "ratings": {
+                    "1": 0,
+                    "2": 0,
+                    "3": 0,
+                    "4": 0,
+                    "5": 0
+                }
             }
+        })
+
+    # ======================================================
+    # BASIC AGGREGATES (NO AI / NO NLP here)
+    # ======================================================
+
+    total_reviews = len(reviews)
+    avg_rating = round(sum(r.rating for r in reviews) / total_reviews, 1)
+
+    rating_dist = {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
+    trend_map: Dict[str, list] = {}
+
+    positive = neutral = negative = 0
+
+    for r in reviews:
+        rating_key = str(int(r.rating))
+        if rating_key in rating_dist:
+            rating_dist[rating_key] += 1
+
+        # Sentiment score assumed stored in DB (-1 to +1)
+        score = r.sentiment_score or 0
+
+        if score >= 0.2:
+            positive += 1
+        elif score <= -0.2:
+            negative += 1
+        else:
+            neutral += 1
+
+        # Trend grouped by DATE
+        d = r.created_at.date().isoformat()
+        trend_map.setdefault(d, []).append(r.rating)
+
+    sentiment_trend = [
+        {
+            "week": date,
+            "avg": round(sum(vals) / len(vals), 2)
         }
-    except Exception as e:
-        logger.error(f"❌ Dashboard Insights Error: {e}")
-        raise HTTPException(status_code=500, detail="Internal Server Error in Dashboard Insights")
+        for date, vals in sorted(trend_map.items())
+    ]
+
+    emotions = {
+        "Positive": positive,
+        "Neutral": neutral,
+        "Negative": negative
+    }
+
+    return JSONResponse({
+        "metadata": {
+            "company_id": company_id,
+            "total_reviews": total_reviews
+        },
+        "kpis": {
+            "average_rating": avg_rating,
+            "reputation_score": round(avg_rating * 20, 0)
+        },
+        "visualizations": {
+            "emotions": emotions,
+            "sentiment_trend": sentiment_trend,
+            "ratings": rating_dist
+        }
+    })
+
+
+# ======================================================
+# 3️⃣ REVENUE RISK (SIMPLE FRONTEND‑READY METRIC)
+# ======================================================
 
 @router.get("/revenue")
-async def get_revenue_risk(
-    company_id: int,
-    db: AsyncSession = Depends(get_session)
+async def revenue_risk(
+    company_id: int = Query(...),
+    session: AsyncSession = Depends(get_session),
 ):
-    """
-    Populates the 'Revenue Risk Monitoring' (Red Card).
-    Calculates probability of loss based on recent review spikes.
-    """
-    try:
-        # Look at the most recent 20 reviews
-        stmt = select(Review).where(Review.company_id == company_id).order_by(Review.date.desc()).limit(20)
-        result = await db.execute(stmt)
-        recent = result.scalars().all()
-        
-        if not recent:
-            return {"risk_percent": 0, "impact": "N/A"}
+    stmt = select(Review).where(Review.company_id == company_id)
+    result = await session.execute(stmt)
+    reviews = result.scalars().all()
 
-        # Calculate percentage of negative reviews (Rating 1 or 2)
-        neg_reviews = [r for r in recent if r.rating <= 2]
-        risk_percent = int((len(neg_reviews) / len(recent)) * 100)
-        
-        # Determine Impact Level text
-        impact = "STABLE"
-        if risk_percent > 15: impact = "MODERATE"
-        if risk_percent > 40: impact = "CRITICAL"
-
+    if not reviews:
         return {
-            "risk_percent": risk_percent,
-            "impact": impact
+            "risk_percent": 0,
+            "impact": "N/A"
         }
-    except Exception as e:
-        logger.error(f"❌ Revenue Risk Error: {e}")
-        return {"risk_percent": 0, "impact": "ERROR"}
+
+    bad_reviews = sum(1 for r in reviews if r.rating <= 2)
+    risk = int((bad_reviews / len(reviews)) * 100)
+
+    impact = "Low"
+    if risk > 15:
+        impact = "Medium"
+    if risk > 35:
+        impact = "High"
+
+    return {
+        "risk_percent": risk,
+        "impact": impact
+    }
