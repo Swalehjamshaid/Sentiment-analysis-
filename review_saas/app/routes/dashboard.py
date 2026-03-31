@@ -2,160 +2,180 @@
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func
 from datetime import datetime
+from collections import defaultdict
 
 from app.core.db import get_session
-from app.core.models import Review
+from app.core.models import Review, Company
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
 
-def safe(val):
-    try:
-        return round(float(val), 2)
-    except:
-        return 0
-
-
-# =========================================================
-# MAIN DASHBOARD (FIXED DATA FILTER)
-# =========================================================
+# =====================================================
+# MAIN AI DASHBOARD ENDPOINT (FRONTEND CONNECTED)
+# =====================================================
 @router.get("/ai/insights")
-async def get_ai_insights(
-    company_id: int,
-    start: str,
-    end: str,
+async def get_dashboard_insights(
+    company_id: int = Query(...),
+    start: str = Query(...),
+    end: str = Query(...),
     db: AsyncSession = Depends(get_session)
 ):
-
-    # ✅ SAFE DATE PARSE
     try:
-        start_date = datetime.fromisoformat(start)
-        end_date = datetime.fromisoformat(end)
-    except:
-        start_date = None
-        end_date = None
+        # Parse dates safely
+        try:
+            start_date = datetime.fromisoformat(start)
+            end_date = datetime.fromisoformat(end)
+        except:
+            start_date = datetime(2024, 1, 1)
+            end_date = datetime.utcnow()
 
-    # =====================================================
-    # 🔥 FIX: HANDLE NULL DATES + EXISTING DATA
-    # =====================================================
-    filters = [Review.company_id == company_id]
-
-    if start_date and end_date:
-        filters.append(
-            or_(
-                Review.google_review_time == None,  # include nulls
-                Review.google_review_time.between(start_date, end_date)
+        # Fetch reviews
+        result = await db.execute(
+            select(Review).where(
+                Review.company_id == company_id,
+                Review.google_review_time != None,
+                Review.google_review_time >= start_date,
+                Review.google_review_time <= end_date
             )
         )
 
-    # -------------------------
-    # TOTAL REVIEWS
-    # -------------------------
-    total_reviews = await db.scalar(
-        select(func.count(Review.id)).where(*filters)
-    ) or 0
+        reviews = result.scalars().all()
 
-    # -------------------------
-    # AVG RATING
-    # -------------------------
-    avg_rating = await db.scalar(
-        select(func.avg(Review.rating)).where(*filters)
-    ) or 0
+        total_reviews = len(reviews)
 
-    # -------------------------
-    # SENTIMENT
-    # -------------------------
-    sentiment = await db.scalar(
-        select(func.avg(Review.sentiment_score)).where(*filters)
-    ) or 0
+        # =================================================
+        # KPI CALCULATIONS
+        # =================================================
+        avg_rating = 0
+        avg_sentiment = 0
 
-    # -------------------------
-    # RATING DISTRIBUTION
-    # -------------------------
-    rating_rows = await db.execute(
-        select(Review.rating, func.count())
-        .where(*filters)
-        .group_by(Review.rating)
-    )
+        if total_reviews > 0:
+            avg_rating = round(
+                sum([(r.rating or 0) for r in reviews]) / total_reviews, 2
+            )
 
-    ratings = {1:0,2:0,3:0,4:0,5:0}
-    for r, c in rating_rows:
-        if r in ratings:
-            ratings[r] = c
+            avg_sentiment = round(
+                sum([(r.sentiment_score or 0) for r in reviews]) / total_reviews, 2
+            )
 
-    # -------------------------
-    # TREND (IGNORE NULL DATES)
-    # -------------------------
-    trend_rows = await db.execute(
-        select(
-            func.date_trunc('month', Review.google_review_time),
-            func.avg(Review.sentiment_score)
-        )
-        .where(
-            Review.company_id == company_id,
-            Review.google_review_time != None
-        )
-        .group_by(func.date_trunc('month', Review.google_review_time))
-        .order_by(func.date_trunc('month', Review.google_review_time))
-    )
+        # =================================================
+        # RATING DISTRIBUTION (FOR BAR CHART)
+        # =================================================
+        ratings = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
 
-    sentiment_trend = [
-        {
-            "month": str(row[0].date()),
-            "avg": safe(row[1])
+        for r in reviews:
+            if r.rating and r.rating in ratings:
+                ratings[r.rating] += 1
+
+        # =================================================
+        # SENTIMENT TREND (LINE CHART)
+        # =================================================
+        trend_map = defaultdict(list)
+
+        for r in reviews:
+            if r.google_review_time:
+                key = r.google_review_time.strftime("%Y-%m")
+                trend_map[key].append(r.sentiment_score or 0)
+
+        sentiment_trend = []
+
+        for k in sorted(trend_map.keys()):
+            values = trend_map[k]
+            sentiment_trend.append({
+                "month": k,
+                "avg": round(sum(values) / len(values), 2)
+            })
+
+        # =================================================
+        # EMOTION RADAR (RADAR CHART)
+        # =================================================
+        emotions = {
+            "happy": 0,
+            "neutral": 0,
+            "angry": 0
         }
-        for row in trend_rows
-    ]
 
-    # -------------------------
-    # EMOTIONS (SMART)
-    # -------------------------
-    emotions = {
-        "Happy": safe(sentiment * 10),
-        "Neutral": 50,
-        "Angry": safe(100 - sentiment * 10)
-    }
+        for r in reviews:
+            score = r.sentiment_score or 0
+            if score > 0.5:
+                emotions["happy"] += 1
+            elif score < -0.2:
+                emotions["angry"] += 1
+            else:
+                emotions["neutral"] += 1
 
-    return {
-        "metadata": {
-            "total_reviews": total_reviews
-        },
-        "kpis": {
-            "average_rating": safe(avg_rating),
-            "reputation_score": safe(sentiment)
-        },
-        "visualizations": {
-            "ratings": ratings,
-            "sentiment_trend": sentiment_trend,
-            "emotions": emotions
+        # =================================================
+        # FINAL RESPONSE (FRONTEND EXPECTS THIS STRUCTURE)
+        # =================================================
+        return {
+            "metadata": {
+                "total_reviews": total_reviews
+            },
+            "kpis": {
+                "average_rating": avg_rating,
+                "reputation_score": avg_sentiment
+            },
+            "visualizations": {
+                "ratings": ratings,
+                "sentiment_trend": sentiment_trend,
+                "emotions": emotions
+            }
         }
-    }
+
+    except Exception as e:
+        return {
+            "metadata": {"total_reviews": 0},
+            "kpis": {
+                "average_rating": 0,
+                "reputation_score": 0
+            },
+            "visualizations": {
+                "ratings": {1:0,2:0,3:0,4:0,5:0},
+                "sentiment_trend": [],
+                "emotions": {"happy":0,"neutral":0,"angry":0}
+            },
+            "error": str(e)
+        }
 
 
-# =========================================================
-# REVENUE API (UNCHANGED BUT SAFE)
-# =========================================================
+# =====================================================
+# REVENUE RISK ENDPOINT
+# =====================================================
 @router.get("/revenue")
-async def revenue(
+async def get_revenue_risk(
     company_id: int,
     db: AsyncSession = Depends(get_session)
 ):
-    avg = await db.scalar(
-        select(func.avg(Review.rating))
-        .where(Review.company_id == company_id)
-    ) or 0
+    try:
+        result = await db.execute(
+            select(func.avg(Review.rating)).where(
+                Review.company_id == company_id
+            )
+        )
 
-    avg = safe(avg)
+        avg_rating = result.scalar() or 0
 
-    if avg >= 4.5:
-        return {"risk_percent": 5, "impact": "Low"}
-    elif avg >= 4.0:
-        return {"risk_percent": 15, "impact": "Moderate"}
-    elif avg >= 3.0:
-        return {"risk_percent": 35, "impact": "High"}
-    elif avg > 0:
-        return {"risk_percent": 60, "impact": "Critical"}
-    else:
-        return {"risk_percent": 0, "impact": "No Data"}
+        # Simple business logic
+        if avg_rating >= 4:
+            risk = 10
+            impact = "Low"
+        elif avg_rating >= 3:
+            risk = 40
+            impact = "Medium"
+        else:
+            risk = 80
+            impact = "High"
+
+        return {
+            "risk_percent": int(risk),
+            "impact": impact
+        }
+
+    except Exception as e:
+        return {
+            "risk_percent": 0,
+            "impact": "N/A",
+            "error": str(e)
+        }
