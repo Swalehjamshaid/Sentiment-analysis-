@@ -1,34 +1,34 @@
-# Official Playwright Python image (matches your playwright==1.45.0)
+# Official Playwright Python image (matches playwright==1.45.0)
 FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
 
 WORKDIR /app
 
-# Install system dependencies + increase build reliability
+# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and set timeout + retries for large downloads
+# Upgrade pip + increase timeout/retries for large packages (torch, transformers)
 RUN pip install --no-cache-dir --upgrade pip && \
     pip config set global.timeout 600 && \
     pip config set global.retries 5
 
-# Copy requirements first (maximizes Docker layer caching)
+# Copy requirements first for caching
 COPY requirements.txt .
 
-# Install Python dependencies with increased timeout
+# Install dependencies with generous timeout
 RUN pip install --no-cache-dir \
     --default-timeout=600 \
     -r requirements.txt
 
-# Install Playwright browsers (must run AFTER playwright pip package)
+# Install Playwright browsers (must run after pip install playwright)
 RUN playwright install --with-deps chromium
 
-# Copy the rest of your code
+# Copy application code
 COPY . .
 
 EXPOSE 8080
 
-# Recommended FastAPI start command (change "main:app" if your file/variable differs)
+# Start command (change "main:app" if your main file or app variable is different)
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
