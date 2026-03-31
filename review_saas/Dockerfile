@@ -1,48 +1,61 @@
-# Base Python 3.10 slim image
+# Use official slim Python 3.10 image
 FROM python:3.10-slim
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies required by Python packages & Playwright
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
-    wget \
-    git \
-    ffmpeg \
-    libnss3 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libpango1.0-0 \
-    libgtk-3-0 \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Set environment variables to avoid prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
 
-# Upgrade pip
-RUN pip install --upgrade pip setuptools wheel
+# Install system dependencies needed for Python packages, Playwright, Selenium, PDFs, image libs, etc.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        gcc \
+        g++ \
+        curl \
+        wget \
+        git \
+        unzip \
+        ca-certificates \
+        libffi-dev \
+        libssl-dev \
+        libxml2-dev \
+        libxslt1-dev \
+        libjpeg-dev \
+        zlib1g-dev \
+        libpng-dev \
+        libcups2 \
+        libdrm2 \
+        libxcomposite1 \
+        libxrandr2 \
+        libgtk-3-0 \
+        libx11-xcb1 \
+        libxtst6 \
+        libnss3 \
+        libxss1 \
+        libasound2 \
+        fonts-liberation \
+        libdbus-glib-1-2 \
+        libatk1.0-0 \
+        libatk-bridge2.0-0 \
+        libpangocairo-1.0-0 \
+        && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements.txt
+# Copy requirements and install Python dependencies
 COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir --default-timeout=1000 -r requirements.txt
 
-# Install Python dependencies with longer timeout
-RUN pip install --no-cache-dir --default-timeout=1000 -r requirements.txt
-
-# Install Playwright browsers
-RUN playwright install
-
-# Copy application code
+# Copy the rest of the application
 COPY . .
 
-# Expose port for FastAPI
+# Install Playwright browsers (for Playwright to work)
+RUN python -m playwright install --with-deps
+
+# Expose the default FastAPI port
 EXPOSE 8000
 
-# Start the app using Gunicorn with Uvicorn worker
-CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000"]
+# Command to run the app using Uvicorn
+CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8000", "--workers", "1"]
