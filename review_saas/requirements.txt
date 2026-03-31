@@ -4,13 +4,13 @@ uvicorn==0.24.0
 gunicorn==23.0.0
 
 # === Database & ORM ===
-sqlalchemy==1.4.54          # Required for databases==0.7.0
+sqlalchemy==1.4.54          # Compatible with databases==0.7.0
 databases==0.7.0
 asyncpg==0.27.0
 
 # === Middleware & CORS ===
 starlette==0.29.0
-python-multipart==0.0.9     # ← Fixed: must be >=0.0.7 for fastapi==0.111.1
+python-multipart==0.0.9
 
 # === HTTP Requests & Scraping ===
 requests==2.32.0
@@ -20,7 +20,7 @@ selenium==4.41.0
 httpx==0.24.0
 
 # === Proxies ===
-proxybroker2==2.0.0a4       # You are already using this in the latest attempt
+proxybroker2==2.0.0a4
 
 # === NLP & Sentiment Analysis ===
 nltk==3.8.1
@@ -45,7 +45,7 @@ matplotlib==3.8.0
 seaborn==0.12.2
 plotly==5.18.0
 wordcloud==1.9.2
-dash==3.17.0
+dash==4.1.0               # ← Fixed: 3.17.0 does not exist (latest is 4.1.0)
 
 # === Excel / Reports ===
 openpyxl==3.1.3
