@@ -2,7 +2,7 @@
 fastapi==0.111.1
 uvicorn==0.24.0
 gunicorn==23.0.0
-# Removed starlette lock to allow FastAPI to pick its own version
+# Removed starlette version to prevent conflict with FastAPI
 
 # === Database & ORM ===
 sqlalchemy==2.0.22
