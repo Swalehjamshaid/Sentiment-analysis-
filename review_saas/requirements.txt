@@ -20,7 +20,7 @@ selenium==4.21.0
 httpx==0.27.0
 
 # === Proxies ===
-# Fixed the version for proxybroker2
+# This was the error: 0.3.3 does not exist. Use 2.0.0a4
 proxybroker2==2.0.0a4
 
 # === NLP & AI (Sentiment Analysis) ===
@@ -44,7 +44,6 @@ matplotlib==3.9.0
 seaborn==0.13.2
 plotly==5.22.0
 wordcloud==1.9.3
-# Removed the version to let pip pick the best match for Python 3.10
 dash
 
 # === Utilities & Security ===
