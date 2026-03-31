@@ -8,5 +8,5 @@ RUN pip install --no-cache-dir --default-timeout=1000 -r requirements.txt
 COPY . .
 RUN playwright install --with-deps chromium
 
-# FIXED LINE BELOW: Removed brackets to allow $PORT to work and added timeout for AI loading
-CMD gunicorn -w 2 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:$PORT --timeout 120
+# THE FIX: Changed main:app to app.main:app
+CMD gunicorn -w 2 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:$PORT --timeout 120
