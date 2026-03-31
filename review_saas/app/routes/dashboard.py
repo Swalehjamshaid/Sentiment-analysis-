@@ -1,48 +1,26 @@
 # filename: app/routes/dashboard.py
-# =========================================================
-# Review Intelligence Dashboard (Backend)
-# Fully aligned with:
-# - app/core/db.py
-# - app/core/models.py
-# - dashboard.html (frontend JS)
-# =========================================================
+# ==========================================================
+# REVIEW INTELLIGENCE DASHBOARD (FINAL ✅)
+# ==========================================================
 
-from fastapi import APIRouter, Depends, Query, HTTPException
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from datetime import datetime
 from collections import defaultdict
-from starlette.templating import Jinja2Templates
 
 from app.core.db import get_session
 from app.core.models import Review
 
-# Router prefix MUST match frontend fetches
-router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+# ✅ IMPORTANT:
+# main.py already uses prefix="/api"
+# so we MUST NOT repeat "/api" here
+router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
-templates = Jinja2Templates(directory="app/templates")
-
-
-# =========================================================
-# DASHBOARD PAGE (HTML)
-# =========================================================
-
-@router.get("/", response_class=HTMLResponse)
-async def dashboard_page(request):
-    """
-    Serves dashboard.html.
-    Frontend handles all interactions.
-    """
-    return templates.TemplateResponse(
-        "dashboard.html",
-        {"request": request}
-    )
-
-
-# =========================================================
-# ANALYZE BUSINESS (MAIN DATA ENDPOINT)
-# =========================================================
+# ==========================================================
+# ANALYZE BUSINESS (MAIN DASHBOARD ENDPOINT)
+# ==========================================================
 
 @router.get("/ai/insights")
 async def analyze_business(
@@ -52,39 +30,39 @@ async def analyze_business(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Provides ALL data required by dashboard.html charts & KPIs.
-    The frontend handles visualization; backend aggregates data.
+    Backend data provider for dashboard.html.
+    Frontend handles visualization (Chart.js).
     """
 
-    # -----------------------------------------------------
-    # Parse dates safely (frontend sends YYYY-MM-DD)
-    # -----------------------------------------------------
+    # ------------------------------------------------------
+    # Parse dates safely (frontend uses YYYY-MM-DD)
+    # ------------------------------------------------------
     try:
         start_dt = datetime.fromisoformat(start)
         end_dt = datetime.fromisoformat(end)
     except Exception:
-        return _empty_response()
+        return _empty_dashboard_response()
 
-    # -----------------------------------------------------
-    # Fetch reviews from PostgreSQL
-    # IMPORTANT: Uses google_review_time (REAL column)
-    # -----------------------------------------------------
-    stmt = select(Review).where(
-        Review.company_id == company_id,
-        Review.google_review_time >= start_dt,
-        Review.google_review_time <= end_dt
+    # ------------------------------------------------------
+    # Fetch reviews from PostgreSQL (✅ correct column)
+    # ------------------------------------------------------
+    result = await session.execute(
+        select(Review).where(
+            Review.company_id == company_id,
+            Review.google_review_time >= start_dt,
+            Review.google_review_time <= end_dt
+        )
     )
-
-    result = await session.execute(stmt)
     reviews = result.scalars().all()
+
     total_reviews = len(reviews)
 
     if total_reviews == 0:
-        return _empty_response()
+        return _empty_dashboard_response()
 
-    # -----------------------------------------------------
-    # KPI Calculations
-    # -----------------------------------------------------
+    # ------------------------------------------------------
+    # KPI calculations
+    # ------------------------------------------------------
     avg_rating = round(
         sum((r.rating or 0) for r in reviews) / total_reviews,
         2
@@ -92,20 +70,18 @@ async def analyze_business(
 
     reputation_score = int((avg_rating / 5) * 100)
 
-    # -----------------------------------------------------
-    # Rating Distribution (BAR CHART)
-    # -----------------------------------------------------
+    # ------------------------------------------------------
+    # Rating distribution (BAR chart)
+    # ------------------------------------------------------
     ratings = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    emotions = {"Positive": 0, "Neutral": 0, "Negative": 0}
+    trend_map = defaultdict(list)
+
     for r in reviews:
         if r.rating in ratings:
             ratings[r.rating] += 1
 
-    # -----------------------------------------------------
-    # Emotion Radar (RADAR CHART)
-    # Uses stored sentiment_score
-    # -----------------------------------------------------
-    emotions = {"Positive": 0, "Neutral": 0, "Negative": 0}
-    for r in reviews:
+        # sentiment buckets
         score = r.sentiment_score or 0
         if score >= 0.25:
             emotions["Positive"] += 1
@@ -114,26 +90,18 @@ async def analyze_business(
         else:
             emotions["Neutral"] += 1
 
-    # -----------------------------------------------------
-    # Sentiment Trend (LINE CHART)
-    # Grouped by day
-    # -----------------------------------------------------
-    trend_map = defaultdict(list)
-    for r in reviews:
+        # sentiment trend by date
         day = r.google_review_time.strftime("%Y-%m-%d")
         trend_map[day].append(r.rating or 0)
 
     sentiment_trend = [
-        {
-            "week": day,
-            "avg": round(sum(vals) / len(vals), 2)
-        }
-        for day, vals in sorted(trend_map.items())
+        {"week": d, "avg": round(sum(vals) / len(vals), 2)}
+        for d, vals in sorted(trend_map.items())
     ]
 
-    # -----------------------------------------------------
-    # FINAL RESPONSE (MATCHES FRONTEND)
-    # -----------------------------------------------------
+    # ------------------------------------------------------
+    # FINAL RESPONSE (MATCHES dashboard.html EXACTLY)
+    # ------------------------------------------------------
     return {
         "metadata": {
             "total_reviews": total_reviews
@@ -150,9 +118,9 @@ async def analyze_business(
     }
 
 
-# =========================================================
+# ==========================================================
 # REVENUE RISK MONITORING
-# =========================================================
+# ==========================================================
 
 @router.get("/revenue")
 async def revenue_risk(
@@ -160,43 +128,38 @@ async def revenue_risk(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Simple revenue risk scoring based on average rating.
-    Used by dashboard.html.
+    Used by dashboard.html Revenue Risk card.
     """
 
-    stmt = select(func.avg(Review.rating)).where(
-        Review.company_id == company_id
+    result = await session.execute(
+        select(func.avg(Review.rating)).where(
+            Review.company_id == company_id
+        )
     )
-    result = await session.execute(stmt)
-    avg_rating = result.scalar() or 0
+    avg = result.scalar() or 0
 
-    if avg_rating >= 4:
+    if avg >= 4:
         return {"risk_percent": 10, "impact": "Low"}
-    elif avg_rating >= 3:
+    elif avg >= 3:
         return {"risk_percent": 40, "impact": "Medium"}
     else:
         return {"risk_percent": 80, "impact": "High"}
 
 
-# =========================================================
-# HELPERS
-# =========================================================
+# ==========================================================
+# HELPER: EMPTY STATE RESPONSE
+# ==========================================================
 
-def _empty_response():
-    """
-    Returns frontend-safe empty payload
-    """
+def _empty_dashboard_response():
     return JSONResponse({
-        "metadata": {
-            "total_reviews": 0
-        },
+        "metadata": {"total_reviews": 0},
         "kpis": {
             "average_rating": 0,
             "reputation_score": 0
         },
         "visualizations": {
-            "ratings": {1:0, 2:0, 3:0, 4:0, 5:0},
-            "emotions": {"Positive":0, "Neutral":0, "Negative":0},
+            "ratings": {1: 0, 2: 0, 3: 0, 4: 0, 5: 0},
+            "emotions": {"Positive": 0, "Neutral": 0, "Negative": 0},
             "sentiment_trend": []
         }
     })
