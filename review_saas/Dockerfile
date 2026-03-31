@@ -1,6 +1,7 @@
 # Use Noble to get Python 3.12 (required for Dash 3.x and latest NLP libs)
 FROM mcr.microsoft.com/playwright/python:v1.45.0-noble
 
+# Set working directory
 WORKDIR /app
 
 # 1. Install system dependencies
@@ -12,8 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 2. Upgrade pip
 RUN pip install --no-cache-dir --upgrade pip
 
-# 3. PRE-INSTALL HEAVY AI LIBS (to leverage Railway caching)
-# Note: Using version 2.1.1 to match your requirements.txt exactly
+# 3. Pre-install heavy AI libs (matched to your requirements.txt)
 RUN pip install --no-cache-dir \
     --default-timeout=1000 \
     --index-url https://download.pytorch.org/whl/cpu \
@@ -23,9 +23,9 @@ RUN pip install --no-cache-dir \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --default-timeout=1000 -r requirements.txt
 
-# 5. Copy app and install browser for scraping
+# 5. Copy app and install browsers
 COPY . .
 RUN playwright install --with-deps chromium
 
-# 6. Start command (Change main:app if your entry point is different)
+# 6. Start command using Gunicorn/Uvicorn
 CMD ["gunicorn", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--bind", "0.0.0.0:$PORT"]
