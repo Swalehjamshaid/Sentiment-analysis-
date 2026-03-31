@@ -15,25 +15,31 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
 # =========================================================
-# Utility helpers
+# HELPERS
 # =========================================================
-
 def safe_avg(values):
     return round(sum(values) / len(values), 2) if values else 0
 
 
-def month_label(dt: datetime) -> str:
-    return dt.strftime("%b %Y")
+def safe_date(val):
+    try:
+        return datetime.fromisoformat(val) if val else None
+    except:
+        return None
+
+
+def month_label(dt):
+    return dt.strftime("%b %Y") if dt else "Unknown"
 
 
 # =========================================================
-# MAIN DASHBOARD ENDPOINT (ANALYZE BUSINESS)
+# MAIN ANALYTICS ENDPOINT
 # =========================================================
 @router.get("/ai/insights")
 async def analyze_business(
     company_id: int = Query(...),
 
-    # Frontend sends broken params (&amp;start / &amp;end)
+    # Fix for broken frontend params
     start: str | None = Query(None),
     end: str | None = Query(None),
     amp_start: str | None = Query(None, alias="amp;start"),
@@ -41,66 +47,56 @@ async def analyze_business(
 
     session: AsyncSession = Depends(get_session),
 ):
-    # Resolve date inputs robustly
+    # Resolve date safely
     start_val = start or amp_start
     end_val = end or amp_end
 
-    try:
-        start_dt = datetime.fromisoformat(start_val) if start_val else None
-        end_dt = datetime.fromisoformat(end_val) if end_val else None
-    except Exception:
-        start_dt = None
-        end_dt = None
+    start_dt = safe_date(start_val)
+    end_dt = safe_date(end_val)
 
-    # Base query (PostgreSQL – Railway)
+    # Base query
     query = select(Review).where(Review.company_id == company_id)
+
     if start_dt and end_dt:
         query = query.where(
             Review.google_review_time >= start_dt,
-            Review.google_review_time <= end_dt,
+            Review.google_review_time <= end_dt
         )
 
     result = await session.execute(query)
     reviews = result.scalars().all()
 
-    # Always return a valid structure
+    # -----------------------------------------------------
+    # EMPTY SAFE RESPONSE
+    # -----------------------------------------------------
     if not reviews:
         return _empty_dashboard()
 
     # -----------------------------------------------------
-    # KPI calculations
+    # KPI CALCULATIONS
     # -----------------------------------------------------
     ratings_list = [r.rating for r in reviews if isinstance(r.rating, (int, float))]
     avg_rating = safe_avg(ratings_list)
     reputation_score = int((avg_rating / 5) * 100) if avg_rating else 0
 
     # -----------------------------------------------------
-    # Rating distribution
+    # VISUAL STRUCTURES (STRICT FORMAT FOR FRONTEND)
     # -----------------------------------------------------
     ratings = {i: 0 for i in range(1, 6)}
-
-    # -----------------------------------------------------
-    # Sentiment buckets
-    # -----------------------------------------------------
     emotions = {"Positive": 0, "Neutral": 0, "Negative": 0}
-
-    # -----------------------------------------------------
-    # Month‑wise sentiment trend
-    # -----------------------------------------------------
     monthly = defaultdict(list)
-
-    # -----------------------------------------------------
-    # Keyword extraction
-    # -----------------------------------------------------
     words = []
 
+    # -----------------------------------------------------
+    # LOOP
+    # -----------------------------------------------------
     for r in reviews:
-        # Rating distribution
+        # Ratings
         if r.rating in ratings:
             ratings[r.rating] += 1
 
-        # Sentiment classification
-        score = r.sentiment_score or 0
+        # Sentiment
+        score = getattr(r, "sentiment_score", 0) or 0
         if score >= 0.25:
             emotions["Positive"] += 1
         elif score <= -0.25:
@@ -108,25 +104,37 @@ async def analyze_business(
         else:
             emotions["Neutral"] += 1
 
-        # Monthly aggregation
+        # Time trend
         if r.google_review_time:
             m = month_label(r.google_review_time)
             monthly[m].append(r.rating or 0)
 
-        # Keywords
-        if r.text:
-            words.extend(r.text.lower().split())
+        # Keywords (SAFE FIELD HANDLING)
+        text = getattr(r, "text", None) or getattr(r, "review_text", None)
+        if text:
+            words.extend(text.lower().split())
 
-    sentiment_trend = [
-        {"week": month, "avg": safe_avg(vals)}
-        for month, vals in sorted(monthly.items())
-    ]
+    # -----------------------------------------------------
+    # TREND FIX (SORTED)
+    # -----------------------------------------------------
+    sentiment_trend = []
+    for m in sorted(monthly.keys()):
+        sentiment_trend.append({
+            "week": m,
+            "avg": safe_avg(monthly[m])
+        })
 
+    # -----------------------------------------------------
+    # KEYWORDS (FRONTEND SAFE)
+    # -----------------------------------------------------
     keywords = [
         {"text": w, "value": c}
-        for w, c in Counter(words).most_common(15)
+        for w, c in Counter(words).most_common(20)
     ]
 
+    # -----------------------------------------------------
+    # FINAL RESPONSE (STRICT CONTRACT)
+    # -----------------------------------------------------
     return {
         "metadata": {
             "total_reviews": len(reviews)
@@ -139,13 +147,13 @@ async def analyze_business(
             "ratings": ratings,
             "emotions": emotions,
             "sentiment_trend": sentiment_trend,
-            "keywords": keywords
+            "keywords": keywords  # 🔥 REQUIRED FOR UI
         }
     }
 
 
 # =========================================================
-# CHATBOT ENDPOINT (STRATEGY CONSULTANT)
+# CHATBOT (STABLE)
 # =========================================================
 @router.get("/chatbot/explain/{company_id}")
 async def chatbot_explain(
@@ -159,18 +167,21 @@ async def chatbot_explain(
     avg_rating = result.scalar() or 0
 
     q = question.lower()
-    if "why" in q or "decline" in q:
-        answer = "Recent changes are driven by month‑to‑month shifts in sentiment and rating patterns."
-    elif "grow" in q or "improve" in q:
-        answer = "Improvement can be achieved by responding quickly to negative reviews and reinforcing positive customer experiences."
+
+    if "why" in q:
+        answer = "Changes are driven by shifts in customer sentiment and recent review trends."
+    elif "improve" in q or "grow" in q:
+        answer = "Focus on responding to negative reviews and improving customer experience."
+    elif "trend" in q:
+        answer = "Recent trends show fluctuations in ratings influenced by review volume."
     else:
-        answer = f"The current average rating is {round(avg_rating, 2)}. Overall performance is stable."
+        answer = f"Your current average rating is {round(avg_rating, 2)}."
 
     return {"answer": answer}
 
 
 # =========================================================
-# REVENUE RISK MONITORING
+# REVENUE RISK
 # =========================================================
 @router.get("/revenue")
 async def revenue_risk(
@@ -190,7 +201,7 @@ async def revenue_risk(
 
 
 # =========================================================
-# EXECUTIVE PDF REPORT
+# PDF REPORT
 # =========================================================
 @router.get("/executive-report/pdf/{company_id}")
 async def executive_report_pdf(
@@ -211,7 +222,7 @@ async def executive_report_pdf(
     pdf.drawString(50, 720, f"Company ID: {company_id}")
     pdf.drawString(50, 690, f"Average Rating: {round(avg_rating or 0, 2)}")
     pdf.drawString(50, 660, f"Total Reviews: {count or 0}")
-    pdf.drawString(50, 630, "Recommendation: Maintain service quality and respond to customer feedback promptly.")
+    pdf.drawString(50, 630, "Recommendation: Improve customer satisfaction & respond faster.")
 
     pdf.showPage()
     pdf.save()
@@ -225,7 +236,7 @@ async def executive_report_pdf(
 
 
 # =========================================================
-# SAFE EMPTY RESPONSE
+# SAFE EMPTY RESPONSE (NO FRONTEND CRASH)
 # =========================================================
 def _empty_dashboard():
     return JSONResponse({
