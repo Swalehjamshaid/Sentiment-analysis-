@@ -1,128 +1,143 @@
-# app/routes/dashboard.py
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
-from typing import Optional
-import random
-from datetime import datetime, timedelta
-import os
+# dashboard.py
+from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
+from datetime import datetime
+from typing import Optional, List, Dict
+from app.database import get_db
+from app.models import Company, Review
+from app.schemas import ReviewSchema, CompanySchema
+from fastapi.templating import Jinja2Templates
 
-# ==================== CREATE ROUTER ====================
-router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+router = APIRouter()
+templates = Jinja2Templates(directory="app/templates")
 
-# ===============================
-# In-Memory Mock Database
-# ===============================
-companies_db = [
-    {"id": "1", "name": "TechMart", "place_id": "abc123", "address": "123 Tech St"},
-    {"id": "2", "name": "Cafe Deluxe", "place_id": "def456", "address": "456 Coffee Rd"},
-]
+# -----------------------------
+# FRONTEND ROUTE
+# -----------------------------
+@router.get("/")
+async def dashboard_page(request: Request):
+    """
+    Renders the dashboard.html page
+    """
+    return templates.TemplateResponse("dashboard.html", {"request": request})
 
-reviews_db = {
-    "1": [{"rating": random.randint(1, 5), "sentiment": random.uniform(0, 1), "emotion": random.choice(["Happy", "Angry", "Neutral"])} for _ in range(120)],
-    "2": [{"rating": random.randint(1, 5), "sentiment": random.uniform(0, 1), "emotion": random.choice(["Happy", "Angry", "Neutral"])} for _ in range(80)],
-}
-
-# ===============================
-# Pydantic Models
-# ===============================
-class CompanyCreate(BaseModel):
-    name: str
-    place_id: str
-    address: str
-
-class ChatMessage(BaseModel):
-    message: str
-    company_id: str
-
-# ===============================
-# HTML Dashboard (Serves your frontend)
-# ===============================
-@router.get("/", response_class=HTMLResponse)
-async def get_dashboard():
-    TEMPLATE_PATH = os.path.join("templates", "dashboard.html")
-    if not os.path.exists(TEMPLATE_PATH):
-        return HTMLResponse("<h1>Dashboard UI not found</h1><p>Please upload templates/dashboard.html</p>")
-    
-    with open(TEMPLATE_PATH, "r", encoding="utf-8") as f:
-        return HTMLResponse(f.read())
-
-# ===============================
-# API Endpoints (Exactly matching your frontend JS)
-# ===============================
+# -----------------------------
+# API ROUTES
+# -----------------------------
 @router.get("/api/companies")
-async def get_companies():
-    return {"companies": companies_db}
+async def get_companies(db: Session = get_db()):
+    companies = db.query(Company).all()
+    result = [{"id": c.id, "name": c.name, "place_id": c.place_id, "address": c.address} for c in companies]
+    return JSONResponse(content={"companies": result})
 
 @router.post("/api/companies")
-async def add_company(company: CompanyCreate):
-    new_id = str(len(companies_db) + 1)
-    companies_db.append({
-        "id": new_id,
-        "name": company.name,
-        "place_id": company.place_id,
-        "address": company.address,
-    })
-    reviews_db[new_id] = []
-    return {"status": "success", "company_id": new_id}
+async def add_company(payload: CompanySchema, db: Session = get_db()):
+    company = Company(name=payload.name, place_id=payload.place_id, address=payload.address)
+    db.add(company)
+    db.commit()
+    db.refresh(company)
+    return JSONResponse(content={"status": "success", "id": company.id})
 
-@router.get("/api/ai/insights")
-async def get_ai_insights(company_id: str, start: Optional[str] = None, end: Optional[str] = None):
-    if company_id not in reviews_db:
-        raise HTTPException(status_code=404, detail="Company not found")
+# -----------------------------
+# KPI + CHART DATA
+# -----------------------------
+@router.get("/api/dashboard/ai/insights")
+async def get_ai_insights(company_id: int, start: Optional[str] = None, end: Optional[str] = None, db: Session = get_db()):
+    start_dt = datetime.fromisoformat(start) if start else datetime(2024, 1, 1)
+    end_dt = datetime.fromisoformat(end) if end else datetime.now()
 
-    reviews = reviews_db[company_id]
+    reviews = db.query(Review).filter(
+        Review.company_id == company_id,
+        Review.date >= start_dt,
+        Review.date <= end_dt
+    ).all()
+
+    if not reviews:
+        return JSONResponse(content={"metadata": {}, "kpis": {}, "visualizations": {}})
+
+    # KPI calculations
     total_reviews = len(reviews)
-    avg_rating = round(sum(r["rating"] for r in reviews) / total_reviews, 2) if total_reviews else 0
+    avg_rating = round(sum(r.rating for r in reviews) / total_reviews, 2)
+    reputation_score = round(sum(r.reputation_score for r in reviews) / total_reviews, 2)
 
-    emotions_count = {"Happy": 0, "Angry": 0, "Neutral": 0}
-    ratings_dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    # Charts
+    emotions = {}
+    sentiment_trend = {}
+    ratings_dist = {1:0,2:0,3:0,4:0,5:0}
 
     for r in reviews:
-        emotions_count[r["emotion"]] += 1
-        ratings_dist[r["rating"]] += 1
+        for emo, val in r.emotions.items():
+            emotions[emo] = emotions.get(emo, 0) + val
+        week_key = r.date.strftime("%Y-%W")
+        if week_key not in sentiment_trend:
+            sentiment_trend[week_key] = {"avg": r.sentiment, "count": 1}
+        else:
+            sentiment_trend[week_key]["avg"] += r.sentiment
+            sentiment_trend[week_key]["count"] += 1
+        ratings_dist[r.rating] += 1
 
-    sentiment_trend = [{"week": f"Week-{i+1}", "avg": round(random.uniform(0.4, 0.9), 2)} for i in range(6)]
+    # Average sentiment per week
+    sentiment_trend_list = [{"week": k, "avg": round(v["avg"]/v["count"], 2)} for k,v in sorted(sentiment_trend.items())]
 
-    return {
-        "metadata": {"total_reviews": total_reviews},
-        "kpis": {
-            "average_rating": avg_rating,
-            "reputation_score": round(random.uniform(0, 100), 2),
-        },
-        "visualizations": {
-            "emotions": emotions_count,
-            "sentiment_trend": sentiment_trend,
-            "ratings": ratings_dist,
-        },
+    vis = {
+        "emotions": {k: round(v,2) for k,v in emotions.items()},
+        "sentiment_trend": sentiment_trend_list,
+        "ratings": ratings_dist
     }
 
-@router.get("/api/revenue")
-async def get_revenue(company_id: str):
-    if company_id not in reviews_db:
-        raise HTTPException(status_code=404, detail="Company not found")
-    return {
-        "risk_percent": round(random.uniform(0, 100), 2),
-        "impact": random.choice(["Low", "Medium", "High"]),
-        "loss_estimate": round(random.uniform(1000, 10000), 2),
+    kpis = {
+        "average_rating": avg_rating,
+        "reputation_score": reputation_score
     }
 
+    metadata = {
+        "total_reviews": total_reviews
+    }
+
+    return JSONResponse(content={"metadata": metadata, "kpis": kpis, "visualizations": vis})
+
+# -----------------------------
+# Revenue Risk
+# -----------------------------
+@router.get("/api/dashboard/revenue")
+async def revenue_risk(company_id: int, db: Session = get_db()):
+    # Dummy calculation; replace with real business logic
+    risk_percent = 10  # %
+    impact_level = "Medium"  # e.g., Low, Medium, High
+    return JSONResponse(content={"risk_percent": risk_percent, "impact": impact_level})
+
+# -----------------------------
+# Review Sync
+# -----------------------------
 @router.post("/api/reviews/ingest/{company_id}")
-async def ingest_reviews(company_id: str):
-    if company_id not in reviews_db:
-        raise HTTPException(status_code=404, detail="Company not found")
-    new_reviews = [
-        {
-            "rating": random.randint(1, 5),
-            "sentiment": random.uniform(0, 1),
-            "emotion": random.choice(["Happy", "Angry", "Neutral"]),
-        }
-        for _ in range(random.randint(5, 20))
-    ]
-    reviews_db[company_id].extend(new_reviews)
-    return {"status": "success", "reviews_added": len(new_reviews)}
+async def ingest_reviews(company_id: int, db: Session = get_db()):
+    """
+    Syncs live reviews from Google Places API or SERP API (placeholder)
+    """
+    # Placeholder logic: Fetch reviews from API
+    # Here you would call your scraper or external API to get reviews
+    new_reviews_count = 5  # Dummy number
 
-# Health check
-@router.get("/health")
-async def health_check():
-    return {"status": "ok"}
+    # Optionally save dummy reviews
+    # for i in range(new_reviews_count):
+    #     review = Review(company_id=company_id, rating=5, sentiment=0.9, emotions={"happy":1}, date=datetime.now(), reputation_score=0.8)
+    #     db.add(review)
+    # db.commit()
+
+    return JSONResponse(content={"status": "success", "reviews_count": new_reviews_count})
+
+# -----------------------------
+# AI Chatbot
+# -----------------------------
+@router.post("/chatbot/chat")
+async def chat_ai(request: Request, db: Session = get_db()):
+    data = await request.json()
+    message = data.get("message")
+    company_id = data.get("company_id")
+    if not message or not company_id:
+        raise HTTPException(status_code=400, detail="Missing parameters")
+
+    # Dummy AI response (replace with real AI integration)
+    answer = f"Simulated AI response to '{message}' for company ID {company_id}"
+    return JSONResponse(content={"answer": answer})
