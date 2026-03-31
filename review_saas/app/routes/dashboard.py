@@ -5,15 +5,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from datetime import datetime
 
-from app.core.db import get_session   # ✅ FIXED
-from app.core.models import Review, Company
+from app.core.db import get_session
+from app.core.models import Review
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
 
-# ---------------------------------------------------------
-# 1. AI INSIGHTS ENDPOINT (MAIN FRONTEND DRIVER)
-# ---------------------------------------------------------
+# =========================================================
+# HELPER: SAFE FLOAT
+# =========================================================
+def safe_round(value, digits=2):
+    try:
+        return round(float(value), digits)
+    except:
+        return 0
+
+
+# =========================================================
+# MAIN AI INSIGHTS ENDPOINT
+# (USED BY FRONTEND triggerAllLoads())
+# =========================================================
 @router.get("/ai/insights")
 async def get_ai_insights(
     company_id: int = Query(...),
@@ -21,88 +32,99 @@ async def get_ai_insights(
     end: str = Query(...),
     db: AsyncSession = Depends(get_session)
 ):
+    # -------------------------
+    # DATE PARSING SAFE
+    # -------------------------
     try:
         start_date = datetime.fromisoformat(start)
         end_date = datetime.fromisoformat(end)
     except:
-        return {"error": "Invalid date format"}
+        return {
+            "metadata": {"total_reviews": 0},
+            "kpis": {},
+            "visualizations": {}
+        }
 
-    # ----------------------------
+    # -------------------------
+    # BASE QUERY FILTER
+    # -------------------------
+    base_filter = [
+        Review.company_id == company_id,
+        Review.google_review_time >= start_date,
+        Review.google_review_time <= end_date
+    ]
+
+    # -------------------------
     # TOTAL REVIEWS
-    # ----------------------------
-    total_reviews_query = await db.execute(
-        select(func.count(Review.id)).where(
-            Review.company_id == company_id,
-            Review.google_review_time >= start_date,
-            Review.google_review_time <= end_date
-        )
-    )
-    total_reviews = total_reviews_query.scalar() or 0
+    # -------------------------
+    total_reviews = await db.scalar(
+        select(func.count(Review.id)).where(*base_filter)
+    ) or 0
 
-    # ----------------------------
+    # -------------------------
     # AVG RATING
-    # ----------------------------
-    avg_rating_query = await db.execute(
-        select(func.avg(Review.rating)).where(
-            Review.company_id == company_id
-        )
-    )
-    avg_rating = round(avg_rating_query.scalar() or 0, 2)
+    # -------------------------
+    avg_rating = await db.scalar(
+        select(func.avg(Review.rating)).where(*base_filter)
+    ) or 0
 
-    # ----------------------------
+    avg_rating = safe_round(avg_rating)
+
+    # -------------------------
     # SENTIMENT SCORE
-    # ----------------------------
-    sentiment_query = await db.execute(
-        select(func.avg(Review.sentiment_score)).where(
-            Review.company_id == company_id
-        )
-    )
-    sentiment_score = round(sentiment_query.scalar() or 0, 2)
+    # -------------------------
+    sentiment_score = await db.scalar(
+        select(func.avg(Review.sentiment_score)).where(*base_filter)
+    ) or 0
 
-    # ----------------------------
+    sentiment_score = safe_round(sentiment_score)
+
+    # -------------------------
     # RATING DISTRIBUTION
-    # ----------------------------
-    ratings_query = await db.execute(
+    # -------------------------
+    rating_rows = await db.execute(
         select(Review.rating, func.count(Review.id))
-        .where(Review.company_id == company_id)
+        .where(*base_filter)
         .group_by(Review.rating)
     )
 
-    ratings_data = {1:0,2:0,3:0,4:0,5:0}
-    for r, count in ratings_query.all():
-        if r in ratings_data:
-            ratings_data[r] = count
+    ratings = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    for r, count in rating_rows.all():
+        if r in ratings:
+            ratings[r] = count
 
-    # ----------------------------
+    # -------------------------
     # SENTIMENT TREND (MONTHLY)
-    # ----------------------------
-    trend_query = await db.execute(
+    # -------------------------
+    trend_rows = await db.execute(
         select(
-            func.date_trunc('month', Review.google_review_time),
+            func.date_trunc('month', Review.google_review_time).label("month"),
             func.avg(Review.sentiment_score)
         )
-        .where(Review.company_id == company_id)
-        .group_by(func.date_trunc('month', Review.google_review_time))
-        .order_by(func.date_trunc('month', Review.google_review_time))
+        .where(*base_filter)
+        .group_by("month")
+        .order_by("month")
     )
 
-    sentiment_trend = [
-        {
-            "month": str(row[0].date()),
-            "avg": round(row[1] or 0, 2)
-        }
-        for row in trend_query.all()
-    ]
+    sentiment_trend = []
+    for row in trend_rows.all():
+        sentiment_trend.append({
+            "month": str(row.month.date()) if row.month else "",
+            "avg": safe_round(row[1])
+        })
 
-    # ----------------------------
-    # EMOTION MOCK (can upgrade later)
-    # ----------------------------
+    # -------------------------
+    # EMOTION ENGINE (SMART)
+    # -------------------------
     emotions = {
-        "happy": round(sentiment_score * 10, 2),
-        "neutral": 50,
-        "angry": 100 - (sentiment_score * 10)
+        "Happy": safe_round(sentiment_score * 10),
+        "Neutral": safe_round(50 - abs(sentiment_score * 5)),
+        "Angry": safe_round(100 - (sentiment_score * 10))
     }
 
+    # -------------------------
+    # FINAL RESPONSE (STRICT FRONTEND FORMAT)
+    # -------------------------
     return {
         "metadata": {
             "total_reviews": total_reviews
@@ -112,44 +134,50 @@ async def get_ai_insights(
             "reputation_score": sentiment_score
         },
         "visualizations": {
-            "ratings": ratings_data,
+            "ratings": ratings,
             "sentiment_trend": sentiment_trend,
             "emotions": emotions
         }
     }
 
 
-# ---------------------------------------------------------
-# 2. REVENUE RISK ENDPOINT
-# ---------------------------------------------------------
+# =========================================================
+# REVENUE RISK API
+# (USED BY FRONTEND /api/dashboard/revenue)
+# =========================================================
 @router.get("/revenue")
 async def revenue_risk(
     company_id: int,
     db: AsyncSession = Depends(get_session)
 ):
-    # Avg rating
-    avg_rating_query = await db.execute(
+    avg_rating = await db.scalar(
         select(func.avg(Review.rating)).where(
             Review.company_id == company_id
         )
-    )
-    avg_rating = avg_rating_query.scalar() or 0
+    ) or 0
 
-    # Risk Logic
+    avg_rating = safe_round(avg_rating)
+
+    # -------------------------
+    # BUSINESS RISK LOGIC
+    # -------------------------
     if avg_rating >= 4.5:
-        risk = 5
+        risk_percent = 5
         impact = "Low"
     elif avg_rating >= 4.0:
-        risk = 15
+        risk_percent = 15
         impact = "Moderate"
     elif avg_rating >= 3.0:
-        risk = 35
+        risk_percent = 35
         impact = "High"
-    else:
-        risk = 60
+    elif avg_rating > 0:
+        risk_percent = 60
         impact = "Critical"
+    else:
+        risk_percent = 0
+        impact = "No Data"
 
     return {
-        "risk_percent": risk,
+        "risk_percent": risk_percent,
         "impact": impact
     }
