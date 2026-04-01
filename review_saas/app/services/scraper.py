@@ -1,9 +1,11 @@
+# filename: app/services/scraper.py
 import os
 import logging
 import asyncio
+import re
+import requests
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-import re
 
 from serpapi import GoogleSearch
 from sqlalchemy import select, func
@@ -13,8 +15,10 @@ from app.core.models import Company, Review
 
 logger = logging.getLogger("app.scraper")
 
-# Verified API Key
+# API Keys
 SERPAPI_KEY = "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d".strip()
+# Make sure to set this in your Railway Environment Variables
+SERPER_API_KEY = os.getenv("SERPER_API_KEY") 
 
 def parse_relative_date(date_text: str) -> datetime:
     if not date_text or not isinstance(date_text, str):
@@ -33,6 +37,50 @@ def parse_relative_date(date_text: str) -> datetime:
     elif 'year' in date_text: return now - timedelta(days=quantity * 365)
     return now
 
+async def fetch_from_serper_fallback(place_id: str, limit: int, skip_count: int) -> List[Dict[str, Any]]:
+    """Fallback logic using Serper.dev API if SerpApi fails"""
+    logger.info(f"⚠️ SerpApi failed. Trying Serper.dev for next {limit} reviews (skipping {skip_count}).")
+    
+    url = "https://google.serper.dev/reviews"
+    # Serper handles pagination/skipping via 'page' or 'offset' depending on endpoint
+    # We attempt to match your skip logic here
+    payload = {
+        "place_id": place_id,
+        "count": limit + skip_count 
+    }
+    headers = {
+        'X-API-KEY': SERPER_API_KEY,
+        'Content-Type': 'application/json'
+    }
+    
+    try:
+        response = await asyncio.to_thread(lambda: requests.post(url, headers=headers, json=payload))
+        response.raise_for_status()
+        data = response.json()
+        reviews = data.get("reviews", [])
+        
+        results = []
+        # Apply the exact same Skip Logic as the original code
+        for index, r in enumerate(reviews):
+            if (index + 1) <= skip_count:
+                continue
+            
+            if len(results) >= limit:
+                break
+
+            results.append({
+                "google_review_id": r.get("reviewId"),
+                "author_name": r.get("user", {}).get("name"),
+                "rating": int(r.get("rating", 5)),
+                "text": r.get("snippet") or r.get("text") or "No content",
+                "google_review_time": parse_relative_date(r.get("date", "")),
+                "review_likes": 0
+            })
+        return results
+    except Exception as e:
+        logger.error(f"❌ Both APIs failed. Serper Error: {e}")
+        return []
+
 async def fetch_reviews_from_google(
     place_id: Optional[str] = None,
     company_id: Optional[int] = None,
@@ -44,10 +92,9 @@ async def fetch_reviews_from_google(
     all_reviews: List[Dict[str, Any]] = []
 
     try:
-        # 1. Check current count in DB
+        # 1. Check current count in DB (The Skip Logic)
         current_db_count = 0
         if session and company_id:
-            # We count how many reviews we already have for THIS specific company
             count_stmt = select(func.count(Review.id)).where(Review.company_id == company_id)
             count_res = await session.execute(count_stmt)
             current_db_count = count_res.scalar() or 0
@@ -62,62 +109,65 @@ async def fetch_reviews_from_google(
             return []
 
         cutoff_date = datetime.utcnow() - timedelta(days=days_back)
-        
-        # LOGIC: If we have 100 reviews, we skip 100. If we have 200, we skip 200.
         logger.info(f"🚀 Deep Sync: DB already has {current_db_count}. Fetching NEXT {target_limit} older reviews.")
         
+        # 2. PRIMARY ATTEMPT: SerpApi
         next_page_token: Optional[str] = None
         total_seen_on_google = 0
 
-        while len(all_reviews) < target_limit:
-            params = {
-                "engine": "google_maps_reviews",
-                "place_id": target_place_id,
-                "api_key": SERPAPI_KEY,
-                "next_page_token": next_page_token,
-                "sort_by": "newest"
-            }
+        try:
+            while len(all_reviews) < target_limit:
+                params = {
+                    "engine": "google_maps_reviews",
+                    "place_id": target_place_id,
+                    "api_key": SERPAPI_KEY,
+                    "next_page_token": next_page_token,
+                    "sort_by": "newest"
+                }
 
-            results = await asyncio.to_thread(lambda: GoogleSearch(params).get_dict())
-            
-            if "error" in results:
-                logger.error(f"❌ SerpApi Error: {results['error']}")
-                break
-
-            reviews = results.get("reviews", [])
-            if not reviews:
-                break
-
-            for r in reviews:
-                total_seen_on_google += 1
+                results = await asyncio.to_thread(lambda: GoogleSearch(params).get_dict())
                 
-                # --- THE SKIP ATTRIBUTE ---
-                # We skip everything we already have in our database
-                if total_seen_on_google <= current_db_count:
-                    continue
+                if "error" in results:
+                    # Trigger fallback if SerpApi returns an error (like out of credits)
+                    raise Exception(results["error"])
 
-                if len(all_reviews) >= target_limit:
+                reviews = results.get("reviews", [])
+                if not reviews:
                     break
-                
-                parsed_date = parse_relative_date(r.get("date", ""))
-                
-                if parsed_date < cutoff_date:
-                    return all_reviews
 
-                all_reviews.append({
-                    "google_review_id": r.get("review_id"),
-                    "author_name": r.get("user", {}).get("name"),
-                    "rating": int(r.get("rating", 5)),
-                    "text": r.get("text") or r.get("snippet") or "No content",
-                    "google_review_time": parsed_date,
-                    "review_likes": r.get("likes", 0)
-                })
+                for r in reviews:
+                    total_seen_on_google += 1
+                    
+                    # --- THE SKIP ATTRIBUTE ---
+                    if total_seen_on_google <= current_db_count:
+                        continue
 
-            next_page_token = results.get("serpapi_pagination", {}).get("next_page_token")
-            if not next_page_token:
-                break
+                    if len(all_reviews) >= target_limit:
+                        break
+                    
+                    parsed_date = parse_relative_date(r.get("date", ""))
+                    if parsed_date < cutoff_date:
+                        return all_reviews
 
-        logger.info(f"✅ Collected {len(all_reviews)} BRAND NEW older reviews.")
+                    all_reviews.append({
+                        "google_review_id": r.get("review_id"),
+                        "author_name": r.get("user", {}).get("name"),
+                        "rating": int(r.get("rating", 5)),
+                        "text": r.get("text") or r.get("snippet") or "No content",
+                        "google_review_time": parsed_date,
+                        "review_likes": r.get("likes", 0)
+                    })
+
+                next_page_token = results.get("serpapi_pagination", {}).get("next_page_token")
+                if not next_page_token:
+                    break
+            
+            return all_reviews
+
+        except Exception as primary_err:
+            # 3. FALLBACK ATTEMPT: Serper.dev
+            logger.warning(f"SerpApi Error: {primary_err}")
+            return await fetch_from_serper_fallback(target_place_id, target_limit, current_db_count)
 
     except Exception as exc:
         logger.error(f"❌ Scraper failure: {exc}")
