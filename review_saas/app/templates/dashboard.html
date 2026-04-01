@@ -233,19 +233,17 @@
         </div>
     </div>
 
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
+    <!-- Google Maps JS (async defer + callback) -->
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&callback=initGoogleAutocomplete"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
         let chartInstances = {};
-        
-        // ==========================================================
-        // 100% ALIGNED ENDPOINTS (MATCHING BACKEND ROUTES)
-        // ==========================================================
+
         const DASHBOARD_CONFIG = {
             endpoints: {
                 overview: "/api/overview",
-                insights: "/api/insights", 
+                insights: "/api/insights",
                 chat: "/api/chatbot/explain",
                 revenue: "/api/revenue",
                 report: "/api/executive-report/pdf",
@@ -268,24 +266,23 @@
             loadBtn.innerText = "Analyzing...";
 
             try {
-                // 1. Load Overview (Total Reviews & Avg Rating)
                 const overRes = await fetch(`${DASHBOARD_CONFIG.endpoints.overview}/${cid}`);
+                if (!overRes.ok) throw new Error("Overview not found");
                 const overData = await overRes.json();
                 setElementText("kpiTotal", overData.total_reviews || 0);
                 setElementText("kpiRating", overData.average_rating || "—");
 
-                // 2. Load AI Insights & Visuals
                 const insRes = await fetch(`${DASHBOARD_CONFIG.endpoints.insights}?company_id=${cid}&start=${start}&end=${end}`);
+                if (!insRes.ok) throw new Error("Insights not found");
                 const insData = await insRes.json();
                 
                 if(insData.sentiment_counts) {
-                    // Update reputation score or visuals here
                     renderCharts(insData); 
                     if(insData.top_keywords) renderKeywords(insData.top_keywords);
                 }
 
-                // 3. Load Revenue Risk
                 const revRes = await fetch(`${DASHBOARD_CONFIG.endpoints.revenue}?company_id=${cid}`);
+                if (!revRes.ok) throw new Error("Revenue data not found");
                 const revData = await revRes.json();
                 setElementText("riskPct", revData.loss_probability || "—");
                 setElementText("riskImpact", revData.impact_level || "—");
@@ -299,7 +296,6 @@
         }
 
         function renderCharts(data) {
-            // Emotion Radar Chart
             const radarCtx = document.getElementById("chartEmotions").getContext('2d');
             if (chartInstances.emotions) chartInstances.emotions.destroy();
             chartInstances.emotions = new Chart(radarCtx, {
@@ -317,7 +313,6 @@
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
 
-            // Mocking trend data for visual flow
             const lineCtx = document.getElementById("chartMonthly").getContext('2d');
             if (chartInstances.monthly) chartInstances.monthly.destroy();
             chartInstances.monthly = new Chart(lineCtx, {
@@ -356,29 +351,35 @@
             win.scrollTop = win.scrollHeight;
 
             try {
-                const res = await fetch(`${DASHBOARD_CONFIG.endpoints.chat}?question=${encodeURIComponent(msg)}`, { method: 'POST' });
+                const res = await fetch(`${DASHBOARD_CONFIG.endpoints.chat}?question=${encodeURIComponent(msg)}&company_id=${cid}`);
                 const data = await res.json();
-                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Consultant:</strong> ${data.answer || data.error}</div>`;
+                win.innerHTML += `<div class="chat-msg chat-ai">${data.answer}</div>`;
                 win.scrollTop = win.scrollHeight;
-            } catch (e) { 
-                win.innerHTML += `<div class="chat-msg chat-ai text-danger">Connection error.</div>`; 
-            }
+            } catch(e) { console.error("AI Chat Error:", e); }
         }
+
+        function downloadReport() {
+            const cid = document.getElementById("companySelect").value;
+            if(!cid) return;
+            window.open(`${DASHBOARD_CONFIG.endpoints.report}/${cid}`, "_blank");
+        }
+
+        document.getElementById("toggleTheme").addEventListener("click", () => {
+            document.documentElement.dataset.theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+        });
 
         async function loadCompanies() {
             try {
-                const response = await fetch(DASHBOARD_CONFIG.endpoints.companies);
-                const list = await response.json();
-                const sel = document.getElementById("companySelect");
-                const companies = list.companies || list;
-                sel.innerHTML = companies.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
-                if(sel.value) triggerAllLoads();
-            } catch (e) { console.error("Companies Load Error", e); }
+                const res = await fetch(DASHBOARD_CONFIG.endpoints.companies);
+                const data = await res.json();
+                const select = document.getElementById("companySelect");
+                select.innerHTML = data.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+            } catch(e) { console.error("Company Load Error:", e); }
         }
 
-        function initGoogleAutocomplete() {
+        window.initGoogleAutocomplete = function() {
             const input = document.getElementById('googleSearchInput');
-            if(!input) return;
+            if (!input) return;
             const autocomplete = new google.maps.places.Autocomplete(input);
             autocomplete.addListener('place_changed', () => {
                 const p = autocomplete.getPlace();
@@ -386,23 +387,9 @@
                 document.getElementById('placeId').value = p.place_id || "";
                 document.getElementById('companyAddress').value = p.formatted_address || "";
             });
-        }
-
-        document.getElementById("toggleTheme").onclick = () => {
-            const root = document.documentElement;
-            const current = root.getAttribute("data-theme");
-            root.setAttribute("data-theme", current === "light" ? "dark" : "light");
         };
 
-        function downloadReport() {
-            const cid = document.getElementById("companySelect").value;
-            if (cid) window.location.href = `${DASHBOARD_CONFIG.endpoints.report}/${cid}`;
-        }
-
-        window.onload = () => { 
-            loadCompanies(); 
-            initGoogleAutocomplete(); 
-        };
+        window.addEventListener("DOMContentLoaded", () => { loadCompanies(); });
     </script>
 </body>
 </html>
