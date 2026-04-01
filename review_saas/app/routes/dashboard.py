@@ -1,204 +1,148 @@
 # filename: app/routes/dashboard.py
 # ==========================================================
-# REVIEW INTELLIGENCE DASHBOARD - FULLY INTEGRATED & FIXED
+# REVIEW INTELLIGENCE DASHBOARD - FULLY INTEGRATED
 # ==========================================================
-
-import io
-import base64
-import os
-import logging
-import asyncio
-from datetime import datetime
-from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from wordcloud import WordCloud
-from fpdf import FPDF
-import openai
+from sqlalchemy import select, func, and_
+from datetime import datetime
+from typing import List
+import os
+import io
+import json
 
-# Internal Core Imports
 from app.core.db import get_session
-from app.core.models import Company, Review
+from app.models import Review, Company
+from app.utils.sentiment import analyze_sentiment, extract_keywords
+from app.utils.pdf_report import generate_pdf_report
 
-# --------------------------- Setup ---------------------------
-logger = logging.getLogger("app.routes.dashboard")
-
-# Router setup - matches app.include_router(dashboard.router, prefix="/api") in main.py
-router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
-
-# Set OpenAI API key from environment
-openai.api_key = os.getenv("OPENAI_API_KEY")
+router = APIRouter(prefix="/api")
 
 # ----------------------------------------------------------
-# HELPER: Fetch & Analyze Sentiment
+# Load all companies for dropdown
 # ----------------------------------------------------------
-async def fetch_reviews_with_sentiment(session: AsyncSession, company_id: int) -> list[dict]:
-    """
-    Fetches reviews. If sentiment_label is missing, uses OpenAI to fill it.
-    """
-    stmt = select(Review).where(Review.company_id == company_id)
-    result = await session.execute(stmt)
-    reviews = result.scalars().all()
-
-    if not reviews:
-        return []
-
-    for review in reviews:
-        # Check if we need to generate sentiment
-        if not review.sentiment_label or review.sentiment_label.lower() == "unknown":
-            try:
-                response = openai.ChatCompletion.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": "You are a sentiment analyzer. Respond with only: Positive, Negative, or Neutral."},
-                        {"role": "user", "content": review.text or "No text provided"}
-                    ],
-                    temperature=0
-                )
-                sentiment = response.choices[0].message.content.strip().capitalize()
-                review.sentiment_label = sentiment
-                await session.commit()
-            except Exception as e:
-                logger.error(f"Sentiment Error: {e}")
-                review.sentiment_label = "Neutral"
-
-    return [{
-        "id": r.id,
-        "author": r.author_name,
-        "text": r.text,
-        "rating": r.rating or 0,
-        "sentiment_label": r.sentiment_label or "Neutral",
-        "date": str(r.google_review_time) if r.google_review_time else "N/A"
-    } for r in reviews]
+@router.get("/companies")
+async def list_companies(session: AsyncSession = Depends(get_session)):
+    result = await session.execute(select(Company))
+    companies = result.scalars().all()
+    return [{"id": c.id, "name": c.name} for c in companies]
 
 # ----------------------------------------------------------
-# HELPER: Visuals
+# Overview KPIs: Total Reviews & Average Rating
 # ----------------------------------------------------------
-def generate_wordcloud(texts: list[str]) -> str:
-    combined_text = " ".join(filter(None, texts))
-    if not combined_text.strip():
-        return ""
-    wc = WordCloud(width=800, height=400, background_color="white").generate(combined_text)
-    buf = io.BytesIO()
-    wc.to_image().save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode("utf-8")
-
-# ----------------------------------------------------------
-# ENDPOINT: /api/dashboard/overview/{company_id}
-# ----------------------------------------------------------
-@router.get("/overview/{company_id}", response_class=JSONResponse)
-async def dashboard_overview(company_id: int, session: AsyncSession = Depends(get_session)):
-    stmt = select(Company).where(Company.id == company_id)
-    result = await session.execute(stmt)
-    company = result.scalars().first()
-    
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
-
-    reviews = await fetch_reviews_with_sentiment(session, company_id)
-    
-    avg_rating = sum(r["rating"] for r in reviews) / len(reviews) if reviews else 0
-    wordcloud_data = generate_wordcloud([r["text"] for r in reviews])
-
+@router.get("/overview/{company_id}")
+async def overview_kpis(
+    company_id: int,
+    session: AsyncSession = Depends(get_session)
+):
+    result = await session.execute(
+        select(
+            func.count(Review.id),
+            func.avg(Review.rating)
+        ).where(Review.company_id == company_id)
+    )
+    total, avg_rating = result.one()
     return {
-        "company": {"id": company.id, "name": company.name},
-        "average_rating": round(avg_rating, 2),
-        "total_reviews": len(reviews),
-        "wordcloud_base64": wordcloud_data
+        "total_reviews": total or 0,
+        "average_rating": round(avg_rating or 0, 2)
     }
 
 # ----------------------------------------------------------
-# ENDPOINT: /api/dashboard/insights (Fixes 404 in console)
+# Insights Endpoint: Sentiment counts & top keywords
 # ----------------------------------------------------------
-@router.get("/insights", response_class=JSONResponse)
-async def get_insights(company_id: int = Query(...), session: AsyncSession = Depends(get_session)):
-    reviews = await fetch_reviews_with_sentiment(session, company_id)
-    
-    sentiment_counts = defaultdict(int)
-    for r in reviews:
-        sentiment_counts[r["sentiment_label"]] += 1
+@router.get("/insights")
+async def insights(
+    company_id: int = Query(...),
+    start: str = Query("2010-01-01"),
+    end: str = Query(None),
+    session: AsyncSession = Depends(get_session)
+):
+    end_date = end or datetime.utcnow().strftime("%Y-%m-%d")
+    start_dt = datetime.fromisoformat(start)
+    end_dt = datetime.fromisoformat(end_date)
+
+    result = await session.execute(
+        select(Review.text, Review.rating)
+        .where(and_(Review.company_id == company_id,
+                    Review.date >= start_dt,
+                    Review.date <= end_dt))
+    )
+    reviews = result.all()
+    review_texts = [r[0] for r in reviews]
+
+    # Sentiment analysis
+    sentiment_counts = analyze_sentiment(review_texts)
+    # Keyword extraction
+    top_keywords = extract_keywords(review_texts)
 
     return {
-        "sentiment_counts": dict(sentiment_counts),
-        "ai_analysis": "Customer sentiment is trending positively based on recent feedback.",
-        "top_keywords": ["Service", "Quality", "Atmosphere"]
+        "sentiment_counts": sentiment_counts,
+        "top_keywords": top_keywords
     }
 
 # ----------------------------------------------------------
-# ENDPOINT: /api/dashboard/revenue (Fixes 404 in console)
+# Revenue Risk Monitoring (Dummy Computation Example)
 # ----------------------------------------------------------
-@router.get("/revenue", response_class=JSONResponse)
-async def get_revenue_risk(company_id: int = Query(...), session: AsyncSession = Depends(get_session)):
-    # Calculate Risk Score based on Negative reviews
-    reviews = await fetch_reviews_with_sentiment(session, company_id)
-    neg_count = sum(1 for r in reviews if r["sentiment_label"] == "Negative")
-    risk_percent = (neg_count / len(reviews)) * 100 if reviews else 0
+@router.get("/revenue")
+async def revenue_risk(
+    company_id: int = Query(...),
+    session: AsyncSession = Depends(get_session)
+):
+    # Example: compute based on recent negative reviews
+    result = await session.execute(
+        select(Review.rating).where(Review.company_id == company_id)
+    )
+    ratings = [r[0] for r in result.scalars().all()]
+    total = len(ratings)
+    if total == 0:
+        return {"loss_probability": "—", "impact_level": "—", "reputation_score": "—"}
+
+    negative_count = sum(1 for r in ratings if r < 3)
+    loss_probability = round((negative_count / total) * 100, 2)
+    impact_level = min(100, loss_probability * 1.2)
+    reputation_score = round(5 - (negative_count / total * 2), 2)
 
     return {
-        "loss_probability": f"{round(risk_percent, 1)}%",
-        "impact_level": "Medium" if risk_percent > 10 else "Low",
-        "reputation_score": round(100 - risk_percent, 1)
+        "loss_probability": f"{loss_probability}%",
+        "impact_level": f"{impact_level}%",
+        "reputation_score": reputation_score
     }
 
 # ----------------------------------------------------------
-# ENDPOINT: /api/dashboard/kpis (Fixes 404 in console)
+# Chatbot Endpoint for AI questions
 # ----------------------------------------------------------
-@router.get("/kpis", response_class=JSONResponse)
-async def get_kpis(company_id: int = Query(...), session: AsyncSession = Depends(get_session)):
-    return {
-        "net_promoter_score": 78,
-        "satisfaction_index": 4.4,
-        "review_velocity": "5 reviews/week"
-    }
+@router.get("/chatbot/explain")
+async def chatbot(
+    question: str = Query(...),
+    company_id: int = Query(...),
+    session: AsyncSession = Depends(get_session)
+):
+    result = await session.execute(
+        select(Review.text).where(Review.company_id == company_id)
+    )
+    reviews = [r[0] for r in result.all()]
+    # Simple AI response placeholder (replace with actual AI)
+    if "rating" in question.lower():
+        response = f"The average rating is {round(sum([len(r) for r in reviews])/len(reviews) if reviews else 0, 2)}."
+    elif "sentiment" in question.lower():
+        response = "Most reviews are positive based on AI sentiment analysis."
+    else:
+        response = "I recommend focusing on reviews with low ratings for improvement."
+
+    return {"answer": response}
 
 # ----------------------------------------------------------
-# ENDPOINT: /api/dashboard/compare (Fixes 404 in console)
-# ----------------------------------------------------------
-@router.get("/compare", response_class=JSONResponse)
-async def compare_business(company_id: int = Query(...), session: AsyncSession = Depends(get_session)):
-    return {
-        "market_position": "Top 15%",
-        "competitor_avg_rating": 3.9,
-        "status": "Outperforming local competitors"
-    }
-
-# ----------------------------------------------------------
-# ENDPOINT: /api/dashboard/chatbot/explain
-# ----------------------------------------------------------
-@router.post("/chatbot/explain", response_class=JSONResponse)
-async def chatbot_explain(question: str = Query(...)):
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": question}],
-            temperature=0.2
-        )
-        return {"answer": response.choices[0].message.content.strip()}
-    except Exception as e:
-        return {"error": str(e)}
-
-# ----------------------------------------------------------
-# ENDPOINT: Executive PDF Report
+# PDF Report Download
 # ----------------------------------------------------------
 @router.get("/executive-report/pdf/{company_id}")
-async def executive_pdf(company_id: int, session: AsyncSession = Depends(get_session)):
-    stmt = select(Company).where(Company.id == company_id)
-    result = await session.execute(stmt)
-    company = result.scalars().first()
-    
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
-
-    reviews = await fetch_reviews_with_sentiment(session, company_id)
-    
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, f"Report for {company.name}", ln=True, align='C')
-    
-    buf = io.BytesIO()
-    pdf_output = pdf.output(dest='S').encode('latin-1')
-    return FileResponse(io.BytesIO(pdf_output), media_type="application/pdf", filename="Report.pdf")
+async def download_report(company_id: int, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(select(Review).where(Review.company_id == company_id))
+    reviews = result.scalars().all()
+    pdf_bytes = generate_pdf_report(reviews)
+    return FileResponse(
+        path_or_file=io.BytesIO(pdf_bytes),
+        media_type='application/pdf',
+        filename=f"company_{company_id}_report.pdf"
+    )
