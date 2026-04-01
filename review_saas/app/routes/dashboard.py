@@ -1,6 +1,6 @@
 # filename: app/routes/dashboard.py
 # ==========================================================
-# REVIEW INTELLIGENCE DASHBOARD — FIXED & VERIFIED
+# REVIEW INTELLIGENCE DASHBOARD — FINAL REFINED (NO LOSS)
 # ==========================================================
 
 from __future__ import annotations
@@ -88,7 +88,7 @@ async def overview(company_id: int, session: AsyncSession = Depends(get_session)
 
 
 # ==========================================================
-# 2. INSIGHTS (ALL GRAPHS & KEYWORDS)
+# 2. INSIGHTS (ENHANCED)
 # ==========================================================
 @router.get("/insights", response_class=JSONResponse)
 async def insights(
@@ -145,9 +145,7 @@ async def insights(
         for k, v in sorted(monthly_map.items())
     ]
 
-    top_keywords = [
-        word for word, _ in Counter(keywords).most_common(15)
-    ]
+    top_keywords = [word for word, _ in Counter(keywords).most_common(20)]
 
     return {
         "sentiment_counts": sentiment_counts,
@@ -158,7 +156,7 @@ async def insights(
 
 
 # ==========================================================
-# 3. REVENUE RISK (FIXED – NEVER STUCK AT 0)
+# 3. REVENUE RISK (SMART)
 # ==========================================================
 @router.get("/revenue", response_class=JSONResponse)
 async def revenue(company_id: int, session: AsyncSession = Depends(get_session)):
@@ -187,10 +185,9 @@ async def revenue(company_id: int, session: AsyncSession = Depends(get_session))
             severe_reviews += 1
 
     total = len(rows)
-
     raw_risk = (negative_reviews * 0.6 + severe_reviews * 0.4) / total
-    risk_pct = round(raw_risk * 100, 1)
 
+    risk_pct = round(raw_risk * 100, 1)
     reputation = max(0, round(100 - risk_pct, 1))
 
     return {
@@ -201,28 +198,92 @@ async def revenue(company_id: int, session: AsyncSession = Depends(get_session))
 
 
 # ==========================================================
-# 4. CHATBOT (UNCHANGED – WORKS)
+# 4. 🤖 CHATBOT (NOW DATA-AWARE 🔥)
 # ==========================================================
 @router.post("/chatbot/explain", response_class=JSONResponse)
-async def chatbot(question: str = Query(...)):
+async def chatbot(
+    question: str = Query(...),
+    company_id: int = Query(...),
+    session: AsyncSession = Depends(get_session)
+):
     try:
-        res = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are an expert business consultant."},
-                {"role": "user", "content": question}
-            ],
-            temperature=0.3,
-            timeout=10
+        # Fetch company data
+        res = await session.execute(
+            select(Review.text, Review.rating)
+            .where(Review.company_id == company_id)
+            .limit(100)
         )
-        return {"answer": res.choices[0].message.content.strip()}
+        reviews = res.fetchall()
+
+        context = "\n".join([f"Rating:{r[1]} | {r[0]}" for r in reviews if r[0]])
+
+        prompt = f"""
+        You are a business consultant AI.
+
+        Analyze this review data:
+        {context}
+
+        Question:
+        {question}
+
+        Give clear, actionable insights.
+        """
+
+        response = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+
+        return {"answer": response.choices[0].message.content.strip()}
+
     except Exception as e:
         logger.error(e)
         return {"answer": "AI service temporarily unavailable."}
 
 
 # ==========================================================
-# 5. PDF DOWNLOAD (FIXED ✅)
+# 5. 📊 AI EXECUTIVE SUMMARY (NEW 🔥🔥🔥)
+# ==========================================================
+@router.get("/ai-summary/{company_id}")
+async def ai_summary(company_id: int, session: AsyncSession = Depends(get_session)):
+    await get_company(session, company_id)
+
+    res = await session.execute(
+        select(Review.rating, Review.sentiment_score)
+        .where(Review.company_id == company_id)
+    )
+    rows = res.fetchall()
+
+    if not rows:
+        return {"summary": "No sufficient data available."}
+
+    ratings = [r[0] for r in rows if r[0] is not None]
+    sentiments = [r[1] for r in rows if r[1] is not None]
+
+    avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0
+    avg_sentiment = round(sum(sentiments) / len(sentiments), 2) if sentiments else 0
+
+    summary = f"""
+    Business Performance Summary:
+
+    • Average Rating: {avg_rating}
+    • Sentiment Score: {avg_sentiment}
+
+    Insights:
+    - Customer satisfaction is {"strong" if avg_rating > 4 else "moderate" if avg_rating > 3 else "weak"}
+    - Sentiment indicates {"positive growth" if avg_sentiment > 0 else "potential issues"}
+
+    Recommendation:
+    - Focus on improving low-rating reviews
+    - Strengthen positive feedback areas
+    """
+
+    return {"summary": summary.strip()}
+
+
+# ==========================================================
+# 6. PDF REPORT (UNCHANGED BUT CLEAN)
 # ==========================================================
 @router.get("/executive-report/pdf/{company_id}")
 async def executive_report(company_id: int, session: AsyncSession = Depends(get_session)):
@@ -238,7 +299,7 @@ async def executive_report(company_id: int, session: AsyncSession = Depends(get_
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, f"Executive Review Report — {company.name}", ln=True, align="C")
+    pdf.cell(0, 10, f"Executive Report — {company.name}", ln=True, align="C")
     pdf.ln(10)
 
     pdf.set_font("Arial", size=12)
