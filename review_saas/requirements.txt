@@ -24,6 +24,7 @@ nltk
 textblob
 transformers
 sentence-transformers
+openai
 
 # === Data & Math (STRICT PINS FOR PYTHON 3.10) ===
 numpy==1.26.4
