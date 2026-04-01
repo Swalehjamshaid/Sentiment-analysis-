@@ -27,6 +27,7 @@ def parse_relative_date(date_text: str) -> datetime:
         return datetime.utcnow()
     
     now = datetime.utcnow()
+    # Extract numbers from strings like "2 weeks ago"
     match = re.search(r'(\d+)', date_text)
     quantity = int(match.group(1)) if match else 1
     date_text = date_text.lower()
@@ -43,23 +44,20 @@ def parse_relative_date(date_text: str) -> datetime:
 async def fetch_from_serper_fallback(company_name: str, limit: int, skip_count: int) -> List[Dict[str, Any]]:
     """
     Robust Fallback logic for Serper.dev.
-    Uses business name search to find reviews when SerpApi fails.
+    Uses the 'places' endpoint which is specifically designed for Google Maps business data.
     """
-    logger.info(f"📡 Fallback Triggered: Serper.dev searching for '{company_name}' (Skip: {skip_count})")
+    logger.info(f"📡 Fallback Triggered: Serper.dev scanning for '{company_name}' (Skip: {skip_count})")
     
     if not SERPER_API_KEY:
         logger.error("❌ SERPER_API_KEY is missing in Railway Variables.")
         return []
 
-    url = "https://google.serper.dev/search"
+    url = "https://google.serper.dev/places"
     
-    # We use a natural search query which is more successful on Serper
+    # Places endpoint is highly accurate for specific businesses
     payload = {
-        "q": f"{company_name} reviews",
-        "gl": "pk", # Focused on Pakistan
-        "hl": "en",
-        "type": "places",
-        "page": (skip_count // 10) + 1 # Converts skip count to page numbers
+        "q": company_name,
+        "gl": "pk"  # Optimized for Pakistan locations
     }
     
     headers = {
@@ -76,22 +74,29 @@ async def fetch_from_serper_fallback(company_name: str, limit: int, skip_count: 
         results = []
         
         if places:
-            # Get reviews from the top matched place
+            # Extract the review snippets from the first (most relevant) place found
             raw_reviews = places[0].get("reviews", [])
-            for r in raw_reviews:
+            
+            # Skip logic: we only take reviews that would fall after our current DB count
+            for index, r in enumerate(raw_reviews):
+                # If we've already collected enough for this batch
                 if len(results) >= limit:
                     break
                 
+                # Simple offset simulation for snippets
+                if (index + 1) <= (skip_count % 10): 
+                    continue
+
                 results.append({
                     "google_review_id": f"serper_{datetime.utcnow().timestamp()}_{len(results)}",
                     "author_name": r.get("user", "Anonymous"),
                     "rating": int(r.get("rating", 5)),
                     "text": r.get("snippet") or r.get("text") or "No content",
-                    "google_review_time": datetime.utcnow(), # Serper snippets don't always give exact dates
+                    "google_review_time": datetime.utcnow(), # Fallback date
                     "review_likes": 0
                 })
         
-        logger.info(f"✅ Serper.dev fallback successfully collected {len(results)} reviews.")
+        logger.info(f"✅ Serper.dev successfully collected {len(results)} reviews.")
         return results
 
     except Exception as e:
@@ -108,22 +113,22 @@ async def fetch_reviews_from_google(
 ) -> List[Dict[str, Any]]:
     """
     Main entry point for fetching reviews.
-    Tries SerpApi first, then falls back to Serper.dev.
+    Uses SerpApi by default, falls back to Serper.dev on failure.
     """
     all_reviews: List[Dict[str, Any]] = []
 
     try:
-        # 1. Check current count in DB for the Skip/Offset Logic
+        # 1. Logic for Skip/Offset based on current Database state
         current_db_count = 0
         company_name = "Business"
         
         if session and company_id:
-            # Count existing reviews
+            # Count existing records for this company
             count_stmt = select(func.count(Review.id)).where(Review.company_id == company_id)
             count_res = await session.execute(count_stmt)
             current_db_count = count_res.scalar() or 0
             
-            # Get company name for fallback accuracy
+            # Fetch company details for fallback search accuracy
             comp_stmt = select(Company).where(Company.id == company_id)
             comp_res = await session.execute(comp_stmt)
             company = comp_res.scalars().first()
@@ -133,13 +138,13 @@ async def fetch_reviews_from_google(
                     place_id = company.google_place_id
 
         if not place_id:
-            logger.error("❌ No Place ID or Company Name found to start search.")
+            logger.error("❌ No valid Place ID or Company found.")
             return []
 
         cutoff_date = datetime.utcnow() - timedelta(days=days_back)
-        logger.info(f"🚀 Deep Sync: DB has {current_db_count}. Fetching NEXT {target_limit} older reviews.")
+        logger.info(f"🚀 Syncing: DB has {current_db_count}. Fetching NEXT {target_limit} reviews.")
         
-        # 2. PRIMARY ATTEMPT: SerpApi
+        # 2. PRIMARY ATTEMPT: SerpApi (Google Maps Reviews Engine)
         next_page_token: Optional[str] = None
         total_seen_on_google = 0
 
@@ -153,7 +158,7 @@ async def fetch_reviews_from_google(
                     "sort_by": "newest"
                 }
 
-                # Use to_thread to prevent blocking the async loop
+                # Execute SerpApi call in a separate thread
                 results = await asyncio.to_thread(lambda: GoogleSearch(params).get_dict())
                 
                 if "error" in results:
@@ -166,15 +171,15 @@ async def fetch_reviews_from_google(
                 for r in reviews:
                     total_seen_on_google += 1
                     
-                    # THE SKIP ATTRIBUTE
+                    # --- SKIP LOGIC ---
                     if total_seen_on_google <= current_db_count:
                         continue
 
                     if len(all_reviews) >= target_limit:
                         break
                     
-                    parsed_date = parse_relative_date(r.get("date", ""))
-                    if parsed_date < cutoff_date:
+                    p_date = parse_relative_date(r.get("date", ""))
+                    if p_date < cutoff_date:
                         return all_reviews
 
                     all_reviews.append({
@@ -182,7 +187,7 @@ async def fetch_reviews_from_google(
                         "author_name": r.get("user", {}).get("name"),
                         "rating": int(r.get("rating", 5)),
                         "text": r.get("text") or r.get("snippet") or "No content",
-                        "google_review_time": parsed_date,
+                        "google_review_time": p_date,
                         "review_likes": r.get("likes", 0)
                     })
 
@@ -193,8 +198,8 @@ async def fetch_reviews_from_google(
             return all_reviews
 
         except Exception as primary_err:
-            # 3. FALLBACK ATTEMPT: Serper.dev
-            logger.warning(f"⚠️ SerpApi failed: {primary_err}. Switching to Fallback...")
+            # 3. SECONDARY ATTEMPT: Fallback to Serper.dev
+            logger.warning(f"⚠️ SerpApi Error: {primary_err}. Switching to Fallback...")
             return await fetch_from_serper_fallback(company_name, target_limit, current_db_count)
 
     except Exception as exc:
