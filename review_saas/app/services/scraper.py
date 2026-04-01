@@ -36,26 +36,26 @@ def parse_relative_date(date_text: str) -> datetime:
     elif 'year' in date_text: return now - timedelta(days=quantity * 365)
     return now
 
-async def fetch_from_serper_fallback(place_id: str, limit: int, skip_count: int) -> List[Dict[str, Any]]:
+async def fetch_from_serper_fallback(place_id: str, company_name: str, limit: int, skip_count: int) -> List[Dict[str, Any]]:
     """
-    Dedicated Fallback using Serper.dev REVIEWS endpoint.
-    This endpoint allows for deep pagination to find older reviews.
+    Stabilized Fallback logic for Serper.dev.
+    Uses the Search endpoint with a targeted query to avoid 400 errors.
     """
-    logger.info(f"📡 Deep Fallback: Scanning Serper Reviews for Place ID: {place_id} (Skip: {skip_count})")
+    logger.info(f"📡 Stabilized Fallback: Scanning Serper for '{company_name}' (Skip: {skip_count})")
     
     if not SERPER_API_KEY:
         logger.error("❌ SERPER_API_KEY missing in Railway Variables.")
         return []
 
-    url = "https://google.serper.dev/reviews"
+    url = "https://google.serper.dev/search"
     
-    # Calculate the page: Serper shows 10 reviews per page.
-    # If we have 200 in DB, we need to start at Page 21.
-    target_page = (skip_count // 10) + 1
-    
+    # We use the search endpoint with 'type': 'places' which is the most reliable
     payload = {
-        "place_id": place_id,
-        "page": target_page
+        "q": f"{company_name} reviews",
+        "gl": "pk",
+        "hl": "en",
+        "type": "places",
+        "page": (skip_count // 10) + 1 
     }
     headers = {
         'X-API-KEY': SERPER_API_KEY,
@@ -67,27 +67,29 @@ async def fetch_from_serper_fallback(place_id: str, limit: int, skip_count: int)
         response.raise_for_status()
         data = response.json()
         
-        # The 'reviews' endpoint returns a direct list of reviews
-        raw_reviews = data.get("reviews", [])
+        places = data.get("places", [])
         results = []
         
-        for r in raw_reviews:
-            if len(results) >= limit:
-                break
+        if places:
+            # Extract reviews from the most relevant place match
+            raw_reviews = places[0].get("reviews", [])
+            for r in raw_reviews:
+                if len(results) >= limit:
+                    break
 
-            results.append({
-                "google_review_id": r.get("reviewId") or f"serper_{datetime.utcnow().timestamp()}",
-                "author_name": r.get("user", {}).get("name") or "Anonymous",
-                "rating": int(r.get("rating", 5)),
-                "text": r.get("snippet") or r.get("text") or "No content",
-                "google_review_time": datetime.utcnow(), # Placeholder for fallback
-                "review_likes": 0
-            })
+                results.append({
+                    "google_review_id": f"serper_{datetime.utcnow().timestamp()}_{len(results)}",
+                    "author_name": r.get("user", "Anonymous"),
+                    "rating": int(r.get("rating", 5)),
+                    "text": r.get("snippet") or r.get("text") or "No content",
+                    "google_review_time": datetime.utcnow(),
+                    "review_likes": 0
+                })
         
-        logger.info(f"✅ Serper.dev Reviews engine collected {len(results)} reviews.")
+        logger.info(f"✅ Serper.dev collected {len(results)} reviews.")
         return results
     except Exception as e:
-        logger.error(f"❌ Serper Reviews Endpoint Failed: {e}")
+        logger.error(f"❌ Serper.dev search fallback failed: {e}")
         return []
 
 async def fetch_reviews_from_google(
@@ -102,14 +104,17 @@ async def fetch_reviews_from_google(
 
     try:
         current_db_count = 0
+        company_name = "Business"
         if session and company_id:
             count_res = await session.execute(select(func.count(Review.id)).where(Review.company_id == company_id))
             current_db_count = count_res.scalar() or 0
             
-            if not place_id:
-                comp_res = await session.execute(select(Company).where(Company.id == company_id))
-                company = comp_res.scalars().first()
-                place_id = company.google_place_id if company else None
+            comp_res = await session.execute(select(Company).where(Company.id == company_id))
+            company = comp_res.scalars().first()
+            if company:
+                company_name = company.name
+                if not place_id:
+                    place_id = company.google_place_id
 
         if not place_id:
             return []
@@ -167,8 +172,8 @@ async def fetch_reviews_from_google(
 
         except Exception as primary_err:
             logger.warning(f"⚠️ SerpApi Error: {primary_err}. Switching to Fallback...")
-            # CALLING THE NEW DEEP REVIEWS FALLBACK
-            return await fetch_from_serper_fallback(place_id, target_limit, current_db_count)
+            # Using the stabilized search-based fallback
+            return await fetch_from_serper_fallback(place_id, company_name, target_limit, current_db_count)
 
     except Exception as exc:
         logger.error(f"❌ Scraper failure: {exc}")
