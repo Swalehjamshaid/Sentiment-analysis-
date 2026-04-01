@@ -239,9 +239,6 @@
     <script>
         let chartInstances = {};
 
-        // ==========================================================
-        // 100% ALIGNED ENDPOINTS
-        // ==========================================================
         const DASHBOARD_CONFIG = {
             endpoints: {
                 overview: "/api/overview",
@@ -249,7 +246,8 @@
                 chat: "/api/chatbot/explain",
                 revenue: "/api/revenue",
                 report: "/api/executive-report/pdf",
-                companies: "/api/companies"
+                companies: "/api/companies",
+                sync: "/api/reviews/ingest" // NEW: Defined sync endpoint
             }
         };
 
@@ -257,6 +255,41 @@
             const el = document.getElementById(id);
             if (el) el.innerText = text;
         }
+
+        // ==========================================================
+        // SYNC BUTTON LOGIC (FIXED)
+        // ==========================================================
+        document.getElementById("syncBtn").onclick = async () => {
+            const cid = document.getElementById("companySelect").value;
+            if (!cid) {
+                alert("Please select a business first.");
+                return;
+            }
+            
+            const btn = document.getElementById("syncBtn");
+            const originalText = btn.innerText;
+            
+            // Start Spinner
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Syncing...`;
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`${DASHBOARD_CONFIG.endpoints.sync}/${cid}`, { method: 'POST' });
+                if (response.ok) {
+                    alert("Live data synced successfully!");
+                    await triggerAllLoads(); // Refresh charts automatically
+                } else {
+                    alert("Sync failed. Please check backend logs.");
+                }
+            } catch (e) {
+                console.error("Connection Error:", e);
+                alert("Could not connect to the server.");
+            } finally {
+                // Reset Button
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
+        };
 
         async function triggerAllLoads() {
             const cid = document.getElementById("companySelect").value;
@@ -268,14 +301,12 @@
             loadBtn.innerText = "Analyzing...";
 
             try {
-                // 1. Fetch Overview (Matches backend @router.get("/overview/{company_id}"))
                 const overRes = await fetch(`${DASHBOARD_CONFIG.endpoints.overview}/${cid}`);
                 if (!overRes.ok) throw new Error("Overview not found");
                 const overData = await overRes.json();
                 setElementText("kpiTotal", overData.total_reviews || 0);
                 setElementText("kpiRating", overData.average_rating || "—");
 
-                // 2. Fetch Insights (Matches backend @router.get("/insights"))
                 const insRes = await fetch(`${DASHBOARD_CONFIG.endpoints.insights}?company_id=${cid}&start=${start}&end=${end}`);
                 if (!insRes.ok) throw new Error("Insights not found");
                 const insData = await insRes.json();
@@ -285,7 +316,6 @@
                     if(insData.top_keywords) renderKeywords(insData.top_keywords);
                 }
 
-                // 3. Fetch Revenue (Matches backend @router.get("/revenue"))
                 const revRes = await fetch(`${DASHBOARD_CONFIG.endpoints.revenue}?company_id=${cid}`);
                 if (!revRes.ok) throw new Error("Revenue not found");
                 const revData = await revRes.json();
@@ -372,7 +402,6 @@
             win.scrollTop = win.scrollHeight;
 
             try {
-                // Matches backend @router.post("/chatbot/explain")
                 const res = await fetch(`${DASHBOARD_CONFIG.endpoints.chat}?question=${encodeURIComponent(msg)}&company_id=${cid}`, {
                     method: 'POST'
                 });
