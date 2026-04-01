@@ -1,17 +1,18 @@
 # filename: app/routes/dashboard.py
 # ==========================================================
-# REVIEW INTELLIGENCE DASHBOARD - FRONTEND INTEGRATED
+# REVIEW INTELLIGENCE DASHBOARD - FULLY INTEGRATED WITH FRONTEND
+# PostgreSQL Optimized + Company Filtering
 # ==========================================================
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, desc
 from datetime import datetime
-from collections import defaultdict
-from typing import List
+from typing import List, Optional
 import numpy as np
 from wordcloud import WordCloud
+from collections import Counter
 from io import BytesIO
 import base64
 from sklearn.linear_model import LinearRegression
@@ -24,12 +25,10 @@ router = APIRouter(
     tags=["dashboard"],
 )
 
-
 # ---------------------------
 # Utilities
 # ---------------------------
 def encode_image_to_base64(img) -> str:
-    """Encode PIL/WordCloud image to base64 for frontend display"""
     buffered = BytesIO()
     img.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
@@ -45,20 +44,24 @@ def calculate_nps(scores: List[int]) -> int:
 
 def calculate_csat(scores: List[int]) -> float:
     if not scores:
-        return 0
-    return round(np.mean(scores) * 20, 2)  # Convert 1-5 scale to 0-100%
+        return 0.0
+    return round(np.mean(scores) * 20, 2)
 
 
 # ---------------------------
-# Review Summary
+# 1. Main Summary (KPIs)
 # ---------------------------
 @router.get("/summary")
 async def review_summary(
     session: AsyncSession = Depends(get_session),
-    start_date: str | None = Query(None),
-    end_date: str | None = Query(None),
+    company_id: int = Query(..., description="Company ID"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
 ):
-    query = select(models.Review.rating, models.Review.created_at)
+    query = select(models.Review.rating, models.Review.created_at).where(
+        models.Review.company_id == company_id
+    )
+
     if start_date:
         query = query.where(models.Review.created_at >= start_date)
     if end_date:
@@ -66,7 +69,7 @@ async def review_summary(
 
     result = await session.execute(query)
     reviews = result.all()
-    ratings = [r.rating for r in reviews]
+    ratings = [r.rating for r in reviews if r.rating is not None]
 
     return JSONResponse(
         content={
@@ -81,86 +84,193 @@ async def review_summary(
 
 
 # ---------------------------
-# Rating Trends
+# 2. Rating Trends (for Sentiment Trend Chart)
 # ---------------------------
 @router.get("/trends")
 async def rating_trends(
     session: AsyncSession = Depends(get_session),
-    period: str = Query("monthly"),
+    company_id: int = Query(..., description="Company ID"),
+    period: str = Query("monthly", enum=["daily", "monthly", "yearly"]),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
 ):
-    if period not in {"daily", "monthly", "yearly"}:
-        return JSONResponse(status_code=400, content={"error": "Invalid period"})
-
-    date_func = {
-        "daily": func.date(models.Review.created_at),
-        "monthly": func.date_trunc("month", models.Review.created_at),
-        "yearly": func.date_trunc("year", models.Review.created_at),
-    }[period]
+    if period == "daily":
+        date_expr = func.date(models.Review.created_at)
+    elif period == "monthly":
+        date_expr = func.date_trunc("month", models.Review.created_at)
+    else:
+        date_expr = func.date_trunc("year", models.Review.created_at)
 
     query = (
-        select(date_func.label("period"), func.avg(models.Review.rating).label("avg_rating"))
+        select(
+            date_expr.label("period"),
+            func.avg(models.Review.rating).label("avg_rating"),
+            func.count(models.Review.id).label("review_count")
+        )
+        .where(models.Review.company_id == company_id)
         .group_by("period")
         .order_by("period")
     )
+
+    if start_date:
+        query = query.where(models.Review.created_at >= start_date)
+    if end_date:
+        query = query.where(models.Review.created_at <= end_date)
+
     result = await session.execute(query)
-    trends = [{"period": str(r.period), "avg_rating": float(r.avg_rating)} for r in result.all()]
+    trends = [
+        {
+            "period": str(r.period)[:10],   # simplify for frontend
+            "avg": round(float(r.avg_rating), 2) if r.avg_rating else 0,
+        }
+        for r in result.all()
+    ]
+
     return JSONResponse(content={"trends": trends})
 
 
 # ---------------------------
-# Reviewer Loyalty
+# 3. Rating Distribution (for Bar Chart)
 # ---------------------------
-@router.get("/reviewer-loyalty")
-async def reviewer_loyalty(session: AsyncSession = Depends(get_session)):
+@router.get("/ratings-distribution")
+async def ratings_distribution(
+    session: AsyncSession = Depends(get_session),
+    company_id: int = Query(..., description="Company ID"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+):
     query = (
-        select(models.Review.reviewer_id, func.count(models.Review.id).label("review_count"))
-        .group_by(models.Review.reviewer_id)
-        .order_by(func.count(models.Review.id).desc())
+        select(
+            models.Review.rating,
+            func.count(models.Review.id).label("count")
+        )
+        .where(models.Review.company_id == company_id)
+        .group_by(models.Review.rating)
     )
+
+    if start_date:
+        query = query.where(models.Review.created_at >= start_date)
+    if end_date:
+        query = query.where(models.Review.created_at <= end_date)
+
     result = await session.execute(query)
-    data = [{"reviewer_id": r.reviewer_id, "review_count": r.review_count} for r in result.all()]
-    return JSONResponse(content={"reviewer_loyalty": data})
+    dist = {str(r.rating): r.count for r in result.all() if r.rating}
+
+    # Fill missing ratings 1-5
+    for i in range(1, 6):
+        if str(i) not in dist:
+            dist[str(i)] = 0
+
+    return JSONResponse(content={"ratings": dist})
 
 
 # ---------------------------
-# Word Cloud
+# 4. Emotions / Aspect Radar (Simple version from aspects)
+# ---------------------------
+@router.get("/emotions")
+async def emotions_radar(
+    session: AsyncSession = Depends(get_session),
+    company_id: int = Query(..., description="Company ID"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+):
+    query = select(
+        func.avg(models.Review.aspect_rooms).label("rooms"),
+        func.avg(models.Review.aspect_staff).label("staff"),
+        func.avg(models.Review.aspect_location).label("location"),
+        func.avg(models.Review.aspect_service).label("service"),
+        func.avg(models.Review.aspect_cleanliness).label("cleanliness"),
+        func.avg(models.Review.aspect_food).label("food"),
+    ).where(models.Review.company_id == company_id)
+
+    if start_date:
+        query = query.where(models.Review.created_at >= start_date)
+    if end_date:
+        query = query.where(models.Review.created_at <= end_date)
+
+    result = await session.execute(query)
+    row = result.first()
+
+    emotions = {
+        "Rooms": round(float(row.rooms or 0), 1),
+        "Staff": round(float(row.staff or 0), 1),
+        "Location": round(float(row.location or 0), 1),
+        "Service": round(float(row.service or 0), 1),
+        "Cleanliness": round(float(row.cleanliness or 0), 1),
+        "Food": round(float(row.food or 0), 1),
+    }
+
+    return JSONResponse(content={"emotions": emotions})
+
+
+# ---------------------------
+# 5. Word Cloud → Keyword Badges
 # ---------------------------
 @router.get("/wordcloud")
-async def wordcloud_data(session: AsyncSession = Depends(get_session)):
-    result = await session.execute(select(models.Review.comment))
-    comments = [r.comment for r in result.all() if r.comment]
-    text = " ".join(comments)
+async def wordcloud_data(
+    session: AsyncSession = Depends(get_session),
+    company_id: int = Query(..., description="Company ID"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    limit: int = Query(20),
+):
+    query = select(models.Review.text).where(models.Review.company_id == company_id)
 
-    wc = WordCloud(width=800, height=400, background_color="white").generate(text)
-    img_base64 = encode_image_to_base64(wc.to_image())
-    return JSONResponse(content={"wordcloud": img_base64})
+    if start_date:
+        query = query.where(models.Review.created_at >= start_date)
+    if end_date:
+        query = query.where(models.Review.created_at <= end_date)
+
+    result = await session.execute(query)
+    comments = [r.text for r in result.all() if r.text and r.text.strip()]
+
+    if not comments:
+        return JSONResponse(content={"keywords": []})
+
+    # Simple keyword extraction (top words)
+    all_text = " ".join(comments).lower()
+    words = [w for w in all_text.split() if len(w) > 3]
+    word_counts = Counter(words).most_common(limit)
+
+    keywords = [{"text": word, "value": count} for word, count in word_counts]
+
+    return JSONResponse(content={"keywords": keywords})
 
 
 # ---------------------------
-# Forecast Ratings (Linear Regression)
+# 6. Forecast (optional - can be called separately)
 # ---------------------------
 @router.get("/forecast")
 async def ratings_forecast(
     session: AsyncSession = Depends(get_session),
+    company_id: int = Query(..., description="Company ID"),
     future_periods: int = Query(6),
 ):
-    result = await session.execute(select(models.Review.created_at, models.Review.rating))
+    result = await session.execute(
+        select(models.Review.created_at, models.Review.rating)
+        .where(models.Review.company_id == company_id)
+        .order_by(models.Review.created_at)
+    )
     data = result.all()
-    if not data:
-        return JSONResponse(content={"forecast": []})
+
+    if len(data) < 10:
+        return JSONResponse(content={"forecast": [], "message": "Not enough data"})
 
     dates = np.array([r.created_at.timestamp() for r in data]).reshape(-1, 1)
     ratings = np.array([r.rating for r in data])
+
     model = LinearRegression()
     model.fit(dates, ratings)
 
-    last_timestamp = max(dates)[0]
-    step = (max(dates) - min(dates)) / len(dates)
-    future_dates = np.array([last_timestamp + step * (i + 1) for i in range(future_periods)]).reshape(-1, 1)
-    predicted = model.predict(future_dates)
+    last_ts = dates[-1][0]
+    step = (dates[-1][0] - dates[0][0]) / len(dates) if len(dates) > 1 else 86400
+
+    future_ts = np.array([last_ts + step * (i + 1) for i in range(future_periods)]).reshape(-1, 1)
+    predicted = model.predict(future_ts)
 
     forecast = [
-        {"date": datetime.fromtimestamp(f).strftime("%Y-%m-%d"), "predicted_rating": round(p, 2)}
-        for f, p in zip(future_dates.flatten(), predicted)
+        {"date": datetime.fromtimestamp(ts).strftime("%Y-%m-%d"), "predicted_rating": round(float(p), 2)}
+        for ts, p in zip(future_ts.flatten(), predicted)
     ]
+
     return JSONResponse(content={"forecast": forecast})
