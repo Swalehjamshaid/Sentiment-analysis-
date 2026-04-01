@@ -240,15 +240,15 @@
         let chartInstances = {};
         const DASHBOARD_CONFIG = {
             endpoints: {
-                insights: "/dashboard/ai/insights",
-                chat: "/dashboard/chatbot/explain",
-                revenue: "/dashboard/revenue",
-                report: "/dashboard/executive-report/pdf",
+                // ALIGNED: Added /api prefix to match main.py routing
+                insights: "/api/dashboard/ai/insights",
+                chat: "/api/dashboard/chatbot/explain",
+                revenue: "/api/dashboard/revenue",
+                report: "/api/dashboard/executive-report/pdf",
                 companies: "/api/companies"
             }
         };
 
-        // UI Helpers
         function setElementText(id, text) {
             const el = document.getElementById(id);
             if (el) el.innerText = text;
@@ -264,19 +264,21 @@
             loadBtn.innerText = "Analyzing...";
 
             try {
-                // 1. Fetch KPI & Chart Data
                 const res = await fetch(`${DASHBOARD_CONFIG.endpoints.insights}?company_id=${cid}&start=${start}&end=${end}`);
                 const data = await res.json();
 
-                if (data.kpis) {
+                if (data.metadata) {
                     setElementText("kpiTotal", data.metadata.total_reviews || 0);
-                    setElementText("kpiRating", data.kpis.average_rating || "—");
-                    setElementText("riskSentiment", data.kpis.reputation_score || "—");
-                    renderCharts(data.visualizations);
-                    renderKeywordCloud(data.visualizations.keywords);
+                    if(data.kpis) {
+                        setElementText("kpiRating", data.kpis.average_rating || "—");
+                        setElementText("riskSentiment", data.kpis.reputation_score || "—");
+                    }
+                    if(data.visualizations) {
+                        renderCharts(data.visualizations);
+                        renderKeywordCloud(data.visualizations.keywords);
+                    }
                 }
 
-                // 2. Fetch Risk Assessment
                 const rRes = await fetch(`${DASHBOARD_CONFIG.endpoints.revenue}?company_id=${cid}`);
                 const rData = await rRes.json();
                 setElementText("riskPct", (rData.risk_percent || 0) + "%");
@@ -290,7 +292,6 @@
         }
 
         function renderCharts(vis) {
-            // Emotion Radar
             const radarCtx = document.getElementById("chartEmotions").getContext('2d');
             if (chartInstances.emotions) chartInstances.emotions.destroy();
             chartInstances.emotions = new Chart(radarCtx, {
@@ -308,7 +309,6 @@
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
 
-            // Sentiment Trend Line
             const lineCtx = document.getElementById("chartMonthly").getContext('2d');
             if (chartInstances.monthly) chartInstances.monthly.destroy();
             chartInstances.monthly = new Chart(lineCtx, {
@@ -327,7 +327,6 @@
                 options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 1, max: 5 } } }
             });
 
-            // Distribution Bar
             const barCtx = document.getElementById("chartRatings").getContext('2d');
             if (chartInstances.ratings) chartInstances.ratings.destroy();
             chartInstances.ratings = new Chart(barCtx, {
