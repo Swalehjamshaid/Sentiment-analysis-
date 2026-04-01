@@ -1,129 +1,175 @@
 # filename: app/routes/dashboard.py
+
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from datetime import datetime
-from typing import Optional
-import numpy as np
-from collections import Counter
+from collections import Counter, defaultdict
+import random
 
 from app.core.db import get_session
 from app.core import models
 
-router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
+# =========================================================
+# AI INSIGHTS (MAIN ENDPOINT - USED BY FRONTEND)
+# =========================================================
 @router.get("/ai/insights")
-async def ai_insights(
-    session: AsyncSession = Depends(get_session),
-    company_id: int = Query(..., gt=0),
-    start: str = Query("2010-01-01"),
-    end: Optional[str] = Query(None),
+async def get_ai_insights(
+    company_id: int,
+    start: str,
+    end: str,
+    db: AsyncSession = Depends(get_session),
 ):
-    if not end:
-        end = datetime.now().date().isoformat()
-
     query = select(models.Review).where(models.Review.company_id == company_id)
-    query = query.where(models.Review.first_seen_at >= start)
-    if end:
-        query = query.where(models.Review.first_seen_at <= end)
 
-    result = await session.execute(query)
+    result = await db.execute(query)
     reviews = result.scalars().all()
 
     if not reviews:
-        return {
-            "kpis": {"average_rating": 0, "reputation_score": 0},
-            "metadata": {"total_reviews": 0, "start_date": start, "end_date": end},
-            "visualizations": {
-                "emotions": {"Rooms":0,"Staff":0,"Location":0,"Service":0,"Cleanliness":0,"Food":0},
-                "sentiment_trend": [],
-                "ratings": {"1":0,"2":0,"3":0,"4":0,"5":0},
-                "keywords": []
-            },
-            "message": "No reviews found. Click 'Sync Live Data' first."
-        }
+        return JSONResponse(content={
+            "metadata": {"total_reviews": 0},
+            "kpis": {},
+            "visualizations": {}
+        })
 
-    ratings = [r.rating for r in reviews if r.rating is not None]
-    texts = [r.text for r in reviews if r.text and str(r.text).strip()]
+    # ---------------- KPIs ----------------
+    total_reviews = len(reviews)
+    avg_rating = round(sum(r.rating for r in reviews) / total_reviews, 2)
 
-    avg_rating = round(np.mean(ratings), 2) if ratings else 0.0
+    # Reputation score (simple logic)
+    reputation = round((avg_rating / 5) * 100, 2)
 
-    # Monthly Trend
-    trend_query = select(
-        func.date_trunc("month", models.Review.first_seen_at).label("period"),
-        func.avg(models.Review.rating).label("avg")
-    ).where(models.Review.company_id == company_id).group_by("period").order_by("period")
-    trend_result = await session.execute(trend_query)
-    sentiment_trend = [{"week": str(r.period)[:10], "avg": round(float(r.avg), 2) if r.avg else 0} for r in trend_result.all()]
-
-    # Rating Distribution
-    dist = {str(i): 0 for i in range(1, 6)}
-    for r in reviews:
-        if r.rating and 1 <= r.rating <= 5:
-            dist[str(int(r.rating))] += 1
-
-    # Emotions
-    aspect_query = select(
-        func.avg(models.Review.aspect_rooms).label("rooms"),
-        func.avg(models.Review.aspect_staff).label("staff"),
-        func.avg(models.Review.aspect_location).label("location"),
-        func.avg(models.Review.aspect_service).label("service"),
-        func.avg(models.Review.aspect_cleanliness).label("cleanliness"),
-        func.avg(models.Review.aspect_food).label("food"),
-    ).where(models.Review.company_id == company_id)
-    aspect_result = await session.execute(aspect_query)
-    row = aspect_result.first() or {}
-
-    emotions = {
-        "Rooms": round(float(row.rooms or 0), 1),
-        "Staff": round(float(row.staff or 0), 1),
-        "Location": round(float(row.location or 0), 1),
-        "Service": round(float(row.service or 0), 1),
-        "Cleanliness": round(float(row.cleanliness or 0), 1),
-        "Food": round(float(row.food or 0), 1),
+    # ---------------- Ratings Distribution ----------------
+    rating_counts = Counter([r.rating for r in reviews])
+    ratings = {
+        "1": rating_counts.get(1, 0),
+        "2": rating_counts.get(2, 0),
+        "3": rating_counts.get(3, 0),
+        "4": rating_counts.get(4, 0),
+        "5": rating_counts.get(5, 0),
     }
 
-    # Keywords
-    all_text = " ".join(texts).lower()
-    words = [w for w in all_text.split() if len(w) > 3]
-    keywords = [{"text": word, "value": count} for word, count in Counter(words).most_common(15)]
+    # ---------------- Sentiment Trend ----------------
+    trend_map = defaultdict(list)
+    for r in reviews:
+        week = r.created_at.strftime("%Y-%W")
+        trend_map[week].append(r.rating)
+
+    sentiment_trend = [
+        {"week": k, "avg": round(sum(v)/len(v), 2)}
+        for k, v in sorted(trend_map.items())
+    ]
+
+    # ---------------- Emotions (Mock AI logic) ----------------
+    emotions = {
+        "Happy": random.randint(20, 80),
+        "Angry": random.randint(5, 30),
+        "Neutral": random.randint(10, 50),
+        "Excited": random.randint(10, 60),
+        "Frustrated": random.randint(5, 40),
+    }
+
+    # ---------------- Keywords ----------------
+    words = []
+    for r in reviews:
+        if r.comment:
+            words.extend(r.comment.lower().split())
+
+    common_words = Counter(words).most_common(20)
+    keywords = [{"text": w, "value": c} for w, c in common_words]
+
+    return JSONResponse(content={
+        "metadata": {
+            "total_reviews": total_reviews
+        },
+        "kpis": {
+            "average_rating": avg_rating,
+            "reputation_score": reputation
+        },
+        "visualizations": {
+            "ratings": ratings,
+            "sentiment_trend": sentiment_trend,
+            "emotions": emotions,
+            "keywords": keywords
+        }
+    })
+
+
+# =========================================================
+# REVENUE RISK
+# =========================================================
+@router.get("/revenue")
+async def revenue_risk(
+    company_id: int,
+    db: AsyncSession = Depends(get_session)
+):
+    result = await db.execute(
+        select(models.Review.rating).where(models.Review.company_id == company_id)
+    )
+    ratings = [r[0] for r in result.all()]
+
+    if not ratings:
+        return {"risk_percent": 0, "impact": "Low"}
+
+    avg = sum(ratings) / len(ratings)
+
+    risk_percent = int((5 - avg) / 5 * 100)
+
+    if risk_percent > 60:
+        impact = "High"
+    elif risk_percent > 30:
+        impact = "Medium"
+    else:
+        impact = "Low"
 
     return {
-        "kpis": {"average_rating": avg_rating, "reputation_score": round(avg_rating * 20, 1)},
-        "metadata": {"total_reviews": len(reviews), "start_date": start, "end_date": end},
-        "visualizations": {"emotions": emotions, "sentiment_trend": sentiment_trend, "ratings": dist, "keywords": keywords}
+        "risk_percent": risk_percent,
+        "impact": impact
     }
 
 
-@router.get("/revenue")
-async def revenue_risk(session: AsyncSession = Depends(get_session), company_id: int = Query(..., gt=0)):
-    query = select(func.count().label("total"), func.avg(models.Review.rating).label("avg")).where(models.Review.company_id == company_id)
-    result = await session.execute(query)
-    row = result.first()
-    avg = float(row.avg) if row.avg else 0
-    risk_percent = max(0, min(100, int((5 - avg) * 20)))
-    impact = "High" if risk_percent > 60 else "Medium" if risk_percent > 30 else "Low"
-    return {"risk_percent": risk_percent, "impact": impact}
-
-
+# =========================================================
+# AI CHATBOT
+# =========================================================
 @router.get("/chatbot/explain/{company_id}")
-async def chatbot_explain(company_id: int, question: str = Query(...)):
-    return {"answer": "Based on current reviews, focus on quick owner responses and service quality."}
-
-
-# ====================== DIAGNOSTIC ENDPOINT ======================
-@router.get("/test/reviews-count")
-async def test_reviews_count(
-    session: AsyncSession = Depends(get_session),
-    company_id: Optional[int] = Query(None),
+async def chatbot_explain(
+    company_id: int,
+    question: str,
+    db: AsyncSession = Depends(get_session)
 ):
-    if company_id:
-        count = await session.scalar(select(func.count()).where(models.Review.company_id == company_id))
-        return {"company_id": company_id, "review_count": count or 0}
+    result = await db.execute(
+        select(models.Review.rating).where(models.Review.company_id == company_id)
+    )
+    ratings = [r[0] for r in result.all()]
 
-    query = select(models.Review.company_id, func.count().label("count")).group_by(models.Review.company_id)
-    result = await session.execute(query)
-    data = [{"company_id": r.company_id, "reviews": r.count} for r in result.all()]
-    return {"companies_with_reviews": data}
+    if not ratings:
+        return {"answer": "No data available for this business."}
+
+    avg = round(sum(ratings) / len(ratings), 2)
+
+    # Simple AI logic
+    if avg >= 4:
+        insight = "Strong performance with high customer satisfaction."
+    elif avg >= 3:
+        insight = "Moderate performance. Improvement needed."
+    else:
+        insight = "Critical risk. Immediate action required."
+
+    return {
+        "answer": f"Average rating is {avg}. {insight}"
+    }
+
+
+# =========================================================
+# PDF REPORT (DUMMY LINK)
+# =========================================================
+@router.get("/executive-report/pdf/{company_id}")
+async def download_report(company_id: int):
+    return JSONResponse(content={
+        "message": "Report generation not implemented yet",
+        "company_id": company_id
+    })
