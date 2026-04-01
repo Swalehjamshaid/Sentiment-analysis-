@@ -1,3 +1,4 @@
+# app/main.py
 import sys
 import os
 import logging
@@ -13,16 +14,16 @@ from starlette.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Fix for Docker / Gunicorn import issues
+# --------------------------- Fix Path for Docker/Gunicorn ---------------------------
 sys.path.insert(0, "/app")
 
-# Core imports
+# --------------------------- Core Imports ---------------------------
 from app.core.config import settings
 from app.core.db import init_models, get_session, SessionLocal, engine
 from app.core import models
 from app.core.models import User, SCHEMA_VERSION, Config as ConfigModel
 
-# Routers
+# --------------------------- Routers ---------------------------
 from app.routes import auth, companies, dashboard, reviews, exports, google_check
 
 # --------------------------- Logging ---------------------------
@@ -88,7 +89,7 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("🛑 Application Shutdown Started...")
 
-# --------------------------- App Init ---------------------------
+# --------------------------- App Initialization ---------------------------
 app = FastAPI(
     title=getattr(settings, "APP_NAME", "Review SaaS AI"),
     lifespan=lifespan,
@@ -178,7 +179,6 @@ async def logout(request: Request):
     return RedirectResponse("/login")
 
 # --------------------------- Routers ---------------------------
-# CRITICAL: These must match exactly what the frontend calls in your browser console
 logger.info("🔗 Mounting all routers...")
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
@@ -194,5 +194,4 @@ logger.info("🔗 All routers mounted correctly")
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
-    # Using the string import format for better stability on Railway
     uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
