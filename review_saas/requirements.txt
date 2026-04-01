@@ -39,6 +39,7 @@ plotly
 wordcloud
 dash
 reportlab
+fpdf==1.7.2
 
 # === Utilities & Security ===
 pydantic==2.7.4
