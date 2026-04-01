@@ -127,7 +127,6 @@ async def root(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_get(request: Request):
-    # FIXED: Added request=request to fix unhashable type error
     return templates.TemplateResponse(
         request=request, 
         name="login.html", 
@@ -141,16 +140,14 @@ async def login_post(
     password: str = Form(...),
     session: AsyncSession = Depends(get_session),
 ):
-    # Search for Jamshaid's email
     result = await session.execute(select(User).where(User.email == email))
     user = result.scalars().first()
     
-    # Check credentials
     if not user or password != user.hashed_password:
         return templates.TemplateResponse(
             request=request, 
             name="login.html", 
-            context={"request": request, "error": "Invalid credentials", "email": email}
+            context={"error": "Invalid credentials", "email": email}
         )
     
     request.session["user"] = {
@@ -166,7 +163,6 @@ async def dashboard_view(request: Request):
     if not user:
         return RedirectResponse("/login")
     
-    # FIXED: Explicit request and context for Jinja2
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
@@ -182,17 +178,21 @@ async def logout(request: Request):
     return RedirectResponse("/login")
 
 # --------------------------- Routers ---------------------------
+# CRITICAL: These must match exactly what the frontend calls in your browser console
 logger.info("🔗 Mounting all routers...")
+
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(reviews.router, prefix="/api", tags=["reviews"])
 app.include_router(exports.router, prefix="/api", tags=["exports"])
 app.include_router(google_check.router, prefix="/api", tags=["google_check"])
+
 logger.info("🔗 All routers mounted correctly")
 
 # --------------------------- Run ---------------------------
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
+    # Using the string import format for better stability on Railway
     uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
