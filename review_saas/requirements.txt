@@ -1,34 +1,27 @@
-# =============================================
-#   Review SaaS - requirements.txt
-#   Organized by purpose | 2026 Best Practices
-# =============================================
-
-# --- Web Framework & Server ---
+# --- Web & API Core ---
 fastapi
 uvicorn[standard]
 gunicorn
 starlette
 httpx
 
-# --- Database & Async ---
+# --- Database & Async ORM ---
 sqlalchemy>=2.0.0
 databases
 asyncpg==0.29.0
-aiosqlite
 python-multipart==0.0.12
+aiosqlite
 
-# --- Scraping & Browser Automation ---
-playwright==1.45.0
-selenium
+# --- Scraping & Intelligence ---
 requests
 beautifulsoup4
+playwright==1.45.0
+selenium
 proxybroker2==2.0.0a4
 google-search-results
-
-# --- Advanced PDF Extraction ---
 kreuzberg
 
-# --- AI & LLM Stack ---
+# --- 🧠 Extremely Advanced AI Stack ---
 openai
 langgraph
 pydantic-ai-slim[openai]
@@ -36,34 +29,32 @@ pydantic>=2.9.0
 pydantic-settings
 llama-index
 
-# --- NLP & Text Processing ---
+# --- NLP Core ---
 nltk
 textblob
 
-# --- Data Processing & Analytics ---
-polars
+# --- ⚡ High-Performance Math (STRICT PINS 3.10) ---
+polars                   
 numpy==1.26.4
-pandas==2.1.1
 scipy==1.11.4
+pandas==2.1.1
 scikit-learn==1.3.2
 statsmodels==0.14.0
 
-# --- PDF & Report Generation ---
-reportlab
+# --- 📊 Strategic PDF Generation ---
+reportlab                
 fpdf==1.7.2
 matplotlib
 seaborn
 plotly
 wordcloud
+dash
 openpyxl
 
-# --- Authentication & Security ---
+# --- Utilities & Security ---
 python-jose[cryptography]
 passlib[bcrypt]
 pyjwt
-
-# --- Utilities & Logging ---
 python-dotenv
 loguru
 tqdm
-dash   # If you're using Dash dashboards
