@@ -35,7 +35,7 @@
         .navbar {
             background: var(--primary-grad) !important;
             border-radius: 20px;
-            box-shadow: 0 15px 30px -10px rgba(99, 102, 241, 0.35);
+            box-shadow: 0 15px 30px -10px rgba(99, 102, 241, 0.4);
         }
         .card {
             border: none;
@@ -66,16 +66,14 @@
             border-radius: 12px 12px 0 0;
             font-weight: 600;
             font-size: 0.95rem;
-            letter-spacing: 0.5px;
         }
         .ai-badge {
             background: var(--ai-grad);
             color: white;
-            padding: 6px 18px;
+            padding: 8px 20px;
             border-radius: 9999px;
             font-weight: 700;
-            font-size: 0.8rem;
-            box-shadow: 0 4px 12px rgba(168,85,247,0.3);
+            font-size: 0.82rem;
         }
         #chatWindow {
             height: 440px;
@@ -104,7 +102,7 @@
         .chart-wrapper { height: 300px; padding: 10px; }
         .kpi-value {
             font-family: 'Space Grotesk', sans-serif;
-            font-size: 2.8rem;
+            font-size: 2.9rem;
             font-weight: 700;
             line-height: 1;
         }
@@ -113,15 +111,16 @@
             border: 1px solid #e2e8f0;
             padding: 10px 18px;
             border-radius: 9999px;
-            font-size: 0.95rem;
+            font-weight: 500;
             box-shadow: 0 2px 8px rgba(0,0,0,0.05);
         }
-        .review-table-container { 
-            max-height: 520px; 
-            overflow-y: auto; 
-            border-radius: 12px;
+        .alert-item {
+            background: #fee2e2;
+            border-left: 4px solid #ef4444;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 8px;
         }
-        .star-rating { color: #fbbf24; font-size: 1.2rem; }
     </style>
 </head>
 <body>
@@ -174,33 +173,39 @@
 
         <!-- KPI Cards -->
         <div class="row g-4 mb-5">
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <div class="card total-review-card p-5 h-100 text-white">
                     <div class="text-uppercase small fw-bold opacity-75">TOTAL REVIEWS</div>
                     <div id="kpiTotal" class="kpi-value mt-2">0</div>
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <div class="card p-5 h-100">
-                    <div class="text-muted fw-semibold small">AVERAGE RATING</div>
+                    <div class="text-muted fw-semibold">AVERAGE RATING</div>
                     <div id="kpiRating" class="kpi-value mt-2 text-primary">—</div>
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
+                <div class="card p-5 h-100">
+                    <div class="text-muted fw-semibold">CHURN PREDICTION</div>
+                    <div id="churnScore" class="kpi-value mt-2 text-danger">—</div>
+                </div>
+            </div>
+            <div class="col-md-3">
                 <div class="card risk-card p-5 h-100 text-white">
-                    <div class="small fw-bold opacity-75 text-uppercase mb-3">REVENUE RISK MONITOR</div>
+                    <div class="small fw-bold opacity-75 text-uppercase mb-3">REVENUE RISK</div>
                     <div class="row text-center g-3">
                         <div class="col-4">
                             <small class="opacity-75 d-block">Loss %</small>
-                            <div id="riskPct" class="h3 fw-bold">—</div>
+                            <div id="riskPct" class="h4 fw-bold">—</div>
                         </div>
                         <div class="col-4">
                             <small class="opacity-75 d-block">Impact</small>
-                            <div id="riskImpact" class="h3 fw-bold">—</div>
+                            <div id="riskImpact" class="h4 fw-bold">—</div>
                         </div>
                         <div class="col-4">
                             <small class="opacity-75 d-block">Reputation</small>
-                            <div id="riskSentiment" class="h3 fw-bold">—</div>
+                            <div id="riskSentiment" class="h4 fw-bold">—</div>
                         </div>
                     </div>
                 </div>
@@ -208,49 +213,60 @@
         </div>
 
         <div class="row g-4">
-            <!-- Charts & Keywords -->
+            <!-- Charts Section -->
             <div class="col-lg-8">
                 <div class="row g-4">
-                    <!-- Emotion Radar -->
-                    <div class="col-md-6">
-                        <div class="section-header mb-0">CUSTOMER EMOTION RADAR</div>
-                        <div class="card border-top-0 rounded-top-0">
-                            <div class="chart-wrapper p-4"><canvas id="chartEmotions"></canvas></div>
+                    <!-- Revenue Risk Heatmap -->
+                    <div class="col-12">
+                        <div class="section-header">REVENUE RISK HEATMAP</div>
+                        <div class="card border-top-0 p-4 text-center">
+                            <div id="riskGauge" class="display-1 fw-bold text-danger mb-2">—</div>
+                            <p class="text-muted mb-0">Loss Probability • Impact on Revenue</p>
                         </div>
                     </div>
+
                     <!-- Monthly Trend -->
                     <div class="col-md-6">
-                        <div class="section-header mb-0">MONTHLY TREND</div>
-                        <div class="card border-top-0 rounded-top-0">
-                            <div class="chart-wrapper p-4"><canvas id="chartMonthly"></canvas></div>
-                        </div>
+                        <div class="section-header">MONTHLY RATING TREND</div>
+                        <div class="card border-top-0 p-4"><div class="chart-wrapper"><canvas id="chartMonthly"></canvas></div></div>
                     </div>
+
+                    <!-- Sentiment Emotion Radar -->
+                    <div class="col-md-6">
+                        <div class="section-header">SENTIMENT EMOTION RADAR</div>
+                        <div class="card border-top-0 p-4"><div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div></div>
+                    </div>
+
                     <!-- Rating Distribution -->
                     <div class="col-12">
-                        <div class="section-header mb-0">RATING DISTRIBUTION</div>
-                        <div class="card border-top-0 rounded-top-0">
-                            <div class="chart-wrapper p-4"><canvas id="chartRatings"></canvas></div>
-                        </div>
+                        <div class="section-header">RATING DISTRIBUTION BREAKDOWN</div>
+                        <div class="card border-top-0 p-4"><div class="chart-wrapper"><canvas id="chartRatings"></canvas></div></div>
                     </div>
-                    <!-- Keywords -->
+
+                    <!-- Top Keywords -->
                     <div class="col-12">
-                        <div class="section-header mb-0">TOP KEYWORDS</div>
-                        <div id="keywordContainer" class="card border-top-0 rounded-top-0 p-5 d-flex flex-wrap gap-3"></div>
+                        <div class="section-header">TOP COMPLAINT & PRAISE KEYWORDS</div>
+                        <div id="keywordContainer" class="card border-top-0 p-5 d-flex flex-wrap gap-3"></div>
                     </div>
                 </div>
             </div>
 
-            <!-- AI Strategy Consultant -->
+            <!-- AI Consultant + Negative Alerts -->
             <div class="col-lg-4">
-                <div class="section-header mb-0">AI STRATEGY CONSULTANT</div>
-                <div class="card border-top-0 rounded-top-0 h-100">
+                <div class="section-header">AI STRATEGY CONSULTANT</div>
+                <div class="card border-top-0 h-100">
                     <div class="card-body d-flex flex-column p-4">
                         <div id="chatWindow" class="flex-grow-1 mb-4"></div>
                         <div class="input-group">
-                            <input id="chatInput" type="text" class="form-control py-4" placeholder="Ask about performance, risks, or recommendations...">
+                            <input id="chatInput" type="text" class="form-control py-4" placeholder="Ask: Why is churn increasing?">
                             <button onclick="askAI()" class="btn btn-primary px-5"><i class="bi bi-send"></i></button>
                         </div>
                     </div>
+                </div>
+
+                <div class="mt-4">
+                    <div class="section-header">NEGATIVE REVIEW ALERTS</div>
+                    <div id="negativeAlerts" class="card border-top-0 p-3" style="max-height: 260px; overflow-y: auto;"></div>
                 </div>
             </div>
         </div>
@@ -258,10 +274,10 @@
         <!-- Recent Reviews -->
         <div class="row mt-5">
             <div class="col-12">
-                <div class="section-header mb-0">LATEST 100 REVIEWS</div>
-                <div class="card border-top-0 rounded-top-0 p-4">
+                <div class="section-header">LATEST 100 REVIEWS</div>
+                <div class="card border-top-0 p-4">
                     <div class="review-table-container">
-                        <table class="table table-hover align-middle mb-0">
+                        <table class="table table-hover align-middle">
                             <thead class="sticky-top bg-white">
                                 <tr class="text-muted small text-uppercase">
                                     <th>AUTHOR</th>
@@ -278,7 +294,7 @@
         </div>
     </div>
 
-    <!-- Add Company Modal -->
+    <!-- Add Company Modal (kept unchanged) -->
     <div class="modal fade" id="addCompanyModal" tabindex="-1">
         <div class="modal-dialog modal-lg modal-dialog-centered">
             <form id="addCompanyForm" class="modal-content shadow-xl border-0 rounded-4">
@@ -333,7 +349,7 @@
 
         function initChat() {
             const chatWin = document.getElementById("chatWindow");
-            chatWin.innerHTML = `<div class="chat-msg chat-ai">Hello! Select a business and click "Analyze Business" to get powerful insights.</div>`;
+            chatWin.innerHTML = `<div class="chat-msg chat-ai">Hello! Select a business and click "Analyze Business" to unlock deep insights including churn prediction and loyalty metrics.</div>`;
         }
 
         async function triggerAllLoads() {
@@ -352,20 +368,27 @@
                     fetch(`${DASHBOARD_CONFIG.endpoints.revenue}?company_id=${cid}`).then(r => r.json())
                 ]);
 
+                // Original KPIs
                 document.getElementById("kpiTotal").innerText = insRes.total_reviews || 0;
                 document.getElementById("kpiRating").innerText = insRes.average_rating || "—";
+
+                // New Enhanced Metrics
+                document.getElementById("churnScore").innerText = insRes.churn_prediction + "%";
 
                 const risk = insRes.risk || revRes || {};
                 document.getElementById("riskPct").innerText = risk.loss_probability || "—";
                 document.getElementById("riskImpact").innerText = risk.impact_level || "—";
                 document.getElementById("riskSentiment").innerText = risk.reputation_score || "—";
 
+                // Render Charts & Components
                 if (insRes.sentiment_counts) renderCharts(insRes);
                 if (insRes.top_keywords) renderKeywords(insRes.top_keywords);
+                if (insRes.negative_reviews) renderNegativeAlerts(insRes.negative_reviews);
+
                 loadRecentReviews(cid);
 
             } catch (e) {
-                console.error(e);
+                console.error("Load error:", e);
             } finally {
                 btn.innerHTML = orig;
                 btn.disabled = false;
@@ -373,7 +396,7 @@
         }
 
         function renderCharts(data) {
-            // Radar Chart
+            // Emotion Radar
             if (chartInstances.emotions) chartInstances.emotions.destroy();
             chartInstances.emotions = new Chart(document.getElementById("chartEmotions"), {
                 type: 'radar',
@@ -420,7 +443,7 @@
                         label: 'Count',
                         data: dist,
                         backgroundColor: '#6366f1',
-                        borderRadius: 10
+                        borderRadius: 12
                     }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
@@ -438,6 +461,24 @@
             ).join('');
         }
 
+        function renderNegativeAlerts(negativeReviews) {
+            const container = document.getElementById("negativeAlerts");
+            if (!negativeReviews || negativeReviews.length === 0) {
+                container.innerHTML = `<p class="text-muted text-center py-4">No critical negative alerts at the moment.</p>`;
+                return;
+            }
+            container.innerHTML = negativeReviews.map(r => `
+                <div class="alert-item">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <strong>${r.author}</strong>
+                        <span class="badge bg-danger">${r.rating}★</span>
+                    </div>
+                    <small class="text-muted">${r.date}</small>
+                    <p class="mb-0 mt-2 small">${r.text}</p>
+                </div>
+            `).join('');
+        }
+
         async function loadRecentReviews(cid) {
             const tbody = document.getElementById("recentReviewsList");
             try {
@@ -445,7 +486,7 @@
                 const data = await res.json();
                 tbody.innerHTML = data.map(r => `
                     <tr>
-                        <td class="fw-medium">${r.author || 'Anonymous'}</td>
+                        <td class="fw-medium">${r.author}</td>
                         <td><span class="star-rating">${'★'.repeat(r.rating || 0)}</span></td>
                         <td class="small">${r.text ? r.text.substring(0, 160) + '...' : '—'}</td>
                         <td class="small">${r.date}</td>
@@ -470,7 +511,7 @@
             try {
                 const res = await fetch(`${DASHBOARD_CONFIG.endpoints.chat}?question=${encodeURIComponent(msg)}&company_id=${cid}`, { method: 'POST' });
                 const data = await res.json();
-                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Consultant:</strong> ${data.answer || "No response."}</div>`;
+                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Consultant:</strong> ${data.answer || "No response received."}</div>`;
             } catch (e) {
                 win.innerHTML += `<div class="chat-msg chat-ai text-danger">AI service temporarily unavailable.</div>`;
             }
@@ -484,7 +525,7 @@
                 const companies = data.companies || data || [];
                 const sel = document.getElementById("companySelect");
                 sel.innerHTML = companies.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
-                if (sel.options.length) triggerAllLoads();
+                if (sel.options.length > 0) triggerAllLoads();
             } catch (e) {}
         }
 
@@ -518,12 +559,12 @@
                 address: document.getElementById("companyAddress").value
             };
             try {
-                const res = await fetch(DASHBOARD_CONFIG.endpoints.companies, {
+                const response = await fetch(DASHBOARD_CONFIG.endpoints.companies, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                if (res.ok) {
+                if (response.ok) {
                     bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
                     loadCompanies();
                 }
