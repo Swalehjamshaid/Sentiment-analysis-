@@ -1,6 +1,6 @@
 # filename: app/routes/dashboard.py
 # ==========================================================
-# REVIEW INTELLIGENCE DASHBOARD — WORLD CLASS ENTERPRISE FINAL (ENHANCED)
+# REVIEW INTELLIGENCE DASHBOARD — WORLD CLASS ENTERPRISE UPDATED
 # ==========================================================
 from __future__ import annotations
 import io
@@ -8,7 +8,7 @@ import os
 import logging
 from datetime import datetime
 from collections import Counter, defaultdict
-from typing import Dict, List
+from typing import Dict, List, Any
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -47,14 +47,14 @@ def safe_date(val: str | None) -> datetime | None:
         return None
 
 def sanitize_pdf(text: str) -> str:
-    """100% safe text for FPDF (latin-1 only)"""
+    """Safe text for PDF (UTF-8 compatible)"""
     replacements = {
         "—": "-", "–": "-", "’": "'", "“": '"', "”": '"',
         "•": "-", "…": "...", "©": "(C)", "®": "(R)"
     }
     for k, v in replacements.items():
         text = text.replace(k, v)
-    return text.encode("latin-1", "ignore").decode("latin-1")
+    return text
 
 def clean_keywords(text: str) -> List[str]:
     words = []
@@ -72,9 +72,9 @@ async def get_company(session: AsyncSession, company_id: int) -> Company:
     return company
 
 # ----------------------------------------------------------
-# ✅ CORE ANALYTICS ENGINE — SINGLE SOURCE OF TRUTH (ENHANCED)
+# ✅ CORE ANALYTICS ENGINE — SINGLE SOURCE OF TRUTH
 # ----------------------------------------------------------
-def compute_analytics(reviews: List[Review]) -> Dict:
+def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
     if not reviews:
         return {
             "total_reviews": 0,
@@ -124,7 +124,7 @@ def compute_analytics(reviews: List[Review]) -> Dict:
                 sentiment_counts["Neutral"] += 1
 
     total = len(reviews)
-    avg_rating = round(sum(ratings) / total, 2) if ratings else 0.0
+    avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0  # fixed avg calc
 
     raw_risk = (negative_count * 0.6 + severe_count * 0.4) / total if total > 0 else 0
     risk_pct = round(raw_risk * 100, 1)
@@ -132,15 +132,20 @@ def compute_analytics(reviews: List[Review]) -> Dict:
     churn_prediction = round(min(95.0, (negative_count / total * 65) + (severe_count / total * 35)), 1) if total > 0 else 0.0
     loyalty_score = round((sentiment_counts["Positive"] / total * 100), 1) if total > 0 else 0.0
 
+    # chronological sorting for monthly trends
+    monthly_trend = []
+    for k, v in monthly_map.items():
+        dt = datetime.strptime(k, "%b %Y")
+        monthly_trend.append({"month": k, "avg": round(sum(v) / len(v), 2), "count": len(v), "dt": dt})
+    monthly_trend.sort(key=lambda x: x["dt"])
+    for t in monthly_trend: t.pop("dt")
+
     return {
         "total_reviews": total,
         "average_rating": avg_rating,
         "sentiment_counts": sentiment_counts,
         "rating_distribution": rating_distribution,
-        "monthly_trend": [
-            {"month": k, "avg": round(sum(v) / len(v), 2), "count": len(v)}
-            for k, v in sorted(monthly_map.items())
-        ],
+        "monthly_trend": monthly_trend,
         "risk": {
             "loss_probability": f"{risk_pct}%",
             "impact_level": "High" if risk_pct > 25 else "Medium" if risk_pct > 12 else "Low",
@@ -150,7 +155,6 @@ def compute_analytics(reviews: List[Review]) -> Dict:
         "churn_prediction": churn_prediction,
         "loyalty_score": loyalty_score
     }
-
 
 # ==========================================================
 # 1. OVERVIEW
@@ -164,7 +168,6 @@ async def overview(company_id: int, session: AsyncSession = Depends(get_session)
         "total_reviews": analytics["total_reviews"],
         "average_rating": analytics["average_rating"]
     }
-
 
 # ==========================================================
 # 2. INSIGHTS
@@ -195,7 +198,6 @@ async def insights(
     analytics["top_keywords"] = [w for w, _ in Counter(keywords).most_common(30)]
     return analytics
 
-
 # ==========================================================
 # 3. REVENUE RISK
 # ==========================================================
@@ -205,7 +207,6 @@ async def revenue(company_id: int, session: AsyncSession = Depends(get_session))
     res = await session.execute(select(Review).where(Review.company_id == company_id))
     analytics = compute_analytics(res.scalars().all())
     return analytics["risk"]
-
 
 # ==========================================================
 # 4. AI CHATBOT
@@ -251,7 +252,6 @@ Give professional, concise recommendations tied to revenue impact.
         logger.error(f"OpenAI error: {e}")
         return {"answer": "AI strategy consultant is temporarily unavailable. Please try again shortly."}
 
-
 # ==========================================================
 # 5. AI EXECUTIVE SUMMARY
 # ==========================================================
@@ -284,7 +284,6 @@ Actionable Recommendations:
 • Address root causes shown in keywords and monthly trend
 """
     return {"summary": summary.strip()}
-
 
 # ==========================================================
 # 6. EXECUTIVE PDF REPORT
@@ -329,13 +328,12 @@ async def executive_report(company_id: int, session: AsyncSession = Depends(get_
     for trend in analytics["monthly_trend"]:
         pdf.cell(0, 8, f"{trend['month']}: {trend['avg']} avg ({trend['count']} reviews)", ln=True)
 
-    buffer = io.BytesIO(pdf.output(dest="S").encode("latin-1"))
+    buffer = io.BytesIO(pdf.output(dest="S").encode("utf-8"))
     return StreamingResponse(
         buffer,
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename=Executive_Report_{company.name.replace(' ', '_')}_{company_id}.pdf"}
     )
-
 
 # ==========================================================
 # 7. RECENT REVIEWS
