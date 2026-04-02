@@ -83,6 +83,11 @@
         [data-theme="dark"] .chat-ai { background: #334155; color: white; border-color: #475569; }
 
         .pac-container { z-index: 9999 !important; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); border: none; }
+        
+        /* Table Styling for Recent Reviews */
+        .review-table-container { max-height: 500px; overflow-y: auto; }
+        .review-row { border-bottom: 1px solid #f1f5f9; padding: 15px 0; }
+        .star-rating { color: #f59e0b; }
     </style>
 </head>
 <body>
@@ -200,6 +205,29 @@
                 </div>
             </div>
         </div>
+
+        <div class="row g-4 mb-4">
+            <div class="col-12">
+                <div class="ai-badge">LATEST 100 REVIEWS ACROSS WEB</div>
+                <div class="card p-4 shadow-sm">
+                    <div class="review-table-container">
+                        <table class="table align-middle">
+                            <thead class="sticky-top bg-white">
+                                <tr class="text-muted small text-uppercase">
+                                    <th>Author</th>
+                                    <th>Rating</th>
+                                    <th>Review</th>
+                                    <th>Date</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recentReviewsList">
+                                <tr><td colspan="4" class="text-center py-5 text-muted">No data analyzed yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="modal fade" id="addCompanyModal" tabindex="-1">
@@ -247,7 +275,8 @@
                 revenue: "/api/revenue",
                 report: "/api/executive-report/pdf",
                 companies: "/api/companies",
-                sync: "/api/reviews/ingest"
+                sync: "/api/reviews/ingest",
+                recent: "/api/recent-reviews" // NEW Endpoint alignment
             }
         };
 
@@ -256,9 +285,6 @@
             if (el) el.innerText = text;
         }
 
-        // ==========================================================
-        // ADD NEW COMPANY MECHANISM (DIRECT API ALIGNMENT)
-        // ==========================================================
         document.getElementById("addCompanyForm").onsubmit = async (e) => {
             e.preventDefault();
             const btn = document.getElementById("saveCompanyBtn");
@@ -284,7 +310,7 @@
                     alert("Business linked successfully!");
                     bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
                     document.getElementById("addCompanyForm").reset();
-                    await loadCompanies(); // Refresh the dropdown
+                    await loadCompanies(); 
                 } else {
                     const err = await response.json();
                     alert("Error: " + (err.message || "Failed to save business."));
@@ -354,10 +380,37 @@
                 setElementText("riskPct", revData.loss_probability || "—");
                 setElementText("riskImpact", revData.impact_level || "—");
                 setElementText("riskSentiment", revData.reputation_score || "—");
+
+                // NEW: Load the 100 Recent Reviews
+                loadRecentReviews(cid);
+
             } catch (e) { 
                 console.error("Load Error:", e); 
             } finally { 
                 loadBtn.innerText = "Analyze Business"; 
+            }
+        }
+
+        async function loadRecentReviews(cid) {
+            const list = document.getElementById("recentReviewsList");
+            try {
+                const res = await fetch(`${DASHBOARD_CONFIG.endpoints.recent}/${cid}`);
+                const data = await res.json();
+                
+                if (data && data.length > 0) {
+                    list.innerHTML = data.map(r => `
+                        <tr class="review-row">
+                            <td class="fw-bold">${r.author}</td>
+                            <td><span class="star-rating">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</span></td>
+                            <td class="small text-muted">${r.text || "No text provided."}</td>
+                            <td class="small fw-semibold">${r.date}</td>
+                        </tr>
+                    `).join("");
+                } else {
+                    list.innerHTML = `<tr><td colspan="4" class="text-center py-4">No reviews found.</td></tr>`;
+                }
+            } catch (e) {
+                list.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-danger">Error loading reviews.</td></tr>`;
             }
         }
 
@@ -384,10 +437,10 @@
             chartInstances.monthly = new Chart(lineCtx, {
                 type: 'line',
                 data: {
-                    labels: ['Jan', 'Feb', 'Mar', 'Apr'],
+                    labels: data.monthly_trend?.map(t => t.month) || ['Jan', 'Feb', 'Mar', 'Apr'],
                     datasets: [{
                         label: 'Rating Trend',
-                        data: [4.1, 4.3, 4.0, 4.5],
+                        data: data.monthly_trend?.map(t => t.avg) || [4.1, 4.3, 4.0, 4.5],
                         borderColor: '#10b981',
                         backgroundColor: 'rgba(16, 185, 129, 0.1)',
                         fill: true,
@@ -405,7 +458,7 @@
                     labels: ['1★', '2★', '3★', '4★', '5★'],
                     datasets: [{
                         label: 'Count',
-                        data: [5, 10, 15, 40, 30],
+                        data: Object.values(data.rating_distribution || [0,0,0,0,0]),
                         backgroundColor: '#6366f1',
                         borderRadius: 8
                     }]
