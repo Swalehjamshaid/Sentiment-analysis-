@@ -1,15 +1,15 @@
-# 1. Use the official Playwright base
+# 1. Official Playwright Base
 FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
 
-# 2. Prevent Python from buffering and set timeouts
+# 2. Performance Environment Variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DEFAULT_TIMEOUT=1000
 
 WORKDIR /app
 
-# 3. CRITICAL: Install Rust, Cargo, and OpenSSL Headers
-# This is the ONLY way to fix the 'Failed building wheel for kreuzberg' error.
+# 3. CRITICAL SYSTEM DEPS: Added Rust, Cargo, and SSL Headers
+# This fixes the Line 34 / Kreuzberg compilation error.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
@@ -17,6 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     rustc \
     cargo \
+    pandoc \
+    tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
 # 4. Upgrade core build tools
@@ -25,7 +27,7 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 # 5. CHECKPOINT 1: Pre-install CPU-only Torch
 RUN pip install --no-cache-dir torch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1 --index-url https://download.pytorch.org/whl/cpu
 
-# 6. CHECKPOINT 2: Pre-install NLP stack
+# 6. CHECKPOINT 2: Pre-install the heavy NLP stack
 RUN pip install --no-cache-dir transformers sentence-transformers
 
 # 7. Install remaining requirements
