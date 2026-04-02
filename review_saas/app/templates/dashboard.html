@@ -294,7 +294,7 @@
             loadBtn.innerText = "Analyzing...";
 
             try {
-                // Fetch Data (Unified API Alignment)
+                // Unified Data Fetching
                 const [overRes, insRes, revRes] = await Promise.all([
                     fetch(`${DASHBOARD_CONFIG.endpoints.overview}/${cid}`).then(r => r.json()),
                     fetch(`${DASHBOARD_CONFIG.endpoints.insights}?company_id=${cid}&start=${start}&end=${end}`).then(r => r.json()),
@@ -305,10 +305,11 @@
                 setElementText("kpiTotal", insRes.total_reviews || overRes.total_reviews || 0);
                 setElementText("kpiRating", insRes.average_rating || overRes.average_rating || "—");
 
-                // Update Risk Metrics (Aligned with compute_analytics backend)
-                setElementText("riskPct", insRes.risk?.loss_probability || revRes.loss_probability || "—");
-                setElementText("riskImpact", insRes.risk?.impact_level || revRes.impact_level || "—");
-                setElementText("riskSentiment", insRes.risk?.reputation_score || revRes.reputation_score || "—");
+                // Update Risk Metrics (Aligining with Risk Dictionary in dashboard.py)
+                const risk = insRes.risk || revRes || {};
+                setElementText("riskPct", risk.loss_probability || "—");
+                setElementText("riskImpact", risk.impact_level || "—");
+                setElementText("riskSentiment", risk.reputation_score || "—");
 
                 // Update Charts
                 if (insRes.sentiment_counts) renderCharts(insRes);
@@ -325,7 +326,7 @@
         }
 
         function renderCharts(data) {
-            // 1. Radar Chart (Sentiment)
+            // 1. Radar Chart (Sentiment Counts)
             const radarCtx = document.getElementById("chartEmotions").getContext('2d');
             if (chartInstances.emotions) chartInstances.emotions.destroy();
             const sentimentData = data.sentiment_counts || {};
@@ -344,27 +345,31 @@
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
 
-            // 2. Line Chart (Trend)
+            // 2. Line Chart (Monthly Trend) - FIXED KEY MAPPING
             const lineCtx = document.getElementById("chartMonthly").getContext('2d');
             if (chartInstances.monthly) chartInstances.monthly.destroy();
             const trend = data.monthly_trend || [];
             chartInstances.monthly = new Chart(lineCtx, {
                 type: 'line',
                 data: {
-                    labels: trend.map(t => t.month),
+                    labels: trend.map(t => t.month), // Backend returns "month": "Jan 2026"
                     datasets: [{
                         label: 'Avg Rating',
-                        data: trend.map(t => t.avg),
+                        data: trend.map(t => t.avg),   // Backend returns "avg": float
                         borderColor: '#10b981',
                         backgroundColor: 'rgba(16, 185, 129, 0.1)',
                         fill: true,
                         tension: 0.4
                     }]
                 },
-                options: { responsive: true, maintainAspectRatio: false }
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    scales: { y: { min: 0, max: 5 } }
+                }
             });
 
-            // 3. Bar Chart (Distribution)
+            // 3. Bar Chart (Rating Distribution) - FIXED KEY MAPPING
             const barCtx = document.getElementById("chartRatings").getContext('2d');
             if (chartInstances.ratings) chartInstances.ratings.destroy();
             const rawDist = data.rating_distribution || {};
@@ -392,8 +397,8 @@
 
         function renderKeywords(keywords) {
             const container = document.getElementById("keywordContainer");
-            if (!keywords.length) {
-                container.innerHTML = `<span class="text-muted small">No keywords detected yet.</span>`;
+            if (!keywords || !keywords.length) {
+                container.innerHTML = `<span class="text-muted small">No significant keywords extracted yet.</span>`;
                 return;
             }
             container.innerHTML = keywords.map(kw => 
