@@ -43,37 +43,41 @@
             box-shadow: 0 10px 30px -8px rgba(0,0,0,0.1);
             background: var(--glass);
             backdrop-filter: blur(16px);
-            transition: all 0.4s ease;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .card:hover {
             transform: translateY(-6px);
             box-shadow: 0 20px 40px -12px rgba(0,0,0,0.15);
         }
-        .total-review-card {
-            background: var(--primary-grad);
+        .total-review-card, .risk-card {
             color: white;
             border-radius: 24px;
-        }
-        .risk-card {
-            background: var(--danger-grad);
-            color: white;
-            border-radius: 24px;
+            position: relative;
+            overflow: hidden;
         }
         .section-header {
             background: linear-gradient(90deg, #7c3aed, #a855f7);
             color: white;
-            padding: 12px 20px;
+            padding: 12px 24px;
             border-radius: 12px 12px 0 0;
             font-weight: 600;
             font-size: 0.95rem;
+            letter-spacing: 0.5px;
+        }
+        .kpi-value {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 2.9rem;
+            font-weight: 700;
+            line-height: 1;
         }
         .ai-badge {
             background: var(--ai-grad);
             color: white;
-            padding: 8px 20px;
+            padding: 8px 22px;
             border-radius: 9999px;
             font-weight: 700;
             font-size: 0.82rem;
+            box-shadow: 0 6px 16px rgba(168,85,247,0.35);
         }
         #chatWindow {
             height: 440px;
@@ -99,17 +103,11 @@
         .chat-ai { background: white; align-self: flex-start; border-bottom-left-radius: 6px; }
         .chat-user { background: var(--primary-grad); color: white; align-self: flex-end; border-bottom-right-radius: 6px; }
         [data-theme="dark"] .chat-ai { background: #1e293b; color: #f1f5f9; }
-        .chart-wrapper { height: 300px; padding: 10px; }
-        .kpi-value {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 2.9rem;
-            font-weight: 700;
-            line-height: 1;
-        }
+        .chart-wrapper { height: 300px; padding: 12px; }
         .keyword-badge {
             background: white;
             border: 1px solid #e2e8f0;
-            padding: 10px 18px;
+            padding: 10px 20px;
             border-radius: 9999px;
             font-weight: 500;
             box-shadow: 0 2px 8px rgba(0,0,0,0.05);
@@ -120,6 +118,14 @@
             padding: 12px;
             margin-bottom: 10px;
             border-radius: 8px;
+        }
+        .empty-state {
+            height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
+            font-style: italic;
         }
     </style>
 </head>
@@ -213,15 +219,15 @@
         </div>
 
         <div class="row g-4">
-            <!-- Charts Section -->
+            <!-- Main Charts Column -->
             <div class="col-lg-8">
                 <div class="row g-4">
                     <!-- Revenue Risk Heatmap -->
                     <div class="col-12">
                         <div class="section-header">REVENUE RISK HEATMAP</div>
-                        <div class="card border-top-0 p-4 text-center">
-                            <div id="riskGauge" class="display-1 fw-bold text-danger mb-2">—</div>
-                            <p class="text-muted mb-0">Loss Probability • Impact on Revenue</p>
+                        <div class="card border-top-0 p-5 text-center">
+                            <div id="riskGauge" class="display-1 fw-bold text-danger mb-1">—</div>
+                            <p id="riskGaugeLabel" class="text-muted mb-0">Loss Probability • Impact on Revenue</p>
                         </div>
                     </div>
 
@@ -245,20 +251,20 @@
 
                     <!-- Top Keywords -->
                     <div class="col-12">
-                        <div class="section-header">TOP COMPLAINT & PRAISE KEYWORDS</div>
+                        <div class="section-header">TOP COMPLAINT &amp; PRAISE KEYWORDS</div>
                         <div id="keywordContainer" class="card border-top-0 p-5 d-flex flex-wrap gap-3"></div>
                     </div>
                 </div>
             </div>
 
-            <!-- AI Consultant + Negative Alerts -->
+            <!-- Right Sidebar: AI + Alerts -->
             <div class="col-lg-4">
                 <div class="section-header">AI STRATEGY CONSULTANT</div>
                 <div class="card border-top-0 h-100">
                     <div class="card-body d-flex flex-column p-4">
                         <div id="chatWindow" class="flex-grow-1 mb-4"></div>
                         <div class="input-group">
-                            <input id="chatInput" type="text" class="form-control py-4" placeholder="Ask: Why is churn increasing?">
+                            <input id="chatInput" type="text" class="form-control py-4" placeholder="Ask anything about performance, risk, or strategy...">
                             <button onclick="askAI()" class="btn btn-primary px-5"><i class="bi bi-send"></i></button>
                         </div>
                     </div>
@@ -277,7 +283,7 @@
                 <div class="section-header">LATEST 100 REVIEWS</div>
                 <div class="card border-top-0 p-4">
                     <div class="review-table-container">
-                        <table class="table table-hover align-middle">
+                        <table class="table table-hover align-middle mb-0">
                             <thead class="sticky-top bg-white">
                                 <tr class="text-muted small text-uppercase">
                                     <th>AUTHOR</th>
@@ -294,7 +300,7 @@
         </div>
     </div>
 
-    <!-- Add Company Modal (kept unchanged) -->
+    <!-- Add Company Modal -->
     <div class="modal fade" id="addCompanyModal" tabindex="-1">
         <div class="modal-dialog modal-lg modal-dialog-centered">
             <form id="addCompanyForm" class="modal-content shadow-xl border-0 rounded-4">
@@ -368,23 +374,28 @@
                     fetch(`${DASHBOARD_CONFIG.endpoints.revenue}?company_id=${cid}`).then(r => r.json())
                 ]);
 
-                // Original KPIs
+                // KPI Cards
                 document.getElementById("kpiTotal").innerText = insRes.total_reviews || 0;
                 document.getElementById("kpiRating").innerText = insRes.average_rating || "—";
-
-                // New Enhanced Metrics
-                document.getElementById("churnScore").innerText = insRes.churn_prediction + "%";
+                document.getElementById("churnScore").innerText = (insRes.churn_prediction || 0) + "%";
 
                 const risk = insRes.risk || revRes || {};
                 document.getElementById("riskPct").innerText = risk.loss_probability || "—";
                 document.getElementById("riskImpact").innerText = risk.impact_level || "—";
                 document.getElementById("riskSentiment").innerText = risk.reputation_score || "—";
 
-                // Render Charts & Components
+                // Risk Gauge
+                document.getElementById("riskGauge").innerText = risk.loss_probability || "—";
+                document.getElementById("riskGaugeLabel").innerText = `Loss Probability • ${risk.impact_level} Impact`;
+
+                // Charts
                 if (insRes.sentiment_counts) renderCharts(insRes);
                 if (insRes.top_keywords) renderKeywords(insRes.top_keywords);
+
+                // Negative Alerts
                 if (insRes.negative_reviews) renderNegativeAlerts(insRes.negative_reviews);
 
+                // Recent Reviews
                 loadRecentReviews(cid);
 
             } catch (e) {
@@ -396,7 +407,7 @@
         }
 
         function renderCharts(data) {
-            // Emotion Radar
+            // 1. Emotion Radar
             if (chartInstances.emotions) chartInstances.emotions.destroy();
             chartInstances.emotions = new Chart(document.getElementById("chartEmotions"), {
                 type: 'radar',
@@ -407,13 +418,14 @@
                         data: Object.values(data.sentiment_counts || {}),
                         backgroundColor: 'rgba(168,85,247,0.25)',
                         borderColor: '#a855f7',
-                        borderWidth: 3
+                        borderWidth: 3,
+                        pointRadius: 5
                     }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
 
-            // Monthly Trend
+            // 2. Monthly Trend
             if (chartInstances.monthly) chartInstances.monthly.destroy();
             const trend = data.monthly_trend || [];
             chartInstances.monthly = new Chart(document.getElementById("chartMonthly"), {
@@ -426,13 +438,13 @@
                         borderColor: '#10b981',
                         tension: 0.4,
                         fill: true,
-                        backgroundColor: 'rgba(16,185,129,0.1)'
+                        backgroundColor: 'rgba(16,185,129,0.12)'
                     }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 1, max: 5 } } }
             });
 
-            // Rating Distribution
+            // 3. Rating Distribution
             if (chartInstances.ratings) chartInstances.ratings.destroy();
             const dist = [1,2,3,4,5].map(n => (data.rating_distribution || {})[n] || 0);
             chartInstances.ratings = new Chart(document.getElementById("chartRatings"), {
