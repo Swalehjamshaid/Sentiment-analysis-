@@ -282,7 +282,10 @@
             recent: "/api/recent-reviews"
         };
 
-        function uiSet(id, val) { const el = document.getElementById(id); if (el) el.innerText = val; }
+        function uiSet(id, val) { 
+            const el = document.getElementById(id); 
+            if (el) el.innerText = val !== undefined && val !== null ? val : "—"; 
+        }
 
         async function triggerAllLoads() {
             const cid = document.getElementById("companySelect").value;
@@ -294,27 +297,23 @@
             btn.disabled = true;
 
             try {
-                // Enterprise Parallel Fetch
                 const [overRes, insRes, revRes] = await Promise.all([
                     fetch(`${API.overview}/${cid}`).then(r => r.json()),
                     fetch(`${API.insights}?company_id=${cid}&start=${document.getElementById("startDate").value || ""}&end=${document.getElementById("endDate").value || ""}`).then(r => r.json()),
                     fetch(`${API.revenue}?company_id=${cid}`).then(r => r.json())
                 ]);
 
-                // Map Enhanced Metrics
                 uiSet("kpiTotal", insRes.total_reviews || overRes.total_reviews || 0);
                 uiSet("kpiRating", insRes.average_rating || overRes.average_rating || "—");
                 uiSet("churnScore", (insRes.churn_prediction || 0) + "%");
                 uiSet("loyaltyScore", (insRes.loyalty_score || 0) + "%");
 
-                // Risk Analysis Mapping
                 const risk = insRes.risk || revRes || {};
                 uiSet("riskPct", risk.loss_probability || "0%");
                 uiSet("riskImpact", risk.impact_level || "None");
                 uiSet("riskSentiment", risk.reputation_score || "100");
                 uiSet("riskGauge", risk.loss_probability || "0%");
 
-                // Visual Analytics
                 if (insRes.sentiment_counts) renderCharts(insRes);
                 if (insRes.top_keywords) renderKeywords(insRes.top_keywords);
                 if (insRes.negative_reviews) renderAlerts(insRes.negative_reviews);
@@ -330,40 +329,52 @@
         }
 
         function renderCharts(data) {
-            // Emotion Radar
+            // Fix 1: Emotion Radar Calibration
             const ctxRadar = document.getElementById("chartEmotions").getContext('2d');
             if (chartInstances.emotions) chartInstances.emotions.destroy();
+            const sentimentLabels = Object.keys(data.sentiment_counts || {});
+            const sentimentValues = Object.values(data.sentiment_counts || {});
+            
             chartInstances.emotions = new Chart(ctxRadar, {
                 type: 'radar',
                 data: {
-                    labels: Object.keys(data.sentiment_counts || {}),
-                    datasets: [{ label: 'Intensity', data: Object.values(data.sentiment_counts || {}), backgroundColor: 'rgba(168, 85, 247, 0.25)', borderColor: '#a855f7', borderWidth: 3 }]
+                    labels: sentimentLabels,
+                    datasets: [{ label: 'Intensity', data: sentimentValues, backgroundColor: 'rgba(168, 85, 247, 0.25)', borderColor: '#a855f7', borderWidth: 3 }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
 
-            // Growth Trend
+            // Fix 2: Monthly Growth Trend Mapping
             const ctxLine = document.getElementById("chartMonthly").getContext('2d');
             if (chartInstances.monthly) chartInstances.monthly.destroy();
-            const trend = data.monthly_trend || [];
+            const trendArray = data.monthly_trend || [];
+            
             chartInstances.monthly = new Chart(ctxLine, {
                 type: 'line',
                 data: {
-                    labels: trend.map(t => t.month),
-                    datasets: [{ label: 'Avg Rating', data: trend.map(t => t.avg), borderColor: '#10b981', tension: 0.4, fill: true, backgroundColor: 'rgba(16, 185, 129, 0.1)' }]
+                    labels: trendArray.map(t => t.month),
+                    datasets: [{ label: 'Avg Rating', data: trendArray.map(t => t.avg), borderColor: '#10b981', tension: 0.4, fill: true, backgroundColor: 'rgba(16, 185, 129, 0.1)' }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 1, max: 5 } } }
             });
 
-            // Rating Distribution
+            // Fix 3: Rating Distribution String vs Int Mapping
             const ctxBar = document.getElementById("chartRatings").getContext('2d');
             if (chartInstances.ratings) chartInstances.ratings.destroy();
-            const dist = [1,2,3,4,5].map(n => (data.rating_distribution || {})[n] || 0);
+            const dist = data.rating_distribution || {};
+            const barData = [
+                dist["1"] || dist[1] || 0,
+                dist["2"] || dist[2] || 0,
+                dist["3"] || dist[3] || 0,
+                dist["4"] || dist[4] || 0,
+                dist["5"] || dist[5] || 0
+            ];
+            
             chartInstances.ratings = new Chart(ctxBar, {
                 type: 'bar',
                 data: {
                     labels: ['1★','2★','3★','4★','5★'],
-                    datasets: [{ label: 'Count', data: dist, backgroundColor: '#6366f1', borderRadius: 12 }]
+                    datasets: [{ label: 'Count', data: barData, backgroundColor: '#6366f1', borderRadius: 12 }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
@@ -376,7 +387,7 @@
 
         function renderAlerts(alerts) {
             const container = document.getElementById("negativeAlerts");
-            if (!alerts.length) {
+            if (!alerts || !alerts.length) {
                 container.innerHTML = `<div class="text-center text-muted p-4">No critical alerts. Reputation is healthy.</div>`;
                 return;
             }
