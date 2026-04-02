@@ -214,20 +214,20 @@
                     <div class="p-4 bg-light rounded-4">
                         <div class="mb-3">
                             <label class="form-label fw-bold text-muted small">NAME</label>
-                            <input id="companyName" class="form-control border-0" readonly>
+                            <input id="companyName" name="name" class="form-control border-0" readonly required>
                         </div>
                         <div class="mb-3">
                             <label class="form-label fw-bold text-muted small">PLACE ID</label>
-                            <input id="placeId" class="form-control border-0" readonly>
+                            <input id="placeId" name="place_id" class="form-control border-0" readonly required>
                         </div>
                         <div class="mb-3">
                             <label class="form-label fw-bold text-muted small">ADDRESS</label>
-                            <input id="companyAddress" class="form-control border-0" readonly>
+                            <input id="companyAddress" name="address" class="form-control border-0" readonly required>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer border-0 p-4">
-                    <button type="submit" class="btn btn-success w-100 rounded-pill fw-bold py-3 shadow">Save Business</button>
+                    <button type="submit" id="saveCompanyBtn" class="btn btn-success w-100 rounded-pill fw-bold py-3 shadow">Save Business</button>
                 </div>
             </form>
         </div>
@@ -247,7 +247,7 @@
                 revenue: "/api/revenue",
                 report: "/api/executive-report/pdf",
                 companies: "/api/companies",
-                sync: "/api/reviews/ingest" // NEW: Defined sync endpoint
+                sync: "/api/reviews/ingest"
             }
         };
 
@@ -257,8 +257,47 @@
         }
 
         // ==========================================================
-        // SYNC BUTTON LOGIC (FIXED)
+        // ADD NEW COMPANY MECHANISM (DIRECT API ALIGNMENT)
         // ==========================================================
+        document.getElementById("addCompanyForm").onsubmit = async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById("saveCompanyBtn");
+            const originalText = btn.innerText;
+
+            const payload = {
+                name: document.getElementById("companyName").value,
+                place_id: document.getElementById("placeId").value,
+                address: document.getElementById("companyAddress").value
+            };
+
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Saving...`;
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(DASHBOARD_CONFIG.endpoints.companies, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.ok) {
+                    alert("Business linked successfully!");
+                    bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
+                    document.getElementById("addCompanyForm").reset();
+                    await loadCompanies(); // Refresh the dropdown
+                } else {
+                    const err = await response.json();
+                    alert("Error: " + (err.message || "Failed to save business."));
+                }
+            } catch (e) {
+                console.error("API Error:", e);
+                alert("Connection error occurred.");
+            } finally {
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
+        };
+
         document.getElementById("syncBtn").onclick = async () => {
             const cid = document.getElementById("companySelect").value;
             if (!cid) {
@@ -269,7 +308,6 @@
             const btn = document.getElementById("syncBtn");
             const originalText = btn.innerText;
             
-            // Start Spinner
             btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>Syncing...`;
             btn.disabled = true;
 
@@ -277,15 +315,13 @@
                 const response = await fetch(`${DASHBOARD_CONFIG.endpoints.sync}/${cid}`, { method: 'POST' });
                 if (response.ok) {
                     alert("Live data synced successfully!");
-                    await triggerAllLoads(); // Refresh charts automatically
+                    await triggerAllLoads();
                 } else {
-                    alert("Sync failed. Please check backend logs.");
+                    alert("Sync failed.");
                 }
             } catch (e) {
-                console.error("Connection Error:", e);
                 alert("Could not connect to the server.");
             } finally {
-                // Reset Button
                 btn.innerText = originalText;
                 btn.disabled = false;
             }
@@ -302,29 +338,24 @@
 
             try {
                 const overRes = await fetch(`${DASHBOARD_CONFIG.endpoints.overview}/${cid}`);
-                if (!overRes.ok) throw new Error("Overview not found");
                 const overData = await overRes.json();
                 setElementText("kpiTotal", overData.total_reviews || 0);
                 setElementText("kpiRating", overData.average_rating || "—");
 
                 const insRes = await fetch(`${DASHBOARD_CONFIG.endpoints.insights}?company_id=${cid}&start=${start}&end=${end}`);
-                if (!insRes.ok) throw new Error("Insights not found");
                 const insData = await insRes.json();
-
                 if(insData.sentiment_counts) {
                     renderCharts(insData); 
                     if(insData.top_keywords) renderKeywords(insData.top_keywords);
                 }
 
                 const revRes = await fetch(`${DASHBOARD_CONFIG.endpoints.revenue}?company_id=${cid}`);
-                if (!revRes.ok) throw new Error("Revenue not found");
                 const revData = await revRes.json();
                 setElementText("riskPct", revData.loss_probability || "—");
                 setElementText("riskImpact", revData.impact_level || "—");
                 setElementText("riskSentiment", revData.reputation_score || "—");
-
             } catch (e) { 
-                console.error("Dashboard Sync Error:", e); 
+                console.error("Load Error:", e); 
             } finally { 
                 loadBtn.innerText = "Analyze Business"; 
             }
@@ -402,14 +433,11 @@
             win.scrollTop = win.scrollHeight;
 
             try {
-                const res = await fetch(`${DASHBOARD_CONFIG.endpoints.chat}?question=${encodeURIComponent(msg)}&company_id=${cid}`, {
-                    method: 'POST'
-                });
+                const res = await fetch(`${DASHBOARD_CONFIG.endpoints.chat}?question=${encodeURIComponent(msg)}&company_id=${cid}`, { method: 'POST' });
                 const data = await res.json();
                 win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI:</strong> ${data.answer}</div>`;
                 win.scrollTop = win.scrollHeight;
             } catch (e) { 
-                console.error("AI Chat Error:", e);
                 win.innerHTML += `<div class="chat-msg chat-ai text-danger">Connection lost.</div>`;
             }
         }
