@@ -3,224 +3,397 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Review Intelligence AI Dashboard</title>
-    
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Review Intelligence AI • Enterprise Dashboard</title>
+   
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet">
+   
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-
     <style>
         :root {
-            --primary-grad: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
-            --ai-grad: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
-            --danger-grad: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
-            --transition-speed: 0.3s;
+            --primary-grad: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            --ai-grad: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
+            --danger-grad: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            --success-grad: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --transition-speed: 0.4s;
+            --glass-bg: rgba(255, 255, 255, 0.75);
+            --glass-border: rgba(255, 255, 255, 0.6);
         }
-
-        body { 
-            background-color: #f8fafc; 
-            padding: 24px; 
-            font-family: 'Inter', sans-serif; 
-            transition: background var(--transition-speed); 
-        }
-
-        .navbar { 
-            background: var(--primary-grad) !important; 
-            border-radius: 15px !important; 
-            margin-bottom: 25px; 
-            border: none; 
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-        }
-
-        .card { 
-            border: none; 
-            border-radius: 20px; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05); 
-            transition: transform 0.2s ease-in-out;
-        }
-
-        .card:hover { transform: translateY(-2px); }
-
-        .total-review-card { background: var(--primary-grad); color: white; border-radius: 24px; }
-        .risk-card { background: var(--danger-grad); color: white; border-radius: 24px; }
-
-        .ai-badge { 
-            background: var(--ai-grad); 
-            color: white; 
-            padding: 5px 15px; 
-            border-radius: 10px; 
-            font-size: 0.75rem; 
-            font-weight: bold; 
-            margin-bottom: 10px; 
-            display: inline-block; 
-            text-transform: uppercase;
-        }
-
-        #chatWindow { 
-            height: 350px; 
-            overflow-y: auto; 
-            background: #f1f5f9; 
-            border-radius: 15px; 
-            padding: 20px; 
-            border: 1px solid #e2e8f0; 
-            display: flex; 
-            flex-direction: column; 
-        }
-
-        .chat-msg { margin-bottom: 15px; padding: 12px 18px; border-radius: 18px; max-width: 85%; font-size: 0.95rem; }
-        .chat-ai { background: white; color: #1e293b; border: 1px solid #e2e8f0; align-self: flex-start; border-bottom-left-radius: 4px; }
-        .chat-user { background: #6366f1; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
-
-        .chart-wrapper { height: 280px; position: relative; }
-        .btn-pill { border-radius: 50px; padding: 10px 25px; font-weight: 600; }
-
-        [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
-        [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
-        [data-theme="dark"] .bg-light { background: #334155 !important; color: white; }
-        [data-theme="dark"] #chatWindow { background: #0f172a; border-color: #334155; }
-        [data-theme="dark"] .chat-ai { background: #334155; color: white; border-color: #475569; }
-
-        .pac-container { z-index: 9999 !important; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); border: none; }
         
-        .review-table-container { max-height: 500px; overflow-y: auto; }
-        .review-row { border-bottom: 1px solid #f1f5f9; padding: 15px 0; }
-        .star-rating { color: #f59e0b; }
+        [data-theme="dark"] {
+            --glass-bg: rgba(15, 23, 42, 0.85);
+            --glass-border: rgba(51, 65, 85, 0.6);
+        }
+
+        * {
+            transition: all var(--transition-speed) ease;
+        }
+
+        body {
+            background: linear-gradient(145deg, #f8fafc 0%, #e0e7ff 100%);
+            padding: 20px;
+            font-family: 'Inter', system_ui, sans-serif;
+            color: #1e2937;
+            min-height: 100vh;
+        }
+
+        [data-theme="dark"] body {
+            background: linear-gradient(145deg, #0f172a 0%, #1e2937 100%);
+            color: #f1f5f9;
+        }
+
+        .navbar {
+            background: var(--primary-grad) !important;
+            border-radius: 20px;
+            margin-bottom: 30px;
+            box-shadow: 0 20px 25px -5px rgba(99, 102, 241, 0.3);
+            backdrop-filter: blur(12px);
+        }
+
+        .card {
+            border: none;
+            border-radius: 24px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+        }
+
+        .card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+        }
+
+        .total-review-card {
+            background: var(--primary-grad);
+            color: white;
+            border-radius: 28px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .total-review-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -30%;
+            width: 200px;
+            height: 200px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            filter: blur(40px);
+        }
+
+        .risk-card {
+            background: var(--danger-grad);
+            color: white;
+            border-radius: 28px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .ai-badge {
+            background: var(--ai-grad);
+            color: white;
+            padding: 6px 18px;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 4px 12px rgba(168, 85, 247, 0.3);
+        }
+
+        #chatWindow {
+            height: 420px;
+            overflow-y: auto;
+            background: rgba(241, 245, 249, 0.9);
+            border-radius: 20px;
+            padding: 24px;
+            border: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            backdrop-filter: blur(10px);
+        }
+
+        [data-theme="dark"] #chatWindow {
+            background: rgba(15, 23, 42, 0.95);
+            border-color: #334155;
+        }
+
+        .chat-msg {
+            padding: 14px 20px;
+            border-radius: 20px;
+            max-width: 88%;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .chat-ai {
+            background: white;
+            color: #1e293b;
+            align-self: flex-start;
+            border-bottom-left-radius: 6px;
+        }
+
+        [data-theme="dark"] .chat-ai {
+            background: #1e293b;
+            color: #f1f5f9;
+        }
+
+        .chat-user {
+            background: var(--primary-grad);
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 6px;
+        }
+
+        .chart-wrapper {
+            height: 300px;
+            position: relative;
+            padding: 12px;
+        }
+
+        .btn-pill {
+            border-radius: 9999px;
+            padding: 12px 28px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            box-shadow: 0 4px 14px 0 rgba(99, 102, 241, 0.3);
+        }
+
+        .btn-pill:hover {
+            transform: translateY(-2px);
+        }
+
+        .review-table-container {
+            max-height: 520px;
+            overflow-y: auto;
+            border-radius: 16px;
+        }
+
+        .review-row {
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        [data-theme="dark"] .review-row {
+            border-bottom-color: #334155;
+        }
+
+        .star-rating {
+            color: #fbbf24;
+            font-size: 1.1rem;
+        }
+
+        .kpi-value {
+            font-size: 2.75rem;
+            font-weight: 700;
+            line-height: 1;
+            font-family: 'Space Grotesk', sans-serif;
+        }
+
+        .section-header {
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+        }
+
+        .glass-input {
+            background: rgba(255,255,255,0.7);
+            border: 1px solid rgba(148, 163, 184, 0.4);
+            backdrop-filter: blur(10px);
+        }
+
+        [data-theme="dark"] .glass-input {
+            background: rgba(15,23,42,0.7);
+            border-color: rgba(148, 163, 184, 0.3);
+        }
     </style>
 </head>
 <body>
-
     <nav class="navbar navbar-expand-lg navbar-dark p-3 shadow-lg">
         <div class="container-fluid">
-            <span class="navbar-brand fw-bold fs-4">
-                <i class="bi bi-robot me-2"></i>Review Intel AI
+            <span class="navbar-brand fw-bold fs-3 d-flex align-items-center">
+                <i class="bi bi-robot me-3 fs-2"></i>
+                <span>Review Intel AI</span>
             </span>
-            <div class="d-flex gap-2">
-                <button class="btn btn-light btn-sm rounded-pill px-4 fw-bold shadow-sm" onclick="downloadReport()">
-                    <i class="bi bi-file-earmark-pdf me-1"></i> Report
+            <div class="d-flex align-items-center gap-3">
+                <button onclick="downloadReport()" class="btn btn-light btn-pill shadow-sm d-flex align-items-center gap-2">
+                    <i class="bi bi-file-earmark-pdf"></i>
+                    <span>Executive PDF</span>
                 </button>
-                <button class="btn btn-success btn-sm rounded-pill px-4 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
-                    <i class="bi bi-plus-circle me-1"></i> Add Business
+                <button class="btn btn-success btn-pill shadow-sm d-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+                    <i class="bi bi-plus-circle"></i>
+                    <span>Add Business</span>
                 </button>
-                <button id="toggleTheme" class="btn btn-light btn-sm rounded-pill px-3">Theme</button>
+                <button id="toggleTheme" class="btn btn-light btn-pill px-3 d-flex align-items-center justify-content-center">
+                    <i class="bi bi-moon-stars"></i>
+                </button>
                 <form action="/logout" method="get" class="m-0">
-                    <button class="btn btn-danger btn-sm rounded-pill px-3">Logout</button>
+                    <button type="submit" class="btn btn-outline-light btn-pill px-4">Logout</button>
                 </form>
             </div>
         </div>
     </nav>
 
     <div class="container-fluid">
-        <div class="row g-3 align-items-end mb-4 p-4 bg-white rounded-4 shadow-sm">
-            <div class="col-md-3">
-                <label class="form-label fw-bold text-muted small">ACTIVE ENTITY</label>
-                <select id="companySelect" class="form-select border-0 bg-light py-2 shadow-none"></select>
+        <!-- Controls -->
+        <div class="row g-3 align-items-end mb-5 p-5 bg-white rounded-5 shadow-sm" style="backdrop-filter: blur(12px);">
+            <div class="col-lg-3">
+                <label class="form-label fw-semibold text-muted small mb-1">ACTIVE BUSINESS</label>
+                <select id="companySelect" class="form-select glass-input py-3 shadow-none border-0 fw-medium"></select>
             </div>
-            <div class="col-md-2">
-                <label class="form-label fw-bold text-muted small">START DATE</label>
-                <input id="startDate" type="date" class="form-control border-0 bg-light shadow-none">
+            <div class="col-lg-2">
+                <label class="form-label fw-semibold text-muted small mb-1">FROM</label>
+                <input id="startDate" type="date" class="form-control glass-input py-3 shadow-none border-0">
             </div>
-            <div class="col-md-2">
-                <label class="form-label fw-bold text-muted small">END DATE</label>
-                <input id="endDate" type="date" class="form-control border-0 bg-light shadow-none">
+            <div class="col-lg-2">
+                <label class="form-label fw-semibold text-muted small mb-1">TO</label>
+                <input id="endDate" type="date" class="form-control glass-input py-3 shadow-none border-0">
             </div>
-            <div class="col-md-5">
-                <div class="d-flex gap-2">
-                    <button id="loadBtn" onclick="triggerAllLoads()" class="btn btn-primary w-50 btn-pill shadow-sm">Analyze Business</button>
-                    <button id="syncBtn" class="btn btn-success w-50 btn-pill shadow-sm">Sync Live Data</button>
+            <div class="col-lg-5">
+                <div class="d-flex gap-3">
+                    <button id="loadBtn" onclick="triggerAllLoads()" class="btn btn-primary flex-fill btn-pill shadow">
+                        <i class="bi bi-graph-up me-2"></i> ANALYZE NOW
+                    </button>
+                    <button id="syncBtn" class="btn btn-success flex-fill btn-pill shadow">
+                        <i class="bi bi-arrow-repeat me-2"></i> SYNC LIVE
+                    </button>
                 </div>
             </div>
         </div>
 
-        <div class="row g-3 mb-4 text-center">
-            <div class="col-md-3">
-                <div class="card total-review-card p-4 h-100 shadow-sm">
-                    <div class="text-uppercase small fw-bold opacity-75">Absolute Total Records</div>
-                    <div id="kpiTotal" class="display-4 fw-bold">0</div>
+        <!-- KPI Row -->
+        <div class="row g-4 mb-5">
+            <div class="col-md-4">
+                <div class="card total-review-card p-5 h-100 text-white">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="text-uppercase small fw-semibold opacity-75 tracking-widest">TOTAL REVIEWS</div>
+                            <div id="kpiTotal" class="kpi-value mt-2">0</div>
+                        </div>
+                        <i class="bi bi-chat-quote fs-1 opacity-75"></i>
+                    </div>
                 </div>
             </div>
-            <div class="col-md-3">
-                <div class="card p-4 h-100 shadow-sm border-start border-primary border-4">
-                    <div class="text-muted small fw-bold">AVG RATING</div>
-                    <div id="kpiRating" class="display-4 fw-bold text-primary">—</div>
+            <div class="col-md-4">
+                <div class="card p-5 h-100 border-0 shadow">
+                    <div class="text-muted small fw-semibold">AVERAGE RATING</div>
+                    <div id="kpiRating" class="kpi-value mt-3 text-primary">—</div>
+                    <div class="mt-4">
+                        <div class="progress" style="height: 8px; border-radius: 9999px;">
+                            <div id="ratingBar" class="progress-bar bg-primary" style="width: 0%"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="col-md-6">
-                <div class="card risk-card p-4 h-100 shadow-lg">
-                    <div class="small fw-bold opacity-75 text-uppercase">Revenue Risk Monitoring</div>
-                    <div class="d-flex justify-content-around align-items-center mt-2">
-                        <div>
-                            <small class="d-block text-uppercase opacity-75 small">Loss Probability</small>
-                            <span id="riskPct" class="h2 fw-bold">—</span>
+            <div class="col-md-4">
+                <div class="card risk-card p-5 h-100 text-white">
+                    <div class="small fw-semibold opacity-75 text-uppercase tracking-widest mb-3">REVENUE RISK MONITOR</div>
+                    <div class="row text-center g-4">
+                        <div class="col-4">
+                            <div class="small opacity-75">LOSS PROBABILITY</div>
+                            <div id="riskPct" class="display-6 fw-bold mt-1">—</div>
                         </div>
-                        <div>
-                            <small class="d-block text-uppercase opacity-75 small">Impact Level</small>
-                            <span id="riskImpact" class="h2 fw-bold">—</span>
+                        <div class="col-4">
+                            <div class="small opacity-75">IMPACT</div>
+                            <div id="riskImpact" class="display-6 fw-bold mt-1">—</div>
                         </div>
-                        <div>
-                            <small class="d-block text-uppercase opacity-75 small">Reputation Score</small>
-                            <span id="riskSentiment" class="h2 fw-bold">—</span>
+                        <div class="col-4">
+                            <div class="small opacity-75">REPUTATION</div>
+                            <div id="riskSentiment" class="display-6 fw-bold mt-1">—</div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="row g-4 mb-4">
+        <div class="row g-4">
+            <!-- Left Column: Charts & Keywords -->
             <div class="col-lg-8">
                 <div class="row g-4">
+                    <!-- Emotion Radar -->
                     <div class="col-md-6">
-                        <div class="ai-badge">CUSTOMER EMOTION RADAR</div>
-                        <div class="card p-3 shadow-sm"><div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div></div>
+                        <div class="ai-badge mb-3"><i class="bi bi-heart-pulse"></i> CUSTOMER EMOTION RADAR</div>
+                        <div class="card p-4">
+                            <div class="chart-wrapper">
+                                <canvas id="chartEmotions"></canvas>
+                            </div>
+                        </div>
                     </div>
+
+                    <!-- Monthly Trend -->
                     <div class="col-md-6">
-                        <div class="ai-badge">SENTIMENT TREND</div>
-                        <div class="card p-3 shadow-sm"><div class="chart-wrapper"><canvas id="chartMonthly"></canvas></div></div>
+                        <div class="ai-badge mb-3"><i class="bi bi-graph-up-arrow"></i> SENTIMENT TREND</div>
+                        <div class="card p-4">
+                            <div class="chart-wrapper">
+                                <canvas id="chartMonthly"></canvas>
+                            </div>
+                        </div>
                     </div>
+
+                    <!-- Rating Distribution -->
                     <div class="col-12">
-                        <div class="ai-badge">RATING DISTRIBUTION</div>
-                        <div class="card p-3 shadow-sm"><div class="chart-wrapper"><canvas id="chartRatings"></canvas></div></div>
+                        <div class="ai-badge mb-3"><i class="bi bi-bar-chart"></i> RATING DISTRIBUTION</div>
+                        <div class="card p-4">
+                            <div class="chart-wrapper">
+                                <canvas id="chartRatings"></canvas>
+                            </div>
+                        </div>
                     </div>
+
+                    <!-- Keywords -->
                     <div class="col-12">
-                        <div class="ai-badge">AI KEYWORD EXTRACTION</div>
-                        <div id="keywordContainer" class="card p-4 bg-white shadow-sm d-flex flex-wrap gap-2 justify-content-center"></div>
+                        <div class="ai-badge mb-3"><i class="bi bi-tags"></i> AI KEYWORD EXTRACTION</div>
+                        <div id="keywordContainer" class="card p-5 d-flex flex-wrap gap-3 justify-content-center align-items-center min-vh-50"></div>
                     </div>
                 </div>
             </div>
 
+            <!-- Right Column: AI Chat -->
             <div class="col-lg-4">
-                <div class="ai-badge">STRATEGY CONSULTANT (AI CHAT)</div>
-                <div class="card border-0 shadow-sm h-100">
-                    <div class="card-body d-flex flex-column">
-                        <div id="chatWindow" class="mb-3">
-                            <div class="chat-msg chat-ai">Dashboard connected. Select a business and click "Analyze" to begin.</div>
+                <div class="ai-badge mb-3"><i class="bi bi-stars"></i> STRATEGY CONSULTANT AI</div>
+                <div class="card h-100 border-0 shadow">
+                    <div class="card-body d-flex flex-column p-4">
+                        <div id="chatWindow" class="flex-grow-1 mb-4">
+                            <div class="chat-msg chat-ai">
+                                Hello! Select a business and analyze to unlock deep insights. What would you like to know?
+                            </div>
                         </div>
-                        <div class="input-group mt-auto">
-                            <input type="text" id="chatInput" class="form-control border-0 bg-light p-3" placeholder="Ask about growth trends...">
-                            <button id="chatBtn" onclick="askAI()" class="btn btn-primary px-4"><i class="bi bi-send"></i></button>
+                        <div class="input-group">
+                            <input type="text" id="chatInput" class="form-control glass-input border-0 py-4" placeholder="Ask about risks, trends, or recommendations...">
+                            <button id="chatBtn" onclick="askAI()" class="btn btn-primary px-5">
+                                <i class="bi bi-send-fill"></i>
+                            </button>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="row g-4 mb-4">
+        <!-- Recent Reviews -->
+        <div class="row g-4 mt-4">
             <div class="col-12">
-                <div class="ai-badge">LATEST 100 REVIEWS ACROSS WEB</div>
-                <div class="card p-4 shadow-sm">
+                <div class="ai-badge mb-3"><i class="bi bi-clock-history"></i> LATEST 100 REVIEWS</div>
+                <div class="card p-4 shadow">
                     <div class="review-table-container">
-                        <table class="table align-middle">
-                            <thead class="sticky-top bg-white">
-                                <tr class="text-muted small text-uppercase">
-                                    <th>Author</th>
-                                    <th>Rating</th>
-                                    <th>Review</th>
-                                    <th>Date</th>
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="sticky-top bg-white" style="z-index: 10;">
+                                <tr class="text-muted small text-uppercase fw-semibold">
+                                    <th style="width: 18%;">AUTHOR</th>
+                                    <th style="width: 12%;">RATING</th>
+                                    <th>REVIEW TEXT</th>
+                                    <th style="width: 14%;">DATE</th>
                                 </tr>
                             </thead>
-                            <tbody id="recentReviewsList">
-                                <tr><td colspan="4" class="text-center py-5 text-muted">No data analyzed yet.</td></tr>
+                            <tbody id="recentReviewsList" class="text-muted">
+                                <!-- Populated by JS -->
                             </tbody>
                         </table>
                     </div>
@@ -229,43 +402,46 @@
         </div>
     </div>
 
-    <div class="modal fade" id="addCompanyModal" tabindex="-1">
+    <!-- Add Company Modal -->
+    <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
-            <form id="addCompanyForm" class="modal-content shadow-lg border-0">
-                <div class="modal-header bg-success text-white p-4">
-                    <h5 class="modal-title fw-bold">Link New Business</h5>
+            <form id="addCompanyForm" class="modal-content border-0 shadow-xl rounded-4">
+                <div class="modal-header border-0 bg-success text-white p-4 rounded-top-4">
+                    <h5 class="modal-title fw-bold fs-4">Link New Business</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="modal-body p-4">
-                    <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Enter business name...">
-                    <div class="p-4 bg-light rounded-4">
-                        <div class="mb-3">
-                            <label class="form-label fw-bold text-muted small">NAME</label>
-                            <input id="companyName" name="name" class="form-control border-0" readonly required>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label fw-bold text-muted small">PLACE ID</label>
-                            <input id="placeId" name="place_id" class="form-control border-0" readonly required>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label fw-bold text-muted small">ADDRESS</label>
-                            <input id="companyAddress" name="address" class="form-control border-0" readonly required>
+                <div class="modal-body p-5">
+                    <input id="googleSearchInput" class="form-control form-control-lg glass-input mb-4 py-4" placeholder="Search business on Google Maps...">
+                    
+                    <div class="p-5 bg-light rounded-4">
+                        <div class="row g-4">
+                            <div class="col-12">
+                                <label class="form-label fw-semibold text-muted small">BUSINESS NAME</label>
+                                <input id="companyName" name="name" class="form-control glass-input py-3" readonly required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold text-muted small">PLACE ID</label>
+                                <input id="placeId" name="place_id" class="form-control glass-input py-3" readonly required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold text-muted small">ADDRESS</label>
+                                <input id="companyAddress" name="address" class="form-control glass-input py-3" readonly required>
+                            </div>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer border-0 p-4">
-                    <button type="submit" id="saveCompanyBtn" class="btn btn-success w-100 rounded-pill fw-bold py-3 shadow">Save Business</button>
+                    <button type="submit" id="saveCompanyBtn" class="btn btn-success w-100 btn-pill py-4 fw-bold shadow">SAVE &amp; LINK BUSINESS</button>
                 </div>
             </form>
         </div>
     </div>
 
     <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&callback=initGoogleAutocomplete"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let chartInstances = {};
-
+        
         const DASHBOARD_CONFIG = {
             endpoints: {
                 overview: "/api/overview",
@@ -281,52 +457,58 @@
 
         function setElementText(id, text) {
             const el = document.getElementById(id);
-            if (el) el.innerText = text;
+            if (el) el.innerText = text || "—";
         }
 
         async function triggerAllLoads() {
             const cid = document.getElementById("companySelect").value;
             const start = document.getElementById("startDate").value || "";
             const end = document.getElementById("endDate").value || "";
+            if (!cid) return alert("Please select a business first.");
 
-            if (!cid) return;
             const loadBtn = document.getElementById("loadBtn");
-            loadBtn.innerText = "Analyzing...";
+            const originalText = loadBtn.innerHTML;
+            loadBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span> ANALYZING...`;
+            loadBtn.disabled = true;
 
             try {
-                // Unified Data Fetching
                 const [overRes, insRes, revRes] = await Promise.all([
                     fetch(`${DASHBOARD_CONFIG.endpoints.overview}/${cid}`).then(r => r.json()),
                     fetch(`${DASHBOARD_CONFIG.endpoints.insights}?company_id=${cid}&start=${start}&end=${end}`).then(r => r.json()),
                     fetch(`${DASHBOARD_CONFIG.endpoints.revenue}?company_id=${cid}`).then(r => r.json())
                 ]);
 
-                // Update KPI Cards
+                // KPI Updates
                 setElementText("kpiTotal", insRes.total_reviews || overRes.total_reviews || 0);
                 setElementText("kpiRating", insRes.average_rating || overRes.average_rating || "—");
 
-                // Update Risk Metrics (Aligining with Risk Dictionary in dashboard.py)
                 const risk = insRes.risk || revRes || {};
                 setElementText("riskPct", risk.loss_probability || "—");
                 setElementText("riskImpact", risk.impact_level || "—");
                 setElementText("riskSentiment", risk.reputation_score || "—");
 
-                // Update Charts
+                // Visual rating bar
+                const ratingBar = document.getElementById("ratingBar");
+                if (ratingBar) ratingBar.style.width = `${((insRes.average_rating || 0) / 5) * 100}%`;
+
+                // Charts & Keywords
                 if (insRes.sentiment_counts) renderCharts(insRes);
                 if (insRes.top_keywords) renderKeywords(insRes.top_keywords);
 
-                // Load Table
+                // Recent reviews
                 loadRecentReviews(cid);
 
-            } catch (e) { 
-                console.error("Load Error:", e); 
-            } finally { 
-                loadBtn.innerText = "Analyze Business"; 
+            } catch (e) {
+                console.error("Dashboard load error:", e);
+                alert("Failed to load analytics. Please try again.");
+            } finally {
+                loadBtn.innerHTML = originalText;
+                loadBtn.disabled = false;
             }
         }
 
         function renderCharts(data) {
-            // 1. Radar Chart (Sentiment Counts)
+            // Radar - Emotions
             const radarCtx = document.getElementById("chartEmotions").getContext('2d');
             if (chartInstances.emotions) chartInstances.emotions.destroy();
             const sentimentData = data.sentiment_counts || {};
@@ -335,106 +517,136 @@
                 data: {
                     labels: Object.keys(sentimentData),
                     datasets: [{
-                        label: 'Intensity',
+                        label: 'Sentiment Intensity',
                         data: Object.values(sentimentData),
-                        backgroundColor: 'rgba(168, 85, 247, 0.2)',
+                        backgroundColor: 'rgba(168, 85, 247, 0.25)',
                         borderColor: '#a855f7',
-                        pointBackgroundColor: '#a855f7'
+                        borderWidth: 3,
+                        pointBackgroundColor: '#fff',
+                        pointBorderColor: '#a855f7',
+                        pointRadius: 5
                     }]
                 },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { r: { ticks: { stepSize: 10 } } }
+                }
             });
 
-            // 2. Line Chart (Monthly Trend) - FIXED KEY MAPPING
+            // Line - Monthly Trend
             const lineCtx = document.getElementById("chartMonthly").getContext('2d');
             if (chartInstances.monthly) chartInstances.monthly.destroy();
             const trend = data.monthly_trend || [];
             chartInstances.monthly = new Chart(lineCtx, {
                 type: 'line',
                 data: {
-                    labels: trend.map(t => t.month), // Backend returns "month": "Jan 2026"
+                    labels: trend.map(t => t.month),
                     datasets: [{
-                        label: 'Avg Rating',
-                        data: trend.map(t => t.avg),   // Backend returns "avg": float
+                        label: 'Average Rating',
+                        data: trend.map(t => t.avg),
                         borderColor: '#10b981',
-                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                        borderWidth: 4,
+                        tension: 0.4,
                         fill: true,
-                        tension: 0.4
+                        pointRadius: 0
                     }]
                 },
-                options: { 
-                    responsive: true, 
+                options: {
+                    responsive: true,
                     maintainAspectRatio: false,
-                    scales: { y: { min: 0, max: 5 } }
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { min: 1, max: 5, grid: { color: 'rgba(0,0,0,0.05)' } },
+                        x: { grid: { color: 'rgba(0,0,0,0.05)' } }
+                    }
                 }
             });
 
-            // 3. Bar Chart (Rating Distribution) - FIXED KEY MAPPING
+            // Bar - Rating Distribution
             const barCtx = document.getElementById("chartRatings").getContext('2d');
             if (chartInstances.ratings) chartInstances.ratings.destroy();
             const rawDist = data.rating_distribution || {};
-            const distData = [
-                rawDist[1] || rawDist["1"] || 0,
-                rawDist[2] || rawDist["2"] || 0,
-                rawDist[3] || rawDist["3"] || 0,
-                rawDist[4] || rawDist["4"] || 0,
-                rawDist[5] || rawDist["5"] || 0
-            ];
+            const distData = [1,2,3,4,5].map(n => rawDist[n] || rawDist[String(n)] || 0);
+
             chartInstances.ratings = new Chart(barCtx, {
                 type: 'bar',
                 data: {
                     labels: ['1★', '2★', '3★', '4★', '5★'],
                     datasets: [{
-                        label: 'Count',
+                        label: 'Number of Reviews',
                         data: distData,
                         backgroundColor: '#6366f1',
-                        borderRadius: 8
+                        borderRadius: 12,
+                        barThickness: 32
                     }]
                 },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { grid: { color: 'rgba(0,0,0,0.05)' } }
+                    }
+                }
             });
         }
 
         function renderKeywords(keywords) {
             const container = document.getElementById("keywordContainer");
             if (!keywords || !keywords.length) {
-                container.innerHTML = `<span class="text-muted small">No significant keywords extracted yet.</span>`;
+                container.innerHTML = `<span class="text-muted">No keywords extracted yet. Analyze more reviews.</span>`;
                 return;
             }
-            container.innerHTML = keywords.map(kw => 
-                `<span class="badge bg-light text-dark border p-2 m-1 fw-semibold">${kw}</span>`
-            ).join("");
+            container.innerHTML = keywords.map(kw => `
+                <span class="badge rounded-pill px-4 py-3 bg-white shadow-sm text-dark fw-medium border" style="font-size: 0.95rem;">
+                    ${kw}
+                </span>
+            `).join("");
         }
 
         async function loadRecentReviews(cid) {
-            const list = document.getElementById("recentReviewsList");
+            const tbody = document.getElementById("recentReviewsList");
             try {
                 const res = await fetch(`${DASHBOARD_CONFIG.endpoints.recent}/${cid}`);
                 const data = await res.json();
+                
                 if (data && data.length) {
-                    list.innerHTML = data.map(r => `
+                    tbody.innerHTML = data.map(r => `
                         <tr class="review-row">
-                            <td class="fw-bold">${r.author}</td>
-                            <td><span class="star-rating">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</span></td>
-                            <td class="small text-muted">${r.text || "—"}</td>
-                            <td class="small fw-semibold">${r.date}</td>
+                            <td class="fw-semibold">${r.author || "Anonymous"}</td>
+                            <td>
+                                <span class="star-rating">${'★'.repeat(Math.floor(r.rating || 0))}</span>
+                                <span class="text-muted small ms-1">(${r.rating || 0})</span>
+                            </td>
+                            <td class="small">${r.text ? r.text.substring(0, 180) + (r.text.length > 180 ? '...' : '') : '—'}</td>
+                            <td class="small fw-medium">${r.date || 'N/A'}</td>
                         </tr>
                     `).join("");
                 } else {
-                    list.innerHTML = `<tr><td colspan="4" class="text-center py-4">No reviews found.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="4" class="text-center py-5 text-muted">No reviews available yet.</td></tr>`;
                 }
-            } catch (e) { list.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">Fetch Error.</td></tr>`; }
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-5 text-danger">Could not load reviews.</td></tr>`;
+            }
         }
 
+        // Add Company Form
         document.getElementById("addCompanyForm").onsubmit = async (e) => {
             e.preventDefault();
             const btn = document.getElementById("saveCompanyBtn");
+            const originalBtnText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = `Saving...`;
+
             const payload = {
                 name: document.getElementById("companyName").value,
                 place_id: document.getElementById("placeId").value,
                 address: document.getElementById("companyAddress").value
             };
-            btn.disabled = true;
+
             try {
                 const response = await fetch(DASHBOARD_CONFIG.endpoints.companies, {
                     method: 'POST',
@@ -444,75 +656,123 @@
                 if (response.ok) {
                     bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
                     loadCompanies();
+                } else {
+                    alert("Failed to save business.");
                 }
-            } finally { btn.disabled = false; }
-        };
-
-        document.getElementById("syncBtn").onclick = async () => {
-            const cid = document.getElementById("companySelect").value;
-            if (!cid) return alert("Select Business First");
-            const btn = document.getElementById("syncBtn");
-            const original = btn.innerText;
-            btn.innerText = "Syncing...";
-            btn.disabled = true;
-            try {
-                const res = await fetch(`${DASHBOARD_CONFIG.endpoints.sync}/${cid}`, { method: 'POST' });
-                if (res.ok) triggerAllLoads();
-            } finally { 
-                btn.innerText = original; 
-                btn.disabled = false; 
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalBtnText;
             }
         };
 
+        // Sync Button
+        document.getElementById("syncBtn").onclick = async () => {
+            const cid = document.getElementById("companySelect").value;
+            if (!cid) return alert("Select a business first.");
+
+            const btn = document.getElementById("syncBtn");
+            const orig = btn.innerHTML;
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span> SYNCING...`;
+            btn.disabled = true;
+
+            try {
+                const res = await fetch(`${DASHBOARD_CONFIG.endpoints.sync}/${cid}`, { method: 'POST' });
+                if (res.ok) {
+                    setTimeout(() => triggerAllLoads(), 800);
+                }
+            } finally {
+                btn.innerHTML = orig;
+                btn.disabled = false;
+            }
+        };
+
+        // AI Chat
         async function askAI() {
             const input = document.getElementById("chatInput");
             const cid = document.getElementById("companySelect").value;
             const win = document.getElementById("chatWindow");
             const msg = input.value.trim();
-            if(!msg || !cid) return;
+
+            if (!msg || !cid) return;
+
             win.innerHTML += `<div class="chat-msg chat-user">${msg}</div>`;
             input.value = "";
+            win.scrollTop = win.scrollHeight;
+
             try {
-                const res = await fetch(`${DASHBOARD_CONFIG.endpoints.chat}?question=${encodeURIComponent(msg)}&company_id=${cid}`, { method: 'POST' });
+                const res = await fetch(`${DASHBOARD_CONFIG.endpoints.chat}?question=${encodeURIComponent(msg)}&company_id=${cid}`, {
+                    method: 'POST'
+                });
                 const data = await res.json();
-                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI:</strong> ${data.answer}</div>`;
-                win.scrollTop = win.scrollHeight;
-            } catch (e) { win.innerHTML += `<div class="chat-msg chat-ai text-danger">AI Offline.</div>`; }
+                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Consultant:</strong> ${data.answer || "No response received."}</div>`;
+            } catch (e) {
+                win.innerHTML += `<div class="chat-msg chat-ai text-danger">AI service is currently unavailable.</div>`;
+            }
+            win.scrollTop = win.scrollHeight;
         }
 
         async function loadCompanies() {
             try {
                 const res = await fetch(DASHBOARD_CONFIG.endpoints.companies);
                 const data = await res.json();
+                const companies = data.companies || data || [];
                 const sel = document.getElementById("companySelect");
-                const list = data.companies || data;
-                sel.innerHTML = list.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
-                if(sel.value) triggerAllLoads();
-            } catch (e) {}
+                sel.innerHTML = companies.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+                if (sel.options.length > 0) {
+                    sel.value = sel.options[0].value;
+                    triggerAllLoads();
+                }
+            } catch (e) {
+                console.error("Failed to load companies", e);
+            }
         }
 
         function downloadReport() {
             const cid = document.getElementById("companySelect").value;
-            if (cid) window.open(`${DASHBOARD_CONFIG.endpoints.report}/${cid}`, "_blank");
+            if (cid) {
+                window.open(`${DASHBOARD_CONFIG.endpoints.report}/${cid}`, "_blank");
+            } else {
+                alert("Please select a business to generate the report.");
+            }
         }
 
+        // Theme Toggle
         document.getElementById("toggleTheme").onclick = () => {
             const root = document.documentElement;
-            root.setAttribute("data-theme", root.getAttribute("data-theme") === "light" ? "dark" : "light");
+            const current = root.getAttribute("data-theme");
+            const newTheme = current === "light" ? "dark" : "light";
+            root.setAttribute("data-theme", newTheme);
+            
+            const icon = document.getElementById("toggleTheme");
+            icon.innerHTML = newTheme === "dark" ? `<i class="bi bi-sun"></i>` : `<i class="bi bi-moon-stars"></i>`;
         };
 
+        // Google Autocomplete
         window.initGoogleAutocomplete = function() {
             const input = document.getElementById('googleSearchInput');
-            const autocomplete = new google.maps.places.Autocomplete(input);
+            if (!input) return;
+            const autocomplete = new google.maps.places.Autocomplete(input, {
+                types: ['establishment']
+            });
             autocomplete.addListener('place_changed', () => {
-                const p = autocomplete.getPlace();
-                document.getElementById('companyName').value = p.name || "";
-                document.getElementById('placeId').value = p.place_id || "";
-                document.getElementById('companyAddress').value = p.formatted_address || "";
+                const place = autocomplete.getPlace();
+                if (!place) return;
+                document.getElementById('companyName').value = place.name || "";
+                document.getElementById('placeId').value = place.place_id || "";
+                document.getElementById('companyAddress').value = place.formatted_address || "";
             });
         };
 
-        window.addEventListener("DOMContentLoaded", loadCompanies);
+        // Initialize everything
+        window.addEventListener("DOMContentLoaded", () => {
+            loadCompanies();
+            
+            // Enter key support for chat
+            const chatInput = document.getElementById("chatInput");
+            chatInput.addEventListener("keypress", (e) => {
+                if (e.key === "Enter") askAI();
+            });
+        });
     </script>
 </body>
 </html>
