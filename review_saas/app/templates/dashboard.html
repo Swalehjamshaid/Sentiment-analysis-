@@ -25,11 +25,7 @@
             min-height: 100vh;
             padding: 20px;
         }
-        .navbar {
-            background: var(--primary-grad) !important;
-            border-radius: 20px;
-            box-shadow: 0 15px 30px -10px rgba(99, 102, 241, 0.4);
-        }
+        .navbar { background: var(--primary-grad) !important; border-radius: 20px; box-shadow: 0 15px 30px -10px rgba(99,102,241,0.4); }
         .card {
             border: none;
             border-radius: 24px;
@@ -38,28 +34,16 @@
             backdrop-filter: blur(16px);
             transition: all 0.4s ease;
         }
-        .card:hover {
-            transform: translateY(-6px);
-            box-shadow: 0 20px 40px -12px rgba(0,0,0,0.15);
-        }
+        .card:hover { transform: translateY(-6px); box-shadow: 0 20px 40px -12px rgba(0,0,0,0.15); }
         .section-header {
             background: linear-gradient(90deg, #7c3aed, #a855f7);
             color: white;
             padding: 12px 24px;
             border-radius: 12px 12px 0 0;
             font-weight: 600;
-            font-size: 0.95rem;
         }
-        .kpi-value {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 2.9rem;
-            font-weight: 700;
-            line-height: 1;
-        }
-        .chart-wrapper {
-            height: 310px;
-            padding: 15px;
-        }
+        .kpi-value { font-family: 'Space Grotesk', sans-serif; font-size: 2.9rem; font-weight: 700; line-height: 1; }
+        .chart-wrapper { height: 310px; padding: 15px; }
         .keyword-badge {
             background: white;
             border: 1px solid #e2e8f0;
@@ -74,16 +58,6 @@
             padding: 12px;
             margin-bottom: 10px;
             border-radius: 8px;
-        }
-        .empty-state {
-            height: 280px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #64748b;
-            font-style: italic;
-            background: #f8fafc;
-            border-radius: 12px;
         }
     </style>
 </head>
@@ -101,9 +75,7 @@
                     <i class="bi bi-plus-circle"></i> Add Business
                 </button>
                 <button id="toggleTheme" class="btn btn-light btn-pill px-4"><i class="bi bi-moon-stars"></i></button>
-                <form action="/logout" method="get" class="m-0">
-                    <button class="btn btn-outline-light btn-pill px-4">Logout</button>
-                </form>
+                <form action="/logout" method="get" class="m-0"><button class="btn btn-outline-light btn-pill px-4">Logout</button></form>
             </div>
         </div>
     </nav>
@@ -159,28 +131,17 @@
                 <div class="card risk-card p-5 h-100 text-white">
                     <div class="small fw-bold opacity-75 text-uppercase mb-3">REVENUE RISK</div>
                     <div class="row text-center g-3">
-                        <div class="col-4">
-                            <small class="opacity-75 d-block">Loss %</small>
-                            <div id="riskPct" class="h4 fw-bold">—</div>
-                        </div>
-                        <div class="col-4">
-                            <small class="opacity-75 d-block">Impact</small>
-                            <div id="riskImpact" class="h4 fw-bold">—</div>
-                        </div>
-                        <div class="col-4">
-                            <small class="opacity-75 d-block">Reputation</small>
-                            <div id="riskSentiment" class="h4 fw-bold">—</div>
-                        </div>
+                        <div class="col-4"><small class="opacity-75 d-block">Loss %</small><div id="riskPct" class="h4 fw-bold">—</div></div>
+                        <div class="col-4"><small class="opacity-75 d-block">Impact</small><div id="riskImpact" class="h4 fw-bold">—</div></div>
+                        <div class="col-4"><small class="opacity-75 d-block">Reputation</small><div id="riskSentiment" class="h4 fw-bold">—</div></div>
                     </div>
                 </div>
             </div>
         </div>
 
         <div class="row g-4">
-            <!-- Charts Column -->
             <div class="col-lg-8">
                 <div class="row g-4">
-                    <!-- Revenue Risk Heatmap -->
                     <div class="col-12">
                         <div class="section-header">REVENUE RISK HEATMAP</div>
                         <div class="card border-top-0 p-5 text-center">
@@ -189,29 +150,21 @@
                         </div>
                     </div>
 
-                    <!-- Monthly Trend + Sentiment Radar -->
                     <div class="col-md-6">
                         <div class="section-header">MONTHLY RATING TREND</div>
-                        <div class="card border-top-0 p-4">
-                            <div class="chart-wrapper"><canvas id="chartMonthly"></canvas></div>
-                        </div>
+                        <div class="card border-top-0 p-4"><div class="chart-wrapper"><canvas id="chartMonthly"></canvas></div></div>
                     </div>
+
                     <div class="col-md-6">
                         <div class="section-header">SENTIMENT EMOTION RADAR</div>
-                        <div class="card border-top-0 p-4">
-                            <div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div>
-                        </div>
+                        <div class="card border-top-0 p-4"><div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div></div>
                     </div>
 
-                    <!-- Rating Distribution -->
                     <div class="col-12">
                         <div class="section-header">RATING DISTRIBUTION BREAKDOWN</div>
-                        <div class="card border-top-0 p-4">
-                            <div class="chart-wrapper"><canvas id="chartRatings"></canvas></div>
-                        </div>
+                        <div class="card border-top-0 p-4"><div class="chart-wrapper"><canvas id="chartRatings"></canvas></div></div>
                     </div>
 
-                    <!-- Keywords -->
                     <div class="col-12">
                         <div class="section-header">TOP COMPLAINT & PRAISE KEYWORDS</div>
                         <div id="keywordContainer" class="card border-top-0 p-5 d-flex flex-wrap gap-3"></div>
@@ -219,14 +172,13 @@
                 </div>
             </div>
 
-            <!-- Sidebar: AI Consultant + Negative Alerts -->
             <div class="col-lg-4">
                 <div class="section-header">AI STRATEGY CONSULTANT</div>
                 <div class="card border-top-0 h-100">
                     <div class="card-body d-flex flex-column p-4">
                         <div id="chatWindow" class="flex-grow-1 mb-4"></div>
                         <div class="input-group">
-                            <input id="chatInput" type="text" class="form-control py-4" placeholder="Ask: Why is churn increasing?">
+                            <input id="chatInput" type="text" class="form-control py-4" placeholder="Ask anything about performance, risk, or strategy...">
                             <button onclick="askAI()" class="btn btn-primary px-5"><i class="bi bi-send"></i></button>
                         </div>
                     </div>
@@ -317,7 +269,7 @@
 
         function initChat() {
             document.getElementById("chatWindow").innerHTML = 
-                `<div class="chat-msg chat-ai">Hello! Select a business and click "Analyze Business" to unlock deep insights including churn prediction and loyalty metrics.</div>`;
+                `<div class="chat-msg chat-ai">Hello! Select a business and click "Analyze Business" to unlock deep insights.</div>`;
         }
 
         async function triggerAllLoads() {
@@ -336,7 +288,6 @@
                     fetch(`${DASHBOARD_CONFIG.endpoints.revenue}?company_id=${cid}`).then(r => r.json())
                 ]);
 
-                // KPI Updates
                 document.getElementById("kpiTotal").innerText = insRes.total_reviews || 0;
                 document.getElementById("kpiRating").innerText = insRes.average_rating || "—";
                 document.getElementById("churnScore").innerText = (insRes.churn_prediction || 0) + "%";
@@ -346,10 +297,8 @@
                 document.getElementById("riskImpact").innerText = risk.impact_level || "—";
                 document.getElementById("riskSentiment").innerText = risk.reputation_score || "—";
 
-                // Risk Gauge
                 document.getElementById("riskGauge").innerText = risk.loss_probability || "—";
 
-                // Render Charts (with fallback)
                 if (insRes.sentiment_counts) renderCharts(insRes);
                 if (insRes.top_keywords) renderKeywords(insRes.top_keywords);
                 if (insRes.negative_reviews) renderNegativeAlerts(insRes.negative_reviews);
@@ -357,7 +306,7 @@
                 loadRecentReviews(cid);
 
             } catch (e) {
-                console.error("Dashboard load error:", e);
+                console.error(e);
             } finally {
                 btn.innerHTML = orig;
                 btn.disabled = false;
@@ -365,55 +314,34 @@
         }
 
         function renderCharts(data) {
-            // Sentiment Emotion Radar
             if (chartInstances.emotions) chartInstances.emotions.destroy();
             chartInstances.emotions = new Chart(document.getElementById("chartEmotions"), {
                 type: 'radar',
                 data: {
                     labels: Object.keys(data.sentiment_counts || {}),
-                    datasets: [{
-                        label: 'Intensity',
-                        data: Object.values(data.sentiment_counts || {}),
-                        backgroundColor: 'rgba(168,85,247,0.25)',
-                        borderColor: '#a855f7',
-                        borderWidth: 3
-                    }]
+                    datasets: [{ label: 'Intensity', data: Object.values(data.sentiment_counts || {}), backgroundColor: 'rgba(168,85,247,0.25)', borderColor: '#a855f7', borderWidth: 3 }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
 
-            // Monthly Rating Trend
             if (chartInstances.monthly) chartInstances.monthly.destroy();
             const trend = data.monthly_trend || [];
             chartInstances.monthly = new Chart(document.getElementById("chartMonthly"), {
                 type: 'line',
                 data: {
                     labels: trend.map(t => t.month),
-                    datasets: [{
-                        label: 'Avg Rating',
-                        data: trend.map(t => t.avg),
-                        borderColor: '#10b981',
-                        tension: 0.4,
-                        fill: true,
-                        backgroundColor: 'rgba(16,185,129,0.12)'
-                    }]
+                    datasets: [{ label: 'Avg Rating', data: trend.map(t => t.avg), borderColor: '#10b981', tension: 0.4, fill: true, backgroundColor: 'rgba(16,185,129,0.12)' }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 1, max: 5 } } }
             });
 
-            // Rating Distribution
             if (chartInstances.ratings) chartInstances.ratings.destroy();
             const dist = [1,2,3,4,5].map(n => (data.rating_distribution || {})[n] || 0);
             chartInstances.ratings = new Chart(document.getElementById("chartRatings"), {
                 type: 'bar',
                 data: {
                     labels: ['1★','2★','3★','4★','5★'],
-                    datasets: [{
-                        label: 'Count',
-                        data: dist,
-                        backgroundColor: '#6366f1',
-                        borderRadius: 12
-                    }]
+                    datasets: [{ label: 'Count', data: dist, backgroundColor: '#6366f1', borderRadius: 12 }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
@@ -421,21 +349,11 @@
 
         function renderKeywords(keywords) {
             const container = document.getElementById("keywordContainer");
-            if (!keywords || keywords.length === 0) {
-                container.innerHTML = `<span class="text-muted">No keywords extracted yet.</span>`;
-                return;
-            }
-            container.innerHTML = keywords.map(kw => 
-                `<span class="keyword-badge">${kw}</span>`
-            ).join('');
+            container.innerHTML = keywords.map(kw => `<span class="keyword-badge">${kw}</span>`).join('');
         }
 
         function renderNegativeAlerts(alerts) {
             const container = document.getElementById("negativeAlerts");
-            if (!alerts || alerts.length === 0) {
-                container.innerHTML = `<p class="text-muted text-center py-4">No critical negative alerts at the moment.</p>`;
-                return;
-            }
             container.innerHTML = alerts.map(r => `
                 <div class="alert-item">
                     <div class="d-flex justify-content-between">
@@ -559,9 +477,7 @@
         window.addEventListener("DOMContentLoaded", () => {
             initChat();
             loadCompanies();
-            document.getElementById("chatInput").addEventListener("keypress", (e) => {
-                if (e.key === "Enter") askAI();
-            });
+            document.getElementById("chatInput").addEventListener("keypress", (e) => { if (e.key === "Enter") askAI(); });
         });
     </script>
 </body>
