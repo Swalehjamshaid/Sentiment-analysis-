@@ -16,7 +16,7 @@
             --primary-grad: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
             --ai-grad: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
             --danger-grad: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            --glass: rgba(255,255,255,0.88);
+            --glass: rgba(255,255,255,0.92);
         }
         [data-theme="dark"] {
             --glass: rgba(15,23,42,0.95);
@@ -34,117 +34,98 @@
         }
         .navbar {
             background: var(--primary-grad) !important;
-            border-radius: 22px;
-            box-shadow: 0 20px 30px -10px rgba(99, 102, 241, 0.4);
+            border-radius: 20px;
+            box-shadow: 0 15px 30px -10px rgba(99, 102, 241, 0.35);
         }
         .card {
             border: none;
-            border-radius: 26px;
-            box-shadow: 0 15px 35px -10px rgba(0,0,0,0.1);
+            border-radius: 24px;
+            box-shadow: 0 10px 30px -8px rgba(0,0,0,0.1);
             background: var(--glass);
-            backdrop-filter: blur(20px);
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(16px);
+            transition: all 0.4s ease;
         }
         .card:hover {
-            transform: translateY(-8px);
-            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.15);
+            transform: translateY(-6px);
+            box-shadow: 0 20px 40px -12px rgba(0,0,0,0.15);
         }
         .total-review-card {
             background: var(--primary-grad);
             color: white;
-            border-radius: 28px;
-            position: relative;
-            overflow: hidden;
+            border-radius: 24px;
         }
         .risk-card {
             background: var(--danger-grad);
             color: white;
-            border-radius: 28px;
-            position: relative;
-            overflow: hidden;
+            border-radius: 24px;
+        }
+        .section-header {
+            background: linear-gradient(90deg, #7c3aed, #a855f7);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 12px 12px 0 0;
+            font-weight: 600;
+            font-size: 0.95rem;
+            letter-spacing: 0.5px;
         }
         .ai-badge {
             background: var(--ai-grad);
             color: white;
-            padding: 8px 22px;
+            padding: 6px 18px;
             border-radius: 9999px;
             font-weight: 700;
-            font-size: 0.82rem;
-            letter-spacing: 0.5px;
-            box-shadow: 0 6px 16px rgba(168,85,247,0.35);
+            font-size: 0.8rem;
+            box-shadow: 0 4px 12px rgba(168,85,247,0.3);
         }
         #chatWindow {
-            height: 460px;
+            height: 440px;
             overflow-y: auto;
             background: rgba(241,245,249,0.95);
-            border-radius: 22px;
-            padding: 24px;
+            border-radius: 16px;
+            padding: 20px;
             border: 1px solid #e2e8f0;
             display: flex;
             flex-direction: column;
-            gap: 14px;
+            gap: 12px;
         }
         [data-theme="dark"] #chatWindow {
             background: rgba(15,23,42,0.95);
             border-color: #334155;
         }
         .chat-msg {
-            padding: 16px 22px;
-            border-radius: 22px;
-            max-width: 90%;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+            padding: 14px 20px;
+            border-radius: 18px;
+            max-width: 88%;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.06);
         }
-        .chat-ai { 
-            background: white; 
-            align-self: flex-start; 
-            border-bottom-left-radius: 8px; 
-        }
-        .chat-user { 
-            background: var(--primary-grad); 
-            color: white; 
-            align-self: flex-end; 
-            border-bottom-right-radius: 8px; 
-        }
-        [data-theme="dark"] .chat-ai { 
-            background: #1e293b; 
-            color: #f1f5f9; 
-        }
-        .chart-wrapper { 
-            height: 320px; 
-            padding: 15px; 
-        }
-        .btn-pill {
-            border-radius: 9999px;
-            padding: 14px 32px;
-            font-weight: 600;
-            box-shadow: 0 8px 20px rgba(99,102,241,0.3);
-        }
+        .chat-ai { background: white; align-self: flex-start; border-bottom-left-radius: 6px; }
+        .chat-user { background: var(--primary-grad); color: white; align-self: flex-end; border-bottom-right-radius: 6px; }
+        [data-theme="dark"] .chat-ai { background: #1e293b; color: #f1f5f9; }
+        .chart-wrapper { height: 300px; padding: 10px; }
         .kpi-value {
             font-family: 'Space Grotesk', sans-serif;
-            font-size: 3.2rem;
+            font-size: 2.8rem;
             font-weight: 700;
             line-height: 1;
         }
         .keyword-badge {
             background: white;
             border: 1px solid #e2e8f0;
-            padding: 10px 20px;
+            padding: 10px 18px;
             border-radius: 9999px;
-            font-weight: 500;
-            box-shadow: 0 3px 10px rgba(0,0,0,0.06);
+            font-size: 0.95rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
         }
         .review-table-container { 
-            max-height: 560px; 
+            max-height: 520px; 
             overflow-y: auto; 
+            border-radius: 12px;
         }
-        .star-rating { 
-            color: #fbbf24; 
-            font-size: 1.25rem; 
-        }
+        .star-rating { color: #fbbf24; font-size: 1.2rem; }
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark p-4 shadow-lg">
+    <nav class="navbar navbar-expand-lg navbar-dark p-4">
         <div class="container-fluid">
             <span class="navbar-brand fw-bold fs-3 d-flex align-items-center">
                 <i class="bi bi-robot me-3 fs-1"></i>Review Intel AI
@@ -164,7 +145,7 @@
         </div>
     </nav>
 
-    <div class="container-fluid">
+    <div class="container-fluid mt-4">
         <!-- Controls -->
         <div class="row g-4 mb-5 p-5 bg-white rounded-5 shadow-sm">
             <div class="col-lg-3">
@@ -196,13 +177,13 @@
             <div class="col-md-4">
                 <div class="card total-review-card p-5 h-100 text-white">
                     <div class="text-uppercase small fw-bold opacity-75">TOTAL REVIEWS</div>
-                    <div id="kpiTotal" class="kpi-value mt-3">0</div>
+                    <div id="kpiTotal" class="kpi-value mt-2">0</div>
                 </div>
             </div>
             <div class="col-md-4">
                 <div class="card p-5 h-100">
-                    <div class="text-muted fw-semibold">AVERAGE RATING</div>
-                    <div id="kpiRating" class="kpi-value mt-3 text-primary">—</div>
+                    <div class="text-muted fw-semibold small">AVERAGE RATING</div>
+                    <div id="kpiRating" class="kpi-value mt-2 text-primary">—</div>
                 </div>
             </div>
             <div class="col-md-4">
@@ -227,38 +208,46 @@
         </div>
 
         <div class="row g-4">
-            <!-- Charts Section -->
+            <!-- Charts & Keywords -->
             <div class="col-lg-8">
                 <div class="row g-4">
+                    <!-- Emotion Radar -->
                     <div class="col-md-6">
-                        <div class="ai-badge mb-3"><i class="bi bi-heart-pulse"></i> EMOTION RADAR</div>
-                        <div class="card p-4"><div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div></div>
+                        <div class="section-header mb-0">CUSTOMER EMOTION RADAR</div>
+                        <div class="card border-top-0 rounded-top-0">
+                            <div class="chart-wrapper p-4"><canvas id="chartEmotions"></canvas></div>
+                        </div>
                     </div>
+                    <!-- Monthly Trend -->
                     <div class="col-md-6">
-                        <div class="ai-badge mb-3"><i class="bi bi-graph-up-arrow"></i> MONTHLY TREND</div>
-                        <div class="card p-4"><div class="chart-wrapper"><canvas id="chartMonthly"></canvas></div></div>
+                        <div class="section-header mb-0">MONTHLY TREND</div>
+                        <div class="card border-top-0 rounded-top-0">
+                            <div class="chart-wrapper p-4"><canvas id="chartMonthly"></canvas></div>
+                        </div>
                     </div>
+                    <!-- Rating Distribution -->
                     <div class="col-12">
-                        <div class="ai-badge mb-3"><i class="bi bi-bar-chart"></i> RATING DISTRIBUTION</div>
-                        <div class="card p-4"><div class="chart-wrapper"><canvas id="chartRatings"></canvas></div></div>
+                        <div class="section-header mb-0">RATING DISTRIBUTION</div>
+                        <div class="card border-top-0 rounded-top-0">
+                            <div class="chart-wrapper p-4"><canvas id="chartRatings"></canvas></div>
+                        </div>
                     </div>
+                    <!-- Keywords -->
                     <div class="col-12">
-                        <div class="ai-badge mb-3"><i class="bi bi-tags"></i> TOP KEYWORDS</div>
-                        <div id="keywordContainer" class="card p-5 d-flex flex-wrap gap-3"></div>
+                        <div class="section-header mb-0">TOP KEYWORDS</div>
+                        <div id="keywordContainer" class="card border-top-0 rounded-top-0 p-5 d-flex flex-wrap gap-3"></div>
                     </div>
                 </div>
             </div>
 
-            <!-- AI Chat -->
+            <!-- AI Strategy Consultant -->
             <div class="col-lg-4">
-                <div class="ai-badge mb-3"><i class="bi bi-stars"></i> AI STRATEGY CONSULTANT</div>
-                <div class="card h-100">
+                <div class="section-header mb-0">AI STRATEGY CONSULTANT</div>
+                <div class="card border-top-0 rounded-top-0 h-100">
                     <div class="card-body d-flex flex-column p-4">
-                        <div id="chatWindow" class="flex-grow-1 mb-4 d-flex flex-column gap-3">
-                            <!-- Welcome message will be added by JS -->
-                        </div>
+                        <div id="chatWindow" class="flex-grow-1 mb-4"></div>
                         <div class="input-group">
-                            <input id="chatInput" type="text" class="form-control py-4" placeholder="Ask anything about performance, risk, or strategy...">
+                            <input id="chatInput" type="text" class="form-control py-4" placeholder="Ask about performance, risks, or recommendations...">
                             <button onclick="askAI()" class="btn btn-primary px-5"><i class="bi bi-send"></i></button>
                         </div>
                     </div>
@@ -269,10 +258,10 @@
         <!-- Recent Reviews -->
         <div class="row mt-5">
             <div class="col-12">
-                <div class="ai-badge mb-3"><i class="bi bi-clock-history"></i> LATEST 100 REVIEWS</div>
-                <div class="card p-4">
+                <div class="section-header mb-0">LATEST 100 REVIEWS</div>
+                <div class="card border-top-0 rounded-top-0 p-4">
                     <div class="review-table-container">
-                        <table class="table table-hover align-middle">
+                        <table class="table table-hover align-middle mb-0">
                             <thead class="sticky-top bg-white">
                                 <tr class="text-muted small text-uppercase">
                                     <th>AUTHOR</th>
@@ -342,10 +331,9 @@
             }
         };
 
-        // Add welcome message on load
         function initChat() {
             const chatWin = document.getElementById("chatWindow");
-            chatWin.innerHTML = `<div class="chat-msg chat-ai">Hello! Select a business and click "Analyze Business" to unlock insights.</div>`;
+            chatWin.innerHTML = `<div class="chat-msg chat-ai">Hello! Select a business and click "Analyze Business" to get powerful insights.</div>`;
         }
 
         async function triggerAllLoads() {
@@ -377,7 +365,7 @@
                 loadRecentReviews(cid);
 
             } catch (e) {
-                console.error("Load error:", e);
+                console.error(e);
             } finally {
                 btn.innerHTML = orig;
                 btn.disabled = false;
@@ -385,7 +373,7 @@
         }
 
         function renderCharts(data) {
-            // Emotion Radar
+            // Radar Chart
             if (chartInstances.emotions) chartInstances.emotions.destroy();
             chartInstances.emotions = new Chart(document.getElementById("chartEmotions"), {
                 type: 'radar',
@@ -415,7 +403,7 @@
                         borderColor: '#10b981',
                         tension: 0.4,
                         fill: true,
-                        backgroundColor: 'rgba(16,185,129,0.12)'
+                        backgroundColor: 'rgba(16,185,129,0.1)'
                     }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 1, max: 5 } } }
@@ -432,7 +420,7 @@
                         label: 'Count',
                         data: dist,
                         backgroundColor: '#6366f1',
-                        borderRadius: 12
+                        borderRadius: 10
                     }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
@@ -442,7 +430,7 @@
         function renderKeywords(keywords) {
             const container = document.getElementById("keywordContainer");
             if (!keywords || keywords.length === 0) {
-                container.innerHTML = `<span class="text-muted">No significant keywords found yet.</span>`;
+                container.innerHTML = `<span class="text-muted">No keywords extracted yet.</span>`;
                 return;
             }
             container.innerHTML = keywords.map(kw => 
@@ -464,7 +452,7 @@
                     </tr>
                 `).join('');
             } catch (e) {
-                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-5 text-muted">No reviews available</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-5 text-muted">No reviews found</td></tr>`;
             }
         }
 
@@ -482,7 +470,7 @@
             try {
                 const res = await fetch(`${DASHBOARD_CONFIG.endpoints.chat}?question=${encodeURIComponent(msg)}&company_id=${cid}`, { method: 'POST' });
                 const data = await res.json();
-                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Consultant:</strong> ${data.answer || "No response received."}</div>`;
+                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Consultant:</strong> ${data.answer || "No response."}</div>`;
             } catch (e) {
                 win.innerHTML += `<div class="chat-msg chat-ai text-danger">AI service temporarily unavailable.</div>`;
             }
@@ -496,13 +484,8 @@
                 const companies = data.companies || data || [];
                 const sel = document.getElementById("companySelect");
                 sel.innerHTML = companies.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
-                if (sel.options.length > 0) {
-                    sel.selectedIndex = 0;
-                    triggerAllLoads();
-                }
-            } catch (e) {
-                console.error("Failed to load companies:", e);
-            }
+                if (sel.options.length) triggerAllLoads();
+            } catch (e) {}
         }
 
         function downloadReport() {
@@ -535,12 +518,12 @@
                 address: document.getElementById("companyAddress").value
             };
             try {
-                const response = await fetch(DASHBOARD_CONFIG.endpoints.companies, {
+                const res = await fetch(DASHBOARD_CONFIG.endpoints.companies, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                if (response.ok) {
+                if (res.ok) {
                     bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
                     loadCompanies();
                 }
@@ -563,12 +546,9 @@
             }
         };
 
-        // Initialize everything
         window.addEventListener("DOMContentLoaded", () => {
             initChat();
             loadCompanies();
-            
-            // Enter key support for chat
             document.getElementById("chatInput").addEventListener("keypress", (e) => {
                 if (e.key === "Enter") askAI();
             });
