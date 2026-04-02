@@ -1,39 +1,54 @@
-# 1. Use the official Playwright base (pre-configured for browsers)
+# =============================================
+#   Review SaaS - Production Dockerfile
+#   Base: Playwright + Python (Jammy)
+# =============================================
+
 FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
 
-# 2. Prevent Python from buffering and set timeouts
+# Prevent Python buffering + bytecode + increase pip timeout
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_DEFAULT_TIMEOUT=1000
+    PIP_DEFAULT_TIMEOUT=1000 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
-# 3. Install essential build tools for Rust-based libraries (like Kreuzberg)
+# Install system dependencies (build tools for Rust-based packages like kreuzberg)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 4. Upgrade core build tools
+# Upgrade pip and core build tools
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# 5. CHECKPOINT 1: Pre-install the heaviest library (CPU-only Torch)
-# This prevents 2GB+ of GPU data from being pulled in requirements.txt
-RUN pip install --no-cache-dir torch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1 --index-url https://download.pytorch.org/whl/cpu
+# === PRE-INSTALL HEAVY DEPENDENCIES (Critical for build speed & stability) ===
 
-# 6. CHECKPOINT 2: Pre-install the NLP stack
-# These take the most memory/time; keeping them here prevents requirements.txt from timing out
-RUN pip install --no-cache-dir transformers sentence-transformers
+# 1. CPU-only Torch (prevents pulling huge GPU wheels)
+RUN pip install --no-cache-dir \
+    torch==2.1.1 \
+    torchvision==0.16.1 \
+    torchaudio==2.1.1 \
+    --index-url https://download.pytorch.org/whl/cpu
 
-# 7. Install remaining requirements (Now very fast because heavy stuff is cached)
+# 2. Heavy NLP / Transformer stack
+RUN pip install --no-cache-dir \
+    transformers \
+    sentence-transformers
+
+# Copy and install requirements (now much faster)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 8. Copy application code
+# Copy application code
 COPY . .
 
-# 9. Final Browser Check (Only Chromium for scraping efficiency)
-RUN playwright install chromium
+# Install only Chromium browser (lighter than full browsers)
+RUN playwright install chromium --with-deps
 
-# 10. Start Command with 180s Timeout for Strategic AI Reports
-CMD gunicorn -w 2 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:$PORT --timeout 180
+# Expose port (Render, Railway, Fly.io, etc. use $PORT)
+EXPOSE 8000
+
+# Production start command with reasonable timeout
+CMD ["gunicorn", "-w", "2", "-k", "uvicorn.workers.UvicornWorker", \
+     "app.main:app", "--bind", "0.0.0.0:${PORT:-8000}", "--timeout", "180"]
