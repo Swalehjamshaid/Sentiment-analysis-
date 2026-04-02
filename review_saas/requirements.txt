@@ -26,11 +26,11 @@ google-search-results
 
 # === 🧠 Advanced AI & Multi-Agent Chatbot Stack ===
 openai
-langgraph          # For stateful AI agent loops
-pydantic-ai        # For high-safety AI outputs
-pydantic==2.7.4    # Keeping your strict pin
+langgraph                # Stateful AI agent loops
+pydantic-ai-slim[openai] # High-safety AI outputs (fixed name)
+pydantic==2.7.4          # Keeping your strict version pin
 pydantic-settings
-llamaindex         # For "Chat with your Data" (RAG)
+llama-index              # Fixed: Added hyphen for PyPI compatibility
 
 # === NLP & Core AI ===
 nltk
@@ -39,7 +39,7 @@ transformers
 sentence-transformers
 
 # === ⚡ Data Science & Power Math (STRICT PINS 3.10) ===
-polars             # High-speed engine for 5-page reports
+polars                   # High-speed engine for 5-page reports
 numpy==1.26.4
 scipy==1.11.4
 pandas==2.1.1
@@ -52,7 +52,7 @@ seaborn
 plotly
 wordcloud
 dash
-reportlab          # Logic for 5-page flowable PDFs
+reportlab                # Logic for 5-page flowable PDFs
 fpdf==1.7.2
 openpyxl
 
