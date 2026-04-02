@@ -16,10 +16,7 @@
             --primary-grad: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
             --ai-grad: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
             --danger-grad: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            --glass: rgba(255,255,255,0.92);
-        }
-        [data-theme="dark"] {
-            --glass: rgba(15,23,42,0.95);
+            --glass: rgba(255,255,255,0.95);
         }
         body {
             background: linear-gradient(145deg, #f8fafc 0%, #e0e7ff 100%);
@@ -27,10 +24,6 @@
             color: #1e2937;
             min-height: 100vh;
             padding: 20px;
-        }
-        [data-theme="dark"] body {
-            background: linear-gradient(145deg, #0f172a 0%, #1e2937 100%);
-            color: #f1f5f9;
         }
         .navbar {
             background: var(--primary-grad) !important;
@@ -43,17 +36,11 @@
             box-shadow: 0 10px 30px -8px rgba(0,0,0,0.1);
             background: var(--glass);
             backdrop-filter: blur(16px);
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.4s ease;
         }
         .card:hover {
             transform: translateY(-6px);
             box-shadow: 0 20px 40px -12px rgba(0,0,0,0.15);
-        }
-        .total-review-card, .risk-card {
-            color: white;
-            border-radius: 24px;
-            position: relative;
-            overflow: hidden;
         }
         .section-header {
             background: linear-gradient(90deg, #7c3aed, #a855f7);
@@ -62,7 +49,6 @@
             border-radius: 12px 12px 0 0;
             font-weight: 600;
             font-size: 0.95rem;
-            letter-spacing: 0.5px;
         }
         .kpi-value {
             font-family: 'Space Grotesk', sans-serif;
@@ -70,40 +56,10 @@
             font-weight: 700;
             line-height: 1;
         }
-        .ai-badge {
-            background: var(--ai-grad);
-            color: white;
-            padding: 8px 22px;
-            border-radius: 9999px;
-            font-weight: 700;
-            font-size: 0.82rem;
-            box-shadow: 0 6px 16px rgba(168,85,247,0.35);
+        .chart-wrapper {
+            height: 310px;
+            padding: 15px;
         }
-        #chatWindow {
-            height: 440px;
-            overflow-y: auto;
-            background: rgba(241,245,249,0.95);
-            border-radius: 16px;
-            padding: 20px;
-            border: 1px solid #e2e8f0;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-        [data-theme="dark"] #chatWindow {
-            background: rgba(15,23,42,0.95);
-            border-color: #334155;
-        }
-        .chat-msg {
-            padding: 14px 20px;
-            border-radius: 18px;
-            max-width: 88%;
-            box-shadow: 0 3px 10px rgba(0,0,0,0.06);
-        }
-        .chat-ai { background: white; align-self: flex-start; border-bottom-left-radius: 6px; }
-        .chat-user { background: var(--primary-grad); color: white; align-self: flex-end; border-bottom-right-radius: 6px; }
-        [data-theme="dark"] .chat-ai { background: #1e293b; color: #f1f5f9; }
-        .chart-wrapper { height: 300px; padding: 12px; }
         .keyword-badge {
             background: white;
             border: 1px solid #e2e8f0;
@@ -120,12 +76,14 @@
             border-radius: 8px;
         }
         .empty-state {
-            height: 300px;
+            height: 280px;
             display: flex;
             align-items: center;
             justify-content: center;
             color: #64748b;
             font-style: italic;
+            background: #f8fafc;
+            border-radius: 12px;
         }
     </style>
 </head>
@@ -194,7 +152,7 @@
             <div class="col-md-3">
                 <div class="card p-5 h-100">
                     <div class="text-muted fw-semibold">CHURN PREDICTION</div>
-                    <div id="churnScore" class="kpi-value mt-2 text-danger">—</div>
+                    <div id="churnScore" class="kpi-value mt-2 text-danger">— %</div>
                 </div>
             </div>
             <div class="col-md-3">
@@ -219,52 +177,56 @@
         </div>
 
         <div class="row g-4">
-            <!-- Main Charts Column -->
+            <!-- Charts Column -->
             <div class="col-lg-8">
                 <div class="row g-4">
                     <!-- Revenue Risk Heatmap -->
                     <div class="col-12">
                         <div class="section-header">REVENUE RISK HEATMAP</div>
                         <div class="card border-top-0 p-5 text-center">
-                            <div id="riskGauge" class="display-1 fw-bold text-danger mb-1">—</div>
-                            <p id="riskGaugeLabel" class="text-muted mb-0">Loss Probability • Impact on Revenue</p>
+                            <div id="riskGauge" class="display-1 fw-bold text-danger mb-2">—</div>
+                            <p id="riskGaugeLabel" class="text-muted">Loss Probability • Impact on Revenue</p>
                         </div>
                     </div>
 
-                    <!-- Monthly Trend -->
+                    <!-- Monthly Trend + Sentiment Radar -->
                     <div class="col-md-6">
                         <div class="section-header">MONTHLY RATING TREND</div>
-                        <div class="card border-top-0 p-4"><div class="chart-wrapper"><canvas id="chartMonthly"></canvas></div></div>
+                        <div class="card border-top-0 p-4">
+                            <div class="chart-wrapper"><canvas id="chartMonthly"></canvas></div>
+                        </div>
                     </div>
-
-                    <!-- Sentiment Emotion Radar -->
                     <div class="col-md-6">
                         <div class="section-header">SENTIMENT EMOTION RADAR</div>
-                        <div class="card border-top-0 p-4"><div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div></div>
+                        <div class="card border-top-0 p-4">
+                            <div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div>
+                        </div>
                     </div>
 
                     <!-- Rating Distribution -->
                     <div class="col-12">
                         <div class="section-header">RATING DISTRIBUTION BREAKDOWN</div>
-                        <div class="card border-top-0 p-4"><div class="chart-wrapper"><canvas id="chartRatings"></canvas></div></div>
+                        <div class="card border-top-0 p-4">
+                            <div class="chart-wrapper"><canvas id="chartRatings"></canvas></div>
+                        </div>
                     </div>
 
-                    <!-- Top Keywords -->
+                    <!-- Keywords -->
                     <div class="col-12">
-                        <div class="section-header">TOP COMPLAINT &amp; PRAISE KEYWORDS</div>
+                        <div class="section-header">TOP COMPLAINT & PRAISE KEYWORDS</div>
                         <div id="keywordContainer" class="card border-top-0 p-5 d-flex flex-wrap gap-3"></div>
                     </div>
                 </div>
             </div>
 
-            <!-- Right Sidebar: AI + Alerts -->
+            <!-- Sidebar: AI Consultant + Negative Alerts -->
             <div class="col-lg-4">
                 <div class="section-header">AI STRATEGY CONSULTANT</div>
                 <div class="card border-top-0 h-100">
                     <div class="card-body d-flex flex-column p-4">
                         <div id="chatWindow" class="flex-grow-1 mb-4"></div>
                         <div class="input-group">
-                            <input id="chatInput" type="text" class="form-control py-4" placeholder="Ask anything about performance, risk, or strategy...">
+                            <input id="chatInput" type="text" class="form-control py-4" placeholder="Ask: Why is churn increasing?">
                             <button onclick="askAI()" class="btn btn-primary px-5"><i class="bi bi-send"></i></button>
                         </div>
                     </div>
@@ -272,7 +234,7 @@
 
                 <div class="mt-4">
                     <div class="section-header">NEGATIVE REVIEW ALERTS</div>
-                    <div id="negativeAlerts" class="card border-top-0 p-3" style="max-height: 260px; overflow-y: auto;"></div>
+                    <div id="negativeAlerts" class="card border-top-0 p-3" style="max-height: 280px; overflow-y: auto;"></div>
                 </div>
             </div>
         </div>
@@ -354,8 +316,8 @@
         };
 
         function initChat() {
-            const chatWin = document.getElementById("chatWindow");
-            chatWin.innerHTML = `<div class="chat-msg chat-ai">Hello! Select a business and click "Analyze Business" to unlock deep insights including churn prediction and loyalty metrics.</div>`;
+            document.getElementById("chatWindow").innerHTML = 
+                `<div class="chat-msg chat-ai">Hello! Select a business and click "Analyze Business" to unlock deep insights including churn prediction and loyalty metrics.</div>`;
         }
 
         async function triggerAllLoads() {
@@ -374,7 +336,7 @@
                     fetch(`${DASHBOARD_CONFIG.endpoints.revenue}?company_id=${cid}`).then(r => r.json())
                 ]);
 
-                // KPI Cards
+                // KPI Updates
                 document.getElementById("kpiTotal").innerText = insRes.total_reviews || 0;
                 document.getElementById("kpiRating").innerText = insRes.average_rating || "—";
                 document.getElementById("churnScore").innerText = (insRes.churn_prediction || 0) + "%";
@@ -386,20 +348,16 @@
 
                 // Risk Gauge
                 document.getElementById("riskGauge").innerText = risk.loss_probability || "—";
-                document.getElementById("riskGaugeLabel").innerText = `Loss Probability • ${risk.impact_level} Impact`;
 
-                // Charts
+                // Render Charts (with fallback)
                 if (insRes.sentiment_counts) renderCharts(insRes);
                 if (insRes.top_keywords) renderKeywords(insRes.top_keywords);
-
-                // Negative Alerts
                 if (insRes.negative_reviews) renderNegativeAlerts(insRes.negative_reviews);
 
-                // Recent Reviews
                 loadRecentReviews(cid);
 
             } catch (e) {
-                console.error("Load error:", e);
+                console.error("Dashboard load error:", e);
             } finally {
                 btn.innerHTML = orig;
                 btn.disabled = false;
@@ -407,7 +365,7 @@
         }
 
         function renderCharts(data) {
-            // 1. Emotion Radar
+            // Sentiment Emotion Radar
             if (chartInstances.emotions) chartInstances.emotions.destroy();
             chartInstances.emotions = new Chart(document.getElementById("chartEmotions"), {
                 type: 'radar',
@@ -418,14 +376,13 @@
                         data: Object.values(data.sentiment_counts || {}),
                         backgroundColor: 'rgba(168,85,247,0.25)',
                         borderColor: '#a855f7',
-                        borderWidth: 3,
-                        pointRadius: 5
+                        borderWidth: 3
                     }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
 
-            // 2. Monthly Trend
+            // Monthly Rating Trend
             if (chartInstances.monthly) chartInstances.monthly.destroy();
             const trend = data.monthly_trend || [];
             chartInstances.monthly = new Chart(document.getElementById("chartMonthly"), {
@@ -444,7 +401,7 @@
                 options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 1, max: 5 } } }
             });
 
-            // 3. Rating Distribution
+            // Rating Distribution
             if (chartInstances.ratings) chartInstances.ratings.destroy();
             const dist = [1,2,3,4,5].map(n => (data.rating_distribution || {})[n] || 0);
             chartInstances.ratings = new Chart(document.getElementById("chartRatings"), {
@@ -473,15 +430,15 @@
             ).join('');
         }
 
-        function renderNegativeAlerts(negativeReviews) {
+        function renderNegativeAlerts(alerts) {
             const container = document.getElementById("negativeAlerts");
-            if (!negativeReviews || negativeReviews.length === 0) {
+            if (!alerts || alerts.length === 0) {
                 container.innerHTML = `<p class="text-muted text-center py-4">No critical negative alerts at the moment.</p>`;
                 return;
             }
-            container.innerHTML = negativeReviews.map(r => `
+            container.innerHTML = alerts.map(r => `
                 <div class="alert-item">
-                    <div class="d-flex justify-content-between align-items-start">
+                    <div class="d-flex justify-content-between">
                         <strong>${r.author}</strong>
                         <span class="badge bg-danger">${r.rating}★</span>
                     </div>
@@ -571,12 +528,12 @@
                 address: document.getElementById("companyAddress").value
             };
             try {
-                const response = await fetch(DASHBOARD_CONFIG.endpoints.companies, {
+                const res = await fetch(DASHBOARD_CONFIG.endpoints.companies, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                if (response.ok) {
+                if (res.ok) {
                     bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
                     loadCompanies();
                 }
