@@ -1,6 +1,6 @@
 # filename: app/routes/dashboard.py
 # ==========================================================
-# REVIEW INTELLIGENCE DASHBOARD — WORLD CLASS ENTERPRISE FINAL (NO LOSS)
+# REVIEW INTELLIGENCE DASHBOARD — WORLD CLASS ENTERPRISE FINAL (ENHANCED)
 # ==========================================================
 from __future__ import annotations
 import io
@@ -25,7 +25,6 @@ from app.core.models import Company, Review
 # ----------------------------------------------------------
 router = APIRouter(prefix="", tags=["Dashboard"])
 logger = logging.getLogger("dashboard")
-
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 NEGATIVE_RATINGS = {1, 2}
@@ -47,7 +46,6 @@ def safe_date(val: str | None) -> datetime | None:
     except Exception:
         return None
 
-
 def sanitize_pdf(text: str) -> str:
     """100% safe text for FPDF (latin-1 only)"""
     replacements = {
@@ -58,7 +56,6 @@ def sanitize_pdf(text: str) -> str:
         text = text.replace(k, v)
     return text.encode("latin-1", "ignore").decode("latin-1")
 
-
 def clean_keywords(text: str) -> List[str]:
     words = []
     for w in text.lower().split():
@@ -67,7 +64,6 @@ def clean_keywords(text: str) -> List[str]:
             words.append(w)
     return words
 
-
 async def get_company(session: AsyncSession, company_id: int) -> Company:
     res = await session.execute(select(Company).where(Company.id == company_id))
     company = res.scalars().first()
@@ -75,9 +71,8 @@ async def get_company(session: AsyncSession, company_id: int) -> Company:
         raise HTTPException(status_code=404, detail="Company not found")
     return company
 
-
 # ----------------------------------------------------------
-# ✅ CORE ANALYTICS ENGINE — SINGLE SOURCE OF TRUTH
+# ✅ CORE ANALYTICS ENGINE — SINGLE SOURCE OF TRUTH (ENHANCED)
 # ----------------------------------------------------------
 def compute_analytics(reviews: List[Review]) -> Dict:
     if not reviews:
@@ -91,7 +86,10 @@ def compute_analytics(reviews: List[Review]) -> Dict:
                 "loss_probability": "0%",
                 "impact_level": "None",
                 "reputation_score": 100.0
-            }
+            },
+            "negative_reviews": [],
+            "churn_prediction": 0.0,
+            "loyalty_score": 0.0
         }
 
     ratings: List[int] = []
@@ -100,18 +98,24 @@ def compute_analytics(reviews: List[Review]) -> Dict:
     sentiment_counts = {"Positive": 0, "Neutral": 0, "Negative": 0}
     rating_distribution = {i: 0 for i in range(1, 6)}
     severe_count = negative_count = 0
+    negative_reviews = []
 
     for r in reviews:
         if r.rating:
             rating_distribution[int(r.rating)] += 1
             ratings.append(int(r.rating))
-
             if r.google_review_time:
                 key = r.google_review_time.strftime("%b %Y")
                 monthly_map[key].append(int(r.rating))
-
             if r.rating in NEGATIVE_RATINGS:
                 severe_count += 1
+                if r.text and len(negative_reviews) < 10:  # Limit to top 10 for alerts
+                    negative_reviews.append({
+                        "author": r.author_name or "Anonymous",
+                        "rating": r.rating,
+                        "text": r.text[:180] + ("..." if len(r.text) > 180 else ""),
+                        "date": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "N/A"
+                    })
 
         if r.sentiment_score is not None:
             sentiments.append(r.sentiment_score)
@@ -123,16 +127,21 @@ def compute_analytics(reviews: List[Review]) -> Dict:
             else:
                 sentiment_counts["Neutral"] += 1
 
-    avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
-    avg_sentiment = round(sum(sentiments) / len(sentiments), 2) if sentiments else 0.0
+    total = len(reviews)
+    avg_rating = round(sum(ratings) / total, 2) if ratings else 0.0
 
     # Enhanced Risk Model
-    total = len(reviews)
-    raw_risk = (negative_count * 0.6 + severe_count * 0.4) / total
+    raw_risk = (negative_count * 0.6 + severe_count * 0.4) / total if total > 0 else 0
     risk_pct = round(raw_risk * 100, 1)
 
+    # Churn Prediction Score (0-100)
+    churn_prediction = round(min(95.0, (negative_count / total * 65) + (severe_count / total * 35)), 1) if total > 0 else 0.0
+
+    # Loyalty Score (based on positive sentiment)
+    loyalty_score = round((sentiment_counts["Positive"] / total * 100), 1) if total > 0 else 0.0
+
     return {
-        "total_reviews": len(reviews),
+        "total_reviews": total,
         "average_rating": avg_rating,
         "sentiment_counts": sentiment_counts,
         "rating_distribution": rating_distribution,
@@ -148,12 +157,15 @@ def compute_analytics(reviews: List[Review]) -> Dict:
             "loss_probability": f"{risk_pct}%",
             "impact_level": "High" if risk_pct > 25 else "Medium" if risk_pct > 12 else "Low",
             "reputation_score": max(0.0, round(100 - risk_pct, 1))
-        }
+        },
+        "negative_reviews": negative_reviews,
+        "churn_prediction": churn_prediction,
+        "loyalty_score": loyalty_score
     }
 
 
 # ==========================================================
-# 1. OVERVIEW
+# 1. OVERVIEW (Unchanged)
 # ==========================================================
 @router.get("/overview/{company_id}", response_class=JSONResponse)
 async def overview(company_id: int, session: AsyncSession = Depends(get_session)):
@@ -167,7 +179,7 @@ async def overview(company_id: int, session: AsyncSession = Depends(get_session)
 
 
 # ==========================================================
-# 2. INSIGHTS (CHARTS + KEYWORDS)
+# 2. INSIGHTS (CHARTS + KEYWORDS) — Enhanced keywords
 # ==========================================================
 @router.get("/insights", response_class=JSONResponse)
 async def insights(
@@ -178,7 +190,6 @@ async def insights(
 ):
     await get_company(session, company_id)
     stmt = select(Review).where(Review.company_id == company_id)
-
     start_dt = safe_date(start)
     end_dt = safe_date(end)
     if start_dt:
@@ -191,19 +202,19 @@ async def insights(
 
     analytics = compute_analytics(reviews)
 
-    # Enhanced keyword extraction
+    # Enhanced keyword extraction (top 30)
     keywords: List[str] = []
     for r in reviews:
         if r.text:
             keywords.extend(clean_keywords(r.text))
 
-    analytics["top_keywords"] = [w for w, _ in Counter(keywords).most_common(25)]
+    analytics["top_keywords"] = [w for w, _ in Counter(keywords).most_common(30)]
 
     return analytics
 
 
 # ==========================================================
-# 3. REVENUE RISK
+# 3. REVENUE RISK (Unchanged — now richer via core engine)
 # ==========================================================
 @router.get("/revenue", response_class=JSONResponse)
 async def revenue(company_id: int, session: AsyncSession = Depends(get_session)):
@@ -214,7 +225,7 @@ async def revenue(company_id: int, session: AsyncSession = Depends(get_session))
 
 
 # ==========================================================
-# 4. AI CHATBOT (Executive Grade + Better Prompt)
+# 4. AI CHATBOT — Enhanced Prompt with new metrics
 # ==========================================================
 @router.post("/chatbot/explain", response_class=JSONResponse)
 async def chatbot(
@@ -229,22 +240,22 @@ async def chatbot(
     analytics = compute_analytics(reviews)
 
     prompt = f"""
-You are an elite senior business strategy consultant with 20+ years experience.
-You provide extremely sharp, data-driven, and actionable insights.
+You are an elite senior business strategy consultant.
+Provide sharp, revenue-focused, actionable insights.
 
-Current Business Metrics:
-- Total Reviews     : {analytics['total_reviews']}
-- Average Rating    : {analytics['average_rating']}/5
-- Loss Probability  : {analytics['risk']['loss_probability']}
-- Impact Level      : {analytics['risk']['impact_level']}
-- Reputation Score  : {analytics['risk']['reputation_score']}/100
-
-Monthly Rating Trend:
-{analytics['monthly_trend']}
+Business Metrics:
+- Total Reviews: {analytics['total_reviews']}
+- Average Rating: {analytics['average_rating']}/5
+- Loss Probability: {analytics['risk']['loss_probability']}
+- Impact Level: {analytics['risk']['impact_level']}
+- Reputation Score: {analytics['risk']['reputation_score']}/100
+- Churn Prediction: {analytics['churn_prediction']}%
+- Loyalty Score: {analytics['loyalty_score']}%
+Monthly Trend: {analytics['monthly_trend']}
 
 User Question: {question}
 
-Respond professionally, concisely, and with clear recommendations.
+Give professional, concise recommendations tied to revenue impact.
 """
 
     try:
@@ -261,7 +272,7 @@ Respond professionally, concisely, and with clear recommendations.
 
 
 # ==========================================================
-# 5. AI EXECUTIVE SUMMARY
+# 5. AI EXECUTIVE SUMMARY — Enhanced with new metrics
 # ==========================================================
 @router.get("/ai-summary/{company_id}")
 async def ai_summary(company_id: int, session: AsyncSession = Depends(get_session)):
@@ -275,25 +286,28 @@ async def ai_summary(company_id: int, session: AsyncSession = Depends(get_sessio
     summary = f"""
 Executive Summary — {datetime.utcnow().strftime('%B %d, %Y')}
 
-• Average Rating      : {analytics['average_rating']}/5.0
-• Total Reviews       : {analytics['total_reviews']}
-• Loss Probability    : {analytics['risk']['loss_probability']}
-• Reputation Score    : {analytics['risk']['reputation_score']}/100
-• Risk Impact         : {analytics['risk']['impact_level']}
+• Total Reviews      : {analytics['total_reviews']}
+• Average Rating     : {analytics['average_rating']}/5.0
+• Loss Probability   : {analytics['risk']['loss_probability']}
+• Churn Prediction   : {analytics['churn_prediction']}%
+• Loyalty Score      : {analytics['loyalty_score']}%
+• Reputation Score   : {analytics['risk']['reputation_score']}/100
+• Risk Impact        : {analytics['risk']['impact_level']}
 
 Key Insight:
-Customer sentiment indicates **{analytics['risk']['impact_level'].lower()} risk** to revenue and reputation.
+Customer sentiment shows **{analytics['risk']['impact_level'].lower()} risk** with churn probability at {analytics['churn_prediction']}%.
 
 Actionable Recommendations:
-• Immediately address all 1-2 star reviews
-• Amplify strengths shown in high-rating feedback
-• Monitor monthly trend closely for early warning signals
+• Prioritize response to all 1-2 star reviews
+• Leverage loyal customers (positive sentiment) for testimonials
+• Address root causes shown in keywords and monthly trend
 """
+
     return {"summary": summary.strip()}
 
 
 # ==========================================================
-# 6. EXECUTIVE PDF REPORT (Enhanced & Beautiful)
+# 6. EXECUTIVE PDF REPORT — Enhanced with new metrics
 # ==========================================================
 @router.get("/executive-report/pdf/{company_id}")
 async def executive_report(company_id: int, session: AsyncSession = Depends(get_session)):
@@ -305,7 +319,6 @@ async def executive_report(company_id: int, session: AsyncSession = Depends(get_
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
 
-    # Header
     pdf.set_font("Arial", "B", 20)
     pdf.cell(0, 15, sanitize_pdf(f"Executive Intelligence Report — {company.name}"), ln=True, align="C")
     pdf.ln(10)
@@ -314,7 +327,6 @@ async def executive_report(company_id: int, session: AsyncSession = Depends(get_
     pdf.cell(0, 10, f"Generated on: {datetime.utcnow().strftime('%B %d, %Y at %H:%M')}", ln=True, align="C")
     pdf.ln(15)
 
-    # KPIs
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, "KEY PERFORMANCE INDICATORS", ln=True)
     pdf.set_font("Arial", size=11)
@@ -323,6 +335,8 @@ async def executive_report(company_id: int, session: AsyncSession = Depends(get_
         ("Total Reviews", analytics["total_reviews"]),
         ("Average Rating", f"{analytics['average_rating']}/5.0"),
         ("Loss Probability", analytics["risk"]["loss_probability"]),
+        ("Churn Prediction", f"{analytics['churn_prediction']}%"),
+        ("Loyalty Score", f"{analytics['loyalty_score']}%"),
         ("Impact Level", analytics["risk"]["impact_level"]),
         ("Reputation Score", f"{analytics['risk']['reputation_score']}/100")
     ]:
@@ -332,7 +346,6 @@ async def executive_report(company_id: int, session: AsyncSession = Depends(get_
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, "MONTHLY RATING TREND", ln=True)
     pdf.set_font("Arial", size=10)
-
     for trend in analytics["monthly_trend"]:
         pdf.cell(0, 8, f"{trend['month']}: {trend['avg']} avg ({trend['count']} reviews)", ln=True)
 
@@ -347,7 +360,7 @@ async def executive_report(company_id: int, session: AsyncSession = Depends(get_
 
 
 # ==========================================================
-# 7. RECENT REVIEWS
+# 7. RECENT REVIEWS (Unchanged)
 # ==========================================================
 @router.get("/recent-reviews/{company_id}", response_class=JSONResponse)
 async def get_recent_reviews(company_id: int, session: AsyncSession = Depends(get_session)):
