@@ -3,25 +3,34 @@ import os
 import logging
 import asyncio
 import re
+import json
 import requests
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
+# Official SerpApi Wrapper
 from serpapi import GoogleSearch
+# Database dependencies
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Importing your internal models
 from app.core.models import Company, Review
 
 logger = logging.getLogger("app.scraper")
 
-# API Keys
-# Primary Key
+# ==========================================================
+# API CONFIGURATION
+# ==========================================================
 SERPAPI_KEY = "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d"
-# Verified Key from your Serper Dashboard screenshot
+# Your verified key from the Serper Dashboard screenshot
 SERPER_API_KEY = "d978f3563ac6dd6bcce594ac487142f614c8db08"
 
+# ==========================================================
+# UTILITY FUNCTIONS
+# ==========================================================
 def parse_relative_date(date_text: str) -> datetime:
+    """ Converts strings like '2 weeks ago' into a datetime object. """
     if not date_text or not isinstance(date_text, str):
         return datetime.utcnow()
     now = datetime.utcnow()
@@ -37,57 +46,69 @@ def parse_relative_date(date_text: str) -> datetime:
     elif 'year' in date_text: return now - timedelta(days=quantity * 365)
     return now
 
-async def fetch_from_serper_fallback(company_name: str, limit: int) -> List[Dict[str, Any]]:
+# ==========================================================
+# SERPER.DEV FALLBACK (PLAYGROUND ALIGNED)
+# ==========================================================
+async def fetch_from_serper_fallback(company_name: str, limit: int = 10) -> List[Dict[str, Any]]:
     """
-    Final optimized fallback using your specific Serper Key.
-    Uses the /places endpoint which is more structured for business reviews.
+    Scraper aligned 100% with your Serper Playground screenshot.
+    Uses /search endpoint and standard JSON payload.
     """
-    logger.info(f"📡 Serper Fallback engaged for: {company_name}")
+    logger.info(f"📡 Fallback: Fetching web mentions for {company_name} via Serper")
     
     if not SERPER_API_KEY:
-        logger.error("❌ SERPER_API_KEY is missing from configuration.")
+        logger.error("❌ SERPER_API_KEY is not defined.")
         return []
 
-    url = "https://google.serper.dev/places"
-    payload = {
+    url = "https://google.serper.dev/search"
+    
+    # Payload follows your Playground 'q' parameter logic
+    payload = json.dumps({
         "q": f"{company_name} reviews",
-        "gl": "pk",
+        "gl": "pk", # Localized for Pakistan as per your project context
         "hl": "en"
-    }
+    })
+    
     headers = {
         'X-API-KEY': SERPER_API_KEY,
         'Content-Type': 'application/json'
     }
     
     try:
-        response = await asyncio.to_thread(lambda: requests.post(url, headers=headers, json=payload, timeout=15))
+        # Wrap blocking requests call in a thread
+        response = await asyncio.to_thread(
+            lambda: requests.post(url, headers=headers, data=payload, timeout=15)
+        )
         response.raise_for_status()
         data = response.json()
         
-        places = data.get("places", [])
         results = []
+        organic_results = data.get("organic", [])
         
-        if places:
-            # Extract reviews from the most relevant place found
-            raw_reviews = places[0].get("reviews", [])
-            for r in raw_reviews:
-                if len(results) >= limit: break
-                    
-                results.append({
-                    "google_review_id": f"serper_{datetime.utcnow().timestamp()}_{len(results)}",
-                    "author_name": r.get("user", "Anonymous"),
-                    "rating": int(r.get("rating", 5)),
-                    "text": r.get("snippet") or r.get("text") or "No content",
-                    "google_review_time": datetime.utcnow(),
-                    "review_likes": 0
-                })
-        
-        logger.info(f"✅ Serper successfully scraped {len(results)} reviews.")
+        for idx, entry in enumerate(organic_results):
+            if len(results) >= limit:
+                break
+            
+            # Map search snippets to Review schema
+            results.append({
+                "google_review_id": f"serper_{int(datetime.utcnow().timestamp())}_{idx}",
+                "author_name": entry.get("title", "Web Mention"),
+                "rating": 5, # Defaulting for web snippets; AI logic will refine sentiment
+                "text": entry.get("snippet", "No content"),
+                "google_review_time": datetime.utcnow(),
+                "review_likes": 0
+            })
+            
+        logger.info(f"✅ Serper Fallback found {len(results)} records.")
         return results
+
     except Exception as e:
-        logger.error(f"❌ Serper API total failure: {e}")
+        logger.error(f"❌ Serper API Error: {e}")
         return []
 
+# ==========================================================
+# MAIN SCRAPER LOGIC (SERPAPI + SERPER FALLBACK)
+# ==========================================================
 async def fetch_reviews_from_google(
     place_id: Optional[str] = None,
     company_id: Optional[int] = None,
@@ -95,19 +116,21 @@ async def fetch_reviews_from_google(
     target_limit: int = 100,
     **kwargs
 ) -> List[Dict[str, Any]]:
+    """
+    Primary sync function. Checks for duplicates and stops when caught up.
+    """
     all_reviews: List[Dict[str, Any]] = []
     existing_ids = set()
     company_name = "Business"
 
     try:
-        # 1. Setup Context & Check for Existing Data
+        # 1. Database Context Setup
         if session and company_id:
-            # Fetch all existing IDs once to prevent duplicates
+            # Load existing review IDs to prevent duplicates and find the 'stop' point
             stmt = select(Review.google_review_id).where(Review.company_id == company_id)
             res = await session.execute(stmt)
             existing_ids = set(res.scalars().all())
             
-            # Identify company name for fallback search
             comp_stmt = select(Company).where(Company.id == company_id)
             comp_res = await session.execute(comp_stmt)
             company = comp_res.scalars().first()
@@ -116,11 +139,11 @@ async def fetch_reviews_from_google(
                 place_id = place_id or company.google_place_id
 
         if not place_id:
-            logger.error("❌ Critical: No Place ID provided.")
+            logger.error(f"❌ Aborting: No Place ID found for {company_name}")
             return []
 
-        # 2. Execute SerpApi Sync
-        logger.info(f"🚀 Syncing {company_name} (Place ID: {place_id})")
+        # 2. SerpApi Sync Loop
+        logger.info(f"🚀 Syncing {company_name} | Target: {target_limit} reviews")
         
         next_page_token = None
         while len(all_reviews) < target_limit:
@@ -132,26 +155,26 @@ async def fetch_reviews_from_google(
                 "sort_by": "newest"
             }
             
-            # Run blocking API call in a thread to keep FastAPI responsive
-            results = await asyncio.to_thread(lambda: GoogleSearch(params).get_dict())
+            # Execute blocking SerpApi call in thread
+            search = await asyncio.to_thread(lambda: GoogleSearch(params).get_dict())
             
-            if "error" in results:
-                raise Exception(results["error"])
+            if "error" in search:
+                raise Exception(search["error"])
 
-            reviews = results.get("reviews", [])
-            if not reviews: break
+            reviews = search.get("reviews", [])
+            if not reviews:
+                break
 
             for r in reviews:
                 r_id = r.get("review_id")
                 
-                # CRITICAL FIX: Stop if we hit a review we already have.
-                # Since results are sorted by "newest", hitting an old ID means 
-                # we have synced everything new.
+                # If we hit an ID we already have, we are "caught up"
                 if r_id in existing_ids:
-                    logger.info(f"📍 Sync caught up for {company_name}. No more new reviews.")
+                    logger.info(f"📍 Sync complete: Reached previously stored data for {company_name}")
                     return all_reviews
                 
-                if len(all_reviews) >= target_limit: break
+                if len(all_reviews) >= target_limit:
+                    break
                 
                 all_reviews.append({
                     "google_review_id": r_id,
@@ -162,16 +185,18 @@ async def fetch_reviews_from_google(
                     "review_likes": r.get("likes", 0)
                 })
             
-            # Handle Pagination
-            next_page_token = results.get("serpapi_pagination", {}).get("next_page_token")
-            if not next_page_token: break
+            # Check for next page token in pagination
+            next_page_token = search.get("serpapi_pagination", {}).get("next_page_token")
+            if not next_page_token:
+                break
             
         return all_reviews
 
     except Exception as primary_err:
-        logger.warning(f"⚠️ Primary API failed: {primary_err}. Falling back to Serper.dev...")
+        # 3. Fallback logic if SerpApi fails or hits limits
+        logger.warning(f"⚠️ SerpApi Failed ({primary_err}). Using Serper.dev Alignment...")
         return await fetch_from_serper_fallback(company_name, target_limit)
 
     except Exception as exc:
-        logger.error(f"❌ Scraper failure: {exc}")
+        logger.error(f"❌ Scraper Critical Failure: {exc}")
         return []
