@@ -1,8 +1,4 @@
-# ==========================================================
-# REVIEW INTELLIGENCE AI — 2026 ENTERPRISE CONSOLIDATED STACK
-# ==========================================================
-
-# --- Web Framework & High-Speed Server ---
+# --- Web & API Core ---
 fastapi
 uvicorn
 gunicorn
@@ -16,48 +12,46 @@ asyncpg==0.27.0
 python-multipart==0.0.6
 aiosqlite
 
-# --- Advanced Scraping & Data Extraction ---
+# --- Scraping & Intelligence ---
 requests
 beautifulsoup4
 playwright==1.45.0
 selenium
 proxybroker2==2.0.0a4
 google-search-results
-kreuzberg                # 2026 State-of-the-art PDF/Image text extraction
+kreuzberg                # High-fidelity 2026 PDF extraction
 
-# --- 🧠 Extremely Advanced AI & Multi-Agent Chatbot Stack ---
+# --- 🧠 Extremely Advanced AI Stack ---
 openai
-langgraph                # Stateful AI agent orchestration
-pydantic-ai-slim[openai] # Type-safe AI agent outputs
-pydantic>=2.8.0          # Required for PydanticAI & LangGraph compatibility
+langgraph                # Stateful AI agent logic
+pydantic-ai-slim[openai] # Type-safe AI agents
+pydantic>=2.8.0          # CRITICAL: Fixes backtracking loop
 pydantic-settings
-llama-index              # Professional RAG for "Chat with your Data"
+llama-index              # Professional RAG
 
-# --- NLP & Core AI ---
+# --- NLP Core (Lighter Libraries) ---
 nltk
 textblob
-transformers
-sentence-transformers
 
-# --- ⚡ High-Performance Math Engine (STRICT PINS 3.10) ---
-polars                   # Blazing fast Rust-based engine for 5-page reports
+# --- ⚡ Analytics & Reporting (STRICT PINS 3.10) ---
+polars                   # Fast engine for 5-page reports
 numpy==1.26.4
 scipy==1.11.4
 pandas==2.1.1
 scikit-learn==1.3.2
 statsmodels==0.14.0
 
-# --- 📊 5-Page PDF Visualization & Strategic Export ---
+# --- 📊 Strategic PDF Generation ---
+reportlab                # Essential for 5-page Flowable PDFs
+fpdf==1.7.2
 matplotlib
 seaborn
 plotly
 wordcloud
 dash
-reportlab                # Essential for professional multi-page (Flowable) PDFs
-fpdf==1.7.2
 openpyxl
 
-# --- Utilities & Security ---
+# --- Utilities ---
 python-jose[cryptography]
 passlib[bcrypt]
 pyjwt
