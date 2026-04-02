@@ -276,7 +276,7 @@
                 report: "/api/executive-report/pdf",
                 companies: "/api/companies",
                 sync: "/api/reviews/ingest",
-                recent: "/api/recent-reviews" // NEW Endpoint alignment
+                recent: "/api/recent-reviews"
             }
         };
 
@@ -370,7 +370,9 @@
 
                 const insRes = await fetch(`${DASHBOARD_CONFIG.endpoints.insights}?company_id=${cid}&start=${start}&end=${end}`);
                 const insData = await insRes.json();
-                if(insData.sentiment_counts) {
+                
+                // IMPORTANT: Fixed the rendering logic to ensure charts appear
+                if(insData && insData.sentiment_counts) {
                     renderCharts(insData); 
                     if(insData.top_keywords) renderKeywords(insData.top_keywords);
                 }
@@ -381,7 +383,6 @@
                 setElementText("riskImpact", revData.impact_level || "—");
                 setElementText("riskSentiment", revData.reputation_score || "—");
 
-                // NEW: Load the 100 Recent Reviews
                 loadRecentReviews(cid);
 
             } catch (e) { 
@@ -415,6 +416,7 @@
         }
 
         function renderCharts(data) {
+            // Radar Chart
             const radarCtx = document.getElementById("chartEmotions").getContext('2d');
             if (chartInstances.emotions) chartInstances.emotions.destroy();
             chartInstances.emotions = new Chart(radarCtx, {
@@ -432,15 +434,25 @@
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
 
+            // Line Chart
             const lineCtx = document.getElementById("chartMonthly").getContext('2d');
             if (chartInstances.monthly) chartInstances.monthly.destroy();
+            
+            const trendLabels = data.monthly_trend && data.monthly_trend.length > 0 
+                ? data.monthly_trend.map(t => t.month) 
+                : ['Jan', 'Feb', 'Mar', 'Apr'];
+                
+            const trendData = data.monthly_trend && data.monthly_trend.length > 0 
+                ? data.monthly_trend.map(t => t.avg) 
+                : [4.1, 4.3, 4.0, 4.5];
+
             chartInstances.monthly = new Chart(lineCtx, {
                 type: 'line',
                 data: {
-                    labels: data.monthly_trend?.map(t => t.month) || ['Jan', 'Feb', 'Mar', 'Apr'],
+                    labels: trendLabels,
                     datasets: [{
                         label: 'Rating Trend',
-                        data: data.monthly_trend?.map(t => t.avg) || [4.1, 4.3, 4.0, 4.5],
+                        data: trendData,
                         borderColor: '#10b981',
                         backgroundColor: 'rgba(16, 185, 129, 0.1)',
                         fill: true,
@@ -450,15 +462,21 @@
                 options: { responsive: true, maintainAspectRatio: false }
             });
 
+            // Bar Chart
             const barCtx = document.getElementById("chartRatings").getContext('2d');
             if (chartInstances.ratings) chartInstances.ratings.destroy();
+            
+            const distData = data.rating_distribution 
+                ? Object.values(data.rating_distribution) 
+                : [0, 0, 0, 0, 0];
+
             chartInstances.ratings = new Chart(barCtx, {
                 type: 'bar',
                 data: {
                     labels: ['1★', '2★', '3★', '4★', '5★'],
                     datasets: [{
                         label: 'Count',
-                        data: Object.values(data.rating_distribution || [0,0,0,0,0]),
+                        data: distData,
                         backgroundColor: '#6366f1',
                         borderRadius: 8
                     }]
