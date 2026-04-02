@@ -16,8 +16,9 @@ from app.core.models import Company, Review
 logger = logging.getLogger("app.scraper")
 
 # API Keys
+# Primary Key
 SERPAPI_KEY = "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d"
-# Updated with your verified key from the screenshot
+# Verified Key from your Serper Dashboard screenshot
 SERPER_API_KEY = "d978f3563ac6dd6bcce594ac487142f614c8db08"
 
 def parse_relative_date(date_text: str) -> datetime:
@@ -38,12 +39,13 @@ def parse_relative_date(date_text: str) -> datetime:
 
 async def fetch_from_serper_fallback(company_name: str, limit: int) -> List[Dict[str, Any]]:
     """
-    Optimized fallback using Serper.dev /places endpoint.
+    Final optimized fallback using your specific Serper Key.
+    Uses the /places endpoint which is more structured for business reviews.
     """
-    logger.info(f"📡 Serper Search Fallback Triggered for: {company_name}")
+    logger.info(f"📡 Serper Fallback engaged for: {company_name}")
     
     if not SERPER_API_KEY:
-        logger.error("❌ SERPER_API_KEY is missing.")
+        logger.error("❌ SERPER_API_KEY is missing from configuration.")
         return []
 
     url = "https://google.serper.dev/places"
@@ -66,7 +68,7 @@ async def fetch_from_serper_fallback(company_name: str, limit: int) -> List[Dict
         results = []
         
         if places:
-            # Extracting reviews from the primary business result
+            # Extract reviews from the most relevant place found
             raw_reviews = places[0].get("reviews", [])
             for r in raw_reviews:
                 if len(results) >= limit: break
@@ -80,10 +82,10 @@ async def fetch_from_serper_fallback(company_name: str, limit: int) -> List[Dict
                     "review_likes": 0
                 })
         
-        logger.info(f"✅ Serper collected {len(results)} reviews.")
+        logger.info(f"✅ Serper successfully scraped {len(results)} reviews.")
         return results
     except Exception as e:
-        logger.error(f"❌ Serper API error: {e}")
+        logger.error(f"❌ Serper API total failure: {e}")
         return []
 
 async def fetch_reviews_from_google(
@@ -98,13 +100,14 @@ async def fetch_reviews_from_google(
     company_name = "Business"
 
     try:
-        # 1. Context Loading & Duplicate Check Prep
+        # 1. Setup Context & Check for Existing Data
         if session and company_id:
-            # Get existing IDs to stop sync when we hit a known review
+            # Fetch all existing IDs once to prevent duplicates
             stmt = select(Review.google_review_id).where(Review.company_id == company_id)
             res = await session.execute(stmt)
             existing_ids = set(res.scalars().all())
             
+            # Identify company name for fallback search
             comp_stmt = select(Company).where(Company.id == company_id)
             comp_res = await session.execute(comp_stmt)
             company = comp_res.scalars().first()
@@ -113,11 +116,11 @@ async def fetch_reviews_from_google(
                 place_id = place_id or company.google_place_id
 
         if not place_id:
-            logger.error("❌ No Place ID provided for scraping.")
+            logger.error("❌ Critical: No Place ID provided.")
             return []
 
-        # 2. Try Primary Sync via SerpApi
-        logger.info(f"🚀 Starting Sync for {company_name}. Limit: {target_limit}")
+        # 2. Execute SerpApi Sync
+        logger.info(f"🚀 Syncing {company_name} (Place ID: {place_id})")
         
         next_page_token = None
         while len(all_reviews) < target_limit:
@@ -129,20 +132,23 @@ async def fetch_reviews_from_google(
                 "sort_by": "newest"
             }
             
-            search_results = await asyncio.to_thread(lambda: GoogleSearch(params).get_dict())
+            # Run blocking API call in a thread to keep FastAPI responsive
+            results = await asyncio.to_thread(lambda: GoogleSearch(params).get_dict())
             
-            if "error" in search_results:
-                raise Exception(search_results["error"])
+            if "error" in results:
+                raise Exception(results["error"])
 
-            reviews = search_results.get("reviews", [])
+            reviews = results.get("reviews", [])
             if not reviews: break
 
             for r in reviews:
                 r_id = r.get("review_id")
                 
-                # STOP if we hit a review already in our database
+                # CRITICAL FIX: Stop if we hit a review we already have.
+                # Since results are sorted by "newest", hitting an old ID means 
+                # we have synced everything new.
                 if r_id in existing_ids:
-                    logger.info(f"📍 Caught up with existing data for {company_name}. Ending fetch.")
+                    logger.info(f"📍 Sync caught up for {company_name}. No more new reviews.")
                     return all_reviews
                 
                 if len(all_reviews) >= target_limit: break
@@ -156,16 +162,16 @@ async def fetch_reviews_from_google(
                     "review_likes": r.get("likes", 0)
                 })
             
-            next_page_token = search_results.get("serpapi_pagination", {}).get("next_page_token")
+            # Handle Pagination
+            next_page_token = results.get("serpapi_pagination", {}).get("next_page_token")
             if not next_page_token: break
             
         return all_reviews
 
     except Exception as primary_err:
-        logger.warning(f"⚠️ SerpApi Error ({primary_err}). Falling back to Serper.dev...")
-        # Use fallback if primary fails
+        logger.warning(f"⚠️ Primary API failed: {primary_err}. Falling back to Serper.dev...")
         return await fetch_from_serper_fallback(company_name, target_limit)
 
     except Exception as exc:
-        logger.error(f"❌ Scraper critical failure: {exc}")
+        logger.error(f"❌ Scraper failure: {exc}")
         return []
