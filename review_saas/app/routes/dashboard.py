@@ -1,10 +1,8 @@
 # filename: app/routes/dashboard.py
 # ==========================================================
-# REVIEW INTELLIGENCE DASHBOARD — ENTERPRISE FINAL (NO LOSS)
+# REVIEW INTELLIGENCE DASHBOARD — WORLD CLASS ENTERPRISE FINAL (NO LOSS)
 # ==========================================================
-
 from __future__ import annotations
-
 import io
 import os
 import logging
@@ -16,7 +14,6 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
-
 from fpdf import FPDF
 import openai
 
@@ -37,13 +34,14 @@ NEG_SENTIMENT_LIMIT = -0.2
 STOPWORDS = {
     "the", "and", "with", "this", "that", "for", "from",
     "was", "were", "have", "has", "had", "very", "just",
-    "they", "them", "their", "there"
+    "they", "them", "their", "there", "but", "not", "are",
+    "you", "your", "will", "can", "our", "all", "any"
 }
 
 # ----------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------
-def safe_date(val: str | None):
+def safe_date(val: str | None) -> datetime | None:
     try:
         return datetime.fromisoformat(val) if val else None
     except Exception:
@@ -51,18 +49,10 @@ def safe_date(val: str | None):
 
 
 def sanitize_pdf(text: str) -> str:
-    """
-    Makes text 100% safe for FPDF (latin-1 only).
-    Prevents UnicodeEncodeError permanently.
-    """
+    """100% safe text for FPDF (latin-1 only)"""
     replacements = {
-        "—": "-",
-        "–": "-",
-        "’": "'",
-        "“": '"',
-        "”": '"',
-        "•": "-",
-        "…": "..."
+        "—": "-", "–": "-", "’": "'", "“": '"', "”": '"',
+        "•": "-", "…": "...", "©": "(C)", "®": "(R)"
     }
     for k, v in replacements.items():
         text = text.replace(k, v)
@@ -72,7 +62,7 @@ def sanitize_pdf(text: str) -> str:
 def clean_keywords(text: str) -> List[str]:
     words = []
     for w in text.lower().split():
-        w = w.strip(".,!?()")
+        w = w.strip(".,!?()\"';:[]{}")
         if len(w) >= 4 and w.isalpha() and w not in STOPWORDS:
             words.append(w)
     return words
@@ -87,37 +77,29 @@ async def get_company(session: AsyncSession, company_id: int) -> Company:
 
 
 # ----------------------------------------------------------
-# ✅ CORE ANALYTICS ENGINE (SINGLE SOURCE OF TRUTH)
+# ✅ CORE ANALYTICS ENGINE — SINGLE SOURCE OF TRUTH
 # ----------------------------------------------------------
 def compute_analytics(reviews: List[Review]) -> Dict:
-    """
-    All KPIs, trends, risk & AI must use THIS.
-    This prevents KPI mismatch anywhere in the system.
-    """
-
     if not reviews:
         return {
             "total_reviews": 0,
-            "average_rating": 0,
+            "average_rating": 0.0,
             "sentiment_counts": {"Positive": 0, "Neutral": 0, "Negative": 0},
             "rating_distribution": {i: 0 for i in range(1, 6)},
             "monthly_trend": [],
             "risk": {
                 "loss_probability": "0%",
                 "impact_level": "None",
-                "reputation_score": 100
+                "reputation_score": 100.0
             }
         }
 
     ratings: List[int] = []
     sentiments: List[float] = []
     monthly_map: Dict[str, List[int]] = defaultdict(list)
-
     sentiment_counts = {"Positive": 0, "Neutral": 0, "Negative": 0}
     rating_distribution = {i: 0 for i in range(1, 6)}
-
-    severe_count = 0
-    negative_count = 0
+    severe_count = negative_count = 0
 
     for r in reviews:
         if r.rating:
@@ -133,7 +115,6 @@ def compute_analytics(reviews: List[Review]) -> Dict:
 
         if r.sentiment_score is not None:
             sentiments.append(r.sentiment_score)
-
             if r.sentiment_score <= NEG_SENTIMENT_LIMIT:
                 sentiment_counts["Negative"] += 1
                 negative_count += 1
@@ -142,11 +123,12 @@ def compute_analytics(reviews: List[Review]) -> Dict:
             else:
                 sentiment_counts["Neutral"] += 1
 
-    avg_rating = round(sum(ratings) / len(ratings), 2)
-    avg_sentiment = round(sum(sentiments) / len(sentiments), 2) if sentiments else 0
+    avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
+    avg_sentiment = round(sum(sentiments) / len(sentiments), 2) if sentiments else 0.0
 
-    # Risk model (weighted, stable, explainable)
-    raw_risk = (negative_count * 0.6 + severe_count * 0.4) / len(reviews)
+    # Enhanced Risk Model
+    total = len(reviews)
+    raw_risk = (negative_count * 0.6 + severe_count * 0.4) / total
     risk_pct = round(raw_risk * 100, 1)
 
     return {
@@ -164,31 +146,25 @@ def compute_analytics(reviews: List[Review]) -> Dict:
         ],
         "risk": {
             "loss_probability": f"{risk_pct}%",
-            "impact_level": (
-                "High" if risk_pct > 25
-                else "Medium" if risk_pct > 12
-                else "Low"
-            ),
-            "reputation_score": max(0, round(100 - risk_pct, 1))
+            "impact_level": "High" if risk_pct > 25 else "Medium" if risk_pct > 12 else "Low",
+            "reputation_score": max(0.0, round(100 - risk_pct, 1))
         }
     }
 
+
 # ==========================================================
-# 1. OVERVIEW (KPI CARDS)
+# 1. OVERVIEW
 # ==========================================================
 @router.get("/overview/{company_id}", response_class=JSONResponse)
 async def overview(company_id: int, session: AsyncSession = Depends(get_session)):
     await get_company(session, company_id)
-
-    res = await session.execute(
-        select(Review).where(Review.company_id == company_id)
-    )
+    res = await session.execute(select(Review).where(Review.company_id == company_id))
     analytics = compute_analytics(res.scalars().all())
-
     return {
         "total_reviews": analytics["total_reviews"],
         "average_rating": analytics["average_rating"]
     }
+
 
 # ==========================================================
 # 2. INSIGHTS (CHARTS + KEYWORDS)
@@ -201,7 +177,6 @@ async def insights(
     session: AsyncSession = Depends(get_session),
 ):
     await get_company(session, company_id)
-
     stmt = select(Review).where(Review.company_id == company_id)
 
     start_dt = safe_date(start)
@@ -216,33 +191,30 @@ async def insights(
 
     analytics = compute_analytics(reviews)
 
+    # Enhanced keyword extraction
     keywords: List[str] = []
     for r in reviews:
         if r.text:
             keywords.extend(clean_keywords(r.text))
 
-    analytics["top_keywords"] = [
-        w for w, _ in Counter(keywords).most_common(20)
-    ]
+    analytics["top_keywords"] = [w for w, _ in Counter(keywords).most_common(25)]
 
     return analytics
 
+
 # ==========================================================
-# 3. REVENUE RISK (USED BY FRONTEND)
+# 3. REVENUE RISK
 # ==========================================================
 @router.get("/revenue", response_class=JSONResponse)
 async def revenue(company_id: int, session: AsyncSession = Depends(get_session)):
     await get_company(session, company_id)
-
-    res = await session.execute(
-        select(Review).where(Review.company_id == company_id)
-    )
+    res = await session.execute(select(Review).where(Review.company_id == company_id))
     analytics = compute_analytics(res.scalars().all())
-
     return analytics["risk"]
 
+
 # ==========================================================
-# 4. AI CHATBOT (EXECUTIVE‑GRADE)
+# 4. AI CHATBOT (Executive Grade + Better Prompt)
 # ==========================================================
 @router.post("/chatbot/explain", response_class=JSONResponse)
 async def chatbot(
@@ -251,117 +223,128 @@ async def chatbot(
     session: AsyncSession = Depends(get_session)
 ):
     res = await session.execute(
-        select(Review).where(Review.company_id == company_id).limit(200)
+        select(Review).where(Review.company_id == company_id).limit(250)
     )
     reviews = res.scalars().all()
     analytics = compute_analytics(reviews)
 
     prompt = f"""
-You are a senior business strategy consultant.
+You are an elite senior business strategy consultant with 20+ years experience.
+You provide extremely sharp, data-driven, and actionable insights.
 
-Business KPIs:
-- Total Reviews: {analytics['total_reviews']}
-- Average Rating: {analytics['average_rating']}
-- Loss Probability: {analytics['risk']['loss_probability']}
-- Impact Level: {analytics['risk']['impact_level']}
-- Reputation Score: {analytics['risk']['reputation_score']}
+Current Business Metrics:
+- Total Reviews     : {analytics['total_reviews']}
+- Average Rating    : {analytics['average_rating']}/5
+- Loss Probability  : {analytics['risk']['loss_probability']}
+- Impact Level      : {analytics['risk']['impact_level']}
+- Reputation Score  : {analytics['risk']['reputation_score']}/100
 
 Monthly Rating Trend:
 {analytics['monthly_trend']}
 
-Question:
-{question}
+User Question: {question}
 
-Provide clear, data‑driven, actionable insights.
+Respond professionally, concisely, and with clear recommendations.
 """
 
     try:
         response = openai.ChatCompletion.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3
+            temperature=0.25,
+            max_tokens=800
         )
         return {"answer": response.choices[0].message.content.strip()}
     except Exception as e:
-        logger.error(e)
-        return {"answer": "AI service temporarily unavailable."}
+        logger.error(f"OpenAI error: {e}")
+        return {"answer": "AI strategy consultant is temporarily unavailable. Please try again shortly."}
+
 
 # ==========================================================
-# 5. AI EXECUTIVE SUMMARY (TEXT)
+# 5. AI EXECUTIVE SUMMARY
 # ==========================================================
 @router.get("/ai-summary/{company_id}")
 async def ai_summary(company_id: int, session: AsyncSession = Depends(get_session)):
     await get_company(session, company_id)
-
-    res = await session.execute(
-        select(Review).where(Review.company_id == company_id)
-    )
+    res = await session.execute(select(Review).where(Review.company_id == company_id))
     analytics = compute_analytics(res.scalars().all())
 
     if analytics["total_reviews"] == 0:
-        return {"summary": "No sufficient data available."}
+        return {"summary": "No sufficient data available for analysis."}
 
     summary = f"""
-Business Performance Summary:
+Executive Summary — {datetime.utcnow().strftime('%B %d, %Y')}
 
-- Average Rating: {analytics['average_rating']}
-- Loss Probability: {analytics['risk']['loss_probability']}
-- Reputation Score: {analytics['risk']['reputation_score']}
+• Average Rating      : {analytics['average_rating']}/5.0
+• Total Reviews       : {analytics['total_reviews']}
+• Loss Probability    : {analytics['risk']['loss_probability']}
+• Reputation Score    : {analytics['risk']['reputation_score']}/100
+• Risk Impact         : {analytics['risk']['impact_level']}
 
 Key Insight:
-Customer sentiment is {analytics['risk']['impact_level'].lower()} risk.
+Customer sentiment indicates **{analytics['risk']['impact_level'].lower()} risk** to revenue and reputation.
 
-Recommendations:
-- Address negative reviews proactively
-- Strengthen high-performing service areas
+Actionable Recommendations:
+• Immediately address all 1-2 star reviews
+• Amplify strengths shown in high-rating feedback
+• Monitor monthly trend closely for early warning signals
 """
-
     return {"summary": summary.strip()}
 
+
 # ==========================================================
-# 6. EXECUTIVE PDF REPORT (SAFE)
+# 6. EXECUTIVE PDF REPORT (Enhanced & Beautiful)
 # ==========================================================
 @router.get("/executive-report/pdf/{company_id}")
 async def executive_report(company_id: int, session: AsyncSession = Depends(get_session)):
     company = await get_company(session, company_id)
-
-    res = await session.execute(
-        select(Review).where(Review.company_id == company_id)
-    )
+    res = await session.execute(select(Review).where(Review.company_id == company_id))
     analytics = compute_analytics(res.scalars().all())
 
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
+    pdf.set_auto_page_break(auto=True, margin=15)
 
-    pdf.cell(
-        0, 10,
-        sanitize_pdf(f"Executive Report - {company.name}"),
-        ln=True, align="C"
-    )
-    pdf.ln(8)
+    # Header
+    pdf.set_font("Arial", "B", 20)
+    pdf.cell(0, 15, sanitize_pdf(f"Executive Intelligence Report — {company.name}"), ln=True, align="C")
+    pdf.ln(10)
 
-    pdf.set_font("Arial", size=12)
-    pdf.cell(0, 8, f"Total Reviews: {analytics['total_reviews']}", ln=True)
-    pdf.cell(0, 8, f"Average Rating: {analytics['average_rating']}", ln=True)
-    pdf.cell(0, 8, f"Loss Probability: {analytics['risk']['loss_probability']}", ln=True)
-    pdf.cell(0, 8, f"Impact Level: {analytics['risk']['impact_level']}", ln=True)
-    pdf.cell(0, 8, f"Reputation Score: {analytics['risk']['reputation_score']}", ln=True)
-    pdf.cell(
-        0, 8,
-        f"Generated On: {datetime.utcnow().strftime('%Y-%m-%d')}",
-        ln=True
-    )
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(0, 10, f"Generated on: {datetime.utcnow().strftime('%B %d, %Y at %H:%M')}", ln=True, align="C")
+    pdf.ln(15)
+
+    # KPIs
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 10, "KEY PERFORMANCE INDICATORS", ln=True)
+    pdf.set_font("Arial", size=11)
+
+    for key, value in [
+        ("Total Reviews", analytics["total_reviews"]),
+        ("Average Rating", f"{analytics['average_rating']}/5.0"),
+        ("Loss Probability", analytics["risk"]["loss_probability"]),
+        ("Impact Level", analytics["risk"]["impact_level"]),
+        ("Reputation Score", f"{analytics['risk']['reputation_score']}/100")
+    ]:
+        pdf.cell(0, 9, f"{key}: {value}", ln=True)
+
+    pdf.ln(10)
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 10, "MONTHLY RATING TREND", ln=True)
+    pdf.set_font("Arial", size=10)
+
+    for trend in analytics["monthly_trend"]:
+        pdf.cell(0, 8, f"{trend['month']}: {trend['avg']} avg ({trend['count']} reviews)", ln=True)
 
     buffer = io.BytesIO(pdf.output(dest="S").encode("latin-1"))
     return StreamingResponse(
         buffer,
         media_type="application/pdf",
         headers={
-            "Content-Disposition":
-            f"attachment; filename=Executive_Report_{company_id}.pdf"
+            "Content-Disposition": f"attachment; filename=Executive_Report_{company.name.replace(' ', '_')}_{company_id}.pdf"
         }
     )
+
 
 # ==========================================================
 # 7. RECENT REVIEWS
@@ -369,7 +352,6 @@ async def executive_report(company_id: int, session: AsyncSession = Depends(get_
 @router.get("/recent-reviews/{company_id}", response_class=JSONResponse)
 async def get_recent_reviews(company_id: int, session: AsyncSession = Depends(get_session)):
     await get_company(session, company_id)
-
     stmt = (
         select(
             Review.author_name,
@@ -381,18 +363,13 @@ async def get_recent_reviews(company_id: int, session: AsyncSession = Depends(ge
         .order_by(desc(Review.google_review_time))
         .limit(100)
     )
-
     res = await session.execute(stmt)
-
     return [
         {
-            "author": r.author_name,
+            "author": r.author_name or "Anonymous",
             "rating": r.rating,
             "text": r.text,
-            "date": (
-                r.google_review_time.strftime("%Y-%m-%d")
-                if r.google_review_time else "N/A"
-            )
+            "date": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "N/A"
         }
         for r in res.fetchall()
     ]
