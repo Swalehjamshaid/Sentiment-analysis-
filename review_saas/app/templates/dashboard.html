@@ -4,25 +4,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Review Intel AI • Enterprise Intelligence</title>
-
+    
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-
+    
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-
+    
     <style>
         :root {
             --primary-grad: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
             --ai-grad: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
             --danger-grad: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            --transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            --glass: rgba(255,255,255,0.88);
         }
-
         [data-theme="dark"] {
-            --glass-bg: rgba(15, 23, 42, 0.92);
+            --glass: rgba(15,23,42,0.95);
         }
-
         body {
             background: linear-gradient(145deg, #f8fafc 0%, #e0e7ff 100%);
             font-family: 'Inter', system_ui, sans-serif;
@@ -30,66 +28,51 @@
             min-height: 100vh;
             padding: 20px;
         }
-
         [data-theme="dark"] body {
             background: linear-gradient(145deg, #0f172a 0%, #1e2937 100%);
             color: #f1f5f9;
         }
-
         .navbar {
             background: var(--primary-grad) !important;
             border-radius: 22px;
             box-shadow: 0 20px 30px -10px rgba(99, 102, 241, 0.4);
         }
-
         .card {
             border: none;
             border-radius: 26px;
             box-shadow: 0 15px 35px -10px rgba(0,0,0,0.1);
-            background: rgba(255,255,255,0.85);
+            background: var(--glass);
             backdrop-filter: blur(20px);
-            transition: var(--transition);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
-
-        [data-theme="dark"] .card {
-            background: var(--glass-bg);
-        }
-
         .card:hover {
-            transform: translateY(-10px);
-            box-shadow: 0 30px 60px -15px rgba(0,0,0,0.18);
+            transform: translateY(-8px);
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.15);
         }
-
-        .total-review-card, .risk-card {
+        .total-review-card {
+            background: var(--primary-grad);
             color: white;
             border-radius: 28px;
             position: relative;
             overflow: hidden;
         }
-
-        .total-review-card::before, .risk-card::before {
-            content: '';
-            position: absolute;
-            top: -40%;
-            right: -30%;
-            width: 250px;
-            height: 250px;
-            background: rgba(255,255,255,0.25);
-            border-radius: 50%;
-            filter: blur(50px);
+        .risk-card {
+            background: var(--danger-grad);
+            color: white;
+            border-radius: 28px;
+            position: relative;
+            overflow: hidden;
         }
-
         .ai-badge {
             background: var(--ai-grad);
             color: white;
-            padding: 8px 20px;
+            padding: 8px 22px;
             border-radius: 9999px;
             font-weight: 700;
             font-size: 0.82rem;
-            letter-spacing: 0.6px;
+            letter-spacing: 0.5px;
             box-shadow: 0 6px 16px rgba(168,85,247,0.35);
         }
-
         #chatWindow {
             height: 460px;
             overflow-y: auto;
@@ -97,40 +80,67 @@
             border-radius: 22px;
             padding: 24px;
             border: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
         }
-
-        [data-theme="dark"] #chatWindow { background: rgba(15,23,42,0.95); border-color: #334155; }
-
+        [data-theme="dark"] #chatWindow {
+            background: rgba(15,23,42,0.95);
+            border-color: #334155;
+        }
         .chat-msg {
             padding: 16px 22px;
             border-radius: 22px;
             max-width: 90%;
             box-shadow: 0 4px 15px rgba(0,0,0,0.08);
         }
-
-        .chat-ai { background: white; align-self: flex-start; border-bottom-left-radius: 8px; }
-        .chat-user { background: var(--primary-grad); color: white; align-self: flex-end; border-bottom-right-radius: 8px; }
-
-        [data-theme="dark"] .chat-ai { background: #1e293b; color: #f1f5f9; }
-
-        .chart-wrapper { height: 320px; padding: 10px; }
-
+        .chat-ai { 
+            background: white; 
+            align-self: flex-start; 
+            border-bottom-left-radius: 8px; 
+        }
+        .chat-user { 
+            background: var(--primary-grad); 
+            color: white; 
+            align-self: flex-end; 
+            border-bottom-right-radius: 8px; 
+        }
+        [data-theme="dark"] .chat-ai { 
+            background: #1e293b; 
+            color: #f1f5f9; 
+        }
+        .chart-wrapper { 
+            height: 320px; 
+            padding: 15px; 
+        }
         .btn-pill {
             border-radius: 9999px;
             padding: 14px 32px;
             font-weight: 600;
             box-shadow: 0 8px 20px rgba(99,102,241,0.3);
         }
-
         .kpi-value {
             font-family: 'Space Grotesk', sans-serif;
             font-size: 3.2rem;
             font-weight: 700;
             line-height: 1;
         }
-
-        .review-table-container { max-height: 560px; overflow-y: auto; }
-        .star-rating { color: #fbbf24; font-size: 1.25rem; }
+        .keyword-badge {
+            background: white;
+            border: 1px solid #e2e8f0;
+            padding: 10px 20px;
+            border-radius: 9999px;
+            font-weight: 500;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.06);
+        }
+        .review-table-container { 
+            max-height: 560px; 
+            overflow-y: auto; 
+        }
+        .star-rating { 
+            color: #fbbf24; 
+            font-size: 1.25rem; 
+        }
     </style>
 </head>
 <body>
@@ -147,7 +157,9 @@
                     <i class="bi bi-plus-circle"></i> Add Business
                 </button>
                 <button id="toggleTheme" class="btn btn-light btn-pill px-4"><i class="bi bi-moon-stars"></i></button>
-                <form action="/logout" method="get" class="m-0"><button class="btn btn-outline-light btn-pill px-4">Logout</button></form>
+                <form action="/logout" method="get" class="m-0">
+                    <button class="btn btn-outline-light btn-pill px-4">Logout</button>
+                </form>
             </div>
         </div>
     </nav>
@@ -170,10 +182,10 @@
             <div class="col-lg-5">
                 <div class="d-flex gap-3">
                     <button id="loadBtn" onclick="triggerAllLoads()" class="btn btn-primary flex-fill btn-pill">
-                        <i class="bi bi-graph-up me-2"></i>ANALYZE BUSINESS
+                        <i class="bi bi-graph-up me-2"></i> ANALYZE BUSINESS
                     </button>
                     <button id="syncBtn" class="btn btn-success flex-fill btn-pill">
-                        <i class="bi bi-arrow-repeat me-2"></i>SYNC LIVE DATA
+                        <i class="bi bi-arrow-repeat me-2"></i> SYNC LIVE DATA
                     </button>
                 </div>
             </div>
@@ -182,7 +194,7 @@
         <!-- KPI Cards -->
         <div class="row g-4 mb-5">
             <div class="col-md-4">
-                <div class="card total-review-card p-5 h-100">
+                <div class="card total-review-card p-5 h-100 text-white">
                     <div class="text-uppercase small fw-bold opacity-75">TOTAL REVIEWS</div>
                     <div id="kpiTotal" class="kpi-value mt-3">0</div>
                 </div>
@@ -194,19 +206,28 @@
                 </div>
             </div>
             <div class="col-md-4">
-                <div class="card risk-card p-5 h-100">
+                <div class="card risk-card p-5 h-100 text-white">
                     <div class="small fw-bold opacity-75 text-uppercase mb-3">REVENUE RISK MONITOR</div>
-                    <div class="row text-center">
-                        <div class="col-4"><small class="opacity-75">LOSS %</small><div id="riskPct" class="h3 fw-bold">—</div></div>
-                        <div class="col-4"><small class="opacity-75">IMPACT</small><div id="riskImpact" class="h3 fw-bold">—</div></div>
-                        <div class="col-4"><small class="opacity-75">REPUTATION</small><div id="riskSentiment" class="h3 fw-bold">—</div></div>
+                    <div class="row text-center g-3">
+                        <div class="col-4">
+                            <small class="opacity-75 d-block">Loss %</small>
+                            <div id="riskPct" class="h3 fw-bold">—</div>
+                        </div>
+                        <div class="col-4">
+                            <small class="opacity-75 d-block">Impact</small>
+                            <div id="riskImpact" class="h3 fw-bold">—</div>
+                        </div>
+                        <div class="col-4">
+                            <small class="opacity-75 d-block">Reputation</small>
+                            <div id="riskSentiment" class="h3 fw-bold">—</div>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
 
         <div class="row g-4">
-            <!-- Charts -->
+            <!-- Charts Section -->
             <div class="col-lg-8">
                 <div class="row g-4">
                     <div class="col-md-6">
@@ -223,7 +244,7 @@
                     </div>
                     <div class="col-12">
                         <div class="ai-badge mb-3"><i class="bi bi-tags"></i> TOP KEYWORDS</div>
-                        <div id="keywordContainer" class="card p-5 d-flex flex-wrap gap-3 justify-content-center"></div>
+                        <div id="keywordContainer" class="card p-5 d-flex flex-wrap gap-3"></div>
                     </div>
                 </div>
             </div>
@@ -233,7 +254,9 @@
                 <div class="ai-badge mb-3"><i class="bi bi-stars"></i> AI STRATEGY CONSULTANT</div>
                 <div class="card h-100">
                     <div class="card-body d-flex flex-column p-4">
-                        <div id="chatWindow" class="flex-grow-1 mb-4 d-flex flex-column gap-3"></div>
+                        <div id="chatWindow" class="flex-grow-1 mb-4 d-flex flex-column gap-3">
+                            <!-- Welcome message will be added by JS -->
+                        </div>
                         <div class="input-group">
                             <input id="chatInput" type="text" class="form-control py-4" placeholder="Ask anything about performance, risk, or strategy...">
                             <button onclick="askAI()" class="btn btn-primary px-5"><i class="bi bi-send"></i></button>
@@ -246,10 +269,10 @@
         <!-- Recent Reviews -->
         <div class="row mt-5">
             <div class="col-12">
-                <div class="ai-badge mb-3"><i class="bi bi-clock-history"></i> LATEST REVIEWS</div>
+                <div class="ai-badge mb-3"><i class="bi bi-clock-history"></i> LATEST 100 REVIEWS</div>
                 <div class="card p-4">
                     <div class="review-table-container">
-                        <table class="table table-hover">
+                        <table class="table table-hover align-middle">
                             <thead class="sticky-top bg-white">
                                 <tr class="text-muted small text-uppercase">
                                     <th>AUTHOR</th>
@@ -319,9 +342,15 @@
             }
         };
 
+        // Add welcome message on load
+        function initChat() {
+            const chatWin = document.getElementById("chatWindow");
+            chatWin.innerHTML = `<div class="chat-msg chat-ai">Hello! Select a business and click "Analyze Business" to unlock insights.</div>`;
+        }
+
         async function triggerAllLoads() {
             const cid = document.getElementById("companySelect").value;
-            if (!cid) return alert("Please select a business.");
+            if (!cid) return alert("Please select a business first.");
 
             const btn = document.getElementById("loadBtn");
             const orig = btn.innerHTML;
@@ -331,7 +360,7 @@
             try {
                 const [overRes, insRes, revRes] = await Promise.all([
                     fetch(`${DASHBOARD_CONFIG.endpoints.overview}/${cid}`).then(r => r.json()),
-                    fetch(`${DASHBOARD_CONFIG.endpoints.insights}?company_id=${cid}&start=${document.getElementById("startDate").value}&end=${document.getElementById("endDate").value}`).then(r => r.json()),
+                    fetch(`${DASHBOARD_CONFIG.endpoints.insights}?company_id=${cid}&start=${document.getElementById("startDate").value || ""}&end=${document.getElementById("endDate").value || ""}`).then(r => r.json()),
                     fetch(`${DASHBOARD_CONFIG.endpoints.revenue}?company_id=${cid}`).then(r => r.json())
                 ]);
 
@@ -348,7 +377,7 @@
                 loadRecentReviews(cid);
 
             } catch (e) {
-                console.error(e);
+                console.error("Load error:", e);
             } finally {
                 btn.innerHTML = orig;
                 btn.disabled = false;
@@ -356,13 +385,19 @@
         }
 
         function renderCharts(data) {
-            // Radar
+            // Emotion Radar
             if (chartInstances.emotions) chartInstances.emotions.destroy();
             chartInstances.emotions = new Chart(document.getElementById("chartEmotions"), {
                 type: 'radar',
                 data: {
-                    labels: Object.keys(data.sentiment_counts),
-                    datasets: [{ label: 'Intensity', data: Object.values(data.sentiment_counts), backgroundColor: 'rgba(168,85,247,0.25)', borderColor: '#a855f7', borderWidth: 3 }]
+                    labels: Object.keys(data.sentiment_counts || {}),
+                    datasets: [{
+                        label: 'Intensity',
+                        data: Object.values(data.sentiment_counts || {}),
+                        backgroundColor: 'rgba(168,85,247,0.25)',
+                        borderColor: '#a855f7',
+                        borderWidth: 3
+                    }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
@@ -374,19 +409,31 @@
                 type: 'line',
                 data: {
                     labels: trend.map(t => t.month),
-                    datasets: [{ label: 'Avg Rating', data: trend.map(t => t.avg), borderColor: '#10b981', tension: 0.4, fill: true }]
+                    datasets: [{
+                        label: 'Avg Rating',
+                        data: trend.map(t => t.avg),
+                        borderColor: '#10b981',
+                        tension: 0.4,
+                        fill: true,
+                        backgroundColor: 'rgba(16,185,129,0.12)'
+                    }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 1, max: 5 } } }
             });
 
             // Rating Distribution
             if (chartInstances.ratings) chartInstances.ratings.destroy();
-            const dist = [1,2,3,4,5].map(n => data.rating_distribution[n] || 0);
+            const dist = [1,2,3,4,5].map(n => (data.rating_distribution || {})[n] || 0);
             chartInstances.ratings = new Chart(document.getElementById("chartRatings"), {
                 type: 'bar',
                 data: {
                     labels: ['1★','2★','3★','4★','5★'],
-                    datasets: [{ label: 'Count', data: dist, backgroundColor: '#6366f1', borderRadius: 10 }]
+                    datasets: [{
+                        label: 'Count',
+                        data: dist,
+                        backgroundColor: '#6366f1',
+                        borderRadius: 12
+                    }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
@@ -394,8 +441,12 @@
 
         function renderKeywords(keywords) {
             const container = document.getElementById("keywordContainer");
+            if (!keywords || keywords.length === 0) {
+                container.innerHTML = `<span class="text-muted">No significant keywords found yet.</span>`;
+                return;
+            }
             container.innerHTML = keywords.map(kw => 
-                `<span class="badge bg-white text-dark border px-4 py-3 fs-6 shadow-sm">${kw}</span>`
+                `<span class="keyword-badge">${kw}</span>`
             ).join('');
         }
 
@@ -406,14 +457,14 @@
                 const data = await res.json();
                 tbody.innerHTML = data.map(r => `
                     <tr>
-                        <td class="fw-medium">${r.author}</td>
+                        <td class="fw-medium">${r.author || 'Anonymous'}</td>
                         <td><span class="star-rating">${'★'.repeat(r.rating || 0)}</span></td>
                         <td class="small">${r.text ? r.text.substring(0, 160) + '...' : '—'}</td>
                         <td class="small">${r.date}</td>
                     </tr>
                 `).join('');
             } catch (e) {
-                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-5 text-muted">Failed to load reviews</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-5 text-muted">No reviews available</td></tr>`;
             }
         }
 
@@ -431,9 +482,9 @@
             try {
                 const res = await fetch(`${DASHBOARD_CONFIG.endpoints.chat}?question=${encodeURIComponent(msg)}&company_id=${cid}`, { method: 'POST' });
                 const data = await res.json();
-                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI:</strong> ${data.answer}</div>`;
+                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Consultant:</strong> ${data.answer || "No response received."}</div>`;
             } catch (e) {
-                win.innerHTML += `<div class="chat-msg chat-ai text-danger">AI unavailable at the moment.</div>`;
+                win.innerHTML += `<div class="chat-msg chat-ai text-danger">AI service temporarily unavailable.</div>`;
             }
             win.scrollTop = win.scrollHeight;
         }
@@ -442,16 +493,22 @@
             try {
                 const res = await fetch(DASHBOARD_CONFIG.endpoints.companies);
                 const data = await res.json();
-                const companies = data.companies || data;
+                const companies = data.companies || data || [];
                 const sel = document.getElementById("companySelect");
                 sel.innerHTML = companies.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
-                if (sel.options.length) triggerAllLoads();
-            } catch (e) {}
+                if (sel.options.length > 0) {
+                    sel.selectedIndex = 0;
+                    triggerAllLoads();
+                }
+            } catch (e) {
+                console.error("Failed to load companies:", e);
+            }
         }
 
         function downloadReport() {
             const cid = document.getElementById("companySelect").value;
             if (cid) window.open(`${DASHBOARD_CONFIG.endpoints.report}/${cid}`, "_blank");
+            else alert("Please select a business first.");
         }
 
         document.getElementById("toggleTheme").onclick = () => {
@@ -478,12 +535,12 @@
                 address: document.getElementById("companyAddress").value
             };
             try {
-                const res = await fetch(DASHBOARD_CONFIG.endpoints.companies, {
+                const response = await fetch(DASHBOARD_CONFIG.endpoints.companies, {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                if (res.ok) {
+                if (response.ok) {
                     bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
                     loadCompanies();
                 }
@@ -492,13 +549,13 @@
 
         document.getElementById("syncBtn").onclick = async () => {
             const cid = document.getElementById("companySelect").value;
-            if (!cid) return;
+            if (!cid) return alert("Select a business first");
             const btn = document.getElementById("syncBtn");
             const orig = btn.innerHTML;
             btn.innerHTML = "Syncing...";
             btn.disabled = true;
             try {
-                await fetch(`${DASHBOARD_CONFIG.endpoints.sync}/${cid}`, {method: 'POST'});
+                await fetch(`${DASHBOARD_CONFIG.endpoints.sync}/${cid}`, { method: 'POST' });
                 triggerAllLoads();
             } finally {
                 btn.innerHTML = orig;
@@ -506,7 +563,16 @@
             }
         };
 
-        window.addEventListener("DOMContentLoaded", loadCompanies);
+        // Initialize everything
+        window.addEventListener("DOMContentLoaded", () => {
+            initChat();
+            loadCompanies();
+            
+            // Enter key support for chat
+            document.getElementById("chatInput").addEventListener("keypress", (e) => {
+                if (e.key === "Enter") askAI();
+            });
+        });
     </script>
 </body>
 </html>
