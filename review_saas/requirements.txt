@@ -29,11 +29,11 @@ kreuzberg                # 2026 State-of-the-art PDF/Image text extraction
 openai
 langgraph                # Stateful, cyclic AI agent orchestration
 pydantic-ai-slim[openai] # High-safety, type-validated AI agent outputs
-pydantic==2.7.4          # Fixed version for system stability
+pydantic>=2.7.4          # RELAXED PIN: Allows 2.8+ for compatibility
 pydantic-settings
 llama-index              # Professional RAG for "Chat with your Data"
 
-# === NLP & Semantic Intelligence ===
+# === NLP & Core AI ===
 nltk
 textblob
 transformers
