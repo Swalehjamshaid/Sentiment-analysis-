@@ -82,11 +82,7 @@ def compute_analytics(reviews: List[Review]) -> Dict:
             "sentiment_counts": {"Positive": 0, "Neutral": 0, "Negative": 0},
             "rating_distribution": {i: 0 for i in range(1, 6)},
             "monthly_trend": [],
-            "risk": {
-                "loss_probability": "0%",
-                "impact_level": "None",
-                "reputation_score": 100.0
-            },
+            "risk": {"loss_probability": "0%", "impact_level": "None", "reputation_score": 100.0},
             "negative_reviews": [],
             "churn_prediction": 0.0,
             "loyalty_score": 0.0
@@ -109,7 +105,7 @@ def compute_analytics(reviews: List[Review]) -> Dict:
                 monthly_map[key].append(int(r.rating))
             if r.rating in NEGATIVE_RATINGS:
                 severe_count += 1
-                if r.text and len(negative_reviews) < 10:  # Limit to top 10 for alerts
+                if r.text and len(negative_reviews) < 10:
                     negative_reviews.append({
                         "author": r.author_name or "Anonymous",
                         "rating": r.rating,
@@ -130,14 +126,10 @@ def compute_analytics(reviews: List[Review]) -> Dict:
     total = len(reviews)
     avg_rating = round(sum(ratings) / total, 2) if ratings else 0.0
 
-    # Enhanced Risk Model
     raw_risk = (negative_count * 0.6 + severe_count * 0.4) / total if total > 0 else 0
     risk_pct = round(raw_risk * 100, 1)
 
-    # Churn Prediction Score (0-100)
     churn_prediction = round(min(95.0, (negative_count / total * 65) + (severe_count / total * 35)), 1) if total > 0 else 0.0
-
-    # Loyalty Score (based on positive sentiment)
     loyalty_score = round((sentiment_counts["Positive"] / total * 100), 1) if total > 0 else 0.0
 
     return {
@@ -146,11 +138,7 @@ def compute_analytics(reviews: List[Review]) -> Dict:
         "sentiment_counts": sentiment_counts,
         "rating_distribution": rating_distribution,
         "monthly_trend": [
-            {
-                "month": k,
-                "avg": round(sum(v) / len(v), 2),
-                "count": len(v)
-            }
+            {"month": k, "avg": round(sum(v) / len(v), 2), "count": len(v)}
             for k, v in sorted(monthly_map.items())
         ],
         "risk": {
@@ -165,7 +153,7 @@ def compute_analytics(reviews: List[Review]) -> Dict:
 
 
 # ==========================================================
-# 1. OVERVIEW (Unchanged)
+# 1. OVERVIEW
 # ==========================================================
 @router.get("/overview/{company_id}", response_class=JSONResponse)
 async def overview(company_id: int, session: AsyncSession = Depends(get_session)):
@@ -179,7 +167,7 @@ async def overview(company_id: int, session: AsyncSession = Depends(get_session)
 
 
 # ==========================================================
-# 2. INSIGHTS (CHARTS + KEYWORDS) — Enhanced keywords
+# 2. INSIGHTS
 # ==========================================================
 @router.get("/insights", response_class=JSONResponse)
 async def insights(
@@ -192,29 +180,24 @@ async def insights(
     stmt = select(Review).where(Review.company_id == company_id)
     start_dt = safe_date(start)
     end_dt = safe_date(end)
-    if start_dt:
-        stmt = stmt.where(Review.google_review_time >= start_dt)
-    if end_dt:
-        stmt = stmt.where(Review.google_review_time <= end_dt)
+    if start_dt: stmt = stmt.where(Review.google_review_time >= start_dt)
+    if end_dt: stmt = stmt.where(Review.google_review_time <= end_dt)
 
     res = await session.execute(stmt)
     reviews = res.scalars().all()
-
     analytics = compute_analytics(reviews)
 
-    # Enhanced keyword extraction (top 30)
     keywords: List[str] = []
     for r in reviews:
         if r.text:
             keywords.extend(clean_keywords(r.text))
 
     analytics["top_keywords"] = [w for w, _ in Counter(keywords).most_common(30)]
-
     return analytics
 
 
 # ==========================================================
-# 3. REVENUE RISK (Unchanged — now richer via core engine)
+# 3. REVENUE RISK
 # ==========================================================
 @router.get("/revenue", response_class=JSONResponse)
 async def revenue(company_id: int, session: AsyncSession = Depends(get_session)):
@@ -225,7 +208,7 @@ async def revenue(company_id: int, session: AsyncSession = Depends(get_session))
 
 
 # ==========================================================
-# 4. AI CHATBOT — Enhanced Prompt with new metrics
+# 4. AI CHATBOT
 # ==========================================================
 @router.post("/chatbot/explain", response_class=JSONResponse)
 async def chatbot(
@@ -233,9 +216,7 @@ async def chatbot(
     company_id: int = Query(...),
     session: AsyncSession = Depends(get_session)
 ):
-    res = await session.execute(
-        select(Review).where(Review.company_id == company_id).limit(250)
-    )
+    res = await session.execute(select(Review).where(Review.company_id == company_id).limit(250))
     reviews = res.scalars().all()
     analytics = compute_analytics(reviews)
 
@@ -272,7 +253,7 @@ Give professional, concise recommendations tied to revenue impact.
 
 
 # ==========================================================
-# 5. AI EXECUTIVE SUMMARY — Enhanced with new metrics
+# 5. AI EXECUTIVE SUMMARY
 # ==========================================================
 @router.get("/ai-summary/{company_id}")
 async def ai_summary(company_id: int, session: AsyncSession = Depends(get_session)):
@@ -299,15 +280,14 @@ Customer sentiment shows **{analytics['risk']['impact_level'].lower()} risk** wi
 
 Actionable Recommendations:
 • Prioritize response to all 1-2 star reviews
-• Leverage loyal customers (positive sentiment) for testimonials
+• Leverage loyal customers for testimonials
 • Address root causes shown in keywords and monthly trend
 """
-
     return {"summary": summary.strip()}
 
 
 # ==========================================================
-# 6. EXECUTIVE PDF REPORT — Enhanced with new metrics
+# 6. EXECUTIVE PDF REPORT
 # ==========================================================
 @router.get("/executive-report/pdf/{company_id}")
 async def executive_report(company_id: int, session: AsyncSession = Depends(get_session)):
@@ -353,25 +333,18 @@ async def executive_report(company_id: int, session: AsyncSession = Depends(get_
     return StreamingResponse(
         buffer,
         media_type="application/pdf",
-        headers={
-            "Content-Disposition": f"attachment; filename=Executive_Report_{company.name.replace(' ', '_')}_{company_id}.pdf"
-        }
+        headers={"Content-Disposition": f"attachment; filename=Executive_Report_{company.name.replace(' ', '_')}_{company_id}.pdf"}
     )
 
 
 # ==========================================================
-# 7. RECENT REVIEWS (Unchanged)
+# 7. RECENT REVIEWS
 # ==========================================================
 @router.get("/recent-reviews/{company_id}", response_class=JSONResponse)
 async def get_recent_reviews(company_id: int, session: AsyncSession = Depends(get_session)):
     await get_company(session, company_id)
     stmt = (
-        select(
-            Review.author_name,
-            Review.rating,
-            Review.text,
-            Review.google_review_time
-        )
+        select(Review.author_name, Review.rating, Review.text, Review.google_review_time)
         .where(Review.company_id == company_id)
         .order_by(desc(Review.google_review_time))
         .limit(100)
