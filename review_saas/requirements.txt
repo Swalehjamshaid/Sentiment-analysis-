@@ -20,7 +20,7 @@ aiosqlite
 requests
 beautifulsoup4
 playwright==1.45.0
-# chromium is handled by the Dockerfile 'playwright install' command
+# Note: Browser binaries are installed via Dockerfile
 selenium
 proxybroker2==2.0.0a4
 google-search-results
@@ -30,16 +30,16 @@ kreuzberg                # 2026 State-of-the-art PDF/Image text extraction
 openai
 langgraph                # Stateful AI agent orchestration
 pydantic-ai-slim[openai] # Type-safe AI agent outputs
-pydantic>=2.8.0          # FIXED: Higher version for PydanticAI compatibility
+pydantic>=2.8.0          # Required for PydanticAI & LangGraph compatibility
 pydantic-settings
 llama-index              # Professional RAG for "Chat with your Data"
 
 # --- NLP & Core AI ---
 nltk
 textblob
+# Note: Transformers/Sentence-Transformers will use the Torch installed in Dockerfile
 transformers
 sentence-transformers
-# torch is handled separately in Dockerfile to save 700MB of space
 
 # --- ⚡ High-Performance Math Engine (STRICT PINS 3.10) ---
 polars                   # Blazing fast Rust-based engine for 5-page reports
