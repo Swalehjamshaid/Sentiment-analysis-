@@ -1,61 +1,51 @@
-# ==========================================================
-# 🚀 REVIEW INTELLIGENCE AI — 2026 ENTERPRISE ALIGNMENT
-# ==========================================================
-
-# --- Web Framework & API ---
-fastapi
-uvicorn[standard]
-gunicorn
-starlette
-httpx
-
-# --- Database & Persistence ---
-sqlalchemy>=2.0.0
-databases
-asyncpg==0.29.0
+# --- Web Server & Framework ---
+fastapi==0.135.3
+uvicorn[standard]==0.42.0
+gunicorn==25.3.0
+starlette==1.0.0
 python-multipart==0.0.12
-aiosqlite
 
-# --- 📄 Advanced PDF Analysis & Document Intelligence ---
-# Fixed by the Rustup install in your Dockerfile
-kreuzberg                # 2026 SOTA PDF/OCR/Doc text extraction
-python-magic             # Secure file type detection
-pypdf                    # PDF structural manipulation
+# --- Database & Models ---
+sqlalchemy>=2.0.0
+databases==0.9.0
+asyncpg==0.29.0
+aiosqlite==0.22.1
 
-# --- 🧠 Advanced AI Agent Chatbot & Intelligence ---
-openai
-langgraph                # Stateful, multi-agent AI orchestration
-pydantic-ai-slim[openai] # 2026 High-safety AI agents
-pydantic>=2.9.0          # CRITICAL: Version alignment for AI agents
-pydantic-settings
-llama-index              # Professional RAG for PDF querying
+# --- File Processing (The "Fixed" Part) ---
+kreuzberg==4.6.3
+python-magic==0.4.27
+pypdf==6.9.2
+openpyxl==3.1.5
 
-# --- NLP Sentiment Core ---
-nltk
-textblob
+# --- AI & Sentiment Analysis ---
+openai==2.30.0
+langgraph==1.1.4
+pydantic>=2.9.0
+pydantic-settings==2.13.1
+pydantic-ai-slim[openai]==1.76.0
+llama-index==0.14.19
+nltk==3.9.4
+textblob==0.20.0
 
-# --- ⚡ High-Performance Math & Analytics ---
-polars                   # Blazing fast data engine for reports
+# --- Data Science & Visualization ---
+polars==1.39.3
 numpy==1.26.4
 scipy==1.11.4
 pandas==2.1.1
 scikit-learn==1.3.2
 statsmodels==0.14.0
+matplotlib==3.10.8
+seaborn==0.13.2
+plotly==6.6.0
+wordcloud==1.9.6
+dash==4.1.0
 
-# --- 📊 Strategic Reporting & Export ---
-reportlab                # Professional 5-page PDF engine
+# --- Utilities ---
+reportlab==4.4.10
 fpdf==1.7.2
-matplotlib
-seaborn
-plotly
-wordcloud
-dash
-openpyxl
-
-# --- Utilities, Security & Logging ---
-python-jose[cryptography]
-passlib[bcrypt]
-pyjwt
-python-dotenv
-loguru
-tqdm
+python-jose[cryptography]==3.5.0
+passlib[bcrypt]==1.7.4
+pyjwt==2.12.1
+python-dotenv==1.2.2
+loguru==0.7.3
+tqdm==4.67.3
