@@ -1,7 +1,7 @@
 # 1. Official Playwright Base (Jammy)
 FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
 
-# 2. Add Cargo/Rust to the system PATH immediately
+# 2. Add Cargo/Rust to the system PATH
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DEFAULT_TIMEOUT=1000 \
@@ -9,7 +9,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# 3. System Dependencies (Removed old rustc/cargo from here)
+# 3. System Dependencies: Added pkg-config and libssl-dev
+# These are required for 'kreuzberg' to compile its Rust components.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
@@ -40,5 +41,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN playwright install chromium
 
-# 10. Start Command with 180s Strategic Timeout
+# 10. Start Command
 CMD gunicorn -w 2 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:$PORT --timeout 180
