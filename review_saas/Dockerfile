@@ -1,42 +1,44 @@
-# 1. Use the official Playwright base
+# 1. Official Playwright Base (Jammy)
 FROM mcr.microsoft.com/playwright/python:v1.45.0-jammy
 
-# 2. Prevent Python from buffering and set timeouts
+# 2. Add Cargo/Rust to the system PATH immediately
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_DEFAULT_TIMEOUT=1000
+    PIP_DEFAULT_TIMEOUT=1000 \
+    PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /app
 
-# 3. CRITICAL: Install Rust, Cargo, and OpenSSL Headers
-# This is the ONLY way to fix the 'Failed building wheel for kreuzberg' error.
+# 3. System Dependencies (Removed old rustc/cargo from here)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     pkg-config \
     libssl-dev \
-    rustc \
-    cargo \
+    libffi-dev \
+    pandoc \
+    tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
-# 4. Upgrade core build tools
+# 4. THE CRITICAL FIX: Install LATEST Rust (Supports Edition 2024)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+# 5. Core Python Prep
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# 5. CHECKPOINT 1: Pre-install CPU-only Torch
+# 6. Checkpoint: Torch CPU (Heavy Model Support)
 RUN pip install --no-cache-dir torch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1 --index-url https://download.pytorch.org/whl/cpu
 
-# 6. CHECKPOINT 2: Pre-install NLP stack
+# 7. Checkpoint: NLP Models for Sentiment Analysis
 RUN pip install --no-cache-dir transformers sentence-transformers
 
-# 7. Install remaining requirements
+# 8. Install Aligned Requirements
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 8. Copy application code
+# 9. Finalize Browser Engines
 COPY . .
-
-# 9. Final Browser Check
 RUN playwright install chromium
 
-# 10. Start Command
+# 10. Start Command with 180s Strategic Timeout
 CMD gunicorn -w 2 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:$PORT --timeout 180
