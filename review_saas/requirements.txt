@@ -11,19 +11,33 @@ databases==0.9.0
 asyncpg==0.29.0
 aiosqlite==0.22.1
 
-# --- File Processing (The "Fixed" Part) ---
+# --- AI Chatbot & LLM Orchestration (The World Best) ---
+langchain==0.3.13
+langchain-openai==0.2.14
+langchain-community==0.3.13
+langgraph==1.1.4
+llama-index==0.14.19
+openai==2.30.0
+pydantic-ai-slim[openai]==1.76.0
+
+# --- Advanced PDF Reports (Professional Grade) ---
+xhtml2pdf==0.2.16
+reportlab==4.4.10
+fpdf==1.7.2
+pypdf==6.9.2
+
+# --- Scraping & Search (Fixes the SerpApi Error) ---
+google-search-results==2.4.2
+
+# --- File Processing & Document Parsing ---
 kreuzberg==4.6.3
 python-magic==0.4.27
-pypdf==6.9.2
 openpyxl==3.1.5
+python-docx==1.1.2
 
 # --- AI & Sentiment Analysis ---
-openai==2.30.0
-langgraph==1.1.4
 pydantic>=2.9.0
 pydantic-settings==2.13.1
-pydantic-ai-slim[openai]==1.76.0
-llama-index==0.14.19
 nltk==3.9.4
 textblob==0.20.0
 
@@ -40,12 +54,14 @@ plotly==6.6.0
 wordcloud==1.9.6
 dash==4.1.0
 
-# --- Utilities ---
-reportlab==4.4.10
-fpdf==1.7.2
+# --- Security & Auth ---
 python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
 pyjwt==2.12.1
+bcrypt==4.2.1
+
+# --- Utilities ---
 python-dotenv==1.2.2
 loguru==0.7.3
 tqdm==4.67.3
+requests==2.32.3
