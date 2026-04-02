@@ -284,41 +284,37 @@
             if (el) el.innerText = text;
         }
 
-        // --- Core Logic ---
         async function triggerAllLoads() {
             const cid = document.getElementById("companySelect").value;
-            const start = document.getElementById("startDate").value || "2010-01-01";
-            const end = document.getElementById("endDate").value || new Date().toISOString().split('T')[0];
+            const start = document.getElementById("startDate").value || "";
+            const end = document.getElementById("endDate").value || "";
 
             if (!cid) return;
             const loadBtn = document.getElementById("loadBtn");
             loadBtn.innerText = "Analyzing...";
 
             try {
-                // KPIs
-                const overRes = await fetch(`${DASHBOARD_CONFIG.endpoints.overview}/${cid}`);
-                const overData = await overRes.json();
-                setElementText("kpiTotal", overData.total_reviews || 0);
-                setElementText("kpiRating", overData.average_rating || "—");
+                // Fetch Data (Unified API Alignment)
+                const [overRes, insRes, revRes] = await Promise.all([
+                    fetch(`${DASHBOARD_CONFIG.endpoints.overview}/${cid}`).then(r => r.json()),
+                    fetch(`${DASHBOARD_CONFIG.endpoints.insights}?company_id=${cid}&start=${start}&end=${end}`).then(r => r.json()),
+                    fetch(`${DASHBOARD_CONFIG.endpoints.revenue}?company_id=${cid}`).then(r => r.json())
+                ]);
 
-                // Insights & Graphs
-                const insRes = await fetch(`${DASHBOARD_CONFIG.endpoints.insights}?company_id=${cid}&start=${start}&end=${end}`);
-                const insData = await insRes.json();
-                
-                // Extremely Flexible Chart Integration
-                if(insData) {
-                    renderCharts(insData); 
-                    renderKeywords(insData.top_keywords || []);
-                }
+                // Update KPI Cards
+                setElementText("kpiTotal", insRes.total_reviews || overRes.total_reviews || 0);
+                setElementText("kpiRating", insRes.average_rating || overRes.average_rating || "—");
 
-                // Risk Metrics
-                const revRes = await fetch(`${DASHBOARD_CONFIG.endpoints.revenue}?company_id=${cid}`);
-                const revData = await revRes.json();
-                setElementText("riskPct", revData.loss_probability || "—");
-                setElementText("riskImpact", revData.impact_level || "—");
-                setElementText("riskSentiment", revData.reputation_score || "—");
+                // Update Risk Metrics (Aligned with compute_analytics backend)
+                setElementText("riskPct", insRes.risk?.loss_probability || revRes.loss_probability || "—");
+                setElementText("riskImpact", insRes.risk?.impact_level || revRes.impact_level || "—");
+                setElementText("riskSentiment", insRes.risk?.reputation_score || revRes.reputation_score || "—");
 
-                // Table Listing
+                // Update Charts
+                if (insRes.sentiment_counts) renderCharts(insRes);
+                if (insRes.top_keywords) renderKeywords(insRes.top_keywords);
+
+                // Load Table
                 loadRecentReviews(cid);
 
             } catch (e) { 
@@ -336,10 +332,10 @@
             chartInstances.emotions = new Chart(radarCtx, {
                 type: 'radar',
                 data: {
-                    labels: Object.keys(sentimentData).length ? Object.keys(sentimentData) : ["Positive", "Neutral", "Negative"],
+                    labels: Object.keys(sentimentData),
                     datasets: [{
-                        label: 'Sentiment Intensity',
-                        data: Object.values(sentimentData).length ? Object.values(sentimentData) : [0,0,0],
+                        label: 'Intensity',
+                        data: Object.values(sentimentData),
                         backgroundColor: 'rgba(168, 85, 247, 0.2)',
                         borderColor: '#a855f7',
                         pointBackgroundColor: '#a855f7'
@@ -355,10 +351,10 @@
             chartInstances.monthly = new Chart(lineCtx, {
                 type: 'line',
                 data: {
-                    labels: trend.length ? trend.map(t => t.month) : ['No Data'],
+                    labels: trend.map(t => t.month),
                     datasets: [{
                         label: 'Avg Rating',
-                        data: trend.length ? trend.map(t => t.avg) : [0],
+                        data: trend.map(t => t.avg),
                         borderColor: '#10b981',
                         backgroundColor: 'rgba(16, 185, 129, 0.1)',
                         fill: true,
@@ -397,7 +393,7 @@
         function renderKeywords(keywords) {
             const container = document.getElementById("keywordContainer");
             if (!keywords.length) {
-                container.innerHTML = `<span class="text-muted small">Analyze to extract AI keywords...</span>`;
+                container.innerHTML = `<span class="text-muted small">No keywords detected yet.</span>`;
                 return;
             }
             container.innerHTML = keywords.map(kw => 
@@ -415,17 +411,16 @@
                         <tr class="review-row">
                             <td class="fw-bold">${r.author}</td>
                             <td><span class="star-rating">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</span></td>
-                            <td class="small text-muted">${r.text || "No text content."}</td>
+                            <td class="small text-muted">${r.text || "—"}</td>
                             <td class="small fw-semibold">${r.date}</td>
                         </tr>
                     `).join("");
                 } else {
-                    list.innerHTML = `<tr><td colspan="4" class="text-center py-4">No reviews available.</td></tr>`;
+                    list.innerHTML = `<tr><td colspan="4" class="text-center py-4">No reviews found.</td></tr>`;
                 }
-            } catch (e) { list.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">API Fetch Error.</td></tr>`; }
+            } catch (e) { list.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">Fetch Error.</td></tr>`; }
         }
 
-        // --- UI Events ---
         document.getElementById("addCompanyForm").onsubmit = async (e) => {
             e.preventDefault();
             const btn = document.getElementById("saveCompanyBtn");
