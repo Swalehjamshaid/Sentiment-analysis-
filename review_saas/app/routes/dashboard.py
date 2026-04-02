@@ -15,7 +15,7 @@ from typing import Dict, List
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, desc # Added desc for sorting
 
 from fpdf import FPDF
 import openai
@@ -316,3 +316,37 @@ async def executive_report(company_id: int, session: AsyncSession = Depends(get_
             "Content-Disposition": f"attachment; filename=Executive_Report_{company_id}.pdf"
         }
     )
+
+# ==========================================================
+# 7. RECENT REVIEWS (FOR DASHBOARD LISTING)
+# ==========================================================
+@router.get("/recent-reviews/{company_id}", response_class=JSONResponse)
+async def get_recent_reviews(company_id: int, session: AsyncSession = Depends(get_session)):
+    """ Returns the 100 most recent reviews for the dashboard display. """
+    await get_company(session, company_id)
+
+    # Query for the latest 100 reviews sorted by time descending
+    stmt = (
+        select(
+            Review.author_name, 
+            Review.rating, 
+            Review.text, 
+            Review.google_review_time
+        )
+        .where(Review.company_id == company_id)
+        .order_by(desc(Review.google_review_time))
+        .limit(100)
+    )
+    
+    res = await session.execute(stmt)
+    reviews = res.fetchall()
+
+    return [
+        {
+            "author": r.author_name,
+            "rating": r.rating,
+            "text": r.text,
+            "date": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "N/A"
+        }
+        for r in reviews
+    ]
