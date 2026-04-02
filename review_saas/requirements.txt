@@ -1,57 +1,49 @@
 # ==========================================================
-# 🚀 REVIEW INTELLIGENCE AI — 2026 ADVANCED ENTERPRISE STACK
+# 🚀 REVIEW INTELLIGENCE AI — 2026 ENTERPRISE ALIGNMENT
 # ==========================================================
 
-# --- 🌐 Web Framework & API Infrastructure ---
+# --- Web Framework & API ---
 fastapi
 uvicorn[standard]
 gunicorn
 starlette
 httpx
 
-# --- 🗄️ Database & Async Persistence ---
+# --- Database & Persistence ---
 sqlalchemy>=2.0.0
 databases
 asyncpg==0.29.0
 python-multipart==0.0.12
 aiosqlite
 
-# --- 🕵️ Advanced Scraping & Browser Automation ---
-requests
-beautifulsoup4
-playwright==1.45.0
-selenium
-proxybroker2==2.0.0a4
-google-search-results
-
 # --- 📄 Advanced PDF Analysis & Document Intelligence ---
-# These work with the 'rustc' and 'libssl' we added to your Dockerfile
-kreuzberg                # 2026 State-of-the-art PDF/OCR/Doc text extraction
-python-magic             # File type detection for secure uploads
-pypdf                    # Structural PDF manipulation
+# Fixed by the Rustup install in your Dockerfile
+kreuzberg                # 2026 SOTA PDF/OCR/Doc text extraction
+python-magic             # Secure file type detection
+pypdf                    # PDF structural manipulation
 
-# --- 🧠 Advanced Chatbot & Multi-Agent AI Intelligence ---
+# --- 🧠 Advanced AI Agent Chatbot & Intelligence ---
 openai
-langgraph                # Stateful, cyclic AI agent orchestration
-pydantic-ai-slim[openai] # High-safety, type-validated AI agent outputs
-pydantic>=2.9.0          # CRITICAL: Aligned for Pydantic-AI compatibility
+langgraph                # Stateful, multi-agent AI orchestration
+pydantic-ai-slim[openai] # 2026 High-safety AI agents
+pydantic>=2.9.0          # CRITICAL: Version alignment for AI agents
 pydantic-settings
-llama-index              # Professional RAG for "Chat with your Data"
+llama-index              # Professional RAG for PDF querying
 
-# --- 🔬 NLP & Sentiment Core ---
+# --- NLP Sentiment Core ---
 nltk
 textblob
 
-# --- ⚡ High-Performance Analytics (STRICT PINS 3.10) ---
-polars                   # Blazing fast engine for strategic report data
+# --- ⚡ High-Performance Math & Analytics ---
+polars                   # Blazing fast data engine for reports
 numpy==1.26.4
 scipy==1.11.4
 pandas==2.1.1
 scikit-learn==1.3.2
 statsmodels==0.14.0
 
-# --- 📊 Strategic PDF Visualization & Export ---
-reportlab                # Professional 5-page Flowable PDF engine
+# --- 📊 Strategic Reporting & Export ---
+reportlab                # Professional 5-page PDF engine
 fpdf==1.7.2
 matplotlib
 seaborn
@@ -60,7 +52,7 @@ wordcloud
 dash
 openpyxl
 
-# --- 🔐 Utilities, Security & Logging ---
+# --- Utilities, Security & Logging ---
 python-jose[cryptography]
 passlib[bcrypt]
 pyjwt
