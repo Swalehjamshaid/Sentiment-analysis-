@@ -1,31 +1,37 @@
-# 1. Use the Playwright-ready base image (saves 5-10 minutes of build time)
-FROM mcr.microsoft.com/playwright/python:v1.42.0-jammy
+FROM python:3.12-slim
 
-# 2. Set working directory
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONPATH=/app
+
 WORKDIR /app
 
-# 3. Copy requirements and install
+# ✅ CRITICAL: Install ALL required system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gcc \
+    g++ \
+    python3-dev \
+    libffi-dev \
+    libssl-dev \
+    libpq-dev \
+    libmagic1 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# ✅ Upgrade pip first (important for Python 3.12)
+RUN pip install --upgrade pip setuptools wheel
+
+# ✅ Copy requirements first (better caching)
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
 
-# 4. Break the circle: Create directory and set ENV BEFORE installation
-RUN mkdir -p /app/ms-playwright && chmod -R 777 /app/ms-playwright
-ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
+# ✅ Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-# 5. Use 'python3 -m' to ensure the correct environment is used
-RUN python3 -m playwright install chromium --with-deps
-
-# 6. Copy application code
+# ✅ Copy project
 COPY . .
-
-# 7. Final Environment Setup
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app
-ENV PORT=8080
 
 EXPOSE 8080
 
-# 8. Start with module flag
-CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]
+# ✅ Correct entry point
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
