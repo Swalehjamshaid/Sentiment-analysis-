@@ -5,46 +5,42 @@ gunicorn==25.3.0
 python-multipart==0.0.12
 
 # --- Database ---
-sqlalchemy>=2.0.0
+sqlalchemy==2.0.48
 databases==0.9.0
 asyncpg==0.29.0
 aiosqlite==0.22.1
 
-# --- AI Chatbot & LLM (FIXED ✅) ---
-openai>=2.29.0
-langchain>=0.3.0
-langchain-openai>=0.2.0
-langchain-community>=0.3.0
-langgraph==1.1.4
+# --- AI Chatbot & LLM (STABLE ✅) ---
+openai==2.30.0
+langchain==0.3.21
+langchain-openai==0.3.8
+langchain-community==0.3.21
+langgraph==0.0.45
 pydantic-ai-slim[openai]==1.76.0
 
-# --- PDF & Reports ---
-xhtml2pdf==0.2.16
+# --- PDF & Reports (SAFE) ---
 reportlab==4.4.10
 pypdf==6.9.2
 
 # --- Scraping & Files ---
-google-search-results>=2.4.2
+google-search-results==2.4.2
 python-magic==0.4.27
 openpyxl==3.1.5
 python-docx==1.1.2
 
-# --- Data Science ---
+# --- Data Science (LIGHT) ---
 numpy==1.26.4
 pandas==2.1.1
-scipy==1.11.4
 scikit-learn==1.3.2
-matplotlib==3.10.8
-seaborn==0.13.2
-plotly==6.6.0
+scipy==1.11.4
 
 # --- Security & Auth ---
 python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 pyjwt==2.12.1
-bcrypt>=4.0.0
 
 # --- Utilities ---
 python-dotenv==1.2.2
 loguru==0.7.3
-requests>=2.32.0
+requests==2.33.1
