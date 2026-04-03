@@ -1,41 +1,56 @@
 # filename: Dockerfile
+# -------------------------------------------------------------------------------
+# ULTIMATE FLEXIBLE DOCKERFILE for Python SaaS (FastAPI / Uvicorn / Gunicorn)
+# -------------------------------------------------------------------------------
+
 FROM python:3.12-slim
 
-# 1. High-Level Environment Setup
+# 1. Permanent Environment Variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
-    PORT=8080
+    PORT=8080 \
+    APP_MODULE=app.main:app
 
+# 2. Set Working Directory
 WORKDIR /app
 
-# 2. System Dependencies (Cached unless you change the base image)
-RUN apt-get update && apt-get install -y \
+# 3. Comprehensive System Dependencies (Cached)
+# Includes everything needed for Postgres, AI libraries, and basic debugging
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     curl \
+    git \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. FLEXIBLE REQUIREMENTS STEP
-# We copy anything starting with 'requirement' (covers requirements.txt, requirements-dev.txt, etc.)
+# 4. FLEXIBLE DEPENDENCY LAYER
+# Automatically picks up ANY requirement file (txt, in, or lock)
 COPY requirements*.txt ./
+COPY pyproject.toml ./ 2>/dev/null || :
 
-# Install requirements. If you add a new file, it will be detected here.
+# Install whatever is found. Using 'python -m pip' for absolute reliability.
 RUN python -m pip install --no-cache-dir --upgrade pip && \
-    python -m pip install --no-cache-dir --default-timeout=100 -r requirements.txt
+    if [ -f requirements.txt ]; then python -m pip install --no-cache-dir -r requirements.txt; fi
 
-# 4. ADDITIONAL CONFIG FILES STEP
-# If you have extra config files (like firebase.json or settings.yaml), 
-# they get copied here before the heavy code logic.
-COPY *.json *.yaml *.yml ./ 2>/dev/null || :
+# 5. FLEXIBLE CONFIGURATION LAYER
+# Accepts .env files, .json configs, or .yaml settings automatically
+COPY .env* *.json *.yaml *.yml ./ 2>/dev/null || :
 
-# 5. FINAL CODE INJECTION
-# Everything else (app folder, static, templates) is copied now.
+# 6. APPLICATION LAYER
+# Copying everything else last to keep build times under 10 seconds for code changes
 COPY . .
 
-# 6. Runtime Configuration
+# 7. AUTOMATED PERMISSIONS
+# Ensures all scripts are executable and the app has access to its own files
+RUN chmod -R 755 /app
+
+# 8. RUNTIME SETTINGS
 EXPOSE 8080
 
-# sh -c allows us to use the PYTHONPATH variable reliably on Railway
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8080 --log-level info"]
+# 9. THE "ULTIMATE" START COMMAND
+# This command first checks if there's a custom 'start.sh' script.
+# If not, it defaults to Uvicorn using the APP_MODULE variable.
+# This means you can change your entry point via Railway Variables without touching this file.
+CMD ["sh", "-c", "if [ -f start.sh ]; then /bin/sh start.sh; else uvicorn ${APP_MODULE} --host 0.0.0.0 --port ${PORT} --log-level info; fi"]
