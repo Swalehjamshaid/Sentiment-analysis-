@@ -1,24 +1,28 @@
-FROM python:3.10-slim
+# Use a modern Python version for 2026 compatibility
+FROM python:3.12-slim
 
-# Install system dependencies for pycairo
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    gcc \
-    pkg-config \
-    libcairo2-dev \
-    libffi-dev \
-    python3-dev \
-    cmake \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
+# Set the working directory
 WORKDIR /app
 
+# Install system dependencies required for building C extensions (bcrypt, scikit-learn)
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libffi-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 
-RUN pip install --upgrade pip && \
+# Upgrade pip and install dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
+# Copy the rest of the application code
 COPY . .
 
-CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8000"]
+# Expose the port Railway uses (usually 8080)
+EXPOSE 8080
+
+# Start the application using uvicorn
+CMD ["uvicorn", "main:app", "--host", "0.0.12", "--port", "8080"]
