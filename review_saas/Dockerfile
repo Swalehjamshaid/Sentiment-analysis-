@@ -1,13 +1,14 @@
 FROM python:3.12-slim
 
+# Essential for Railway/Docker
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PORT=8080
-# This is the magic line that fixes Line 11 imports
-ENV PYTHONPATH=/ 
+ENV PYTHONPATH=/
 
 WORKDIR /
 
+# Install system dependencies (libmagic is required for your requirements.txt)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libmagic1 \
@@ -15,12 +16,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy everything so the folder 'app' exists at the root
+# Copy all files so the 'app' directory exists at the root
 COPY . .
 
 EXPOSE 8080
 
-# This command allows you to leave the Railway dashboard 'Start Command' EMPTY
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Using the direct path to uvicorn prevents the frozen runpy error
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]
