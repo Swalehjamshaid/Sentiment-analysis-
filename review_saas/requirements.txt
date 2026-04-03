@@ -4,6 +4,7 @@ uvicorn[standard]
 gunicorn
 python-multipart
 itsdangerous
+jinja2
 
 # --- Database ---
 sqlalchemy>=2.0.0
