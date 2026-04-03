@@ -1,46 +1,32 @@
-# 1. Use a stable Python base
-FROM python:3.11-slim
+# 1. Use the official Playwright image as a base (SOLVES ALL DEPENDENCY ERRORS)
+# This image already has the OS-level libs for Chromium/Firefox/Webkit
+FROM mcr.microsoft.com/playwright/python:v1.42.0-jammy
 
-# 2. Install system dependencies for Postgres and Playwright
-# We combine these to keep the image layer count low
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libpq-dev \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# 3. Set the working directory
-# All subsequent commands happen inside /app
+# 2. Set the working directory
 WORKDIR /app
 
-# 4. Install Python requirements
-# We copy this first to allow Docker to cache the installation
+# 3. Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# 5. Playwright Alignment (Permission-Safe Version)
-# We create the folder inside /app to avoid root-level permission errors
+# 4. Critical: Playwright Browser Installation
+# We only install the chromium binary because the OS libs are already there
+# We use /app/ms-playwright to ensure we stay within writable space
 RUN mkdir -p /app/ms-playwright && chmod -R 777 /app/ms-playwright
 ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
+RUN playwright install chromium
 
-# Install only the Chromium browser and its system-level dependencies
-RUN playwright install chromium --with-deps
-
-# 6. Copy the application code
-# This copies 'app/', 'main.py', etc., into /app/
+# 5. Copy application code
 COPY . .
 
-# 7. Critical Environment Variables
-# PYTHONPATH=/app ensures 'import app.core' works perfectly
+# 6. Environment & Paths
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 ENV PORT=8080
 
-# 8. Expose the port
 EXPOSE 8080
 
-# 9. Start the application
-# Using 'python3 -m uvicorn' is the safest way to resolve importlib errors
+# 7. Start the application
 CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]
