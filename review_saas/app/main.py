@@ -17,16 +17,25 @@ from starlette.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-# --------------------------- Path Fix for Package Imports ---------------------------
-# This ensures that 'app' can be imported as a module regardless of where you run it from
+# --------------------------- Absolute Path Resolution ---------------------------
+# CURRENT_DIR is /app/app/ | PARENT_DIR is /app/
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
+
 if PARENT_DIR not in sys.path:
     sys.path.insert(0, PARENT_DIR)
 
-# Define absolute paths for templates and static to prevent TemplateNotFound
-TEMPLATE_DIR = os.path.join(CURRENT_DIR, "templates")
-STATIC_DIR = os.path.join(CURRENT_DIR, "static")
+def resolve_path(folder_name: str) -> str:
+    """Check current and parent directories for the required folder."""
+    local_path = os.path.join(CURRENT_DIR, folder_name)
+    parent_path = os.path.join(PARENT_DIR, folder_name)
+    
+    if os.path.exists(local_path):
+        return local_path
+    return parent_path
+
+TEMPLATE_DIR = resolve_path("templates")
+STATIC_DIR = resolve_path("static")
 
 # --------------------------- Core Imports ---------------------------
 from app.core.config import settings
@@ -47,6 +56,10 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("app.main")
+
+# Log the resolved paths immediately on startup for debugging
+logger.info("📂 Resolved TEMPLATE_DIR: %s", TEMPLATE_DIR)
+logger.info("📂 Resolved STATIC_DIR: %s", STATIC_DIR)
 
 # --------------------------- Outscraper Client ---------------------------
 class OutscraperClient:
@@ -149,12 +162,7 @@ app.add_middleware(
 )
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
-# CRITICAL FIX: Use the absolute path variables defined above
-if not os.path.exists(STATIC_DIR):
-    logger.error("❌ Static directory NOT FOUND at %s", STATIC_DIR)
-if not os.path.exists(TEMPLATE_DIR):
-    logger.error("❌ Template directory NOT FOUND at %s", TEMPLATE_DIR)
-
+# Use the resolved absolute paths
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATE_DIR)
 
@@ -164,6 +172,11 @@ def get_current_user(request: Request) -> Optional[dict]:
 # --------------------------- Routes ---------------------------
 @app.get("/", response_class=HTMLResponse)
 async def landing(request: Request):
+    # Final check for landing.html existence before rendering
+    if not os.path.exists(os.path.join(TEMPLATE_DIR, "landing.html")):
+        logger.error("❌ landing.html NOT FOUND in %s", TEMPLATE_DIR)
+        raise HTTPException(status_code=500, detail="Landing template missing")
+        
     return templates.TemplateResponse("landing.html", {"request": request, "settings": settings})
 
 @app.get("/health")
@@ -173,7 +186,7 @@ async def health():
         "api_client": getattr(app.state, "api_status", "unknown"), 
         "database": "connected", 
         "schema_version": SCHEMA_VERSION,
-        "template_path": TEMPLATE_DIR
+        "resolved_template_dir": TEMPLATE_DIR
     }
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -181,9 +194,8 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     
-    # Verify file exists before attempting to render to catch errors early
     if not os.path.exists(os.path.join(TEMPLATE_DIR, "dashboard.html")):
-        logger.error("❌ dashboard.html missing in %s", TEMPLATE_DIR)
+        logger.error("❌ dashboard.html NOT FOUND in %s", TEMPLATE_DIR)
         raise HTTPException(status_code=500, detail="Dashboard template missing")
 
     return templates.TemplateResponse("dashboard.html", {
