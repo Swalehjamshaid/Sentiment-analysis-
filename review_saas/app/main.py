@@ -18,7 +18,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 # --------------------------- Absolute Path Resolution ---------------------------
-# This ensures templates are found in /app/app/templates or /app/templates
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 
@@ -159,7 +158,6 @@ app.add_middleware(
 )
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
-# Use the resolved absolute paths
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATE_DIR)
 
@@ -167,13 +165,27 @@ def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
 
 # --------------------------- Routes ---------------------------
+
 @app.get("/", response_class=HTMLResponse)
-async def landing(request: Request):
-    # FIXED: Using explicit keyword arguments to avoid Jinja2 hashing TypeError
+async def root_to_dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
+    """Redirects / directly to dashboard if logged in, else to login."""
+    if not user:
+        # If not logged in, you can choose to show landing or redirect to login
+        # Here we show landing.html as the entry point
+        return templates.TemplateResponse(
+            request=request, 
+            name="landing.html", 
+            context={"settings": settings}
+        )
+    
+    # If logged in, go straight to dashboard
     return templates.TemplateResponse(
         request=request, 
-        name="landing.html", 
-        context={"settings": settings}
+        name="dashboard.html", 
+        context={
+            "user": user,
+            "google_api_key": settings.GOOGLE_API_KEY
+        }
     )
 
 @app.get("/health")
@@ -191,7 +203,6 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     
-    # FIXED: Using explicit keyword arguments to avoid Jinja2 hashing TypeError
     return templates.TemplateResponse(
         request=request, 
         name="dashboard.html", 
@@ -203,6 +214,7 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
 
 @app.post("/login", response_class=RedirectResponse)
 async def login_post(request: Request):
+    # Dummy user data for session
     user = {"id": 1, "email": "roy.jamshaid@gmail.com", "name": "Swaleh"}
     request.session["user"] = user
     request.session["user_id"] = user["id"]
