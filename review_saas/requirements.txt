@@ -1,50 +1,75 @@
-# --- Core Web & Framework ---
-fastapi>=0.115.0
-uvicorn[standard]
-gunicorn
-python-multipart
-jinja2
-itsdangerous
-markupsafe
+# ===============================
+# Core Web & Framework (STABLE)
+# ===============================
+fastapi==0.110.3
+uvicorn[standard]==0.29.0
+gunicorn==21.2.0
+python-multipart==0.0.9
+jinja2==3.1.4
+itsdangerous==2.2.0
+markupsafe==2.1.5
 
-# --- Database ---
-sqlalchemy>=2.0.0
-databases
-asyncpg
-aiosqlite
+# ===============================
+# Pydantic (CRITICAL PINNING)
+# ===============================
+pydantic==2.6.4
+pydantic-core==2.16.3
+pydantic-settings==2.2.1
+typing-extensions>=4.9.0
 
-# --- AI Chatbot & LLM (STABLE RESOLUTION) ---
-# Downgraded to v1.x range to satisfy LangChain
+# ===============================
+# Database
+# ===============================
+sqlalchemy==2.0.29
+databases==0.9.0
+asyncpg==0.29.0
+aiosqlite==0.20.0
+
+# ===============================
+# AI / LLM (COMPATIBLE SET)
+# ===============================
 openai>=1.58.1,<2.0.0
-langchain>=0.3.0
-langchain-openai>=0.3.0
-langchain-community>=0.3.0
-langgraph
+
+langchain==0.3.13
+langchain-openai==0.3.5
+langchain-community==0.3.12
+langgraph>=0.0.40
+
 pydantic-ai-slim[openai]
 
-# --- PDF & Reports ---
-reportlab
-pypdf
+# ===============================
+# PDF & Reports
+# ===============================
+reportlab==4.1.0
+pypdf==4.2.0
 
-# --- Scraping & Files ---
-google-search-results
-python-magic
-openpyxl
-python-docx
+# ===============================
+# Scraping & Files
+# ===============================
+google-search-results==2.4.2
+python-magic==0.4.27
+openpyxl==3.1.2
+python-docx==1.1.0
 
-# --- Data Science ---
-numpy>=1.26.0
-pandas>=2.2.0
-scikit-learn>=1.4.0
-scipy>=1.12.0
+# ===============================
+# Data Science
+# ===============================
+numpy==1.26.4
+pandas==2.2.1
+scikit-learn==1.4.2
+scipy==1.12.0
 
-# --- Security & Auth ---
-python-jose[cryptography]
-passlib[bcrypt]
+# ===============================
+# Security & Auth
+# ===============================
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
 bcrypt>=4.0.0
-pyjwt
+pyjwt==2.8.0
 
-# --- Utilities ---
-python-dotenv
-loguru
-requests
+# ===============================
+# Utilities
+# ===============================
+python-dotenv==1.0.1
+loguru==0.7.2
+requests==2.31.0
