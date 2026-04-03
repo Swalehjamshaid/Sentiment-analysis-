@@ -1,27 +1,19 @@
-# =========================
-# CORE WEB & FRAMEWORK
-# =========================
-fastapi==0.110.0
-uvicorn[standard]==0.29.0
-gunicorn==21.2.0
-python-multipart==0.0.9
-itsdangerous==2.2.0   # ✅ FIX (your crash)
+# --- Core Web & Framework ---
+fastapi>=0.115.0,<0.136.0
+uvicorn[standard]>=0.22.0,<0.30.0
+starlette>=0.40.0,<0.37.0
+gunicorn>=22.0.0,<26.0.0
+python-multipart>=0.0.12,<0.1.0
 
-# ⚠️ REMOVE starlette (FastAPI manages it)
+# --- Database ---
+sqlalchemy>=2.0.0,<2.1.0
+asyncpg>=0.29.0,<0.30.0
+aiosqlite>=0.20.0,<0.21.0
+databases>=0.9.0,<1.0.0
 
-# =========================
-# DATABASE
-# =========================
-sqlalchemy==2.0.29
-asyncpg==0.29.0
-aiosqlite==0.20.0
-databases==0.9.0
-
-# =========================
-# AI & LLM
-# =========================
-openai==1.30.1
-langchain==0.3.0
+# --- AI & LLM ---
+openai>=1.40.0,<2.0.0
+langchain>=0.3.0,<0.4.0
 langchain-core==0.3.0
 langchain-community==0.3.0
 langchain-openai==0.2.0
@@ -30,42 +22,34 @@ pydantic-ai-slim[openai]==0.0.12
 tiktoken==0.7.0
 tenacity==8.2.3
 
-# =========================
-# DATA SCIENCE & FILES
-# =========================
-numpy==1.26.4
-pandas==2.2.2
-scikit-learn==1.4.2
-scipy==1.12.0
-google-search-results==2.4.2
-openpyxl==3.1.2
-python-docx==1.1.0
-pypdf==4.2.0
-reportlab==4.1.0
+# --- Data Science & Scraping ---
+numpy>=1.26.4,<1.27.0
+pandas>=2.2.2,<2.3.0
+scikit-learn>=1.4.2,<1.5.0
+scipy>=1.12.0,<1.13.0
+google-search-results>=2.4.2,<3.0.0
+openpyxl>=3.1.2,<3.2.0
+python-docx>=1.1.0,<2.0.0
+pypdf>=4.2.0,<5.0.0
+reportlab>=4.1.0,<5.0.0
 
-# =========================
-# SECURITY & AUTH
-# =========================
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.1.2
-pyjwt==2.8.0
-ecdsa==0.18.0
-rsa==4.9
-pyasn1==0.5.1
+# --- Security & Auth ---
+python-jose[cryptography]>=3.3.0,<4.0.0
+passlib[bcrypt]>=1.7.4,<2.0.0
+bcrypt>=4.1.2,<5.0.0
+pyjwt>=2.8.0,<3.0.0
+ecdsa>=0.18.0,<0.19.0
+rsa>=4.9,<5.0
+pyasn1>=0.5.1,<0.6.0
 
-# =========================
-# UTILITIES
-# =========================
-python-dotenv==1.0.1
-loguru==0.7.2
-requests==2.31.0
-httpx==0.27.0
-jinja2==3.1.3
-markupsafe==2.1.5
+# --- Utilities ---
+python-dotenv>=1.0.1,<2.0.0
+loguru>=0.7.2,<1.0.0
+requests>=2.31.0,<3.0.0
+httpx>=0.27.0,<1.0.0
+jinja2>=3.1.3,<4.0.0
+markupsafe>=2.1.5,<3.0.0
 
-# =========================
-# PERFORMANCE (OPTIONAL)
-# =========================
-uvloop==0.19.0
-httptools==0.6.1
+# --- Optional performance packages ---
+uvloop>=0.19.0,<1.0.0
+httptools>=0.6.1,<1.0.0
