@@ -1,28 +1,47 @@
-# Use a modern Python version for 2026 compatibility
-FROM python:3.12-slim
+# --- Core Web & Framework ---
+fastapi>=0.115.0
+uvicorn[standard]
+gunicorn
+python-multipart
 
-# Set the working directory
-WORKDIR /app
+# --- Database ---
+sqlalchemy>=2.0.0
+databases
+asyncpg
+aiosqlite
 
-# Install system dependencies required for building C extensions (bcrypt, scikit-learn)
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libffi-dev \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
+# --- AI Chatbot & LLM (STABLE RESOLUTION) ---
+# Downgraded to v1.x range to satisfy LangChain
+openai>=1.58.1,<2.0.0
+langchain>=0.3.0
+langchain-openai>=0.3.0
+langchain-community>=0.3.0
+langgraph
+pydantic-ai-slim[openai]
 
-# Copy requirements first to leverage Docker cache
-COPY requirements.txt .
+# --- PDF & Reports ---
+reportlab
+pypdf
 
-# Upgrade pip and install dependencies
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# --- Scraping & Files ---
+google-search-results
+python-magic
+openpyxl
+python-docx
 
-# Copy the rest of the application code
-COPY . .
+# --- Data Science ---
+numpy>=1.26.0
+pandas>=2.2.0
+scikit-learn>=1.4.0
+scipy>=1.12.0
 
-# Expose the port Railway uses (usually 8080)
-EXPOSE 8080
+# --- Security & Auth ---
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt>=4.0.0
+pyjwt
 
-# Start the application using uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.12", "--port", "8080"]
+# --- Utilities ---
+python-dotenv
+loguru
+requests
