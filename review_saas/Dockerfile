@@ -1,31 +1,33 @@
-# 1. Use a stable, lightweight Python base
+# 1. Base Image
 FROM python:3.10-slim
 
-# 2. Set environment variables to keep Python clean and responsive
+# 2. Environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app
 
-# 3. Install ONLY the essential system libraries
-# libmagic1 is required by the 'python-magic' library in your requirements
+# 3. System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1 \
+    build-essential \
+    gcc \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# 4. Set the working directory
+# 4. Work directory
 WORKDIR /app
 
-# 5. Install Python dependencies
-# We do this before copying code to use Docker's cache layer
+# 5. Install Python dependencies (optimized caching)
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
+
+RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# 6. Copy the rest of your application code
+# 6. Copy app
 COPY . .
 
-# 7. The Start Command
-# Using 'python main.py' directly first is the best way to see the REAL error 
-# if it crashes again. Once it works, we can switch back to Gunicorn.
-CMD ["python", "app/main.py"]
+# 7. Expose port (important for Railway)
+EXPOSE 8000
+
+# 8. Start command (PRODUCTION READY ✅)
+CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8000"]
