@@ -5,33 +5,29 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PORT=8080
-# CRITICAL: This allows 'import app' to work from any directory
+# Force Python to recognize the 'app' folder as a package
 ENV PYTHONPATH=/
 
-# 3. Set WORKDIR to the root (Not /app)
+# 3. Set WORKDIR to the root
 WORKDIR /
 
 # 4. Install System Dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    libffi-dev \
-    libssl-dev \
     libmagic1 \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 5. Install Python Dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# 6. Copy Application Code into the /app folder
-# Your local files (main.py, core/, etc.) go into /app/
-COPY . /app/
+# 6. Copy Application Code
+COPY . .
 
 # 7. Expose Port
 EXPOSE 8080
 
-# 8. THE FINAL COMMAND
-# We point to 'app.main:app' while standing in the root (/)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]
+# 8. THE AUTO-START COMMAND
+# This allows the Railway "Start Command" field to be EMPTY
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
