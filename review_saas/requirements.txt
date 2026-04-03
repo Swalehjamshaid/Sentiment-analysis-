@@ -2,8 +2,10 @@
 # Core Web Framework
 # ===============================
 fastapi==0.110.3
+starlette==0.37.2
 uvicorn[standard]==0.29.0
 gunicorn==21.2.0
+
 python-multipart==0.0.9
 jinja2==3.1.4
 itsdangerous==2.2.0
@@ -15,8 +17,12 @@ markupsafe==2.1.5
 pydantic>=2.7.4,<3.0.0
 typing-extensions>=4.9.0
 
+# ⚠️ REQUIRED by your app.core.config
+pydantic-settings>=2.4.0,<3.0.0
+python-dotenv==1.0.1
+
 # ===============================
-# Database
+# Database (Async SQLAlchemy)
 # ===============================
 sqlalchemy==2.0.29
 databases==0.9.0
@@ -24,7 +30,7 @@ asyncpg==0.29.0
 aiosqlite==0.20.0
 
 # ===============================
-# AI / LLM (LANGCHAIN-COMPATIBLE)
+# AI / LLM (USED IN ROUTERS)
 # ===============================
 openai>=1.58.1,<2.0.0
 
@@ -68,6 +74,5 @@ pyjwt==2.8.0
 # ===============================
 # Utilities
 # ===============================
-python-dotenv==1.0.1
 loguru==0.7.2
 requests==2.31.0
