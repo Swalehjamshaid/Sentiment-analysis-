@@ -1,34 +1,29 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
-# 1. System Dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libpq-dev \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONPATH=/app
 
 WORKDIR /app
 
-# 2. Dependencies
+# Install system dependencies (CRITICAL)
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libffi-dev \
+    libssl-dev \
+    python3-dev \
+    libmagic1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
 
-# 3. Playwright Alignment (Fixed)
-RUN mkdir -p /ms-playwright && chmod 777 /ms-playwright
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN playwright install chromium --with-deps
-
-# 4. App Code
+# Copy app
 COPY . .
-
-# 5. Environment & Paths
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app
-ENV PORT=8080
 
 EXPOSE 8080
 
-# 6. Start Command
+# IMPORTANT FIX → correct module path
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
