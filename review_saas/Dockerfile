@@ -1,10 +1,16 @@
-# Use official Python image
+# --------------------------- Base Image ---------------------------
 FROM python:3.12-slim
 
-# Set working directory
-WORKDIR /app
+# --------------------------- Environment Setup ---------------------------
+# Avoid Python buffering & reduce warnings
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    POETRY_VIRTUALENVS_CREATE=false \
+    PIP_NO_CACHE_DIR=1 \
+    PORT=8080 \
+    SECRET_KEY="super-secret-key"
 
-# Install system dependencies
+# --------------------------- Install System Dependencies ---------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
@@ -13,19 +19,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi-dev \
     python3-dev \
     cmake \
+    git \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
+# --------------------------- Set Working Directory ---------------------------
+WORKDIR /app
+
+# --------------------------- Copy & Install Python Dependencies ---------------------------
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy app source code
-COPY . .
+# --------------------------- Copy App Code ---------------------------
+COPY ./app ./app
 
-# Expose port (Railway will provide PORT env)
-ENV PORT 8000
+# --------------------------- Expose Port ---------------------------
+EXPOSE 8080
 
-# Command to run FastAPI with Uvicorn via Gunicorn
-CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8000", "--workers", "1"]
+# --------------------------- Gunicorn + Uvicorn Startup ---------------------------
+CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080", "--workers", "1", "--timeout", "120"]
