@@ -57,9 +57,11 @@ class OutscraperClient:
             headers = {"X-API-KEY": self.api_key}
             logger.info("📡 Requesting Outscraper reviews for Place ID: %s", place_id)
             response = await self.client.get(self.BASE_URL, params=params, headers=headers)
+            
             if response.status_code != 200:
                 logger.error("❌ Outscraper API Error %s: %s", response.status_code, response.text)
                 return {"reviews": []}
+            
             data = response.json()
             if isinstance(data, list) and data:
                 q = data[0]
@@ -89,7 +91,8 @@ class DummyReviewsClient:
     async def fetch_reviews(self, *args, **kwargs) -> List[Dict[str, Any]]:
         logger.warning("⚠️ DUMMY MODE: No real reviews will be fetched.")
         return []
-    async def close(self): pass
+    async def close(self): 
+        pass
 
 # --------------------------- Lifespan ---------------------------
 @asynccontextmanager
@@ -141,6 +144,7 @@ app.add_middleware(
 )
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
+# Use absolute pathing for Static and Templates to ensure Docker compatibility
 app.mount("/static", StaticFiles(directory=os.path.join(CURRENT_DIR, "static")), name="static")
 templates = Jinja2Templates(directory=os.path.join(CURRENT_DIR, "templates"))
 
@@ -154,7 +158,12 @@ async def landing(request: Request):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "api_client": getattr(app.state, "api_status", "unknown"), "database": "connected", "schema_version": SCHEMA_VERSION}
+    return {
+        "status": "ok", 
+        "api_client": getattr(app.state, "api_status", "unknown"), 
+        "database": "connected", 
+        "schema_version": SCHEMA_VERSION
+    }
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
