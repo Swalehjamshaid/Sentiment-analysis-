@@ -5,21 +5,16 @@ gunicorn
 python-multipart
 jinja2
 itsdangerous
-click
-h11
-wsproto
-websockets
-watchgod
-typing-extensions
+markupsafe
 
 # --- Database ---
 sqlalchemy>=2.0.0
 databases
 asyncpg
 aiosqlite
-psycopg2-binary
 
-# --- AI Chatbot & LLM ---
+# --- AI Chatbot & LLM (STABLE RESOLUTION) ---
+# Downgraded to v1.x range to satisfy LangChain
 openai>=1.58.1,<2.0.0
 langchain>=0.3.0
 langchain-openai>=0.3.0
@@ -36,9 +31,6 @@ google-search-results
 python-magic
 openpyxl
 python-docx
-beautifulsoup4
-lxml
-requests-html
 
 # --- Data Science ---
 numpy>=1.26.0
@@ -51,10 +43,8 @@ python-jose[cryptography]
 passlib[bcrypt]
 bcrypt>=4.0.0
 pyjwt
-cryptography
 
 # --- Utilities ---
 python-dotenv
 loguru
 requests
-aiohttp
