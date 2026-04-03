@@ -1,33 +1,35 @@
 # 1. Use Python 3.12 Slim
 FROM python:3.12-slim
 
-# 2. Environment setup
+# 2. Set necessary environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PORT=8080
+ENV PYTHONPATH=/app
 
-# 3. Set Working Directory
 WORKDIR /app
 
-# 4. System Dependencies (for bcrypt/scikit-learn)
+# 3. Install System Dependencies
+# Added 'libmagic1' for python-magic and 'libpq-dev' for Postgres
 RUN apt-get update && apt-get install -y \
     build-essential \
     libffi-dev \
     libssl-dev \
+    libmagic1 \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 5. Dependencies
+# 4. Install Python Dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# 6. Copy Application Code
-# This copies everything from your local folder into /app in the container
+# 5. Copy Application Code
 COPY . .
 
-# 7. THE FIX: Force Python to look in the current directory for 'main.py'
-ENV PYTHONPATH=/app
+# 6. Expose Port
+EXPOSE 8080
 
-# 8. Start Command
-# Using the list format is more stable on Railway
+# 7. Final Command
+# This assumes your file is named main.py and the FastAPI instance is 'app'
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
