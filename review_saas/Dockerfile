@@ -1,37 +1,46 @@
+# 1. Use a stable Python base
 FROM python:3.11-slim
 
-# 1. System Dependencies
+# 2. Install system dependencies for Postgres and Playwright
+# We combine these to keep the image layer count low
 RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Set Workdir
-# This is where the root of your project (review_saas) will live
+# 3. Set the working directory
+# All subsequent commands happen inside /app
 WORKDIR /app
 
-# 3. Dependencies
+# 4. Install Python requirements
+# We copy this first to allow Docker to cache the installation
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# 4. Playwright Setup
-RUN mkdir -p /ms-playwright && chmod 777 /ms-playwright
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+# 5. Playwright Alignment (Permission-Safe Version)
+# We create the folder inside /app to avoid root-level permission errors
+RUN mkdir -p /app/ms-playwright && chmod -R 777 /app/ms-playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
+
+# Install only the Chromium browser and its system-level dependencies
 RUN playwright install chromium --with-deps
 
-# 5. Copy Application Code
-# Ensure the 'app' folder is copied directly into /app
+# 6. Copy the application code
+# This copies 'app/', 'main.py', etc., into /app/
 COPY . .
 
-# 6. CRITICAL: Set PYTHONPATH
-# This tells Python to look in /app for the 'app' module
-ENV PYTHONPATH=/app
+# 7. Critical Environment Variables
+# PYTHONPATH=/app ensures 'import app.core' works perfectly
+ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+ENV PORT=8080
 
+# 8. Expose the port
 EXPOSE 8080
 
-# 7. Use the Module execution syntax
-# 'app.main:app' refers to: folder 'app' -> file 'main.py' -> variable 'app'
+# 9. Start the application
+# Using 'python3 -m uvicorn' is the safest way to resolve importlib errors
 CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]
