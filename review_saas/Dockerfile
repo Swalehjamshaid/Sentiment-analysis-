@@ -1,41 +1,35 @@
-# --------------------------- Base Image ---------------------------
+# --- Base Image ---
 FROM python:3.12-slim
 
-# --------------------------- Environment Setup ---------------------------
-# Avoid Python buffering & reduce warnings
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    POETRY_VIRTUALENVS_CREATE=false \
-    PIP_NO_CACHE_DIR=1 \
-    PORT=8080 \
-    SECRET_KEY="super-secret-key"
+# --- Environment Variables ---
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV POETRY_VIRTUALENVS_CREATE=false
+ENV PIP_NO_CACHE_DIR=1
 
-# --------------------------- Install System Dependencies ---------------------------
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    gcc \
-    pkg-config \
-    libcairo2-dev \
-    libffi-dev \
-    python3-dev \
-    cmake \
-    git \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# --------------------------- Set Working Directory ---------------------------
+# --- Set Workdir ---
 WORKDIR /app
 
-# --------------------------- Copy & Install Python Dependencies ---------------------------
+# --- System Dependencies ---
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Copy Requirements ---
 COPY requirements.txt .
-RUN pip install --upgrade pip
+
+# --- Install Dependencies ---
+RUN pip install --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir -r requirements.txt
 
-# --------------------------- Copy App Code ---------------------------
-COPY ./app ./app
+# --- Copy App Source ---
+COPY . .
 
-# --------------------------- Expose Port ---------------------------
-EXPOSE 8080
+# --- Expose Port ---
+EXPOSE 8000
 
-# --------------------------- Gunicorn + Uvicorn Startup ---------------------------
-CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8080", "--workers", "1", "--timeout", "120"]
+# --- Run App ---
+CMD ["gunicorn", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8000"]
