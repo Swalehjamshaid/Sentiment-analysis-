@@ -1,33 +1,42 @@
-# 1. Use a stable Python 3.12 image
-FROM python:3.12-slim
+# Use Python 3.11 slim for a smaller, faster image
+FROM python:3.11-slim
 
-# 2. Prevent Python from buffering and creating .pyc files
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PORT=8080
-# 3. CRITICAL: Tells Python to find the 'app' folder from the root
-ENV PYTHONPATH=/
-
-# 4. Set the working directory to the project root
-WORKDIR /
-
-# 5. Install system requirements for Postgres and python-magic
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# 1. Install system dependencies
+# Includes libpq for Postgres and dependencies for Playwright/Browsers
+RUN apt-get update && apt-get install -y \
     build-essential \
-    libmagic1 \
     libpq-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 6. Install dependencies
+# 2. Set the working directory
+# We set this to /app. Your code will live in /app/app
+WORKDIR /app
+
+# 3. Install Python dependencies
+# Copy requirements first to leverage Docker caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# 7. Copy your entire project (including the /app folder)
+# 4. Install Playwright Browsers
+# Based on your variable: PLAYWRIGHT_BROWSERS_PATH="/ms-playwright"
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN playwright install chromium --with-deps
+
+# 5. Copy the application code
+# This copies your 'app' folder into '/app/app'
+# This is CRITICAL for 'import app.core' to work.
 COPY . .
 
-# 8. Expose the Railway port
+# 6. Set Environment Variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+# 7. Expose the port from your variables
 EXPOSE 8080
 
-# 9. The default command (Keep Railway dashboard's Start Command EMPTY)
+# 8. Start the application
+# We use the module string so Python treats 'app' as a package
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]
