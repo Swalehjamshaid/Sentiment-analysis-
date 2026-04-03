@@ -1,17 +1,15 @@
-# --------------------------- Base Image ---------------------------
+# 1. Use Python 3.12 Slim
 FROM python:3.12-slim
 
-# --------------------------- Environment Variables ---------------------------
+# 2. Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PORT=8080
 ENV PYTHONPATH=/app
 
-# --------------------------- Working Directory ---------------------------
 WORKDIR /app
 
-# --------------------------- System Dependencies ---------------------------
-# Added 'libmagic1' for python-magic and 'libpq-dev' for Postgres
+# 3. Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     libffi-dev \
@@ -20,17 +18,16 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# --------------------------- Python Dependencies ---------------------------
+# 4. Copy requirements and install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
 
-# --------------------------- Copy Application Code ---------------------------
+# 5. Copy application code
 COPY . .
 
-# --------------------------- Expose Port ---------------------------
+# 6. Expose the app port
 EXPOSE 8080
 
-# --------------------------- Final Command ---------------------------
-# Note: FastAPI app is located at app/main.py, instance is 'app'
+# 7. Start FastAPI app using uvicorn
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
