@@ -12,7 +12,7 @@ aiosqlite==0.22.1
 
 # --- AI / OpenAI ---
 openai>=1.58.1,<2.0.0
-langchain==0.3.21
+langchain==0.3.23
 langchain-openai==0.3.8
 langchain-community==0.3.21
 langgraph==0.0.45
@@ -40,6 +40,6 @@ google-search-results==2.4.2
 # --- Misc / FastAPI Dependencies ---
 starlette>=0.46.0
 typing-inspection>=0.4.2
-annotated-doc>=0.0.2
+annotated-doc>=0.0.4
 h11>=0.8
 anyio>=4.13.0
