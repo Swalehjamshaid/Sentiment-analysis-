@@ -18,7 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 # --------------------------- Absolute Path Resolution ---------------------------
-# CURRENT_DIR is /app/app/ | PARENT_DIR is /app/
+# This ensures templates are found in /app/app/templates or /app/templates
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 
@@ -29,7 +29,6 @@ def resolve_path(folder_name: str) -> str:
     """Check current and parent directories for the required folder."""
     local_path = os.path.join(CURRENT_DIR, folder_name)
     parent_path = os.path.join(PARENT_DIR, folder_name)
-    
     if os.path.exists(local_path):
         return local_path
     return parent_path
@@ -57,7 +56,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("app.main")
 
-# Log the resolved paths immediately on startup for debugging
 logger.info("📂 Resolved TEMPLATE_DIR: %s", TEMPLATE_DIR)
 logger.info("📂 Resolved STATIC_DIR: %s", STATIC_DIR)
 
@@ -96,7 +94,6 @@ class OutscraperClient:
     async def fetch_reviews(self, entity: Any, max_reviews: Optional[int] = None) -> List[Dict[str, Any]]:
         place_id = getattr(entity, "google_place_id", entity if isinstance(entity, str) else None)
         if not place_id:
-            logger.warning("No place_id found for ingestion")
             return []
         limit = max_reviews or 100
         result = await self.get_reviews(place_id, limit=limit)
@@ -172,12 +169,12 @@ def get_current_user(request: Request) -> Optional[dict]:
 # --------------------------- Routes ---------------------------
 @app.get("/", response_class=HTMLResponse)
 async def landing(request: Request):
-    # Final check for landing.html existence before rendering
-    if not os.path.exists(os.path.join(TEMPLATE_DIR, "landing.html")):
-        logger.error("❌ landing.html NOT FOUND in %s", TEMPLATE_DIR)
-        raise HTTPException(status_code=500, detail="Landing template missing")
-        
-    return templates.TemplateResponse("landing.html", {"request": request, "settings": settings})
+    # FIXED: Using explicit keyword arguments to avoid Jinja2 hashing TypeError
+    return templates.TemplateResponse(
+        request=request, 
+        name="landing.html", 
+        context={"settings": settings}
+    )
 
 @app.get("/health")
 async def health():
@@ -194,15 +191,15 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     
-    if not os.path.exists(os.path.join(TEMPLATE_DIR, "dashboard.html")):
-        logger.error("❌ dashboard.html NOT FOUND in %s", TEMPLATE_DIR)
-        raise HTTPException(status_code=500, detail="Dashboard template missing")
-
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request, 
-        "user": user,
-        "google_api_key": settings.GOOGLE_API_KEY
-    })
+    # FIXED: Using explicit keyword arguments to avoid Jinja2 hashing TypeError
+    return templates.TemplateResponse(
+        request=request, 
+        name="dashboard.html", 
+        context={
+            "user": user,
+            "google_api_key": settings.GOOGLE_API_KEY
+        }
+    )
 
 @app.post("/login", response_class=RedirectResponse)
 async def login_post(request: Request):
