@@ -1,5 +1,5 @@
 # ===============================
-# Core Web & Framework (STABLE)
+# Core Web Framework
 # ===============================
 fastapi==0.110.3
 uvicorn[standard]==0.29.0
@@ -10,7 +10,7 @@ itsdangerous==2.2.0
 markupsafe==2.1.5
 
 # ===============================
-# Pydantic (CRITICAL PINNING)
+# Pydantic (CRITICAL)
 # ===============================
 pydantic==2.6.4
 pydantic-core==2.16.3
@@ -26,7 +26,7 @@ asyncpg==0.29.0
 aiosqlite==0.20.0
 
 # ===============================
-# AI / LLM (COMPATIBLE SET)
+# AI / LLM (STABLE COMBINATION)
 # ===============================
 openai>=1.58.1,<2.0.0
 
@@ -73,3 +73,4 @@ pyjwt==2.8.0
 python-dotenv==1.0.1
 loguru==0.7.2
 requests==2.31.0
+``
