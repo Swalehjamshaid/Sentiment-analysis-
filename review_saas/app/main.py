@@ -14,15 +14,12 @@ from starlette.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# --------------------------- Fix Path for Docker/Gunicorn ---------------------------
-# This ensures that the parent directory of 'app' is in the python path
-# regardless of whether you are in /app or the project root.
+# --------------------------- Fix Path for Production ---------------------------
+# This forces the parent directory into the path so 'import app' always works
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 if PARENT_DIR not in sys.path:
     sys.path.insert(0, PARENT_DIR)
-if "/app" not in sys.path:
-    sys.path.insert(0, "/app")
 
 # --------------------------- Core Imports ---------------------------
 from app.core.config import settings
@@ -41,20 +38,14 @@ logging.basicConfig(
 logger = logging.getLogger("app.main")
 
 # --------------------------- Schema Helpers ---------------------------
-async def _get_stored_schema_version(
-    session: AsyncSession
-) -> Optional[str]:
+async def _get_stored_schema_version(session: AsyncSession) -> Optional[str]:
     res = await session.execute(
         select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION")
     )
     row = res.scalar_one_or_none()
     return row.value if row else None
 
-
-async def _set_stored_schema_version(
-    session: AsyncSession,
-    new_value: str
-) -> None:
+async def _set_stored_schema_version(session: AsyncSession, new_value: str) -> None:
     res = await session.execute(
         select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION")
     )
@@ -66,9 +57,7 @@ async def _set_stored_schema_version(
         session.add(row)
     await session.commit()
 
-
-async def check_schema_version_change(
-) -> Tuple[bool, Optional[str], str]:
+async def check_schema_version_change() -> Tuple[bool, Optional[str], str]:
     async with SessionLocal() as session:
         old_version = await _get_stored_schema_version(session)
         new_version = str(SCHEMA_VERSION)
@@ -77,13 +66,10 @@ async def check_schema_version_change(
             logger.info("📦 Initialized SCHEMA_VERSION: %s", new_version)
             return False, None, new_version
         if old_version != new_version:
-            logger.warning(
-                "🧩 SCHEMA changed: %s → %s", old_version, new_version
-            )
+            logger.warning("🧩 SCHEMA changed: %s → %s", old_version, new_version)
             return True, old_version, new_version
         logger.info("✅ SCHEMA_VERSION verified: %s", new_version)
         return False, old_version, new_version
-
 
 async def reset_database_schema():
     async with engine.begin() as conn:
@@ -104,7 +90,6 @@ async def lifespan(app: FastAPI):
             async with SessionLocal() as session:
                 await _set_stored_schema_version(session, new_v)
         app.state.schema_version = new_v
-        logger.info("✅ SCHEMA_VERSION verified: %s", new_v)
         logger.info("🚀 Application Startup Complete")
     except Exception as e:
         logger.error(f"❌ Error during startup: {e}")
@@ -114,7 +99,7 @@ async def lifespan(app: FastAPI):
 
 # --------------------------- App Initialization ---------------------------
 app = FastAPI(
-    title=getattr(settings, "APP_NAME", "Review SaaS AI"),
+    title=os.getenv("APP_NAME", "Sentiment-Analysis-SaaS"),
     lifespan=lifespan,
 )
 
@@ -129,18 +114,18 @@ app.add_middleware(
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key=os.getenv("SECRET_KEY", "super-secret-key"),
+    secret_key=os.getenv("SECRET_KEY", "7bd8e1c4a92b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t"),
 )
 
 # --------------------------- Static & Templates ---------------------------
-# Look for static/templates relative to this file's location
-STATIC_PATH = os.path.join(CURRENT_DIR, "static")
-TEMPLATE_PATH = os.path.join(CURRENT_DIR, "templates")
+# Dynamically locate folders relative to main.py
+STATIC_DIR = os.path.join(CURRENT_DIR, "static")
+TEMPLATES_DIR = os.path.join(CURRENT_DIR, "templates")
 
-if os.path.exists(STATIC_PATH):
-    app.mount("/static", StaticFiles(directory=STATIC_PATH), name="static")
+if os.path.exists(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-templates = Jinja2Templates(directory=TEMPLATE_PATH)
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 # --------------------------- Auth Helper ---------------------------
 def get_current_user(request: Request):
@@ -153,7 +138,6 @@ async def root(request: Request):
         return RedirectResponse("/dashboard")
     return RedirectResponse("/login")
 
-
 @app.get("/login", response_class=HTMLResponse)
 async def login_get(request: Request):
     return templates.TemplateResponse(
@@ -162,7 +146,6 @@ async def login_get(request: Request):
         context={"email_hint": "roy.jamshaid@gmail.com"},
     )
 
-
 @app.post("/login")
 async def login_post(
     request: Request,
@@ -170,9 +153,7 @@ async def login_post(
     password: str = Form(...),
     session: AsyncSession = Depends(get_session),
 ):
-    result = await session.execute(
-        select(User).where(User.email == email)
-    )
+    result = await session.execute(select(User).where(User.email == email))
     user = result.scalars().first()
 
     if not user or password != user.hashed_password:
@@ -189,7 +170,6 @@ async def login_post(
     }
     return RedirectResponse("/dashboard", status_code=303)
 
-
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_view(request: Request):
     user = get_current_user(request)
@@ -205,7 +185,6 @@ async def dashboard_view(request: Request):
         },
     )
 
-
 @app.get("/logout")
 async def logout(request: Request):
     request.session.clear()
@@ -213,24 +192,16 @@ async def logout(request: Request):
 
 # --------------------------- Routers ---------------------------
 logger.info("🔗 Mounting all routers...")
-
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(reviews.router, prefix="/api", tags=["reviews"])
 app.include_router(exports.router, prefix="/api", tags=["exports"])
 app.include_router(google_check.router, prefix="/api", tags=["google_check"])
-
 logger.info("🔗 All routers mounted correctly")
 
 # --------------------------- Run ---------------------------
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
-    # Using the string "app.main:app" requires the parent directory to be in sys.path
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=port,
-        reload=False,
-    )
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
