@@ -1,47 +1,31 @@
-# --- Core Web & Framework ---
-fastapi>=0.115.0
-uvicorn[standard]
-gunicorn
-python-multipart
+# Use official Python image
+FROM python:3.12-slim
 
-# --- Database ---
-sqlalchemy>=2.0.0
-databases
-asyncpg
-aiosqlite
+# Set working directory
+WORKDIR /app
 
-# --- AI Chatbot & LLM (STABLE RESOLUTION) ---
-# Downgraded to v1.x range to satisfy LangChain
-openai>=1.58.1,<2.0.0
-langchain>=0.3.0
-langchain-openai>=0.3.0
-langchain-community>=0.3.0
-langgraph
-pydantic-ai-slim[openai]
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    pkg-config \
+    libcairo2-dev \
+    libffi-dev \
+    python3-dev \
+    cmake \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# --- PDF & Reports ---
-reportlab
-pypdf
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
-# --- Scraping & Files ---
-google-search-results
-python-magic
-openpyxl
-python-docx
+# Copy app source code
+COPY . .
 
-# --- Data Science ---
-numpy>=1.26.0
-pandas>=2.2.0
-scikit-learn>=1.4.0
-scipy>=1.12.0
+# Expose port (Railway will provide PORT env)
+ENV PORT 8000
 
-# --- Security & Auth ---
-python-jose[cryptography]
-passlib[bcrypt]
-bcrypt>=4.0.0
-pyjwt
-
-# --- Utilities ---
-python-dotenv
-loguru
-requests
+# Command to run FastAPI with Uvicorn via Gunicorn
+CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "--bind", "0.0.0.0:8000", "--workers", "1"]
