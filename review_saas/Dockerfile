@@ -1,37 +1,22 @@
+# Use Python 3.12 slim base image
 FROM python:3.12-slim
 
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONPATH=/app
-
+# Set working directory
 WORKDIR /app
 
-# ✅ CRITICAL: Install ALL required system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    gcc \
-    g++ \
-    python3-dev \
-    libffi-dev \
-    libssl-dev \
-    libpq-dev \
-    libmagic1 \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# ✅ Upgrade pip first (important for Python 3.12)
-RUN pip install --upgrade pip setuptools wheel
-
-# ✅ Copy requirements first (better caching)
+# Copy requirements and install
 COPY requirements.txt .
-
-# ✅ Install dependencies
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir -r requirements.txt
 
-# ✅ Copy project
-COPY . .
+# Copy the entire app folder
+COPY ./app ./app
 
+# Expose port (optional, for local testing)
 EXPOSE 8080
 
-# ✅ Correct entry point
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Set environment variable for FastAPI
+ENV PYTHONUNBUFFERED=1
+
+# Command to run the app
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--reload"]
