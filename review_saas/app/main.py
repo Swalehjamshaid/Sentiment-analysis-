@@ -18,10 +18,15 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 # --------------------------- Path Fix for Package Imports ---------------------------
+# This ensures that 'app' can be imported as a module regardless of where you run it from
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 if PARENT_DIR not in sys.path:
     sys.path.insert(0, PARENT_DIR)
+
+# Define absolute paths for templates and static to prevent TemplateNotFound
+TEMPLATE_DIR = os.path.join(CURRENT_DIR, "templates")
+STATIC_DIR = os.path.join(CURRENT_DIR, "static")
 
 # --------------------------- Core Imports ---------------------------
 from app.core.config import settings
@@ -144,9 +149,14 @@ app.add_middleware(
 )
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
-# Use absolute pathing for Static and Templates to ensure Docker compatibility
-app.mount("/static", StaticFiles(directory=os.path.join(CURRENT_DIR, "static")), name="static")
-templates = Jinja2Templates(directory=os.path.join(CURRENT_DIR, "templates"))
+# CRITICAL FIX: Use the absolute path variables defined above
+if not os.path.exists(STATIC_DIR):
+    logger.error("❌ Static directory NOT FOUND at %s", STATIC_DIR)
+if not os.path.exists(TEMPLATE_DIR):
+    logger.error("❌ Template directory NOT FOUND at %s", TEMPLATE_DIR)
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+templates = Jinja2Templates(directory=TEMPLATE_DIR)
 
 def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
@@ -162,13 +172,20 @@ async def health():
         "status": "ok", 
         "api_client": getattr(app.state, "api_status", "unknown"), 
         "database": "connected", 
-        "schema_version": SCHEMA_VERSION
+        "schema_version": SCHEMA_VERSION,
+        "template_path": TEMPLATE_DIR
     }
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    
+    # Verify file exists before attempting to render to catch errors early
+    if not os.path.exists(os.path.join(TEMPLATE_DIR, "dashboard.html")):
+        logger.error("❌ dashboard.html missing in %s", TEMPLATE_DIR)
+        raise HTTPException(status_code=500, detail="Dashboard template missing")
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request, 
         "user": user,
