@@ -34,13 +34,23 @@ logging.basicConfig(
 logger = logging.getLogger("app.main")
 
 # --------------------------- Schema Helpers ---------------------------
-async def _get_stored_schema_version(session: AsyncSession) -> Optional[str]:
-    res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
+async def _get_stored_schema_version(
+    session: AsyncSession
+) -> Optional[str]:
+    res = await session.execute(
+        select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION")
+    )
     row = res.scalar_one_or_none()
     return row.value if row else None
 
-async def _set_stored_schema_version(session: AsyncSession, new_value: str) -> None:
-    res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
+
+async def _set_stored_schema_version(
+    session: AsyncSession,
+    new_value: str
+) -> None:
+    res = await session.execute(
+        select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION")
+    )
     row = res.scalar_one_or_none()
     if row:
         row.value = new_value
@@ -49,7 +59,9 @@ async def _set_stored_schema_version(session: AsyncSession, new_value: str) -> N
         session.add(row)
     await session.commit()
 
-async def check_schema_version_change() -> Tuple[bool, Optional[str], str]:
+
+async def check_schema_version_change(
+) -> Tuple[bool, Optional[str], str]:
     async with SessionLocal() as session:
         old_version = await _get_stored_schema_version(session)
         new_version = str(SCHEMA_VERSION)
@@ -58,10 +70,13 @@ async def check_schema_version_change() -> Tuple[bool, Optional[str], str]:
             logger.info("📦 Initialized SCHEMA_VERSION: %s", new_version)
             return False, None, new_version
         if old_version != new_version:
-            logger.warning("🧩 SCHEMA changed: %s → %s", old_version, new_version)
+            logger.warning(
+                "🧩 SCHEMA changed: %s → %s", old_version, new_version
+            )
             return True, old_version, new_version
         logger.info("✅ SCHEMA_VERSION verified: %s", new_version)
         return False, old_version, new_version
+
 
 async def reset_database_schema():
     async with engine.begin() as conn:
@@ -69,6 +84,7 @@ async def reset_database_schema():
         logger.warning("🧨 Dropped all tables")
         await conn.run_sync(models.Base.metadata.create_all)
         logger.info("🧱 Recreated all tables")
+
 
 # --------------------------- Lifespan ---------------------------
 @asynccontextmanager
@@ -88,6 +104,7 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ Error during startup: {e}")
     yield
     logger.info("🛑 Application Shutdown Started...")
+
 
 # --------------------------- App Initialization ---------------------------
 app = FastAPI(
@@ -111,7 +128,11 @@ app.add_middleware(
 
 # --------------------------- Static & Templates ---------------------------
 if os.path.exists("app/static"):
-    app.mount("/static", StaticFiles(directory="app/static"), name="static")
+    app.mount(
+        "/static",
+        StaticFiles(directory="app/static"),
+        name="static"
+    )
 
 templates = Jinja2Templates(directory="app/templates")
 
@@ -126,13 +147,15 @@ async def root(request: Request):
         return RedirectResponse("/dashboard")
     return RedirectResponse("/login")
 
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_get(request: Request):
     return templates.TemplateResponse(
-        request=request, 
-        name="login.html", 
-        context={"email_hint": "roy.jamshaid@gmail.com"}
+        request=request,
+        name="login.html",
+        context={"email_hint": "roy.jamshaid@gmail.com"},
     )
+
 
 @app.post("/login")
 async def login_post(
@@ -141,16 +164,18 @@ async def login_post(
     password: str = Form(...),
     session: AsyncSession = Depends(get_session),
 ):
-    result = await session.execute(select(User).where(User.email == email))
+    result = await session.execute(
+        select(User).where(User.email == email)
+    )
     user = result.scalars().first()
-    
+
     if not user or password != user.hashed_password:
         return templates.TemplateResponse(
-            request=request, 
-            name="login.html", 
-            context={"error": "Invalid credentials", "email": email}
+            request=request,
+            name="login.html",
+            context={"error": "Invalid credentials", "email": email},
         )
-    
+
     request.session["user"] = {
         "id": user.id,
         "email": user.email,
@@ -158,25 +183,28 @@ async def login_post(
     }
     return RedirectResponse("/dashboard", status_code=303)
 
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_view(request: Request):
     user = get_current_user(request)
     if not user:
         return RedirectResponse("/login")
-    
+
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
         context={
             "user": user,
             "schema_version": getattr(app.state, "schema_version", ""),
-        }
+        },
     )
+
 
 @app.get("/logout")
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login")
+
 
 # --------------------------- Routers ---------------------------
 logger.info("🔗 Mounting all routers...")
@@ -194,4 +222,9 @@ logger.info("🔗 All routers mounted correctly")
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=False,
+    )
