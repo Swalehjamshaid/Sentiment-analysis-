@@ -85,7 +85,6 @@ async def reset_database_schema():
         await conn.run_sync(models.Base.metadata.create_all)
         logger.info("🧱 Recreated all tables")
 
-
 # --------------------------- Lifespan ---------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -102,9 +101,9 @@ async def lifespan(app: FastAPI):
         logger.info("🚀 Application Startup Complete")
     except Exception as e:
         logger.error(f"❌ Error during startup: {e}")
+        raise
     yield
     logger.info("🛑 Application Shutdown Started...")
-
 
 # --------------------------- App Initialization ---------------------------
 app = FastAPI(
@@ -128,11 +127,7 @@ app.add_middleware(
 
 # --------------------------- Static & Templates ---------------------------
 if os.path.exists("app/static"):
-    app.mount(
-        "/static",
-        StaticFiles(directory="app/static"),
-        name="static"
-    )
+    app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 templates = Jinja2Templates(directory="app/templates")
 
@@ -204,7 +199,6 @@ async def dashboard_view(request: Request):
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login")
-
 
 # --------------------------- Routers ---------------------------
 logger.info("🔗 Mounting all routers...")
