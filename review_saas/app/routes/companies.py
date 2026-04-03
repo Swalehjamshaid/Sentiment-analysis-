@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import httpx
 import os
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import (
@@ -22,14 +21,12 @@ from pydantic import BaseModel
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Core imports
 from app.core.db import get_session
 from app.core.models import Company, Review
 from app.core.config import settings
 
 logger = logging.getLogger("app.companies")
 
-# Prefix handled in main.py
 router = APIRouter(tags=["companies"])
 
 
@@ -58,7 +55,7 @@ class CompanyCreate(BaseModel):
 
 
 # ----------------------------------------------------------
-# OUTSCRAPER CLIENT (Attribute Preserved)
+# OUTSCRAPER CLIENT (UNCHANGED)
 # ----------------------------------------------------------
 
 class OutscraperClient:
@@ -131,7 +128,7 @@ async def companies_list(
 
     for c in companies:
         stats_stmt = select(
-            func.count(Review.id), 
+            func.count(Review.id),
             func.avg(Review.rating)
         ).where(Review.company_id == c.id)
 
@@ -209,7 +206,7 @@ async def add_company(
 
 @router.post("/companies/{company_id}/delete")
 async def delete_company(
-    request: Request, 
+    request: Request,
     company_id: int,
     session: AsyncSession = Depends(get_session)
 ) -> Dict[str, Any]:
