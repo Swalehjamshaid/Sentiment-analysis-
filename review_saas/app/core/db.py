@@ -39,7 +39,7 @@ from __future__ import annotations
 import os
 from typing import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine, AsyncEngine
 from sqlalchemy.orm import DeclarativeBase
 
 
@@ -135,6 +135,18 @@ async def init_models() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
+
+
+# ---------------------------
+# Required for app/main.py
+# ---------------------------
+
+def get_engine() -> AsyncEngine:
+    """
+    Returns the SQLAlchemy async engine instance.
+    Added to fix the ImportError in app/main.py.
+    """
+    return engine
 
 
 # ---------------------------
