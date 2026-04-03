@@ -15,7 +15,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # --------------------------- Fix Path for Docker/Gunicorn ---------------------------
-sys.path.insert(0, "/app")
+# This ensures that the parent directory of 'app' is in the python path
+# regardless of whether you are in /app or the project root.
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PARENT_DIR = os.path.dirname(CURRENT_DIR)
+if PARENT_DIR not in sys.path:
+    sys.path.insert(0, PARENT_DIR)
+if "/app" not in sys.path:
+    sys.path.insert(0, "/app")
 
 # --------------------------- Core Imports ---------------------------
 from app.core.config import settings
@@ -126,10 +133,14 @@ app.add_middleware(
 )
 
 # --------------------------- Static & Templates ---------------------------
-if os.path.exists("app/static"):
-    app.mount("/static", StaticFiles(directory="app/static"), name="static")
+# Look for static/templates relative to this file's location
+STATIC_PATH = os.path.join(CURRENT_DIR, "static")
+TEMPLATE_PATH = os.path.join(CURRENT_DIR, "templates")
 
-templates = Jinja2Templates(directory="app/templates")
+if os.path.exists(STATIC_PATH):
+    app.mount("/static", StaticFiles(directory=STATIC_PATH), name="static")
+
+templates = Jinja2Templates(directory=TEMPLATE_PATH)
 
 # --------------------------- Auth Helper ---------------------------
 def get_current_user(request: Request):
@@ -216,6 +227,7 @@ logger.info("🔗 All routers mounted correctly")
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
+    # Using the string "app.main:app" requires the parent directory to be in sys.path
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
