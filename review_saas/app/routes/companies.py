@@ -29,8 +29,7 @@ from app.core.config import settings
 
 logger = logging.getLogger("app.companies")
 
-# Prefix is handled in main.py, so we use empty prefix here or ensure it matches main.py
-# Given your main.py uses prefix="/api", we use tags here.
+# Prefix handled in main.py
 router = APIRouter(tags=["companies"])
 
 
@@ -38,11 +37,11 @@ router = APIRouter(tags=["companies"])
 # AUTH CHECK
 # ----------------------------------------------------------
 
-def _require_user(request: Request):
+def _require_user(request: Request) -> Dict[str, Any]:
     user = request.session.get("user")
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, 
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized"
         )
     return user
@@ -65,28 +64,36 @@ class CompanyCreate(BaseModel):
 class OutscraperClient:
     BASE = "https://api.app.outscraper.com/maps"
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str) -> None:
         if not api_key:
             raise RuntimeError("Outscraper API key missing")
         self.api_key = api_key
 
-    async def search(self, query: str):
+    async def search(self, query: str) -> List[Dict[str, Any]]:
         params = {"query": query, "async": "false", "limit": 5}
         async with httpx.AsyncClient(timeout=20) as c:
-            r = await c.get(f"{self.BASE}/search-v2", params=params, headers={"X-API-KEY": self.api_key})
+            r = await c.get(
+                f"{self.BASE}/search-v2",
+                params=params,
+                headers={"X-API-KEY": self.api_key},
+            )
             r.raise_for_status()
             return r.json().get("data", [])
 
-    async def details(self, place_id: str):
+    async def details(self, place_id: str) -> Optional[Dict[str, Any]]:
         params = {"query": place_id, "async": "false", "limit": 1}
         async with httpx.AsyncClient(timeout=20) as c:
-            r = await c.get(f"{self.BASE}/details", params=params, headers={"X-API-KEY": self.api_key})
+            r = await c.get(
+                f"{self.BASE}/details",
+                params=params,
+                headers={"X-API-KEY": self.api_key},
+            )
             r.raise_for_status()
             data = r.json().get("data", [])
             return data[0] if data else None
 
 
-def _osc():
+def _osc() -> Optional[OutscraperClient]:
     key = os.getenv("OUTSCRAPER_API_KEY") or settings.OUTSCRAPER_API_KEY
     if not key:
         return None
@@ -94,7 +101,7 @@ def _osc():
 
 
 # ----------------------------------------------------------
-# COMPANIES LIST (Updated for Route Alignment)
+# COMPANIES LIST
 # ----------------------------------------------------------
 
 @router.get("/companies")
@@ -104,7 +111,8 @@ async def companies_list(
     size: int = 20,
     q: Optional[str] = None,
     session: AsyncSession = Depends(get_session)
-):
+) -> List[Dict[str, Any]]:
+
     _require_user(request)
 
     page = max(page, 1)
@@ -119,13 +127,14 @@ async def companies_list(
     res = await session.execute(stmt.offset((page - 1) * size).limit(size))
     companies = res.scalars().all()
 
-    items = []
+    items: List[Dict[str, Any]] = []
+
     for c in companies:
         stats_stmt = select(
             func.count(Review.id), 
             func.avg(Review.rating)
         ).where(Review.company_id == c.id)
-        
+
         stats_res = await session.execute(stats_stmt)
         count, avg = stats_res.first()
 
@@ -142,7 +151,7 @@ async def companies_list(
 
 
 # ----------------------------------------------------------
-# ADD COMPANY (Updated to fix 405 error)
+# ADD COMPANY
 # ----------------------------------------------------------
 
 @router.post("/companies")
@@ -151,10 +160,10 @@ async def add_company(
     company_in: CompanyCreate,
     background: BackgroundTasks,
     session: AsyncSession = Depends(get_session)
-):
+) -> Dict[str, Any]:
+
     _require_user(request)
 
-    # FIXED — model uses google_place_id
     res = await session.execute(
         select(Company).where(Company.google_place_id == company_in.place_id.strip())
     )
@@ -181,8 +190,8 @@ async def add_company(
     await session.commit()
     await session.refresh(new_company)
 
-    logger.info(f"✅ Created new company: {new_company.name}")
-    
+    logger.info("✅ Created new company: %s", new_company.name)
+
     return {
         "status": "created",
         "company": {
@@ -203,7 +212,8 @@ async def delete_company(
     request: Request, 
     company_id: int,
     session: AsyncSession = Depends(get_session)
-):
+) -> Dict[str, Any]:
+
     _require_user(request)
 
     comp = await session.get(Company, company_id)
