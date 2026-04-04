@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     OUTSCRAPER_BASE_URL: str = "https://api.outscraper.com"
 
     # --- Database Settings ---
+    # Optimized to prevent build crashes if DATABASE_URL is temporarily empty
     DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./test.db")
 
     # --- Google OAuth & API Settings ---
@@ -26,7 +27,7 @@ class Settings(BaseSettings):
     GOOGLE_REFRESH_TOKEN: str = "dummy_refresh_token"
     GOOGLE_REDIRECT_URI: str = "https://sentiment-analysis-production-f96a.up.railway.app/auth/callback"
 
-    # Standard field for use in main.py
+    # Standard field for direct access in main.py
     GOOGLE_API_KEY: str = ""
     
     GOOGLE_MAPS_API_KEY: Optional[str] = Field(
@@ -70,7 +71,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _normalize_google_keys(self) -> "Settings":
-        # Check all possible sources for the key
+        """Synchronizes different variations of Google API keys into a single source."""
         key = self.GOOGLE_MAPS_API_KEY or self.GOOGLE_PLACES_API_KEY or self.GOOGLE_API_KEY
         if key:
             self.GOOGLE_MAPS_API_KEY = key
