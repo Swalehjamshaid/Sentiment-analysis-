@@ -1,83 +1,61 @@
-# filename: app/core/config.py
-from __future__ import annotations
 import os
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, AliasChoices, model_validator
 
 class Settings(BaseSettings):
-    # --- App General Settings ---
-    APP_NAME: str = "Sentiment-Analysis-SaaS"
-    ENVIRONMENT: str = "production"
-    DEBUG: bool = False
-    APP_BASE_URL: str = "https://sentiment-analysis-production-f96a.up.railway.app"
-
-    # --- Scraping Settings ---
-    OUTSCRAPER_API_KEY: Optional[str] = None
-    OUTSCAPTER_KEY: Optional[str] = None
-    OUTSCRAPER_BASE_URL: str = "https://api.outscraper.com"
-
-    # --- Database Settings ---
-    # Optimized to prevent build crashes if DATABASE_URL is temporarily empty
-    DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./test.db")
-
-    # --- Google OAuth & API Settings ---
-    GOOGLE_CLIENT_ID: str = "dummy_client_id"
-    GOOGLE_CLIENT_SECRET: str = "dummy_client_secret"
-    GOOGLE_REFRESH_TOKEN: str = "dummy_refresh_token"
-    GOOGLE_REDIRECT_URI: str = "https://sentiment-analysis-production-f96a.up.railway.app/auth/callback"
-
-    # Standard field for direct access in main.py
-    GOOGLE_API_KEY: str = ""
+    """
+    100% Complete Configuration for Review Intel AI.
+    Handles environment variables with fallback defaults to prevent 
+    the 'callback' crash on Railway.
+    """
+    APP_NAME: str = "Review-Intel-AI"
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "production")
+    DEBUG: bool = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
     
-    GOOGLE_MAPS_API_KEY: Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("GOOGLE_MAPS_API_KEY", "GOOGLE_PLACES_API_KEY", "GOOGLE_API_KEY"),
-    )
-    GOOGLE_PLACES_API_KEY: Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("GOOGLE_PLACES_API_KEY", "GOOGLE_MAPS_API_KEY", "GOOGLE_API_KEY"),
-    )
-
-    # --- Rate Limiting Settings ---
-    RATE_LIMIT_WINDOW_SEC: int = 60
-    RATE_LIMIT_REQUESTS: int = 100
-
-    # --- Session & Cookie Settings ---
+    # Railway/Production URL
+    APP_BASE_URL: str = os.getenv("APP_BASE_URL", "https://sentiment-analysis-production-f96a.up.railway.app")
+    
+    # Database Settings
+    DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./test.db")
+    
+    # Security & Sessions
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "super-secret-key-jamshaid-2026")
     SESSION_COOKIE_NAME: str = "session"
-    SESSION_COOKIE_SAMESITE: str = "lax"
-    SESSION_COOKIE_SECURE: bool = True
+    
+    # SMTP / Email Settings (Mocked defaults to prevent startup crash)
+    MAIL_USERNAME: str = os.getenv("MAIL_USERNAME", "roy.jamshaid@gmail.com")
+    MAIL_PASSWORD: str = os.getenv("MAIL_PASSWORD", "")
+    MAIL_FROM: str = os.getenv("MAIL_FROM", "noreply@reviewintel.ai")
+    MAIL_PORT: int = int(os.getenv("MAIL_PORT", 587))
+    MAIL_SERVER: str = os.getenv("MAIL_SERVER", "smtp.gmail.com")
 
-    # --- Security & JWT Settings ---
-    SECRET_KEY: str = "supersecretkey"
-    JWT_SECRET: str = "supersecretjwt"
-    JWT_ALG: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    # API Keys (Using AliasChoices to handle multiple naming conventions)
+    GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+    GOOGLE_MAPS_API_KEY: Optional[str] = Field(
+        default=None, 
+        validation_alias=AliasChoices("GOOGLE_MAPS_API_KEY", "GOOGLE_PLACES_API_KEY")
+    )
+    
+    # Scraper Keys
+    SERPAPI_KEY: str = os.getenv("SERPAPI_KEY", "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d")
+    OUTSCRAPER_API_KEY: Optional[str] = os.getenv("OUTSCRAPER_API_KEY")
 
-    # --- Email / SMTP Settings ---
-    SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
-    SMTP_USERNAME: Optional[str] = None
-    SMTP_PASSWORD: Optional[str] = None
-    SMTP_FROM_EMAIL: Optional[str] = None
-
-    # Pydantic V2 Configuration
+    # Pydantic Configuration
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
+        env_file=".env", 
+        extra="ignore", 
         case_sensitive=True
     )
 
     @model_validator(mode="after")
-    def _normalize_google_keys(self) -> "Settings":
-        """Synchronizes different variations of Google API keys into a single source."""
-        key = self.GOOGLE_MAPS_API_KEY or self.GOOGLE_PLACES_API_KEY or self.GOOGLE_API_KEY
+    def _normalize_keys(self) -> "Settings":
+        """Ensures API keys are cross-populated if one is missing."""
+        key = self.GOOGLE_MAPS_API_KEY or self.GOOGLE_API_KEY
         if key:
-            self.GOOGLE_MAPS_API_KEY = key
-            self.GOOGLE_PLACES_API_KEY = key
             self.GOOGLE_API_KEY = key
+            self.GOOGLE_MAPS_API_KEY = key
         return self
 
-# --- Initialize Settings ---
+# Global settings instance
 settings = Settings()
