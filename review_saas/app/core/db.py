@@ -9,7 +9,9 @@ class Base(DeclarativeBase):
     pass
 
 def _get_db_url() -> str:
+    # Use the Railway DATABASE_URL or fallback to local sqlite
     url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./test.db").strip()
+    # Ensure the driver is async-compatible
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+asyncpg://", 1)
     elif url.startswith("postgresql://") and "+asyncpg" not in url:
@@ -17,13 +19,29 @@ def _get_db_url() -> str:
     return url
 
 DATABASE_URL = _get_db_url()
-engine = create_async_engine(DATABASE_URL, future=True)
-SessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
 
-def get_session(): # For router dependency
-    return SessionLocal()
+# Engine creation with pool_pre_ping to keep connections alive on Railway
+engine: AsyncEngine = create_async_engine(
+    DATABASE_URL, 
+    future=True, 
+    pool_pre_ping=True
+)
+
+SessionLocal = async_sessionmaker(
+    bind=engine, 
+    expire_on_commit=False, 
+    class_=AsyncSession
+)
+
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
+    async with SessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
 
 async def init_models():
+    # Local import inside the function to break circular dependency
     from app.core import models 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
