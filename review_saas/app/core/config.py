@@ -1,4 +1,5 @@
 # filename: app/core/config.py
+from __future__ import annotations
 import os
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,11 +14,10 @@ class Settings(BaseSettings):
 
     # --- Scraping Settings ---
     OUTSCRAPER_API_KEY: Optional[str] = None
-    OUTSCAPTER_KEY: Optional[str] = None  # Typo support for legacy envs
+    OUTSCAPTER_KEY: Optional[str] = None
     OUTSCRAPER_BASE_URL: str = "https://api.outscraper.com"
 
     # --- Database Settings ---
-    # Field with default prevents crash if DATABASE_URL is missing during build
     DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./test.db")
 
     # --- Google OAuth & API Settings ---
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     GOOGLE_REFRESH_TOKEN: str = "dummy_refresh_token"
     GOOGLE_REDIRECT_URI: str = "https://sentiment-analysis-production-f96a.up.railway.app/auth/callback"
 
-    # We define GOOGLE_API_KEY as a standard field so main.py can access it reliably
+    # Standard field for use in main.py
     GOOGLE_API_KEY: str = ""
     
     GOOGLE_MAPS_API_KEY: Optional[str] = Field(
@@ -68,9 +68,9 @@ class Settings(BaseSettings):
         case_sensitive=True
     )
 
-    # --- Normalize Google API keys ---
     @model_validator(mode="after")
     def _normalize_google_keys(self) -> "Settings":
+        # Check all possible sources for the key
         key = self.GOOGLE_MAPS_API_KEY or self.GOOGLE_PLACES_API_KEY or self.GOOGLE_API_KEY
         if key:
             self.GOOGLE_MAPS_API_KEY = key
