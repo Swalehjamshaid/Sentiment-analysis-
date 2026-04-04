@@ -62,8 +62,7 @@ async def _set_stored_schema_version(
     if row:
         row.value = new_value
     else:
-        row = ConfigModel(key="SCHEMA_VERSION", value=new_value)
-        session.add(row)
+        session.add(ConfigModel(key="SCHEMA_VERSION", value=new_value))
     await session.commit()
 
 
@@ -84,14 +83,8 @@ async def check_schema_version_change() -> Tuple[bool, Optional[str], str]:
         return False, old_version, new_version
 
 
-# ✅ SAFE SCHEMA UPDATE (NO DATA LOSS)
+# ✅ SAFE schema application (no drops, no data loss)
 async def apply_schema_updates():
-    """
-    Safely apply schema changes:
-    - Creates new tables
-    - Adds new columns (DB dependent)
-    - NEVER drops existing data
-    """
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
     logger.info("✅ Schema applied safely (no data loss)")
@@ -104,8 +97,7 @@ async def lifespan(app: FastAPI):
     try:
         await init_models()
 
-        changed, old_v, new_v = await check_schema_version_change()
-
+        changed, _, new_v = await check_schema_version_change()
         if changed:
             await apply_schema_updates()
             async with SessionLocal() as session:
@@ -196,7 +188,6 @@ async def login_post(
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_view(request: Request):
     user = request.session.get("user")
-
     if not user:
         return RedirectResponse("/login")
 
@@ -216,7 +207,7 @@ async def logout(request: Request):
     return RedirectResponse("/login")
 
 
-# --------------------------- Router Mounting ---------------------------
+# --------------------------- Routers ---------------------------
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
@@ -234,4 +225,3 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=int(os.environ.get("PORT", 8080)),
     )
-``
