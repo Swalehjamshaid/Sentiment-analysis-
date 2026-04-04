@@ -1,125 +1,124 @@
 # filename: app/core/models.py
-
 from __future__ import annotations
-import datetime
+from datetime import datetime
+from typing import List, Optional, Dict, Any
 from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    Boolean,
-    DateTime,
-    Text,
-    ForeignKey,
-    func,
+    Integer, String, Float, Text, Boolean, DateTime, 
+    JSON, ForeignKey, UniqueConstraint, func
 )
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import relationship, Mapped, mapped_column
 
-# Base declarative class for SQLAlchemy
-Base = declarative_base()
+# Use the shared Base from your DB module to avoid circular imports
+from app.core.db import Base
 
-# --------------------------- SCHEMA VERSION ---------------------------
-SCHEMA_VERSION = "1.0.0"
+# ---------------------------------------------------
+# SCHEMA VERSION
+# ---------------------------------------------------
+SCHEMA_VERSION = "25.0.6-added-company-cid-table"
 
-# --------------------------- Config Table ---------------------------
-class Config(Base):
-    __tablename__ = "config"
-    id = Column(Integer, primary_key=True, index=True)
-    key = Column(String(255), unique=True, nullable=False)
-    value = Column(String(255), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
-
-# --------------------------- User Table ---------------------------
+# ---------------------------------------------------
+# Users Table
+# ---------------------------------------------------
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
-    email = Column(String(255), unique=True, index=True, nullable=False)
-    hashed_password = Column(String(255), nullable=False)
-    is_active = Column(Boolean, default=True)
-    is_superuser = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    # Example relationship to other tables
+    # Relationships
     companies = relationship("Company", back_populates="owner")
 
-# --------------------------- Company Table ---------------------------
+
+# ---------------------------------------------------
+# Companies Table
+# ---------------------------------------------------
 class Company(Base):
     __tablename__ = "companies"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    owner_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    owner_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    
+    # Basic info used by the Dashboard
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    address: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    
+    # Google Identifiers (Used by Autocomplete & Scraper)
+    google_place_id: Mapped[Optional[str]] = mapped_column(String(512), unique=True, index=True)
+    
+    # Cached Stats for KPI cards
+    rating: Mapped[float] = mapped_column(Float, default=0.0)
+    reviews_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Sync tracking
+    last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    owner = relationship("User", back_populates="companies")
+    reviews = relationship("Review", back_populates="company", cascade="all, delete-orphan")
+    
+    # Link to CompanyCID for deep scraping
+    cid_info: Mapped[Optional["CompanyCID"]] = relationship(
+        "CompanyCID", back_populates="company", uselist=False, cascade="all, delete-orphan"
     )
 
-    owner = relationship("User", back_populates="companies")
-    reviews = relationship("Review", back_populates="company")
 
-# --------------------------- Review Table ---------------------------
+# ---------------------------------------------------
+# Reviews Table
+# ---------------------------------------------------
 class Review(Base):
     __tablename__ = "reviews"
-
-    id = Column(Integer, primary_key=True, index=True)
-    company_id = Column(Integer, ForeignKey("companies.id"))
-    user_id = Column(Integer, ForeignKey("users.id"))
-    rating = Column(Integer, nullable=False)
-    comment = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
+    __table_args__ = (
+        UniqueConstraint("company_id", "google_review_id", name="_company_review_uc"),
     )
 
-    company = relationship("Company", back_populates="reviews")
-    user = relationship("User")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    company_id: Mapped[int] = mapped_column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    
+    # Google Review Data
+    google_review_id: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
+    author_name: Mapped[Optional[str]] = mapped_column(String(255))
+    rating: Mapped[Optional[int]] = mapped_column(Integer)
+    text: Mapped[Optional[str]] = mapped_column(Text)
+    google_review_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    
+    # AI Sentiment & Emotions (Required for Radar/Trend charts)
+    sentiment_label: Mapped[Optional[str]] = mapped_column(String(50)) # e.g., "Positive", "Negative"
+    sentiment_score: Mapped[float] = mapped_column(Float, default=0.0)
+    emotion_label: Mapped[Optional[str]] = mapped_column(String(50))   # e.g., "Happy", "Angry", "Neutral"
+    
+    # Sync Tracking
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-# --------------------------- Export Log Table ---------------------------
-class ExportLog(Base):
-    __tablename__ = "export_logs"
+    # Relationship
+    company: Mapped["Company"] = relationship("Company", back_populates="reviews")
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    file_path = Column(String(1024), nullable=False)
-    status = Column(String(50), default="pending")
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
 
-    user = relationship("User")
+# ---------------------------------------------------
+# CompanyCID Table (The Missing Link)
+# ---------------------------------------------------
+class CompanyCID(Base):
+    """Stores the Google Maps CID for deep scraping logic."""
+    __tablename__ = "company_cids"
 
-# --------------------------- Google Check Table ---------------------------
-class GoogleCheck(Base):
-    __tablename__ = "google_checks"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    company_id: Mapped[int] = mapped_column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), unique=True, nullable=False)
+    
+    cid: Mapped[str] = mapped_column(String(100), nullable=False)
+    place_id: Mapped[Optional[str]] = mapped_column(String(512))
+    
+    company: Mapped["Company"] = relationship("Company", back_populates="cid_info")
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    status = Column(String(50), nullable=False)
-    details = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
 
-    user = relationship("User")
+# ---------------------------------------------------
+# Config Table (For Stegman Rule tracking)
+# ---------------------------------------------------
+class Config(Base):
+    """Stores system-wide metadata like current schema version."""
+    __tablename__ = "config"
+    key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    value: Mapped[Optional[str]] = mapped_column(String(1000))
