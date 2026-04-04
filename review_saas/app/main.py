@@ -13,7 +13,7 @@ from starlette.templating import Jinja2Templates
 from sqlalchemy import select
 from passlib.context import CryptContext
 
-# Absolute path resolution for Docker/Railway compatibility
+# Absolute path resolution to fix importlib/uvicorn issues on Railway
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.config import settings
@@ -22,64 +22,69 @@ from app.core import models
 from app.core.models import User, SCHEMA_VERSION, Config as ConfigModel
 from app.routes import auth, companies, dashboard, reviews, exports, google_check
 
+# Initialize password context and logger
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("app.main")
 
 async def _get_stored_schema_version(session):
+    """Internal helper to read the current database schema version."""
     res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
     row = res.scalar_one_or_none()
     return row.value if row else None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("🚀 Starting Review Intel AI...")
+    """
+    Lifespan manager to handle startup and shutdown.
+    Implements Stegman Rules for schema versioning and auto-reset.
+    """
+    logger.info("🚀 Review Intel AI: Lifespan Startup...")
     await init_models()
     async with SessionLocal() as session:
         old_v = await _get_stored_schema_version(session)
         if old_v != str(SCHEMA_VERSION):
-            logger.warning(f"🧩 Schema Change Detected: {old_v} -> {SCHEMA_VERSION}. Resetting DB...")
+            logger.warning(f"🧩 SCHEMA CHANGE: {old_v} -> {SCHEMA_VERSION}. Resetting...")
             async with engine.begin() as conn:
                 await conn.run_sync(models.Base.metadata.drop_all)
                 await conn.run_sync(models.Base.metadata.create_all)
             
-            # Update Version Key
+            # Update schema version record
             res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
             row = res.scalar_one_or_none()
-            if row: row.value = str(SCHEMA_VERSION)
-            else: session.add(ConfigModel(key="SCHEMA_VERSION", value=str(SCHEMA_VERSION)))
+            if row:
+                row.value = str(SCHEMA_VERSION)
+            else:
+                session.add(ConfigModel(key="SCHEMA_VERSION", value=str(SCHEMA_VERSION)))
             await session.commit()
     yield
-    logger.info("🛑 Shutting down...")
+    logger.info("🛑 Review Intel AI: Lifespan Shutdown...")
 
+# Initialize FastAPI App
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
-# Middleware
+# Middleware Configuration
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"])
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
-# Static & Templates
+# Static and Template Configuration
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
-templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+static_path = os.path.join(BASE_DIR, "static")
+if os.path.exists(static_path):
+    app.mount("/static", StaticFiles(directory=static_path), name="static")
 
-# --- Helper: Current User ---
-def get_current_user(request: Request):
-    return request.session.get("user")
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 # --- Core Routes ---
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    if get_current_user(request):
+    if request.session.get("user"):
         return RedirectResponse("/dashboard")
     return RedirectResponse("/login")
 
-@app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request, error: str = None, message: str = None):
-    return templates.TemplateResponse("login.html", {"request": request, "error": error, "message": message})
-
 @app.post("/login")
 async def handle_login(request: Request, email: str = Form(...), password: str = Form(...), db=Depends(get_db)):
+    """Handles secure user login with verification check."""
     email_clean = email.strip().lower()
     res = await db.execute(select(User).where(User.email == email_clean))
     user = res.scalars().first()
@@ -88,31 +93,20 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
         if not user.is_verified:
             return templates.TemplateResponse("login.html", {
                 "request": request, 
-                "error": "Account not verified. Please check your email."
+                "error": "Account unverified. Please check your email for the link."
             })
         
         request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
         return RedirectResponse("/dashboard", status_code=303)
     
-    return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid email or password."})
-
-@app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard_view(request: Request):
-    user = get_current_user(request)
-    if not user:
-        return RedirectResponse("/login")
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request, 
-        "user": user,
-        "schema_version": getattr(app.state, "schema_version", SCHEMA_VERSION)
-    })
+    return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials."})
 
 @app.get("/logout")
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login")
 
-# Mount Routers
+# --- Router Mounting ---
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
@@ -122,4 +116,5 @@ app.include_router(google_check.router, prefix="/api", tags=["google_check"])
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
