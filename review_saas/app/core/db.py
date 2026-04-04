@@ -4,19 +4,22 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker, AsyncEngine
 from sqlalchemy.orm import DeclarativeBase
 
-# Setup logging
+# Setup logging to track the connection state
 logger = logging.getLogger("app.core.db")
 
 class Base(DeclarativeBase):
     """
     Isolated Declarative Base.
     Defining this here allows models.py to import it without triggering 
-    the engine or session logic, which is the root cause of circular loops.
+    the engine or session logic prematurely, which stops the circular loop.
     """
     pass
 
 def _get_db_url() -> str:
-    """Normalizes the DATABASE_URL for SQLAlchemy 2.0 async drivers."""
+    """
+    Normalizes the DATABASE_URL for SQLAlchemy 2.0 async drivers.
+    Fixes the 'postgres://' vs 'postgresql+asyncpg://' issue automatically.
+    """
     url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./test.db").strip()
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+asyncpg://", 1)
@@ -26,12 +29,13 @@ def _get_db_url() -> str:
 
 DATABASE_URL = _get_db_url()
 
-# Engine configuration with pool_pre_ping for cloud stability (Railway/Render)
+# Engine configuration with pool_pre_ping for Railway/Production stability
 engine: AsyncEngine = create_async_engine(
     DATABASE_URL,
     echo=False,
     future=True,
-    pool_pre_ping=True
+    pool_pre_ping=True,
+    connect_args={"command_timeout": 60} if "postgresql" in DATABASE_URL else {}
 )
 
 # Async session factory
@@ -42,7 +46,7 @@ SessionLocal = async_sessionmaker(
 )
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI Dependency for database sessions."""
+    """FastAPI Dependency for database sessions used in routes."""
     async with SessionLocal() as session:
         try:
             yield session
@@ -52,12 +56,15 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def init_models() -> None:
     """
     Initializes database tables.
-    CRITICAL: Models are imported LOCALLY inside this function to prevent 
-    circular dependency crashes during the app boot sequence.
+    CRITICAL: Models are imported LOCALLY inside this function.
+    This ensures the Python interpreter finishes loading the 'db' module
+    before it ever tries to map the 'models' module.
     """
     try:
-        from app.core import models 
+        # This local import is the secret to breaking the vicious circle
+        import app.core.models 
         async with engine.begin() as conn:
+            # We use the Base defined above to create all discovered tables
             await conn.run_sync(Base.metadata.create_all)
         logger.info("✅ Database schema initialized successfully.")
     except Exception as e:
