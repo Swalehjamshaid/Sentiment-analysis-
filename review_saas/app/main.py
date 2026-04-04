@@ -18,11 +18,12 @@ from passlib.context import CryptContext
 
 # --- 1. PATH RESOLUTION (Strict Alignment for review_saas structure) ---
 CURRENT_FILE_PATH = os.path.abspath(__file__)
-APP_DIR = os.path.dirname(CURRENT_FILE_PATH)        # /app/
-PACKAGE_DIR = os.path.dirname(APP_DIR)             # /review_saas/
+APP_DIR = os.path.dirname(CURRENT_FILE_PATH)        # path to .../app/
+PACKAGE_DIR = os.path.dirname(APP_DIR)             # path to .../review_saas/
 ROOT_DIR = os.path.dirname(PACKAGE_DIR)            # Project Root
 
 # Ensure Python can see the modules regardless of how Uvicorn is started
+# Adding these to sys.path breaks the "Vicious Circle" of ModuleNotFoundError
 for path in [ROOT_DIR, PACKAGE_DIR, APP_DIR]:
     if path not in sys.path:
         sys.path.insert(0, path)
@@ -35,9 +36,17 @@ try:
     from app.core.models import User, SCHEMA_VERSION, Config as ConfigModel
     from app.routes import auth, companies, dashboard, reviews, exports, google_check
 except ImportError as e:
-    logger = logging.getLogger("app.main")
-    logger.error(f"CRITICAL IMPORT ERROR: {e}. Check __init__.py files.")
-    raise
+    # If the standard import fails, we try a direct local import fallback
+    try:
+        from core.config import settings
+        from core.db import init_models, get_db, SessionLocal, engine
+        from core import models
+        from core.models import User, SCHEMA_VERSION, Config as ConfigModel
+        from routes import auth, companies, dashboard, reviews, exports, google_check
+    except ImportError:
+        logger = logging.getLogger("app.main")
+        print(f"CRITICAL IMPORT ERROR: {e}. Ensure __init__.py exists in review_saas/ and app/")
+        raise
 
 # --- 2. LOGGING & SECURITY ---
 logging.basicConfig(
@@ -89,6 +98,7 @@ async def lifespan(app: FastAPI):
                 if old_v != new_v:
                     logger.warning(f"🧩 Schema Mismatch: {old_v} -> {new_v}. Aligning...")
                     async with engine.begin() as conn:
+                        # Drop and Create to align with new code version
                         await conn.run_sync(models.Base.metadata.drop_all)
                         await conn.run_sync(models.Base.metadata.create_all)
                     await _update_stored_schema_version(session, new_v)
@@ -127,6 +137,7 @@ app.add_middleware(
 )
 
 # --- 6. STATIC & TEMPLATES ---
+# Using absolute path joins ensures Docker finds these folders correctly
 static_dir = os.path.join(APP_DIR, "static")
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -205,6 +216,7 @@ app.include_router(google_check.router, prefix="/api", tags=["google_check"])
 # --- 9. PRODUCTION ENTRYPOINT ---
 if __name__ == "__main__":
     import uvicorn
+    # Respect Railway's PORT assignment
     port = int(os.environ.get("PORT", 8080))
-    # Using the string module path ensures proper reload behavior
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
+    # Using full path string for uvicorn to prevent double-import cycles
+    uvicorn.run("review_saas.app.main:app", host="0.0.0.0", port=port, reload=False)
