@@ -1,33 +1,35 @@
+# ============================================================
 # filename: app/main.py
+# ============================================================
 
-# ============================================================
-# SQLAlchemy Deprecation Warning Suppression (REQUIRED)
-# ============================================================
+# ------------------------------------------------------------
+# SQLAlchemy deprecation warning suppression (Python 3.12)
+# ------------------------------------------------------------
 import warnings
 from sqlalchemy.exc import SADeprecationWarning
 
 warnings.filterwarnings("ignore", category=SADeprecationWarning)
 
-# ============================================================
-# Standard Library Imports
-# ============================================================
+# ------------------------------------------------------------
+# Standard library imports
+# ------------------------------------------------------------
 import sys
 import os
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional, Tuple
 
-# ============================================================
-# Path Fix for Docker / Gunicorn
-# ============================================================
+# ------------------------------------------------------------
+# Path alignment for Docker / Gunicorn
+# ------------------------------------------------------------
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 if PARENT_DIR not in sys.path:
     sys.path.insert(0, PARENT_DIR)
 
-# ============================================================
-# FastAPI & Framework Imports
-# ============================================================
+# ------------------------------------------------------------
+# FastAPI imports
+# ------------------------------------------------------------
 from fastapi import FastAPI, Request, Depends, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -35,15 +37,15 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
-# ============================================================
-# SQLAlchemy Imports
-# ============================================================
+# ------------------------------------------------------------
+# SQLAlchemy imports
+# ------------------------------------------------------------
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# ============================================================
-# Project Imports
-# ============================================================
+# ------------------------------------------------------------
+# Project imports
+# ------------------------------------------------------------
 from app.core.config import settings
 from app.core.db import init_models, get_session, SessionLocal, engine
 from app.core import models
@@ -53,18 +55,18 @@ from app.core.security import verify_password
 # Routers
 from app.routes import auth, companies, dashboard, reviews, exports, google_check
 
-# ============================================================
-# Logging Configuration
-# ============================================================
+# ------------------------------------------------------------
+# Logging
+# ------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("app.main")
 
-# ============================================================
-# Schema Version Helpers (FIXED — NO SYNTAX ERRORS)
-# ============================================================
+# ------------------------------------------------------------
+# Schema helpers (✅ SYNTAX FIXED)
+# ------------------------------------------------------------
 async def _get_stored_schema_version(
     session: AsyncSession,
 ) -> Optional[str]:
@@ -106,24 +108,21 @@ async def check_schema_version_change() -> Tuple[bool, Optional[str], str]:
 
         return False, old_version, new_version
 
-# ============================================================
-# SAFE SCHEMA APPLICATION (NO DROP, NO DATA LOSS)
-# ============================================================
-async def apply_schema_updates():
-    """
-    - Creates new tables
-    - Adds new columns (DB dependent)
-    - NEVER drops existing data
-    """
+# ------------------------------------------------------------
+# SAFE schema application (NO DROPS)
+# ------------------------------------------------------------
+async def apply_schema_updates() -> None:
     async with engine.begin() as conn:
         def _safe_create(sync_conn):
             models.Base.metadata.create_all(bind=sync_conn)
+
         await conn.run_sync(_safe_create)
+
     logger.info("✅ Schema applied safely")
 
-# ============================================================
-# Application Lifespan
-# ============================================================
+# ------------------------------------------------------------
+# Lifespan
+# ------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 Starting Review Intel AI")
@@ -145,17 +144,17 @@ async def lifespan(app: FastAPI):
 
     yield
 
-# ============================================================
-# FastAPI App Initialization
-# ============================================================
+# ------------------------------------------------------------
+# FastAPI app
+# ------------------------------------------------------------
 app = FastAPI(
     title=getattr(settings, "APP_NAME", "Review SaaS AI"),
     lifespan=lifespan,
 )
 
-# ============================================================
+# ------------------------------------------------------------
 # Middleware
-# ============================================================
+# ------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -169,9 +168,9 @@ app.add_middleware(
     secret_key=settings.SECRET_KEY,
 )
 
-# ============================================================
-# Static & Templates
-# ============================================================
+# ------------------------------------------------------------
+# Static & templates
+# ------------------------------------------------------------
 if os.path.exists(os.path.join(CURRENT_DIR, "static")):
     app.mount(
         "/static",
@@ -183,9 +182,9 @@ templates = Jinja2Templates(
     directory=os.path.join(CURRENT_DIR, "templates")
 )
 
-# ============================================================
-# Views (HTML)
-# ============================================================
+# ------------------------------------------------------------
+# Views
+# ------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     return (
@@ -248,9 +247,9 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login")
 
-# ============================================================
-# Router Registration
-# ============================================================
+# ------------------------------------------------------------
+# Routers
+# ------------------------------------------------------------
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
@@ -258,11 +257,12 @@ app.include_router(reviews.router, prefix="/api", tags=["reviews"])
 app.include_router(exports.router, prefix="/api", tags=["exports"])
 app.include_router(google_check.router, prefix="/api", tags=["google_check"])
 
-# ============================================================
-# Local Run
-# ============================================================
+# ------------------------------------------------------------
+# Local run
+# ------------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
