@@ -4,18 +4,19 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker, AsyncEngine
 from sqlalchemy.orm import DeclarativeBase
 
-# Setup logging for database operations
+# Setup logging
 logger = logging.getLogger("app.core.db")
 
 class Base(DeclarativeBase):
     """
-    Shared Declarative Base. 
-    Models will import this to avoid circular dependencies with engine/session logic.
+    Isolated Declarative Base.
+    Defining this here allows models.py to import it without triggering 
+    the engine or session logic, which is the root cause of circular loops.
     """
     pass
 
 def _get_db_url() -> str:
-    """Normalizes the DATABASE_URL for asyncpg compatibility."""
+    """Normalizes the DATABASE_URL for SQLAlchemy 2.0 async drivers."""
     url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./test.db").strip()
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+asyncpg://", 1)
@@ -25,7 +26,7 @@ def _get_db_url() -> str:
 
 DATABASE_URL = _get_db_url()
 
-# Engine configuration with pool_pre_ping for Railway stability
+# Engine configuration with pool_pre_ping for cloud stability (Railway/Render)
 engine: AsyncEngine = create_async_engine(
     DATABASE_URL,
     echo=False,
@@ -41,7 +42,7 @@ SessionLocal = async_sessionmaker(
 )
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Dependency for FastAPI routes to provide a database session."""
+    """FastAPI Dependency for database sessions."""
     async with SessionLocal() as session:
         try:
             yield session
@@ -52,13 +53,13 @@ async def init_models() -> None:
     """
     Initializes database tables.
     CRITICAL: Models are imported LOCALLY inside this function to prevent 
-    the 'frozen importlib' circular dependency crash at runtime.
+    circular dependency crashes during the app boot sequence.
     """
     try:
         from app.core import models 
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("✅ Database tables initialized successfully.")
+        logger.info("✅ Database schema initialized successfully.")
     except Exception as e:
-        logger.error(f"❌ Failed to initialize database tables: {e}")
+        logger.error(f"❌ Database initialization failed: {e}")
         raise e
