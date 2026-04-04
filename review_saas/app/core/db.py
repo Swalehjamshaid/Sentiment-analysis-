@@ -17,30 +17,21 @@ from sqlalchemy.orm import DeclarativeBase
 logger = logging.getLogger("app.core.db")
 
 # ---------------------------------------------------------
-# DECLARATIVE BASE (ISOLATED TO PREVENT CIRCULAR IMPORTS)
+# DECLARATIVE BASE
 # ---------------------------------------------------------
 class Base(DeclarativeBase):
-    """
-    Shared Declarative Base.
-    Imported by models without triggering engine creation.
-    """
     pass
 
 # ---------------------------------------------------------
 # DATABASE URL NORMALIZATION
 # ---------------------------------------------------------
 def _get_db_url() -> str:
-    """
-    Normalize DATABASE_URL for SQLAlchemy async usage.
-    """
     url = os.getenv("DATABASE_URL", "").strip()
     
-    # If no DATABASE_URL provided, use SQLite as fallback
     if not url:
         logger.warning("DATABASE_URL not set, using SQLite fallback: ./test.db")
         url = "sqlite+aiosqlite:///./test.db"
     
-    # Convert PostgreSQL URLs to async format
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+asyncpg://", 1)
     elif url.startswith("postgresql://") and "+asyncpg" not in url:
@@ -50,84 +41,81 @@ def _get_db_url() -> str:
     
     return url
 
-
 DATABASE_URL = _get_db_url()
 logger.info(f"Database URL type: {DATABASE_URL.split('://')[0] if '://' in DATABASE_URL else 'unknown'}")
 
 # ---------------------------------------------------------
-# LAZY ENGINE INITIALIZATION (CRITICAL FIX)
+# LAZY INITIALIZATION (BUT WITH DIRECT EXPORTS)
 # ---------------------------------------------------------
 _engine: Optional[AsyncEngine] = None
-_sessionmaker: Optional[async_sessionmaker] = None
+_SessionLocal: Optional[async_sessionmaker] = None
 
-def get_engine() -> AsyncEngine:
-    """
-    Lazy engine creation - only creates when first needed.
-    This prevents startup crashes if database is unavailable.
-    """
+def _create_engine() -> AsyncEngine:
+    """Create the database engine (called lazily)"""
+    engine_kwargs = {
+        "echo": False,
+        "future": True,
+        "pool_pre_ping": True,
+    }
+    
+    if DATABASE_URL.startswith("postgresql+asyncpg://"):
+        engine_kwargs["connect_args"] = {"command_timeout": 60}
+        engine_kwargs["pool_size"] = 5
+        engine_kwargs["max_overflow"] = 10
+    elif DATABASE_URL.startswith("sqlite+aiosqlite://"):
+        engine_kwargs["connect_args"] = {"check_same_thread": False}
+    
+    try:
+        engine = create_async_engine(DATABASE_URL, **engine_kwargs)
+        logger.info("✅ Database engine created successfully")
+        return engine
+    except Exception as e:
+        logger.error(f"❌ Failed to create database engine: {e}")
+        raise
+
+def _get_engine() -> AsyncEngine:
+    """Lazy engine getter"""
     global _engine
     if _engine is None:
-        engine_kwargs = {
-            "echo": False,
-            "future": True,
-            "pool_pre_ping": True,
-        }
-        
-        # Add PostgreSQL-specific timeout
-        if DATABASE_URL.startswith("postgresql+asyncpg://"):
-            engine_kwargs["connect_args"] = {"command_timeout": 60}
-            engine_kwargs["pool_size"] = 5
-            engine_kwargs["max_overflow"] = 10
-        # SQLite-specific settings
-        elif DATABASE_URL.startswith("sqlite+aiosqlite://"):
-            engine_kwargs["connect_args"] = {"check_same_thread": False}
-        
-        try:
-            _engine = create_async_engine(DATABASE_URL, **engine_kwargs)
-            logger.info("✅ Database engine created successfully")
-        except Exception as e:
-            logger.error(f"❌ Failed to create database engine: {e}")
-            raise
-    
+        _engine = _create_engine()
     return _engine
 
-def get_sessionmaker() -> async_sessionmaker:
-    """
-    Lazy sessionmaker creation.
-    """
-    global _sessionmaker
-    if _sessionmaker is None:
-        engine = get_engine()
-        _sessionmaker = async_sessionmaker(
+def _get_session_local() -> async_sessionmaker:
+    """Lazy sessionmaker getter"""
+    global _SessionLocal
+    if _SessionLocal is None:
+        engine = _get_engine()
+        _SessionLocal = async_sessionmaker(
             bind=engine,
             expire_on_commit=False,
             class_=AsyncSession,
         )
         logger.info("✅ Sessionmaker created successfully")
-    
-    return _sessionmaker
+    return _SessionLocal
 
 # ---------------------------------------------------------
-# BACKWARD-COMPATIBLE EXPORTS
+# DIRECT EXPORTS FOR MAIN.PY (BACKWARD COMPATIBLE)
 # ---------------------------------------------------------
 @property
 def engine() -> AsyncEngine:
-    """Property for backward compatibility - returns lazy engine"""
-    return get_engine()
+    """Direct engine access (as property)"""
+    return _get_engine()
 
 @property
 def SessionLocal() -> async_sessionmaker:
-    """Property for backward compatibility - returns lazy sessionmaker"""
-    return get_sessionmaker()
+    """Direct SessionLocal access (as property)"""
+    return _get_session_local()
+
+# Also export as functions for direct import
+engine = _get_engine()
+SessionLocal = _get_session_local()
 
 # ---------------------------------------------------------
 # FASTAPI DATABASE DEPENDENCY
 # ---------------------------------------------------------
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """
-    Primary FastAPI dependency that yields an AsyncSession.
-    """
-    sessionmaker = get_sessionmaker()
+    """Primary FastAPI dependency that yields an AsyncSession"""
+    sessionmaker = _get_session_local()
     async with sessionmaker() as session:
         try:
             yield session
@@ -138,21 +126,15 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         finally:
             await session.close()
 
-# ---------------------------------------------------------
-# BACKWARD-COMPATIBILITY ALIAS
-# ---------------------------------------------------------
 get_session = get_db
 
 # ---------------------------------------------------------
-# HEALTH CHECK FUNCTION
+# HEALTH CHECK
 # ---------------------------------------------------------
 async def check_db_connection() -> bool:
-    """
-    Check if database is reachable.
-    Returns True if connected, False otherwise.
-    """
+    """Check if database is reachable"""
     try:
-        sessionmaker = get_sessionmaker()
+        sessionmaker = _get_session_local()
         async with sessionmaker() as session:
             await session.execute("SELECT 1")
             logger.info("✅ Database health check passed")
@@ -162,24 +144,19 @@ async def check_db_connection() -> bool:
         return False
 
 # ---------------------------------------------------------
-# MODEL INITIALIZATION (IMPROVED ERROR HANDLING)
+# MODEL INITIALIZATION
 # ---------------------------------------------------------
 async def init_models() -> None:
-    """
-    Initialize database tables.
-    This should be called during app lifespan.
-    """
+    """Initialize database tables"""
     try:
-        # Import models here to avoid circular imports
         import app.core.models  # noqa: F401
         
-        engine = get_engine()
+        engine = _get_engine()
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         
         logger.info("✅ Database schema initialized successfully")
         
-        # Verify connection
         if not await check_db_connection():
             logger.warning("⚠️ Database connection verification failed after initialization")
     
@@ -191,15 +168,13 @@ async def init_models() -> None:
         raise
 
 # ---------------------------------------------------------
-# CLEANUP FUNCTION
+# CLEANUP
 # ---------------------------------------------------------
 async def dispose_engine() -> None:
-    """
-    Properly dispose of database engine on shutdown.
-    """
-    global _engine, _sessionmaker
+    """Properly dispose of database engine on shutdown"""
+    global _engine, _SessionLocal
     if _engine is not None:
         await _engine.dispose()
         _engine = None
-        _sessionmaker = None
+        _SessionLocal = None
         logger.info("✅ Database engine disposed successfully")
