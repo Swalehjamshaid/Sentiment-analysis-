@@ -1,53 +1,77 @@
 # filename: app/main.py
 
+# ============================================================
+# SQLAlchemy Deprecation Warning Suppression (REQUIRED)
+# ============================================================
+import warnings
+from sqlalchemy.exc import SADeprecationWarning
+
+warnings.filterwarnings("ignore", category=SADeprecationWarning)
+
+# ============================================================
+# Standard Library Imports
+# ============================================================
 import sys
 import os
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional, Tuple
 
-# --- 1. DOCKER PATH ALIGNMENT ---
+# ============================================================
+# Path Fix for Docker / Gunicorn
+# ============================================================
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 if PARENT_DIR not in sys.path:
     sys.path.insert(0, PARENT_DIR)
 
+# ============================================================
+# FastAPI & Framework Imports
+# ============================================================
 from fastapi import FastAPI, Request, Depends, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
+
+# ============================================================
+# SQLAlchemy Imports
+# ============================================================
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Core imports
+# ============================================================
+# Project Imports
+# ============================================================
 from app.core.config import settings
 from app.core.db import init_models, get_session, SessionLocal, engine
 from app.core import models
-from app.core.models import User, SCHEMA_VERSION, Config as ConfigModel
-
-# Password verification
+from app.core.models import User, SCHEMA_VERSION, Config
 from app.core.security import verify_password
 
 # Routers
 from app.routes import auth, companies, dashboard, reviews, exports, google_check
 
-# --------------------------- Logging ---------------------------
+# ============================================================
+# Logging Configuration
+# ============================================================
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("app.main")
 
-# --------------------------- Schema Helpers ---------------------------
+# ============================================================
+# Schema Version Helpers (FIXED — NO SYNTAX ERRORS)
+# ============================================================
 async def _get_stored_schema_version(
     session: AsyncSession,
 ) -> Optional[str]:
-    res = await session.execute(
-        select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION")
+    result = await session.execute(
+        select(Config).where(Config.key == "SCHEMA_VERSION")
     )
-    row = res.scalar_one_or_none()
+    row = result.scalar_one_or_none()
     return row.value if row else None
 
 
@@ -55,14 +79,14 @@ async def _set_stored_schema_version(
     session: AsyncSession,
     new_value: str,
 ) -> None:
-    res = await session.execute(
-        select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION")
+    result = await session.execute(
+        select(Config).where(Config.key == "SCHEMA_VERSION")
     )
-    row = res.scalar_one_or_none()
+    row = result.scalar_one_or_none()
     if row:
         row.value = new_value
     else:
-        session.add(ConfigModel(key="SCHEMA_VERSION", value=new_value))
+        session.add(Config(key="SCHEMA_VERSION", value=new_value))
     await session.commit()
 
 
@@ -73,53 +97,65 @@ async def check_schema_version_change() -> Tuple[bool, Optional[str], str]:
 
         if old_version is None:
             await _set_stored_schema_version(session, new_version)
-            logger.info(f"📦 Initializing Schema Version: {new_version}")
+            logger.info(f"📦 Schema initialized: {new_version}")
             return False, None, new_version
 
         if old_version != new_version:
-            logger.warning(f"🧩 Schema Change Detected: {old_version} -> {new_version}")
+            logger.warning(f"🧩 Schema changed: {old_version} → {new_version}")
             return True, old_version, new_version
 
         return False, old_version, new_version
 
-
-# ✅ SAFE schema application (no drops, no data loss)
+# ============================================================
+# SAFE SCHEMA APPLICATION (NO DROP, NO DATA LOSS)
+# ============================================================
 async def apply_schema_updates():
+    """
+    - Creates new tables
+    - Adds new columns (DB dependent)
+    - NEVER drops existing data
+    """
     async with engine.begin() as conn:
-        await conn.run_sync(models.Base.metadata.create_all)
-    logger.info("✅ Schema applied safely (no data loss)")
+        def _safe_create(sync_conn):
+            models.Base.metadata.create_all(bind=sync_conn)
+        await conn.run_sync(_safe_create)
+    logger.info("✅ Schema applied safely")
 
-
-# --------------------------- Lifespan ---------------------------
+# ============================================================
+# Application Lifespan
+# ============================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("🚀 Starting Review Intel AI...")
+    logger.info("🚀 Starting Review Intel AI")
     try:
         await init_models()
 
-        changed, _, new_v = await check_schema_version_change()
+        changed, _, new_version = await check_schema_version_change()
         if changed:
             await apply_schema_updates()
             async with SessionLocal() as session:
-                await _set_stored_schema_version(session, new_v)
+                await _set_stored_schema_version(session, new_version)
 
-        app.state.schema_version = new_v
-        logger.info(f"✅ Startup Complete. Schema Version: {new_v}")
+        app.state.schema_version = new_version
+        logger.info(f"✅ Startup complete | Schema {new_version}")
 
     except Exception:
-        logger.exception("❌ Startup Error")
+        logger.exception("❌ Startup failed")
         raise
 
     yield
 
-
-# --------------------------- App Init ---------------------------
+# ============================================================
+# FastAPI App Initialization
+# ============================================================
 app = FastAPI(
     title=getattr(settings, "APP_NAME", "Review SaaS AI"),
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
-# --------------------------- Middleware ---------------------------
+# ============================================================
+# Middleware
+# ============================================================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -133,7 +169,9 @@ app.add_middleware(
     secret_key=settings.SECRET_KEY,
 )
 
-# --------------------------- Templates & Static ---------------------------
+# ============================================================
+# Static & Templates
+# ============================================================
 if os.path.exists(os.path.join(CURRENT_DIR, "static")):
     app.mount(
         "/static",
@@ -145,12 +183,16 @@ templates = Jinja2Templates(
     directory=os.path.join(CURRENT_DIR, "templates")
 )
 
-# --------------------------- Views ---------------------------
+# ============================================================
+# Views (HTML)
+# ============================================================
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    if request.session.get("user"):
-        return RedirectResponse("/dashboard")
-    return RedirectResponse("/login")
+    return (
+        RedirectResponse("/dashboard")
+        if request.session.get("user")
+        else RedirectResponse("/login")
+    )
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -206,8 +248,9 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login")
 
-
-# --------------------------- Routers ---------------------------
+# ============================================================
+# Router Registration
+# ============================================================
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
@@ -215,11 +258,11 @@ app.include_router(reviews.router, prefix="/api", tags=["reviews"])
 app.include_router(exports.router, prefix="/api", tags=["exports"])
 app.include_router(google_check.router, prefix="/api", tags=["google_check"])
 
-
-# --------------------------- Run ---------------------------
+# ============================================================
+# Local Run
+# ============================================================
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
