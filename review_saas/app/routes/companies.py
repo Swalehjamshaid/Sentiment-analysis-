@@ -1,5 +1,4 @@
 # filename: app/routes/companies.py
-
 from __future__ import annotations
 
 import logging
@@ -21,7 +20,9 @@ from pydantic import BaseModel
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_session
+# --- REFINED ALIGNMENT IMPORTS ---
+# Using 'get_db' as defined in your Level 1 db.py
+from app.core.db import get_db 
 from app.core.models import Company, Review
 from app.core.config import settings
 
@@ -30,10 +31,14 @@ logger = logging.getLogger("app.companies")
 router = APIRouter(tags=["companies"])
 
 # ----------------------------------------------------------
-# AUTH CHECK
+# AUTH CHECK (Refined to use session logic)
 # ----------------------------------------------------------
 
 def _require_user(request: Request) -> Dict[str, Any]:
+    """
+    Checks if a user exists in the session.
+    Internal helper for companies route.
+    """
     user = request.session.get("user")
     if not user:
         raise HTTPException(
@@ -87,6 +92,7 @@ class OutscraperClient:
             return data[0] if data else None
 
 def _osc() -> Optional[OutscraperClient]:
+    # Check OS env first, then fall back to settings object
     key = os.getenv("OUTSCRAPER_API_KEY") or settings.OUTSCRAPER_API_KEY
     if not key:
         return None
@@ -102,7 +108,7 @@ async def companies_list(
     page: int = 1,
     size: int = 20,
     q: Optional[str] = None,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_db) # Corrected session dependency
 ) -> List[Dict[str, Any]]:
 
     _require_user(request)
@@ -128,7 +134,10 @@ async def companies_list(
         ).where(Review.company_id == c.id)
 
         stats_res = await session.execute(stats_stmt)
-        count, avg = stats_res.first()
+        # Using .first() to handle empty results gracefully
+        stats_data = stats_res.first()
+        count = stats_data[0] if stats_data else 0
+        avg = stats_data[1] if stats_data else 0
 
         items.append({
             "id": c.id,
@@ -150,7 +159,7 @@ async def add_company(
     request: Request,
     company_in: CompanyCreate,
     background: BackgroundTasks,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_db) # Corrected session dependency
 ) -> Dict[str, Any]:
 
     _require_user(request)
@@ -201,7 +210,7 @@ async def add_company(
 async def delete_company(
     request: Request,
     company_id: int,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_db) # Corrected session dependency
 ) -> Dict[str, Any]:
 
     _require_user(request)
