@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from sqlalchemy import (
-    Integer, String, Float, Text, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint, func
+    Integer, String, Float, Text, Boolean, DateTime, JSON, 
+    ForeignKey, UniqueConstraint, func
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from app.core.db import Base
