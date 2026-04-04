@@ -1,6 +1,6 @@
 # --- Framework & Core ---
 fastapi>=0.110.0
-uvicorn[standard]==0.23.2         # pinned for Python 3.12 + click compatibility
+uvicorn[standard]==0.23.2          # compatible with Python 3.12 and click 8.2.0
 gunicorn>=21.2.0
 python-multipart>=0.0.12
 starlette>=0.36.3
@@ -10,7 +10,7 @@ pydantic-settings>=2.2.1
 pydantic-ai-slim>=0.0.12
 typing-extensions>=4.8.0
 email-validator>=2.1.0
-click==8.2.0                       # pinned to fix uvicorn CLI error
+click==8.2.0                        # pinned for uvicorn CLI fix
 
 # --- Auth & Security ---
 resend>=0.8.0
