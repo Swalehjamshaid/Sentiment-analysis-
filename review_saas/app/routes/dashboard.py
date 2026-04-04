@@ -18,7 +18,7 @@ from sqlalchemy import select, desc
 from fpdf import FPDF
 import openai
 
-from app.core.db import get_session
+db: AsyncSession = Depends(get_db) get_session
 from app.core.models import Company, Review
 
 # ----------------------------------------------------------
