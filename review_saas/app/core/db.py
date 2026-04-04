@@ -1,72 +1,111 @@
 import os
 import logging
 from typing import AsyncGenerator
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker, AsyncEngine
+
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    create_async_engine,
+    async_sessionmaker,
+    AsyncEngine,
+)
 from sqlalchemy.orm import DeclarativeBase
 
-# Setup logging to track the connection state
+# ---------------------------------------------------------
+# LOGGING
+# ---------------------------------------------------------
 logger = logging.getLogger("app.core.db")
 
+# ---------------------------------------------------------
+# DECLARATIVE BASE (ISOLATED TO PREVENT CIRCULAR IMPORTS)
+# ---------------------------------------------------------
 class Base(DeclarativeBase):
     """
     Isolated Declarative Base.
-    Defining this here allows models.py to import it without triggering 
-    the engine or session logic prematurely, which stops the circular loop.
+    Models import this Base without triggering engine/session setup.
     """
     pass
 
+# ---------------------------------------------------------
+# DATABASE URL NORMALIZATION
+# ---------------------------------------------------------
 def _get_db_url() -> str:
     """
-    Normalizes the DATABASE_URL for SQLAlchemy 2.0 async drivers.
-    Fixes the 'postgres://' vs 'postgresql+asyncpg://' issue automatically.
+    Normalize DATABASE_URL for SQLAlchemy 2.x async engines.
+    Fixes postgres:// vs postgresql+asyncpg:// automatically.
     """
     url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./test.db").strip()
+
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+asyncpg://", 1)
     elif url.startswith("postgresql://") and "+asyncpg" not in url:
         url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
     return url
+
 
 DATABASE_URL = _get_db_url()
 
-# Engine configuration with pool_pre_ping for Railway/Production stability
+# ---------------------------------------------------------
+# ASYNC DATABASE ENGINE
+# ---------------------------------------------------------
+engine_kwargs = {
+    "echo": False,
+    "future": True,
+    "pool_pre_ping": True,
+}
+
+# Only Postgres supports command_timeout
+if DATABASE_URL.startswith("postgresql+asyncpg://"):
+    engine_kwargs["connect_args"] = {"command_timeout": 60}
+
 engine: AsyncEngine = create_async_engine(
     DATABASE_URL,
-    echo=False,
-    future=True,
-    pool_pre_ping=True,
-    connect_args={"command_timeout": 60} if "postgresql" in DATABASE_URL else {}
+    **engine_kwargs,
 )
 
-# Async session factory
+# ---------------------------------------------------------
+# SESSION FACTORY
+# ---------------------------------------------------------
 SessionLocal = async_sessionmaker(
     bind=engine,
     expire_on_commit=False,
     class_=AsyncSession,
 )
 
+# ---------------------------------------------------------
+# FASTAPI DB DEPENDENCY
+# ---------------------------------------------------------
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI Dependency for database sessions used in routes."""
+    """
+    FastAPI dependency that yields an AsyncSession.
+    """
     async with SessionLocal() as session:
         try:
             yield session
         finally:
             await session.close()
 
+# ---------------------------------------------------------
+# MODEL INITIALIZATION (SAFE + TRACEBACK PRESERVED)
+# ---------------------------------------------------------
 async def init_models() -> None:
     """
-    Initializes database tables.
-    CRITICAL: Models are imported LOCALLY inside this function.
-    This ensures the Python interpreter finishes loading the 'db' module
-    before it ever tries to map the 'models' module.
+    Initialize database tables.
+
+    CRITICAL:
+    - Models are imported locally to break circular imports
+    - Tracebacks are NEVER swallowed
     """
     try:
-        # This local import is the secret to breaking the vicious circle
-        import app.core.models 
+        # Local import prevents circular dependency
+        import app.core.models  # noqa: F401
+
         async with engine.begin() as conn:
-            # We use the Base defined above to create all discovered tables
             await conn.run_sync(Base.metadata.create_all)
+
         logger.info("✅ Database schema initialized successfully.")
-    except Exception as e:
-        logger.error(f"❌ Database initialization failed: {e}")
-        raise e
+
+    except Exception:
+        # logger.exception preserves FULL traceback
+        logger.exception("❌ Database initialization failed")
+        raise
