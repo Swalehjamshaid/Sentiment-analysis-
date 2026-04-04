@@ -11,39 +11,45 @@ from typing import Any, Dict, Optional
 import httpx
 
 # ------------------------------------------------------------------------------
-# 0. SENTRY INITIALIZATION - MUST BE FIRST (to capture import errors)
+# 0. SENTRY - Initialize as EARLY as possible (before any other imports)
 # ------------------------------------------------------------------------------
-import sentry_sdk
-from sentry_sdk.integrations.asyncio import AsyncioIntegration
-from sentry_sdk.integrations.logging import LoggingIntegration
-import logging as std_logging
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.asyncio import AsyncioIntegration
+    from sentry_sdk.integrations.logging import LoggingIntegration
+    import logging as std_logging
 
-sentry_sdk.init(
-    dsn=os.getenv("SENTRY_DSN"),   # ← Make sure this env var is set in Railway/Docker
-    integrations=[
-        AsyncioIntegration(),
-        LoggingIntegration(
-            level=std_logging.INFO,
-            event_level=std_logging.ERROR,
-        ),
-    ],
-    traces_sample_rate=0.2,
-    environment=os.getenv("ENVIRONMENT", "production"),
-    # send_default_pii=False,   # Uncomment in production if needed
-)
+    sentry_sdk.init(
+        dsn=os.getenv("SENTRY_DSN"),
+        integrations=[
+            AsyncioIntegration(),
+            LoggingIntegration(
+                level=std_logging.INFO,
+                event_level=std_logging.ERROR,
+            ),
+        ],
+        traces_sample_rate=0.1,   # Lowered to reduce noise
+        environment=os.getenv("ENVIRONMENT", "production"),
+    )
+    logging.info("✅ Sentry SDK initialized successfully.")
+except Exception as e:
+    # Fallback if Sentry itself fails to import/init (rare but possible)
+    logging.basicConfig(level=logging.INFO)
+    logging.error("❌ Failed to initialize Sentry SDK", exc_info=True)
 
 # ------------------------------------------------------------------------------
 # 1. MODULE & PATH RESOLUTION
 # ------------------------------------------------------------------------------
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
+
+# Ensure proper package resolution (helps prevent importlib issues in containers)
 if CURRENT_DIR not in sys.path:
     sys.path.insert(0, CURRENT_DIR)
 if PARENT_DIR not in sys.path:
     sys.path.insert(0, PARENT_DIR)
 
 def resolve_path(folder_name: str) -> str:
-    """Detects templates/static in correct directory for Docker/Railway."""
     local_path = os.path.join(CURRENT_DIR, folder_name)
     parent_path = os.path.join(PARENT_DIR, folder_name)
     return local_path if os.path.exists(local_path) else parent_path
@@ -52,26 +58,36 @@ TEMPLATE_DIR = resolve_path("templates")
 STATIC_DIR = resolve_path("static")
 
 # ------------------------------------------------------------------------------
-# 2. CORE INTEGRATION - SAFE IMPORTS
+# 2. SAFE CORE IMPORTS
 # ------------------------------------------------------------------------------
-from app.core.config import settings
-from app.core.db import get_engine, init_models, Base
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("app.main")
 
-# Safe SCHEMA_VERSION import
+# Safe core imports
+try:
+    from app.core.config import settings
+    from app.core.db import get_engine, init_models, Base
+    logger.info("✅ Core modules (config, db) imported successfully.")
+except Exception as e:
+    logger.error("❌ Failed to import core modules (config/db)", exc_info=True)
+    raise  # Let it fail visibly
+
+# Safe SCHEMA_VERSION
 SCHEMA_VERSION = "unknown"
 try:
     from app.core.models import SCHEMA_VERSION as ImportedSchemaVersion
     SCHEMA_VERSION = ImportedSchemaVersion
+    logger.info(f"✅ SCHEMA_VERSION loaded: {SCHEMA_VERSION}")
 except Exception as e:
-    logging.error(f"⚠️ Failed to import SCHEMA_VERSION from models.py", exc_info=True)
+    logger.error("⚠️ Failed to import SCHEMA_VERSION from models.py", exc_info=True)
 
-# Safe router imports (catch everything)
+# Safe router imports
 auth = companies = dashboard = reviews = exports = google_check = None
 try:
     from app.routes import auth, companies, dashboard, reviews, exports, google_check
-    logging.info("✅ All routers imported successfully.")
+    logger.info("✅ All routers imported successfully.")
 except Exception as e:
-    logging.error(f"❌ Critical error while importing routers", exc_info=True)
+    logger.error("❌ Failed to import one or more routers from app.routes", exc_info=True)
 
 # ------------------------------------------------------------------------------
 # 3. SETTINGS & AUTH CONFIGURATION
@@ -82,11 +98,8 @@ resend.api_key = os.getenv("RESEND_API_KEY", "re_D8MWpa1c_44ph6mZDfDoCXmEkeoYtPQ
 
 MAGIC_TOKENS: Dict[str, Dict[str, Any]] = {}
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("app.main")
-
 # ------------------------------------------------------------------------------
-# 4. LIFESPAN (Safe database initialization)
+# 4. LIFESPAN
 # ------------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -97,14 +110,11 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Database models initialized successfully.")
     except Exception as e:
         logger.error("❌ Database initialization failed during startup", exc_info=True)
-        raise RuntimeError(f"Startup failed: Database initialization error - {str(e)}") from e
+        raise RuntimeError(f"Startup failed: Database init error - {str(e)}") from e
 
-    # Global Async HTTP Client
     app.state.http_client = httpx.AsyncClient(timeout=httpx.Timeout(120.0))
-
     yield
 
-    # Cleanup
     await app.state.http_client.aclose()
     logger.info("🛑 Application shutdown completed.")
 
@@ -142,7 +152,7 @@ def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
 
 # ------------------------------------------------------------------------------
-# 6. ROUTES
+# 6. BASIC ROUTES
 # ------------------------------------------------------------------------------
 @app.get("/health")
 async def health():
@@ -167,7 +177,7 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
         logger.info(f"👑 Admin {email} logged in.")
         return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
 
-    # Magic link logic
+    # Magic link
     token = secrets.token_urlsafe(32)
     MAGIC_TOKENS[token] = {
         "email": email,
@@ -194,18 +204,16 @@ async def handle_login(request: Request, email: str = Form(...), password: str =
         })
         return templates.TemplateResponse("login.html", {"request": request, "message": "✅ Magic link sent! Please check your email inbox."})
     except Exception as e:
-        logger.error(f"❌ Mailer Error: {e}", exc_info=True)
-        return templates.TemplateResponse("login.html", {"request": request, "error": "❌ Failed to send email. Verify Resend configuration."})
+        logger.error(f"❌ Mailer Error", exc_info=True)
+        return templates.TemplateResponse("login.html", {"request": request, "error": "❌ Failed to send email."})
 
 @app.get("/verify")
 async def verify_token(request: Request, token: str):
     data = MAGIC_TOKENS.get(token)
     if not data or data["expires"] < datetime.now(timezone.utc):
         return RedirectResponse(url="/login?error=Link+expired+or+invalid")
-
     request.session["user"] = {"email": data["email"], "role": "user", "name": "Authorized User"}
-    if token in MAGIC_TOKENS:
-        del MAGIC_TOKENS[token]
+    MAGIC_TOKENS.pop(token, None)
     return RedirectResponse(url="/dashboard")
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -224,10 +232,12 @@ async def logout(request: Request):
     return RedirectResponse(url="/login")
 
 # ------------------------------------------------------------------------------
-# 7. ROUTER REGISTRATION (Safe)
+# 7. SAFE ROUTER REGISTRATION
 # ------------------------------------------------------------------------------
-for name, router_module in [("auth", auth), ("companies", companies), ("dashboard", dashboard),
-                            ("reviews", reviews), ("exports", exports), ("google_check", google_check)]:
+for name, router_module in [
+    ("auth", auth), ("companies", companies), ("dashboard", dashboard),
+    ("reviews", reviews), ("exports", exports), ("google_check", google_check)
+]:
     if router_module and hasattr(router_module, "router"):
         try:
             app.include_router(router_module.router)
@@ -236,7 +246,7 @@ for name, router_module in [("auth", auth), ("companies", companies), ("dashboar
             logger.error(f"❌ Failed to include router '{name}'", exc_info=True)
 
 # ------------------------------------------------------------------------------
-# 8. PRODUCTION STARTUP
+# 8. STARTUP
 # ------------------------------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
