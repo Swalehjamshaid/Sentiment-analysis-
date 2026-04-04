@@ -1,6 +1,6 @@
 # filename: app/routes/dashboard.py
 # ==========================================================
-# REVIEW INTELLIGENCE DASHBOARD — WORLD CLASS ENTERPRISE UPDATED
+# REVIEW INTELLIGENCE DASHBOARD — WORLD CLASS ENTERPRISE UPDATED (ASYNC SAFE)
 # ==========================================================
 from __future__ import annotations
 import io
@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 from collections import Counter, defaultdict
 from typing import Dict, List, Any
+import asyncio
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -71,7 +72,7 @@ async def get_company(session: AsyncSession, company_id: int) -> Company:
     return company
 
 # ----------------------------------------------------------
-# CORE ANALYTICS ENGINE
+# ✅ CORE ANALYTICS ENGINE
 # ----------------------------------------------------------
 def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
     if not reviews:
@@ -239,11 +240,13 @@ Give professional, concise recommendations tied to revenue impact.
 """
 
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.25,
-            max_tokens=800
+        response = await asyncio.to_thread(
+            lambda: openai.ChatCompletion.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.25,
+                max_tokens=800
+            )
         )
         return {"answer": response.choices[0].message.content.strip()}
     except Exception as e:
@@ -292,41 +295,44 @@ async def executive_report(company_id: int, session: AsyncSession = Depends(get_
     res = await session.execute(select(Review).where(Review.company_id == company_id))
     analytics = compute_analytics(res.scalars().all())
 
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
+    def generate_pdf() -> bytes:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_auto_page_break(auto=True, margin=15)
 
-    pdf.set_font("Arial", "B", 20)
-    pdf.cell(0, 15, sanitize_pdf(f"Executive Intelligence Report — {company.name}"), ln=True, align="C")
-    pdf.ln(10)
+        pdf.set_font("Arial", "B", 20)
+        pdf.cell(0, 15, sanitize_pdf(f"Executive Intelligence Report — {company.name}"), ln=True, align="C")
+        pdf.ln(10)
 
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, f"Generated on: {datetime.utcnow().strftime('%B %d, %Y at %H:%M')}", ln=True, align="C")
-    pdf.ln(15)
+        pdf.set_font("Arial", "B", 14)
+        pdf.cell(0, 10, f"Generated on: {datetime.utcnow().strftime('%B %d, %Y at %H:%M')}", ln=True, align="C")
+        pdf.ln(15)
 
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, "KEY PERFORMANCE INDICATORS", ln=True)
-    pdf.set_font("Arial", size=11)
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 10, "KEY PERFORMANCE INDICATORS", ln=True)
+        pdf.set_font("Arial", size=11)
 
-    for key, value in [
-        ("Total Reviews", analytics["total_reviews"]),
-        ("Average Rating", f"{analytics['average_rating']}/5.0"),
-        ("Loss Probability", analytics["risk"]["loss_probability"]),
-        ("Churn Prediction", f"{analytics['churn_prediction']}%"),
-        ("Loyalty Score", f"{analytics['loyalty_score']}%"),
-        ("Impact Level", analytics["risk"]["impact_level"]),
-        ("Reputation Score", f"{analytics['risk']['reputation_score']}/100")
-    ]:
-        pdf.cell(0, 9, f"{key}: {value}", ln=True)
+        for key, value in [
+            ("Total Reviews", analytics["total_reviews"]),
+            ("Average Rating", f"{analytics['average_rating']}/5.0"),
+            ("Loss Probability", analytics["risk"]["loss_probability"]),
+            ("Churn Prediction", f"{analytics['churn_prediction']}%"),
+            ("Loyalty Score", f"{analytics['loyalty_score']}%"),
+            ("Impact Level", analytics["risk"]["impact_level"]),
+            ("Reputation Score", f"{analytics['risk']['reputation_score']}/100")
+        ]:
+            pdf.cell(0, 9, f"{key}: {value}", ln=True)
 
-    pdf.ln(10)
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, "MONTHLY RATING TREND", ln=True)
-    pdf.set_font("Arial", size=10)
-    for trend in analytics["monthly_trend"]:
-        pdf.cell(0, 8, f"{trend['month']}: {trend['avg']} avg ({trend['count']} reviews)", ln=True)
+        pdf.ln(10)
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 10, "MONTHLY RATING TREND", ln=True)
+        pdf.set_font("Arial", size=10)
+        for trend in analytics["monthly_trend"]:
+            pdf.cell(0, 8, f"{trend['month']}: {trend['avg']} avg ({trend['count']} reviews)", ln=True)
 
-    buffer = io.BytesIO(pdf.output(dest="S").encode("utf-8"))
+        return pdf.output(dest="S").encode("utf-8")
+
+    buffer = io.BytesIO(await asyncio.to_thread(generate_pdf))
     return StreamingResponse(
         buffer,
         media_type="application/pdf",
@@ -354,8 +360,7 @@ async def get_recent_reviews(company_id: int, session: AsyncSession = Depends(ge
             "author": r.author_name or "Anonymous",
             "rating": r.rating,
             "text": r.text,
-            "date": r.google_review_time.strftime("%Y-%m-%d")
-            if r.google_review_time else "N/A"
+            "date": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "N/A"
         }
         for r in res.fetchall()
     ]
