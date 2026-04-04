@@ -9,7 +9,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
     PORT=8080
 
-WORKDIR /app
+# 🔥 FIX: move into review_saas
+WORKDIR /app/review_saas
 
 # --------------------------
 # 2️⃣ System Dependencies
@@ -24,14 +25,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # --------------------------
 # 3️⃣ Install Python Dependencies
 # --------------------------
-COPY requirements.txt .
+COPY requirements.txt /app/
 RUN python -m pip install --upgrade pip && \
-    python -m pip install --no-cache-dir -r requirements.txt
+    python -m pip install --no-cache-dir -r /app/requirements.txt
 
 # --------------------------
 # 4️⃣ Copy App Source Code
 # --------------------------
-COPY . .
+COPY . /app/
 
 # --------------------------
 # 5️⃣ Expose Port
@@ -39,6 +40,6 @@ COPY . .
 EXPOSE 8080
 
 # --------------------------
-# 6️⃣ Default Command (No extra start command needed)
+# 6️⃣ Start App (NOW WORKS)
 # --------------------------
 CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
