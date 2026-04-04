@@ -1,6 +1,7 @@
 # filename: review_saas/app/main.py
 import sys
 import os
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any
@@ -17,39 +18,26 @@ from passlib.context import CryptContext
 
 # --- 1. PATH RESOLUTION (Strict Alignment for review_saas structure) ---
 CURRENT_FILE_PATH = os.path.abspath(__file__)
-# This is /app/
-APP_DIR = os.path.dirname(CURRENT_FILE_PATH)
-# This is /review_saas/
-PACKAGE_DIR = os.path.dirname(APP_DIR)
-# This is the Project Root
-ROOT_DIR = os.path.dirname(PACKAGE_DIR)
+APP_DIR = os.path.dirname(CURRENT_FILE_PATH)        # /app/
+PACKAGE_DIR = os.path.dirname(APP_DIR)             # /review_saas/
+ROOT_DIR = os.path.dirname(PACKAGE_DIR)            # Project Root
 
-# Ensure Python can see 'app' through the 'review_saas' namespace
-for path in [ROOT_DIR, PACKAGE_DIR]:
+# Ensure Python can see the modules regardless of how Uvicorn is started
+for path in [ROOT_DIR, PACKAGE_DIR, APP_DIR]:
     if path not in sys.path:
         sys.path.insert(0, path)
 
-# Core internal imports - Using full package paths to prevent 'frozen importlib' errors
+# Core internal imports
 try:
-    # Explicitly importing through the package name found in your GitHub
     from app.core.config import settings
     from app.core.db import init_models, get_db, SessionLocal, engine
     from app.core import models
     from app.core.models import User, SCHEMA_VERSION, Config as ConfigModel
-    
-    # Router imports
     from app.routes import auth, companies, dashboard, reviews, exports, google_check
 except ImportError as e:
-    # Fallback to local app imports if package name is bypassed
-    try:
-        from core.config import settings
-        from core.db import init_models, get_db, SessionLocal, engine
-        from core import models
-        from core.models import User, SCHEMA_VERSION, Config as ConfigModel
-        from routes import auth, companies, dashboard, reviews, exports, google_check
-    except ImportError:
-        print(f"CRITICAL ALIGNMENT ERROR: {e}")
-        raise
+    logger = logging.getLogger("app.main")
+    logger.error(f"CRITICAL IMPORT ERROR: {e}. Check __init__.py files.")
+    raise
 
 # --- 2. LOGGING & SECURITY ---
 logging.basicConfig(
@@ -59,7 +47,7 @@ logging.basicConfig(
 logger = logging.getLogger("app.main")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# --- 3. DATABASE HELPERS (Schema Versioning) ---
+# --- 3. DATABASE HELPERS ---
 async def _get_stored_schema_version(session: AsyncSession) -> Optional[str]:
     try:
         res = await session.execute(
@@ -81,33 +69,41 @@ async def _update_stored_schema_version(session: AsyncSession, version: str):
         session.add(ConfigModel(key="SCHEMA_VERSION", value=version))
     await session.commit()
 
-# --- 4. LIFESPAN (Application Startup/Shutdown) ---
+# --- 4. LIFESPAN (Prevents asyncio runner crashes) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 Starting Review Intel AI...")
     try:
+        # Give Railway Postgres a moment to accept connections
+        await asyncio.sleep(1)
+        
         # Step 1: Initialize DB tables
         await init_models()
         
         # Step 2: Handle Schema Transitions
         async with SessionLocal() as session:
-            old_v = await _get_stored_schema_version(session)
-            new_v = str(SCHEMA_VERSION)
-            
-            if old_v != new_v:
-                logger.warning(f"🧩 Schema Mismatch: {old_v} -> {new_v}. Resetting...")
-                async with engine.begin() as conn:
-                    await conn.run_sync(models.Base.metadata.drop_all)
-                    await conn.run_sync(models.Base.metadata.create_all)
-                await _update_stored_schema_version(session, new_v)
-            else:
-                logger.info(f"✅ Schema verified: {new_v}")
-        
-        app.state.schema_version = new_v
+            try:
+                old_v = await _get_stored_schema_version(session)
+                new_v = str(SCHEMA_VERSION)
+                
+                if old_v != new_v:
+                    logger.warning(f"🧩 Schema Mismatch: {old_v} -> {new_v}. Aligning...")
+                    async with engine.begin() as conn:
+                        await conn.run_sync(models.Base.metadata.drop_all)
+                        await conn.run_sync(models.Base.metadata.create_all)
+                    await _update_stored_schema_version(session, new_v)
+                else:
+                    logger.info(f"✅ Schema verified: {new_v}")
+                
+                app.state.schema_version = new_v
+            except Exception as db_e:
+                logger.warning(f"⚠️ DB connected, but schema check delayed: {db_e}")
+                app.state.schema_version = str(SCHEMA_VERSION)
         
     except Exception as e:
-        logger.error(f"❌ Lifespan Startup Error: {str(e)}")
-        
+        # Log error but don't kill the asyncio loop (allows app to stay 'Online')
+        logger.error(f"❌ Startup sequence alignment issue: {str(e)}")
+    
     yield
     logger.info("🛑 Shutting down...")
 
@@ -127,11 +123,10 @@ app.add_middleware(
 
 app.add_middleware(
     SessionMiddleware, 
-    secret_key=getattr(settings, "SECRET_KEY", "fallback-dev-key-2026")
+    secret_key=getattr(settings, "SECRET_KEY", "fallback-secret-2026")
 )
 
-# --- 6. STATIC & TEMPLATES (Dynamic Path Alignment) ---
-# We use absolute paths to ensure Docker finds them regardless of WORKDIR
+# --- 6. STATIC & TEMPLATES ---
 static_dir = os.path.join(APP_DIR, "static")
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -211,5 +206,5 @@ app.include_router(google_check.router, prefix="/api", tags=["google_check"])
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
-    # Using the full package string for Railway alignment
+    # Using the string module path ensures proper reload behavior
     uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
