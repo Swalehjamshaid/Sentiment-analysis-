@@ -1,47 +1,80 @@
 # filename: app/core/db.py
-from __future__ import annotations
+
 import os
-from typing import AsyncGenerator
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine, AsyncEngine
-from sqlalchemy.orm import DeclarativeBase
+import logging
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    create_async_engine,
+)
+from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.engine import URL
+from sqlalchemy.exc import SQLAlchemyError
 
-class Base(DeclarativeBase):
-    pass
+from app.core import models
 
-def _get_db_url() -> str:
-    # Use the Railway DATABASE_URL or fallback to local sqlite
-    url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./test.db").strip()
-    # Ensure the driver is async-compatible
-    if url.startswith("postgres://"):
-        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
-    elif url.startswith("postgresql://") and "+asyncpg" not in url:
-        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    return url
+logger = logging.getLogger("app.core.db")
 
-DATABASE_URL = _get_db_url()
-
-# Engine creation with pool_pre_ping to keep connections alive on Railway
-engine: AsyncEngine = create_async_engine(
-    DATABASE_URL, 
-    future=True, 
-    pool_pre_ping=True
+# --------------------------- DATABASE URL ---------------------------
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+asyncpg://postgres:password@localhost:5432/reviewsaaS",
 )
 
-SessionLocal = async_sessionmaker(
-    bind=engine, 
-    expire_on_commit=False, 
-    class_=AsyncSession
+# --------------------------- Async Engine ---------------------------
+try:
+    engine: AsyncEngine = create_async_engine(
+        DATABASE_URL,
+        echo=False,  # Set True for debug SQL logging
+        future=True,
+    )
+    logger.info("✅ Async SQLAlchemy Engine created successfully")
+except SQLAlchemyError as e:
+    logger.error(f"❌ Error creating AsyncEngine: {e}")
+    raise e
+
+# --------------------------- Session Local ---------------------------
+SessionLocal = sessionmaker(
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
 )
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
+# --------------------------- Base ---------------------------
+Base = models.Base
+
+# --------------------------- DB Utilities ---------------------------
+async def init_models():
+    """
+    Initialize all models (create tables if they don't exist)
+    """
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("✅ Database tables created successfully")
+    except SQLAlchemyError as e:
+        logger.error(f"❌ Failed to create database tables: {e}")
+        raise e
+
+async def drop_models():
+    """
+    Drop all models (useful for schema reset)
+    """
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+        logger.warning("🧨 Dropped all database tables")
+    except SQLAlchemyError as e:
+        logger.error(f"❌ Failed to drop database tables: {e}")
+        raise e
+
+# --------------------------- Dependency ---------------------------
+async def get_session() -> AsyncSession:
+    """
+    Async DB session dependency for FastAPI
+    """
     async with SessionLocal() as session:
         try:
             yield session
         finally:
             await session.close()
-
-async def init_models():
-    # Local import inside the function to break circular dependency
-    from app.core import models 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
