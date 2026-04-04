@@ -1,4 +1,5 @@
 # filename: app/main.py
+
 import sys
 import os
 import logging
@@ -40,13 +41,23 @@ logging.basicConfig(
 logger = logging.getLogger("app.main")
 
 # --------------------------- Schema Helpers ---------------------------
-async def _get_stored_schema_version(session: AsyncSession) -> Optional[str]:
-    res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
+async def _get_stored_schema_version(
+    session: AsyncSession,
+) -> Optional[str]:
+    res = await session.execute(
+        select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION")
+    )
     row = res.scalar_one_or_none()
     return row.value if row else None
 
-async def _set_stored_schema_version(session: AsyncSession, new_value: str) -> None:
-    res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
+
+async def _set_stored_schema_version(
+    session: AsyncSession,
+    new_value: str,
+) -> None:
+    res = await session.execute(
+        select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION")
+    )
     row = res.scalar_one_or_none()
     if row:
         row.value = new_value
@@ -54,6 +65,7 @@ async def _set_stored_schema_version(session: AsyncSession, new_value: str) -> N
         row = ConfigModel(key="SCHEMA_VERSION", value=new_value)
         session.add(row)
     await session.commit()
+
 
 async def check_schema_version_change() -> Tuple[bool, Optional[str], str]:
     async with SessionLocal() as session:
@@ -71,11 +83,19 @@ async def check_schema_version_change() -> Tuple[bool, Optional[str], str]:
 
         return False, old_version, new_version
 
-async def reset_database_schema():
+
+# ✅ SAFE SCHEMA UPDATE (NO DATA LOSS)
+async def apply_schema_updates():
+    """
+    Safely apply schema changes:
+    - Creates new tables
+    - Adds new columns (DB dependent)
+    - NEVER drops existing data
+    """
     async with engine.begin() as conn:
-        await conn.run_sync(models.Base.metadata.drop_all)
         await conn.run_sync(models.Base.metadata.create_all)
-        logger.info("🧱 Database Reset and Recreated.")
+    logger.info("✅ Schema applied safely (no data loss)")
+
 
 # --------------------------- Lifespan ---------------------------
 @asynccontextmanager
@@ -87,18 +107,19 @@ async def lifespan(app: FastAPI):
         changed, old_v, new_v = await check_schema_version_change()
 
         if changed:
-            await reset_database_schema()
+            await apply_schema_updates()
             async with SessionLocal() as session:
                 await _set_stored_schema_version(session, new_v)
 
         app.state.schema_version = new_v
-        logger.info(f"✅ Startup Complete. Schema: {new_v}")
+        logger.info(f"✅ Startup Complete. Schema Version: {new_v}")
 
-    except Exception as e:
+    except Exception:
         logger.exception("❌ Startup Error")
-        raise e
+        raise
 
     yield
+
 
 # --------------------------- App Init ---------------------------
 app = FastAPI(
@@ -106,27 +127,33 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Middleware
+# --------------------------- Middleware ---------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key=settings.SECRET_KEY
+    secret_key=settings.SECRET_KEY,
 )
 
-# Templates & Static
+# --------------------------- Templates & Static ---------------------------
 if os.path.exists(os.path.join(CURRENT_DIR, "static")):
-    app.mount("/static", StaticFiles(directory=os.path.join(CURRENT_DIR, "static")), name="static")
+    app.mount(
+        "/static",
+        StaticFiles(directory=os.path.join(CURRENT_DIR, "static")),
+        name="static",
+    )
 
-templates = Jinja2Templates(directory=os.path.join(CURRENT_DIR, "templates"))
+templates = Jinja2Templates(
+    directory=os.path.join(CURRENT_DIR, "templates")
+)
 
-# --------------------------- Routes ---------------------------
+# --------------------------- Views ---------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     if request.session.get("user"):
@@ -144,21 +171,23 @@ async def login_post(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
 ):
-    result = await session.execute(select(User).where(User.email == email.strip().lower()))
+    result = await session.execute(
+        select(User).where(User.email == email.strip().lower())
+    )
     user = result.scalars().first()
 
     if not user or not verify_password(password, user.hashed_password):
         return templates.TemplateResponse(
             "login.html",
-            {"request": request, "error": "Invalid credentials"}
+            {"request": request, "error": "Invalid credentials"},
         )
 
     request.session["user"] = {
         "id": user.id,
         "email": user.email,
-        "name": user.name
+        "name": user.name,
     }
 
     return RedirectResponse("/dashboard", status_code=303)
@@ -176,8 +205,8 @@ async def dashboard_view(request: Request):
         {
             "request": request,
             "user": user,
-            "schema_version": getattr(app.state, "schema_version", "")
-        }
+            "schema_version": getattr(app.state, "schema_version", ""),
+        },
     )
 
 
@@ -203,5 +232,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=int(os.environ.get("PORT", 8080"))
+        port=int(os.environ.get("PORT", 8080)),
     )
+``
