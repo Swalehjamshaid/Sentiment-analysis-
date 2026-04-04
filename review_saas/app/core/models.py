@@ -7,9 +7,11 @@ from sqlalchemy import (
     JSON, ForeignKey, UniqueConstraint, func
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column
+
+# Import the shared Base from db.py
 from app.core.db import Base
 
-# Stegman Versioning: Incrementing to trigger auto-reset for new auth tables
+# Stegman Versioning: Incremented to ensure auto-reset for the verification system
 SCHEMA_VERSION = "25.0.8-auth-verification-system"
 
 class User(Base):
