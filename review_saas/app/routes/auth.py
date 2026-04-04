@@ -1,121 +1,84 @@
-from __future__ import annotations
-from fastapi import APIRouter, Request, Form, UploadFile, File, HTTPException
+import logging
+from fastapi import APIRouter, Request, Depends, Form, status, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
-from starlette.templating import Jinja2Templates
-from itsdangerous import URLSafeTimedSerializer, BadSignature
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-import os
-
+from passlib.context import CryptContext
+from app.core.db import get_db
+from app.core.models import User, VerificationToken
 from app.core.config import settings
-from app.core.db import get_session
-from app.core.models import User, AuditLog
-from app.core.security import hash_password, verify_password, validate_password_strength, create_access_token
-from app.core.mailer import send_email
-from app.core.rate_limit import check_rate_limit
+from starlette.templating import Jinja2Templates
 
-router = APIRouter(tags=['auth'])
-templates = Jinja2Templates(directory='app/templates')
+router = APIRouter()
+templates = Jinja2Templates(directory="app/templates")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+logger = logging.getLogger("app.auth")
 
-s = URLSafeTimedSerializer(settings.SECRET_KEY)
+def send_verification_email(email: str, token: str):
+    """Logs verification link to console (Mock SMTP)."""
+    verify_link = f"{settings.APP_BASE_URL}/api/auth/verify?token={token}"
+    logger.info("--------------------------------------------------")
+    logger.info(f"📧 VERIFICATION EMAIL FOR: {email}")
+    logger.info(f"🔗 LINK: {verify_link}")
+    logger.info("--------------------------------------------------")
 
-# -------------------------------
-# REGISTER
-# -------------------------------
-@router.get('/register', response_class=HTMLResponse)
+@router.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request):
-    return templates.TemplateResponse('register.html', {"request": request, "title": "Register"})
+    return templates.TemplateResponse("register.html", {"request": request})
 
-@router.post('/register')
-async def register(
+@router.post("/register")
+async def register_user(
     request: Request,
     name: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
-    profile_pic: UploadFile | None = File(None)
+    db: AsyncSession = Depends(get_db)
 ):
-    check_rate_limit(request, f"reg:{request.client.host}")
+    email_clean = email.strip().lower()
+    
+    # Duplicate email check
+    res = await db.execute(select(User).where(User.email == email_clean))
+    if res.scalars().first():
+        return templates.TemplateResponse("register.html", {
+            "request": request, 
+            "error": "This email is already registered."
+        })
 
-    if not validate_password_strength(password):
-        raise HTTPException(status_code=400, detail='Weak password')
+    # Hash password and create user
+    hashed = pwd_context.hash(password)
+    new_user = User(name=name, email=email_clean, hashed_password=hashed)
+    db.add(new_user)
+    await db.flush()
 
-    pic_path = None
-    if profile_pic and profile_pic.filename:
-        upload_dir = 'app/static/uploads'
-        os.makedirs(upload_dir, exist_ok=True)
-        safe_name = email.replace('@', '_at_') + '_' + profile_pic.filename
-        dest = os.path.join(upload_dir, safe_name)
-        with open(dest, 'wb') as w:
-            w.write(await profile_pic.read())
-        pic_path = '/static/uploads/' + safe_name
+    # Generate token
+    token_obj = VerificationToken(user_id=new_user.id)
+    db.add(token_obj)
+    await db.commit()
 
-    async with get_session() as session:
-        exists = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
-        if exists:
-            raise HTTPException(status_code=400, detail='Email already registered')
+    # Send Mock Email
+    send_verification_email(email_clean, token_obj.token)
+    
+    return templates.TemplateResponse("verify_email_sent.html", {
+        "request": request, 
+        "email": email_clean
+    })
 
-        # Simple: Set email_verified to True immediately
-        u = User(
-            name=name,
-            email=email,
-            hashed_password=hash_password(password),
-            profile_pic=pic_path,
-            role='editor',
-            email_verified=True 
-        )
-        session.add(u)
-        await session.commit()
-        await session.refresh(u)
+@router.get("/verify")
+async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
+    # Find token
+    res = await db.execute(select(VerificationToken).where(VerificationToken.token == token))
+    token_rec = res.scalars().first()
 
-        session.add(AuditLog(user_id=u.id, action='register', meta={'email': email}))
-        await session.commit()
+    if not token_rec:
+        return RedirectResponse(url="/login?error=Invalid or expired verification link.")
 
-    # No verification email sent, go straight to login
-    return RedirectResponse(url='/login?msg=success', status_code=302)
-
-# -------------------------------
-# LOGIN
-# -------------------------------
-@router.get('/login', response_class=HTMLResponse)
-async def login_page(request: Request):
-    return templates.TemplateResponse('login.html', {"request": request, "title": "Login"})
-
-@router.post('/login')
-async def login(request: Request, email: str = Form(...), password: str = Form(...)):
-    check_rate_limit(request, f"login:{request.client.host}")
-
-    async with get_session() as session:
-        user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
-        
-        # Simple credentials check
-        if not user or not verify_password(password, user.hashed_password):
-            raise HTTPException(status_code=401, detail='Invalid credentials')
-
-        request.session['user_id'] = user.id
-        request.session['role'] = user.role
-        token = create_access_token(str(user.id), extra={"role": user.role})
-
-        session.add(AuditLog(user_id=user.id, action='login', meta={'email': email}))
-        await session.commit()
-
-    resp = RedirectResponse(url='/dashboard', status_code=302)
-    resp.set_cookie('access_token', token, httponly=True, samesite='lax')
-    return resp
-
-# -------------------------------
-# LOGOUT
-# -------------------------------
-@router.get('/logout')
-async def logout(request: Request):
-    uid = request.session.get('user_id')
-    request.session.clear()
-
-    if uid:
-        async with get_session() as session:
-            session.add(AuditLog(user_id=uid, action='logout', meta={}))
-            await session.commit()
-
-    resp = RedirectResponse(url='/', status_code=302)
-    resp.delete_cookie('access_token')
-    return resp
-
-# ... (Forgot/Reset logic removed for simplicity, add back if needed)
+    # Find User
+    user_res = await db.execute(select(User).where(User.id == token_rec.user_id))
+    user = user_res.scalars().first()
+    
+    if user:
+        user.is_verified = True
+        await db.delete(token_rec)
+        await db.commit()
+    
+    return RedirectResponse(url="/login?message=Account verified successfully! Please login.")
