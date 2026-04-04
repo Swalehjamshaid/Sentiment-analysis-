@@ -1,11 +1,8 @@
 # filename: app/core/config.py
-
 import os
 from typing import Optional
-
-from pydantic_settings import BaseSettings
-from pydantic import Field, AliasChoices, field_validator, model_validator
-
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, AliasChoices, model_validator
 
 class Settings(BaseSettings):
     # --- App General Settings ---
@@ -16,11 +13,12 @@ class Settings(BaseSettings):
 
     # --- Scraping Settings ---
     OUTSCRAPER_API_KEY: Optional[str] = None
-    OUTSCAPTER_KEY: Optional[str] = None
-    OUTSCRAPER_BASE_URL: Optional[str] = "https://api.outscraper.com"
+    OUTSCAPTER_KEY: Optional[str] = None  # Typo support for legacy envs
+    OUTSCRAPER_BASE_URL: str = "https://api.outscraper.com"
 
     # --- Database Settings ---
-    DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./test.db")  # fallback for dev
+    # Field with default prevents crash if DATABASE_URL is missing during build
+    DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./test.db")
 
     # --- Google OAuth & API Settings ---
     GOOGLE_CLIENT_ID: str = "dummy_client_id"
@@ -28,13 +26,16 @@ class Settings(BaseSettings):
     GOOGLE_REFRESH_TOKEN: str = "dummy_refresh_token"
     GOOGLE_REDIRECT_URI: str = "https://sentiment-analysis-production-f96a.up.railway.app/auth/callback"
 
+    # We define GOOGLE_API_KEY as a standard field so main.py can access it reliably
+    GOOGLE_API_KEY: str = ""
+    
     GOOGLE_MAPS_API_KEY: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("GOOGLE_MAPS_API_KEY", "GOOGLE_PLACES_API_KEY"),
+        validation_alias=AliasChoices("GOOGLE_MAPS_API_KEY", "GOOGLE_PLACES_API_KEY", "GOOGLE_API_KEY"),
     )
     GOOGLE_PLACES_API_KEY: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("GOOGLE_PLACES_API_KEY", "GOOGLE_MAPS_API_KEY"),
+        validation_alias=AliasChoices("GOOGLE_PLACES_API_KEY", "GOOGLE_MAPS_API_KEY", "GOOGLE_API_KEY"),
     )
 
     # --- Rate Limiting Settings ---
@@ -59,25 +60,23 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: Optional[str] = None
     SMTP_FROM_EMAIL: Optional[str] = None
 
-    class Config:
-        case_sensitive = True
-        env_file = ".env"
-        extra = "ignore"
+    # Pydantic V2 Configuration
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=True
+    )
 
     # --- Normalize Google API keys ---
     @model_validator(mode="after")
-    def _normalize_google_keys(self):
-        key = self.GOOGLE_MAPS_API_KEY or self.GOOGLE_PLACES_API_KEY
+    def _normalize_google_keys(self) -> "Settings":
+        key = self.GOOGLE_MAPS_API_KEY or self.GOOGLE_PLACES_API_KEY or self.GOOGLE_API_KEY
         if key:
             self.GOOGLE_MAPS_API_KEY = key
             self.GOOGLE_PLACES_API_KEY = key
-        return self  # Never crash if missing
-
-    @property
-    def GOOGLE_API_KEY(self) -> str:
-        """Convenience accessor for the Google API key"""
-        return self.GOOGLE_MAPS_API_KEY or self.GOOGLE_PLACES_API_KEY or ""
-
+            self.GOOGLE_API_KEY = key
+        return self
 
 # --- Initialize Settings ---
 settings = Settings()
