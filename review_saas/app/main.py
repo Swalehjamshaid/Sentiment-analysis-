@@ -1,4 +1,4 @@
-# filename: app/main.py
+# filename: review_saas/app/main.py
 import sys
 import os
 import logging
@@ -15,27 +15,41 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from passlib.context import CryptContext
 
-# --- 1. PATH RESOLUTION (Strict Alignment) ---
-# This ensures the 'app' package is discoverable from the project root
+# --- 1. PATH RESOLUTION (Strict Alignment for review_saas structure) ---
 CURRENT_FILE_PATH = os.path.abspath(__file__)
+# This is /app/
 APP_DIR = os.path.dirname(CURRENT_FILE_PATH)
-ROOT_DIR = os.path.dirname(APP_DIR)
+# This is /review_saas/
+PACKAGE_DIR = os.path.dirname(APP_DIR)
+# This is the Project Root
+ROOT_DIR = os.path.dirname(PACKAGE_DIR)
 
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
+# Ensure Python can see 'app' through the 'review_saas' namespace
+for path in [ROOT_DIR, PACKAGE_DIR]:
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
-# Core internal imports - Level 1 & 2
+# Core internal imports - Using full package paths to prevent 'frozen importlib' errors
 try:
+    # Explicitly importing through the package name found in your GitHub
     from app.core.config import settings
     from app.core.db import init_models, get_db, SessionLocal, engine
     from app.core import models
     from app.core.models import User, SCHEMA_VERSION, Config as ConfigModel
     
-    # Router imports - Level 4
+    # Router imports
     from app.routes import auth, companies, dashboard, reviews, exports, google_check
 except ImportError as e:
-    print(f"CRITICAL ALIGNMENT ERROR: {e}")
-    raise
+    # Fallback to local app imports if package name is bypassed
+    try:
+        from core.config import settings
+        from core.db import init_models, get_db, SessionLocal, engine
+        from core import models
+        from core.models import User, SCHEMA_VERSION, Config as ConfigModel
+        from routes import auth, companies, dashboard, reviews, exports, google_check
+    except ImportError:
+        print(f"CRITICAL ALIGNMENT ERROR: {e}")
+        raise
 
 # --- 2. LOGGING & SECURITY ---
 logging.basicConfig(
@@ -47,7 +61,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # --- 3. DATABASE HELPERS (Schema Versioning) ---
 async def _get_stored_schema_version(session: AsyncSession) -> Optional[str]:
-    """Retrieves the current schema version from the DB."""
     try:
         res = await session.execute(
             select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION")
@@ -58,7 +71,6 @@ async def _get_stored_schema_version(session: AsyncSession) -> Optional[str]:
         return None
 
 async def _update_stored_schema_version(session: AsyncSession, version: str):
-    """Updates the database with the current code's schema version."""
     res = await session.execute(
         select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION")
     )
@@ -72,13 +84,9 @@ async def _update_stored_schema_version(session: AsyncSession, version: str):
 # --- 4. LIFESPAN (Application Startup/Shutdown) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Handles initialization. Using the lifespan ensures that database
-    checks happen AFTER the module import phase to prevent exec_module crashes.
-    """
     logger.info("🚀 Starting Review Intel AI...")
     try:
-        # Step 1: Initialize DB tables if they don't exist
+        # Step 1: Initialize DB tables
         await init_models()
         
         # Step 2: Handle Schema Transitions
@@ -89,14 +97,12 @@ async def lifespan(app: FastAPI):
             if old_v != new_v:
                 logger.warning(f"🧩 Schema Mismatch: {old_v} -> {new_v}. Resetting...")
                 async with engine.begin() as conn:
-                    # Uses the aligned models metadata from Level 2
                     await conn.run_sync(models.Base.metadata.drop_all)
                     await conn.run_sync(models.Base.metadata.create_all)
                 await _update_stored_schema_version(session, new_v)
             else:
                 logger.info(f"✅ Schema verified: {new_v}")
         
-        # Store version in app state for UI access
         app.state.schema_version = new_v
         
     except Exception as e:
@@ -119,13 +125,13 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# Important: Using the SECRET_KEY from Level 1 Configuration
 app.add_middleware(
     SessionMiddleware, 
     secret_key=getattr(settings, "SECRET_KEY", "fallback-dev-key-2026")
 )
 
 # --- 6. STATIC & TEMPLATES (Dynamic Path Alignment) ---
+# We use absolute paths to ensure Docker finds them regardless of WORKDIR
 static_dir = os.path.join(APP_DIR, "static")
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -165,7 +171,6 @@ async def handle_login(
                 "error": "Please verify your email first."
             })
         
-        # Store user info in session
         request.session["user"] = {
             "id": user.id, 
             "email": user.email, 
@@ -194,7 +199,7 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login")
 
-# --- 8. MOUNT ROUTERS (Level 4 Alignment) ---
+# --- 8. MOUNT ROUTERS ---
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
@@ -205,7 +210,6 @@ app.include_router(google_check.router, prefix="/api", tags=["google_check"])
 # --- 9. PRODUCTION ENTRYPOINT ---
 if __name__ == "__main__":
     import uvicorn
-    # Respect Railway/Docker PORT environment variable
     port = int(os.environ.get("PORT", 8080))
-    # Standard: Use string loading to prevent double-import cycles
+    # Using the full package string for Railway alignment
     uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
