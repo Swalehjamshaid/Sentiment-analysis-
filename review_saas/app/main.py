@@ -26,7 +26,7 @@ from app.core.db import init_models, get_session, SessionLocal, engine
 from app.core import models
 from app.core.models import User, SCHEMA_VERSION, Config as ConfigModel
 
-# ✅ Import password verifier (IMPORTANT FIX)
+# Password verification
 from app.core.security import verify_password
 
 # Routers
@@ -95,7 +95,6 @@ async def lifespan(app: FastAPI):
         logger.info(f"✅ Startup Complete. Schema: {new_v}")
 
     except Exception as e:
-        # ✅ IMPORTANT FIX: show real error
         logger.exception("❌ Startup Error")
         raise e
 
@@ -104,7 +103,7 @@ async def lifespan(app: FastAPI):
 # --------------------------- App Init ---------------------------
 app = FastAPI(
     title=getattr(settings, "APP_NAME", "Review SaaS AI"),
-    lifespan=lifespan,
+    lifespan=lifespan
 )
 
 # Middleware
@@ -113,12 +112,12 @@ app.add_middleware(
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"]
 )
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key=settings.SECRET_KEY,
+    secret_key=settings.SECRET_KEY
 )
 
 # Templates & Static
@@ -128,7 +127,6 @@ if os.path.exists(os.path.join(CURRENT_DIR, "static")):
 templates = Jinja2Templates(directory=os.path.join(CURRENT_DIR, "templates"))
 
 # --------------------------- Routes ---------------------------
-
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     if request.session.get("user"):
@@ -146,22 +144,21 @@ async def login_post(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
-    session: AsyncSession = Depends(get_session),  # ✅ FIXED HERE
+    session: AsyncSession = Depends(get_session)
 ):
     result = await session.execute(select(User).where(User.email == email.strip().lower()))
     user = result.scalars().first()
 
-    # ✅ FIXED PASSWORD CHECK
     if not user or not verify_password(password, user.hashed_password):
         return templates.TemplateResponse(
             "login.html",
-            {"request": request, "error": "Invalid credentials"},
+            {"request": request, "error": "Invalid credentials"}
         )
 
     request.session["user"] = {
         "id": user.id,
         "email": user.email,
-        "name": user.name,
+        "name": user.name
     }
 
     return RedirectResponse("/dashboard", status_code=303)
@@ -179,8 +176,8 @@ async def dashboard_view(request: Request):
         {
             "request": request,
             "user": user,
-            "schema_version": getattr(app.state, "schema_version", ""),
-        },
+            "schema_version": getattr(app.state, "schema_version", "")
+        }
     )
 
 
@@ -206,5 +203,5 @@ if __name__ == "__main__":
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=int(os.environ.get("PORT", 8080)),
+        port=int(os.environ.get("PORT", 8080"))
     )
