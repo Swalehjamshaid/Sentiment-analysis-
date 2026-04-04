@@ -20,8 +20,8 @@ logger = logging.getLogger("app.core.db")
 # ---------------------------------------------------------
 class Base(DeclarativeBase):
     """
-    Isolated Declarative Base.
-    Models import this Base without triggering engine/session setup.
+    Shared Declarative Base.
+    Imported by models without triggering engine creation.
     """
     pass
 
@@ -30,8 +30,7 @@ class Base(DeclarativeBase):
 # ---------------------------------------------------------
 def _get_db_url() -> str:
     """
-    Normalize DATABASE_URL for SQLAlchemy 2.x async engines.
-    Fixes postgres:// vs postgresql+asyncpg:// automatically.
+    Normalize DATABASE_URL for SQLAlchemy async usage.
     """
     url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./test.db").strip()
 
@@ -54,7 +53,6 @@ engine_kwargs = {
     "pool_pre_ping": True,
 }
 
-# Only Postgres supports command_timeout
 if DATABASE_URL.startswith("postgresql+asyncpg://"):
     engine_kwargs["connect_args"] = {"command_timeout": 60}
 
@@ -73,11 +71,11 @@ SessionLocal = async_sessionmaker(
 )
 
 # ---------------------------------------------------------
-# FASTAPI DB DEPENDENCY
+# FASTAPI DATABASE DEPENDENCY (PRIMARY)
 # ---------------------------------------------------------
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
-    FastAPI dependency that yields an AsyncSession.
+    Primary FastAPI dependency that yields an AsyncSession.
     """
     async with SessionLocal() as session:
         try:
@@ -86,18 +84,21 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 # ---------------------------------------------------------
-# MODEL INITIALIZATION (SAFE + TRACEBACK PRESERVED)
+# ✅ BACKWARD‑COMPATIBILITY ALIAS (CRITICAL FIX)
+# ---------------------------------------------------------
+# Existing route files expect `get_session`
+# We intentionally map it to `get_db` to avoid touching routes
+get_session = get_db
+
+# ---------------------------------------------------------
+# MODEL INITIALIZATION (SAFE)
 # ---------------------------------------------------------
 async def init_models() -> None:
     """
     Initialize database tables.
-
-    CRITICAL:
-    - Models are imported locally to break circular imports
-    - Tracebacks are NEVER swallowed
+    Models are imported locally to avoid circular imports.
     """
     try:
-        # Local import prevents circular dependency
         import app.core.models  # noqa: F401
 
         async with engine.begin() as conn:
@@ -106,6 +107,5 @@ async def init_models() -> None:
         logger.info("✅ Database schema initialized successfully.")
 
     except Exception:
-        # logger.exception preserves FULL traceback
         logger.exception("❌ Database initialization failed")
         raise
