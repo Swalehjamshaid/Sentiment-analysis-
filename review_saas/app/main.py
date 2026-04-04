@@ -4,11 +4,13 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import secrets
+from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional, List
 
 import httpx
-from fastapi import FastAPI, Request, Depends, HTTPException, status
+from fastapi import FastAPI, Request, Depends, HTTPException, status, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
@@ -55,8 +57,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("app.main")
 
-logger.info("📂 Resolved TEMPLATE_DIR: %s", TEMPLATE_DIR)
-logger.info("📂 Resolved STATIC_DIR: %s", STATIC_DIR)
+# --------------------------- Magic Link Token Store ---------------------------
+# In production, use Redis or a DB table. For now, we use a global dict.
+# Structure: { "token_id": {"email": "...", "expires": datetime} }
+MAGIC_TOKENS: Dict[str, Dict[str, Any]] = {}
 
 # --------------------------- Outscraper Client ---------------------------
 class OutscraperClient:
@@ -164,39 +168,70 @@ templates = Jinja2Templates(directory=TEMPLATE_DIR)
 def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
 
-# --------------------------- Routes ---------------------------
+# --------------------------- Auth & Magic Link Routes ---------------------------
 
 @app.get("/", response_class=HTMLResponse)
-async def root_to_dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
-    """Redirects / directly to dashboard if logged in, else to login."""
+async def root_entry(request: Request, user: Optional[dict] = Depends(get_current_user)):
+    """First step: Redirect to login if no session exists."""
     if not user:
-        # If not logged in, you can choose to show landing or redirect to login
-        # Here we show landing.html as the entry point
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse(request=request, name="login.html", context={})
+
+@app.post("/login")
+async def handle_magic_link_request(
+    request: Request, 
+    email: str = Form(...), 
+    password: str = Form(...)
+):
+    """Step 2: Verify credentials and 'send' magic link."""
+    # Hardcoded check for your email and a temporary admin password
+    if email == "roy.jamshaid@gmail.com" and password == "admin123":
+        token = secrets.token_urlsafe(32)
+        MAGIC_TOKENS[token] = {
+            "email": email,
+            "expires": datetime.now() + timedelta(minutes=15)
+        }
+        
+        # In a real setup, you would trigger your email sending function here.
+        # The link would be: https://your-domain.com/verify?token={token}
+        logger.info("🔑 MAGIC LINK CREATED for %s: /verify?token=%s", email, token)
+        
         return templates.TemplateResponse(
             request=request, 
-            name="landing.html", 
-            context={"settings": settings}
+            name="login.html", 
+            context={"message": "✅ Magic link generated! Check your server logs/email."}
         )
     
-    # If logged in, go straight to dashboard
     return templates.TemplateResponse(
         request=request, 
-        name="dashboard.html", 
-        context={
-            "user": user,
-            "google_api_key": settings.GOOGLE_API_KEY
-        }
+        name="login.html", 
+        context={"error": "Invalid email or password."}
     )
 
-@app.get("/health")
-async def health():
-    return {
-        "status": "ok", 
-        "api_client": getattr(app.state, "api_status", "unknown"), 
-        "database": "connected", 
-        "schema_version": SCHEMA_VERSION,
-        "resolved_template_dir": TEMPLATE_DIR
-    }
+@app.get("/verify")
+async def verify_magic_link(request: Request, token: str):
+    """Step 3: User clicks the link, we verify and start the session."""
+    token_data = MAGIC_TOKENS.get(token)
+    
+    if not token_data or token_data["expires"] < datetime.now():
+        return templates.TemplateResponse(
+            request=request, 
+            name="login.html", 
+            context={"error": "The magic link is invalid or has expired."}
+        )
+    
+    # Start Session
+    user = {"id": 1, "email": token_data["email"], "name": "Swaleh"}
+    request.session["user"] = user
+    
+    # Clean up token
+    del MAGIC_TOKENS[token]
+    
+    return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
@@ -212,13 +247,22 @@ async def dashboard(request: Request, user: Optional[dict] = Depends(get_current
         }
     )
 
-@app.post("/login", response_class=RedirectResponse)
-async def login_post(request: Request):
-    # Dummy user data for session
-    user = {"id": 1, "email": "roy.jamshaid@gmail.com", "name": "Swaleh"}
-    request.session["user"] = user
-    request.session["user_id"] = user["id"]
-    return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+@app.get("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/login")
+
+# --------------------------- Other Routes ---------------------------
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok", 
+        "api_client": getattr(app.state, "api_status", "unknown"), 
+        "database": "connected", 
+        "schema_version": SCHEMA_VERSION,
+        "resolved_template_dir": TEMPLATE_DIR
+    }
 
 # Include All Routers
 app.include_router(auth_routes.router)
