@@ -71,7 +71,7 @@ SessionLocal = async_sessionmaker(
 )
 
 # ---------------------------------------------------------
-# FASTAPI DATABASE DEPENDENCY (PRIMARY)
+# FASTAPI DATABASE DEPENDENCY
 # ---------------------------------------------------------
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
@@ -84,19 +84,17 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 # ---------------------------------------------------------
-# ✅ BACKWARD‑COMPATIBILITY ALIAS (CRITICAL FIX)
+# ✅ BACKWARD-COMPATIBILITY ALIAS (CRITICAL)
 # ---------------------------------------------------------
-# Existing route files expect `get_session`
-# We intentionally map it to `get_db` to avoid touching routes
+# Do NOT remove — routes depend on this
 get_session = get_db
 
 # ---------------------------------------------------------
-# MODEL INITIALIZATION (SAFE)
+# MODEL INITIALIZATION
 # ---------------------------------------------------------
 async def init_models() -> None:
     """
     Initialize database tables.
-    Models are imported locally to avoid circular imports.
     """
     try:
         import app.core.models  # noqa: F401
@@ -104,7 +102,7 @@ async def init_models() -> None:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
-        logger.info("✅ Database schema initialized successfully.")
+        logger.info("✅ Database schema initialized successfully")
 
     except Exception:
         logger.exception("❌ Database initialization failed")
