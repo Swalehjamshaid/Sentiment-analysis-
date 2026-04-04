@@ -1,36 +1,30 @@
-# filename: app/core/db.py
+# filename: review_saas/app/core/db.py
 import os
 import logging
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
 from sqlalchemy.orm import declarative_base
 
-# Setup logging to see the "Handshake" in the Railway logs
+# Setup logging for Railway deployment monitoring
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.core.db")
 
-# --- 1. THE URL ALIGNMENT (CRITICAL) ---
-# This ensures that both 'postgres://' and 'postgresql://' are 
-# converted to the required 'postgresql+asyncpg://' for Async SQLAlchemy.
+# --- 1. THE URL ALIGNMENT ---
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
 elif DATABASE_URL.startswith("postgresql://") and "+asyncpg" not in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-# --- 2. THE ENGINE ALIGNMENT ---
-# Includes a 30-second timeout to prevent the 'asyncio runner' crash during startup.
+# --- 2. THE ENGINE ---
 engine: AsyncEngine = create_async_engine(
     DATABASE_URL,
-    echo=False,           # Set to True for debugging SQL queries
+    echo=False,
     future=True,
-    pool_pre_ping=True,    # Checks if connection is alive before using it
-    connect_args={
-        "command_timeout": 30
-    }
+    pool_pre_ping=True,
+    connect_args={"command_timeout": 30}
 )
 
-# --- 3. THE SESSION ALIGNMENT ---
+# --- 3. THE SESSION ---
 SessionLocal = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
@@ -38,30 +32,27 @@ SessionLocal = async_sessionmaker(
     autoflush=False
 )
 
-# --- 4. THE BASE ALIGNMENT ---
-# This is the "Registry" that your models.py MUST import.
+# --- 4. THE BASE ---
+# Level 1 Registry: All models must import THIS Base.
 Base = declarative_base()
 
-# --- 5. THE INITIALIZATION FUNCTION (100% ALIGNED) ---
+# --- 5. THE INITIALIZATION (THE LOOP BREAKER) ---
 async def init_models():
-    """Safely creates tables on startup."""
+    """Safely creates tables. Uses local import to break the vicious circle."""
     try:
-        # ✅ THE IMPORT FIX: We import models INSIDE to stop circular import loops.
-        # Based on your structure: review_saas / app / core / models.py
+        # ✅ CRITICAL: This import MUST stay inside the function 
+        # to prevent the 'importlib' deadlock.
         from app.core import models 
         
         async with engine.begin() as conn:
-            # 🚨 THE METADATA FIX: Use models.Base.metadata to ensure 
-            # all tables (User, Reviews, etc.) are physically created.
+            # We use models.Base to ensure all tables are registered
             await conn.run_sync(models.Base.metadata.create_all)
-            
-        logger.info("✅ Database alignment complete: All tables created.")
+        logger.info("✅ Database alignment complete: Tables created.")
     except Exception as e:
         logger.error(f"❌ Database alignment failed: {str(e)}")
 
-# --- 6. DEPENDENCY FOR ROUTES ---
+# --- 6. DEPENDENCY ---
 async def get_db():
-    """Fastapi Dependency for providing DB sessions to routes."""
     async with SessionLocal() as session:
         try:
             yield session
