@@ -1,4 +1,6 @@
+# ============================================================
 # filename: app/core/db.py
+# ============================================================
 
 import os
 import logging
@@ -8,63 +10,96 @@ from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     create_async_engine,
+    async_sessionmaker,
 )
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.exc import SQLAlchemyError
 
+# ------------------------------------------------------------
+# Logging
+# ------------------------------------------------------------
 logger = logging.getLogger("app.core.db")
 
-# --------------------------- Base (SOURCE OF TRUTH) ---------------------------
+# ------------------------------------------------------------
+# Base (SINGLE SOURCE OF TRUTH)
+# ------------------------------------------------------------
 Base = declarative_base()
 
-# --------------------------- DATABASE URL ---------------------------
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://postgres:password@localhost:5432/reviewsaaS",
-)
+# ------------------------------------------------------------
+# Database URL (MUST be async)
+# ------------------------------------------------------------
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# --------------------------- Async Engine ---------------------------
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is not set")
+
+# 🔐 HARD GUARD — prevents ALL past failures
+if "+asyncpg" not in DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL must use async driver "
+        "(example: postgresql+asyncpg://user:pass@host/db)"
+    )
+
+logger.info("✅ DATABASE_URL validated for async usage")
+
+# ------------------------------------------------------------
+# Async Engine (SQLAlchemy 2.x compliant)
+# ------------------------------------------------------------
 try:
     engine: AsyncEngine = create_async_engine(
         DATABASE_URL,
-        echo=False,      # Set True for SQL debugging
-        future=True,     # SQLAlchemy 2.x behavior
+        echo=False,
+        future=True,
     )
-    logger.info("✅ Async SQLAlchemy Engine created successfully")
-except SQLAlchemyError as e:
-    logger.error(f"❌ Error creating AsyncEngine: {e}")
-    raise
+    logger.info("✅ Async SQLAlchemy engine created")
+except SQLAlchemyError as exc:
+    logger.exception("❌ Failed to create async engine")
+    raise exc
 
-# --------------------------- Session Factory ---------------------------
-SessionLocal = sessionmaker(
+# ------------------------------------------------------------
+# Async Session Factory (2.x native)
+# ------------------------------------------------------------
+SessionLocal = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
     expire_on_commit=False,
 )
 
-# --------------------------- DB Utilities ---------------------------
-async def init_models() -> None:
-    """Create all tables (safe, non-destructive)"""
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("✅ Database tables created successfully")
-    except SQLAlchemyError as e:
-        logger.error(f"❌ Failed to create database tables: {e}")
-        raise
-
-
-async def drop_models() -> None:
-    """Drop all tables (use only for dev/reset)"""
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
-        logger.warning("🧨 Dropped all database tables")
-    except SQLAlchemyError as e:
-        logger.error(f"❌ Failed to drop database tables: {e}")
-        raise
-
-# --------------------------- Dependency ---------------------------
+# ------------------------------------------------------------
+# Dependency
+# ------------------------------------------------------------
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     async with SessionLocal() as session:
         yield session
+
+# ------------------------------------------------------------
+# Init Models (SAFE — no drops)
+# ------------------------------------------------------------
+async def init_models() -> None:
+    """
+    Create tables if they do not exist.
+    NON‑DESTRUCTIVE.
+    """
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("✅ Database tables verified / created")
+    except SQLAlchemyError as exc:
+        logger.exception("❌ Failed during init_models")
+        raise exc
+
+# ------------------------------------------------------------
+# Drop Models (DEV‑ONLY)
+# ------------------------------------------------------------
+async def drop_models() -> None:
+    """
+    DROP ALL TABLES.
+    ⚠️ Use ONLY in development/testing.
+    """
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+        logger.warning("🧨 All database tables dropped")
+    except SQLAlchemyError as exc:
+        logger.exception("❌ Failed during drop_models")
+        raise exc
