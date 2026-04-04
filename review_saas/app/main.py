@@ -5,7 +5,7 @@ import logging
 import os
 import sys
 import secrets
-import resend  # Ensure 'resend' is in your requirements.txt
+import resend  # Requires 'resend' in requirements.txt
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional, List
@@ -21,6 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 # --------------------------- Absolute Path Resolution ---------------------------
+# CURRENT_DIR is /app/app/ | PARENT_DIR is /app/
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 
@@ -28,7 +29,7 @@ if PARENT_DIR not in sys.path:
     sys.path.insert(0, PARENT_DIR)
 
 def resolve_path(folder_name: str) -> str:
-    """Check current and parent directories for the required folder."""
+    """Finds templates/static in both local and parent directories for Docker/Railway."""
     local_path = os.path.join(CURRENT_DIR, folder_name)
     parent_path = os.path.join(PARENT_DIR, folder_name)
     if os.path.exists(local_path):
@@ -41,25 +42,29 @@ STATIC_DIR = resolve_path("static")
 # --------------------------- Core Imports ---------------------------
 from app.core.config import settings
 from app.core.db import get_engine
-from app.core.models import Base, SCHEMA_VERSION, Company, Review
+from app.core.models import Base, SCHEMA_VERSION
 
-# --------------------------- Auth Config & API Setup ---------------------------
+# --- Routers ---
+from app.routes import auth as auth_routes
+from app.routes import companies as companies_routes
+from app.routes import dashboard as dashboard_routes
+from app.routes import reviews as reviews_routes
+from app.routes import exports as exports_routes
+from app.routes import google_check as google_routes
+
+# --------------------------- Auth & Email Setup ---------------------------
 # Admin Credentials as requested
 ADMIN_EMAIL = "roy.jamshaid@gmail.com"
 ADMIN_PASSWORD = "Jamshaid,1981"
 
-# Initialize Resend with the API key from your screenshot
-# Note: It is best practice to set this in Railway Variables as RESEND_API_KEY
+# Initialize Resend with your API Key
 resend.api_key = os.getenv("RESEND_API_KEY", "re_D8MWpa1c_44ph6mZDfDoCXmEkeoYtPQqC")
 
 # Store for magic links (Token -> Data)
 MAGIC_TOKENS: Dict[str, Dict[str, Any]] = {}
 
 # --------------------------- Logging ---------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("app.main")
 
 # --------------------------- Email Helper ---------------------------
@@ -93,28 +98,21 @@ async def send_magic_link_email(to_email: str, token: str):
 # --------------------------- Outscraper Client ---------------------------
 class OutscraperClient:
     BASE_URL = "https://api.app.outscraper.com/google-reviews"
-
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=30.0))
-
-    async def get_reviews(self, place_id: str, limit: int = 200, offset: int = 0) -> Dict[str, Any]:
+    async def get_reviews(self, place_id: str, limit: int = 200) -> Dict[str, Any]:
         try:
-            params = {"query": place_id, "limit": limit, "offset": offset, "async": "false"}
+            params = {"query": place_id, "limit": limit, "async": "false"}
             headers = {"X-API-KEY": self.api_key}
             response = await self.client.get(self.BASE_URL, params=params, headers=headers)
-            
-            if response.status_code != 200:
-                return {"reviews": []}
-            
-            data = response.json()
-            if isinstance(data, list) and data:
-                return {"reviews": data[0].get("reviews_data", [])}
+            if response.status_code == 200:
+                data = response.json()
+                return {"reviews": data[0].get("reviews_data", []) if data else []}
             return {"reviews": []}
         except Exception as e:
-            logger.error("🚨 Outscraper Client Failure: %s", e)
+            logger.error(f"Outscraper Error: {e}")
             return {"reviews": []}
-
     async def close(self):
         await self.client.aclose()
 
@@ -127,11 +125,10 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
             logger.info("✅ Database schema verified.")
     except Exception as e:
-        logger.error("❌ Database startup failed: %s", e)
+        logger.error(f"❌ DB Startup Error: {e}")
 
     api_key = os.getenv("OUTSCRAPER_API_KEY") or getattr(settings, "OUTSCRAPER_API_KEY", None)
     app.state.reviews_client = OutscraperClient(api_key) if api_key else None
-
     yield
     if app.state.reviews_client:
         await app.state.reviews_client.close()
@@ -154,12 +151,12 @@ templates = Jinja2Templates(directory=TEMPLATE_DIR)
 def get_current_user(request: Request) -> Optional[dict]:
     return request.session.get("user")
 
-# --------------------------- Auth Routes ---------------------------
+# --------------------------- Routes ---------------------------
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request, user: Optional[dict] = Depends(get_current_user)):
     if not user:
-        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(url="/login")
     return RedirectResponse(url="/dashboard")
 
 @app.get("/login", response_class=HTMLResponse)
@@ -168,53 +165,58 @@ async def login_page(request: Request):
 
 @app.post("/login")
 async def handle_login(request: Request, email: str = Form(...), password: str = Form(...)):
-    # 1. ADMIN BRANCH: Direct Access
+    # 1. ADMIN BRANCH: Direct access for you
     if email.lower() == ADMIN_EMAIL.lower() and password == ADMIN_PASSWORD:
-        user = {"id": 0, "email": email, "name": "Admin Swaleh", "role": "admin"}
-        request.session["user"] = user
+        request.session["user"] = {"email": email, "name": "Admin Swaleh", "role": "admin"}
         logger.info(f"👑 Admin {email} logged in directly.")
         return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
 
-    # 2. GENERAL USER BRANCH: Magic Link
+    # 2. GENERAL USER BRANCH: Magic Link via Resend API
     token = secrets.token_urlsafe(32)
     MAGIC_TOKENS[token] = {
         "email": email,
         "expires": datetime.now() + timedelta(minutes=15)
     }
     
-    email_success = await send_magic_link_email(email, token)
+    success = await send_magic_link_email(email, token)
     
-    if email_success:
+    if success:
         return templates.TemplateResponse(
             request=request, 
             name="login.html", 
-            context={"message": "✅ Magic link sent! Check your inbox to finish logging in."}
+            context={"message": "✅ Magic link sent! Please check your email inbox."}
         )
     else:
         return templates.TemplateResponse(
             request=request, 
             name="login.html", 
-            context={"error": "❌ Error sending email. Please check your Resend configuration."}
+            context={"error": "❌ Failed to send email. Check API key settings."}
         )
 
 @app.get("/verify")
-async def verify_login(request: Request, token: str):
-    token_data = MAGIC_TOKENS.get(token)
-    if not token_data or token_data["expires"] < datetime.now():
+async def verify_token(request: Request, token: str):
+    data = MAGIC_TOKENS.get(token)
+    if not data or data["expires"] < datetime.now():
         return templates.TemplateResponse(request=request, name="login.html", context={"error": "Invalid or expired link."})
     
-    request.session["user"] = {"email": token_data["email"], "name": "Authorized User"}
-    del MAGIC_TOKENS[token]
+    # Establish session
+    request.session["user"] = {"email": data["email"], "name": "Authorized User"}
+    if token in MAGIC_TOKENS:
+        del MAGIC_TOKENS[token]
     return RedirectResponse(url="/dashboard")
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, user: Optional[dict] = Depends(get_current_user)):
     if not user:
         return RedirectResponse(url="/login")
+    
     return templates.TemplateResponse(
         request=request, 
         name="dashboard.html", 
-        context={"user": user, "google_api_key": settings.GOOGLE_API_KEY}
+        context={
+            "user": user,
+            "google_api_key": settings.GOOGLE_API_KEY
+        }
     )
 
 @app.get("/logout")
@@ -222,11 +224,19 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/login")
 
+@app.get("/health")
+async def health():
+    return {"status": "ok", "schema_version": SCHEMA_VERSION}
+
 # Include Routers
+app.include_router(auth_routes.router)
+app.include_router(companies_routes.router)
 app.include_router(dashboard_routes.router)
 app.include_router(reviews_routes.router)
 app.include_router(exports_routes.router)
+app.include_router(google_routes.router)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8080)
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, log_level="info")
