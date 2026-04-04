@@ -34,7 +34,7 @@ router = APIRouter(tags=["companies"])
 # AUTH CHECK
 # ----------------------------------------------------------
 
-def _require_user(request: Request) -> Dict[str, Any]:
+def _require_user(request: Request) -&gt; Dict[str, Any]:
     user = request.session.get("user")
     if not user:
         raise HTTPException(
@@ -61,12 +61,12 @@ class CompanyCreate(BaseModel):
 class OutscraperClient:
     BASE = "https://api.app.outscraper.com/maps"
 
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str) -&gt; None:
         if not api_key:
             raise RuntimeError("Outscraper API key missing")
         self.api_key = api_key
 
-    async def search(self, query: str) -> List[Dict[str, Any]]:
+    async def search(self, query: str) -&gt; List[Dict[str, Any]]:
         params = {"query": query, "async": "false", "limit": 5}
         async with httpx.AsyncClient(timeout=20) as c:
             r = await c.get(
@@ -77,7 +77,7 @@ class OutscraperClient:
             r.raise_for_status()
             return r.json().get("data", [])
 
-    async def details(self, place_id: str) -> Optional[Dict[str, Any]]:
+    async def details(self, place_id: str) -&gt; Optional[Dict[str, Any]]:
         params = {"query": place_id, "async": "false", "limit": 1}
         async with httpx.AsyncClient(timeout=20) as c:
             r = await c.get(
@@ -90,7 +90,7 @@ class OutscraperClient:
             return data[0] if data else None
 
 
-def _osc() -> Optional[OutscraperClient]:
+def _osc() -&gt; Optional[OutscraperClient]:
     key = os.getenv("OUTSCRAPER_API_KEY") or settings.OUTSCRAPER_API_KEY
     if not key:
         return None
@@ -108,7 +108,7 @@ async def companies_list(
     size: int = 20,
     q: Optional[str] = None,
     session: AsyncSession = Depends(get_session)
-) -> List[Dict[str, Any]]:
+) -&gt; List[Dict[str, Any]]:
 
     _require_user(request)
 
@@ -157,7 +157,7 @@ async def add_company(
     company_in: CompanyCreate,
     background: BackgroundTasks,
     session: AsyncSession = Depends(get_session)
-) -> Dict[str, Any]:
+) -&gt; Dict[str, Any]:
 
     _require_user(request)
 
@@ -209,7 +209,7 @@ async def delete_company(
     request: Request,
     company_id: int,
     session: AsyncSession = Depends(get_session)
-) -> Dict[str, Any]:
+) -&gt; Dict[str, Any]:
 
     _require_user(request)
 
