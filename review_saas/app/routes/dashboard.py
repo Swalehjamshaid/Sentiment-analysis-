@@ -40,14 +40,13 @@ STOPWORDS = {
 # ----------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------
-def safe_date(val: str | None) -&gt; datetime | None:
+def safe_date(val: str | None) -> datetime | None:
     try:
         return datetime.fromisoformat(val) if val else None
     except Exception:
         return None
 
-def sanitize_pdf(text: str) -&gt; str:
-    """Safe text for PDF (UTF-8 compatible)"""
+def sanitize_pdf(text: str) -> str:
     replacements = {
         "—": "-", "–": "-", "’": "'", "“": '"', "”": '"',
         "•": "-", "…": "...", "©": "(C)", "®": "(R)"
@@ -56,15 +55,15 @@ def sanitize_pdf(text: str) -&gt; str:
         text = text.replace(k, v)
     return text
 
-def clean_keywords(text: str) -&gt; List[str]:
+def clean_keywords(text: str) -> List[str]:
     words = []
     for w in text.lower().split():
         w = w.strip(".,!?()\"';:[]{}")
-        if len(w) &gt;= 4 and w.isalpha() and w not in STOPWORDS:
+        if len(w) >= 4 and w.isalpha() and w not in STOPWORDS:
             words.append(w)
     return words
 
-async def get_company(session: AsyncSession, company_id: int) -&gt; Company:
+async def get_company(session: AsyncSession, company_id: int) -> Company:
     res = await session.execute(select(Company).where(Company.id == company_id))
     company = res.scalars().first()
     if not company:
@@ -72,9 +71,9 @@ async def get_company(session: AsyncSession, company_id: int) -&gt; Company:
     return company
 
 # ----------------------------------------------------------
-# ✅ CORE ANALYTICS ENGINE — SINGLE SOURCE OF TRUTH
+# CORE ANALYTICS ENGINE
 # ----------------------------------------------------------
-def compute_analytics(reviews: List[Review]) -&gt; Dict[str, Any]:
+def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
     if not reviews:
         return {
             "total_reviews": 0,
@@ -105,34 +104,33 @@ def compute_analytics(reviews: List[Review]) -&gt; Dict[str, Any]:
                 monthly_map[key].append(int(r.rating))
             if r.rating in NEGATIVE_RATINGS:
                 severe_count += 1
-                if r.text and len(negative_reviews) &lt; 10:
+                if r.text and len(negative_reviews) < 10:
                     negative_reviews.append({
                         "author": r.author_name or "Anonymous",
                         "rating": r.rating,
-                        "text": r.text[:180] + ("..." if len(r.text) &gt; 180 else ""),
+                        "text": r.text[:180] + ("..." if len(r.text) > 180 else ""),
                         "date": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "N/A"
                     })
 
         if r.sentiment_score is not None:
             sentiments.append(r.sentiment_score)
-            if r.sentiment_score &lt;= NEG_SENTIMENT_LIMIT:
+            if r.sentiment_score <= NEG_SENTIMENT_LIMIT:
                 sentiment_counts["Negative"] += 1
                 negative_count += 1
-            elif r.sentiment_score &gt;= abs(NEG_SENTIMENT_LIMIT):
+            elif r.sentiment_score >= abs(NEG_SENTIMENT_LIMIT):
                 sentiment_counts["Positive"] += 1
             else:
                 sentiment_counts["Neutral"] += 1
 
     total = len(reviews)
-    avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0  # fixed avg calc
+    avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
 
-    raw_risk = (negative_count * 0.6 + severe_count * 0.4) / total if total &gt; 0 else 0
+    raw_risk = (negative_count * 0.6 + severe_count * 0.4) / total if total > 0 else 0
     risk_pct = round(raw_risk * 100, 1)
 
-    churn_prediction = round(min(95.0, (negative_count / total * 65) + (severe_count / total * 35)), 1) if total &gt; 0 else 0.0
-    loyalty_score = round((sentiment_counts["Positive"] / total * 100), 1) if total &gt; 0 else 0.0
+    churn_prediction = round(min(95.0, (negative_count / total * 65) + (severe_count / total * 35)), 1) if total > 0 else 0.0
+    loyalty_score = round((sentiment_counts["Positive"] / total * 100), 1) if total > 0 else 0.0
 
-    # chronological sorting for monthly trends
     monthly_trend = []
     for k, v in monthly_map.items():
         dt = datetime.strptime(k, "%b %Y")
@@ -148,7 +146,7 @@ def compute_analytics(reviews: List[Review]) -&gt; Dict[str, Any]:
         "monthly_trend": monthly_trend,
         "risk": {
             "loss_probability": f"{risk_pct}%",
-            "impact_level": "High" if risk_pct &gt; 25 else "Medium" if risk_pct &gt; 12 else "Low",
+            "impact_level": "High" if risk_pct > 25 else "Medium" if risk_pct > 12 else "Low",
             "reputation_score": max(0.0, round(100 - risk_pct, 1))
         },
         "negative_reviews": negative_reviews,
@@ -183,8 +181,8 @@ async def insights(
     stmt = select(Review).where(Review.company_id == company_id)
     start_dt = safe_date(start)
     end_dt = safe_date(end)
-    if start_dt: stmt = stmt.where(Review.google_review_time &gt;= start_dt)
-    if end_dt: stmt = stmt.where(Review.google_review_time &lt;= end_dt)
+    if start_dt: stmt = stmt.where(Review.google_review_time >= start_dt)
+    if end_dt: stmt = stmt.where(Review.google_review_time <= end_dt)
 
     res = await session.execute(stmt)
     reviews = res.scalars().all()
