@@ -2,18 +2,20 @@
 
 import os
 import logging
+from typing import AsyncGenerator
+
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     create_async_engine,
 )
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.engine import URL
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.core import models
-
 logger = logging.getLogger("app.core.db")
+
+# --------------------------- Base (SOURCE OF TRUTH) ---------------------------
+Base = declarative_base()
 
 # --------------------------- DATABASE URL ---------------------------
 DATABASE_URL = os.getenv(
@@ -25,56 +27,44 @@ DATABASE_URL = os.getenv(
 try:
     engine: AsyncEngine = create_async_engine(
         DATABASE_URL,
-        echo=False,  # Set True for debug SQL logging
-        future=True,
+        echo=False,      # Set True for SQL debugging
+        future=True,     # SQLAlchemy 2.x behavior
     )
     logger.info("✅ Async SQLAlchemy Engine created successfully")
 except SQLAlchemyError as e:
     logger.error(f"❌ Error creating AsyncEngine: {e}")
-    raise e
+    raise
 
-# --------------------------- Session Local ---------------------------
+# --------------------------- Session Factory ---------------------------
 SessionLocal = sessionmaker(
     bind=engine,
     class_=AsyncSession,
     expire_on_commit=False,
 )
 
-# --------------------------- Base ---------------------------
-Base = models.Base
-
 # --------------------------- DB Utilities ---------------------------
-async def init_models():
-    """
-    Initialize all models (create tables if they don't exist)
-    """
+async def init_models() -> None:
+    """Create all tables (safe, non-destructive)"""
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("✅ Database tables created successfully")
     except SQLAlchemyError as e:
         logger.error(f"❌ Failed to create database tables: {e}")
-        raise e
+        raise
 
-async def drop_models():
-    """
-    Drop all models (useful for schema reset)
-    """
+
+async def drop_models() -> None:
+    """Drop all tables (use only for dev/reset)"""
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
         logger.warning("🧨 Dropped all database tables")
     except SQLAlchemyError as e:
         logger.error(f"❌ Failed to drop database tables: {e}")
-        raise e
+        raise
 
 # --------------------------- Dependency ---------------------------
-async def get_session() -> AsyncSession:
-    """
-    Async DB session dependency for FastAPI
-    """
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
     async with SessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+        yield session
