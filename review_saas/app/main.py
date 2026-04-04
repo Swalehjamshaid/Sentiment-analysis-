@@ -1,12 +1,13 @@
 # filename: review_saas/app/main.py
+
 import sys
 import os
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, Request, Depends, Form
+from fastapi import FastAPI, Request, Depends, Form, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
@@ -26,7 +27,7 @@ for path in [ROOT_DIR, PACKAGE_DIR, APP_DIR]:
     if path not in sys.path:
         sys.path.insert(0, path)
 
-# --- 2. CORE IMPORTS ---
+# --- 2. IMPORT INTERNAL MODULES ---
 try:
     from app.core.config import settings
     from app.core.db import init_models, get_db, SessionLocal, engine
@@ -34,10 +35,11 @@ try:
     from app.core.models import User, SCHEMA_VERSION, Config as ConfigModel
     from app.routes import auth, companies, dashboard, reviews, exports, google_check
 except ImportError as e:
-    logging.getLogger("app.main").error(f"Critical import error: {e}")
+    logger = logging.getLogger("app.main")
+    print(f"CRITICAL IMPORT ERROR: {e}. Check your __init__.py files.")
     raise
 
-# --- 3. LOGGING & PASSWORD ---
+# --- 3. LOGGING & PASSWORD CONTEXT ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("app.main")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -60,32 +62,36 @@ async def _update_stored_schema_version(session: AsyncSession, version: str):
         session.add(ConfigModel(key="SCHEMA_VERSION", value=version))
     await session.commit()
 
-# --- 5. LIFESPAN ---
+# --- 5. LIFESPAN FIX FOR ASYNCIO / UVICORN ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("🚀 Starting Review SaaS AI...")
+    logger.info("🚀 Starting Review Intel AI...")
     try:
-        await asyncio.sleep(2)
+        await asyncio.sleep(2)  # Delay for DB availability
         await init_models()
-
+        
         async with SessionLocal() as session:
-            old_v = await _get_stored_schema_version(session)
-            new_v = str(SCHEMA_VERSION)
-            if old_v != new_v:
-                logger.warning(f"🧩 Schema Mismatch: {old_v} -> {new_v}. Aligning...")
-                async with engine.begin() as conn:
-                    await conn.run_sync(models.Base.metadata.drop_all)
-                    await conn.run_sync(models.Base.metadata.create_all)
-                await _update_stored_schema_version(session, new_v)
-            else:
-                logger.info(f"✅ Schema verified: {new_v}")
-            app.state.schema_version = new_v
+            try:
+                old_v = await _get_stored_schema_version(session)
+                new_v = str(SCHEMA_VERSION)
+                if old_v != new_v:
+                    logger.warning(f"🧩 Schema Mismatch: {old_v} -> {new_v}. Rebuilding...")
+                    async with engine.begin() as conn:
+                        await conn.run_sync(models.Base.metadata.drop_all)
+                        await conn.run_sync(models.Base.metadata.create_all)
+                    await _update_stored_schema_version(session, new_v)
+                else:
+                    logger.info(f"✅ Schema verified: {new_v}")
+                app.state.schema_version = new_v
+            except Exception as db_e:
+                logger.warning(f"⚠️ DB handshake delayed: {db_e}")
+                app.state.schema_version = str(SCHEMA_VERSION)
     except Exception as e:
-        logger.error(f"❌ Startup sequence issue: {e}")
+        logger.error(f"❌ Startup Sequence Issue: {e}")
     yield
-    logger.info("🛑 Shutting down...")
+    logger.info("🛑 Shutting down Review Intel AI...")
 
-# --- 6. APP INIT & MIDDLEWARE ---
+# --- 6. APP INIT ---
 app = FastAPI(title=getattr(settings, "APP_NAME", "Review SaaS AI"), lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.add_middleware(SessionMiddleware, secret_key=getattr(settings, "SECRET_KEY", "fallback-secret-2026"))
@@ -94,7 +100,7 @@ app.add_middleware(SessionMiddleware, secret_key=getattr(settings, "SECRET_KEY",
 app.mount("/static", StaticFiles(directory=os.path.join(APP_DIR, "static")), name="static")
 templates = Jinja2Templates(directory=os.path.join(APP_DIR, "templates"))
 
-# --- 8. CORE ROUTES ---
+# --- 8. ROUTES ---
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     if request.session.get("user"):
@@ -106,12 +112,10 @@ async def login_page(request: Request, error: str = None):
     return templates.TemplateResponse("login.html", {"request": request, "error": error})
 
 @app.post("/login")
-async def handle_login(request: Request, email: str = Form(...), password: str = Form(...),
-                       db: AsyncSession = Depends(get_db)):
+async def handle_login(request: Request, email: str = Form(...), password: str = Form(...), db: AsyncSession = Depends(get_db)):
     email_clean = email.strip().lower()
     result = await db.execute(select(User).where(User.email == email_clean))
     user = result.scalars().first()
-
     if user and pwd_context.verify(password, user.hashed_password):
         request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
         return RedirectResponse("/dashboard", status_code=303)
@@ -132,7 +136,7 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login")
 
-# --- 9. MOUNT ROUTERS ---
+# --- 9. INCLUDE ROUTERS ---
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
@@ -147,6 +151,5 @@ if __name__ == "__main__":
         "review_saas.app.main:app",
         host="0.0.0.0",
         port=int(os.environ.get("PORT", 8080)),
-        reload=False,
-        log_level="info"
+        reload=False
     )
