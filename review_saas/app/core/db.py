@@ -1,32 +1,48 @@
 # filename: app/core/db.py
 import os
 import logging
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
+from sqlalchemy.ext.asyncio import (
+    create_async_engine,
+    AsyncSession,
+    async_sessionmaker,
+    AsyncEngine
+)
 from sqlalchemy.orm import declarative_base
 
-# Setup logging to see what's happening during the Railway boot
+# --------------------------
+# 1️⃣ Logging Setup
+# --------------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 1. THE URL ALIGNMENT
-# Railway often gives "postgres://", but Async SQLAlchemy NEEDS "postgresql+asyncpg://"
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+# --------------------------
+# 2️⃣ DATABASE URL
+# --------------------------
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is not set!")
+
+# Railway often gives "postgres://", Async SQLAlchemy needs "postgresql+asyncpg://"
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
 
-# 2. THE ENGINE
-# We add a 30-second timeout so the 'asyncio runner' doesn't crash if the DB is slow.
+# --------------------------
+# 3️⃣ ASYNC ENGINE
+# --------------------------
 engine: AsyncEngine = create_async_engine(
     DATABASE_URL,
     echo=False,
     future=True,
     pool_pre_ping=True,
     connect_args={
-        "command_timeout": 30
+        "timeout": 30,          # total timeout
+        "command_timeout": 30   # per-command timeout for asyncpg
     }
 )
 
-# 3. THE SESSION
+# --------------------------
+# 4️⃣ SESSION MAKER
+# --------------------------
 SessionLocal = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
@@ -34,21 +50,31 @@ SessionLocal = async_sessionmaker(
     autoflush=False
 )
 
-# 4. THE BASE
-# This is the "Parent" for all your models.
+# --------------------------
+# 5️⃣ BASE CLASS
+# --------------------------
 Base = declarative_base()
 
-# 5. THE INITIALIZATION FUNCTION
+# --------------------------
+# 6️⃣ FASTAPI SESSION DEPENDENCY
+# --------------------------
+async def get_session() -> AsyncSession:
+    """Dependency for FastAPI routes to get a DB session."""
+    async with SessionLocal() as session:
+        yield session
+
+# --------------------------
+# 7️⃣ INIT MODELS FUNCTION
+# --------------------------
 async def init_models():
-    """Safely creates tables on startup."""
+    """Create all tables on startup safely."""
     try:
-        # ✅ CRITICAL: We import models INSIDE the function.
-        # This stops the 'frozen importlib' error (Circular Import).
-        from app.core import models 
-        
+        # Import models inside the function to prevent circular imports
+        from app.core import models  # ensure your models inherit from Base
+
         async with engine.begin() as conn:
-            # This line physically creates the tables in Postgres
             await conn.run_sync(Base.metadata.create_all)
         logger.info("✅ Database alignment complete: Tables created.")
     except Exception as e:
         logger.error(f"❌ Database alignment failed: {e}")
+        raise  # Re-raise to fail app startup if DB alignment fails
