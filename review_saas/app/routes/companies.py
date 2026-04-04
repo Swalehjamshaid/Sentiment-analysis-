@@ -29,7 +29,6 @@ logger = logging.getLogger("app.companies")
 
 router = APIRouter(tags=["companies"])
 
-
 # ----------------------------------------------------------
 # AUTH CHECK
 # ----------------------------------------------------------
@@ -43,7 +42,6 @@ def _require_user(request: Request) -> Dict[str, Any]:
         )
     return user
 
-
 # ----------------------------------------------------------
 # PAYLOAD
 # ----------------------------------------------------------
@@ -53,9 +51,8 @@ class CompanyCreate(BaseModel):
     place_id: str
     address: Optional[str] = None
 
-
 # ----------------------------------------------------------
-# OUTSCRAPER CLIENT (UNCHANGED)
+# OUTSCRAPER CLIENT
 # ----------------------------------------------------------
 
 class OutscraperClient:
@@ -89,13 +86,11 @@ class OutscraperClient:
             data = r.json().get("data", [])
             return data[0] if data else None
 
-
 def _osc() -> Optional[OutscraperClient]:
     key = os.getenv("OUTSCRAPER_API_KEY") or settings.OUTSCRAPER_API_KEY
     if not key:
         return None
     return OutscraperClient(key)
-
 
 # ----------------------------------------------------------
 # COMPANIES LIST
@@ -145,7 +140,6 @@ async def companies_list(
         })
 
     return items
-
 
 # ----------------------------------------------------------
 # ADD COMPANY
@@ -198,7 +192,6 @@ async def add_company(
             "address": new_company.address,
         }
     }
-
 
 # ----------------------------------------------------------
 # DELETE COMPANY
