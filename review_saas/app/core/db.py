@@ -9,28 +9,24 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.core.db")
 
 # --- 1. THE URL ALIGNMENT ---
-# This ensures both 'postgres://' and 'postgresql://' are 
-# converted to the required 'postgresql+asyncpg://' driver.
+# Fixes Railway's default string to work with Async SQLAlchemy (asyncpg)
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
 elif DATABASE_URL.startswith("postgresql://") and "+asyncpg" not in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-# --- 2. THE ENGINE ALIGNMENT ---
-# Includes a 60s timeout to prevent the 'asyncio runner' crash during slow DB wakes.
+# --- 2. THE ENGINE ---
+# Includes a timeout to prevent the 'asyncio runner' crash during slow DB wakes
 engine: AsyncEngine = create_async_engine(
     DATABASE_URL,
     echo=False,
     future=True,
     pool_pre_ping=True,
-    connect_args={
-        "command_timeout": 60 
-    }
+    connect_args={"command_timeout": 60}
 )
 
-# --- 3. THE SESSION ALIGNMENT ---
+# --- 3. THE SESSION ---
 SessionLocal = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
@@ -38,27 +34,27 @@ SessionLocal = async_sessionmaker(
     autoflush=False
 )
 
-# --- 4. THE BASE ALIGNMENT ---
-# Every model in models.py MUST import this specific Base.
+# --- 4. THE BASE (CRITICAL) ---
+# We define this HERE so models.py can import it without starting a loop
 Base = declarative_base()
 
-# --- 5. THE INITIALIZATION FUNCTION (PERMANENT FIX) ---
+# --- 5. THE INITIALIZATION (THE LOOP BREAKER) ---
 async def init_models():
-    """Safely creates tables. Uses local import to break the circular deadlock."""
+    """Safely creates tables. Uses local import to break the importlib deadlock."""
     try:
-        # ✅ THE FIX: We import models INSIDE the function to stop the 'importlib' lock.
+        # ✅ THE FIX: This import MUST stay inside the function.
+        # This prevents the '_find_and_load_unlocked' error during boot.
         from app.core import models 
         
         async with engine.begin() as conn:
-            # Use models.Base.metadata to ensure all models are physically registered.
-            await conn.run_sync(models.Base.metadata.create_all)
+            # We use the Base.metadata to ensure all registered tables are created
+            await conn.run_sync(Base.metadata.create_all)
         logger.info("✅ Database alignment complete: Tables created.")
     except Exception as e:
         logger.error(f"❌ Database alignment failed: {str(e)}")
 
 # --- 6. DEPENDENCY FOR ROUTES ---
 async def get_db():
-    """FastAPI Dependency for providing DB sessions to routes."""
     async with SessionLocal() as session:
         try:
             yield session
