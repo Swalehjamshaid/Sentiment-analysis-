@@ -21,7 +21,7 @@ from sqlalchemy.orm import (
 from app.core.db import Base
 
 # Schema version for lifespan migration control in main.py
-SCHEMA_VERSION = "25.0.9-comprehensive-v2-final"
+SCHEMA_VERSION = "26.0.9-comprehensive-v2-final"
 
 # ===========================
 # USER MODEL
