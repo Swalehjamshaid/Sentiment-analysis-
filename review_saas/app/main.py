@@ -1,13 +1,9 @@
-# filename: review_saas/app/main.py
-
-import sys
+# filename: app/main.py
 import os
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import Optional, Dict, Any
-
-from fastapi import FastAPI, Request, Depends, Form, status
+from fastapi import FastAPI, Request, Depends, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
@@ -17,115 +13,43 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from passlib.context import CryptContext
 
-# --- 1. PATH RESOLUTION ---
-CURRENT_FILE_PATH = os.path.abspath(__file__)
-APP_DIR = os.path.dirname(CURRENT_FILE_PATH)
-PACKAGE_DIR = os.path.dirname(APP_DIR)
-ROOT_DIR = os.path.dirname(PACKAGE_DIR)
+# Safe Internal Imports (No Models at Top-Level!)
+from app.core.config import settings
+from app.core.db import init_models, get_db, SessionLocal, engine
+from app.routes import auth, companies, dashboard, reviews, exports, google_check
 
-for path in [ROOT_DIR, PACKAGE_DIR, APP_DIR]:
-    if path not in sys.path:
-        sys.path.insert(0, path)
-
-# --- 2. SAFE INTERNAL IMPORTS (NO MODELS HERE) ---
-# We exclude 'models' and 'User' from this section to stop the circular crash.
-try:
-    from app.core.config import settings
-    from app.core.db import init_models, get_db, SessionLocal, engine
-    # Import routers (they should not have top-level model imports either)
-    from app.routes import auth, companies, dashboard, reviews, exports, google_check
-except ImportError as e:
-    print(f"CRITICAL IMPORT ERROR: {e}")
-    raise
-
-# --- 3. LOGGING & PASSWORD CONTEXT ---
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("app.main")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# --- 4. DATABASE HELPERS (LOCAL IMPORTS ONLY) ---
-async def _get_stored_schema_version(session: AsyncSession) -> Optional[str]:
-    from app.core.models import Config as ConfigModel
-    try:
-        res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
-        row = res.scalar_one_or_none()
-        return row.value if row else None
-    except Exception:
-        return None
-
-async def _update_stored_schema_version(session: AsyncSession, version: str):
-    from app.core.models import Config as ConfigModel
-    res = await session.execute(select(ConfigModel).where(ConfigModel.key == "SCHEMA_VERSION"))
-    row = res.scalar_one_or_none()
-    if row:
-        row.value = version
-    else:
-        session.add(ConfigModel(key="SCHEMA_VERSION", value=version))
-    await session.commit()
-
-# --- 5. LIFESPAN (THE CIRCLE BREAKER) ---
+# --- LIFESPAN (THE CIRCLE BREAKER) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 Starting Review Intel AI...")
     try:
-        await asyncio.sleep(2)  # Delay to ensure Postgres is ready
+        await asyncio.sleep(2) # Stabilize for Railway
+        await init_models()    # Triggers the Fresh Start rebuild
         
-        # 1. Initialize tables (db.py handles its own internal model import)
-        await init_models()
-        
-        # 2. DELAYED IMPORT: Load models only now that the app is initialized
-        from app.core import models
+        # Load version for state tracking
         from app.core.models import SCHEMA_VERSION
-        
-        async with SessionLocal() as session:
-            try:
-                old_v = await _get_stored_schema_version(session)
-                new_v = str(SCHEMA_VERSION)
-                
-                if old_v != new_v:
-                    logger.warning(f"🧩 Schema Mismatch: {old_v} -> {new_v}. Rebuilding...")
-                    async with engine.begin() as conn:
-                        # Drop and recreate to align with SQLAlchemy 2.0 Mapping
-                        await conn.run_sync(models.Base.metadata.drop_all)
-                        await conn.run_sync(models.Base.metadata.create_all)
-                    await _update_stored_schema_version(session, new_v)
-                else:
-                    logger.info(f"✅ Schema verified: {new_v}")
-                
-                app.state.schema_version = new_v
-            except Exception as db_e:
-                logger.warning(f"⚠️ First run or DB sync delayed: {db_e}")
-                app.state.schema_version = str(SCHEMA_VERSION)
-                
+        app.state.schema_version = str(SCHEMA_VERSION)
     except Exception as e:
         logger.error(f"❌ Startup Sequence Issue: {e}")
     yield
-    logger.info("🛑 Shutting down Review Intel AI...")
 
-# --- 6. APP INIT ---
-app = FastAPI(title=getattr(settings, "APP_NAME", "Review SaaS AI"), lifespan=lifespan)
+app = FastAPI(title="Review Intel AI", lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware, 
-    allow_origins=["*"], 
-    allow_methods=["*"], 
-    allow_headers=["*"]
-)
+# Middleware
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
-app.add_middleware(
-    SessionMiddleware, 
-    secret_key=getattr(settings, "SECRET_KEY", "fallback-secret-2026")
-)
-
-# --- 7. STATIC & TEMPLATES ---
+# Static & Templates
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
 app.mount("/static", StaticFiles(directory=os.path.join(APP_DIR, "static")), name="static")
 templates = Jinja2Templates(directory=os.path.join(APP_DIR, "templates"))
 
-# --- 8. CORE ROUTES ---
+# --- ROUTES (LOCAL IMPORTS TO PREVENT DEADLOCK) ---
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    if request.session.get("user"):
-        return RedirectResponse("/dashboard")
     return RedirectResponse("/login")
 
 @app.get("/login", response_class=HTMLResponse)
@@ -133,61 +57,27 @@ async def login_page(request: Request, error: str = None):
     return templates.TemplateResponse("login.html", {"request": request, "error": error})
 
 @app.post("/login")
-async def handle_login(
-    request: Request, 
-    email: str = Form(...), 
-    password: str = Form(...), 
-    db: AsyncSession = Depends(get_db)
-):
-    # ✅ LOCAL IMPORT: This is the key to preventing boot-time crashes
-    from app.core.models import User
-    
+async def handle_login(request: Request, email: str = Form(...), password: str = Form(...), db: AsyncSession = Depends(get_db)):
+    from app.core.models import User # ✅ LOCAL IMPORT
     email_clean = email.strip().lower()
     result = await db.execute(select(User).where(User.email == email_clean))
     user = result.scalars().first()
     
     if user and pwd_context.verify(password, user.hashed_password):
-        request.session["user"] = {
-            "id": user.id, 
-            "email": user.email, 
-            "name": user.name
-        }
+        request.session["user"] = {"id": user.id, "email": user.email, "name": user.name}
         return RedirectResponse("/dashboard", status_code=303)
-    
-    return templates.TemplateResponse(
-        "login.html", 
-        {"request": request, "error": "Invalid email or password."}
-    )
+    return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid email/password"})
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_view(request: Request):
     if not request.session.get("user"):
         return RedirectResponse("/login")
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
-        "user": request.session.get("user"),
-        "schema_version": getattr(app.state, "schema_version", "Unknown")
-    })
+    return templates.TemplateResponse("dashboard.html", {"request": request, "user": request.session.get("user")})
 
-@app.get("/logout")
-async def logout(request: Request):
-    request.session.clear()
-    return RedirectResponse("/login")
-
-# --- 9. INCLUDE ROUTERS ---
+# Routers
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(reviews.router, prefix="/api", tags=["reviews"])
 app.include_router(exports.router, prefix="/api", tags=["exports"])
 app.include_router(google_check.router, prefix="/api", tags=["google_check"])
-
-# --- 10. ENTRY POINT ---
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "review_saas.app.main:app",
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 8080)),
-        reload=False
-    )
