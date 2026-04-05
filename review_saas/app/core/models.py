@@ -4,7 +4,7 @@ import secrets
 from datetime import datetime
 from typing import Optional, List
 
-# SQLAlchemy imports
+# SQLAlchemy 2.0 Imports
 from sqlalchemy import (
     Integer, String, Float, Text, Boolean, DateTime,
     ForeignKey, UniqueConstraint, func
@@ -21,7 +21,8 @@ from sqlalchemy.orm import (
 from app.core.db import Base
 
 # Schema version for lifespan migration control in main.py
-SCHEMA_VERSION = "26.0.9-comprehensive-v2-final"
+# Changing this string triggers the 'drop_all' and 'create_all' wipe.
+SCHEMA_VERSION = "2026-04-05-FINAL-FRESH-START-V1"
 
 # ===========================
 # USER MODEL
@@ -198,7 +199,7 @@ class CompanyCID(Base):
 
 
 # ===========================
-# CONFIG MODEL
+# CONFIG MODEL (For Schema Versioning)
 # ===========================
 class Config(Base):
     __tablename__ = "config"
