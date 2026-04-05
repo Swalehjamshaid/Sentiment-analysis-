@@ -1,22 +1,26 @@
+# filename: review_saas/app/core/config.py
 import os
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, AliasChoices, model_validator
+from pydantic import model_validator
 
 class Settings(BaseSettings):
     """
     100% Complete Configuration for Review Intel AI.
     Optimized for Python 3.12 and Pydantic V2.
+    Ensures zero 'NoneType' crashes during boot.
     """
     APP_NAME: str = "Review-Intel-AI"
-    # Use .get() with defaults for all OS envs to prevent 'NoneType' crashes
+    
+    # Environment & Debugging
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "production")
     DEBUG: bool = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
     
-    # Railway/Production URL
+    # Railway/Production URL Alignment
     APP_BASE_URL: str = os.getenv("APP_BASE_URL", "https://sentiment-analysis-production-f96a.up.railway.app")
     
-    # Database Settings - Critical: use a string for the default
+    # Database Settings
+    # Defaulting to a string prevents pydantic validation errors if env is missing
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
     
     # Security & Sessions
@@ -27,7 +31,7 @@ class Settings(BaseSettings):
     MAIL_USERNAME: str = os.getenv("MAIL_USERNAME", "roy.jamshaid@gmail.com")
     MAIL_PASSWORD: str = os.getenv("MAIL_PASSWORD", "")
     MAIL_FROM: str = os.getenv("MAIL_FROM", "noreply@reviewintel.ai")
-    MAIL_PORT: int = int(os.getenv("MAIL_PORT", "587")) # String wrap for safety
+    MAIL_PORT: int = int(os.getenv("MAIL_PORT", "587")) 
     MAIL_SERVER: str = os.getenv("MAIL_SERVER", "smtp.gmail.com")
 
     # API Keys
@@ -42,7 +46,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", 
         extra="ignore", 
-        case_sensitive=False # Set to False to prevent 'APP_NAME' vs 'app_name' alignment issues
+        case_sensitive=False # Prevents 'APP_NAME' vs 'app_name' mismatches
     )
 
     @model_validator(mode="after")
@@ -55,6 +59,5 @@ class Settings(BaseSettings):
         return self
 
 # --- THE FIX FOR ALIGNMENT ---
-# We use a function to get settings, or initialize carefully.
-# This prevents the circular import 'deadlock'.
+# Initialize carefully to prevent circular import 'deadlock'
 settings = Settings()
