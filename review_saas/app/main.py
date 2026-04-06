@@ -1,7 +1,7 @@
 # filename: app/main.py
 import os
-import asyncio
 import logging
+from datetime import datetime
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Depends, Form
@@ -15,53 +15,50 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from passlib.context import CryptContext
 
-# -------------------------------
+# ----------------------------------------------------------
 # CORE IMPORTS
-# -------------------------------
+# ----------------------------------------------------------
 from app.core.config import settings
 from app.core.db import init_models, get_db
 
-# -------------------------------
-# LOGGING
-# -------------------------------
+# ----------------------------------------------------------
+# LOGGING & AUTH
+# ----------------------------------------------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.main")
 
-# -------------------------------
-# PASSWORD HASHING
-# -------------------------------
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# -------------------------------
-# LIFESPAN (The Stegman Rule Implementation)
-# -------------------------------
+# ----------------------------------------------------------
+# LIFESPAN (Database Initialization)
+# ----------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # This version string is now purely for logging; 
-    # the master version is managed in app/core/db.py
-    logger.info("🚀 Starting Review Intel AI | Syncing Database...")
+    logger.info("--------------------------------------------------")
+    logger.info("🚀 Starting Review Intel AI | Initializing Systems")
+    logger.info("--------------------------------------------------")
     
     try:
-        # Executes the "Nuclear Reset" logic in db.py if version mismatch exists
+        # Executes the "Stegman Rule" Nuclear Reset from db.py
         await init_models() 
-        logger.info("✅ Database initialization complete.")
+        logger.info("✅ Database systems synchronized.")
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {e}")
         
     yield
-    logger.info("🛑 Shutdown complete")
+    logger.info("🛑 Shutdown complete.")
 
-# -------------------------------
+# ----------------------------------------------------------
 # APP INIT
-# -------------------------------
+# ----------------------------------------------------------
 app = FastAPI(
     title="Review Intel AI",
     lifespan=lifespan,
 )
 
-# -------------------------------
+# ----------------------------------------------------------
 # MIDDLEWARE
-# -------------------------------
+# ----------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -75,33 +72,46 @@ app.add_middleware(
     secret_key=settings.SECRET_KEY,
 )
 
-# ----------------------------------------------------------
-# STATIC & TEMPLATES (THE 100% ABSOLUTE PATH FIX)
-# ----------------------------------------------------------
-# BASE_DIR finds the absolute path to the 'app' folder on the Railway server
+# -----------------------------------------------------------------------------
+# ⭐ THE ABSOLUTE PATH & JINJA FILTER FIX
+# -----------------------------------------------------------------------------
+# Calculates the absolute path to the 'app' directory
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 1. BULLETPROOF TEMPLATE PATHING
+# 1. BULLETPROOF TEMPLATE PATHING (Resolves get_template error)
 template_path = os.path.join(BASE_DIR, "templates")
 templates = Jinja2Templates(directory=template_path)
-logger.info(f"📂 Jinja2 Templates linked to: {template_path}")
 
-# 2. BULLETPROOF STATIC PATHING
+# 2. REGISTER THE 'date' FILTER (Prevents crash on dashboard timestamp display)
+def format_date(value, format="%Y-%m-%d"):
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except:
+            return value
+    return value.strftime(format)
+
+templates.env.filters["date"] = format_date
+logger.info(f"📂 Templates linked to: {template_path}")
+
+# 3. BULLETPROOF STATIC PATHING
 static_dir = os.path.join(BASE_DIR, "static")
 if os.path.isdir(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
     logger.info(f"📁 Static files mounted from: {static_dir}")
 else:
-    logger.warning(f"⚠️ Static directory not found at {static_dir}")
+    logger.warning(f"⚠️ static/ directory not found at {static_dir}")
 
-# -------------------------------
+# ----------------------------------------------------------
 # ROUTE IMPORTS (LOCALIZED TO PREVENT CIRCULAR LOOPS)
-# -------------------------------
+# ----------------------------------------------------------
 from app.routes import auth, companies, dashboard, reviews
 
-# -------------------------------
-# UI ROUTES
-# -------------------------------
+# ----------------------------------------------------------
+# UI ROUTES (UNCHANGED LOGIC)
+# ----------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     return RedirectResponse(
@@ -110,7 +120,6 @@ async def root(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    # This uses the 'templates' object defined above with the absolute path
     return templates.TemplateResponse("login.html", {"request": request})
 
 @app.post("/login")
@@ -161,17 +170,17 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login")
 
-# -------------------------------
-# API ROUTES
-# -------------------------------
+# ----------------------------------------------------------
+# API ROUTES (UNCHANGED LOGIC)
+# ----------------------------------------------------------
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(reviews.router, prefix="/api", tags=["reviews"])
 
-# -------------------------------
-# LOCAL ENTRYPOINT
-# -------------------------------
+# ----------------------------------------------------------
+# ENTRYPOINT
+# ----------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
