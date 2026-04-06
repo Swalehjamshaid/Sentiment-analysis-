@@ -23,8 +23,7 @@ from app.core.db import init_models, get_db
 
 # -------------------------------
 # STEGMAN RULE: SCHEMA VERSIONING
-# POINT OF CHANGE: Update this string to any new value 
-# (e.g. "2026-04-06-V2") to trigger a total wipe and rebuild.
+# POINT OF CHANGE: Update this string (e.g. "V1J") to trigger a wipe/rebuild.
 # -------------------------------
 CURRENT_SCHEMA_VERSION = "2026-04-06-V1I" 
 
@@ -44,12 +43,10 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # -------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Log the version so you can see it in Railway/Console logs
     logger.info(f"🚀 Starting Review Intel AI | Schema Version: {CURRENT_SCHEMA_VERSION}")
     
     try:
-        # POINT OF ACTION: init_models handles the drop_all and create_all
-        # We pass the version string to ensure the DB syncs correctly
+        # Executes the "Wipe & Rebuild" logic in db.py
         await init_models() 
         logger.info(f"✅ Database synchronized with version {CURRENT_SCHEMA_VERSION}")
     except Exception as e:
@@ -83,8 +80,9 @@ app.add_middleware(
 )
 
 # -------------------------------
-# STATIC & TEMPLATES (UNIVERSAL PATHING)
+# STATIC & TEMPLATES (UNIVERSAL PATHING FIX)
 # -------------------------------
+# This logic ensures the app finds /templates even inside a Docker container
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 static_dir = os.path.join(BASE_DIR, "static")
@@ -97,6 +95,7 @@ if os.path.isdir(static_dir):
 else:
     logger.warning(f"⚠️ static/ directory not found at {static_dir}")
 
+# ✅ THE FIX: Ensure templates are loaded from the absolute app directory
 templates = Jinja2Templates(
     directory=os.path.join(BASE_DIR, "templates")
 )
@@ -177,7 +176,7 @@ app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(reviews.router, prefix="/api", tags=["reviews"])
 
 # -------------------------------
-# LOCAL ENTRYPOINT ONLY
+# LOCAL ENTRYPOINT
 # -------------------------------
 if __name__ == "__main__":
     import uvicorn
