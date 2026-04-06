@@ -11,6 +11,13 @@ from sqlalchemy import text
 # Assuming Base is in app.core.base
 from app.core.base import Base
 
+# -----------------------------------------------------------------------------
+# ⭐ STEGMAN RULE: SCHEMA VERSIONING
+# POINT OF CHANGE: Update this string here to trigger a total wipe/rebuild.
+# This avoids the circular import crash with main.py.
+# -----------------------------------------------------------------------------
+CURRENT_SCHEMA_VERSION = "2026-04-06-V1II" 
+
 # -------------------------------
 # LOGGING
 # -------------------------------
@@ -49,13 +56,12 @@ SessionLocal = async_sessionmaker(
 async def init_models():
     """
     ✅ UPDATED SCHEMA RULE:
-    1. Reads CURRENT_SCHEMA_VERSION from app/main.py.
+    1. Uses the local CURRENT_SCHEMA_VERSION defined above.
     2. If the version in the DB is different, it DROPS ALL tables.
     3. Then it CREATES all tables fresh for Project 1/2.
     """
-    # LOCAL IMPORTS to prevent circular dependency 'importlib' crashes
+    # LOCAL IMPORT for models only
     import app.core.models as models 
-    from app.main import CURRENT_SCHEMA_VERSION 
 
     async with engine.begin() as conn:
         # Create a tiny tracker table if it doesn't exist
