@@ -1,100 +1,102 @@
-# filename: app/core/models.py
+# filename: app/core/db.py
 
-from datetime import datetime
-from uuid import uuid4
+import os
+import logging
+import hashlib
+import json
 
-from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    Boolean,
-    DateTime,
-    ForeignKey,
-    Text,
-    Float,
+from sqlalchemy.ext.asyncio import (
+    create_async_engine,
+    AsyncSession,
+    async_sessionmaker,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.exc import ArgumentError
+from sqlalchemy import text
 
 from app.core.base import Base
 
+# -------------------------------
+# LOGGING
+# -------------------------------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("app.core.db")
 
-# ==========================================================
-# USER MODEL
-# ==========================================================
-class User(Base):
-    __tablename__ = "users"
+# -------------------------------
+# DATABASE URL (UNCHANGED ENV)
+# -------------------------------
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL not set")
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
-    email = Column(String(255), unique=True, index=True, nullable=False)
-    hashed_password = Column(String(512), nullable=False)
+# -------------------------------
+# ENGINE
+# -------------------------------
+engine = create_async_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    future=True,
+)
 
-    is_verified = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+SessionLocal = async_sessionmaker(
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
 
-    verification_tokens = relationship(
-        "VerificationToken",
-        back_populates="user",
-        cascade="all, delete-orphan",
-    )
+# -------------------------------
+# SCHEMA VERSIONING RULE
+# -------------------------------
+_SCHEMA_FILE = "/tmp/schema_version.hash"
 
+async def compute_schema_hash() -> str:
+    import app.core.models as models
 
-# ==========================================================
-# VERIFICATION TOKEN
-# ==========================================================
-class VerificationToken(Base):
-    __tablename__ = "verification_tokens"
+    meta = models.Base.metadata
+    payload = {
+        table: sorted(col.name for col in meta.tables[table].columns)
+        for table in meta.tables
+    }
 
-    id = Column(Integer, primary_key=True, index=True)
-    token = Column(String(255), unique=True, index=True, default=lambda: str(uuid4()))
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    user = relationship("User", back_populates="verification_tokens")
-
-
-# ==========================================================
-# COMPANY MODEL
-# ==========================================================
-class Company(Base):
-    __tablename__ = "companies"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
-    google_place_id = Column(String(255), unique=True, index=True, nullable=False)
-    address = Column(String(512), nullable=True)
-
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    reviews = relationship(
-        "Review",
-        back_populates="company",
-        cascade="all, delete-orphan",
-    )
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:12]
 
 
-# ==========================================================
-# REVIEW MODEL
-# ==========================================================
-class Review(Base):
-    __tablename__ = "reviews"
+async def init_models():
+    """
+    ✅ SCHEMA RULE:
+    - Every schema change creates a NEW PostgreSQL schema
+    - No tables are dropped
+    - Old data always preserved
+    """
 
-    id = Column(Integer, primary_key=True, index=True)
+    import app.core.models as models
 
-    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"))
-    google_review_id = Column(String(255), unique=True, index=True, nullable=False)
+    schema_hash = await compute_schema_hash()
+    schema_name = f"app_schema_{schema_hash}"
 
-    author_name = Column(String(255), nullable=True)
-    rating = Column(Integer, nullable=True)
-    sentiment_score = Column(Float, nullable=True)
+    async with engine.begin() as conn:
+        await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
+        await conn.execute(text(f'SET search_path TO "{schema_name}"'))
 
-    text = Column(Text, nullable=True)
+        await conn.run_sync(
+            lambda sync_conn: models.Base.metadata.create_all(
+                bind=sync_conn, checkfirst=True
+            )
+        )
 
-    google_review_time = Column(DateTime, nullable=True)
-    first_seen_at = Column(DateTime, default=datetime.utcnow)
+        with open(_SCHEMA_FILE, "w") as f:
+            f.write(schema_name)
 
-    review_likes = Column(Integer, default=0)
+        logger.warning(f"🧬 Active DB schema: {schema_name}")
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+# -------------------------------
+# SESSION DEPENDENCIES
+# -------------------------------
+async def get_db():
+    async with SessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
 
-    company = relationship("Company", back_populates="reviews")
+# Backward compatibility
+get_session = get_db
