@@ -21,13 +21,21 @@ from passlib.context import CryptContext
 # -------------------------------
 from app.core.config import settings
 from app.core.db import init_models, get_db
-from app.routes import auth, companies, dashboard, reviews, exports, google_check
 
 # -------------------------------
 # LOGGING
 # -------------------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.main")
+
+# -------------------------------
+# SAFE ROUTE IMPORTS (VERY IMPORTANT)
+# -------------------------------
+try:
+    from app.routes import auth, companies, dashboard, reviews, exports, google_check
+except Exception:
+    logger.exception("❌ Failed to import one or more route modules")
+    raise
 
 # -------------------------------
 # PASSWORD HASHING
@@ -43,10 +51,10 @@ async def lifespan(app: FastAPI):
 
     try:
         await asyncio.sleep(1)
-        await init_models()  # rebuild tables if schema changes
+        await init_models()
         logger.info("✅ Database initialized successfully")
-    except Exception as e:
-        logger.error(f"❌ Startup failed: {e}")
+    except Exception:
+        logger.exception("❌ Startup initialization failed")
 
     yield
 
@@ -100,9 +108,11 @@ async def root(request: Request):
         return RedirectResponse("/dashboard")
     return RedirectResponse("/login")
 
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
+
 
 @app.post("/login")
 async def handle_login(
@@ -131,14 +141,17 @@ async def handle_login(
         {"request": request, "error": "Invalid email or password"}
     )
 
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_view(request: Request):
     if not request.session.get("user"):
         return RedirectResponse("/login")
+
     return templates.TemplateResponse(
         "dashboard.html",
         {"request": request, "user": request.session.get("user")}
     )
+
 
 @app.get("/logout")
 async def logout(request: Request):
