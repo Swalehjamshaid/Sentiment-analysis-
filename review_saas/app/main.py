@@ -33,15 +33,18 @@ logger = logging.getLogger("app.main")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # -------------------------------
-# LIFESPAN
+# LIFESPAN (The Stegman Rule Implementation)
 # -------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("🚀 Starting Review Intel AI | Checking Database...")
+    # This version string is now purely for logging; 
+    # the master version is managed in app/core/db.py
+    logger.info("🚀 Starting Review Intel AI | Syncing Database...")
     
     try:
-        await init_models()
-        logger.info("✅ Database systems initialized and synchronized.")
+        # Executes the "Nuclear Reset" logic in db.py if version mismatch exists
+        await init_models() 
+        logger.info("✅ Database initialization complete.")
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {e}")
         
@@ -72,40 +75,27 @@ app.add_middleware(
     secret_key=settings.SECRET_KEY,
 )
 
-# -------------------------------
-# STATIC & TEMPLATES (HARDENED PATH FIX)
-# -------------------------------
+# ----------------------------------------------------------
+# STATIC & TEMPLATES (THE 100% ABSOLUTE PATH FIX)
+# ----------------------------------------------------------
+# BASE_DIR finds the absolute path to the 'app' folder on the Railway server
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 🔧 Ensure consistent absolute path resolution (Docker-safe)
-BASE_DIR = os.path.realpath(BASE_DIR)
+# 1. BULLETPROOF TEMPLATE PATHING
+template_path = os.path.join(BASE_DIR, "templates")
+templates = Jinja2Templates(directory=template_path)
+logger.info(f"📂 Jinja2 Templates linked to: {template_path}")
 
+# 2. BULLETPROOF STATIC PATHING
 static_dir = os.path.join(BASE_DIR, "static")
 if os.path.isdir(static_dir):
-    app.mount(
-        "/static",
-        StaticFiles(directory=static_dir),
-        name="static",
-    )
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    logger.info(f"📁 Static files mounted from: {static_dir}")
 else:
-    logger.warning(f"⚠️ static/ directory not found at {static_dir}")
-
-# 🔧 Stronger template path validation
-template_path = os.path.join(BASE_DIR, "templates")
-
-if not os.path.isdir(template_path):
-    logger.error(f"❌ Templates directory NOT FOUND at: {template_path}")
-else:
-    logger.info(f"📂 Templates loaded from: {template_path}")
-    try:
-        logger.info(f"📄 Available templates: {os.listdir(template_path)}")
-    except Exception as e:
-        logger.warning(f"⚠️ Could not list templates: {e}")
-
-templates = Jinja2Templates(directory=template_path)
+    logger.warning(f"⚠️ Static directory not found at {static_dir}")
 
 # -------------------------------
-# ROUTE IMPORTS
+# ROUTE IMPORTS (LOCALIZED TO PREVENT CIRCULAR LOOPS)
 # -------------------------------
 from app.routes import auth, companies, dashboard, reviews
 
@@ -120,6 +110,7 @@ async def root(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
+    # This uses the 'templates' object defined above with the absolute path
     return templates.TemplateResponse("login.html", {"request": request})
 
 @app.post("/login")
