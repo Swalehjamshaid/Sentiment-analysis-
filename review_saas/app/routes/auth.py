@@ -1,6 +1,8 @@
 # filename: app/routes/auth.py
+
 import logging
 import os
+
 from fastapi import APIRouter, Request, Depends, Form, status, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +27,6 @@ logger = logging.getLogger("app.auth")
 # ----------------------------------------------------------
 # HELPERS
 # ----------------------------------------------------------
-
 def send_verification_email(email: str, token: str):
     """Logs verification link to console (Mock SMTP)."""
     verify_link = f"{settings.APP_BASE_URL}/api/auth/verify?token={token}"
@@ -37,10 +38,10 @@ def send_verification_email(email: str, token: str):
 # ----------------------------------------------------------
 # ROUTES
 # ----------------------------------------------------------
-
 @router.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request):
     return templates.TemplateResponse("register.html", {"request": request})
+
 
 @router.post("/register")
 async def register_user(
@@ -48,42 +49,57 @@ async def register_user(
     name: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     email_clean = email.strip().lower()
-    
+
     # Duplicate email check
     res = await db.execute(select(User).where(User.email == email_clean))
     if res.scalars().first():
-        return templates.TemplateResponse("register.html", {
-            "request": request, 
-            "error": "This email is already registered."
-        })
+        return templates.TemplateResponse(
+            "register.html",
+            {
+                "request": request,
+                "error": "This email is already registered.",
+            },
+        )
 
     # Hash password and create user
     hashed = pwd_context.hash(password)
-    new_user = User(name=name, email=email_clean, hashed_password=hashed)
+    new_user = User(
+        name=name,
+        email=email_clean,
+        hashed_password=hashed,
+    )
     db.add(new_user)
-    
+
     # Using flush to get the ID without fully committing yet
     await db.flush()
 
-    # Generate token
+    # Generate verification token
     token_obj = VerificationToken(user_id=new_user.id)
     db.add(token_obj)
     await db.commit()
 
-    # Send Mock Email
+    # Send Mock Verification Email
     send_verification_email(email_clean, token_obj.token)
-    
-    return templates.TemplateResponse("verify_email_sent.html", {
-        "request": request, 
-        "email": email_clean
-    })
+
+    return templates.TemplateResponse(
+        "verify_email_sent.html",
+        {
+            "request": request,
+            "email": email_clean,
+        },
+    )
+
 
 @router.get("/verify")
-async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
+async def verify_email(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+):
     """Handles account verification via token link."""
+
     # Find token
     res = await db.execute(
         select(VerificationToken).where(VerificationToken.token == token)
@@ -95,19 +111,17 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
             url="/login?error=Invalid or expired verification link."
         )
 
-    # Find User associated with token
+    # Find associated user
     user_res = await db.execute(
         select(User).where(User.id == token_rec.user_id)
     )
     user = user_res.scalars().first()
-    
+
     if user:
-        # Update user status
         user.is_verified = True
-        # Cleanup used token
         await db.delete(token_rec)
         await db.commit()
-    
+
     return RedirectResponse(
         url="/login?message=Account verified successfully! Please login."
     )
