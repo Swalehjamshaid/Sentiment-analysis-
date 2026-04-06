@@ -1,5 +1,6 @@
 # filename: app/main.py
 import os
+import asyncio
 import logging
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -137,6 +138,7 @@ async def handle_login(
     user = result.scalars().first()
 
     if user and pwd_context.verify(password, user.hashed_password):
+        # Store user details in session
         request.session["user"] = {
             "id": user.id,
             "email": user.email,
