@@ -21,11 +21,9 @@ from passlib.context import CryptContext
 from app.core.config import settings
 from app.core.db import init_models, get_db
 
-# -------------------------------
-# STEGMAN RULE: SCHEMA VERSIONING
-# POINT OF CHANGE: Update this string (e.g. "V1J") to trigger a wipe/rebuild.
-# -------------------------------
-CURRENT_SCHEMA_VERSION = "2026-04-06-V" 
+# NOTE: The "Stegman Rule" version string is now managed in app/core/db.py
+# to prevent the "Vicious Circle" circular import crash. 
+# Look for CURRENT_SCHEMA_VERSION in db.py to trigger a wipe.
 
 # -------------------------------
 # LOGGING
@@ -43,12 +41,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # -------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info(f"🚀 Starting Review Intel AI | Schema Version: {CURRENT_SCHEMA_VERSION}")
+    logger.info("🚀 Starting Review Intel AI | Checking Database...")
     
     try:
         # Executes the "Wipe & Rebuild" logic in db.py
         await init_models() 
-        logger.info(f"✅ Database synchronized with version {CURRENT_SCHEMA_VERSION}")
+        logger.info("✅ Database systems initialized and synchronized.")
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {e}")
         
@@ -82,7 +80,7 @@ app.add_middleware(
 # -------------------------------
 # STATIC & TEMPLATES (UNIVERSAL PATHING FIX)
 # -------------------------------
-# This logic ensures the app finds /templates even inside a Docker container
+# BASE_DIR finds the absolute path to the 'app' folder on the server
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 static_dir = os.path.join(BASE_DIR, "static")
@@ -95,10 +93,10 @@ if os.path.isdir(static_dir):
 else:
     logger.warning(f"⚠️ static/ directory not found at {static_dir}")
 
-# ✅ THE FIX: Ensure templates are loaded from the absolute app directory
-templates = Jinja2Templates(
-    directory=os.path.join(BASE_DIR, "templates")
-)
+# ✅ THE FINAL PATH FIX: Ensures Jinja2 finds /templates on Railway
+template_path = os.path.join(BASE_DIR, "templates")
+templates = Jinja2Templates(directory=template_path)
+logger.info(f"📂 Templates loaded from: {template_path}")
 
 # -------------------------------
 # ROUTE IMPORTS (LOCALIZED TO PREVENT CIRCULAR LOOPS)
