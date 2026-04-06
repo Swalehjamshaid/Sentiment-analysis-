@@ -26,7 +26,7 @@ from app.core.db import init_models, get_db
 # POINT OF CHANGE: Update this string to any new value 
 # (e.g. "2026-04-06-V2") to trigger a total wipe and rebuild.
 # -------------------------------
-CURRENT_SCHEMA_VERSION = "2026-04-06-V1" 
+CURRENT_SCHEMA_VERSION = "2026-04-06-V1I" 
 
 # -------------------------------
 # LOGGING
