@@ -9,8 +9,8 @@ from fastapi import FastAPI, Request, Depends, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
+from starlette.staticfiles import StaticFiles
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,16 +29,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.main")
 
 # -------------------------------
-# SAFE ROUTE IMPORTS
-# (exports & google_check removed)
-# -------------------------------
-try:
-    from app.routes import auth, companies, dashboard, reviews
-except Exception:
-    logger.exception("❌ Failed to import one or more route modules")
-    raise
-
-# -------------------------------
 # PASSWORD HASHING
 # -------------------------------
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -49,12 +39,8 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 Starting Review Intel AI...")
-    try:
-        await asyncio.sleep(1)
-        await init_models()
-        logger.info("✅ Database initialized successfully")
-    except Exception:
-        logger.exception("❌ Startup initialization failed")
+    await init_models()
+    logger.info("✅ Database initialized successfully")
     yield
     logger.info("🛑 Shutdown complete")
 
@@ -63,7 +49,7 @@ async def lifespan(app: FastAPI):
 # -------------------------------
 app = FastAPI(
     title="Review Intel AI",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # -------------------------------
@@ -79,43 +65,52 @@ app.add_middleware(
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key=settings.SECRET_KEY
+    secret_key=settings.SECRET_KEY,
 )
 
 # -------------------------------
-# STATIC & TEMPLATES
+# STATIC & TEMPLATES (SAFE)
 # -------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-app.mount(
-    "/static",
-    StaticFiles(directory=os.path.join(BASE_DIR, "static")),
-    name="static"
-)
+static_dir = os.path.join(BASE_DIR, "static")
+if os.path.isdir(static_dir):
+    app.mount(
+        "/static",
+        StaticFiles(directory=static_dir),
+        name="static",
+    )
+else:
+    logger.warning("⚠️ static/ directory not found – skipping StaticFiles mount")
 
 templates = Jinja2Templates(
     directory=os.path.join(BASE_DIR, "templates")
 )
 
 # -------------------------------
+# ROUTE IMPORTS (FAIL FAST)
+# -------------------------------
+from app.routes import auth, companies, dashboard, reviews
+
+# -------------------------------
 # UI ROUTES
 # -------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    return RedirectResponse("/dashboard" if request.session.get("user") else "/login")
-
+    return RedirectResponse(
+        "/dashboard" if request.session.get("user") else "/login"
+    )
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
-
 
 @app.post("/login")
 async def handle_login(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     from app.core.models import User
 
@@ -128,15 +123,17 @@ async def handle_login(
         request.session["user"] = {
             "id": user.id,
             "email": user.email,
-            "name": user.name
+            "name": user.name,
         }
         return RedirectResponse("/dashboard", status_code=303)
 
     return templates.TemplateResponse(
         "login.html",
-        {"request": request, "error": "Invalid email or password"}
+        {
+            "request": request,
+            "error": "Invalid email or password",
+        },
     )
-
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_view(request: Request):
@@ -145,9 +142,11 @@ async def dashboard_view(request: Request):
 
     return templates.TemplateResponse(
         "dashboard.html",
-        {"request": request, "user": request.session.get("user")}
+        {
+            "request": request,
+            "user": request.session.get("user"),
+        },
     )
-
 
 @app.get("/logout")
 async def logout(request: Request):
@@ -163,7 +162,7 @@ app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(reviews.router, prefix="/api", tags=["reviews"])
 
 # -------------------------------
-# ENTRYPOINT (LOCAL ONLY)
+# LOCAL ENTRYPOINT ONLY
 # -------------------------------
 if __name__ == "__main__":
     import uvicorn
@@ -171,5 +170,4 @@ if __name__ == "__main__":
         "app.main:app",
         host="0.0.0.0",
         port=int(os.environ.get("PORT", 8080)),
-        reload=True
     )
