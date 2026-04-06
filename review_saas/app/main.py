@@ -25,7 +25,7 @@ from app.core.db import init_models, get_db
 # STEGMAN RULE: SCHEMA VERSIONING
 # POINT OF CHANGE: Update this string (e.g. "V1J") to trigger a wipe/rebuild.
 # -------------------------------
-CURRENT_SCHEMA_VERSION = "2026-04-06-V1I" 
+CURRENT_SCHEMA_VERSION = "2026-04-06-V1II" 
 
 # -------------------------------
 # LOGGING
