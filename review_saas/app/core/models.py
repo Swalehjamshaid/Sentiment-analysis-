@@ -15,7 +15,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 
-from app.core.db import Base
+from app.core.base import Base
 
 
 # ==========================================================
