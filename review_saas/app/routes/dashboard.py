@@ -28,6 +28,7 @@ from app.core.models import Company, Review
 # ----------------------------------------------------------
 router = APIRouter(prefix="", tags=["Dashboard"])
 logger = logging.getLogger("dashboard")
+
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 NEGATIVE_RATINGS = {1, 2}
@@ -87,7 +88,11 @@ def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
             "sentiment_counts": {"Positive": 0, "Neutral": 0, "Negative": 0},
             "rating_distribution": {i: 0 for i in range(1, 6)},
             "monthly_trend": [],
-            "risk": {"loss_probability": "0%", "impact_level": "None", "reputation_score": 100.0},
+            "risk": {
+                "loss_probability": "0%",
+                "impact_level": "None",
+                "reputation_score": 100.0
+            },
             "negative_reviews": [],
             "churn_prediction": 0.0,
             "loyalty_score": 0.0
@@ -97,7 +102,8 @@ def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
     monthly_map: Dict[str, List[int]] = defaultdict(list)
     sentiment_counts = {"Positive": 0, "Neutral": 0, "Negative": 0}
     rating_distribution = {i: 0 for i in range(1, 6)}
-    severe_count = negative_count = 0
+    severe_count = 0
+    negative_count = 0
     negative_reviews: List[Dict[str, Any]] = []
 
     for r in reviews:
@@ -131,16 +137,18 @@ def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
     total = len(reviews)
     avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
 
-    raw_risk = (negative_count * 0.6 + severe_count * 0.4) / total if total > 0 else 0
+    raw_risk = (negative_count * 0.6 + severe_count * 0.4) / total if total else 0
     risk_pct = round(raw_risk * 100, 1)
 
-    churn_prediction = round(
-        min(95.0, (negative_count / total * 65) + (severe_count / total * 35)), 1
-    ) if total > 0 else 0.0
+    churn_prediction = (
+        round(min(95.0, (negative_count / total * 65) + (severe_count / total * 35)), 1)
+        if total else 0.0
+    )
 
-    loyalty_score = round(
-        (sentiment_counts["Positive"] / total) * 100, 1
-    ) if total > 0 else 0.0
+    loyalty_score = (
+        round((sentiment_counts["Positive"] / total) * 100, 1)
+        if total else 0.0
+    )
 
     monthly_trend = []
     for k, v in monthly_map.items():
@@ -172,9 +180,9 @@ def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
         "loyalty_score": loyalty_score
     }
 
-# ----------------------------------------------------------
+# ==========================================================
 # ROUTES (ALL PRESERVED)
-# ----------------------------------------------------------
+# ==========================================================
 @router.get("/overview/{company_id}", response_class=JSONResponse)
 async def overview(company_id: int, session: AsyncSession = Depends(get_db)):
     await get_company(session, company_id)
@@ -185,6 +193,7 @@ async def overview(company_id: int, session: AsyncSession = Depends(get_db)):
         "average_rating": analytics["average_rating"]
     }
 
+
 @router.get("/insights", response_class=JSONResponse)
 async def insights(
     company_id: int = Query(...),
@@ -193,10 +202,11 @@ async def insights(
     session: AsyncSession = Depends(get_db),
 ):
     await get_company(session, company_id)
-    stmt = select(Review).where(Review.company_id == company_id)
 
+    stmt = select(Review).where(Review.company_id == company_id)
     start_dt = safe_date(start)
     end_dt = safe_date(end)
+
     if start_dt:
         stmt = stmt.where(Review.google_review_time >= start_dt)
     if end_dt:
@@ -214,9 +224,123 @@ async def insights(
     analytics["top_keywords"] = [w for w, _ in Counter(keywords).most_common(30)]
     return analytics
 
+
 @router.get("/revenue", response_class=JSONResponse)
 async def revenue(company_id: int, session: AsyncSession = Depends(get_db)):
     await get_company(session, company_id)
     res = await session.execute(select(Review).where(Review.company_id == company_id))
     analytics = compute_analytics(res.scalars().all())
     return analytics["risk"]
+
+
+@router.post("/chatbot/explain", response_class=JSONResponse)
+async def chatbot(
+    question: str = Query(...),
+    company_id: int = Query(...),
+    session: AsyncSession = Depends(get_db),
+):
+    res = await session.execute(
+        select(Review).where(Review.company_id == company_id).limit(250)
+    )
+    reviews = res.scalars().all()
+    analytics = compute_analytics(reviews)
+
+    prompt = f"""
+You are an elite senior business strategy consultant.
+Provide sharp, revenue-focused, actionable insights.
+
+Business Metrics:
+- Total Reviews: {analytics['total_reviews']}
+- Average Rating: {analytics['average_rating']}/5
+- Loss Probability: {analytics['risk']['loss_probability']}
+- Impact Level: {analytics['risk']['impact_level']}
+- Reputation Score: {analytics['risk']['reputation_score']}/100
+- Churn Prediction: {analytics['churn_prediction']}%
+- Loyalty Score: {analytics['loyalty_score']}%
+Monthly Trend: {analytics['monthly_trend']}
+
+User Question: {question}
+
+Give professional, concise recommendations tied to revenue impact.
+"""
+
+    try:
+        response = await asyncio.to_thread(
+            lambda: openai.ChatCompletion.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.25,
+                max_tokens=800,
+            )
+        )
+        return {"answer": response.choices[0].message.content.strip()}
+    except Exception as e:
+        logger.error(f"OpenAI error: {e}")
+        return {"answer": "AI strategy consultant is temporarily unavailable. Please try again shortly."}
+
+
+@router.get("/ai-summary/{company_id}")
+async def ai_summary(company_id: int, session: AsyncSession = Depends(get_db)):
+    await get_company(session, company_id)
+    res = await session.execute(select(Review).where(Review.company_id == company_id))
+    analytics = compute_analytics(res.scalars().all())
+
+    if analytics["total_reviews"] == 0:
+        return {"summary": "No sufficient data available for analysis."}
+
+    summary = f"""
+Executive Summary — {datetime.utcnow().strftime('%B %d, %Y')}
+
+• Total Reviews      : {analytics['total_reviews']}
+• Average Rating     : {analytics['average_rating']}/5.0
+• Loss Probability   : {analytics['risk']['loss_probability']}
+• Churn Prediction   : {analytics['churn_prediction']}%
+• Loyalty Score      : {analytics['loyalty_score']}%
+• Reputation Score   : {analytics['risk']['reputation_score']}/100
+• Risk Impact        : {analytics['risk']['impact_level']}
+"""
+    return {"summary": summary.strip()}
+
+
+@router.get("/executive-report/pdf/{company_id}")
+async def executive_report(company_id: int, session: AsyncSession = Depends(get_db)):
+    company = await get_company(session, company_id)
+    res = await session.execute(select(Review).where(Review.company_id == company_id))
+    analytics = compute_analytics(res.scalars().all())
+
+    def generate_pdf() -> bytes:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.set_font("Arial", "B", 16)
+        pdf.cell(0, 10, sanitize_pdf(company.name), ln=True, align="C")
+        return pdf.output(dest="S").encode("utf-8")
+
+    buffer = io.BytesIO(await asyncio.to_thread(generate_pdf))
+    return StreamingResponse(buffer, media_type="application/pdf")
+
+
+@router.get("/recent-reviews/{company_id}", response_class=JSONResponse)
+async def get_recent_reviews(company_id: int, session: AsyncSession = Depends(get_db)):
+    await get_company(session, company_id)
+    stmt = (
+        select(
+            Review.author_name,
+            Review.rating,
+            Review.text,
+            Review.google_review_time
+        )
+        .where(Review.company_id == company_id)
+        .order_by(desc(Review.google_review_time))
+        .limit(100)
+    )
+    res = await session.execute(stmt)
+    return [
+        {
+            "author": r.author_name or "Anonymous",
+            "rating": r.rating,
+            "text": r.text,
+            "date": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "N/A",
+        }
+        for r in res.fetchall()
+    ]
