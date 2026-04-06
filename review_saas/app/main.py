@@ -29,10 +29,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.main")
 
 # -------------------------------
-# SAFE ROUTE IMPORTS (VERY IMPORTANT)
+# SAFE ROUTE IMPORTS
+# (exports & google_check removed)
 # -------------------------------
 try:
-    from app.routes import auth, companies, dashboard, reviews, exports, google_check
+    from app.routes import auth, companies, dashboard, reviews
 except Exception:
     logger.exception("❌ Failed to import one or more route modules")
     raise
@@ -43,21 +44,18 @@ except Exception:
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # -------------------------------
-# LIFESPAN (SAFE STARTUP)
+# LIFESPAN
 # -------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 Starting Review Intel AI...")
-
     try:
         await asyncio.sleep(1)
         await init_models()
         logger.info("✅ Database initialized successfully")
     except Exception:
         logger.exception("❌ Startup initialization failed")
-
     yield
-
     logger.info("🛑 Shutdown complete")
 
 # -------------------------------
@@ -100,13 +98,11 @@ templates = Jinja2Templates(
 )
 
 # -------------------------------
-# ROUTES (UI)
+# UI ROUTES
 # -------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    if request.session.get("user"):
-        return RedirectResponse("/dashboard")
-    return RedirectResponse("/login")
+    return RedirectResponse("/dashboard" if request.session.get("user") else "/login")
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -165,8 +161,6 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(reviews.router, prefix="/api", tags=["reviews"])
-app.include_router(exports.router, prefix="/api", tags=["exports"])
-app.include_router(google_check.router, prefix="/api", tags=["google_check"])
 
 # -------------------------------
 # ENTRYPOINT (LOCAL ONLY)
