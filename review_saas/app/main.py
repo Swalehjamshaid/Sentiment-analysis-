@@ -23,7 +23,8 @@ from app.core.db import init_models, get_db
 
 # -------------------------------
 # STEGMAN RULE: SCHEMA VERSIONING
-# Update this string to trigger a total database wipe and rebuild
+# POINT OF CHANGE: Update this string (e.g., to "2026-04-06-V2") 
+# to trigger a total database wipe and rebuild on the next start.
 # -------------------------------
 CURRENT_SCHEMA_VERSION = "2026-04-06-V1" 
 
@@ -43,10 +44,11 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # -------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info(f"🚀 Starting Review Intel AI (Schema: {CURRENT_SCHEMA_VERSION})...")
+    # Log the version so you can see it in Railway/Console logs
+    logger.info(f"🚀 Starting Review Intel AI (Schema Version: {CURRENT_SCHEMA_VERSION})...")
     
-    # We pass the version to init_models to check if a reset is needed
     try:
+        # POINT OF ACTION: init_models handles the drop_all and create_all
         await init_models()
         logger.info("✅ Database initialized successfully")
     except Exception as e:
@@ -174,7 +176,7 @@ app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(reviews.router, prefix="/api", tags=["reviews"])
 
 # -------------------------------
-# LOCAL ENTRYPOINT
+# LOCAL ENTRYPOINT ONLY
 # -------------------------------
 if __name__ == "__main__":
     import uvicorn
