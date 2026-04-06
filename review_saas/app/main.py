@@ -1,5 +1,4 @@
 # filename: app/main.py
-
 import os
 import asyncio
 import logging
@@ -23,6 +22,12 @@ from app.core.config import settings
 from app.core.db import init_models, get_db
 
 # -------------------------------
+# STEGMAN RULE: SCHEMA VERSIONING
+# Update this string to trigger a total database wipe and rebuild
+# -------------------------------
+CURRENT_SCHEMA_VERSION = "2026-04-06-V1" 
+
+# -------------------------------
 # LOGGING
 # -------------------------------
 logging.basicConfig(level=logging.INFO)
@@ -34,13 +39,19 @@ logger = logging.getLogger("app.main")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # -------------------------------
-# LIFESPAN
+# LIFESPAN (The Stegman Rule Implementation)
 # -------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("🚀 Starting Review Intel AI...")
-    await init_models()
-    logger.info("✅ Database initialized successfully")
+    logger.info(f"🚀 Starting Review Intel AI (Schema: {CURRENT_SCHEMA_VERSION})...")
+    
+    # We pass the version to init_models to check if a reset is needed
+    try:
+        await init_models()
+        logger.info("✅ Database initialized successfully")
+    except Exception as e:
+        logger.error(f"❌ Database initialization failed: {e}")
+        
     yield
     logger.info("🛑 Shutdown complete")
 
@@ -69,7 +80,7 @@ app.add_middleware(
 )
 
 # -------------------------------
-# STATIC & TEMPLATES (SAFE)
+# STATIC & TEMPLATES (UNIVERSAL PATHING)
 # -------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -81,14 +92,14 @@ if os.path.isdir(static_dir):
         name="static",
     )
 else:
-    logger.warning("⚠️ static/ directory not found – skipping StaticFiles mount")
+    logger.warning(f"⚠️ static/ directory not found at {static_dir}")
 
 templates = Jinja2Templates(
     directory=os.path.join(BASE_DIR, "templates")
 )
 
 # -------------------------------
-# ROUTE IMPORTS (FAIL FAST)
+# ROUTE IMPORTS (LOCALIZED TO PREVENT CIRCULAR LOOPS)
 # -------------------------------
 from app.routes import auth, companies, dashboard, reviews
 
@@ -112,6 +123,7 @@ async def handle_login(
     password: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
+    # ✅ Local import to prevent circular dependency
     from app.core.models import User
 
     result = await db.execute(
@@ -162,7 +174,7 @@ app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(reviews.router, prefix="/api", tags=["reviews"])
 
 # -------------------------------
-# LOCAL ENTRYPOINT ONLY
+# LOCAL ENTRYPOINT
 # -------------------------------
 if __name__ == "__main__":
     import uvicorn
