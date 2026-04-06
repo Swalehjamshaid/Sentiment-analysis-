@@ -81,6 +81,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 1. BULLETPROOF TEMPLATE PATHING (Resolves _load_template error)
 template_path = os.path.join(BASE_DIR, "templates")
+if not os.path.isdir(template_path):
+    logger.error(f"❌ Templates folder not found at {template_path}")
 templates = Jinja2Templates(directory=template_path)
 logger.info(f"📂 JINJA2 SEARCH PATH: {template_path}")
 
@@ -121,7 +123,6 @@ async def root(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    # This renders login.html using the absolute path calculated above
     return templates.TemplateResponse("login.html", {"request": request})
 
 @app.post("/login")
@@ -139,7 +140,6 @@ async def handle_login(
     user = result.scalars().first()
 
     if user and pwd_context.verify(password, user.hashed_password):
-        # Store user details in session
         request.session["user"] = {
             "id": user.id,
             "email": user.email,
