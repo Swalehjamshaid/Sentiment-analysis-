@@ -1,4 +1,6 @@
-# 1. THE MANDATORY START (Fixes your current error)
+# filename: Dockerfile
+
+# 1. THE MANDATORY START
 FROM python:3.12-slim
 
 # 2. THE ENVIRONMENT ALIGNMENT
@@ -22,5 +24,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 6. COPYING YOUR CODE
 COPY . .
 
-# 7. THE START COMMAND (Aligned with review_saas structure)
-CMD ["uvicorn", "review_saas.app.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]
+# 7. THE START COMMAND
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]
