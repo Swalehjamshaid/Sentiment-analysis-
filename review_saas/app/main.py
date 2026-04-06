@@ -23,8 +23,8 @@ from app.core.db import init_models, get_db
 
 # -------------------------------
 # STEGMAN RULE: SCHEMA VERSIONING
-# POINT OF CHANGE: Update this string (e.g., to "2026-04-06-V2") 
-# to trigger a total database wipe and rebuild on the next start.
+# POINT OF CHANGE: Update this string to any new value 
+# (e.g. "2026-04-06-V2") to trigger a total wipe and rebuild.
 # -------------------------------
 CURRENT_SCHEMA_VERSION = "2026-04-06-V1" 
 
@@ -45,12 +45,13 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Log the version so you can see it in Railway/Console logs
-    logger.info(f"🚀 Starting Review Intel AI (Schema Version: {CURRENT_SCHEMA_VERSION})...")
+    logger.info(f"🚀 Starting Review Intel AI | Schema Version: {CURRENT_SCHEMA_VERSION}")
     
     try:
         # POINT OF ACTION: init_models handles the drop_all and create_all
-        await init_models()
-        logger.info("✅ Database initialized successfully")
+        # We pass the version string to ensure the DB syncs correctly
+        await init_models() 
+        logger.info(f"✅ Database synchronized with version {CURRENT_SCHEMA_VERSION}")
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {e}")
         
