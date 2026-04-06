@@ -74,16 +74,31 @@ app.add_middleware(
 )
 
 # -----------------------------------------------------------------------------
-# ⭐ THE ABSOLUTE PATH & JINJA FILTER FIX
+# ⭐ THE MULTI-PATH TEMPLATE & JINJA FILTER FIX
 # -----------------------------------------------------------------------------
-# Calculates the absolute path to the 'app' directory
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 1. BULLETPROOF TEMPLATE PATHING (Resolves get_template error)
-template_path = os.path.join(BASE_DIR, "templates")
-templates = Jinja2Templates(directory=template_path)
+# We search multiple paths to ensure Railway finds the templates folder
+possible_paths = [
+    os.path.join(BASE_DIR, "templates"), # /app/templates
+    os.path.join(os.getcwd(), "app", "templates"), # /review_saas/app/templates
+    "templates" # relative fallback
+]
 
-# 2. REGISTER THE 'date' FILTER (Prevents crash on dashboard timestamp display)
+template_path = None
+for path in possible_paths:
+    if os.path.isdir(path):
+        template_path = path
+        break
+
+if not template_path:
+    # If all else fails, default to the standard absolute path
+    template_path = os.path.join(BASE_DIR, "templates")
+
+templates = Jinja2Templates(directory=template_path)
+logger.info(f"🚀 JINJA2 ACTIVE: Templates found at {template_path}")
+
+# REGISTER THE 'date' FILTER (Prevents crash on dashboard)
 def format_date(value, format="%Y-%m-%d"):
     if value is None:
         return ""
@@ -95,9 +110,8 @@ def format_date(value, format="%Y-%m-%d"):
     return value.strftime(format)
 
 templates.env.filters["date"] = format_date
-logger.info(f"📂 Templates linked to: {template_path}")
 
-# 3. BULLETPROOF STATIC PATHING
+# BULLETPROOF STATIC PATHING
 static_dir = os.path.join(BASE_DIR, "static")
 if os.path.isdir(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -121,6 +135,7 @@ async def root(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
+    # This uses the 'templates' object with the discovered path
     return templates.TemplateResponse("login.html", {"request": request})
 
 @app.post("/login")
@@ -138,7 +153,6 @@ async def handle_login(
     user = result.scalars().first()
 
     if user and pwd_context.verify(password, user.hashed_password):
-        # Store user details in session
         request.session["user"] = {
             "id": user.id,
             "email": user.email,
