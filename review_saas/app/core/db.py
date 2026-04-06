@@ -1,11 +1,7 @@
 # filename: app/core/db.py
 import os
 import logging
-from sqlalchemy.ext.asyncio import (
-    create_async_engine,
-    AsyncSession,
-    async_sessionmaker,
-)
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import text
 
 # Assuming Base is in app.core.base
@@ -13,8 +9,7 @@ from app.core.base import Base
 
 # -----------------------------------------------------------------------------
 # ⭐ STEGMAN RULE: SCHEMA VERSIONING
-# POINT OF CHANGE: Update this string here to trigger a total wipe/rebuild.
-# This avoids the circular import crash with main.py.
+# POINT OF CHANGE: Change this string to trigger the Nuclear Reset.
 # -----------------------------------------------------------------------------
 CURRENT_SCHEMA_VERSION = "2026-04-06-V1II" 
 
@@ -51,48 +46,67 @@ SessionLocal = async_sessionmaker(
 )
 
 # -----------------------------------------------------------------------------
-# ⭐ THE STEGMAN RULE: WIPE & REBUILD LOGIC
+# ⭐ THE STEGMAN RULE: NUCLEAR WIPE & REBUILD LOGIC
 # -----------------------------------------------------------------------------
 async def init_models():
     """
-    ✅ UPDATED SCHEMA RULE:
-    1. Uses the local CURRENT_SCHEMA_VERSION defined above.
-    2. If the version in the DB is different, it DROPS ALL tables.
-    3. Then it CREATES all tables fresh for Project 1/2.
+    ✅ FINAL SCHEMA RULE:
+    1. Uses CASCADE to force-drop all tables, even if they have dependencies.
+    2. Wipes every table visible in the Railway Dashboard.
+    3. Rebuilds fresh models for Project 1 & 2.
     """
-    # LOCAL IMPORT for models only
     import app.core.models as models 
 
     async with engine.begin() as conn:
-        # Create a tiny tracker table if it doesn't exist
+        # Create tracker table
         await conn.execute(text("CREATE TABLE IF NOT EXISTS _schema_tracker (version TEXT)"))
         
-        # Check the current version stored in the database
+        # Check current DB version
         res = await conn.execute(text("SELECT version FROM _schema_tracker LIMIT 1"))
         db_version = res.scalar()
 
-        # ⭐ THE TRIGGER POINT: If version in code doesn't match version in DB
+        # If mismatch, trigger the Nuclear Reset
         if db_version != CURRENT_SCHEMA_VERSION:
-            logger.warning(f"⚠️ SCHEMA MISMATCH: DB is '{db_version}', Code is '{CURRENT_SCHEMA_VERSION}'")
-            logger.warning("🗑️  STEGMAN RULE: DELETING OLD TABLES AND STARTING FRESH...")
+            logger.warning(f"⚠️ SCHEMA MISMATCH: DB='{db_version}', Code='{CURRENT_SCHEMA_VERSION}'")
+            logger.warning("🗑️  STEGMAN RULE: EXECUTING BRUTE FORCE CASCADE DELETE...")
             
-            # STEP 1: Wipe the old data
-            await conn.run_sync(models.Base.metadata.drop_all)
+            # THE FIX: Explicitly drop every table that could block the reset
+            # This list is based on your specific Railway Screenshot
+            tables_to_wipe = [
+                "competitors", 
+                "company_cids", 
+                "google_reviews", 
+                "google_reviews_raw", 
+                "reviews", 
+                "audit_logs", 
+                "notifications", 
+                "companies", 
+                "users", 
+                "verification_tokens", 
+                "config"
+            ]
             
-            # STEP 2: Build the new tables
+            for table in tables_to_wipe:
+                try:
+                    # CASCADE breaks the foreign key links (Dependent Objects)
+                    await conn.execute(text(f'DROP TABLE IF EXISTS "{table}" CASCADE'))
+                except Exception as e:
+                    logger.error(f"⚠️ Could not drop {table}: {e}")
+
+            # Build all tables fresh from your current models.py
             await conn.run_sync(models.Base.metadata.create_all)
             
-            # STEP 3: Update the version tracker
+            # Update Tracker with the new version
             await conn.execute(text("DELETE FROM _schema_tracker"))
             await conn.execute(
                 text("INSERT INTO _schema_tracker (version) VALUES (:v)"),
                 {"v": CURRENT_SCHEMA_VERSION}
             )
-            logger.info(f"✅ FRESH START COMPLETE: Database is now version {CURRENT_SCHEMA_VERSION}")
+            logger.info(f"✅ NUCLEAR RESET COMPLETE: Database is now version {CURRENT_SCHEMA_VERSION}")
         else:
-            # Versions match - just ensure tables exist
+            # Standard startup - ensure everything exists
             await conn.run_sync(models.Base.metadata.create_all)
-            logger.info(f"🧬 Schema version {CURRENT_SCHEMA_VERSION} is current. No wipe needed.")
+            logger.info(f"🧬 Schema version {CURRENT_SCHEMA_VERSION} is current. Ready for OPSI.")
 
 # -------------------------------
 # SESSION DEPENDENCIES
