@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # --- REFINED ALIGNMENT IMPORTS ---
 from app.core.db import get_db
-from app.core.models import Company, Review
+# ✅ MODELS REMOVED FROM TOP TO BREAK THE DEADLOCK
 from app.core.config import settings
 
 logger = logging.getLogger("app.companies")
@@ -106,6 +106,8 @@ async def companies_list(
 ) -> List[Dict[str, Any]]:
 
     _require_user(request)
+    # ✅ LOCAL IMPORT: Breaks the Vicious Circle
+    from app.core.models import Company, Review
 
     page = max(page, 1)
     size = max(1, min(100, size))
@@ -156,6 +158,8 @@ async def add_company(
 ) -> Dict[str, Any]:
 
     _require_user(request)
+    # ✅ LOCAL IMPORT: Breaks the Vicious Circle
+    from app.core.models import Company
 
     res = await session.execute(
         select(Company).where(Company.google_place_id == company_in.place_id.strip())
@@ -206,6 +210,8 @@ async def delete_company(
 ) -> Dict[str, Any]:
 
     _require_user(request)
+    # ✅ LOCAL IMPORT: Breaks the Vicious Circle
+    from app.core.models import Company
 
     comp = await session.get(Company, company_id)
     if not comp:
@@ -215,4 +221,3 @@ async def delete_company(
     await session.commit()
 
     return {"status": "deleted", "id": company_id}
-``
