@@ -1,5 +1,4 @@
 # filename: app/routes/auth.py
-
 import logging
 import os
 
@@ -12,7 +11,7 @@ from starlette.templating import Jinja2Templates
 
 # --- REFINED ALIGNMENT IMPORTS ---
 from app.core.db import get_db
-from app.core.models import User, VerificationToken
+# ✅ MODELS REMOVED FROM TOP TO BREAK THE DEADLOCK
 from app.core.config import settings
 
 router = APIRouter()
@@ -51,6 +50,9 @@ async def register_user(
     password: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
+    # ✅ LOCAL IMPORT: Breaks the Vicious Circle
+    from app.core.models import User, VerificationToken
+
     email_clean = email.strip().lower()
 
     # Duplicate email check
@@ -99,6 +101,8 @@ async def verify_email(
     db: AsyncSession = Depends(get_db),
 ):
     """Handles account verification via token link."""
+    # ✅ LOCAL IMPORT: Breaks the Vicious Circle
+    from app.core.models import User, VerificationToken
 
     # Find token
     res = await db.execute(
