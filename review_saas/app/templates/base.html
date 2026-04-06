@@ -12,9 +12,9 @@
 
     <style>
         :root {
-            --primary-dark: #0f172a; /* Slate 900 */
-            --accent-gold: #f59e0b;  /* Amber 500 */
-            --bg-soft: #f8fafc;      /* Slate 50 */
+            --primary-dark: #0f172a;
+            --accent-gold: #f59e0b;
+            --bg-soft: #f8fafc;
             --glass-white: rgba(255, 255, 255, 0.9);
         }
 
@@ -27,7 +27,6 @@
             flex-direction: column;
         }
 
-        /* Glassmorphism Navbar */
         .navbar {
             background-color: var(--glass-white) !important;
             backdrop-filter: blur(12px);
@@ -49,7 +48,6 @@
             filter: drop-shadow(0 0 5px rgba(245, 158, 11, 0.3));
         }
 
-        /* Main Wrapper */
         .main-wrapper {
             flex: 1;
             padding: 4rem 0;
@@ -64,7 +62,6 @@
             position: relative;
         }
 
-        /* Premium Buttons */
         .btn-premium {
             background-color: var(--primary-dark);
             color: white;
@@ -97,7 +94,6 @@
             transform: scale(1.02);
         }
 
-        /* Footer */
         footer {
             background: #fff;
             padding: 2rem 0;
@@ -147,7 +143,7 @@
                         </li>
                         <li class="nav-item dropdown ms-lg-2">
                             <button class="btn btn-dark dropdown-toggle rounded-pill px-4 fw-medium" type="button" data-bs-toggle="dropdown">
-                                <i class="bi bi-person-circle me-2 text-warning"></i> {{ request.session.user.name }}
+                                <i class="bi bi-person-circle me-2 text-warning"></i> {{ request.session.get('user').get('name') }}
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end border-0 shadow-lg mt-3 p-2 rounded-4">
                                 <li><a class="dropdown-item rounded-3" href="/profile"><i class="bi bi-gear me-2"></i>Account</a></li>
