@@ -1,79 +1,184 @@
-# filename: app/core/db.py
+# filename: app/main.py
 
 import os
+import asyncio
 import logging
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import declarative_base
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request, Depends, Form
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.staticfiles import StaticFiles
+from starlette.templating import Jinja2Templates
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from passlib.context import CryptContext
+
+# -------------------------------
+# CORE IMPORTS
+# -------------------------------
+from app.core.config import settings
+from app.core.db import init_models, get_db
+from app.routes import auth, companies, dashboard, reviews, exports, google_check
 
 # -------------------------------
 # LOGGING
 # -------------------------------
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("app.core.db")
+logger = logging.getLogger("app.main")
 
 # -------------------------------
-# BASE (DO NOT CHANGE)
+# PASSWORD HASHING
 # -------------------------------
-Base = declarative_base()
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # -------------------------------
-# DATABASE URL FIX (SAFE)
+# LIFESPAN (SAFE STARTUP)
 # -------------------------------
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("🚀 Starting Review Intel AI...")
 
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
-
-elif DATABASE_URL.startswith("postgresql://") and "+asyncpg" not in DATABASE_URL:
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
-
-# -------------------------------
-# ENGINE (SAFE INIT)
-# -------------------------------
-engine = create_async_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-    future=True
-)
-
-# -------------------------------
-# SESSION FACTORY
-# -------------------------------
-SessionLocal = async_sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False
-)
-
-# -------------------------------
-# INIT MODELS (NO CHANGE IN BEHAVIOR)
-# -------------------------------
-async def init_models():
-    """Initialize DB safely without import deadlock"""
     try:
-        import app.core.models as models  # delayed import
+        await asyncio.sleep(1)
 
-        async with engine.begin() as conn:
-            await conn.run_sync(models.Base.metadata.drop_all)
-            await conn.run_sync(models.Base.metadata.create_all)
+        # Initialize DB
+        await init_models()
 
-        logger.info("✅ Database Fresh Start: Tables rebuilt successfully.")
+        logger.info("✅ Database initialized successfully")
 
     except Exception as e:
-        logger.error(f"❌ Database Handshake Failed: {e}")
+        logger.error(f"❌ Startup failed: {e}")
+
+    yield
+
+    logger.info("🛑 Shutdown complete")
+
 
 # -------------------------------
-# DEPENDENCY (NO CHANGE)
+# APP INIT
 # -------------------------------
-async def get_db():
-    async with SessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+app = FastAPI(
+    title="Review Intel AI",
+    lifespan=lifespan
+)
 
 # -------------------------------
-# 🔥 CRITICAL FIX (NO BREAKING CHANGE)
+# MIDDLEWARE
 # -------------------------------
-# This ensures compatibility with dashboard.py
-get_session = get_db
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.SECRET_KEY
+)
+
+# -------------------------------
+# STATIC & TEMPLATES
+# -------------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+app.mount(
+    "/static",
+    StaticFiles(directory=os.path.join(BASE_DIR, "static")),
+    name="static"
+)
+
+templates = Jinja2Templates(
+    directory=os.path.join(BASE_DIR, "templates")
+)
+
+# -------------------------------
+# ROUTES (UI)
+# -------------------------------
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request):
+    if request.session.get("user"):
+        return RedirectResponse("/dashboard")
+    return RedirectResponse("/login")
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
+
+
+@app.post("/login")
+async def handle_login(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.core.models import User  # local import (prevents circular issues)
+
+    result = await db.execute(
+        select(User).where(User.email == email.strip().lower())
+    )
+    user = result.scalars().first()
+
+    if user and pwd_context.verify(password, user.hashed_password):
+        request.session["user"] = {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name
+        }
+        return RedirectResponse("/dashboard", status_code=303)
+
+    return templates.TemplateResponse(
+        "login.html",
+        {"request": request, "error": "Invalid email or password"}
+    )
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_view(request: Request):
+    if not request.session.get("user"):
+        return RedirectResponse("/login")
+
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "user": request.session.get("user")
+        }
+    )
+
+
+@app.get("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/login")
+
+
+# -------------------------------
+# API ROUTES
+# -------------------------------
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(companies.router, prefix="/api", tags=["companies"])
+app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
+app.include_router(reviews.router, prefix="/api", tags=["reviews"])
+app.include_router(exports.router, prefix="/api", tags=["exports"])
+app.include_router(google_check.router, prefix="/api", tags=["google_check"])
+
+
+# -------------------------------
+# ENTRYPOINT (LOCAL ONLY)
+# -------------------------------
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "app.main:app",   # IMPORTANT: matches Docker
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 8080)),
+        reload=True
+    )
