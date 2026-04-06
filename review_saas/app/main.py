@@ -21,10 +21,6 @@ from passlib.context import CryptContext
 from app.core.config import settings
 from app.core.db import init_models, get_db
 
-# NOTE: The "Stegman Rule" version string is now managed in app/core/db.py
-# to prevent the "Vicious Circle" circular import crash. 
-# Look for CURRENT_SCHEMA_VERSION in db.py to trigger a wipe.
-
 # -------------------------------
 # LOGGING
 # -------------------------------
@@ -37,15 +33,14 @@ logger = logging.getLogger("app.main")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # -------------------------------
-# LIFESPAN (The Stegman Rule Implementation)
+# LIFESPAN
 # -------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 Starting Review Intel AI | Checking Database...")
     
     try:
-        # Executes the "Wipe & Rebuild" logic in db.py
-        await init_models() 
+        await init_models()
         logger.info("✅ Database systems initialized and synchronized.")
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {e}")
@@ -78,10 +73,12 @@ app.add_middleware(
 )
 
 # -------------------------------
-# STATIC & TEMPLATES (UNIVERSAL PATHING FIX)
+# STATIC & TEMPLATES (HARDENED PATH FIX)
 # -------------------------------
-# BASE_DIR finds the absolute path to the 'app' folder on the server
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 🔧 Ensure consistent absolute path resolution (Docker-safe)
+BASE_DIR = os.path.realpath(BASE_DIR)
 
 static_dir = os.path.join(BASE_DIR, "static")
 if os.path.isdir(static_dir):
@@ -93,13 +90,22 @@ if os.path.isdir(static_dir):
 else:
     logger.warning(f"⚠️ static/ directory not found at {static_dir}")
 
-# ✅ THE FINAL PATH FIX: Ensures Jinja2 finds /templates on Railway
+# 🔧 Stronger template path validation
 template_path = os.path.join(BASE_DIR, "templates")
+
+if not os.path.isdir(template_path):
+    logger.error(f"❌ Templates directory NOT FOUND at: {template_path}")
+else:
+    logger.info(f"📂 Templates loaded from: {template_path}")
+    try:
+        logger.info(f"📄 Available templates: {os.listdir(template_path)}")
+    except Exception as e:
+        logger.warning(f"⚠️ Could not list templates: {e}")
+
 templates = Jinja2Templates(directory=template_path)
-logger.info(f"📂 Templates loaded from: {template_path}")
 
 # -------------------------------
-# ROUTE IMPORTS (LOCALIZED TO PREVENT CIRCULAR LOOPS)
+# ROUTE IMPORTS
 # -------------------------------
 from app.routes import auth, companies, dashboard, reviews
 
@@ -123,7 +129,6 @@ async def handle_login(
     password: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
-    # ✅ Local import to prevent circular dependency
     from app.core.models import User
 
     result = await db.execute(
