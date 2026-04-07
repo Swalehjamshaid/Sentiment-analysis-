@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     100% Complete Configuration for Review Intel AI.
     Optimized for Python 3.12 and Pydantic V2.
     Ensures zero 'NoneType' crashes during boot.
+    Includes Absolute Path Resolution for Jinja2 Templates.
     """
     APP_NAME: str = "Review-Intel-AI"
     
@@ -16,11 +17,17 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "production")
     DEBUG: bool = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
     
+    # --- PATH ALIGNMENT ---
+    # Calculates the absolute path to the 'app' directory (parent of 'core')
+    # This prevents Jinja2 from failing to find templates in production
+    BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    TEMPLATES_DIR: str = os.path.join(BASE_DIR, "templates")
+    STATIC_DIR: str = os.path.join(BASE_DIR, "static")
+
     # Railway/Production URL Alignment
     APP_BASE_URL: str = os.getenv("APP_BASE_URL", "https://sentiment-analysis-production-f96a.up.railway.app")
     
     # Database Settings
-    # Defaulting to a string prevents pydantic validation errors if env is missing
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
     
     # Security & Sessions
