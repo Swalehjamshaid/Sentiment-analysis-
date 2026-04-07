@@ -28,15 +28,15 @@ logger.remove()
 logger.add(
     sys.stdout,
     level="INFO",
-    serialize=True,      # This ensures clean JSON that your observability system expects
+    serialize=True,      # Ensures clean JSON for your observability system
     backtrace=True,
     diagnose=False,
     enqueue=True,
 )
 
-# Keep original logger name for backward compatibility in your code
+# Keep original logger for backward compatibility
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("app.main")   # This line is kept so your existing code doesn't break
+logger = logging.getLogger("app.main")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # ----------------------------------------------------------
@@ -51,8 +51,8 @@ async def lifespan(app: FastAPI):
     try:
         await init_models()
         logger.info("✅ Database systems synchronized.")
-    except Exception as e:
-        logger.exception("❌ Database initialization failed")   # ← Only this line updated (prevents caret line)
+    except Exception:
+        logger.exception("❌ Database initialization failed")
        
     yield
     logger.info("🛑 Shutdown complete.")
@@ -88,6 +88,10 @@ if not os.path.isdir(template_path):
     if not os.path.isdir(template_path):
         logger.error(f"❌ Templates folder not found at {template_path}")
 templates = Jinja2Templates(directory=template_path)
+
+# FIX: Disable Jinja2 template cache to prevent "unhashable type: 'dict'" / cache_key error
+templates.env.cache = None
+
 logger.info(f"📂 JINJA2 SEARCH PATH: {template_path}")
 # ----------------------------------------------------------
 # JINJA FILTER
