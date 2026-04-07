@@ -1,70 +1,133 @@
-# filename: review_saas/app/core/config.py
+# filename: review_saas/app/routes/auth.py
+import logging
 import os
-from typing import Optional
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import model_validator
 
-class Settings(BaseSettings):
-    """
-    100% Complete Configuration for Review Intel AI.
-    Optimized for Python 3.12 and Pydantic V2.
-    Ensures zero 'NoneType' crashes during boot.
-    Includes Absolute Path Resolution for Jinja2 Templates.
-    """
-    APP_NAME: str = "Review-Intel-AI"
-    
-    # Environment & Debugging
-    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "production")
-    DEBUG: bool = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
-    
-    # --- PATH ALIGNMENT ---
-    # Calculates the absolute path to the 'app' directory (parent of 'core')
-    # This prevents Jinja2 from failing to find templates in production
-    BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    TEMPLATES_DIR: str = os.path.join(BASE_DIR, "templates")
-    STATIC_DIR: str = os.path.join(BASE_DIR, "static")
+from fastapi import APIRouter, Request, Depends, Form, status, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from passlib.context import CryptContext
+from starlette.templating import Jinja2Templates
 
-    # Railway/Production URL Alignment
-    APP_BASE_URL: str = os.getenv("APP_BASE_URL", "https://sentiment-analysis-production-f96a.up.railway.app")
-    
-    # Database Settings
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
-    
-    # Security & Sessions
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "super-secret-key-jamshaid-2026")
-    SESSION_COOKIE_NAME: str = "session"
-    
-    # SMTP / Email Settings
-    MAIL_USERNAME: str = os.getenv("MAIL_USERNAME", "roy.jamshaid@gmail.com")
-    MAIL_PASSWORD: str = os.getenv("MAIL_PASSWORD", "")
-    MAIL_FROM: str = os.getenv("MAIL_FROM", "noreply@reviewintel.ai")
-    MAIL_PORT: int = int(os.getenv("MAIL_PORT", "587")) 
-    MAIL_SERVER: str = os.getenv("MAIL_SERVER", "smtp.gmail.com")
+# --- REFINED ALIGNMENT IMPORTS ---
+from app.core.db import get_db
+# ✅ Using the updated settings that now include BASE_DIR and TEMPLATES_DIR
+from app.core.config import settings
 
-    # API Keys
-    GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
-    GOOGLE_MAPS_API_KEY: Optional[str] = os.getenv("GOOGLE_MAPS_API_KEY")
-    
-    # Scraper Keys
-    SERPAPI_KEY: str = os.getenv("SERPAPI_KEY", "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d")
-    OUTSCRAPER_API_KEY: Optional[str] = os.getenv("OUTSCRAPER_API_KEY")
+router = APIRouter()
 
-    # Pydantic Configuration
-    model_config = SettingsConfigDict(
-        env_file=".env", 
-        extra="ignore", 
-        case_sensitive=False # Prevents 'APP_NAME' vs 'app_name' mismatches
+# --- THE FIX: INTEGRATED PATH RESOLUTION ---
+# This uses the absolute path calculated in config.py to prevent TemplateNotFound
+templates = Jinja2Templates(directory=settings.TEMPLATES_DIR)
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+logger = logging.getLogger("app.auth")
+
+# ----------------------------------------------------------
+# HELPERS
+# ----------------------------------------------------------
+def send_verification_email(email: str, token: str):
+    """Logs verification link to console (Mock SMTP)."""
+    verify_link = f"{settings.APP_BASE_URL}/api/auth/verify?token={token}"
+    logger.info("--------------------------------------------------")
+    logger.info(f"📧 VERIFICATION EMAIL FOR: {email}")
+    logger.info(f"🔗 LINK: {verify_link}")
+    logger.info("--------------------------------------------------")
+
+# ----------------------------------------------------------
+# ROUTES
+# ----------------------------------------------------------
+@router.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request):
+    """Renders the user registration page."""
+    return templates.TemplateResponse("register.html", {"request": request})
+
+
+@router.post("/register")
+async def register_user(
+    request: Request,
+    name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Handles logic for creating a new user and sending verification."""
+    # ✅ LOCAL IMPORT: Breaks the Vicious Circle (Circular Dependency)
+    from app.core.models import User, VerificationToken
+
+    email_clean = email.strip().lower()
+
+    # Duplicate email check
+    res = await db.execute(select(User).where(User.email == email_clean))
+    if res.scalars().first():
+        return templates.TemplateResponse(
+            "register.html",
+            {
+                "request": request,
+                "error": "This email is already registered.",
+            },
+        )
+
+    # Hash password and create user
+    hashed = pwd_context.hash(password)
+    new_user = User(
+        name=name,
+        email=email_clean,
+        hashed_password=hashed,
+    )
+    db.add(new_user)
+
+    # Using flush to get the ID without fully committing yet
+    await db.flush()
+
+    # Generate verification token
+    token_obj = VerificationToken(user_id=new_user.id)
+    db.add(token_obj)
+    await db.commit()
+
+    # Send Mock Verification Email
+    send_verification_email(email_clean, token_obj.token)
+
+    return templates.TemplateResponse(
+        "verify_email_sent.html",
+        {
+            "request": request,
+            "email": email_clean,
+        },
     )
 
-    @model_validator(mode="after")
-    def _normalize_keys(self) -> "Settings":
-        """Ensures API keys are cross-populated if one is missing."""
-        key = self.GOOGLE_MAPS_API_KEY or self.GOOGLE_API_KEY
-        if key:
-            self.GOOGLE_API_KEY = key
-            self.GOOGLE_MAPS_API_KEY = key
-        return self
 
-# --- THE FIX FOR ALIGNMENT ---
-# Initialize carefully to prevent circular import 'deadlock'
-settings = Settings()
+@router.get("/verify")
+async def verify_email(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Handles account verification via token link."""
+    # ✅ LOCAL IMPORT: Breaks the Vicious Circle
+    from app.core.models import User, VerificationToken
+
+    # Find token
+    res = await db.execute(
+        select(VerificationToken).where(VerificationToken.token == token)
+    )
+    token_rec = res.scalars().first()
+
+    if not token_rec:
+        return RedirectResponse(
+            url="/login?error=Invalid or expired verification link."
+        )
+
+    # Find associated user
+    user_res = await db.execute(
+        select(User).where(User.id == token_rec.user_id)
+    )
+    user = user_res.scalars().first()
+
+    if user:
+        user.is_verified = True
+        await db.delete(token_rec)
+        await db.commit()
+
+    return RedirectResponse(
+        url="/login?message=Account verified successfully! Please login."
+    )
