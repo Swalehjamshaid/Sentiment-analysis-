@@ -79,7 +79,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Templates path (ensure compatibility)
 template_path = os.path.join(BASE_DIR, "templates")
 if not os.path.isdir(template_path):
-    # Try alternate path if inside /app/app/
     template_path = os.path.join(BASE_DIR, "app", "templates")
     if not os.path.isdir(template_path):
         logger.error(f"❌ Templates folder not found at {template_path}")
