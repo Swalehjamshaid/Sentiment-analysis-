@@ -18,13 +18,13 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "production")
     DEBUG: bool = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
     
-    # --- ROBUST PATH ALIGNMENT (FIXED FOR PYDANTIC V2) ---
-    # We remove the type hints ( : str ) from private helpers to prevent validation errors
+    # --- ROBUST PATH ALIGNMENT ---
+    # We define these as class-level attributes without type hints 
+    # to ensure Pydantic V2 doesn't try to validate/hash them.
     _current_file = Path(__file__).resolve()
-    _core_dir = _current_file.parent
-    _app_dir = _core_dir.parent
+    _app_dir = _current_file.parent.parent
     
-    # These are the actual fields the app uses
+    # These are the actual fields the app uses for Jinja2 and Static files
     TEMPLATES_DIR: str = str(_app_dir / "templates")
     STATIC_DIR: str = str(_app_dir / "static")
 
@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _normalize_keys(self) -> "Settings":
         """Ensures API keys are cross-populated if one is missing."""
+        # Fix for potential 'unhashable' errors: work directly with attributes
         key = self.GOOGLE_MAPS_API_KEY or self.GOOGLE_API_KEY
         if key:
             self.GOOGLE_API_KEY = key
