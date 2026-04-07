@@ -134,16 +134,20 @@ else:
 # ----------------------------------------------------------
 from app.routes import auth, companies, dashboard, reviews
 # ----------------------------------------------------------
-# UI ROUTES
+# UI ROUTES — FIXED for Starlette 1.x
 # ----------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     return RedirectResponse(
         "/dashboard" if request.session.get("user") else "/login"
     )
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(
+        request=request, name="login.html", context={"request": request}
+    )
+
 @app.post("/login")
 async def handle_login(
     request: Request,
@@ -163,24 +167,29 @@ async def handle_login(
             "name": user.name,
         }
         return RedirectResponse("/dashboard", status_code=303)
+    
     return templates.TemplateResponse(
-        "login.html",
-        {
+        request=request,
+        name="login.html",
+        context={
             "request": request,
             "error": "Invalid email or password",
         },
     )
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_view(request: Request):
     if not request.session.get("user"):
         return RedirectResponse("/login")
     return templates.TemplateResponse(
-        "dashboard.html",
-        {
+        request=request,
+        name="dashboard.html",
+        context={
             "request": request,
             "user": request.session.get("user"),
         },
     )
+
 @app.get("/logout")
 async def logout(request: Request):
     request.session.clear()
