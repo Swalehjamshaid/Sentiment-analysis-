@@ -1,6 +1,5 @@
 # filename: app/main.py
 import os
-import asyncio
 import logging
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -72,16 +71,18 @@ app.add_middleware(
     secret_key=settings.SECRET_KEY,
 )
 
-# ----------------------------------------------------------------
-# ⭐ FIXED PATH RESOLUTION (NO LOGIC CHANGE)
-# ----------------------------------------------------------------
+# ----------------------------------------------------------
+# BASE PATH
+# ----------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# ✅ FIX: Correct path to templates (handles /app/app/templates)
-template_path = os.path.join(BASE_DIR, "app", "templates")
-
+# Templates path (ensure compatibility)
+template_path = os.path.join(BASE_DIR, "templates")
 if not os.path.isdir(template_path):
-    logger.error(f"❌ Templates folder not found at {template_path}")
+    # Try alternate path if inside /app/app/
+    template_path = os.path.join(BASE_DIR, "app", "templates")
+    if not os.path.isdir(template_path):
+        logger.error(f"❌ Templates folder not found at {template_path}")
 
 templates = Jinja2Templates(directory=template_path)
 logger.info(f"📂 JINJA2 SEARCH PATH: {template_path}")
@@ -102,9 +103,11 @@ def format_date(value, format="%Y-%m-%d"):
 templates.env.filters["date"] = format_date
 
 # ----------------------------------------------------------
-# STATIC FILES (FIXED PATH)
+# STATIC FILES
 # ----------------------------------------------------------
-static_dir = os.path.join(BASE_DIR, "app", "static")
+static_dir = os.path.join(BASE_DIR, "static")
+if not os.path.isdir(static_dir):
+    static_dir = os.path.join(BASE_DIR, "app", "static")
 
 if os.path.isdir(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -113,12 +116,12 @@ else:
     logger.warning(f"⚠️ static/ directory not found at {static_dir}")
 
 # ----------------------------------------------------------
-# ROUTES
+# ROUTES IMPORT
 # ----------------------------------------------------------
 from app.routes import auth, companies, dashboard, reviews
 
 # ----------------------------------------------------------
-# UI ROUTES (UNCHANGED)
+# UI ROUTES
 # ----------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
@@ -179,7 +182,7 @@ async def logout(request: Request):
     return RedirectResponse("/login")
 
 # ----------------------------------------------------------
-# API ROUTES (UNCHANGED)
+# API ROUTES
 # ----------------------------------------------------------
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
