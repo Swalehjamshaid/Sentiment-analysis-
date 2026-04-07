@@ -1,5 +1,6 @@
 # filename: review_saas/app/core/config.py
 import os
+from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import model_validator
@@ -17,15 +18,15 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "production")
     DEBUG: bool = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
     
-    # --- ROBUST PATH ALIGNMENT ---
-    # This specifically targets the 'app' folder regardless of execution context
-    # 1. Get the directory of this file (app/core)
-    _CORE_DIR: str = os.path.dirname(os.path.abspath(__file__))
-    # 2. Go up one level to the 'app' directory
-    BASE_DIR: str = os.path.dirname(_CORE_DIR)
-    # 3. Define templates and static relative to 'app'
-    TEMPLATES_DIR: str = os.path.join(BASE_DIR, "templates")
-    STATIC_DIR: str = os.path.join(BASE_DIR, "static")
+    # --- ROBUST PATH ALIGNMENT (FIXED FOR PYDANTIC V2) ---
+    # We remove the type hints ( : str ) from private helpers to prevent validation errors
+    _current_file = Path(__file__).resolve()
+    _core_dir = _current_file.parent
+    _app_dir = _core_dir.parent
+    
+    # These are the actual fields the app uses
+    TEMPLATES_DIR: str = str(_app_dir / "templates")
+    STATIC_DIR: str = str(_app_dir / "static")
 
     # Railway/Production URL Alignment
     APP_BASE_URL: str = os.getenv("APP_BASE_URL", "https://sentiment-analysis-production-f96a.up.railway.app")
