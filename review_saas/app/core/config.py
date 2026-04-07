@@ -8,9 +8,7 @@ from pydantic import model_validator
 class Settings(BaseSettings):
     """
     100% Complete Configuration for Review Intel AI.
-    Optimized for Python 3.12 and Pydantic V2.
-    Ensures zero 'NoneType' crashes during boot.
-    Includes Robust Absolute Path Resolution for Jinja2 Templates.
+    Fixed for Railway nested 'review_saas' structure.
     """
     APP_NAME: str = "Review-Intel-AI"
     
@@ -19,22 +17,14 @@ class Settings(BaseSettings):
     DEBUG: bool = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
     
     # --- ROBUST PATH ALIGNMENT ---
-    # We define these as class-level attributes without type hints 
-    # to ensure Pydantic V2 doesn't try to validate/hash them.
-    _current_file = Path(__file__).resolve()
-    _app_dir = _current_file.parent.parent
-    
-    # These are the actual fields the app uses for Jinja2 and Static files
-    TEMPLATES_DIR: str = str(_app_dir / "templates")
-    STATIC_DIR: str = str(_app_dir / "static")
+    # We define these as empty strings initially so Pydantic doesn't crash,
+    # then we fill them with absolute paths in the validator.
+    TEMPLATES_DIR: str = ""
+    STATIC_DIR: str = ""
 
     # Railway/Production URL Alignment
     APP_BASE_URL: str = os.getenv("APP_BASE_URL", "https://sentiment-analysis-production-f96a.up.railway.app")
-    
-    # Database Settings
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
-    
-    # Security & Sessions
     SECRET_KEY: str = os.getenv("SECRET_KEY", "super-secret-key-jamshaid-2026")
     SESSION_COOKIE_NAME: str = "session"
     
@@ -48,12 +38,9 @@ class Settings(BaseSettings):
     # API Keys
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
     GOOGLE_MAPS_API_KEY: Optional[str] = os.getenv("GOOGLE_MAPS_API_KEY")
-    
-    # Scraper Keys
     SERPAPI_KEY: str = os.getenv("SERPAPI_KEY", "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d")
     OUTSCRAPER_API_KEY: Optional[str] = os.getenv("OUTSCRAPER_API_KEY")
 
-    # Pydantic Configuration
     model_config = SettingsConfigDict(
         env_file=".env", 
         extra="ignore", 
@@ -61,15 +48,21 @@ class Settings(BaseSettings):
     )
 
     @model_validator(mode="after")
-    def _normalize_keys(self) -> "Settings":
-        """Ensures API keys are cross-populated if one is missing."""
-        # Fix for potential 'unhashable' errors: work directly with attributes
+    def _finalize_config(self) -> "Settings":
+        # 1. Resolve Paths Dynamically
+        current_path = Path(__file__).resolve()
+        # core -> app
+        base_app_dir = current_path.parent.parent
+        
+        self.TEMPLATES_DIR = str(base_app_dir / "templates")
+        self.STATIC_DIR = str(base_app_dir / "static")
+
+        # 2. Normalize Keys
         key = self.GOOGLE_MAPS_API_KEY or self.GOOGLE_API_KEY
         if key:
             self.GOOGLE_API_KEY = key
             self.GOOGLE_MAPS_API_KEY = key
         return self
 
-# --- THE FIX FOR ALIGNMENT ---
-# Initialize carefully to prevent circular import 'deadlock'
+# Initialize
 settings = Settings()
