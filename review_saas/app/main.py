@@ -40,8 +40,7 @@ async def lifespan(app: FastAPI):
     logger.info("--------------------------------------------------")
     
     try:
-        # Executes the "Stegman Rule" Nuclear Reset from db.py
-        await init_models() 
+        await init_models()
         logger.info("✅ Database systems synchronized.")
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {e}")
@@ -73,20 +72,23 @@ app.add_middleware(
     secret_key=settings.SECRET_KEY,
 )
 
-# -----------------------------------------------------------------------------
-# ⭐ THE ABSOLUTE PATH & JINJA FILTER FIX (ALIGNMENT RESOLUTION)
-# -----------------------------------------------------------------------------
-# This calculates the absolute path to /app/ folder on the Railway server
+# ----------------------------------------------------------------
+# ⭐ FIXED PATH RESOLUTION (NO LOGIC CHANGE)
+# ----------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 1. BULLETPROOF TEMPLATE PATHING (Resolves _load_template error)
-template_path = os.path.join(BASE_DIR, "templates")
+# ✅ FIX: Correct path to templates (handles /app/app/templates)
+template_path = os.path.join(BASE_DIR, "app", "templates")
+
 if not os.path.isdir(template_path):
     logger.error(f"❌ Templates folder not found at {template_path}")
+
 templates = Jinja2Templates(directory=template_path)
 logger.info(f"📂 JINJA2 SEARCH PATH: {template_path}")
 
-# 2. REGISTER THE 'date' FILTER (Prevents dashboard crash)
+# ----------------------------------------------------------
+# JINJA FILTER
+# ----------------------------------------------------------
 def format_date(value, format="%Y-%m-%d"):
     if value is None:
         return ""
@@ -99,8 +101,11 @@ def format_date(value, format="%Y-%m-%d"):
 
 templates.env.filters["date"] = format_date
 
-# 3. BULLETPROOF STATIC PATHING
-static_dir = os.path.join(BASE_DIR, "static")
+# ----------------------------------------------------------
+# STATIC FILES (FIXED PATH)
+# ----------------------------------------------------------
+static_dir = os.path.join(BASE_DIR, "app", "static")
+
 if os.path.isdir(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
     logger.info(f"📁 Static files mounted from: {static_dir}")
@@ -108,12 +113,12 @@ else:
     logger.warning(f"⚠️ static/ directory not found at {static_dir}")
 
 # ----------------------------------------------------------
-# ROUTE IMPORTS (LOCALIZED TO PREVENT CIRCULAR LOOPS)
+# ROUTES
 # ----------------------------------------------------------
 from app.routes import auth, companies, dashboard, reviews
 
 # ----------------------------------------------------------
-# UI ROUTES (UNCHANGED LOGIC)
+# UI ROUTES (UNCHANGED)
 # ----------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
@@ -174,7 +179,7 @@ async def logout(request: Request):
     return RedirectResponse("/login")
 
 # ----------------------------------------------------------
-# API ROUTES (UNCHANGED LOGIC)
+# API ROUTES (UNCHANGED)
 # ----------------------------------------------------------
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
