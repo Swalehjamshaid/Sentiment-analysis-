@@ -23,12 +23,12 @@ from app.core.db import init_models, get_db
 import sys
 from loguru import logger
 
-# Configure Loguru for structured JSON output (fixes caret ^^^^^^^^^ issue permanently)
+# Configure Loguru for structured JSON output (fixes caret issue permanently)
 logger.remove()
 logger.add(
     sys.stdout,
     level="INFO",
-    serialize=True,      # Ensures clean JSON for your observability system
+    serialize=True,
     backtrace=True,
     diagnose=False,
     enqueue=True,
@@ -78,21 +78,33 @@ app.add_middleware(
     secret_key=settings.SECRET_KEY,
 )
 # ----------------------------------------------------------
-# BASE PATH
+# BASE PATH + TEMPLATES (Robust Fix for None template name error)
 # ----------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Templates path (ensure compatibility)
-template_path = os.path.join(BASE_DIR, "templates")
-if not os.path.isdir(template_path):
-    template_path = os.path.join(BASE_DIR, "app", "templates")
-    if not os.path.isdir(template_path):
-        logger.error(f"❌ Templates folder not found at {template_path}")
-templates = Jinja2Templates(directory=template_path)
 
-# FIX: Disable Jinja2 template cache to prevent "unhashable type: 'dict'" / cache_key error
-templates.env.cache = None
+# Robust template path detection
+possible_paths = [
+    os.path.join(BASE_DIR, "templates"),
+    os.path.join(BASE_DIR, "app", "templates"),
+    os.path.join(os.path.dirname(BASE_DIR), "templates"),
+]
 
-logger.info(f"📂 JINJA2 SEARCH PATH: {template_path}")
+template_path = None
+for path in possible_paths:
+    if os.path.isdir(path):
+        template_path = path
+        break
+
+if template_path:
+    templates = Jinja2Templates(directory=template_path)
+    templates.env.cache = None   # Prevents unhashable dict / cache_key errors
+    logger.info(f"✅ JINJA2 TEMPLATES LOADED FROM: {template_path}")
+else:
+    logger.error("❌ Could not find templates directory in any location!")
+    templates = Jinja2Templates(directory=".")  # safe fallback
+    templates.env.cache = None
+
+logger.info(f"📂 JINJA2 SEARCH PATH: {template_path or 'fallback'}")
 # ----------------------------------------------------------
 # JINJA FILTER
 # ----------------------------------------------------------
