@@ -20,7 +20,7 @@
         }
         body {
             background: linear-gradient(145deg, #f8fafc 0%, #e0e7ff 100%);
-            font-family: 'Inter', system-ui, sans-serif;
+            font-family: 'Inter', system_ui, sans-serif;
             color: #1e2937;
             min-height: 100vh;
             padding: 20px;
@@ -43,24 +43,34 @@
             font-weight: 600;
         }
         .kpi-value { font-family: 'Space Grotesk', sans-serif; font-size: 2.9rem; font-weight: 700; line-height: 1; }
-        .chart-wrapper { height: 310px; padding: 15px; position: relative; }
+        .chart-wrapper { height: 310px; padding: 15px; }
         .keyword-badge {
-            background: white; border: 1px solid #e2e8f0; padding: 10px 20px; border-radius: 9999px;
-            font-weight: 500; box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            background: white;
+            border: 1px solid #e2e8f0;
+            padding: 10px 20px;
+            border-radius: 9999px;
+            font-weight: 500;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
         }
         .alert-item {
-            background: #fee2e2; border-left: 4px solid #ef4444; padding: 12px;
-            margin-bottom: 10px; border-radius: 8px;
+            background: #fee2e2;
+            border-left: 4px solid #ef4444;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 8px;
         }
         .total-review-card { background: var(--primary-grad) !important; }
         .risk-card { background: var(--danger-grad) !important; }
+        
         #chatWindow { height: 350px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
         .chat-msg { padding: 12px 18px; border-radius: 18px; max-width: 85%; font-size: 0.95rem; }
         .chat-ai { background: #f1f5f9; align-self: flex-start; border-bottom-left-radius: 4px; }
         .chat-user { background: #6366f1; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+        
         .btn-pill { border-radius: 50px; font-weight: 600; }
         .review-table-container { max-height: 500px; overflow-y: auto; }
         .star-rating { color: #f59e0b; }
+
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
         [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
     </style>
@@ -85,7 +95,7 @@
     </nav>
 
     <div class="container-fluid mt-4">
-        <div class="row g-4 mb-5 p-5 bg-white rounded-5 shadow-sm card">
+        <div class="row g-4 mb-5 p-5 bg-white rounded-5 shadow-sm">
             <div class="col-lg-3">
                 <label class="form-label fw-semibold text-muted small">ACTIVE BUSINESS</label>
                 <select id="companySelect" class="form-select py-3 shadow-none"></select>
@@ -154,18 +164,22 @@
                             <p id="riskGaugeLabel" class="text-muted fw-semibold">Calculated Revenue Leakage Based on Sentiment Trends</p>
                         </div>
                     </div>
+
                     <div class="col-md-6">
                         <div class="section-header">MONTHLY GROWTH TREND</div>
                         <div class="card border-top-0 p-4"><div class="chart-wrapper"><canvas id="chartMonthly"></canvas></div></div>
                     </div>
+
                     <div class="col-md-6">
                         <div class="section-header">SENTIMENT EMOTION RADAR</div>
                         <div class="card border-top-0 p-4"><div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div></div>
                     </div>
+
                     <div class="col-12">
                         <div class="section-header">RATING DISTRIBUTION BREAKDOWN</div>
                         <div class="card border-top-0 p-4"><div class="chart-wrapper"><canvas id="chartRatings"></canvas></div></div>
                     </div>
+
                     <div class="col-12">
                         <div class="section-header">TOP COMPLAINT & PRAISE KEYWORDS</div>
                         <div id="keywordContainer" class="card border-top-0 p-5 d-flex flex-wrap gap-3 justify-content-center"></div>
@@ -186,6 +200,7 @@
                         </div>
                     </div>
                 </div>
+
                 <div class="mt-4">
                     <div class="section-header">🚨 CRITICAL REPUTATION ALERTS</div>
                     <div id="negativeAlerts" class="card border-top-0 p-3" style="max-height: 400px; overflow-y: auto;">
@@ -203,7 +218,10 @@
                         <table class="table table-hover align-middle mb-0">
                             <thead class="sticky-top bg-white">
                                 <tr class="text-muted small text-uppercase">
-                                    <th>AUTHOR</th><th>RATING</th><th>REVIEW</th><th>DATE</th>
+                                    <th>AUTHOR</th>
+                                    <th>RATING</th>
+                                    <th>REVIEW</th>
+                                    <th>DATE</th>
                                 </tr>
                             </thead>
                             <tbody id="recentReviewsList"></tbody>
@@ -247,15 +265,18 @@
         </div>
     </div>
 
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&libraries=places&callback=initGoogleAutocomplete"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
         let chartInstances = {};
+
         const API = {
             overview: "/api/overview",
             insights: "/api/insights",
             chat: "/api/chatbot/explain",
             revenue: "/api/revenue",
+            report: "/api/executive-report/pdf",
             companies: "/api/companies",
             sync: "/api/reviews/ingest",
             recent: "/api/recent-reviews"
@@ -263,85 +284,103 @@
 
         function uiSet(id, val) { 
             const el = document.getElementById(id); 
-            if (el) el.innerText = (val !== undefined && val !== null) ? val : "—"; 
+            if (el) el.innerText = val !== undefined && val !== null ? val : "—"; 
         }
 
         async function triggerAllLoads() {
             const cid = document.getElementById("companySelect").value;
             if (!cid) return;
+
             const btn = document.getElementById("loadBtn");
             btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span> ANALYZING...`;
             btn.disabled = true;
 
             try {
-                const sDate = document.getElementById("startDate").value;
-                const eDate = document.getElementById("endDate").value;
                 const [overRes, insRes, revRes] = await Promise.all([
                     fetch(`${API.overview}/${cid}`).then(r => r.json()),
-                    fetch(`${API.insights}?company_id=${cid}&start=${sDate}&end=${eDate}`).then(r => r.json()),
+                    fetch(`${API.insights}?company_id=${cid}&start=${document.getElementById("startDate").value || ""}&end=${document.getElementById("endDate").value || ""}`).then(r => r.json()),
                     fetch(`${API.revenue}?company_id=${cid}`).then(r => r.json())
                 ]);
 
-                uiSet("kpiTotal", insRes.total_reviews || 0);
-                uiSet("kpiRating", insRes.average_rating || "—");
+                uiSet("kpiTotal", insRes.total_reviews || overRes.total_reviews || 0);
+                uiSet("kpiRating", insRes.average_rating || overRes.average_rating || "—");
                 uiSet("churnScore", (insRes.churn_prediction || 0) + "%");
                 uiSet("loyaltyScore", (insRes.loyalty_score || 0) + "%");
-                uiSet("riskPct", revRes.loss_probability || "0%");
-                uiSet("riskGauge", revRes.loss_probability || "0%");
+
+                const risk = insRes.risk || revRes || {};
+                uiSet("riskPct", risk.loss_probability || "0%");
+                uiSet("riskImpact", risk.impact_level || "None");
+                uiSet("riskSentiment", risk.reputation_score || "100");
+                uiSet("riskGauge", risk.loss_probability || "0%");
 
                 if (insRes.sentiment_counts) renderCharts(insRes);
                 if (insRes.top_keywords) renderKeywords(insRes.top_keywords);
                 if (insRes.negative_reviews) renderAlerts(insRes.negative_reviews);
+
                 loadRecentReviews(cid);
-            } catch (e) { console.error("Error during analysis:", e); } finally {
+            } catch (e) {
+                console.error("Critical Load Error:", e);
+            } finally {
                 btn.innerHTML = `<i class="bi bi-graph-up me-2"></i> ANALYZE BUSINESS`;
                 btn.disabled = false;
             }
         }
 
         function renderCharts(data) {
-            const ctxR = document.getElementById("chartEmotions").getContext('2d');
+            const ctxRadar = document.getElementById("chartEmotions").getContext('2d');
             if (chartInstances.emotions) chartInstances.emotions.destroy();
-            chartInstances.emotions = new Chart(ctxR, {
+            chartInstances.emotions = new Chart(ctxRadar, {
                 type: 'radar',
                 data: {
                     labels: Object.keys(data.sentiment_counts || {}),
                     datasets: [{ label: 'Intensity', data: Object.values(data.sentiment_counts || {}), backgroundColor: 'rgba(168, 85, 247, 0.25)', borderColor: '#a855f7', borderWidth: 3 }]
                 },
-                options: { responsive: true, maintainAspectRatio: false }
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
 
-            const ctxL = document.getElementById("chartMonthly").getContext('2d');
+            const ctxLine = document.getElementById("chartMonthly").getContext('2d');
             if (chartInstances.monthly) chartInstances.monthly.destroy();
-            chartInstances.monthly = new Chart(ctxL, {
+            const trendArray = data.monthly_trend || [];
+            chartInstances.monthly = new Chart(ctxLine, {
                 type: 'line',
                 data: {
-                    labels: (data.monthly_trend || []).map(t => t.month),
-                    datasets: [{ label: 'Avg Rating', data: (data.monthly_trend || []).map(t => t.avg), borderColor: '#10b981', tension: 0.4 }]
+                    labels: trendArray.map(t => t.month),
+                    datasets: [{ label: 'Avg Rating', data: trendArray.map(t => t.avg), borderColor: '#10b981', tension: 0.4, fill: true, backgroundColor: 'rgba(16, 185, 129, 0.1)' }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 1, max: 5 } } }
             });
 
-            const ctxB = document.getElementById("chartRatings").getContext('2d');
+            const ctxBar = document.getElementById("chartRatings").getContext('2d');
             if (chartInstances.ratings) chartInstances.ratings.destroy();
-            const d = data.rating_distribution || {};
-            chartInstances.ratings = new Chart(ctxB, {
+            const dist = data.rating_distribution || {};
+            chartInstances.ratings = new Chart(ctxBar, {
                 type: 'bar',
                 data: {
                     labels: ['1★','2★','3★','4★','5★'],
-                    datasets: [{ label: 'Reviews', data: [d[1]||0, d[2]||0, d[3]||0, d[4]||0, d[5]||0], backgroundColor: '#6366f1' }]
+                    datasets: [{ label: 'Count', data: [dist[1]||0, dist[2]||0, dist[3]||0, dist[4]||0, dist[5]||0], backgroundColor: '#6366f1', borderRadius: 12 }]
                 },
-                options: { responsive: true, maintainAspectRatio: false }
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
         }
 
-        function renderKeywords(k) { document.getElementById("keywordContainer").innerHTML = (k || []).map(kw => `<span class="keyword-badge shadow-sm">${kw}</span>`).join(''); }
-        
-        function renderAlerts(a) {
+        function renderKeywords(keywords) {
+            document.getElementById("keywordContainer").innerHTML = keywords.map(kw => `<span class="keyword-badge shadow-sm">${kw}</span>`).join('');
+        }
+
+        function renderAlerts(alerts) {
             const container = document.getElementById("negativeAlerts");
-            if (!a || a.length === 0) { container.innerHTML = '<div class="text-center text-muted p-4">No critical alerts.</div>'; return; }
-            container.innerHTML = a.map(r => `
-                <div class="alert-item shadow-sm"><strong>${r.author}</strong> <span class="badge bg-danger">${r.rating}★</span><p class="mb-0 small">${r.text}</p></div>
+            if (!alerts || !alerts.length) {
+                container.innerHTML = `<div class="text-center text-muted p-4">No critical alerts. Reputation is healthy.</div>`;
+                return;
+            }
+            container.innerHTML = alerts.map(r => `
+                <div class="alert-item shadow-sm">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <strong class="text-danger">${r.author}</strong>
+                        <span class="badge bg-danger rounded-pill">${r.rating}★</span>
+                    </div>
+                    <p class="mb-0 mt-2 small text-dark">${r.text}</p>
+                </div>
             `).join('');
         }
 
@@ -349,26 +388,35 @@
             try {
                 const res = await fetch(`${API.recent}/${cid}`);
                 const data = await res.json();
-                document.getElementById("recentReviewsList").innerHTML = (data || []).map(r => `
-                    <tr><td class="fw-bold">${r.author}</td><td><span class="star-rating">${'★'.repeat(r.rating || 0)}</span></td><td class="small">${(r.text || "").substring(0,100)}...</td><td>${r.date}</td></tr>
+                document.getElementById("recentReviewsList").innerHTML = data.map(r => `
+                    <tr>
+                        <td class="fw-bold">${r.author}</td>
+                        <td><span class="star-rating">${'★'.repeat(r.rating || 0)}</span></td>
+                        <td class="small text-muted">${r.text ? r.text.substring(0, 160) + '...' : '—'}</td>
+                        <td class="small fw-semibold">${r.date}</td>
+                    </tr>
                 `).join('');
-            } catch (e) { console.error("Error loading table data:", e); }
+            } catch (e) {}
         }
 
         async function askAI() {
             const input = document.getElementById("chatInput");
             const cid = document.getElementById("companySelect").value;
             const win = document.getElementById("chatWindow");
-            if (!input.value || !cid) return;
-            const msg = input.value;
+            const msg = input.value.trim();
+            if (!msg || !cid) return;
+
             win.innerHTML += `<div class="chat-msg chat-user">${msg}</div>`;
-            input.value = ""; win.scrollTop = win.scrollHeight;
+            input.value = "";
+            win.scrollTop = win.scrollHeight;
 
             try {
                 const res = await fetch(`${API.chat}?question=${encodeURIComponent(msg)}&company_id=${cid}`, { method: 'POST' });
                 const data = await res.json();
                 win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI:</strong> ${data.answer}</div>`;
-            } catch (e) { win.innerHTML += `<div class="chat-msg chat-ai text-danger">AI engine offline.</div>`; }
+            } catch (e) {
+                win.innerHTML += `<div class="chat-msg chat-ai text-danger">AI engine offline.</div>`;
+            }
             win.scrollTop = win.scrollHeight;
         }
 
@@ -377,18 +425,15 @@
                 const res = await fetch(API.companies);
                 const list = await res.json();
                 const sel = document.getElementById("companySelect");
-                sel.innerHTML = (list || []).map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+                sel.innerHTML = list.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
                 if (sel.options.length > 0) triggerAllLoads();
-            } catch (e) { console.error("Error loading businesses:", e); }
+            } catch (e) {}
         }
 
-        // Global Callback for Google API
         window.initGoogleAutocomplete = function() {
-            const input = document.getElementById('googleSearchInput');
-            const autocomplete = new google.maps.places.Autocomplete(input);
+            const autocomplete = new google.maps.places.Autocomplete(document.getElementById('googleSearchInput'));
             autocomplete.addListener('place_changed', () => {
                 const p = autocomplete.getPlace();
-                if (!p.place_id) return;
                 document.getElementById('companyName').value = p.name || "";
                 document.getElementById('placeId').value = p.place_id || "";
                 document.getElementById('companyAddress').value = p.formatted_address || "";
@@ -402,9 +447,15 @@
                 place_id: document.getElementById("placeId").value,
                 address: document.getElementById("companyAddress").value
             };
-            await fetch(API.companies, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-            bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
-            loadCompanies();
+            const res = await fetch(API.companies, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (res.ok) {
+                bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
+                loadCompanies();
+            }
         };
 
         document.getElementById("syncBtn").onclick = async () => {
@@ -418,12 +469,6 @@
         };
 
         window.addEventListener("DOMContentLoaded", loadCompanies);
-        document.getElementById("toggleTheme").onclick = () => {
-            const h = document.documentElement;
-            h.setAttribute("data-theme", h.getAttribute("data-theme") === "light" ? "dark" : "light");
-        };
     </script>
-    
-    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&callback=initGoogleAutocomplete"></script>
 </body>
 </html>
