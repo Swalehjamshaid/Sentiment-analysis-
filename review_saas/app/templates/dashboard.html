@@ -20,7 +20,7 @@
         }
         body {
             background: linear-gradient(145deg, #f8fafc 0%, #e0e7ff 100%);
-            font-family: 'Inter', system_ui, sans-serif;
+            font-family: 'Inter', system-ui, sans-serif;
             color: #1e2937;
             min-height: 100vh;
             padding: 20px;
@@ -43,7 +43,7 @@
             font-weight: 600;
         }
         .kpi-value { font-family: 'Space Grotesk', sans-serif; font-size: 2.9rem; font-weight: 700; line-height: 1; }
-        .chart-wrapper { height: 310px; padding: 15px; }
+        .chart-wrapper { height: 310px; padding: 15px; position: relative; }
         .keyword-badge {
             background: white; border: 1px solid #e2e8f0; padding: 10px 20px; border-radius: 9999px;
             font-weight: 500; box-shadow: 0 2px 8px rgba(0,0,0,0.05);
@@ -247,8 +247,6 @@
         </div>
     </div>
 
-    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&callback=initGoogleAutocomplete"></script>
-    
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
@@ -265,7 +263,7 @@
 
         function uiSet(id, val) { 
             const el = document.getElementById(id); 
-            if (el) el.innerText = val !== undefined && val !== null ? val : "—"; 
+            if (el) el.innerText = (val !== undefined && val !== null) ? val : "—"; 
         }
 
         async function triggerAllLoads() {
@@ -276,16 +274,16 @@
             btn.disabled = true;
 
             try {
-                const start = document.getElementById("startDate").value;
-                const end = document.getElementById("endDate").value;
+                const sDate = document.getElementById("startDate").value;
+                const eDate = document.getElementById("endDate").value;
                 const [overRes, insRes, revRes] = await Promise.all([
                     fetch(`${API.overview}/${cid}`).then(r => r.json()),
-                    fetch(`${API.insights}?company_id=${cid}&start=${start}&end=${end}`).then(r => r.json()),
+                    fetch(`${API.insights}?company_id=${cid}&start=${sDate}&end=${eDate}`).then(r => r.json()),
                     fetch(`${API.revenue}?company_id=${cid}`).then(r => r.json())
                 ]);
 
-                uiSet("kpiTotal", insRes.total_reviews || overRes.total_reviews || 0);
-                uiSet("kpiRating", insRes.average_rating || overRes.average_rating || "—");
+                uiSet("kpiTotal", insRes.total_reviews || 0);
+                uiSet("kpiRating", insRes.average_rating || "—");
                 uiSet("churnScore", (insRes.churn_prediction || 0) + "%");
                 uiSet("loyaltyScore", (insRes.loyalty_score || 0) + "%");
                 uiSet("riskPct", revRes.loss_probability || "0%");
@@ -295,7 +293,7 @@
                 if (insRes.top_keywords) renderKeywords(insRes.top_keywords);
                 if (insRes.negative_reviews) renderAlerts(insRes.negative_reviews);
                 loadRecentReviews(cid);
-            } catch (e) { console.error("Load Error:", e); } finally {
+            } catch (e) { console.error("Error during analysis:", e); } finally {
                 btn.innerHTML = `<i class="bi bi-graph-up me-2"></i> ANALYZE BUSINESS`;
                 btn.disabled = false;
             }
@@ -319,27 +317,25 @@
                 type: 'line',
                 data: {
                     labels: (data.monthly_trend || []).map(t => t.month),
-                    datasets: [{ label: 'Rating', data: (data.monthly_trend || []).map(t => t.avg), borderColor: '#10b981', tension: 0.4 }]
+                    datasets: [{ label: 'Avg Rating', data: (data.monthly_trend || []).map(t => t.avg), borderColor: '#10b981', tension: 0.4 }]
                 },
-                options: { responsive: true, maintainAspectRatio: false }
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 1, max: 5 } } }
             });
 
             const ctxB = document.getElementById("chartRatings").getContext('2d');
             if (chartInstances.ratings) chartInstances.ratings.destroy();
-            const dist = data.rating_distribution || {};
+            const d = data.rating_distribution || {};
             chartInstances.ratings = new Chart(ctxB, {
                 type: 'bar',
                 data: {
                     labels: ['1★','2★','3★','4★','5★'],
-                    datasets: [{ label: 'Reviews', data: [dist[1]||0, dist[2]||0, dist[3]||0, dist[4]||0, dist[5]||0], backgroundColor: '#6366f1' }]
+                    datasets: [{ label: 'Reviews', data: [d[1]||0, d[2]||0, d[3]||0, d[4]||0, d[5]||0], backgroundColor: '#6366f1' }]
                 },
                 options: { responsive: true, maintainAspectRatio: false }
             });
         }
 
-        function renderKeywords(k) { 
-            document.getElementById("keywordContainer").innerHTML = (k || []).map(kw => `<span class="keyword-badge shadow-sm">${kw}</span>`).join(''); 
-        }
+        function renderKeywords(k) { document.getElementById("keywordContainer").innerHTML = (k || []).map(kw => `<span class="keyword-badge shadow-sm">${kw}</span>`).join(''); }
         
         function renderAlerts(a) {
             const container = document.getElementById("negativeAlerts");
@@ -356,7 +352,7 @@
                 document.getElementById("recentReviewsList").innerHTML = (data || []).map(r => `
                     <tr><td class="fw-bold">${r.author}</td><td><span class="star-rating">${'★'.repeat(r.rating || 0)}</span></td><td class="small">${(r.text || "").substring(0,100)}...</td><td>${r.date}</td></tr>
                 `).join('');
-            } catch (e) {}
+            } catch (e) { console.error("Error loading table data:", e); }
         }
 
         async function askAI() {
@@ -364,18 +360,15 @@
             const cid = document.getElementById("companySelect").value;
             const win = document.getElementById("chatWindow");
             if (!input.value || !cid) return;
-            const userMsg = input.value;
-            win.innerHTML += `<div class="chat-msg chat-user">${userMsg}</div>`;
-            input.value = ""; 
-            win.scrollTop = win.scrollHeight;
+            const msg = input.value;
+            win.innerHTML += `<div class="chat-msg chat-user">${msg}</div>`;
+            input.value = ""; win.scrollTop = win.scrollHeight;
 
             try {
-                const res = await fetch(`${API.chat}?question=${encodeURIComponent(userMsg)}&company_id=${cid}`, { method: 'POST' });
+                const res = await fetch(`${API.chat}?question=${encodeURIComponent(msg)}&company_id=${cid}`, { method: 'POST' });
                 const data = await res.json();
-                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI:</strong> ${data.answer || "No response received."}</div>`;
-            } catch (e) {
-                win.innerHTML += `<div class="chat-msg chat-ai text-danger">AI engine offline.</div>`;
-            }
+                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI:</strong> ${data.answer}</div>`;
+            } catch (e) { win.innerHTML += `<div class="chat-msg chat-ai text-danger">AI engine offline.</div>`; }
             win.scrollTop = win.scrollHeight;
         }
 
@@ -386,12 +379,13 @@
                 const sel = document.getElementById("companySelect");
                 sel.innerHTML = (list || []).map(c => `<option value="${c.id}">${c.name}</option>`).join("");
                 if (sel.options.length > 0) triggerAllLoads();
-            } catch (e) {}
+            } catch (e) { console.error("Error loading businesses:", e); }
         }
 
-        // GOOGLE AUTOCOMPLETE LOGIC
+        // Global Callback for Google API
         window.initGoogleAutocomplete = function() {
-            const autocomplete = new google.maps.places.Autocomplete(document.getElementById('googleSearchInput'));
+            const input = document.getElementById('googleSearchInput');
+            const autocomplete = new google.maps.places.Autocomplete(input);
             autocomplete.addListener('place_changed', () => {
                 const p = autocomplete.getPlace();
                 if (!p.place_id) return;
@@ -408,11 +402,9 @@
                 place_id: document.getElementById("placeId").value,
                 address: document.getElementById("companyAddress").value
             };
-            const res = await fetch(API.companies, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-            if (res.ok) {
-                bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
-                loadCompanies();
-            }
+            await fetch(API.companies, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
+            loadCompanies();
         };
 
         document.getElementById("syncBtn").onclick = async () => {
@@ -426,13 +418,12 @@
         };
 
         window.addEventListener("DOMContentLoaded", loadCompanies);
-
-        // Theme Toggle Logic
         document.getElementById("toggleTheme").onclick = () => {
-            const html = document.documentElement;
-            const theme = html.getAttribute("data-theme") === "light" ? "dark" : "light";
-            html.setAttribute("data-theme", theme);
+            const h = document.documentElement;
+            h.setAttribute("data-theme", h.getAttribute("data-theme") === "light" ? "dark" : "light");
         };
     </script>
+    
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&callback=initGoogleAutocomplete"></script>
 </body>
 </html>
