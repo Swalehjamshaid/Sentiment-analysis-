@@ -1,6 +1,7 @@
 # filename: app/main.py
 import os
 import logging
+import sys
 from datetime import datetime
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Depends, Form
@@ -12,18 +13,18 @@ from starlette.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from passlib.context import CryptContext
+from loguru import logger
+
 # ----------------------------------------------------------
 # CORE IMPORTS
 # ----------------------------------------------------------
 from app.core.config import settings
 from app.core.db import init_models, get_db
+
 # ----------------------------------------------------------
 # LOGGING & AUTH
 # ----------------------------------------------------------
-import sys
-from loguru import logger
-
-# Configure Loguru for structured JSON output (fixes caret issue permanently)
+# Configure Loguru for structured JSON output
 logger.remove()
 logger.add(
     sys.stdout,
@@ -36,26 +37,28 @@ logger.add(
 
 # Keep original logger for backward compatibility
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("app.main")
+logger_orig = logging.getLogger("app.main")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 # ----------------------------------------------------------
 # LIFESPAN (Database Initialization)
 # ----------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("--------------------------------------------------")
-    logger.info("🚀 Starting Review Intel AI | Initializing Systems")
-    logger.info("--------------------------------------------------")
-   
+    logger_orig.info("--------------------------------------------------")
+    logger_orig.info("🚀 Starting Review Intel AI | Initializing Systems")
+    logger_orig.info("--------------------------------------------------")
+    
     try:
         await init_models()
-        logger.info("✅ Database systems synchronized.")
+        logger_orig.info("✅ Database systems synchronized.")
     except Exception:
-        logger.exception("❌ Database initialization failed")
-       
+        logger_orig.exception("❌ Database initialization failed")
+        
     yield
-    logger.info("🛑 Shutdown complete.")
+    logger_orig.info("🛑 Shutdown complete.")
+
 # ----------------------------------------------------------
 # APP INIT
 # ----------------------------------------------------------
@@ -63,6 +66,7 @@ app = FastAPI(
     title="Review Intel AI",
     lifespan=lifespan,
 )
+
 # ----------------------------------------------------------
 # MIDDLEWARE
 # ----------------------------------------------------------
@@ -77,6 +81,7 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=settings.SECRET_KEY,
 )
+
 # ----------------------------------------------------------
 # BASE PATH + TEMPLATES (Robust Fix for None template name error)
 # ----------------------------------------------------------
@@ -98,13 +103,14 @@ for path in possible_paths:
 if template_path:
     templates = Jinja2Templates(directory=template_path)
     templates.env.cache = None   # Prevents unhashable dict / cache_key errors
-    logger.info(f"✅ JINJA2 TEMPLATES LOADED FROM: {template_path}")
+    logger_orig.info(f"✅ JINJA2 TEMPLATES LOADED FROM: {template_path}")
 else:
-    logger.error("❌ Could not find templates directory in any location!")
+    logger_orig.error("❌ Could not find templates directory in any location!")
     templates = Jinja2Templates(directory=".")  # safe fallback
     templates.env.cache = None
 
-logger.info(f"📂 JINJA2 SEARCH PATH: {template_path or 'fallback'}")
+logger_orig.info(f"📂 JINJA2 SEARCH PATH: {template_path or 'fallback'}")
+
 # ----------------------------------------------------------
 # JINJA FILTER
 # ----------------------------------------------------------
@@ -118,6 +124,7 @@ def format_date(value, format="%Y-%m-%d"):
             return value
     return value.strftime(format)
 templates.env.filters["date"] = format_date
+
 # ----------------------------------------------------------
 # STATIC FILES
 # ----------------------------------------------------------
@@ -126,18 +133,21 @@ if not os.path.isdir(static_dir):
     static_dir = os.path.join(BASE_DIR, "app", "static")
 if os.path.isdir(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
-    logger.info(f"📁 Static files mounted from: {static_dir}")
+    logger_orig.info(f"📁 Static files mounted from: {static_dir}")
 else:
-    logger.warning(f"⚠️ static/ directory not found at {static_dir}")
+    logger_orig.warning(f"⚠️ static/ directory not found at {static_dir}")
+
 # ----------------------------------------------------------
 # ROUTES IMPORT
 # ----------------------------------------------------------
 from app.routes import auth, companies, dashboard, reviews
+
 # ----------------------------------------------------------
 # UI ROUTES — FIXED for Starlette 1.x
 # ----------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
+    # This logic directs the site root to either dashboard or login
     return RedirectResponse(
         "/dashboard" if request.session.get("user") else "/login"
     )
@@ -179,6 +189,7 @@ async def handle_login(
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_view(request: Request):
+    # Directs unauthenticated users to the login page
     if not request.session.get("user"):
         return RedirectResponse("/login")
     return templates.TemplateResponse(
@@ -194,6 +205,7 @@ async def dashboard_view(request: Request):
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login")
+
 # ----------------------------------------------------------
 # API ROUTES
 # ----------------------------------------------------------
@@ -201,6 +213,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(reviews.router, prefix="/api", tags=["reviews"])
+
 # ----------------------------------------------------------
 # ENTRYPOINT
 # ----------------------------------------------------------
