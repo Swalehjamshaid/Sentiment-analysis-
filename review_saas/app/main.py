@@ -83,19 +83,16 @@ app.add_middleware(
 )
 
 # ----------------------------------------------------------
-# BASE PATH + TEMPLATES (Robust Fix for None template name error)
+# BASE PATH + TEMPLATES (FIXED FOR LINE 161 CRASH)
 # ----------------------------------------------------------
-# Find the absolute path to the directory containing main.py
+# Detection logic optimized for Docker path: /app/app/main.py
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Robust template path detection - Priorities:
-# 1. /app/templates (Standard)
-# 2. /app/app/templates (Nested)
-# 3. ../templates (Parent)
 possible_paths = [
-    os.path.join(BASE_DIR, "templates"),
-    os.path.join(BASE_DIR, "app", "templates"),
-    os.path.join(os.path.dirname(BASE_DIR), "templates"),
+    os.path.join(BASE_DIR, "templates"),           # /app/app/templates
+    "/app/app/templates",                         # Forced Docker Path
+    "/app/templates",                             # Root Docker Path
+    os.path.join(os.path.dirname(BASE_DIR), "templates"), 
 ]
 
 template_path = None
@@ -106,12 +103,11 @@ for path in possible_paths:
 
 if template_path:
     templates = Jinja2Templates(directory=template_path)
-    templates.env.cache = None   # Prevents unhashable dict / cache_key errors
+    templates.env.cache = None
     logger_orig.info(f"✅ JINJA2 TEMPLATES LOADED FROM: {template_path}")
 else:
-    logger_orig.error("❌ Could not find templates directory! Fallback to root.")
+    logger_orig.error("❌ Critical: Could not find templates directory!")
     templates = Jinja2Templates(directory=BASE_DIR)
-    templates.env.cache = None
 
 # ----------------------------------------------------------
 # JINJA FILTER
@@ -132,7 +128,7 @@ templates.env.filters["date"] = format_date
 # ----------------------------------------------------------
 static_dir = os.path.join(BASE_DIR, "static")
 if not os.path.isdir(static_dir):
-    static_dir = os.path.join(BASE_DIR, "app", "static")
+    static_dir = "/app/app/static" # Docker Fallback
 
 if os.path.isdir(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -150,14 +146,13 @@ from app.routes import auth, companies, dashboard, reviews
 # ----------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    # FORCE redirect to login if no session user exists
     if not request.session.get("user"):
         return RedirectResponse(url="/login", status_code=303)
     return RedirectResponse(url="/dashboard", status_code=303)
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    # Explicitly renders the login.html template
+    # This is line 161 - Context MUST contain the request object
     return templates.TemplateResponse(
         name="login.html", 
         context={"request": request}
@@ -221,7 +216,6 @@ app.include_router(reviews.router, prefix="/api", tags=["reviews"])
 # ----------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
-    # Get port from environment for cloud deployment
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(
         "app.main:app",
