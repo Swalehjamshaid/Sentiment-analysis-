@@ -5,9 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from loguru import logger
 
+# CORE IMPORTS
 from app.core.db import get_db
 from app.core.models import User
-# Ensure these imports match your security logic
 from app.core.security import get_password_hash 
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -31,15 +31,15 @@ async def register_user(
         existing_user = result.scalars().first()
         
         if existing_user:
-            # Redirect back to register with an error if you have a register route
-            # For now, we raise an exception which the global handler in main.py will catch
+            logger.warning(f"⚠️ Registration attempt for existing email: {email_clean}")
+            # Raising HTTPException allows the global_exception_handler in main.py to catch it
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, 
                 detail="Email is already registered."
             )
 
         # 2. Create new user instance
-        # email_verified set to True for now to bypass verification for testing
+        # email_verified set to True to allow immediate login after registration
         new_user = User(
             name=name,
             email=email_clean,
@@ -54,14 +54,19 @@ async def register_user(
         await db.commit()
         await db.refresh(new_user)
         
-        logger.info(f"✅ New user registered: {email_clean}")
+        logger.info(f"✅ New user registered successfully: {email_clean}")
 
-        # 4. Redirect to login page with a success flag
-        return RedirectResponse(url="/login?msg=registered", status_code=status.HTTP_303_SEE_OTHER)
+        # 4. Redirect to login page (303 is essential for POST -> GET redirection)
+        return RedirectResponse(
+            url="/login?msg=registered", 
+            status_code=status.HTTP_303_SEE_OTHER
+        )
 
     except HTTPException as he:
+        # Re-raise to let FastAPI handles the known error
         raise he
     except Exception as e:
+        # Rollback in case of DB errors
         await db.rollback()
         logger.error(f"❌ Registration Error: {str(e)}")
         raise HTTPException(
@@ -69,8 +74,7 @@ async def register_user(
             detail="Registration failed due to a server error."
         )
 
-# Optional: Keep the verify route if you plan to use email verification later
 @router.get("/verify")
 async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
-    # Logic for email verification would go here
+    """Placeholder for future email verification logic."""
     return {"message": "Verification logic pending mailer setup"}
