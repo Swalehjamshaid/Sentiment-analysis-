@@ -1,131 +1,76 @@
 # filename: app/routes/auth.py
-import logging
-import os
-
-from fastapi import APIRouter, Request, Depends, Form, status, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, status, Form
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from passlib.context import CryptContext
-from starlette.templating import Jinja2Templates
+from loguru import logger
 
-# --- REFINED ALIGNMENT IMPORTS ---
 from app.core.db import get_db
-# ✅ MODELS REMOVED FROM TOP TO BREAK THE DEADLOCK
-from app.core.config import settings
+from app.core.models import User
+# Ensure these imports match your security logic
+from app.core.security import get_password_hash 
 
-router = APIRouter()
-
-# Dynamic pathing for templates to ensure alignment in Docker/Railway
-CURRENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-templates = Jinja2Templates(directory=os.path.join(CURRENT_DIR, "templates"))
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-logger = logging.getLogger("app.auth")
-
-# ----------------------------------------------------------
-# HELPERS
-# ----------------------------------------------------------
-def send_verification_email(email: str, token: str):
-    """Logs verification link to console (Mock SMTP)."""
-    verify_link = f"{settings.APP_BASE_URL}/api/auth/verify?token={token}"
-    logger.info("--------------------------------------------------")
-    logger.info(f"📧 VERIFICATION EMAIL FOR: {email}")
-    logger.info(f"🔗 LINK: {verify_link}")
-    logger.info("--------------------------------------------------")
-
-# ----------------------------------------------------------
-# ROUTES
-# ----------------------------------------------------------
-@router.get("/register", response_class=HTMLResponse)
-async def register_page(request: Request):
-    return templates.TemplateResponse("register.html", {"request": request})
-
+router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.post("/register")
 async def register_user(
-    request: Request,
     name: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db)
 ):
-    # ✅ LOCAL IMPORT: Breaks the Vicious Circle
-    from app.core.models import User, VerificationToken
-
+    """
+    Handles User Registration.
+    Aligned with main.py to use Form data for standard HTML form submissions.
+    """
     email_clean = email.strip().lower()
+    
+    try:
+        # 1. Check if user already exists
+        result = await db.execute(select(User).where(User.email == email_clean))
+        existing_user = result.scalars().first()
+        
+        if existing_user:
+            # Redirect back to register with an error if you have a register route
+            # For now, we raise an exception which the global handler in main.py will catch
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail="Email is already registered."
+            )
 
-    # Duplicate email check
-    res = await db.execute(select(User).where(User.email == email_clean))
-    if res.scalars().first():
-        return templates.TemplateResponse(
-            "register.html",
-            {
-                "request": request,
-                "error": "This email is already registered.",
-            },
+        # 2. Create new user instance
+        # email_verified set to True for now to bypass verification for testing
+        new_user = User(
+            name=name,
+            email=email_clean,
+            hashed_password=get_password_hash(password),
+            email_verified=True, 
+            is_active=True
         )
-
-    # Hash password and create user
-    hashed = pwd_context.hash(password)
-    new_user = User(
-        name=name,
-        email=email_clean,
-        hashed_password=hashed,
-    )
-    db.add(new_user)
-
-    # Using flush to get the ID without fully committing yet
-    await db.flush()
-
-    # Generate verification token
-    token_obj = VerificationToken(user_id=new_user.id)
-    db.add(token_obj)
-    await db.commit()
-
-    # Send Mock Verification Email
-    send_verification_email(email_clean, token_obj.token)
-
-    return templates.TemplateResponse(
-        "verify_email_sent.html",
-        {
-            "request": request,
-            "email": email_clean,
-        },
-    )
-
-
-@router.get("/verify")
-async def verify_email(
-    token: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """Handles account verification via token link."""
-    # ✅ LOCAL IMPORT: Breaks the Vicious Circle
-    from app.core.models import User, VerificationToken
-
-    # Find token
-    res = await db.execute(
-        select(VerificationToken).where(VerificationToken.token == token)
-    )
-    token_rec = res.scalars().first()
-
-    if not token_rec:
-        return RedirectResponse(
-            url="/login?error=Invalid or expired verification link."
-        )
-
-    # Find associated user
-    user_res = await db.execute(
-        select(User).where(User.id == token_rec.user_id)
-    )
-    user = user_res.scalars().first()
-
-    if user:
-        user.is_verified = True
-        await db.delete(token_rec)
+        
+        db.add(new_user)
+        
+        # 3. Commit to Database
         await db.commit()
+        await db.refresh(new_user)
+        
+        logger.info(f"✅ New user registered: {email_clean}")
 
-    return RedirectResponse(
-        url="/login?message=Account verified successfully! Please login."
-    )
+        # 4. Redirect to login page with a success flag
+        return RedirectResponse(url="/login?msg=registered", status_code=status.HTTP_303_SEE_OTHER)
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"❌ Registration Error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Registration failed due to a server error."
+        )
+
+# Optional: Keep the verify route if you plan to use email verification later
+@router.get("/verify")
+async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
+    # Logic for email verification would go here
+    return {"message": "Verification logic pending mailer setup"}
