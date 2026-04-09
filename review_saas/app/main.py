@@ -4,9 +4,9 @@ import logging
 import sys
 from datetime import datetime
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Depends, Form
+from fastapi import FastAPI, Request, Depends, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
@@ -24,7 +24,6 @@ from app.core.db import init_models, get_db
 # ----------------------------------------------------------
 # LOGGING & AUTH
 # ----------------------------------------------------------
-# Configure Loguru for structured JSON output
 logger.remove()
 logger.add(
     sys.stdout,
@@ -35,7 +34,6 @@ logger.add(
     enqueue=True,
 )
 
-# Keep original logger for backward compatibility
 logging.basicConfig(level=logging.INFO)
 logger_orig = logging.getLogger("app.main")
 
@@ -68,6 +66,17 @@ app = FastAPI(
 )
 
 # ----------------------------------------------------------
+# GLOBAL ERROR HANDLER (FIX FOR "dependant.call" ERRORS)
+# ----------------------------------------------------------
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger_orig.error(f"❌ Global Error Caught: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={"message": "Internal Server Error", "detail": str(exc)},
+    )
+
+# ----------------------------------------------------------
 # MIDDLEWARE
 # ----------------------------------------------------------
 app.add_middleware(
@@ -83,15 +92,14 @@ app.add_middleware(
 )
 
 # ----------------------------------------------------------
-# BASE PATH + TEMPLATES (FIXED FOR LINE 161 CRASH)
+# BASE PATH + TEMPLATES
 # ----------------------------------------------------------
-# Detection logic optimized for Docker path: /app/app/main.py
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 possible_paths = [
-    os.path.join(BASE_DIR, "templates"),           # /app/app/templates
-    "/app/app/templates",                         # Forced Docker Path
-    "/app/templates",                             # Root Docker Path
+    os.path.join(BASE_DIR, "templates"),
+    "/app/app/templates",
+    "/app/templates",
     os.path.join(os.path.dirname(BASE_DIR), "templates"), 
 ]
 
@@ -128,7 +136,7 @@ templates.env.filters["date"] = format_date
 # ----------------------------------------------------------
 static_dir = os.path.join(BASE_DIR, "static")
 if not os.path.isdir(static_dir):
-    static_dir = "/app/app/static" # Docker Fallback
+    static_dir = "/app/app/static"
 
 if os.path.isdir(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -142,7 +150,7 @@ else:
 from app.routes import auth, companies, dashboard, reviews
 
 # ----------------------------------------------------------
-# UI ROUTES — ALIGNED FOR LOGIN ACCESS
+# UI ROUTES
 # ----------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
@@ -152,7 +160,6 @@ async def root(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    # This is line 161 - Context MUST contain the request object
     return templates.TemplateResponse(
         name="login.html", 
         context={"request": request}
