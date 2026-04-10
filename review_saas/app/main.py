@@ -14,7 +14,6 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from passlib.context import CryptContext
@@ -27,16 +26,10 @@ from app.core.config import settings
 from app.core.db import init_models, get_db
 
 # ----------------------------------------------------------
-# LOGGING CONFIG
+# LOGGING
 # ----------------------------------------------------------
 logger.remove()
-logger.add(
-    sys.stdout,
-    level="DEBUG",
-    backtrace=True,
-    diagnose=True,
-    enqueue=True,
-)
+logger.add(sys.stdout, level="DEBUG", backtrace=True, diagnose=True, enqueue=True)
 logging.basicConfig(level=logging.INFO)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -88,7 +81,7 @@ app.add_middleware(
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
 # ----------------------------------------------------------
-# TEMPLATES SETUP
+# TEMPLATES
 # ----------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 possible_paths = [
@@ -96,7 +89,6 @@ possible_paths = [
     "/app/app/templates",
     "/app/templates",
 ]
-
 template_path = next((p for p in possible_paths if os.path.isdir(p)), None)
 if not template_path:
     raise RuntimeError("❌ Templates directory NOT FOUND")
@@ -123,17 +115,11 @@ templates.env.filters["date"] = format_date
 # ----------------------------------------------------------
 # STATIC FILES
 # ----------------------------------------------------------
-static_paths = [
-    os.path.join(BASE_DIR, "static"),
-    "/app/app/static",
-    "/app/static",
-]
+static_paths = [os.path.join(BASE_DIR, "static"), "/app/app/static", "/app/static"]
 static_dir = next((p for p in static_paths if os.path.isdir(p)), None)
 if static_dir:
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
     logger.info(f"📁 Static files mounted from: {static_dir}")
-else:
-    logger.warning("⚠️ Static directory NOT FOUND")
 
 # ----------------------------------------------------------
 # ROUTES IMPORT
@@ -192,74 +178,9 @@ async def handle_login(
         )
 
 
-# ==================== REGISTER ROUTES (FIXED - NOW SAVES TO DB) ====================
 @app.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request):
     return templates.TemplateResponse(request=request, name="register.html")
-
-
-@app.post("/register")
-async def handle_register(
-    request: Request,
-    name: str = Form(...),
-    email: str = Form(...),
-    password: str = Form(...),
-    confirm_password: str = Form(...),
-    db: AsyncSession = Depends(get_db),
-):
-    if password != confirm_password:
-        return templates.TemplateResponse(
-            request=request,
-            name="register.html",
-            context={"error": "Passwords do not match"}
-        )
-
-    try:
-        from app.core.models import User
-
-        # Check if email already exists
-        result = await db.execute(
-            select(User).where(User.email == email.strip().lower())
-        )
-        if result.scalars().first():
-            return templates.TemplateResponse(
-                request=request,
-                name="register.html",
-                context={"error": "An account with this email already exists"}
-            )
-
-        # Hash password and create new user
-        hashed_password = pwd_context.hash(password)
-
-        new_user = User(
-            name=name.strip(),
-            email=email.strip().lower(),
-            hashed_password=hashed_password,
-            is_verified=False
-        )
-
-        db.add(new_user)
-        await db.commit()
-        await db.refresh(new_user)
-
-        logger.info(f"✅ New user registered: {email}")
-
-        return templates.TemplateResponse(
-            request=request,
-            name="register.html",
-            context={"success": "Account created successfully! You can now log in."}
-        )
-
-    except Exception as exc:
-        await db.rollback()
-        logger.error("❌ Registration Error")
-        logger.error(traceback.format_exc())
-        return templates.TemplateResponse(
-            request=request,
-            name="register.html",
-            context={"error": "Something went wrong. Please try again."}
-        )
-# ==================================================================================
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
