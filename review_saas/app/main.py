@@ -98,7 +98,7 @@ app.add_middleware(
 )
 
 # ----------------------------------------------------------
-# TEMPLATES SETUP (Safer path detection)
+# TEMPLATES SETUP
 # ----------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 possible_paths = [
@@ -129,7 +129,6 @@ def format_date(value, format="%Y-%m-%d"):
     except Exception:
         return str(value)
 
-
 templates.env.filters["date"] = format_date
 
 # ----------------------------------------------------------
@@ -153,7 +152,7 @@ else:
 from app.routes import auth, companies, dashboard, reviews
 
 # ----------------------------------------------------------
-# UI ROUTES (FIXED for Starlette 1.0+)
+# UI ROUTES — FIXED FOR LATEST STARLETTE 1.x
 # ----------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
@@ -165,8 +164,8 @@ async def root(request: Request):
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     return templates.TemplateResponse(
-        name="login.html",
-        context={"request": request}
+        request=request,
+        name="login.html"
     )
 
 
@@ -192,10 +191,11 @@ async def handle_login(
             }
             return RedirectResponse("/dashboard", status_code=303)
 
-        # Error case - FIXED
+        # Login failed
         return templates.TemplateResponse(
+            request=request,
             name="login.html",
-            context={"request": request, "error": "Invalid email or password"}
+            context={"error": "Invalid email or password"}
         )
 
     except Exception:
@@ -210,11 +210,11 @@ async def dashboard_view(request: Request):
         return RedirectResponse("/login", status_code=303)
 
     return templates.TemplateResponse(
+        request=request,
         name="dashboard.html",
         context={
-            "request": request,
             "user": request.session.get("user"),
-        },
+        }
     )
 
 
