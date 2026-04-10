@@ -9,14 +9,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Depends, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from passlib.context import CryptContext
 
+from passlib.context import CryptContext
 from loguru import logger
 
 # ----------------------------------------------------------
@@ -26,39 +27,34 @@ from app.core.config import settings
 from app.core.db import init_models, get_db
 
 # ----------------------------------------------------------
-# LOGGING CONFIG (🔥 FIXED)
+# LOGGING CONFIG
 # ----------------------------------------------------------
 logger.remove()
 logger.add(
     sys.stdout,
-    level="DEBUG",  # 🔥 changed to DEBUG
-    backtrace=True,  # 🔥 shows full traceback
-    diagnose=True,   # 🔥 deep error details
+    level="DEBUG",
+    backtrace=True,
+    diagnose=True,
     enqueue=True,
 )
-
 logging.basicConfig(level=logging.INFO)
-logger_orig = logging.getLogger("app.main")
-
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ----------------------------------------------------------
-# LIFESPAN (Database Initialization)
+# LIFESPAN
 # ----------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 Starting Review Intel AI...")
-
     try:
         await init_models()
         logger.info("✅ Database initialized successfully")
     except Exception as e:
         logger.error("❌ Database initialization failed")
-        logger.error(traceback.format_exc())  # 🔥 FULL TRACE
-
+        logger.error(traceback.format_exc())
     yield
-
     logger.info("🛑 Application shutdown complete")
+
 
 # ----------------------------------------------------------
 # APP INIT
@@ -69,14 +65,13 @@ app = FastAPI(
 )
 
 # ----------------------------------------------------------
-# GLOBAL ERROR HANDLER (🔥 FIXED)
+# GLOBAL ERROR HANDLER
 # ----------------------------------------------------------
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error("❌ GLOBAL ERROR OCCURRED")
     logger.error(f"Path: {request.url}")
-    logger.error(traceback.format_exc())  # 🔥 THIS FIXES YOUR ISSUE
-
+    logger.error(traceback.format_exc())
     return JSONResponse(
         status_code=500,
         content={
@@ -84,6 +79,7 @@ async def global_exception_handler(request: Request, exc: Exception):
             "detail": str(exc),
         },
     )
+
 
 # ----------------------------------------------------------
 # MIDDLEWARE
@@ -102,10 +98,9 @@ app.add_middleware(
 )
 
 # ----------------------------------------------------------
-# BASE PATH + TEMPLATES (🔥 SAFER)
+# TEMPLATES SETUP (Safer path detection)
 # ----------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 possible_paths = [
     os.path.join(BASE_DIR, "templates"),
     "/app/app/templates",
@@ -114,13 +109,11 @@ possible_paths = [
 ]
 
 template_path = next((p for p in possible_paths if os.path.isdir(p)), None)
-
 if not template_path:
     raise RuntimeError("❌ Templates directory NOT FOUND")
 
 templates = Jinja2Templates(directory=template_path)
 templates.env.cache = None
-
 logger.info(f"✅ Templates loaded from: {template_path}")
 
 # ----------------------------------------------------------
@@ -136,6 +129,7 @@ def format_date(value, format="%Y-%m-%d"):
     except Exception:
         return str(value)
 
+
 templates.env.filters["date"] = format_date
 
 # ----------------------------------------------------------
@@ -146,9 +140,7 @@ static_paths = [
     "/app/app/static",
     "/app/static",
 ]
-
 static_dir = next((p for p in static_paths if os.path.isdir(p)), None)
-
 if static_dir:
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
     logger.info(f"📁 Static files mounted from: {static_dir}")
@@ -161,7 +153,7 @@ else:
 from app.routes import auth, companies, dashboard, reviews
 
 # ----------------------------------------------------------
-# UI ROUTES
+# UI ROUTES (FIXED for Starlette 1.0+)
 # ----------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
@@ -172,7 +164,10 @@ async def root(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(
+        name="login.html",
+        context={"request": request}
+    )
 
 
 @app.post("/login")
@@ -183,7 +178,6 @@ async def handle_login(
     db: AsyncSession = Depends(get_db),
 ):
     from app.core.models import User
-
     try:
         result = await db.execute(
             select(User).where(User.email == email.strip().lower())
@@ -198,9 +192,10 @@ async def handle_login(
             }
             return RedirectResponse("/dashboard", status_code=303)
 
+        # Error case - FIXED
         return templates.TemplateResponse(
-            "login.html",
-            {"request": request, "error": "Invalid email or password"},
+            name="login.html",
+            context={"request": request, "error": "Invalid email or password"}
         )
 
     except Exception:
@@ -215,8 +210,8 @@ async def dashboard_view(request: Request):
         return RedirectResponse("/login", status_code=303)
 
     return templates.TemplateResponse(
-        "dashboard.html",
-        {
+        name="dashboard.html",
+        context={
             "request": request,
             "user": request.session.get("user"),
         },
@@ -228,6 +223,7 @@ async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
 
+
 # ----------------------------------------------------------
 # API ROUTES
 # ----------------------------------------------------------
@@ -236,14 +232,13 @@ app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 app.include_router(reviews.router, prefix="/api", tags=["reviews"])
 
+
 # ----------------------------------------------------------
 # ENTRYPOINT
 # ----------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
-
     port = int(os.environ.get("PORT", 8080))
-
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
