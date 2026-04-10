@@ -124,7 +124,7 @@ if static_dir:
 from app.routes import auth, companies, dashboard, reviews
 
 # ----------------------------------------------------------
-# UI ROUTES - FIXED FOR STARLETTE 1.0+
+# UI ROUTES
 # ----------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
@@ -135,10 +135,7 @@ async def root(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse(
-        request=request,
-        name="login.html"
-    )
+    return templates.TemplateResponse(request=request, name="login.html")
 
 
 @app.post("/login")
@@ -163,21 +160,53 @@ async def handle_login(
             }
             return RedirectResponse("/dashboard", status_code=303)
 
-        # Failed login - FIXED
         return templates.TemplateResponse(
             request=request,
             name="login.html",
             context={"error": "Invalid email or password"}
         )
-
     except Exception:
         logger.error("❌ Login Error")
         logger.error(traceback.format_exc())
         return templates.TemplateResponse(
             request=request,
             name="login.html",
-            context={"error": "Something went wrong. Please try again later."}
+            context={"error": "Something went wrong. Please try again."}
         )
+
+
+# ==================== REGISTER ROUTES (NEW) ====================
+@app.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="register.html"
+    )
+
+
+@app.post("/register")
+async def handle_register(
+    request: Request,
+    name: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    if password != confirm_password:
+        return templates.TemplateResponse(
+            request=request,
+            name="register.html",
+            context={"error": "Passwords do not match"}
+        )
+
+    # TODO: Add real registration logic here later
+    return templates.TemplateResponse(
+        request=request,
+        name="register.html",
+        context={"success": "Account created successfully! You can now log in."}
+    )
+# ============================================================
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
