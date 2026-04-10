@@ -4,56 +4,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    
     <title>{% block title %}Review Intel AI{% endblock %}</title>
 
     <!-- Tailwind CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@3.3.2/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- Custom CSS -->
-    <link rel="stylesheet" href="/static/css/style.css">
-
-    {% block head %}{% endblock %}
+    {% block styles %}{% endblock %}
 </head>
-<body class="bg-gray-100 font-sans text-gray-900">
 
-    <!-- Header / Navbar -->
-    <header class="bg-white shadow-md">
-        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
-            <a href="/" class="text-xl font-bold text-indigo-600">Review Intel AI</a>
-            <nav>
-                {% if request.session.get('user') %}
-                <ul class="flex space-x-4">
-                    <li><a href="/dashboard" class="hover:text-indigo-500">Dashboard</a></li>
-                    <li><a href="/logout" class="hover:text-red-500">Logout</a></li>
-                </ul>
-                {% else %}
-                <ul class="flex space-x-4">
-                    <li><a href="/login" class="hover:text-indigo-500">Login</a></li>
-                </ul>
-                {% endif %}
-            </nav>
+<body class="bg-gray-100">
+
+    <!-- NAVBAR -->
+    <nav class="bg-indigo-600 text-white px-6 py-4 flex justify-between items-center">
+        <h1 class="text-lg font-semibold">Review Intel AI</h1>
+
+        {% set user = request.session.get("user") %}
+        {% if user %}
+        <div class="flex items-center gap-4">
+            <span class="text-sm">
+                {{ user["name"] }}
+            </span>
+            <a href="/logout" class="bg-white text-indigo-600 px-3 py-1 rounded hover:bg-gray-100">
+                Logout
+            </a>
         </div>
-    </header>
+        {% endif %}
+    </nav>
 
-    <!-- Main Content -->
-    <main class="container mx-auto px-4 py-6">
-        {% block content %}{% endblock %}
+    <!-- MAIN CONTENT -->
+    <main class="p-4">
+        {% block content %}
+        {% endblock %}
     </main>
 
-    <!-- Footer -->
-    <footer class="bg-white shadow-inner mt-10">
-        <div class="container mx-auto px-4 py-4 text-center text-gray-500 text-sm">
-            &copy; {{ now().year }} Review Intel AI. All rights reserved.
-        </div>
+    <!-- FOOTER -->
+    <footer class="text-center text-gray-500 text-sm mt-10 mb-4">
+        © 2026 Review Intel AI. All rights reserved.
     </footer>
 
-    <!-- Alpine.js for interactivity (optional) -->
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.12.0/dist/cdn.min.js" defer></script>
-
-    <!-- Custom JS -->
-    <script src="/static/js/main.js"></script>
-
     {% block scripts %}{% endblock %}
+
 </body>
 </html>
