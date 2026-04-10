@@ -27,17 +27,12 @@ from app.core.config import settings
 from app.core.db import init_models, get_db
 
 # ----------------------------------------------------------
-# LOGGING CONFIG
+# LOGGING
 # ----------------------------------------------------------
 logger.remove()
-logger.add(
-    sys.stdout,
-    level="DEBUG",
-    backtrace=True,
-    diagnose=True,
-    enqueue=True,
-)
+logger.add(sys.stdout, level="DEBUG", backtrace=True, diagnose=True, enqueue=True)
 logging.basicConfig(level=logging.INFO)
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ----------------------------------------------------------
@@ -49,7 +44,7 @@ async def lifespan(app: FastAPI):
     try:
         await init_models()
         logger.info("✅ Database initialized successfully")
-    except Exception as e:
+    except Exception:
         logger.error("❌ Database initialization failed")
         logger.error(traceback.format_exc())
     yield
@@ -59,53 +54,36 @@ async def lifespan(app: FastAPI):
 # ----------------------------------------------------------
 # APP INIT
 # ----------------------------------------------------------
-app = FastAPI(
-    title="Review Intel AI",
-    lifespan=lifespan,
-)
+app = FastAPI(title="Review Intel AI", lifespan=lifespan)
 
 # ----------------------------------------------------------
 # GLOBAL ERROR HANDLER
 # ----------------------------------------------------------
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error("❌ GLOBAL ERROR OCCURRED")
-    logger.error(f"Path: {request.url}")
+    logger.error(f"❌ GLOBAL ERROR at {request.url}")
     logger.error(traceback.format_exc())
     return JSONResponse(
         status_code=500,
-        content={
-            "message": "Internal Server Error",
-            "detail": str(exc),
-        },
+        content={"message": "Internal Server Error", "detail": str(exc)},
     )
 
 
 # ----------------------------------------------------------
 # MIDDLEWARE
 # ----------------------------------------------------------
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.SECRET_KEY,
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+                   allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
 # ----------------------------------------------------------
-# TEMPLATES SETUP
+# TEMPLATES
 # ----------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 possible_paths = [
     os.path.join(BASE_DIR, "templates"),
     "/app/app/templates",
     "/app/templates",
-    os.path.join(os.path.dirname(BASE_DIR), "templates"),
 ]
 
 template_path = next((p for p in possible_paths if os.path.isdir(p)), None)
@@ -134,17 +112,11 @@ templates.env.filters["date"] = format_date
 # ----------------------------------------------------------
 # STATIC FILES
 # ----------------------------------------------------------
-static_paths = [
-    os.path.join(BASE_DIR, "static"),
-    "/app/app/static",
-    "/app/static",
-]
+static_paths = [os.path.join(BASE_DIR, "static"), "/app/app/static", "/app/static"]
 static_dir = next((p for p in static_paths if os.path.isdir(p)), None)
 if static_dir:
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
     logger.info(f"📁 Static files mounted from: {static_dir}")
-else:
-    logger.warning("⚠️ Static directory NOT FOUND")
 
 # ----------------------------------------------------------
 # ROUTES IMPORT
@@ -152,7 +124,7 @@ else:
 from app.routes import auth, companies, dashboard, reviews
 
 # ----------------------------------------------------------
-# UI ROUTES — FIXED FOR LATEST STARLETTE 1.x
+# UI ROUTES - FIXED FOR STARLETTE 1.0+
 # ----------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
@@ -191,7 +163,7 @@ async def handle_login(
             }
             return RedirectResponse("/dashboard", status_code=303)
 
-        # Login failed
+        # Failed login - FIXED
         return templates.TemplateResponse(
             request=request,
             name="login.html",
@@ -201,7 +173,11 @@ async def handle_login(
     except Exception:
         logger.error("❌ Login Error")
         logger.error(traceback.format_exc())
-        raise
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={"error": "Something went wrong. Please try again later."}
+        )
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -212,9 +188,7 @@ async def dashboard_view(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
-        context={
-            "user": request.session.get("user"),
-        }
+        context={"user": request.session.get("user")}
     )
 
 
@@ -239,9 +213,4 @@ app.include_router(reviews.router, prefix="/api", tags=["reviews"])
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=port,
-        reload=False,
-    )
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
