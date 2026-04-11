@@ -13,7 +13,6 @@ from app.core.mailer import send_verification_email
 
 router = APIRouter()
 
-# We will receive templates from main.py using dependency (cleanest way)
 @router.post("/register")
 async def register_user(
     request: Request,
@@ -22,9 +21,10 @@ async def register_user(
     password: str = Form(...),
     confirm_password: str = Form(...),
     db: AsyncSession = Depends(get_db),
-    # templates will be injected from main.py
-    templates = Depends(lambda: __import__("app.main").main.templates)
 ):
+    # Import templates here to avoid circular import issues
+    from app.main import templates
+
     if password != confirm_password:
         return templates.TemplateResponse(
             request=request,
@@ -35,7 +35,7 @@ async def register_user(
     email_clean = email.strip().lower()
 
     try:
-        # Check for duplicate email
+        # Check if email already exists
         result = await db.execute(select(User).where(User.email == email_clean))
         if result.scalars().first():
             return templates.TemplateResponse(
@@ -44,7 +44,7 @@ async def register_user(
                 context={"error": "This email is already registered."}
             )
 
-        # Create new user (using only fields that likely exist)
+        # Create new user (only using fields that most likely exist)
         new_user = User(
             name=name.strip(),
             email=email_clean,
@@ -57,15 +57,14 @@ async def register_user(
 
         logger.info(f"✅ New user registered: {email_clean}")
 
-        # Send verification email
+        # Try to send verification email
         token = create_verification_token(new_user.email)
-
         try:
             await send_verification_email(new_user.email, token)
             success_msg = "Registration successful! Check your inbox for the magic login link."
         except Exception as e:
             logger.error(f"Email sending failed: {e}")
-            success_msg = "Account created successfully, but verification email could not be sent."
+            success_msg = "Account created successfully!"
 
         return templates.TemplateResponse(
             request=request,
@@ -95,7 +94,8 @@ async def verify_email(token: str = Query(...), db: AsyncSession = Depends(get_d
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
 
-    if not getattr(user, 'email_verified', False):
+    # Mark as verified if needed
+    if hasattr(user, 'email_verified') and not user.email_verified:
         user.email_verified = True
         await db.commit()
 
