@@ -1,46 +1,112 @@
-import smtplib
-from email.message import EmailMessage
-from app.core.config import settings
+import resend
+import os
+from fastapi import HTTPException
+from dotenv import load_dotenv
+
+# Load environment variables (useful for local testing, 
+# though Railway injects them automatically)
+load_dotenv()
+
+# Configuration from Railway Environment Variables
+# RESEND_API_KEY must be the re_... key you generated
+resend.api_key = os.getenv("RESEND_API_KEY")
+
+# MAIL_FROM should be 'onboarding@resend.dev' for testing 
+# or your verified domain for production
+MAIL_FROM = os.getenv("MAIL_FROM", "onboarding@resend.dev")
+
+# APP_BASE_URL is used to build the verification link
+BASE_URL = os.getenv("APP_BASE_URL", "https://sentiment-analysis-production-f96a.up.railway.app")
 
 async def send_verification_email(email: str, token: str):
-    """Sends an async-compatible SMTP email with the verification link."""
-    # Ensure settings.DOMAIN is set to your base URL (e.g., http://localhost:8000)
-    verify_url = f"{settings.DOMAIN}/api/auth/verify?token={token}"
+    """
+    Sends a Magic Link verification email via the Resend REST API.
     
-    msg = EmailMessage()
-    msg["Subject"] = "Action Required: Verify Your SaaS Account"
-    msg["From"] = settings.SMTP_USER
-    msg["To"] = email
+    Args:
+        email (str): The recipient's email address.
+        token (str): The unique JWT verification token.
+        
+    Returns:
+        bool: True if the email was sent successfully.
+        
+    Raises:
+        HTTPException: If the Resend API returns an error or fails.
+    """
     
-    # Text-only fallback
-    msg.set_content(f"Welcome! Please verify your email by clicking this link: {verify_url}")
-    
-    # Professional HTML Body
-    msg.add_alternative(f"""
+    # Construct the full Magic Link URL
+    verify_url = f"{BASE_URL}/api/auth/verify?token={token}"
+
+    # Define the Professional HTML Body
+    html_content = f"""
+    <!DOCTYPE html>
     <html>
-        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; text-align: center;">
-            <div style="max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee;">
-                <h2 style="color: #4F46E5;">Welcome to Review Intel!</h2>
-                <p>You're almost there. Click the button below to verify your email address and access your dashboard.</p>
-                <div style="margin: 30px 0;">
-                    <a href="{verify_url}" 
-                       style="background-color: #4F46E5; color: white; padding: 15px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
-                       Verify My Account
-                    </a>
-                </div>
-                <p style="font-size: 0.8em; color: #777;">This link will expire in 30 minutes.</p>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            .container {{
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                max-width: 600px;
+                margin: 0 auto;
+                padding: 40px 20px;
+                border: 1px solid #e5e7eb;
+                border-radius: 12px;
+                text-align: center;
+                color: #1f2937;
+            }}
+            .button {{
+                background-color: #4f46e5;
+                color: #ffffff !important;
+                padding: 16px 32px;
+                text-decoration: none;
+                border-radius: 8px;
+                font-weight: bold;
+                display: inline-block;
+                margin: 30px 0;
+            }}
+            .footer {{
+                font-size: 12px;
+                color: #6b7280;
+                margin-top: 40px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1 style="color: #4f46e5;">Review Intel AI</h1>
+            <h2>Verify your email address</h2>
+            <p>Welcome! You're one step away from accessing your sentiment analysis dashboard. Click the button below to confirm your email and log in immediately.</p>
+            
+            <a href="{verify_url}" class="button">Verify & Login Now</a>
+            
+            <p>If the button doesn't work, copy and paste this link into your browser:</p>
+            <p style="word-break: break-all; color: #4f46e5; font-size: 14px;">{verify_url}</p>
+            
+            <div class="footer">
+                <p>This magic link will expire in 60 minutes.</p>
+                <p>If you did not create an account, you can safely ignore this email.</p>
             </div>
-        </body>
+        </div>
+    </body>
     </html>
-    """, subtype='html')
+    """
 
     try:
-        # Standard SMTP logic (works well with Gmail App Passwords)
-        with smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT) as server:
-            server.starttls()
-            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            server.send_message(msg)
+        # Trigger the Resend API call
+        response = resend.Emails.send({
+            "from": f"Review Intel AI <{MAIL_FROM}>",
+            "to": [email],
+            "subject": "Action Required: Verify Your SaaS Account",
+            "html": html_content
+        })
+        
+        # Log the success in Railway Deploy Logs
+        print(f"Email successfully sent to {email}. Resend ID: {response.get('id')}")
         return True
+
     except Exception as e:
-        print(f"Email Failed: {e}")
-        return False
+        # Catch and log specific errors for debugging in Railway
+        print(f"CRITICAL MAILER ERROR: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The email service is currently unavailable. Please try again later."
+        )
