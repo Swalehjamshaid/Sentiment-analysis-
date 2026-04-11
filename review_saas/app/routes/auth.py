@@ -20,17 +20,14 @@ async def register_user(
     password: str = Form(...), 
     db: AsyncSession = Depends(get_db)
 ):
-    """Handles Registration via Form and triggers Magic Link email."""
-    
-    # 1. Check if user already exists
+    # 1. Check if user exists
     result = await db.execute(select(User).where(User.email == email))
     if result.scalars().first():
         return templates.TemplateResponse("register.html", {
-            "request": request, 
-            "error": "This email is already registered. Please log in."
+            "request": request, "error": "Email already registered. Try logging in."
         })
 
-    # 2. Create new unverified user
+    # 2. Create unverified user
     new_user = User(
         name=name,
         email=email,
@@ -38,42 +35,33 @@ async def register_user(
         email_verified=False,
         is_active=True
     )
-    
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
 
-    # 3. Generate Magic Link Token
+    # 3. Generate Magic Token & Send Email
     token = create_verification_token(new_user.email)
-    
-    # 4. Send Email via Resend
     try:
         await send_verification_email(new_user.email, token)
-    except Exception as e:
+    except Exception:
         return templates.TemplateResponse("register.html", {
-            "request": request, 
-            "error": "Account created, but email failed to send. Contact support."
+            "request": request, "error": "Account created, but failed to send magic link."
         })
 
     return templates.TemplateResponse("register.html", {
-        "request": request, 
-        "success": "Account created! Please check your email for the magic link to log in."
+        "request": request, "success": "Success! Please check your email for the magic link."
     })
-
 
 @router.get("/verify")
 async def verify_email(token: str = Query(...), db: AsyncSession = Depends(get_db)):
-    """Verifies token and performs 'Magic' auto-login."""
-    
-    # 1. Decode Token
+    # 1. Decode & Validate Token
     email = decode_verification_token(token)
     if not email:
-        raise HTTPException(status_code=400, detail="Invalid or expired link.")
+        raise HTTPException(status_code=400, detail="Invalid or expired magic link.")
 
-    # 2. Find and Verify User
+    # 2. Verify User in DB
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalars().first()
-
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
 
@@ -81,14 +69,14 @@ async def verify_email(token: str = Query(...), db: AsyncSession = Depends(get_d
         user.email_verified = True
         await db.commit()
 
-    # 3. Auto-Login via Session Cookie
+    # 3. AUTO-LOGIN: Set Session Cookie & Redirect
     response = RedirectResponse(url="/dashboard", status_code=status.HTTP_302_FOUND)
     response.set_cookie(
         key="session_user", 
         value=user.email, 
         httponly=True, 
-        max_age=86400, # 24 hours
+        max_age=86400, 
         samesite="lax",
-        secure=True # Railway uses HTTPS, so this is safe
+        secure=True
     )
     return response
