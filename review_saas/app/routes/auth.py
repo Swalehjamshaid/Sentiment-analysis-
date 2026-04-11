@@ -1,80 +1,94 @@
-# filename: app/routes/auth.py
-from fastapi import APIRouter, Depends, HTTPException, status, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Form, Request, Query
 from fastapi.responses import RedirectResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from loguru import logger
 
-# CORE IMPORTS
 from app.core.db import get_db
 from app.core.models import User
-from app.core.security import get_password_hash 
+from app.core.security import get_password_hash, create_verification_token, decode_verification_token
+from app.core.mailer import send_verification_email
 
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+router = APIRouter(prefix="/api/auth", tags=["Authentication"])
+templates = Jinja2Templates(directory="app/templates")
 
-@router.post("/register")
+@router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register_user(
-    name: str = Form(...),
-    email: str = Form(...),
-    password: str = Form(...),
+    request: Request,
+    name: str = Form(...), 
+    email: str = Form(...), 
+    password: str = Form(...), 
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Handles User Registration.
-    Aligned with main.py to use Form data for standard HTML form submissions.
-    """
-    email_clean = email.strip().lower()
+    """Handles Registration via Form and triggers Magic Link email."""
     
+    # 1. Check if user already exists
+    result = await db.execute(select(User).where(User.email == email))
+    if result.scalars().first():
+        return templates.TemplateResponse("register.html", {
+            "request": request, 
+            "error": "This email is already registered. Please log in."
+        })
+
+    # 2. Create new unverified user
+    new_user = User(
+        name=name,
+        email=email,
+        hashed_password=get_password_hash(password),
+        email_verified=False,
+        is_active=True
+    )
+    
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+
+    # 3. Generate Magic Link Token
+    token = create_verification_token(new_user.email)
+    
+    # 4. Send Email via Resend
     try:
-        # 1. Check if user already exists
-        result = await db.execute(select(User).where(User.email == email_clean))
-        existing_user = result.scalars().first()
-        
-        if existing_user:
-            logger.warning(f"⚠️ Registration attempt for existing email: {email_clean}")
-            # Raising HTTPException allows the global_exception_handler in main.py to catch it
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, 
-                detail="Email is already registered."
-            )
-
-        # 2. Create new user instance
-        # email_verified set to True to allow immediate login after registration
-        new_user = User(
-            name=name,
-            email=email_clean,
-            hashed_password=get_password_hash(password),
-            email_verified=True, 
-            is_active=True
-        )
-        
-        db.add(new_user)
-        
-        # 3. Commit to Database
-        await db.commit()
-        await db.refresh(new_user)
-        
-        logger.info(f"✅ New user registered successfully: {email_clean}")
-
-        # 4. Redirect to login page (303 is essential for POST -> GET redirection)
-        return RedirectResponse(
-            url="/login?msg=registered", 
-            status_code=status.HTTP_303_SEE_OTHER
-        )
-
-    except HTTPException as he:
-        # Re-raise to let FastAPI handles the known error
-        raise he
+        await send_verification_email(new_user.email, token)
     except Exception as e:
-        # Rollback in case of DB errors
-        await db.rollback()
-        logger.error(f"❌ Registration Error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Registration failed due to a server error."
-        )
+        return templates.TemplateResponse("register.html", {
+            "request": request, 
+            "error": "Account created, but email failed to send. Contact support."
+        })
+
+    return templates.TemplateResponse("register.html", {
+        "request": request, 
+        "success": "Account created! Please check your email for the magic link to log in."
+    })
+
 
 @router.get("/verify")
-async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
-    """Placeholder for future email verification logic."""
-    return {"message": "Verification logic pending mailer setup"}
+async def verify_email(token: str = Query(...), db: AsyncSession = Depends(get_db)):
+    """Verifies token and performs 'Magic' auto-login."""
+    
+    # 1. Decode Token
+    email = decode_verification_token(token)
+    if not email:
+        raise HTTPException(status_code=400, detail="Invalid or expired link.")
+
+    # 2. Find and Verify User
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalars().first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    if not user.email_verified:
+        user.email_verified = True
+        await db.commit()
+
+    # 3. Auto-Login via Session Cookie
+    response = RedirectResponse(url="/dashboard", status_code=status.HTTP_302_FOUND)
+    response.set_cookie(
+        key="session_user", 
+        value=user.email, 
+        httponly=True, 
+        max_age=86400, # 24 hours
+        samesite="lax",
+        secure=True # Railway uses HTTPS, so this is safe
+    )
+    return response
