@@ -13,6 +13,7 @@ from app.core.mailer import send_verification_email
 
 router = APIRouter()
 
+# We will receive templates from main.py using dependency (cleanest way)
 @router.post("/register")
 async def register_user(
     request: Request,
@@ -21,9 +22,11 @@ async def register_user(
     password: str = Form(...),
     confirm_password: str = Form(...),
     db: AsyncSession = Depends(get_db),
+    # templates will be injected from main.py
+    templates = Depends(lambda: __import__("app.main").main.templates)
 ):
     if password != confirm_password:
-        return templates.TemplateResponse(   # Note: templates comes from main.py
+        return templates.TemplateResponse(
             request=request,
             name="register.html",
             context={"error": "Passwords do not match"}
@@ -32,7 +35,7 @@ async def register_user(
     email_clean = email.strip().lower()
 
     try:
-        # Check duplicate email
+        # Check for duplicate email
         result = await db.execute(select(User).where(User.email == email_clean))
         if result.scalars().first():
             return templates.TemplateResponse(
@@ -41,7 +44,7 @@ async def register_user(
                 context={"error": "This email is already registered."}
             )
 
-        # Create user - using only safe fields (adjust if your model has more)
+        # Create new user (using only fields that likely exist)
         new_user = User(
             name=name.strip(),
             email=email_clean,
@@ -56,12 +59,13 @@ async def register_user(
 
         # Send verification email
         token = create_verification_token(new_user.email)
+
         try:
             await send_verification_email(new_user.email, token)
             success_msg = "Registration successful! Check your inbox for the magic login link."
         except Exception as e:
-            logger.error(f"Email failed: {e}")
-            success_msg = "Account created, but verification email could not be sent."
+            logger.error(f"Email sending failed: {e}")
+            success_msg = "Account created successfully, but verification email could not be sent."
 
         return templates.TemplateResponse(
             request=request,
@@ -95,5 +99,4 @@ async def verify_email(token: str = Query(...), db: AsyncSession = Depends(get_d
         user.email_verified = True
         await db.commit()
 
-    # Redirect to dashboard after verification
     return RedirectResponse(url="/dashboard", status_code=status.HTTP_302_FOUND)
