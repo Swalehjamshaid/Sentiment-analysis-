@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, Form, Request, Query, HTTPException, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select   # ← This was missing!
 from loguru import logger
 import traceback
 
@@ -22,7 +22,7 @@ async def register_user(
     confirm_password: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
-    # Import templates here to avoid circular import issues
+    # Import templates safely inside the function
     from app.main import templates
 
     if password != confirm_password:
@@ -44,7 +44,7 @@ async def register_user(
                 context={"error": "This email is already registered."}
             )
 
-        # Create new user (only using fields that most likely exist)
+        # Create new user
         new_user = User(
             name=name.strip(),
             email=email_clean,
@@ -57,7 +57,7 @@ async def register_user(
 
         logger.info(f"✅ New user registered: {email_clean}")
 
-        # Try to send verification email
+        # Send verification email
         token = create_verification_token(new_user.email)
         try:
             await send_verification_email(new_user.email, token)
@@ -94,7 +94,6 @@ async def verify_email(token: str = Query(...), db: AsyncSession = Depends(get_d
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
 
-    # Mark as verified if needed
     if hasattr(user, 'email_verified') and not user.email_verified:
         user.email_verified = True
         await db.commit()
