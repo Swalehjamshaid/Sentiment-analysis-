@@ -1,49 +1,56 @@
-<!-- filename: review_saas/app/templates/base.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
     <title>{% block title %}Review Intel AI{% endblock %}</title>
-
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-
-    {% block styles %}{% endblock %}
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
+<body class="bg-slate-50 min-h-screen flex flex-col">
 
-<body class="bg-gray-100">
+    <nav class="bg-white border-b border-slate-200 px-6 py-4 shadow-sm">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-2">
+                <div class="bg-indigo-600 p-1.5 rounded-lg">
+                    <i class="fas fa-brain text-white"></i>
+                </div>
+                <span class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600">
+                    Review Intel AI
+                </span>
+            </div>
 
-    <!-- NAVBAR -->
-    <nav class="bg-indigo-600 text-white px-6 py-4 flex justify-between items-center">
-        <h1 class="text-lg font-semibold">Review Intel AI</h1>
-
-        {% set user = request.session.get("user") %}
-        {% if user %}
-        <div class="flex items-center gap-4">
-            <span class="text-sm">
-                {{ user["name"] }}
-            </span>
-            <a href="/logout" class="bg-white text-indigo-600 px-3 py-1 rounded hover:bg-gray-100">
-                Logout
-            </a>
+            <div class="flex items-center gap-6">
+                {% set user = request.session.get("user") %}
+                {% if user %}
+                    <div class="flex items-center gap-4">
+                        <span class="text-slate-600 font-medium hidden md:block">
+                            Welcome, {{ user["name"] }}
+                        </span>
+                        <a href="/api/auth/logout" class="text-sm font-semibold text-red-500 hover:text-red-700 transition">
+                            <i class="fas fa-sign-out-alt mr-1"></i> Logout
+                        </a>
+                    </div>
+                {% else %}
+                    <a href="/login" class="text-slate-600 hover:text-indigo-600 font-medium transition">Login</a>
+                    <a href="/register" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition font-medium shadow-md shadow-indigo-100">
+                        Get Started
+                    </a>
+                {% endif %}
+            </div>
         </div>
-        {% endif %}
     </nav>
 
-    <!-- MAIN CONTENT -->
-    <main class="p-4">
-        {% block content %}
-        {% endblock %}
+    <main class="flex-grow flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
+        {% block content %}{% endblock %}
     </main>
 
-    <!-- FOOTER -->
-    <footer class="text-center text-gray-500 text-sm mt-10 mb-4">
-        © 2026 Review Intel AI. All rights reserved.
+    <footer class="bg-white border-t border-slate-200 py-8">
+        <div class="text-center text-slate-400 text-sm">
+            &copy; 2026 Review Intel AI. Built with precision for logistics and sentiment analysis.
+        </div>
     </footer>
 
     {% block scripts %}{% endblock %}
-
 </body>
 </html>
