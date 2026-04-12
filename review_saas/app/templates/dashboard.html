@@ -1,541 +1,306 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="light">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Review Intel AI • Enterprise Intelligence</title>
-    
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-    
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    
-    <style>
-        :root {
-            --primary-grad: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-            --ai-grad: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
-            --danger-grad: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            --glass: rgba(255,255,255,0.95);
-        }
-        body {
-            background: linear-gradient(145deg, #f8fafc 0%, #e0e7ff 100%);
-            font-family: 'Inter', system_ui, sans-serif;
-            color: #1e2937;
-            min-height: 100vh;
-            padding: 20px;
-        }
-        .navbar { background: var(--primary-grad) !important; border-radius: 20px; box-shadow: 0 15px 30px -10px rgba(99,102,241,0.4); }
-        .card {
-            border: none;
-            border-radius: 24px;
-            box-shadow: 0 10px 30px -8px rgba(0,0,0,0.1);
-            background: var(--glass);
-            backdrop-filter: blur(16px);
-            transition: all 0.4s ease;
-        }
-        .card:hover { transform: translateY(-6px); box-shadow: 0 20px 40px -12px rgba(0,0,0,0.15); }
-        .section-header {
-            background: linear-gradient(90deg, #7c3aed, #a855f7);
-            color: white;
-            padding: 12px 24px;
-            border-radius: 12px 12px 0 0;
-            font-weight: 600;
-        }
-        .kpi-value { font-family: 'Space Grotesk', sans-serif; font-size: 2.9rem; font-weight: 700; line-height: 1; }
-        .chart-wrapper { height: 310px; padding: 15px; }
-        .keyword-badge {
-            background: white;
-            border: 1px solid #e2e8f0;
-            padding: 10px 20px;
-            border-radius: 9999px;
-            font-weight: 500;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-        }
-        .alert-item {
-            background: #fee2e2;
-            border-left: 4px solid #ef4444;
-            padding: 12px;
-            margin-bottom: 10px;
-            border-radius: 8px;
-        }
-        .total-review-card { background: var(--primary-grad) !important; }
-        .risk-card { background: var(--danger-grad) !important; }
-        
-        #chatWindow { height: 350px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-        .chat-msg { padding: 12px 18px; border-radius: 18px; max-width: 85%; font-size: 0.95rem; }
-        .chat-ai { background: #f1f5f9; align-self: flex-start; border-bottom-left-radius: 4px; }
-        .chat-user { background: #6366f1; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
-        
-        .btn-pill { border-radius: 50px; font-weight: 600; }
-        .review-table-container { max-height: 500px; overflow-y: auto; }
-        .star-rating { color: #f59e0b; }
+# filename: app/routes/dashboard.py
+# ==========================================================
+# REVIEW INTELLIGENCE DASHBOARD — ENTERPRISE / FRONTEND‑SYNCED
+# Fully compatible with provided Dashboard.html
+# ==========================================================
 
-        /* CRITICAL GOOGLE API FIX: Dropdown visibility inside modals */
-        .pac-container {
-            z-index: 10000 !important;
-            border-radius: 12px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-            border: none;
-            margin-top: 5px;
-        }
+from __future__ import annotations
 
-        [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
-        [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
-    </style>
-</head>
-<body>
-    <nav class="navbar navbar-expand-lg navbar-dark p-4">
-        <div class="container-fluid">
-            <span class="navbar-brand fw-bold fs-3 d-flex align-items-center">
-                <i class="bi bi-robot me-3 fs-1 text-white"></i>Review Intel AI
-            </span>
-            <div class="d-flex gap-3 align-items-center">
-                {% set user = request.session.get("user") %}
-                {% if user %}
-                <span class="text-white me-2 small fw-semibold">
-                    <i class="bi bi-person-circle me-1"></i> {{ user["name"] }}
-                </span>
-                {% endif %}
-                
-                <button onclick="downloadReport()" class="btn btn-light btn-pill d-flex align-items-center gap-2 px-4 py-2 border-0 shadow-sm">
-                    <i class="bi bi-file-earmark-pdf-fill text-danger"></i> Report
-                </button>
-                <button class="btn btn-success btn-pill d-flex align-items-center gap-2 px-4 py-2 border-0 shadow-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
-                    <i class="bi bi-plus-lg"></i> Add Business
-                </button>
-                <button id="toggleTheme" class="btn btn-light btn-pill px-4 border-0 shadow-sm"><i class="bi bi-moon-stars-fill text-primary"></i></button>
-                
-                <form action="/api/auth/logout" method="get" class="m-0">
-                    <button class="btn btn-outline-light btn-pill px-4">Logout</button>
-                </form>
-            </div>
-        </div>
-    </nav>
+import io
+import os
+import asyncio
+import logging
+from datetime import datetime
+from collections import Counter, defaultdict
+from typing import Dict, List, Any
 
-    <div class="container-fluid mt-4">
-        <div class="row g-4 mb-5 p-5 bg-white rounded-5 shadow-sm border">
-            <div class="col-lg-3">
-                <label class="form-label fw-bold text-primary small">ACTIVE BUSINESS UNIT</label>
-                <select id="companySelect" class="form-select py-3 shadow-none"></select>
-            </div>
-            <div class="col-lg-2">
-                <label class="form-label fw-bold text-primary small">STARTING DATE</label>
-                <input id="startDate" type="date" class="form-control py-3 shadow-none">
-            </div>
-            <div class="col-lg-2">
-                <label class="form-label fw-bold text-primary small">ENDING DATE</label>
-                <input id="endDate" type="date" class="form-control py-3 shadow-none">
-            </div>
-            <div class="col-lg-5">
-                <div class="d-flex gap-3 h-100 align-items-end">
-                    <button id="loadBtn" onclick="triggerAllLoads()" class="btn btn-primary flex-fill btn-pill py-3">
-                        <i class="bi bi-cpu-fill me-2"></i> ANALYZE BUSINESS
-                    </button>
-                    <button id="syncBtn" class="btn btn-success flex-fill btn-pill py-3">
-                        <i class="bi bi-arrow-repeat me-2"></i> SYNC LIVE DATA
-                    </button>
-                </div>
-            </div>
-        </div>
+from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi.responses import JSONResponse, StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, desc
+from sqlalchemy.orm import load_only
 
-        <div class="row g-4 mb-5 text-center">
-            <div class="col-md-3">
-                <div class="card total-review-card p-5 h-100 text-white">
-                    <div class="text-uppercase small fw-bold opacity-75">TOTAL REVIEWS</div>
-                    <div id="kpiTotal" class="kpi-value mt-2">0</div>
-                    <div class="small opacity-75 mt-2">Loyalty Score: <span id="loyaltyScore">0%</span></div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card p-5 h-100">
-                    <div class="text-muted fw-bold small">AVERAGE RATING</div>
-                    <div id="kpiRating" class="kpi-value mt-2 text-primary">—</div>
-                    <div class="text-muted small mt-2">Industry Baseline: 4.0</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card p-5 h-100">
-                    <div class="text-muted fw-bold small">CHURN PREDICTION</div>
-                    <div id="churnScore" class="kpi-value mt-2 text-danger">0%</div>
-                    <div class="text-muted small mt-2">Probability of Exit</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card risk-card p-5 h-100 text-white">
-                    <div class="small fw-bold opacity-75 text-uppercase mb-3">REVENUE RISK MONITOR</div>
-                    <div class="row text-center g-2">
-                        <div class="col-4"><small class="opacity-75 d-block text-xs">Loss %</small><div id="riskPct" class="h5 fw-bold mb-0">—</div></div>
-                        <div class="col-4"><small class="opacity-75 d-block text-xs">Impact</small><div id="riskImpact" class="h5 fw-bold mb-0">—</div></div>
-                        <div class="col-4"><small class="opacity-75 d-block text-xs">Rep Score</small><div id="riskSentiment" class="h5 fw-bold mb-0">—</div></div>
-                    </div>
-                </div>
-            </div>
-        </div>
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 
-        <div class="row g-4">
-            <div class="col-lg-8">
-                <div class="row g-4">
-                    <div class="col-12">
-                        <div class="section-header">REVENUE RISK HEATMAP (LOSS PROBABILITY)</div>
-                        <div class="card border-top-0 p-5 text-center">
-                            <div id="riskGauge" class="display-1 fw-bold text-danger mb-2" style="font-size: 5rem; letter-spacing: -3px;">0%</div>
-                            <p id="riskGaugeLabel" class="text-muted fw-semibold">Calculated Revenue Leakage Based on Sentiment Trends</p>
-                        </div>
-                    </div>
+from openai import OpenAI
 
-                    <div class="col-md-6">
-                        <div class="section-header">MONTHLY GROWTH TREND</div>
-                        <div class="card border-top-0 p-4"><div class="chart-wrapper"><canvas id="chartMonthly"></canvas></div></div>
-                    </div>
+from app.core.db import get_db
+from app.core.models import Company, Review
 
-                    <div class="col-md-6">
-                        <div class="section-header">SENTIMENT EMOTION RADAR</div>
-                        <div class="card border-top-0 p-4"><div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div></div>
-                    </div>
+# ----------------------------------------------------------
+# CONFIGURATION
+# ----------------------------------------------------------
+router = APIRouter(tags=["Dashboard"])
+logger = logging.getLogger("dashboard")
 
-                    <div class="col-12">
-                        <div class="section-header">RATING DISTRIBUTION BREAKDOWN</div>
-                        <div class="card border-top-0 p-4"><div class="chart-wrapper"><canvas id="chartRatings"></canvas></div></div>
-                    </div>
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-                    <div class="col-12">
-                        <div class="section-header">TOP COMPLAINT & PRAISE KEYWORDS</div>
-                        <div id="keywordContainer" class="card border-top-0 p-5 d-flex flex-wrap gap-3 justify-content-center bg-light bg-opacity-50"></div>
-                    </div>
-                </div>
-            </div>
+NEGATIVE_RATINGS = {1, 2}
+NEG_SENTIMENT_LIMIT = -0.2
+MIN_SAMPLE = 20
 
-            <div class="col-lg-4">
-                <div class="section-header">AI STRATEGY CONSULTANT</div>
-                <div class="card border-top-0 h-100">
-                    <div class="card-body d-flex flex-column p-4">
-                        <div id="chatWindow" class="flex-grow-1 mb-4">
-                            <div class="chat-msg chat-ai"><strong>AI Expert:</strong> Analysis engine ready. Select a company to begin strategic review.</div>
-                        </div>
-                        <div class="input-group bg-white p-1 rounded-pill border">
-                            <input id="chatInput" type="text" class="form-control py-3 border-0 bg-transparent shadow-none" placeholder="Ask a strategic question...">
-                            <button onclick="askAI()" class="btn btn-primary rounded-pill px-4"><i class="bi bi-send-fill"></i></button>
-                        </div>
-                    </div>
-                </div>
+STOPWORDS = {
+    "the","and","with","this","that","for","from","were",
+    "have","has","very","just","they","them","their",
+    "there","but","not","your","will","can","our"
+}
 
-                <div class="mt-4">
-                    <div class="section-header">🚨 CRITICAL REPUTATION ALERTS</div>
-                    <div id="negativeAlerts" class="card border-top-0 p-4" style="max-height: 400px; overflow-y: auto;">
-                        <div class="text-center text-muted p-4">No critical alerts detected.</div>
-                    </div>
-                </div>
-            </div>
-        </div>
+pdfmetrics.registerFont(UnicodeCIDFont("HYSMyeongJo-Medium"))
 
-        <div class="row mt-5 mb-5">
-            <div class="col-12">
-                <div class="section-header">LATEST 100 CUSTOMER INTERACTIONS</div>
-                <div class="card border-top-0 p-4">
-                    <div class="review-table-container">
-                        <table class="table table-hover align-middle mb-0">
-                            <thead>
-                                <tr class="text-muted small text-uppercase">
-                                    <th class="ps-3">AUTHOR</th>
-                                    <th>RATING</th>
-                                    <th>REVIEW</th>
-                                    <th class="pe-3">DATE</th>
-                                </tr>
-                            </thead>
-                            <tbody id="recentReviewsList" class="border-top-0"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+# ----------------------------------------------------------
+# HELPERS
+# ----------------------------------------------------------
+def safe_date(v: str | None) -> datetime | None:
+    try:
+        return datetime.fromisoformat(v) if v else None
+    except Exception:
+        return None
 
-    <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-lg modal-dialog-centered">
-            <form id="addCompanyForm" class="modal-content border-0 rounded-5 overflow-hidden shadow-lg">
-                <div class="modal-header bg-success text-white p-4 border-0">
-                    <h5 class="modal-title fw-bold d-flex align-items-center"><i class="bi bi-node-plus-fill me-2"></i>Link New Business</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body p-5 bg-white">
-                    <div class="mb-4">
-                        <label class="small fw-bold text-muted mb-2 tracking-widest">SEARCH GOOGLE MAPS</label>
-                        <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4 rounded-3 shadow-sm" placeholder="Enter business name or address...">
-                    </div>
-                    
-                    <div class="p-4 bg-light rounded-4 border">
-                        <div class="mb-3">
-                            <label class="small fw-bold text-muted">BUSINESS NAME</label>
-                            <input id="companyName" class="form-control border-0 bg-white" readonly placeholder="Waiting for selection...">
-                        </div>
-                        <div class="mb-3">
-                            <label class="small fw-bold text-muted">GOOGLE PLACE ID (CRITICAL)</label>
-                            <input id="placeId" class="form-control border-0 bg-white" readonly placeholder="Will auto-fill...">
-                        </div>
-                        <div class="mb-0">
-                            <label class="small fw-bold text-muted">FORMATTED ADDRESS</label>
-                            <input id="companyAddress" class="form-control border-0 bg-white" readonly placeholder="...">
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer border-0 p-4 bg-white">
-                    <button type="submit" class="btn btn-success w-100 btn-pill fw-bold py-3 shadow">Verify & Save Business</button>
-                </div>
-            </form>
-        </div>
-    </div>
 
-    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&callback=initGoogleAutocomplete"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+def clean_keywords(text: str) -> List[str]:
+    if not text:
+        return []
+    out = []
+    for w in text.lower().split():
+        w = w.strip(".,!?()[]{}'\"")
+        if len(w) >= 4 and w.isalpha() and w not in STOPWORDS:
+            out.append(w)
+    return out
 
-    <script>
-        let chartInstances = {};
 
-        const API = {
-            overview: "/api/overview",
-            insights: "/api/insights",
-            chat: "/api/chatbot/explain",
-            revenue: "/api/revenue",
-            report: "/api/executive-report/pdf",
-            companies: "/api/companies",
-            sync: "/api/reviews/ingest",
-            recent: "/api/recent-reviews"
-        };
+async def get_company(db: AsyncSession, cid: int) -> Company:
+    res = await db.execute(select(Company).where(Company.id == cid))
+    company = res.scalars().first()
+    if not company:
+        raise HTTPException(404, "Company not found")
+    return company
 
-        function uiSet(id, val) { 
-            const el = document.getElementById(id); 
-            if (el) el.innerText = val !== undefined && val !== null ? val : "—"; 
+# ----------------------------------------------------------
+# CORE ANALYTICS (MATCHES UI KEYS EXACTLY)
+# ----------------------------------------------------------
+def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
+    if not reviews:
+        return {
+            "metadata": {"total_reviews": 0},
+            "kpis": {
+                "average_rating": 0,
+                "churn_prediction": 0,
+                "loyalty_score": 0,
+                "reputation_score": 100
+            },
+            "visualizations": {
+                "emotions": {"Positive": 0, "Neutral": 0, "Negative": 0},
+                "ratings": {i: 0 for i in range(1, 6)},
+                "sentiment_trend": []
+            },
+            "negative_reviews": [],
+            "top_keywords": []
         }
 
-        // Logic from Dashboard.html Logic provided
-        function initGoogleAutocomplete() {
-            const input = document.getElementById('googleSearchInput');
-            if (!input) return;
+    ratings = []
+    rating_dist = {i: 0 for i in range(1, 6)}
+    emo = {"Positive": 0, "Neutral": 0, "Negative": 0}
+    monthly = defaultdict(list)
+    negative_reviews = []
 
-            const autocomplete = new google.maps.places.Autocomplete(input);
-            autocomplete.setFields(['name', 'place_id', 'formatted_address', 'geometry']);
+    neg_count = severe_count = 0
 
-            autocomplete.addListener('place_changed', function() {
-                const place = autocomplete.getPlace();
-                if (!place.place_id) {
-                    alert("Please select a business from the dropdown list.");
-                    return;
-                }
-                document.getElementById('companyName').value = place.name || "";
-                document.getElementById('placeId').value = place.place_id || "";
-                document.getElementById('companyAddress').value = place.formatted_address || "";
-            });
+    for r in reviews:
+        if r.rating:
+            rating_dist[int(r.rating)] += 1
+            ratings.append(int(r.rating))
+
+            if r.google_review_time:
+                monthly[r.google_review_time.strftime("%b %Y")].append(int(r.rating))
+
+            if int(r.rating) in NEGATIVE_RATINGS:
+                severe_count += 1
+                if r.text and len(negative_reviews) < 6:
+                    negative_reviews.append({
+                        "author": r.author_name or "Anonymous",
+                        "rating": r.rating,
+                        "text": r.text[:160] + ("..." if len(r.text) > 160 else ""),
+                        "date": r.google_review_time.strftime("%Y-%m-%d")
+                        if r.google_review_time else "N/A"
+                    })
+
+        if r.sentiment_score is not None:
+            if r.sentiment_score <= NEG_SENTIMENT_LIMIT:
+                emo["Negative"] += 1
+                neg_count += 1
+            elif r.sentiment_score >= abs(NEG_SENTIMENT_LIMIT):
+                emo["Positive"] += 1
+            else:
+                emo["Neutral"] += 1
+
+    total = len(reviews)
+    eff_total = max(total, MIN_SAMPLE)
+
+    risk_pct = round(((neg_count * 0.6 + severe_count * 0.4) / eff_total) * 100, 1)
+
+    trend = [
+        {"month": k, "avg": round(sum(v) / len(v), 2), "count": len(v)}
+        for k, v in monthly.items()
+    ]
+
+    return {
+        "metadata": {"total_reviews": total},
+        "kpis": {
+            "average_rating": round(sum(ratings) / len(ratings), 2),
+            "churn_prediction": round(min(95, risk_pct), 1),
+            "loyalty_score": round((emo["Positive"] / total) * 100, 1),
+            "reputation_score": max(0, round(100 - risk_pct, 1))
+        },
+        "visualizations": {
+            "emotions": emo,
+            "ratings": rating_dist,
+            "sentiment_trend": sorted(trend, key=lambda x: x["month"])
+        },
+        "negative_reviews": negative_reviews
+    }
+
+# ==========================================================
+# ROUTES (MATCH FRONTEND API CONSTANTS)
+# ==========================================================
+
+@router.get("/api/insights", response_class=JSONResponse)
+async def insights(
+    company_id: int = Query(...),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    db: AsyncSession = Depends(get_db)
+):
+    await get_company(db, company_id)
+
+    stmt = select(Review).options(
+        load_only(
+            Review.rating,
+            Review.text,
+            Review.sentiment_score,
+            Review.google_review_time,
+            Review.author_name
+        )
+    ).where(Review.company_id == company_id)
+
+    if sd := safe_date(start):
+        stmt = stmt.where(Review.google_review_time >= sd)
+    if ed := safe_date(end):
+        stmt = stmt.where(Review.google_review_time <= ed)
+
+    res = await db.execute(stmt)
+    reviews = res.scalars().all()
+
+    analytics = compute_analytics(reviews)
+
+    keywords = []
+    for r in reviews:
+        w = 2 if r.sentiment_score is not None and r.sentiment_score <= NEG_SENTIMENT_LIMIT else 1
+        keywords.extend(clean_keywords(r.text) * w)
+
+    analytics["top_keywords"] = [k for k, _ in Counter(keywords).most_common(25)]
+    return analytics
+
+
+@router.get("/api/revenue", response_class=JSONResponse)
+async def revenue(company_id: int, db: AsyncSession = Depends(get_db)):
+    await get_company(db, company_id)
+    res = await db.execute(select(Review).where(Review.company_id == company_id))
+    analytics = compute_analytics(res.scalars().all())
+
+    risk_pct = analytics["kpis"]["churn_prediction"]
+
+    return {
+        "risk_percent": risk_pct,
+        "impact": "High" if risk_pct > 25 else "Medium" if risk_pct > 12 else "Low",
+        "reputation_score": analytics["kpis"]["reputation_score"]
+    }
+
+
+@router.post("/api/chatbot/explain", response_class=JSONResponse)
+async def chatbot(
+    payload: dict,
+    company_id: int = Query(...),
+    db: AsyncSession = Depends(get_db)
+):
+    msg = (payload.get("message") or "").strip()
+    if not msg:
+        return {"answer": "Ask a clear business or customer‑experience question."}
+
+    res = await db.execute(select(Review).where(Review.company_id == company_id).limit(200))
+    analytics = compute_analytics(res.scalars().all())
+
+    prompt = (
+        f"Act as a senior CX strategy consultant.\n"
+        f"Reviews: {analytics['metadata']['total_reviews']}\n"
+        f"Average rating: {analytics['kpis']['average_rating']}\n"
+        f"Risk level: {analytics['kpis']['churn_prediction']}%\n\n"
+        f"Question: {msg}"
+    )
+
+    try:
+        response = await asyncio.wait_for(
+            asyncio.to_thread(
+                lambda: client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.25,
+                    max_tokens=300
+                )
+            ),
+            timeout=15
+        )
+        return {"answer": response.choices[0].message.content.strip()}
+    except Exception as e:
+        logger.error(e)
+        return {"answer": "AI analysis temporarily unavailable."}
+
+
+@router.get("/api/recent-reviews/{company_id}", response_class=JSONResponse)
+async def recent_reviews(company_id: int, db: AsyncSession = Depends(get_db)):
+    await get_company(db, company_id)
+    res = await db.execute(
+        select(Review)
+        .where(Review.company_id == company_id)
+        .order_by(desc(Review.google_review_time))
+        .limit(100)
+    )
+
+    return [
+        {
+            "author": r.author_name or "Anonymous",
+            "rating": r.rating,
+            "text": r.text,
+            "date": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "N/A"
         }
+        for r in res.scalars().all()
+    ]
 
-        async function triggerAllLoads() {
-            const cid = document.getElementById("companySelect").value;
-            if (!cid) return;
 
-            const btn = document.getElementById("loadBtn");
-            const originalContent = btn.innerHTML;
-            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span> ANALYZING...`;
-            btn.disabled = true;
+@router.get("/api/executive-report/pdf/{company_id}")
+async def executive_pdf(company_id: int, db: AsyncSession = Depends(get_db)):
+    company = await get_company(db, company_id)
+    res = await db.execute(select(Review).where(Review.company_id == company_id))
+    analytics = compute_analytics(res.scalars().all())
 
-            try {
-                const startDate = document.getElementById("startDate").value || "2024-01-01";
-                const endDate = document.getElementById("endDate").value || new Date().toISOString().split('T')[0];
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    c.setFont("HYSMyeongJo-Medium", 14)
 
-                const res = await fetch(`${API.insights}?company_id=${cid}&start=${startDate}&end=${endDate}`);
-                const data = await res.json();
+    y = 800
+    c.drawString(60, y, f"Executive Report — {company.name}")
+    y -= 40
+    c.setFont("HYSMyeongJo-Medium", 11)
+    c.drawString(60, y, f"Total Reviews: {analytics['metadata']['total_reviews']}")
+    y -= 20
+    c.drawString(60, y, f"Average Rating: {analytics['kpis']['average_rating']}")
+    y -= 20
+    c.drawString(60, y, f"Reputation Score: {analytics['kpis']['reputation_score']}")
 
-                if (data.metadata) {
-                    uiSet("kpiTotal", data.metadata.total_reviews || 0);
-                }
-                
-                if (data.kpis) {
-                    uiSet("kpiRating", data.kpis.average_rating || data.kpis.benchmark?.your_avg || "—");
-                    uiSet("riskSentiment", data.kpis.reputation_score || "—");
-                    uiSet("churnScore", (data.kpis.churn_prediction || 0) + "%");
-                }
+    c.showPage()
+    c.save()
+    buf.seek(0)
 
-                if (data.visualizations) {
-                    renderCharts(data.visualizations);
-                }
-
-                const revRes = await fetch(`${API.revenue}?company_id=${cid}`);
-                const revData = await revRes.json();
-                uiSet("riskPct", (revData.risk_percent || 0) + "%");
-                uiSet("riskImpact", revData.impact || "N/A");
-                uiSet("riskGauge", (revData.risk_percent || 0) + "%");
-
-                loadRecentReviews(cid);
-            } catch (e) {
-                console.error("Dashboard Load Error:", e);
-            } finally {
-                btn.innerHTML = originalContent;
-                btn.disabled = false;
-            }
-        }
-
-        function renderCharts(vis) {
-            const commonOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } };
-
-            const ctxRadar = document.getElementById("chartEmotions").getContext('2d');
-            if (chartInstances.emotions) chartInstances.emotions.destroy();
-            chartInstances.emotions = new Chart(ctxRadar, {
-                type: 'radar',
-                data: {
-                    labels: Object.keys(vis.emotions || vis.sentiment_counts || {}),
-                    datasets: [{ 
-                        label: 'Intensity', 
-                        data: Object.values(vis.emotions || vis.sentiment_counts || {}), 
-                        backgroundColor: 'rgba(168, 85, 247, 0.2)', 
-                        borderColor: '#a855f7', 
-                        borderWidth: 3,
-                        pointBackgroundColor: '#a855f7'
-                    }]
-                },
-                options: commonOptions
-            });
-
-            const ctxLine = document.getElementById("chartMonthly").getContext('2d');
-            if (chartInstances.monthly) chartInstances.monthly.destroy();
-            const trendArray = vis.sentiment_trend || vis.monthly_trend || [];
-            chartInstances.monthly = new Chart(ctxLine, {
-                type: 'line',
-                data: {
-                    labels: trendArray.map(d => d.week || d.month || "Period"),
-                    datasets: [{ 
-                        label: 'Avg Sentiment', 
-                        data: trendArray.map(d => d.avg), 
-                        borderColor: '#10b981', 
-                        tension: 0.3, 
-                        fill: true, 
-                        backgroundColor: 'rgba(16, 185, 129, 0.1)' 
-                    }]
-                },
-                options: { ...commonOptions, scales: { y: { min: 1, max: 5 } } }
-            });
-
-            const ctxBar = document.getElementById("chartRatings").getContext('2d');
-            if (chartInstances.ratings) chartInstances.ratings.destroy();
-            const dist = vis.ratings || vis.rating_distribution || {};
-            chartInstances.ratings = new Chart(ctxBar, {
-                type: 'bar',
-                data: {
-                    labels: ['1★','2★','3★','4★','5★'],
-                    datasets: [{ 
-                        label: 'Reviews', 
-                        data: Object.values(dist).length ? Object.values(dist) : [0,0,0,0,0], 
-                        backgroundColor: '#6366f1', 
-                        borderRadius: 8
-                    }]
-                },
-                options: commonOptions
-            });
-        }
-
-        async function loadRecentReviews(cid) {
-            try {
-                const res = await fetch(`${API.recent}/${cid}`);
-                const data = await res.json();
-                document.getElementById("recentReviewsList").innerHTML = (data || []).map(r => `
-                    <tr>
-                        <td class="fw-bold ps-3">${r.author}</td>
-                        <td><span class="star-rating">${'★'.repeat(r.rating || 0)}${'☆'.repeat(5-(r.rating||0))}</span></td>
-                        <td class="small text-muted py-3">${r.text ? r.text.substring(0, 160) + '...' : '—'}</td>
-                        <td class="small fw-semibold pe-3 text-nowrap">${r.date}</td>
-                    </tr>
-                `).join('');
-            } catch (e) { console.warn("Table sync failure"); }
-        }
-
-        async function askAI() {
-            const input = document.getElementById("chatInput");
-            const cid = document.getElementById("companySelect").value;
-            const win = document.getElementById("chatWindow");
-            const msg = input.value.trim();
-            if (!msg || !cid) return;
-
-            win.innerHTML += `<div class="chat-msg chat-user">${msg}</div>`;
-            input.value = "";
-            win.scrollTop = win.scrollHeight;
-
-            try {
-                const res = await fetch(`${API.chat}?company_id=${cid}`, { 
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ message: msg })
-                });
-                const data = await res.json();
-                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Expert:</strong> ${data.answer}</div>`;
-            } catch (e) {
-                win.innerHTML += `<div class="chat-msg chat-ai text-danger">Intelligence offline.</div>`;
-            }
-            win.scrollTop = win.scrollHeight;
-        }
-
-        async function loadCompanies() {
-            try {
-                const res = await fetch(API.companies);
-                const data = await res.json();
-                const sel = document.getElementById("companySelect");
-                let companies = Array.isArray(data) ? data : (data.companies || data.data || []);
-
-                if (companies.length > 0) {
-                    sel.innerHTML = companies.map(c => `<option value="${c.id}">${c.name || c.business_name || "Unnamed"}</option>`).join("");
-                    sel.value = companies[0].id;
-                    setTimeout(() => triggerAllLoads(), 800);
-                } else {
-                    sel.innerHTML = `<option value="">No businesses added yet</option>`;
-                }
-            } catch (e) { console.error("Entity Registry Failure"); }
-        }
-
-        document.getElementById("addCompanyForm").onsubmit = async (e) => {
-            e.preventDefault();
-            const payload = {
-                name: document.getElementById('companyName').value,
-                place_id: document.getElementById('placeId').value,
-                address: document.getElementById('companyAddress').value
-            };
-            if (!payload.place_id) {
-                alert("Please search and select a business first.");
-                return;
-            }
-            const res = await fetch(API.companies, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            if (res.ok) {
-                const modal = bootstrap.Modal.getInstance(document.getElementById('addCompanyModal'));
-                if (modal) modal.hide();
-                loadCompanies();
-            }
-        };
-
-        document.getElementById("syncBtn").onclick = async () => {
-            const cid = document.getElementById("companySelect").value;
-            const btn = document.getElementById("syncBtn");
-            if (!cid) return;
-            btn.disabled = true;
-            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>SYNCING...`;
-            
-            try {
-                await fetch(`${API.sync}/${cid}`, { method: 'POST' });
-                triggerAllLoads();
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = `<i class="bi bi-arrow-repeat me-2"></i> SYNC LIVE DATA`;
-            }
-        };
-
-        document.getElementById("toggleTheme").onclick = () => {
-            const html = document.documentElement;
-            html.setAttribute("data-theme", html.getAttribute("data-theme") === "light" ? "dark" : "light");
-        };
-
-        window.addEventListener("DOMContentLoaded", () => {
-            loadCompanies();
-            initGoogleAutocomplete();
-        });
-    </script>
-</body>
-</html>
+    return StreamingResponse(buf, media_type="application/pdf")
