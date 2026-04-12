@@ -3,63 +3,106 @@
 {% block title %}Create Account | Review Intel AI{% endblock %}
 
 {% block content %}
-<div class="sm:mx-auto sm:w-full sm:max-w-md">
-    <div class="bg-white py-8 px-10 shadow-xl rounded-2xl border border-slate-100">
-        <h2 class="text-center text-3xl font-extrabold text-slate-900 mb-8">Create your account</h2>
+<div class="min-h-[80vh] flex items-center justify-center">
 
-        {% if success %}
-        <div class="mb-6 p-4 bg-emerald-50 border-l-4 border-emerald-400 text-emerald-700 text-sm rounded-r-lg">
-            <div class="flex items-center">
-                <i class="fas fa-check-circle mr-3"></i>
+    <!-- Card Container -->
+    <div class="w-full max-w-md relative">
+
+        <!-- Glow Effect -->
+        <div class="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-violet-600 rounded-3xl blur opacity-20"></div>
+
+        <div class="relative bg-white/90 backdrop-blur-xl py-10 px-10 shadow-2xl rounded-3xl border border-slate-100">
+
+            <!-- Header -->
+            <div class="text-center mb-8">
+                <div class="mx-auto w-14 h-14 flex items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 shadow-lg mb-4">
+                    <i class="fas fa-user-plus text-white text-lg"></i>
+                </div>
+
+                <h2 class="text-3xl font-extrabold text-slate-900 tracking-tight">
+                    Create your account
+                </h2>
+
+                <p class="text-slate-500 text-sm mt-2">
+                    Start your intelligent analytics journey today
+                </p>
+            </div>
+
+            <!-- Success Message -->
+            {% if success %}
+            <div class="mb-6 p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm rounded-xl flex items-center gap-3 shadow-sm">
+                <i class="fas fa-check-circle text-lg"></i>
                 <span>{{ success }}</span>
             </div>
-        </div>
-        {% endif %}
+            {% endif %}
 
-        {% if error %}
-        <div class="mb-6 p-4 bg-rose-50 border-l-4 border-rose-400 text-rose-700 text-sm rounded-r-lg">
-            <div class="flex items-center">
-                <i class="fas fa-exclamation-circle mr-3"></i>
+            <!-- Error Message -->
+            {% if error %}
+            <div class="mb-6 p-4 bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-xl flex items-center gap-3 shadow-sm">
+                <i class="fas fa-exclamation-circle text-lg"></i>
                 <span>{{ error }}</span>
             </div>
+            {% endif %}
+
+            <!-- Form -->
+            <form action="/api/auth/register" method="POST" class="space-y-5">
+
+                <!-- Name -->
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-1">Full Name</label>
+                    <input type="text" name="name" required placeholder="Swaleh Jamshaid"
+                           class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 
+                                  focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 
+                                  hover:border-indigo-300 outline-none transition-all duration-200">
+                </div>
+
+                <!-- Email -->
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-1">Email Address</label>
+                    <input type="email" name="email" required placeholder="roy.jamshaid@gmail.com"
+                           class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 
+                                  focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 
+                                  hover:border-indigo-300 outline-none transition-all duration-200">
+                </div>
+
+                <!-- Password -->
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-1">Password</label>
+                    <input type="password" name="password" required minlength="8" placeholder="••••••••"
+                           class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 
+                                  focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 
+                                  hover:border-indigo-300 outline-none transition-all duration-200">
+                </div>
+
+                <!-- Confirm Password -->
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-1">Confirm Password</label>
+                    <input type="password" name="confirm_password" required placeholder="••••••••"
+                           class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 
+                                  focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 
+                                  hover:border-indigo-300 outline-none transition-all duration-200">
+                </div>
+
+                <!-- Button -->
+                <button type="submit"
+                        class="w-full py-3 px-4 rounded-xl text-sm font-bold text-white 
+                               bg-gradient-to-r from-indigo-600 to-violet-600 
+                               hover:from-indigo-700 hover:to-violet-700 
+                               focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 
+                               transition-all duration-200 transform hover:-translate-y-0.5 active:scale-95 shadow-lg">
+                    Register Account
+                </button>
+            </form>
+
+            <!-- Footer -->
+            <p class="mt-8 text-center text-sm text-slate-500">
+                Already have an account?
+                <a href="/login" class="font-bold text-indigo-600 hover:text-indigo-500 transition">
+                    Log in here
+                </a>
+            </p>
+
         </div>
-        {% endif %}
-
-        <form action="/api/auth/register" method="POST" class="space-y-5">
-            <div>
-                <label class="block text-sm font-semibold text-slate-700">Full Name</label>
-                <input type="text" name="name" required placeholder="Swaleh Jamshaid" 
-                       class="mt-1 block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
-            </div>
-
-            <div>
-                <label class="block text-sm font-semibold text-slate-700">Email Address</label>
-                <input type="email" name="email" required placeholder="roy.jamshaid@gmail.com" 
-                       class="mt-1 block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
-            </div>
-
-            <div>
-                <label class="block text-sm font-semibold text-slate-700">Password</label>
-                <input type="password" name="password" required minlength="8" placeholder="••••••••" 
-                       class="mt-1 block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
-            </div>
-
-            <div>
-                <label class="block text-sm font-semibold text-slate-700">Confirm Password</label>
-                <input type="password" name="confirm_password" required placeholder="••••••••" 
-                       class="mt-1 block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
-            </div>
-
-            <button type="submit" 
-                    class="w-full py-3 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition transform hover:-translate-y-0.5 active:scale-95">
-                Register Account
-            </button>
-        </form>
-
-        <p class="mt-8 text-center text-sm text-slate-500">
-            Already have an account? 
-            <a href="/login" class="font-bold text-indigo-600 hover:text-indigo-500">Log in here</a>
-        </p>
     </div>
 </div>
 {% endblock %}
