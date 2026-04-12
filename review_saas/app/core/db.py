@@ -11,7 +11,7 @@ from app.core.base import Base
 # ⭐ STEGMAN RULE: SCHEMA VERSIONING
 # POINT OF CHANGE: Change this string to trigger the Nuclear Reset.
 # -----------------------------------------------------------------------------
-CURRENT_SCHEMA_VERSION = "2026-04-06-V1III" 
+CURRENT_SCHEMA_VERSION = "2026-04-06-V" 
 
 # -------------------------------
 # LOGGING
