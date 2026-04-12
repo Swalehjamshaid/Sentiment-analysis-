@@ -1,306 +1,587 @@
-# filename: app/routes/dashboard.py
-# ==========================================================
-# REVIEW INTELLIGENCE DASHBOARD — ENTERPRISE / FRONTEND‑SYNCED
-# Fully compatible with provided Dashboard.html
-# ==========================================================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Ultimate Dashboard v3.0</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
-from __future__ import annotations
-
-import io
-import os
-import asyncio
-import logging
-from datetime import datetime
-from collections import Counter, defaultdict
-from typing import Dict, List, Any
-
-from fastapi import APIRouter, Depends, Query, HTTPException
-from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
-from sqlalchemy.orm import load_only
-
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-
-from openai import OpenAI
-
-from app.core.db import get_db
-from app.core.models import Company, Review
-
-# ----------------------------------------------------------
-# CONFIGURATION
-# ----------------------------------------------------------
-router = APIRouter(tags=["Dashboard"])
-logger = logging.getLogger("dashboard")
-
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-NEGATIVE_RATINGS = {1, 2}
-NEG_SENTIMENT_LIMIT = -0.2
-MIN_SAMPLE = 20
-
-STOPWORDS = {
-    "the","and","with","this","that","for","from","were",
-    "have","has","very","just","they","them","their",
-    "there","but","not","your","will","can","our"
-}
-
-pdfmetrics.registerFont(UnicodeCIDFont("HYSMyeongJo-Medium"))
-
-# ----------------------------------------------------------
-# HELPERS
-# ----------------------------------------------------------
-def safe_date(v: str | None) -> datetime | None:
-    try:
-        return datetime.fromisoformat(v) if v else None
-    except Exception:
-        return None
-
-
-def clean_keywords(text: str) -> List[str]:
-    if not text:
-        return []
-    out = []
-    for w in text.lower().split():
-        w = w.strip(".,!?()[]{}'\"")
-        if len(w) >= 4 and w.isalpha() and w not in STOPWORDS:
-            out.append(w)
-    return out
-
-
-async def get_company(db: AsyncSession, cid: int) -> Company:
-    res = await db.execute(select(Company).where(Company.id == cid))
-    company = res.scalars().first()
-    if not company:
-        raise HTTPException(404, "Company not found")
-    return company
-
-# ----------------------------------------------------------
-# CORE ANALYTICS (MATCHES UI KEYS EXACTLY)
-# ----------------------------------------------------------
-def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
-    if not reviews:
-        return {
-            "metadata": {"total_reviews": 0},
-            "kpis": {
-                "average_rating": 0,
-                "churn_prediction": 0,
-                "loyalty_score": 0,
-                "reputation_score": 100
-            },
-            "visualizations": {
-                "emotions": {"Positive": 0, "Neutral": 0, "Negative": 0},
-                "ratings": {i: 0 for i in range(1, 6)},
-                "sentiment_trend": []
-            },
-            "negative_reviews": [],
-            "top_keywords": []
+    <style>
+        :root {
+            --primary: #4F46E5;
+            --secondary: #10B981;
+            --accent: #F59E0B;
+            --sidebar-width: 280px;
         }
 
-    ratings = []
-    rating_dist = {i: 0 for i in range(1, 6)}
-    emo = {"Positive": 0, "Neutral": 0, "Negative": 0}
-    monthly = defaultdict(list)
-    negative_reviews = []
-
-    neg_count = severe_count = 0
-
-    for r in reviews:
-        if r.rating:
-            rating_dist[int(r.rating)] += 1
-            ratings.append(int(r.rating))
-
-            if r.google_review_time:
-                monthly[r.google_review_time.strftime("%b %Y")].append(int(r.rating))
-
-            if int(r.rating) in NEGATIVE_RATINGS:
-                severe_count += 1
-                if r.text and len(negative_reviews) < 6:
-                    negative_reviews.append({
-                        "author": r.author_name or "Anonymous",
-                        "rating": r.rating,
-                        "text": r.text[:160] + ("..." if len(r.text) > 160 else ""),
-                        "date": r.google_review_time.strftime("%Y-%m-%d")
-                        if r.google_review_time else "N/A"
-                    })
-
-        if r.sentiment_score is not None:
-            if r.sentiment_score <= NEG_SENTIMENT_LIMIT:
-                emo["Negative"] += 1
-                neg_count += 1
-            elif r.sentiment_score >= abs(NEG_SENTIMENT_LIMIT):
-                emo["Positive"] += 1
-            else:
-                emo["Neutral"] += 1
-
-    total = len(reviews)
-    eff_total = max(total, MIN_SAMPLE)
-
-    risk_pct = round(((neg_count * 0.6 + severe_count * 0.4) / eff_total) * 100, 1)
-
-    trend = [
-        {"month": k, "avg": round(sum(v) / len(v), 2), "count": len(v)}
-        for k, v in monthly.items()
-    ]
-
-    return {
-        "metadata": {"total_reviews": total},
-        "kpis": {
-            "average_rating": round(sum(ratings) / len(ratings), 2),
-            "churn_prediction": round(min(95, risk_pct), 1),
-            "loyalty_score": round((emo["Positive"] / total) * 100, 1),
-            "reputation_score": max(0, round(100 - risk_pct, 1))
-        },
-        "visualizations": {
-            "emotions": emo,
-            "ratings": rating_dist,
-            "sentiment_trend": sorted(trend, key=lambda x: x["month"])
-        },
-        "negative_reviews": negative_reviews
-    }
-
-# ==========================================================
-# ROUTES (MATCH FRONTEND API CONSTANTS)
-# ==========================================================
-
-@router.get("/api/insights", response_class=JSONResponse)
-async def insights(
-    company_id: int = Query(...),
-    start: str | None = Query(None),
-    end: str | None = Query(None),
-    db: AsyncSession = Depends(get_db)
-):
-    await get_company(db, company_id)
-
-    stmt = select(Review).options(
-        load_only(
-            Review.rating,
-            Review.text,
-            Review.sentiment_score,
-            Review.google_review_time,
-            Review.author_name
-        )
-    ).where(Review.company_id == company_id)
-
-    if sd := safe_date(start):
-        stmt = stmt.where(Review.google_review_time >= sd)
-    if ed := safe_date(end):
-        stmt = stmt.where(Review.google_review_time <= ed)
-
-    res = await db.execute(stmt)
-    reviews = res.scalars().all()
-
-    analytics = compute_analytics(reviews)
-
-    keywords = []
-    for r in reviews:
-        w = 2 if r.sentiment_score is not None and r.sentiment_score <= NEG_SENTIMENT_LIMIT else 1
-        keywords.extend(clean_keywords(r.text) * w)
-
-    analytics["top_keywords"] = [k for k, _ in Counter(keywords).most_common(25)]
-    return analytics
-
-
-@router.get("/api/revenue", response_class=JSONResponse)
-async def revenue(company_id: int, db: AsyncSession = Depends(get_db)):
-    await get_company(db, company_id)
-    res = await db.execute(select(Review).where(Review.company_id == company_id))
-    analytics = compute_analytics(res.scalars().all())
-
-    risk_pct = analytics["kpis"]["churn_prediction"]
-
-    return {
-        "risk_percent": risk_pct,
-        "impact": "High" if risk_pct > 25 else "Medium" if risk_pct > 12 else "Low",
-        "reputation_score": analytics["kpis"]["reputation_score"]
-    }
-
-
-@router.post("/api/chatbot/explain", response_class=JSONResponse)
-async def chatbot(
-    payload: dict,
-    company_id: int = Query(...),
-    db: AsyncSession = Depends(get_db)
-):
-    msg = (payload.get("message") or "").strip()
-    if not msg:
-        return {"answer": "Ask a clear business or customer‑experience question."}
-
-    res = await db.execute(select(Review).where(Review.company_id == company_id).limit(200))
-    analytics = compute_analytics(res.scalars().all())
-
-    prompt = (
-        f"Act as a senior CX strategy consultant.\n"
-        f"Reviews: {analytics['metadata']['total_reviews']}\n"
-        f"Average rating: {analytics['kpis']['average_rating']}\n"
-        f"Risk level: {analytics['kpis']['churn_prediction']}%\n\n"
-        f"Question: {msg}"
-    )
-
-    try:
-        response = await asyncio.wait_for(
-            asyncio.to_thread(
-                lambda: client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.25,
-                    max_tokens=300
-                )
-            ),
-            timeout=15
-        )
-        return {"answer": response.choices[0].message.content.strip()}
-    except Exception as e:
-        logger.error(e)
-        return {"answer": "AI analysis temporarily unavailable."}
-
-
-@router.get("/api/recent-reviews/{company_id}", response_class=JSONResponse)
-async def recent_reviews(company_id: int, db: AsyncSession = Depends(get_db)):
-    await get_company(db, company_id)
-    res = await db.execute(
-        select(Review)
-        .where(Review.company_id == company_id)
-        .order_by(desc(Review.google_review_time))
-        .limit(100)
-    )
-
-    return [
-        {
-            "author": r.author_name or "Anonymous",
-            "rating": r.rating,
-            "text": r.text,
-            "date": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "N/A"
+        body {
+            font-family: 'Outfit', sans-serif;
+            scroll-behavior: smooth;
         }
-        for r in res.scalars().all()
-    ]
 
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
 
-@router.get("/api/executive-report/pdf/{company_id}")
-async def executive_pdf(company_id: int, db: AsyncSession = Depends(get_db)):
-    company = await get_company(db, company_id)
-    res = await db.execute(select(Review).where(Review.company_id == company_id))
-    analytics = compute_analytics(res.scalars().all())
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
 
-    buf = io.BytesIO()
-    c = canvas.Canvas(buf, pagesize=A4)
-    c.setFont("HYSMyeongJo-Medium", 14)
+        .animate-fade {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
 
-    y = 800
-    c.drawString(60, y, f"Executive Report — {company.name}")
-    y -= 40
-    c.setFont("HYSMyeongJo-Medium", 11)
-    c.drawString(60, y, f"Total Reviews: {analytics['metadata']['total_reviews']}")
-    y -= 20
-    c.drawString(60, y, f"Average Rating: {analytics['kpis']['average_rating']}")
-    y -= 20
-    c.drawString(60, y, f"Reputation Score: {analytics['kpis']['reputation_score']}")
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
 
-    c.showPage()
-    c.save()
-    buf.seek(0)
+        .sidebar-gradient {
+            background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+        }
 
-    return StreamingResponse(buf, media_type="application/pdf")
+        .card-hover {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+        }
+
+        /* Sidebar Dropdown Toggle */
+        .dropdown-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+        .dropdown-active .dropdown-content {
+            max-height: 200px;
+        }
+
+        /* Calendar Styles */
+        .calendar-day {
+            aspect-ratio: 1/1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .calendar-day:hover {
+            background-color: #e2e8f0;
+        }
+        .calendar-day.active {
+            background-color: var(--primary);
+            color: white;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 overflow-hidden">
+
+    <div id="loader" class="fixed inset-0 z-[100] bg-white flex items-center justify-center transition-opacity duration-500">
+        <div class="flex flex-col items-center">
+            <div class="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+            <p class="mt-4 font-semibold text-slate-600">Initializing Nexus Engine...</p>
+        </div>
+    </div>
+
+    <div class="flex h-screen w-full">
+        
+        <aside class="w-[280px] sidebar-gradient text-slate-300 hidden lg:flex flex-col flex-shrink-0 relative overflow-y-auto custom-scrollbar">
+            <div class="sticky top-0 p-8 sidebar-gradient z-10 border-b border-slate-800 mb-4">
+                <div class="flex items-center gap-3">
+                    <div class="bg-indigo-500 p-2 rounded-xl shadow-lg shadow-indigo-500/30">
+                        <i class="fa-solid fa-microchip text-white text-xl"></i>
+                    </div>
+                    <h1 class="text-2xl font-bold text-white tracking-tight">NEXUS <span class="text-indigo-400">OS</span></h1>
+                </div>
+            </div>
+
+            <nav class="flex-1 px-6 space-y-8 pb-10">
+                <div>
+                    <h3 class="text-[11px] font-bold text-slate-500 uppercase tracking-[2px] mb-4 px-2">Core Dashboard</h3>
+                    <ul class="space-y-1">
+                        <li>
+                            <a href="#" class="flex items-center gap-4 px-4 py-3 rounded-xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 transition-all">
+                                <i class="fa-solid fa-house-chimney w-5"></i>
+                                <span class="font-medium">Overview</span>
+                            </a>
+                        </li>
+                        <li class="group" id="dropdown-parent">
+                            <button onclick="toggleDropdown(this)" class="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-slate-800 transition-all">
+                                <div class="flex items-center gap-4">
+                                    <i class="fa-solid fa-chart-line w-5"></i>
+                                    <span class="font-medium">Analytics</span>
+                                </div>
+                                <i class="fa-solid fa-chevron-down text-[10px] transition-transform duration-300"></i>
+                            </button>
+                            <ul class="dropdown-content pl-12 space-y-2 mt-2">
+                                <li><a href="#" class="text-sm hover:text-white transition">Sales Data</a></li>
+                                <li><a href="#" class="text-sm hover:text-white transition">User Behavior</a></li>
+                                <li><a href="#" class="text-sm hover:text-white transition">Market Trends</a></li>
+                            </ul>
+                        </li>
+                        <li>
+                            <a href="#" class="flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-slate-800 transition-all">
+                                <i class="fa-solid fa-wallet w-5"></i>
+                                <span class="font-medium">Transactions</span>
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+
+                <div>
+                    <h3 class="text-[11px] font-bold text-slate-500 uppercase tracking-[2px] mb-4 px-2">Management</h3>
+                    <ul class="space-y-1">
+                        <li>
+                            <a href="#" class="flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-slate-800 transition-all">
+                                <i class="fa-solid fa-users w-5"></i>
+                                <span class="font-medium">Customers</span>
+                                <span class="ml-auto bg-emerald-500/20 text-emerald-400 text-[10px] px-2 py-0.5 rounded-full">New</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a href="#" class="flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-slate-800 transition-all">
+                                <i class="fa-solid fa-file-invoice-dollar w-5"></i>
+                                <span class="font-medium">Invoices</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a href="#" class="flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-slate-800 transition-all">
+                                <i class="fa-solid fa-envelope w-5"></i>
+                                <span class="font-medium">Messages</span>
+                                <span class="ml-auto bg-indigo-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full">4</span>
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+
+                <div>
+                    <h3 class="text-[11px] font-bold text-slate-500 uppercase tracking-[2px] mb-4 px-2">System Control</h3>
+                    <ul class="space-y-1">
+                        <li>
+                            <a href="#" class="flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-slate-800 transition-all">
+                                <i class="fa-solid fa-shield-halved w-5"></i>
+                                <span class="font-medium">Security</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a href="#" class="flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-slate-800 transition-all">
+                                <i class="fa-solid fa-sliders w-5"></i>
+                                <span class="font-medium">Configurations</span>
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <div class="p-6">
+                <div class="bg-slate-800/50 border border-slate-700 p-5 rounded-2xl">
+                    <p class="text-xs font-semibold text-slate-400 mb-2">STORAGE USAGE</p>
+                    <div class="w-full bg-slate-700 h-1.5 rounded-full mb-3">
+                        <div class="bg-indigo-500 h-1.5 rounded-full w-[72%]"></div>
+                    </div>
+                    <div class="flex justify-between text-[10px] font-bold">
+                        <span>18.4 GB used</span>
+                        <span class="text-indigo-400">72%</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col h-full relative overflow-hidden">
+            
+            <header class="h-24 glass-effect border-b border-slate-200 flex items-center justify-between px-10 flex-shrink-0 z-30">
+                <div class="flex items-center gap-8">
+                    <button class="lg:hidden text-slate-600 text-xl"><i class="fa-solid fa-bars-staggered"></i></button>
+                    <div class="relative hidden sm:block">
+                        <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                        <input type="text" placeholder="Global search commands..." class="w-80 bg-slate-100 border-none rounded-2xl py-3 pl-12 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20 focus:bg-white transition-all outline-none">
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-6">
+                    <div class="relative group">
+                        <button class="w-12 h-12 bg-white border border-slate-200 rounded-2xl flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:border-indigo-100 transition shadow-sm">
+                            <i class="fa-solid fa-bell"></i>
+                            <span class="absolute top-3 right-3 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full"></span>
+                        </button>
+                        <div class="absolute right-0 top-14 w-80 bg-white border border-slate-200 rounded-2xl shadow-2xl opacity-0 scale-95 pointer-events-none group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto transition-all p-4 z-50">
+                            <div class="flex justify-between items-center mb-4">
+                                <h4 class="font-bold">Notifications</h4>
+                                <span class="text-[10px] text-indigo-600 font-bold cursor-pointer">Mark all read</span>
+                            </div>
+                            <div class="space-y-3">
+                                <div class="flex gap-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer transition">
+                                    <div class="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+                                    <div>
+                                        <p class="text-xs font-bold">System Update Completed</p>
+                                        <p class="text-[10px] text-slate-400">2 minutes ago</p>
+                                    </div>
+                                </div>
+                                <div class="flex gap-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer transition">
+                                    <div class="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600"><i class="fa-solid fa-check"></i></div>
+                                    <div>
+                                        <p class="text-xs font-bold">New Payment Received</p>
+                                        <p class="text-[10px] text-slate-400">45 minutes ago</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="h-10 w-[1px] bg-slate-200 hidden sm:block"></div>
+
+                    <div class="flex items-center gap-4 cursor-pointer">
+                        <div class="text-right hidden md:block">
+                            <p class="text-sm font-bold text-slate-800 leading-none mb-1">Dr. Alex Rivers</p>
+                            <p class="text-[11px] font-bold text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-md inline-block">Online</p>
+                        </div>
+                        <div class="relative">
+                            <img src="https://i.pravatar.cc/150?u=admin" class="w-12 h-12 rounded-2xl object-cover ring-2 ring-indigo-50 shadow-md" alt="User">
+                            <div class="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full"></div>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <div class="flex-1 overflow-y-auto p-10 custom-scrollbar space-y-10">
+                
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-6 animate-fade">
+                    <div>
+                        <h2 class="text-3xl font-extrabold text-slate-800 tracking-tight">Dashboard Overview</h2>
+                        <p class="text-slate-500 mt-1">Welcome back, here's what's happening today in your ecosystem.</p>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <button class="bg-white border border-slate-200 px-5 py-2.5 rounded-2xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition shadow-sm"><i class="fa-solid fa-download mr-2"></i> Export Data</button>
+                        <button class="bg-indigo-600 px-5 py-2.5 rounded-2xl text-sm font-bold text-white hover:bg-indigo-700 transition shadow-lg shadow-indigo-600/20"><i class="fa-solid fa-plus mr-2"></i> New Instance</button>
+                    </div>
+                </div>
+
+                <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-8">
+                    <div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm card-hover animate-fade" style="animation-delay: 0.1s">
+                        <div class="flex justify-between items-start mb-6">
+                            <div class="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center text-2xl shadow-inner"><i class="fa-solid fa-chart-pie"></i></div>
+                            <div class="text-right">
+                                <span class="text-emerald-500 font-bold text-sm bg-emerald-50 px-2 py-1 rounded-lg">+18.2%</span>
+                                <p class="text-[10px] font-bold text-slate-400 mt-1 tracking-widest uppercase">vs last week</p>
+                            </div>
+                        </div>
+                        <h3 class="text-slate-400 font-bold text-xs uppercase tracking-widest">Global Revenue</h3>
+                        <p class="text-3xl font-black text-slate-800 mt-2">$2,842,500</p>
+                        <div class="mt-6 h-1 w-full bg-slate-100 rounded-full overflow-hidden">
+                            <div class="bg-indigo-500 h-full w-[70%]"></div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm card-hover animate-fade" style="animation-delay: 0.2s">
+                        <div class="flex justify-between items-start mb-6">
+                            <div class="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center text-2xl shadow-inner"><i class="fa-solid fa-user-group"></i></div>
+                            <div class="text-right">
+                                <span class="text-emerald-500 font-bold text-sm bg-emerald-50 px-2 py-1 rounded-lg">+4.1%</span>
+                                <p class="text-[10px] font-bold text-slate-400 mt-1 tracking-widest uppercase">vs last month</p>
+                            </div>
+                        </div>
+                        <h3 class="text-slate-400 font-bold text-xs uppercase tracking-widest">Active Nodes</h3>
+                        <p class="text-3xl font-black text-slate-800 mt-2">14,291</p>
+                        <div class="flex mt-6 -space-x-3">
+                            <img src="https://i.pravatar.cc/100?1" class="w-8 h-8 rounded-full border-2 border-white">
+                            <img src="https://i.pravatar.cc/100?2" class="w-8 h-8 rounded-full border-2 border-white">
+                            <img src="https://i.pravatar.cc/100?3" class="w-8 h-8 rounded-full border-2 border-white">
+                            <div class="w-8 h-8 rounded-full border-2 border-white bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">+12</div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm card-hover animate-fade" style="animation-delay: 0.3s">
+                        <div class="flex justify-between items-start mb-6">
+                            <div class="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center text-2xl shadow-inner"><i class="fa-solid fa-server"></i></div>
+                            <div class="text-right">
+                                <span class="text-red-500 font-bold text-sm bg-red-50 px-2 py-1 rounded-lg">-0.8%</span>
+                                <p class="text-[10px] font-bold text-slate-400 mt-1 tracking-widest uppercase">current state</p>
+                            </div>
+                        </div>
+                        <h3 class="text-slate-400 font-bold text-xs uppercase tracking-widest">Avg Response</h3>
+                        <p class="text-3xl font-black text-slate-800 mt-2">42ms</p>
+                        <div class="mt-6 flex items-center gap-2">
+                            <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                            <span class="text-xs font-bold text-slate-500">System Healthy</span>
+                        </div>
+                    </div>
+
+                    <div class="bg-indigo-600 p-8 rounded-[2rem] shadow-xl shadow-indigo-600/30 card-hover animate-fade" style="animation-delay: 0.4s">
+                        <div class="flex justify-between items-start mb-6">
+                            <div class="w-14 h-14 bg-white/20 text-white rounded-2xl flex items-center justify-center text-2xl"><i class="fa-solid fa-bolt-lightning"></i></div>
+                        </div>
+                        <h3 class="text-indigo-200 font-bold text-xs uppercase tracking-widest">Current Conversion</h3>
+                        <p class="text-3xl font-black text-white mt-2">64.2%</p>
+                        <p class="mt-4 text-indigo-100 text-sm font-medium">Outperforming target by 12% this quarter.</p>
+                    </div>
+                </section>
+
+                <section class="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                    <div class="xl:col-span-2 bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm">
+                        <div class="flex justify-between items-center mb-10">
+                            <div>
+                                <h3 class="text-xl font-bold text-slate-800">Growth Projection</h3>
+                                <p class="text-sm text-slate-400">Monthly traffic vs acquisition costs</p>
+                            </div>
+                            <div class="flex bg-slate-100 p-1.5 rounded-xl">
+                                <button class="px-4 py-1.5 text-xs font-bold bg-white rounded-lg shadow-sm">Traffic</button>
+                                <button class="px-4 py-1.5 text-xs font-bold text-slate-500 hover:text-slate-700 transition">Spend</button>
+                            </div>
+                        </div>
+                        <div class="relative h-[350px]">
+                            <canvas id="growthChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm flex flex-col">
+                        <div class="flex items-center justify-between mb-8">
+                            <h3 class="text-xl font-bold text-slate-800">April 2026</h3>
+                            <div class="flex gap-2">
+                                <button class="w-8 h-8 rounded-lg border flex items-center justify-center text-slate-400 hover:bg-slate-50"><i class="fa-solid fa-chevron-left text-[10px]"></i></button>
+                                <button class="w-8 h-8 rounded-lg border flex items-center justify-center text-slate-400 hover:bg-slate-50"><i class="fa-solid fa-chevron-right text-[10px]"></i></button>
+                            </div>
+                        </div>
+                        
+                        <div class="grid grid-cols-7 text-center text-[10px] font-black text-slate-400 uppercase tracking-tighter mb-4">
+                            <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+                        </div>
+                        <div class="grid grid-cols-7 gap-1 mb-8">
+                            <div class="calendar-day text-xs text-slate-300">30</div>
+                            <div class="calendar-day text-xs text-slate-300">31</div>
+                            <div class="calendar-day text-xs font-bold">1</div>
+                            <div class="calendar-day text-xs font-bold">2</div>
+                            <div class="calendar-day text-xs font-bold">3</div>
+                            <div class="calendar-day text-xs font-bold">4</div>
+                            <div class="calendar-day text-xs font-bold">5</div>
+                            <div class="calendar-day text-xs font-bold">6</div>
+                            <div class="calendar-day text-xs font-bold">7</div>
+                            <div class="calendar-day text-xs font-bold">8</div>
+                            <div class="calendar-day text-xs font-bold">9</div>
+                            <div class="calendar-day text-xs font-bold">10</div>
+                            <div class="calendar-day text-xs font-bold">11</div>
+                            <div class="calendar-day active text-xs font-bold">12</div>
+                            <div class="calendar-day text-xs font-bold">13</div>
+                            <div class="calendar-day text-xs font-bold">14</div>
+                            <div class="calendar-day text-xs font-bold">15</div>
+                            <div class="calendar-day text-xs font-bold">16</div>
+                            <div class="calendar-day text-xs font-bold">17</div>
+                            <div class="calendar-day text-xs font-bold">18</div>
+                            <div class="calendar-day text-xs font-bold">19</div>
+                            <div class="calendar-day text-xs font-bold">20</div>
+                        </div>
+
+                        <div class="mt-auto space-y-4">
+                            <div class="flex items-center gap-4 p-4 bg-indigo-50 border border-indigo-100 rounded-2xl">
+                                <div class="w-1.5 h-10 bg-indigo-500 rounded-full"></div>
+                                <div>
+                                    <p class="text-xs font-bold text-indigo-900">Sprint Planning</p>
+                                    <p class="text-[10px] text-indigo-500 font-medium">14:00 - 15:30 • Zoom</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-4 p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                                <div class="w-1.5 h-10 bg-slate-300 rounded-full"></div>
+                                <div>
+                                    <p class="text-xs font-bold text-slate-700">Client Review</p>
+                                    <p class="text-[10px] text-slate-400 font-medium">17:00 - 18:00 • In Office</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden animate-fade">
+                    <div class="p-8 border-b border-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <h3 class="text-xl font-bold text-slate-800">Transaction History</h3>
+                            <p class="text-sm text-slate-400">Manage and track all incoming financial logs.</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <div class="relative">
+                                <input type="text" placeholder="Filter..." class="bg-slate-100 border-none rounded-xl py-2 px-4 text-xs w-40 outline-none focus:ring-1 focus:ring-indigo-500 transition">
+                            </div>
+                            <button class="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-700 transition">Filters <i class="fa-solid fa-sliders ml-2"></i></button>
+                        </div>
+                    </div>
+                    
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-slate-50/50">
+                                <tr class="text-[10px] font-black text-slate-400 uppercase tracking-[2px]">
+                                    <th class="px-8 py-5">Initiator</th>
+                                    <th class="px-8 py-5">Service Type</th>
+                                    <th class="px-8 py-5">Status</th>
+                                    <th class="px-8 py-5">Timeline</th>
+                                    <th class="px-8 py-5 text-right">Value</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-50">
+                                <tr class="hover:bg-slate-50/80 transition cursor-default">
+                                    <td class="px-8 py-5 flex items-center gap-4">
+                                        <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center font-bold text-blue-600 text-xs">BT</div>
+                                        <div>
+                                            <p class="text-sm font-bold text-slate-800">BlueTech Solutions</p>
+                                            <p class="text-[10px] text-slate-400">ID: #88291-00</p>
+                                        </div>
+                                    </td>
+                                    <td class="px-8 py-5 text-sm font-medium text-slate-600">Cloud Infrastructure</td>
+                                    <td class="px-8 py-5">
+                                        <span class="bg-emerald-100 text-emerald-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">Settled</span>
+                                    </td>
+                                    <td class="px-8 py-5">
+                                        <p class="text-xs font-bold text-slate-700">Apr 12, 2026</p>
+                                        <p class="text-[10px] text-slate-400">09:42 AM</p>
+                                    </td>
+                                    <td class="px-8 py-5 text-right font-black text-slate-800">$12,400.00</td>
+                                </tr>
+                                <tr class="hover:bg-slate-50/80 transition cursor-default">
+                                    <td class="px-8 py-5 flex items-center gap-4">
+                                        <div class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center font-bold text-purple-600 text-xs">AN</div>
+                                        <div>
+                                            <p class="text-sm font-bold text-slate-800">Aura Networks</p>
+                                            <p class="text-[10px] text-slate-400">ID: #88295-21</p>
+                                        </div>
+                                    </td>
+                                    <td class="px-8 py-5 text-sm font-medium text-slate-600">API Gateway</td>
+                                    <td class="px-8 py-5">
+                                        <span class="bg-amber-100 text-amber-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">Pending</span>
+                                    </td>
+                                    <td class="px-8 py-5">
+                                        <p class="text-xs font-bold text-slate-700">Apr 11, 2026</p>
+                                        <p class="text-[10px] text-slate-400">14:15 PM</p>
+                                    </td>
+                                    <td class="px-8 py-5 text-right font-black text-slate-800">$4,120.50</td>
+                                </tr>
+                                <tr class="hover:bg-slate-50/80 transition cursor-default">
+                                    <td class="px-8 py-5 flex items-center gap-4">
+                                        <div class="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center font-bold text-rose-600 text-xs">GC</div>
+                                        <div>
+                                            <p class="text-sm font-bold text-slate-800">Global Core</p>
+                                            <p class="text-[10px] text-slate-400">ID: #88299-12</p>
+                                        </div>
+                                    </td>
+                                    <td class="px-8 py-5 text-sm font-medium text-slate-600">Security Audit</td>
+                                    <td class="px-8 py-5">
+                                        <span class="bg-rose-100 text-rose-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">Declined</span>
+                                    </td>
+                                    <td class="px-8 py-5">
+                                        <p class="text-xs font-bold text-slate-700">Apr 10, 2026</p>
+                                        <p class="text-[10px] text-slate-400">22:10 PM</p>
+                                    </td>
+                                    <td class="px-8 py-5 text-right font-black text-slate-800">$1,500.00</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <footer class="pt-10 pb-20 text-center">
+                    <p class="text-slate-400 text-xs font-medium">© 2026 Nexus Systems International. All rights reserved. <span class="mx-2">•</span> Version 3.4.0-Stable</p>
+                </footer>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Loader Logic
+        window.addEventListener('load', () => {
+            const loader = document.getElementById('loader');
+            loader.style.opacity = '0';
+            setTimeout(() => {
+                loader.style.display = 'none';
+            }, 500);
+        });
+
+        // Sidebar Dropdown Toggle
+        function toggleDropdown(element) {
+            const parent = element.parentElement;
+            parent.classList.toggle('dropdown-active');
+            const icon = element.querySelector('.fa-chevron-down');
+            icon.style.transform = parent.classList.contains('dropdown-active') ? 'rotate(180deg)' : 'rotate(0deg)';
+        }
+
+        // Charts Configuration
+        const growthCtx = document.getElementById('growthChart').getContext('2d');
+        
+        // Gradient for chart
+        const purpleGradient = growthCtx.createLinearGradient(0, 0, 0, 400);
+        purpleGradient.addColorStop(0, 'rgba(79, 70, 229, 0.4)');
+        purpleGradient.addColorStop(1, 'rgba(79, 70, 229, 0)');
+
+        new Chart(growthCtx, {
+            type: 'line',
+            data: {
+                labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+                datasets: [{
+                    label: 'Organic Growth',
+                    data: [32, 45, 42, 65, 59, 82, 75, 95, 88, 110, 125, 140],
+                    borderColor: '#4F46E5',
+                    borderWidth: 4,
+                    backgroundColor: purpleGradient,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    pointHoverRadius: 8,
+                    pointHoverBackgroundColor: '#4F46E5',
+                    pointHoverBorderColor: '#fff',
+                    pointHoverBorderWidth: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        backgroundColor: '#1e293b',
+                        titleFont: { family: 'Outfit', size: 12 },
+                        bodyFont: { family: 'Outfit', size: 12 },
+                        padding: 12,
+                        cornerRadius: 12
+                    }
+                },
+                scales: {
+                    y: {
+                        grid: { color: '#f1f5f9', drawBorder: false },
+                        ticks: { font: { family: 'Outfit', weight: 'bold' }, color: '#94a3b8' }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { font: { family: 'Outfit', weight: 'bold' }, color: '#94a3b8' }
+                    }
+                }
+            }
+        });
+
+        // Interaction Mockup
+        document.querySelectorAll('.calendar-day').forEach(day => {
+            day.addEventListener('click', () => {
+                document.querySelectorAll('.calendar-day').forEach(d => d.classList.remove('active'));
+                day.classList.add('active');
+            });
+        });
+    </script>
+</body>
+</html>
