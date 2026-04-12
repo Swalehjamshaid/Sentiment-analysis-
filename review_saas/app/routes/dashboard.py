@@ -1,6 +1,6 @@
 # filename: app/routes/dashboard.py
 # ==========================================================
-# REVIEW INTELLIGENCE DASHBOARD — FINAL 100% FIXED VERSION
+# REVIEW INTELLIGENCE DASHBOARD — WORLD CLASS ENTERPRISE UPDATED (ASYNC SAFE)
 # ==========================================================
 
 from __future__ import annotations
@@ -11,55 +11,61 @@ import logging
 import asyncio
 from datetime import datetime
 from collections import Counter, defaultdict
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 
-from fastapi import APIRouter, Depends, Query, HTTPException, Body
+from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
-
 from fpdf import FPDF
-from openai import OpenAI
+import openai
 
 from app.core.db import get_db
 from app.core.models import Company, Review
 
 # ----------------------------------------------------------
-# CONFIG
+# Configuration
 # ----------------------------------------------------------
-router = APIRouter(prefix="/api", tags=["Dashboard"])
+router = APIRouter(prefix="", tags=["Dashboard"])
 logger = logging.getLogger("dashboard")
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Ensure your Environment Variable is set in Railway
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 NEGATIVE_RATINGS = {1, 2}
 NEG_SENTIMENT_LIMIT = -0.2
-MAX_FETCH = 3000  # prevent memory overload
 
 STOPWORDS = {
-    "the","and","with","this","that","for","from","was","were",
-    "have","has","had","very","just","they","them","their","there",
-    "but","not","are","you","your","will","can","our","all","any"
+    "the", "and", "with", "this", "that", "for", "from",
+    "was", "were", "have", "has", "had", "very", "just",
+    "they", "them", "their", "there", "but", "not", "are",
+    "you", "your", "will", "can", "our", "all", "any"
 }
 
 # ----------------------------------------------------------
-# HELPERS
+# Helpers
 # ----------------------------------------------------------
-def safe_date(val: Optional[str]) -> Optional[datetime]:
+def safe_date(val: str | None) -> datetime | None:
     try:
         return datetime.fromisoformat(val) if val else None
-    except:
+    except Exception:
         return None
 
 
 def sanitize_pdf(text: str) -> str:
-    return text.replace("—", "-").replace("’", "'")
+    replacements = {
+        "—": "-", "–": "-", "’": "'", "“": '"', "”": '"',
+        "•": "-", "…": "...", "©": "(C)", "®": "(R)"
+    }
+    for k, v in replacements.items():
+        text = text.replace(k, v)
+    return text
 
 
 def clean_keywords(text: str) -> List[str]:
+    words: List[str] = []
     if not text:
-        return []
-    words = []
+        return words
     for w in text.lower().split():
         w = w.strip(".,!?()\"';:[]{}")
         if len(w) >= 4 and w.isalpha() and w not in STOPWORDS:
@@ -71,220 +77,237 @@ async def get_company(session: AsyncSession, company_id: int) -> Company:
     res = await session.execute(select(Company).where(Company.id == company_id))
     company = res.scalars().first()
     if not company:
-        raise HTTPException(404, "Company not found")
+        raise HTTPException(status_code=404, detail="Company not found")
     return company
 
 # ----------------------------------------------------------
-# CORE ANALYTICS (100% FRONTEND MATCH)
+# CORE ANALYTICS ENGINE — 100% ALIGNED WITH FRONTEND KEYS
 # ----------------------------------------------------------
 def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
-
+    # Default structure for empty states
     if not reviews:
         return {
             "metadata": {"total_reviews": 0},
             "kpis": {
-                "average_rating": 0,
-                "churn_prediction": 0,
-                "loyalty_score": 0,
-                "reputation_score": 100
+                "average_rating": 0.0,
+                "churn_prediction": 0.0,
+                "loyalty_score": 0.0,
+                "reputation_score": 100.0
             },
             "visualizations": {
                 "emotions": {"Positive": 0, "Neutral": 0, "Negative": 0},
-                "ratings": {i: 0 for i in range(1, 6)},
+                "ratings": {1: 0, 2: 0, 3: 0, 4: 0, 5: 0},
                 "sentiment_trend": []
             },
             "risk": {
                 "loss_probability": "0%",
-                "impact_level": "Low"
-            }
+                "impact_level": "None",
+                "reputation_score": 100.0
+            },
+            "negative_reviews": [],
+            "total_reviews": 0,
+            "average_rating": 0.0
         }
 
-    ratings = []
-    sentiment = {"Positive": 0, "Neutral": 0, "Negative": 0}
-    rating_dist = {i: 0 for i in range(1, 6)}
-    monthly = defaultdict(list)
-
-    neg = 0
-    severe = 0
+    ratings: List[int] = []
+    monthly_map: Dict[str, List[int]] = defaultdict(list)
+    sentiment_counts = {"Positive": 0, "Neutral": 0, "Negative": 0}
+    rating_distribution = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    severe_count = 0
+    negative_count = 0
+    negative_reviews: List[Dict[str, Any]] = []
 
     for r in reviews:
-
         if r.rating:
-            rating = int(r.rating)
-            ratings.append(rating)
-            rating_dist[rating] += 1
+            rating_val = int(r.rating)
+            rating_distribution[rating_val] += 1
+            ratings.append(rating_val)
 
-            if rating in NEGATIVE_RATINGS:
-                severe += 1
+            if r.google_review_time:
+                key = r.google_review_time.strftime("%b %Y")
+                monthly_map[key].append(rating_val)
+
+            if rating_val in NEGATIVE_RATINGS:
+                severe_count += 1
+                if r.text and len(negative_reviews) < 10:
+                    negative_reviews.append({
+                        "author": r.author_name or "Anonymous",
+                        "rating": r.rating,
+                        "text": r.text[:180] + ("..." if len(r.text) > 180 else ""),
+                        "date": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "N/A"
+                    })
 
         if r.sentiment_score is not None:
             if r.sentiment_score <= NEG_SENTIMENT_LIMIT:
-                sentiment["Negative"] += 1
-                neg += 1
+                sentiment_counts["Negative"] += 1
+                negative_count += 1
             elif r.sentiment_score >= abs(NEG_SENTIMENT_LIMIT):
-                sentiment["Positive"] += 1
+                sentiment_counts["Positive"] += 1
             else:
-                sentiment["Neutral"] += 1
-
-        if r.google_review_time and r.rating:
-            key = r.google_review_time.strftime("%b %Y")
-            monthly[key].append(r.rating)
+                sentiment_counts["Neutral"] += 1
 
     total = len(reviews)
-    avg = round(sum(ratings)/len(ratings), 2) if ratings else 0
+    avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
 
-    risk_pct = round(((neg*0.6 + severe*0.4)/total)*100, 1)
+    raw_risk = (negative_count * 0.6 + severe_count * 0.4) / total if total else 0
+    risk_pct = round(raw_risk * 100, 1)
 
-    trend = sorted([
-        {"month": k, "avg": round(sum(v)/len(v), 2)}
-        for k,v in monthly.items()
-    ], key=lambda x: datetime.strptime(x["month"], "%b %Y"))
+    churn_prediction = (
+        round(min(95.0, (negative_count / total * 65) + (severe_count / total * 35)), 1)
+        if total else 0.0
+    )
 
+    loyalty_score = (
+        round((sentiment_counts["Positive"] / total) * 100, 1)
+        if total else 0.0
+    )
+
+    monthly_trend = []
+    for k, v in monthly_map.items():
+        dt = datetime.strptime(k, "%b %Y")
+        monthly_trend.append({
+            "month": k,
+            "avg": round(sum(v) / len(v), 2),
+            "count": len(v),
+            "dt": dt
+        })
+
+    monthly_trend.sort(key=lambda x: x["dt"])
+    for t in monthly_trend:
+        t.pop("dt")
+
+    # This dictionary structure is specifically built to feed Dashboard.html
     return {
-        "metadata": {"total_reviews": total},
+        "metadata": {
+            "total_reviews": total
+        },
         "kpis": {
-            "average_rating": avg,
-            "churn_prediction": round((neg/total)*100,1),
-            "loyalty_score": round((sentiment["Positive"]/total)*100,1),
-            "reputation_score": max(0, 100-risk_pct)
+            "average_rating": avg_rating,
+            "reputation_score": max(0.0, round(100 - risk_pct, 1)),
+            "churn_prediction": churn_prediction,
+            "loyalty_score": loyalty_score
         },
         "visualizations": {
-            "emotions": sentiment,
-            "ratings": rating_dist,
-            "sentiment_trend": trend
+            "emotions": sentiment_counts,
+            "ratings": rating_distribution,
+            "sentiment_trend": monthly_trend
         },
         "risk": {
             "loss_probability": f"{risk_pct}%",
-            "impact_level": "High" if risk_pct>25 else "Medium" if risk_pct>12 else "Low"
-        }
+            "impact_level": "High" if risk_pct > 25 else "Medium" if risk_pct > 12 else "Low",
+            "reputation_score": max(0.0, round(100 - risk_pct, 1))
+        },
+        "negative_reviews": negative_reviews,
+        "total_reviews": total,
+        "average_rating": avg_rating,
+        "churn_prediction": churn_prediction,
+        "loyalty_score": loyalty_score
     }
 
-# ----------------------------------------------------------
-# ROUTES (FULLY ALIGNED)
-# ----------------------------------------------------------
-@router.get("/insights")
+# ==========================================================
+# ROUTES
+# ==========================================================
+
+@router.get("/insights", response_class=JSONResponse)
 async def insights(
-    company_id: int,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
+    company_id: int = Query(...),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
     session: AsyncSession = Depends(get_db)
 ):
-
     await get_company(session, company_id)
 
     stmt = select(Review).where(Review.company_id == company_id)
+    start_dt, end_dt = safe_date(start), safe_date(end)
 
-    if start_dt := safe_date(start):
-        stmt = stmt.where(
-            (Review.google_review_time != None) &
-            (Review.google_review_time >= start_dt)
-        )
-
-    if end_dt := safe_date(end):
-        stmt = stmt.where(
-            (Review.google_review_time != None) &
-            (Review.google_review_time <= end_dt)
-        )
-
-    stmt = stmt.limit(MAX_FETCH)
+    if start_dt: stmt = stmt.where(Review.google_review_time >= start_dt)
+    if end_dt: stmt = stmt.where(Review.google_review_time <= end_dt)
 
     res = await session.execute(stmt)
     reviews = res.scalars().all()
-
     analytics = compute_analytics(reviews)
 
-    keywords = []
+    # Keywords logic
+    keywords: List[str] = []
     for r in reviews:
-        keywords.extend(clean_keywords(r.text))
-
-    analytics["top_keywords"] = [
-        w for w,_ in Counter(keywords).most_common(20)
-    ]
-
+        if r.text: keywords.extend(clean_keywords(r.text))
+    
+    analytics["top_keywords"] = [w for w, _ in Counter(keywords).most_common(30)]
     return analytics
 
 
-@router.get("/revenue")
+@router.get("/revenue", response_class=JSONResponse)
 async def revenue(company_id: int, session: AsyncSession = Depends(get_db)):
-
     await get_company(session, company_id)
-
-    res = await session.execute(
-        select(Review).where(Review.company_id == company_id).limit(MAX_FETCH)
-    )
-
+    res = await session.execute(select(Review).where(Review.company_id == company_id))
     analytics = compute_analytics(res.scalars().all())
-
-    risk_pct = float(analytics["risk"]["loss_probability"].replace("%",""))
-
+    
+    # Matching the specific keys used in Dashboard.html: uiSet("riskPct", ...)
     return {
-        "risk_percent": risk_pct,
+        "risk_percent": analytics["risk"]["loss_probability"].replace("%", ""),
         "impact": analytics["risk"]["impact_level"],
         "reputation_score": analytics["kpis"]["reputation_score"]
     }
 
 
-@router.post("/chatbot/explain")
+@router.post("/chatbot/explain", response_class=JSONResponse)
 async def chatbot(
-    company_id: int = Query(...),
-    body: dict = Body(...),
+    request_data: dict, 
+    company_id: int = Query(...), 
     session: AsyncSession = Depends(get_db)
 ):
+    question = request_data.get("message", "")
+    res = await session.execute(select(Review).where(Review.company_id == company_id).limit(250))
+    reviews = res.scalars().all()
+    analytics = compute_analytics(reviews)
 
-    question = body.get("message")
-
-    if not question:
-        raise HTTPException(400, "Message required")
-
-    res = await session.execute(
-        select(Review).where(Review.company_id == company_id).limit(300)
-    )
-
-    analytics = compute_analytics(res.scalars().all())
-
-    prompt = f"""
-Business:
-Reviews: {analytics['metadata']['total_reviews']}
-Rating: {analytics['kpis']['average_rating']}
-Risk: {analytics['risk']['loss_probability']}
-
-Question: {question}
-"""
+    prompt = f"Strategy Consultant mode. Data: {analytics['total_reviews']} reviews, {analytics['average_rating']} rating. Question: {question}"
 
     try:
         response = await asyncio.to_thread(
-            lambda: client.chat.completions.create(
+            lambda: openai.ChatCompletion.create(
                 model="gpt-4o-mini",
-                messages=[{"role":"user","content":prompt}],
-                temperature=0.3
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.25,
             )
         )
-
-        return {"answer": response.choices[0].message.content}
-
+        return {"answer": response.choices[0].message.content.strip()}
     except Exception as e:
-        logger.error(e)
-        return {"answer":"AI unavailable"}
+        logger.error(f"AI Error: {e}")
+        return {"answer": "Strategic analysis engine is calibrating. Please retry in a moment."}
 
 
-@router.get("/recent-reviews/{company_id}")
-async def recent_reviews(company_id:int, session: AsyncSession = Depends(get_db)):
-
+@router.get("/recent-reviews/{company_id}", response_class=JSONResponse)
+async def get_recent_reviews(company_id: int, session: AsyncSession = Depends(get_db)):
     await get_company(session, company_id)
-
-    res = await session.execute(
-        select(Review)
-        .where(Review.company_id==company_id)
-        .order_by(desc(Review.google_review_time))
-        .limit(100)
-    )
-
+    stmt = select(Review).where(Review.company_id == company_id).order_by(desc(Review.google_review_time)).limit(100)
+    res = await session.execute(stmt)
+    
     return [
         {
             "author": r.author_name or "Anonymous",
-            "rating": r.rating or 0,
-            "text": r.text or "",
-            "date": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "N/A"
+            "rating": r.rating,
+            "text": r.text,
+            "date": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "N/A",
         }
-        for r in res.scalars()
+        for r in res.scalars().all()
     ]
+
+
+@router.get("/executive-report/pdf/{company_id}")
+async def executive_report(company_id: int, session: AsyncSession = Depends(get_db)):
+    company = await get_company(session, company_id)
+    res = await session.execute(select(Review).where(Review.company_id == company_id))
+    analytics = compute_analytics(res.scalars().all())
+
+    def generate_pdf() -> bytes:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", "B", 16)
+        pdf.cell(0, 10, sanitize_pdf(f"Executive Report: {company.name}"), ln=True, align="C")
+        pdf.set_font("Arial", "", 12)
+        pdf.cell(0, 10, f"Total Reviews: {analytics['total_reviews']}", ln=True)
+        return pdf.output(dest="S")
+
+    pdf_content = await asyncio.to_thread(generate_pdf)
+    return StreamingResponse(io.BytesIO(pdf_content), media_type="application/pdf")
