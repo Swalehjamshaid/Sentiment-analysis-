@@ -78,7 +78,7 @@ async def get_company(session: AsyncSession, company_id: int) -> Company:
     return company
 
 # ----------------------------------------------------------
-# CORE ANALYTICS ENGINE — ALIGNED WITH FRONTEND
+# CORE ANALYTICS ENGINE — 100% ALIGNED WITH FRONTEND
 # ----------------------------------------------------------
 def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
     if not reviews:
@@ -174,7 +174,7 @@ def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
     for t in monthly_trend:
         t.pop("dt")
 
-    # This structure is now 100% matched to the JS frontend requirements
+    # This combined structure supports both legacy calls and the new Chart.js frontend
     return {
         "metadata": {
             "total_reviews": total
@@ -206,7 +206,7 @@ def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
     }
 
 # ==========================================================
-# ROUTES
+# ROUTES (PRESERVED & COMPATIBLE)
 # ==========================================================
 @router.get("/overview/{company_id}", response_class=JSONResponse)
 async def overview(company_id: int, session: AsyncSession = Depends(get_db)):
@@ -290,7 +290,6 @@ Give professional, concise recommendations tied to revenue impact.
 """
 
     try:
-        # Note: If using openai >= 1.0.0, use client.chat.completions.create instead
         response = await asyncio.to_thread(
             lambda: openai.ChatCompletion.create(
                 model="gpt-4o-mini",
@@ -340,7 +339,6 @@ async def executive_report(company_id: int, session: AsyncSession = Depends(get_
         pdf.set_auto_page_break(auto=True, margin=15)
         pdf.set_font("Arial", "B", 16)
         pdf.cell(0, 10, sanitize_pdf(company.name), ln=True, align="C")
-        # You can add more attributes to the PDF here based on 'analytics'
         return pdf.output(dest="S").encode("latin-1")
 
     buffer = io.BytesIO(await asyncio.to_thread(generate_pdf))
