@@ -1,68 +1,72 @@
-<!-- filename: review_saas/app/templates/login.html -->
 {% extends "base.html" %}
 
-{% block title %}Login | Review Intel AI{% endblock %}
+{% block title %}Welcome Back | Review Intel AI{% endblock %}
 
 {% block content %}
-<div class="max-w-md mx-auto mt-20 bg-white shadow-lg rounded-lg p-6">
-    <h1 class="text-2xl font-bold text-center text-indigo-600 mb-6">Welcome Back</h1>
+<div class="sm:mx-auto sm:w-full sm:max-w-md">
+    <div class="bg-white py-10 px-10 shadow-xl rounded-2xl border border-slate-100">
+        <h2 class="text-center text-3xl font-extrabold text-slate-900 mb-8">Login</h2>
 
-    {% if error %}
-    <div class="bg-red-100 text-red-700 p-3 rounded mb-4 text-sm">
-        {{ error }}
-    </div>
-    {% endif %}
-
-    <form action="/login" method="post" class="space-y-4">
-        <!-- Email Input -->
-        <div>
-            <label for="email" class="block text-gray-700 font-medium mb-1">Email Address</label>
-            <input
-                type="email"
-                id="email"
-                name="email"
-                required
-                placeholder="you@example.com"
-                class="w-full border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 px-3 py-2"
-            >
+        {% if error %}
+        <div class="mb-6 p-4 bg-rose-50 text-rose-700 text-sm rounded-xl flex items-center">
+            <i class="fas fa-lock mr-3"></i>
+            {{ error }}
         </div>
+        {% endif %}
 
-        <!-- Password Input -->
-        <div>
-            <label for="password" class="block text-gray-700 font-medium mb-1">Password</label>
-            <input
-                type="password"
-                id="password"
-                name="password"
-                required
-                placeholder="********"
-                class="w-full border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 px-3 py-2"
-            >
-        </div>
+        <form action="/api/auth/login" method="POST" class="space-y-6">
+            <div>
+                <label class="block text-sm font-semibold text-slate-700">Email Address</label>
+                <input type="email" name="email" required 
+                       class="mt-1 block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
+            </div>
 
-        <!-- Magic Link Option -->
-        <div class="flex items-center justify-between text-sm">
-            <label class="inline-flex items-center">
-                <input type="checkbox" name="magic_link" class="form-checkbox text-indigo-600">
-                <span class="ml-2 text-gray-600">Send me a magic link instead</span>
-            </label>
-            <a href="#" class="text-indigo-500 hover:underline">Need help?</a>
-        </div>
+            <div id="password-container">
+                <div class="flex justify-between items-center">
+                    <label class="block text-sm font-semibold text-slate-700">Password</label>
+                    <a href="/reset-password" class="text-xs text-indigo-600 hover:underline">Forgot password?</a>
+                </div>
+                <input type="password" name="password" id="password-field"
+                       class="mt-1 block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
+            </div>
 
-        <!-- Submit Button -->
-        <div>
-            <button
-                type="submit"
-                class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition"
-            >
-                Log In
+            <div class="flex items-center">
+                <input type="checkbox" name="magic_link" id="magic_link" 
+                       class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded"
+                       onchange="togglePassword(this.checked)">
+                <label for="magic_link" class="ml-2 block text-sm text-slate-600">
+                    Use Magic Link (Email only)
+                </label>
+            </div>
+
+            <button type="submit" 
+                    class="w-full py-3 px-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition transform hover:-translate-y-0.5">
+                Sign In
             </button>
-        </div>
-    </form>
+        </form>
 
-    <p class="mt-6 text-center text-gray-500 text-sm">
-        Don’t have an account?
-        <a href="/register" class="text-indigo-500 hover:underline">Sign up</a>
-    </p>
+        <p class="mt-8 text-center text-sm text-slate-500">
+            Need an account? 
+            <a href="/register" class="font-bold text-indigo-600 hover:text-indigo-500">Sign up</a>
+        </p>
+    </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function togglePassword(isChecked) {
+        const passwordContainer = document.getElementById('password-container');
+        const passwordField = document.getElementById('password-field');
+        if (isChecked) {
+            passwordContainer.style.opacity = '0.4';
+            passwordField.disabled = true;
+            passwordField.required = false;
+        } else {
+            passwordContainer.style.opacity = '1';
+            passwordField.disabled = false;
+            passwordField.required = true;
+        }
+    }
+</script>
 {% endblock %}
