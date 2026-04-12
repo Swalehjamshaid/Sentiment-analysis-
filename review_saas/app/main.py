@@ -15,7 +15,6 @@ from starlette.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
 
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from passlib.context import CryptContext
 from loguru import logger
 
@@ -115,7 +114,11 @@ templates.env.filters["date"] = format_date
 # ----------------------------------------------------------
 # STATIC FILES
 # ----------------------------------------------------------
-static_paths = [os.path.join(BASE_DIR, "static"), "/app/app/static", "/app/static"]
+static_paths = [
+    os.path.join(BASE_DIR, "static"),
+    "/app/app/static",
+    "/app/static",
+]
 static_dir = next((p for p in static_paths if os.path.isdir(p)), None)
 if static_dir:
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
