@@ -253,42 +253,41 @@
 
     <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
-            <form id="addCompanyForm" class="modal-content border-0 rounded-5 overflow-hidden">
+            <form id="addCompanyForm" class="modal-content border-0 rounded-5 overflow-hidden shadow-lg">
                 <div class="modal-header bg-success text-white p-4 border-0">
-                    <h5 class="modal-title fw-bold d-flex align-items-center"><i class="bi bi-node-plus-fill me-2"></i>Link Enterprise Node</h5>
+                    <h5 class="modal-title fw-bold d-flex align-items-center"><i class="bi bi-node-plus-fill me-2"></i>Link New Business</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body p-5 bg-white">
                     <div class="mb-4">
-                        <label class="form-label fw-bold text-muted small">LOCATION SEARCH</label>
-                        <input id="googleSearchInput" class="form-control form-control-lg mb-4 shadow-sm" placeholder="Enter business name or Google Place ID...">
+                        <label class="small fw-bold text-muted mb-2 tracking-widest">SEARCH GOOGLE MAPS</label>
+                        <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4 rounded-3 shadow-sm" placeholder="Enter business name or address...">
                     </div>
+                    
                     <div class="p-4 bg-light rounded-4 border">
                         <div class="mb-3">
-                            <label class="form-label fw-bold text-muted small">IDENTIFIED BUSINESS</label>
-                            <input id="companyName" class="form-control bg-white" readonly required>
+                            <label class="small fw-bold text-muted">BUSINESS NAME</label>
+                            <input id="companyName" class="form-control border-0 bg-white" readonly placeholder="Waiting for selection...">
                         </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label fw-bold text-muted small">UID (PLACE ID)</label>
-                                <input id="placeId" class="form-control bg-white" readonly required>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label fw-bold text-muted small">VERIFIED ADDRESS</label>
-                                <input id="companyAddress" class="form-control bg-white" readonly required>
-                            </div>
+                        <div class="mb-3">
+                            <label class="small fw-bold text-muted">GOOGLE PLACE ID (CRITICAL)</label>
+                            <input id="placeId" class="form-control border-0 bg-white" readonly placeholder="Will auto-fill...">
+                        </div>
+                        <div class="mb-0">
+                            <label class="small fw-bold text-muted">FORMATTED ADDRESS</label>
+                            <input id="companyAddress" class="form-control border-0 bg-white" readonly placeholder="...">
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer border-0 p-4 bg-white">
-                    <button type="submit" id="saveCompanyBtn" class="btn btn-success w-100 btn-pill py-3 fw-bold shadow-sm">SAVE ENTITY</button>
+                    <button type="submit" class="btn btn-success w-100 btn-pill fw-bold py-3 shadow">Verify & Save Business</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <script async defer src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&libraries=places&callback=initGoogleAutocomplete"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places&callback=initGoogleAutocomplete"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
         let chartInstances = {};
@@ -309,6 +308,26 @@
             if (el) el.innerText = val !== undefined && val !== null ? val : "—"; 
         }
 
+        // Logic from Dashboard.html Logic provided
+        function initGoogleAutocomplete() {
+            const input = document.getElementById('googleSearchInput');
+            if (!input) return;
+
+            const autocomplete = new google.maps.places.Autocomplete(input);
+            autocomplete.setFields(['name', 'place_id', 'formatted_address', 'geometry']);
+
+            autocomplete.addListener('place_changed', function() {
+                const place = autocomplete.getPlace();
+                if (!place.place_id) {
+                    alert("Please select a business from the dropdown list.");
+                    return;
+                }
+                document.getElementById('companyName').value = place.name || "";
+                document.getElementById('placeId').value = place.place_id || "";
+                document.getElementById('companyAddress').value = place.formatted_address || "";
+            });
+        }
+
         async function triggerAllLoads() {
             const cid = document.getElementById("companySelect").value;
             if (!cid) return;
@@ -319,29 +338,31 @@
             btn.disabled = true;
 
             try {
-                const startDate = document.getElementById("startDate").value || "";
-                const endDate = document.getElementById("endDate").value || "";
+                const startDate = document.getElementById("startDate").value || "2024-01-01";
+                const endDate = document.getElementById("endDate").value || new Date().toISOString().split('T')[0];
 
-                const [overRes, insRes, revRes] = await Promise.all([
-                    fetch(`${API.overview}/${cid}`).then(r => r.json()),
-                    fetch(`${API.insights}?company_id=${cid}&start=${startDate}&end=${endDate}`).then(r => r.json()),
-                    fetch(`${API.revenue}?company_id=${cid}`).then(r => r.json())
-                ]);
+                const res = await fetch(`${API.insights}?company_id=${cid}&start=${startDate}&end=${endDate}`);
+                const data = await res.json();
 
-                uiSet("kpiTotal", insRes.total_reviews || overRes.total_reviews || 0);
-                uiSet("kpiRating", insRes.average_rating || overRes.average_rating || "—");
-                uiSet("churnScore", (insRes.churn_prediction || 0) + "%");
-                uiSet("loyaltyScore", (insRes.loyalty_score || 0) + "%");
+                if (data.metadata) {
+                    uiSet("kpiTotal", data.metadata.total_reviews || 0);
+                }
+                
+                if (data.kpis) {
+                    uiSet("kpiRating", data.kpis.average_rating || data.kpis.benchmark?.your_avg || "—");
+                    uiSet("riskSentiment", data.kpis.reputation_score || "—");
+                    uiSet("churnScore", (data.kpis.churn_prediction || 0) + "%");
+                }
 
-                const risk = insRes.risk || revRes || {};
-                uiSet("riskPct", risk.loss_probability || "0%");
-                uiSet("riskImpact", risk.impact_level || "None");
-                uiSet("riskSentiment", risk.reputation_score || "100");
-                uiSet("riskGauge", risk.loss_probability || "0%");
+                if (data.visualizations) {
+                    renderCharts(data.visualizations);
+                }
 
-                if (insRes.sentiment_counts) renderCharts(insRes);
-                if (insRes.top_keywords) renderKeywords(insRes.top_keywords);
-                if (insRes.negative_reviews) renderAlerts(insRes.negative_reviews);
+                const revRes = await fetch(`${API.revenue}?company_id=${cid}`);
+                const revData = await revRes.json();
+                uiSet("riskPct", (revData.risk_percent || 0) + "%");
+                uiSet("riskImpact", revData.impact || "N/A");
+                uiSet("riskGauge", (revData.risk_percent || 0) + "%");
 
                 loadRecentReviews(cid);
             } catch (e) {
@@ -352,7 +373,7 @@
             }
         }
 
-        function renderCharts(data) {
+        function renderCharts(vis) {
             const commonOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } };
 
             const ctxRadar = document.getElementById("chartEmotions").getContext('2d');
@@ -360,14 +381,14 @@
             chartInstances.emotions = new Chart(ctxRadar, {
                 type: 'radar',
                 data: {
-                    labels: Object.keys(data.sentiment_counts || {}),
+                    labels: Object.keys(vis.emotions || vis.sentiment_counts || {}),
                     datasets: [{ 
                         label: 'Intensity', 
-                        data: Object.values(data.sentiment_counts || {}), 
-                        backgroundColor: 'rgba(99, 102, 241, 0.2)', 
-                        borderColor: '#6366f1', 
+                        data: Object.values(vis.emotions || vis.sentiment_counts || {}), 
+                        backgroundColor: 'rgba(168, 85, 247, 0.2)', 
+                        borderColor: '#a855f7', 
                         borderWidth: 3,
-                        pointBackgroundColor: '#6366f1'
+                        pointBackgroundColor: '#a855f7'
                     }]
                 },
                 options: commonOptions
@@ -375,19 +396,18 @@
 
             const ctxLine = document.getElementById("chartMonthly").getContext('2d');
             if (chartInstances.monthly) chartInstances.monthly.destroy();
-            const trendArray = data.monthly_trend || [];
+            const trendArray = vis.sentiment_trend || vis.monthly_trend || [];
             chartInstances.monthly = new Chart(ctxLine, {
                 type: 'line',
                 data: {
-                    labels: trendArray.map(t => t.month),
+                    labels: trendArray.map(d => d.week || d.month || "Period"),
                     datasets: [{ 
-                        label: 'Avg Rating', 
-                        data: trendArray.map(t => t.avg), 
+                        label: 'Avg Sentiment', 
+                        data: trendArray.map(d => d.avg), 
                         borderColor: '#10b981', 
-                        tension: 0.4, 
+                        tension: 0.3, 
                         fill: true, 
-                        backgroundColor: 'rgba(16, 185, 129, 0.05)',
-                        pointRadius: 4
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)' 
                     }]
                 },
                 options: { ...commonOptions, scales: { y: { min: 1, max: 5 } } }
@@ -395,42 +415,20 @@
 
             const ctxBar = document.getElementById("chartRatings").getContext('2d');
             if (chartInstances.ratings) chartInstances.ratings.destroy();
-            const dist = data.rating_distribution || {};
+            const dist = vis.ratings || vis.rating_distribution || {};
             chartInstances.ratings = new Chart(ctxBar, {
                 type: 'bar',
                 data: {
                     labels: ['1★','2★','3★','4★','5★'],
                     datasets: [{ 
-                        label: 'Count', 
-                        data: [dist[1]||0, dist[2]||0, dist[3]||0, dist[4]||0, dist[5]||0], 
+                        label: 'Reviews', 
+                        data: Object.values(dist).length ? Object.values(dist) : [0,0,0,0,0], 
                         backgroundColor: '#6366f1', 
-                        borderRadius: 12,
-                        barThickness: 30
+                        borderRadius: 8
                     }]
                 },
                 options: commonOptions
             });
-        }
-
-        function renderKeywords(keywords) {
-            document.getElementById("keywordContainer").innerHTML = (keywords || []).map(kw => `<span class="keyword-badge">${kw}</span>`).join('');
-        }
-
-        function renderAlerts(alerts) {
-            const container = document.getElementById("negativeAlerts");
-            if (!alerts || !alerts.length) {
-                container.innerHTML = `<div class="text-center text-muted p-4 opacity-50"><i class="bi bi-shield-check fs-1 mb-2 d-block"></i>No critical anomalies detected.</div>`;
-                return;
-            }
-            container.innerHTML = alerts.map(r => `
-                <div class="alert-item shadow-sm">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <strong class="text-danger fw-bold small">${r.author}</strong>
-                        <span class="badge bg-danger rounded-pill">${r.rating}★</span>
-                    </div>
-                    <p class="mb-0 mt-2 small text-dark">${r.text}</p>
-                </div>
-            `).join('');
         }
 
         async function loadRecentReviews(cid) {
@@ -460,11 +458,15 @@
             win.scrollTop = win.scrollHeight;
 
             try {
-                const res = await fetch(`${API.chat}?question=${encodeURIComponent(msg)}&company_id=${cid}`, { method: 'POST' });
+                const res = await fetch(`${API.chat}?company_id=${cid}`, { 
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ message: msg })
+                });
                 const data = await res.json();
-                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Agent:</strong> ${data.answer}</div>`;
+                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Expert:</strong> ${data.answer}</div>`;
             } catch (e) {
-                win.innerHTML += `<div class="chat-msg chat-ai text-danger">Strategic Analysis Engine Offline.</div>`;
+                win.innerHTML += `<div class="chat-msg chat-ai text-danger">Intelligence offline.</div>`;
             }
             win.scrollTop = win.scrollHeight;
         }
@@ -472,47 +474,31 @@
         async function loadCompanies() {
             try {
                 const res = await fetch(API.companies);
-                const list = await res.json();
+                const data = await res.json();
                 const sel = document.getElementById("companySelect");
-                sel.innerHTML = (list || []).map(c => `<option value="${c.id}">${c.name}</option>`).join("");
-                if (sel.options.length > 0) triggerAllLoads();
+                let companies = Array.isArray(data) ? data : (data.companies || data.data || []);
+
+                if (companies.length > 0) {
+                    sel.innerHTML = companies.map(c => `<option value="${c.id}">${c.name || c.business_name || "Unnamed"}</option>`).join("");
+                    sel.value = companies[0].id;
+                    setTimeout(() => triggerAllLoads(), 800);
+                } else {
+                    sel.innerHTML = `<option value="">No businesses added yet</option>`;
+                }
             } catch (e) { console.error("Entity Registry Failure"); }
         }
-
-        // IMPROVED: Defensive Google Maps initialization
-        window.initGoogleAutocomplete = function() {
-            try {
-                const input = document.getElementById('googleSearchInput');
-                if (!input) return;
-                
-                const autocomplete = new google.maps.places.Autocomplete(input);
-                
-                // Set fields explicitly for efficiency
-                autocomplete.setFields(['name', 'place_id', 'formatted_address', 'geometry']);
-
-                autocomplete.addListener('place_changed', () => {
-                    const p = autocomplete.getPlace();
-                    if (!p || !p.place_id) {
-                        console.warn("Invalid selection - please select from the dropdown");
-                        return;
-                    }
-                    
-                    document.getElementById('companyName').value = p.name || "";
-                    document.getElementById('placeId').value = p.place_id || "";
-                    document.getElementById('companyAddress').value = p.formatted_address || "";
-                });
-            } catch (err) {
-                console.error("Google API Interface Error - Check your billing and API restrictions");
-            }
-        };
 
         document.getElementById("addCompanyForm").onsubmit = async (e) => {
             e.preventDefault();
             const payload = {
-                name: document.getElementById("companyName").value,
-                place_id: document.getElementById("placeId").value,
-                address: document.getElementById("companyAddress").value
+                name: document.getElementById('companyName').value,
+                place_id: document.getElementById('placeId').value,
+                address: document.getElementById('companyAddress').value
             };
+            if (!payload.place_id) {
+                alert("Please search and select a business first.");
+                return;
+            }
             const res = await fetch(API.companies, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -527,28 +513,29 @@
 
         document.getElementById("syncBtn").onclick = async () => {
             const cid = document.getElementById("companySelect").value;
-            if (!cid) return;
             const btn = document.getElementById("syncBtn");
-            const original = btn.innerHTML;
-            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>SYNCING...`;
+            if (!cid) return;
             btn.disabled = true;
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>SYNCING...`;
             
             try {
                 await fetch(`${API.sync}/${cid}`, { method: 'POST' });
                 triggerAllLoads();
             } finally {
-                btn.innerHTML = original;
                 btn.disabled = false;
+                btn.innerHTML = `<i class="bi bi-arrow-repeat me-2"></i> SYNC LIVE DATA`;
             }
         };
 
-        window.addEventListener("DOMContentLoaded", loadCompanies);
-        
         document.getElementById("toggleTheme").onclick = () => {
             const html = document.documentElement;
-            const isDark = html.getAttribute("data-theme") === "dark";
-            html.setAttribute("data-theme", isDark ? "light" : "dark");
+            html.setAttribute("data-theme", html.getAttribute("data-theme") === "light" ? "dark" : "light");
         };
+
+        window.addEventListener("DOMContentLoaded", () => {
+            loadCompanies();
+            initGoogleAutocomplete();
+        });
     </script>
 </body>
 </html>
