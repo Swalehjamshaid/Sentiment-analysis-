@@ -2,13 +2,13 @@
 from fastapi import APIRouter, Depends, Form, Request, Query, HTTPException, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select   # ← This was missing!
+from sqlalchemy import select
 from loguru import logger
 import traceback
 
 from app.core.db import get_db
 from app.core.models import User
-from app.core.security import get_password_hash, create_verification_token, decode_verification_token
+from app.core.security import create_verification_token, decode_verification_token
 from app.core.mailer import send_verification_email
 
 router = APIRouter()
@@ -22,8 +22,8 @@ async def register_user(
     confirm_password: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
-    # Import templates safely inside the function
-    from app.main import templates
+    # Import templates and pwd_context from main.py
+    from app.main import templates, pwd_context
 
     if password != confirm_password:
         return templates.TemplateResponse(
@@ -44,11 +44,14 @@ async def register_user(
                 context={"error": "This email is already registered."}
             )
 
+        # Hash password using the same pwd_context as login
+        hashed_password = pwd_context.hash(password)
+
         # Create new user
         new_user = User(
             name=name.strip(),
             email=email_clean,
-            hashed_password=get_password_hash(password)
+            hashed_password=hashed_password
         )
 
         db.add(new_user)
@@ -57,14 +60,14 @@ async def register_user(
 
         logger.info(f"✅ New user registered: {email_clean}")
 
-        # Send verification email
-        token = create_verification_token(new_user.email)
+        # Attempt to send magic link email
         try:
+            token = create_verification_token(new_user.email)
             await send_verification_email(new_user.email, token)
-            success_msg = "Registration successful! Check your inbox for the magic login link."
+            success_msg = "Registration successful! Please check your email for the magic login link."
         except Exception as e:
-            logger.error(f"Email sending failed: {e}")
-            success_msg = "Account created successfully!"
+            logger.error(f"❌ Email sending failed: {e}")
+            success_msg = "Account created successfully! You can try logging in now."
 
         return templates.TemplateResponse(
             request=request,
@@ -85,17 +88,25 @@ async def register_user(
 
 @router.get("/verify")
 async def verify_email(token: str = Query(...), db: AsyncSession = Depends(get_db)):
-    email = decode_verification_token(token)
-    if not email:
-        raise HTTPException(status_code=400, detail="Invalid or expired magic link.")
+    """Handle magic link verification"""
+    try:
+        email = decode_verification_token(token)
+        if not email:
+            raise HTTPException(status_code=400, detail="Invalid or expired magic link.")
 
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalars().first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found.")
+        result = await db.execute(select(User).where(User.email == email))
+        user = result.scalars().first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
 
-    if hasattr(user, 'email_verified') and not user.email_verified:
-        user.email_verified = True
-        await db.commit()
+        # Mark user as verified if the field exists
+        if hasattr(user, 'email_verified') and not user.email_verified:
+            user.email_verified = True
+            await db.commit()
 
-    return RedirectResponse(url="/dashboard", status_code=status.HTTP_302_FOUND)
+        # Auto-login after verification (optional)
+        return RedirectResponse(url="/dashboard", status_code=status.HTTP_302_FOUND)
+
+    except Exception as e:
+        logger.error(f"Verification error: {e}")
+        return RedirectResponse(url="/login?error=Verification failed", status_code=303)
