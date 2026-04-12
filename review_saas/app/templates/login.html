@@ -1,54 +1,92 @@
+<!-- filename: review_saas/app/templates/login.html -->
 {% extends "base.html" %}
 
 {% block title %}Welcome Back | Review Intel AI{% endblock %}
 
 {% block content %}
-<div class="sm:mx-auto sm:w-full sm:max-w-md">
-    <div class="bg-white py-10 px-10 shadow-xl rounded-2xl border border-slate-100">
-        <h2 class="text-center text-3xl font-extrabold text-slate-900 mb-8">Login</h2>
+<div class="min-h-[80vh] flex items-center justify-center px-4">
 
-        {% if error %}
-        <div class="mb-6 p-4 bg-rose-50 text-rose-700 text-sm rounded-xl flex items-center">
-            <i class="fas fa-lock mr-3"></i>
-            {{ error }}
-        </div>
-        {% endif %}
+    <div class="w-full max-w-md relative">
 
-        <form action="/api/auth/login" method="POST" class="space-y-6">
-            <div>
-                <label class="block text-sm font-semibold text-slate-700">Email Address</label>
-                <input type="email" name="email" required 
-                       class="mt-1 block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
-            </div>
+        <!-- Premium Glow Background -->
+        <div class="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-violet-600 rounded-3xl blur opacity-20"></div>
 
-            <div id="password-container">
-                <div class="flex justify-between items-center">
-                    <label class="block text-sm font-semibold text-slate-700">Password</label>
-                    <a href="/reset-password" class="text-xs text-indigo-600 hover:underline">Forgot password?</a>
+        <!-- Card -->
+        <div class="relative bg-white py-10 px-10 shadow-2xl rounded-3xl border border-slate-100">
+
+            <!-- Header -->
+            <div class="text-center mb-8">
+                <div class="mx-auto w-14 h-14 flex items-center justify-center rounded-2xl bg-indigo-600 shadow-md mb-4">
+                    <i class="fas fa-lock text-white text-lg"></i>
                 </div>
-                <input type="password" name="password" id="password-field"
-                       class="mt-1 block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition">
+
+                <h2 class="text-3xl font-extrabold text-slate-900 mb-2">
+                    Welcome Back
+                </h2>
+
+                <p class="text-sm text-slate-500">
+                    Sign in to access your dashboard
+                </p>
             </div>
 
-            <div class="flex items-center">
-                <input type="checkbox" name="magic_link" id="magic_link" 
-                       class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded"
-                       onchange="togglePassword(this.checked)">
-                <label for="magic_link" class="ml-2 block text-sm text-slate-600">
-                    Use Magic Link (Email only)
-                </label>
+            {% if error %}
+            <div class="mb-6 p-4 bg-rose-50 text-rose-700 text-sm rounded-xl flex items-center border border-rose-200 shadow-sm">
+                <i class="fas fa-lock mr-3"></i>
+                {{ error }}
             </div>
+            {% endif %}
 
-            <button type="submit" 
-                    class="w-full py-3 px-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition transform hover:-translate-y-0.5">
-                Sign In
-            </button>
-        </form>
+            <form action="/api/auth/login" method="POST" class="space-y-6">
 
-        <p class="mt-8 text-center text-sm text-slate-500">
-            Need an account? 
-            <a href="/register" class="font-bold text-indigo-600 hover:text-indigo-500">Sign up</a>
-        </p>
+                <!-- Email -->
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700">Email Address</label>
+                    <input type="email" name="email" required 
+                           class="mt-1 block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl 
+                                  focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 
+                                  hover:border-indigo-300 transition-all duration-200 outline-none">
+                </div>
+
+                <!-- Password -->
+                <div id="password-container">
+                    <div class="flex justify-between items-center">
+                        <label class="block text-sm font-semibold text-slate-700">Password</label>
+                        <a href="/reset-password" class="text-xs text-indigo-600 hover:underline">Forgot password?</a>
+                    </div>
+                    <input type="password" name="password" id="password-field"
+                           class="mt-1 block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl 
+                                  focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 
+                                  hover:border-indigo-300 transition-all duration-200 outline-none">
+                </div>
+
+                <!-- Magic Link -->
+                <div class="flex items-center">
+                    <input type="checkbox" name="magic_link" id="magic_link" 
+                           class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded"
+                           onchange="togglePassword(this.checked)">
+                    <label for="magic_link" class="ml-2 block text-sm text-slate-600">
+                        Use Magic Link (Email only)
+                    </label>
+                </div>
+
+                <!-- Button -->
+                <button type="submit" 
+                        class="w-full py-3 px-4 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl font-bold shadow-lg 
+                               hover:from-indigo-700 hover:to-violet-700 
+                               transition-all duration-200 transform hover:-translate-y-0.5 active:scale-95">
+                    Sign In
+                </button>
+            </form>
+
+            <!-- Footer -->
+            <p class="mt-8 text-center text-sm text-slate-500">
+                Need an account? 
+                <a href="/register" class="font-bold text-indigo-600 hover:text-indigo-500">
+                    Sign up
+                </a>
+            </p>
+
+        </div>
     </div>
 </div>
 {% endblock %}
