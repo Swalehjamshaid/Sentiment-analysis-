@@ -16,7 +16,7 @@ click==8.1.7
 resend>=0.8.0
 python-jose[cryptography]>=3.3.0
 bcrypt==4.3.0                    # ← PINNED to fix the crash
-passlib[bcrypt]>=1.7.4           # keep for now (or remove later)
+passlib[bcrypt]>=1.7.4           # Required for password hashing in auth.py
 
 # --- Database ---
 sqlalchemy>=2.0.29
