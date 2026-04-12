@@ -4,582 +4,370 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Review Intelligence AI Dashboard</title>
+
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <!-- DataTables CSS for enhanced review table -->
-    <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+
     <style>
         :root {
             --primary-grad: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
             --ai-grad: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
             --danger-grad: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
         }
-        body { background-color: #f8fafc; padding:24px; font-family: 'Inter', sans-serif; transition: background 0.3s; }
-        .navbar { background: var(--primary-grad) !important; border-radius: 15px !important; margin-bottom: 25px; border: none; }
-        .card { border: none; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-        .total-review-card { background: var(--primary-grad); color: white; border-radius: 24px; }
-        .risk-card { background: var(--danger-grad); color: white; border-radius: 24px; }
-        .ai-badge { background: var(--ai-grad); color: white; padding: 5px 15px; border-radius: 10px; font-size: 0.75rem; font-weight: bold; margin-bottom: 10px; display: inline-block; }
-        #chatWindow { height: 350px; overflow-y: auto; background: #f1f5f9; border-radius: 15px; padding: 20px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; }
-        .chat-msg { margin-bottom: 15px; padding: 10px 15px; border-radius: 15px; max-width: 85%; }
-        .chat-ai { background: white; color: #1e293b; border: 1px solid #e2e8f0; align-self: flex-start; }
-        .chat-user { background: #6366f1; color: white; align-self: flex-end; }
-        .chart-wrapper { height: 280px; position: relative; }
-        .btn-pill { border-radius: 50px; padding: 10px 25px; font-weight: 600; }
-        
-        /* Review Table Styles */
-        .review-table-container { max-height: 400px; overflow-y: auto; border-radius: 15px; }
-        .review-text { font-size: 0.85rem; max-width: 400px; white-space: normal; word-break: break-word; }
-        .sentiment-badge { padding: 4px 12px; border-radius: 30px; font-size: 0.7rem; font-weight: 600; }
-        .badge-positive { background: #10b98120; color: #059669; border: 1px solid #10b98140; }
-        .badge-negative { background: #ef444420; color: #b91c1c; border: 1px solid #ef444440; }
-        .badge-neutral { background: #f59e0b20; color: #b45309; border: 1px solid #f59e0b40; }
-        .dataTables_wrapper .dataTables_filter input { border-radius: 40px; padding: 6px 12px; border: 1px solid #cbd5e1; }
-        table.dataTable thead th { background: #f8fafc; }
-        
-        [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
-        [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
-        [data-theme="dark"] .bg-light { background: #334155 !important; color: white; }
-        [data-theme="dark"] #chatWindow { background: #1e293b; border-color: #334155; }
-        [data-theme="dark"] .chat-ai { background: #334155; color: #f1f5f9; border-color: #475569; }
-        [data-theme="dark"] .dataTables_wrapper .dataTables_filter input { background: #334155; color: white; border-color: #475569; }
-        [data-theme="dark"] table.dataTable thead th { background: #1e293b; color: #f1f5f9; }
-       
-        .pac-container { z-index: 9999 !important; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); border: none; }
+
+        body {
+            background-color: #f8fafc;
+            padding:24px;
+            font-family: 'Inter', sans-serif;
+            transition: background 0.3s;
+        }
+
+        .navbar {
+            background: var(--primary-grad) !important;
+            border-radius: 15px !important;
+            margin-bottom: 25px;
+            border: none;
+        }
+
+        .card {
+            border: none;
+            border-radius: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+
+        .total-review-card {
+            background: var(--primary-grad);
+            color: white;
+            border-radius: 24px;
+        }
+
+        .risk-card {
+            background: var(--danger-grad);
+            color: white;
+            border-radius: 24px;
+        }
+
+        .ai-badge {
+            background: var(--ai-grad);
+            color: white;
+            padding: 5px 15px;
+            border-radius: 10px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            display: inline-block;
+        }
+
+        #chatWindow {
+            height: 350px;
+            overflow-y: auto;
+            background: #f1f5f9;
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-msg {
+            margin-bottom: 15px;
+            padding: 10px 15px;
+            border-radius: 15px;
+            max-width: 85%;
+        }
+
+        .chat-ai {
+            background: white;
+            color: #1e293b;
+            border: 1px solid #e2e8f0;
+            align-self: flex-start;
+        }
+
+        .chat-user {
+            background: #6366f1;
+            color: white;
+            align-self: flex-end;
+        }
+
+        .chart-wrapper {
+            height: 280px;
+            position: relative;
+        }
+
+        .btn-pill {
+            border-radius: 50px;
+            padding: 10px 25px;
+            font-weight: 600;
+        }
+
+        [data-theme="dark"] {
+            background: #0f172a;
+            color: #f8fafc;
+        }
+
+        [data-theme="dark"] .card,
+        [data-theme="dark"] .bg-white {
+            background: #1e293b !important;
+            color: #f8fafc;
+        }
+
+        [data-theme="dark"] .bg-light {
+            background: #334155 !important;
+            color: white;
+        }
     </style>
 </head>
+
 <body>
+
+<!-- NAVBAR -->
 <nav class="navbar navbar-expand-lg navbar-dark p-3 shadow-lg">
     <div class="container-fluid">
-        <span class="navbar-brand fw-bold fs-4"><i class="bi bi-robot me-2"></i>Review Intel AI</span>
+        <span class="navbar-brand fw-bold fs-4">
+            <i class="bi bi-robot me-2"></i>Review Intel AI
+        </span>
+
         <div class="d-flex gap-2">
-            <button class="btn btn-success btn-sm rounded-pill px-4 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+            <button class="btn btn-success btn-sm rounded-pill px-4 fw-bold shadow-sm">
                 <i class="bi bi-plus-circle me-1"></i> Add Business
             </button>
+
             <button id="toggleTheme" class="btn btn-light btn-sm rounded-pill px-3">Theme</button>
-            <form action="/logout" method="post" class="m-0"><button class="btn btn-danger btn-sm rounded-pill px-3">Logout</button></form>
+
+            <form action="/logout" method="post" class="m-0">
+                <button class="btn btn-danger btn-sm rounded-pill px-3">Logout</button>
+            </form>
         </div>
     </div>
 </nav>
+
 <div class="container-fluid">
+
+    <!-- FILTER BAR -->
     <div class="row g-3 align-items-end mb-4 p-4 bg-white rounded-4 shadow-sm">
+
         <div class="col-md-3">
             <label class="form-label fw-bold text-muted small">ACTIVE ENTITY</label>
             <select id="companySelect" class="form-select border-0 bg-light py-2 shadow-none"></select>
         </div>
+
         <div class="col-md-2">
             <label class="form-label fw-bold text-muted small">START DATE</label>
             <input id="startDate" type="date" class="form-control border-0 bg-light shadow-none">
         </div>
+
         <div class="col-md-2">
             <label class="form-label fw-bold text-muted small">END DATE</label>
             <input id="endDate" type="date" class="form-control border-0 bg-light shadow-none">
         </div>
-        <div class="col-md-5">
-            <div class="d-flex gap-2">
-                <button id="loadBtn" onclick="triggerAllLoads()" class="btn btn-primary w-50 btn-pill shadow-sm">Analyze Business</button>
-                <button id="syncBtn" class="btn btn-success w-50 btn-pill shadow-sm">Sync Live Data</button>
-            </div>
+
+        <div class="col-md-5 d-flex gap-2">
+            <button onclick="triggerAllLoads()" class="btn btn-primary w-50 btn-pill">Analyze Business</button>
+            <button id="syncBtn" class="btn btn-success w-50 btn-pill">Sync Live Data</button>
         </div>
+
     </div>
+
+    <!-- KPI ROW -->
     <div class="row g-3 mb-4 text-center">
+
         <div class="col-md-3">
-            <div class="card total-review-card p-4 h-100 shadow-sm">
-                <div class="text-uppercase small fw-bold opacity-75">Absolute Total Records</div>
+            <div class="card total-review-card p-4">
+                <div class="small fw-bold">TOTAL REVIEWS</div>
                 <div id="kpiTotal" class="display-4 fw-bold">0</div>
             </div>
         </div>
+
         <div class="col-md-3">
-            <div class="card p-4 h-100 shadow-sm border-start border-primary border-4">
-                <div class="text-muted small fw-bold">AVG RATING</div>
+            <div class="card p-4 border-start border-primary border-4">
+                <div class="small fw-bold">AVG RATING</div>
                 <div id="kpiRating" class="display-4 fw-bold text-primary">—</div>
             </div>
         </div>
+
         <div class="col-md-6">
-            <div class="card risk-card p-4 h-100 shadow-lg">
-                <div class="small fw-bold opacity-75 text-uppercase">Revenue Risk Monitoring</div>
-                <div class="d-flex justify-content-around align-items-center mt-2">
-                    <div><small class="d-block">Loss Probability</small><span id="riskPct" class="h2 fw-bold">—</span></div>
-                    <div><small class="d-block">Impact Level</small><span id="riskImpact" class="h2 fw-bold">—</span></div>
-                    <div><small class="d-block">Reputation Score</small><span id="riskSentiment" class="h2 fw-bold">—</span></div>
+            <div class="card risk-card p-4">
+                <div class="small fw-bold">RISK MONITORING</div>
+
+                <div class="d-flex justify-content-around mt-2">
+                    <div>Risk <h3 id="riskPct">—</h3></div>
+                    <div>Impact <h3 id="riskImpact">—</h3></div>
+                    <div>Score <h3 id="riskSentiment">—</h3></div>
                 </div>
             </div>
         </div>
+
     </div>
+
+    <!-- CHARTS + CHAT -->
     <div class="row g-4 mb-4">
+
         <div class="col-lg-8">
-            <div class="row g-4">
-                <div class="col-md-6">
-                    <div class="ai-badge">CUSTOMER EMOTION RADAR</div>
-                    <div class="card p-3 shadow-sm"><div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div></div>
-                </div>
-                <div class="col-md-6">
-                    <div class="ai-badge">SENTIMENT TREND</div>
-                    <div class="card p-3 shadow-sm"><div class="chart-wrapper"><canvas id="chartMonthly"></canvas></div></div>
-                </div>
-                <div class="col-12">
-                    <div class="ai-badge">RATING DISTRIBUTION</div>
-                    <div class="card p-3 shadow-sm"><div class="chart-wrapper"><canvas id="chartRatings"></canvas></div></div>
-                </div>
+
+            <div class="ai-badge">CUSTOMER EMOTION RADAR</div>
+            <div class="card p-3 mb-3">
+                <div class="chart-wrapper"><canvas id="chartEmotions"></canvas></div>
             </div>
+
+            <div class="ai-badge">SENTIMENT TREND</div>
+            <div class="card p-3 mb-3">
+                <div class="chart-wrapper"><canvas id="chartMonthly"></canvas></div>
+            </div>
+
+            <div class="ai-badge">RATING DISTRIBUTION</div>
+            <div class="card p-3">
+                <div class="chart-wrapper"><canvas id="chartRatings"></canvas></div>
+            </div>
+
         </div>
+
+        <!-- CHAT -->
         <div class="col-lg-4">
-            <div class="ai-badge">STRATEGY CONSULTANT (AI CHAT)</div>
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body d-flex flex-column">
-                    <div id="chatWindow" class="mb-3">
-                        <div class="chat-msg chat-ai">Dashboard connected. Select a business and click "Analyze".</div>
-                    </div>
-                    <div class="input-group mt-auto">
-                        <input type="text" id="chatInput" class="form-control border-0 bg-light p-3" placeholder="Type question...">
-                        <button id="chatBtn" class="btn btn-primary px-4"><i class="bi bi-send"></i></button>
-                    </div>
+
+            <div class="ai-badge">AI CHAT</div>
+
+            <div class="card p-3 h-100">
+
+                <div id="chatWindow">
+                    <div class="chat-msg chat-ai">Dashboard ready. Ask anything.</div>
                 </div>
+
+                <div class="input-group mt-3">
+                    <input id="chatInput" class="form-control bg-light" placeholder="Ask AI...">
+                    <button id="chatBtn" class="btn btn-primary">Send</button>
+                </div>
+
             </div>
+
         </div>
+
     </div>
-    
-    <!-- NEW SECTION: Latest 100 Reviews Table -->
-    <div class="row g-4 mt-2">
+
+    <!-- 🔥 NEW: 100 REVIEWS SECTION -->
+    <div class="row mt-4">
         <div class="col-12">
-            <div class="ai-badge"><i class="bi bi-table me-1"></i> LATEST 100 REVIEWS (RAW FEED)</div>
-            <div class="card shadow-sm p-3">
-                <div class="review-table-container">
-                    <table id="reviewsTable" class="table table-hover align-middle" style="width:100%">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Rating</th>
-                                <th>Sentiment</th>
-                                <th>Review Text</th>
-                                <th>Date</th>
-                                <th>Source</th>
-                            </tr>
-                        </thead>
-                        <tbody id="reviewsTbody">
-                            <tr><td colspan="5" class="text-center text-muted">Select a business and click "Analyze" to load reviews</td></tr>
-                        </tbody>
-                    </table>
+
+            <div class="ai-badge">LATEST 100 REVIEWS</div>
+
+            <div class="card p-4">
+                <div id="reviewsContainer" style="max-height:500px; overflow-y:auto;">
+                    Loading reviews...
                 </div>
             </div>
+
         </div>
     </div>
+
 </div>
 
-<div class="modal fade" id="addCompanyModal" tabindex="-1">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <form id="addCompanyForm" class="modal-content shadow-lg border-0">
-            <div class="modal-header bg-success text-white p-4">
-                <h5 class="modal-title fw-bold">Link New Business</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body p-4">
-                <label class="small fw-bold text-muted mb-2">SEARCH GOOGLE MAPS</label>
-                <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Enter business name or address...">
-               
-                <div class="p-4 bg-light rounded-4">
-                    <div class="mb-3">
-                        <label class="small fw-bold text-muted">BUSINESS NAME</label>
-                        <input id="companyName" class="form-control border-0" readonly placeholder="Waiting for selection...">
-                    </div>
-                    <div class="mb-3">
-                        <label class="small fw-bold text-muted">GOOGLE PLACE ID (CRITICAL)</label>
-                        <input id="placeId" class="form-control border-0" readonly placeholder="Will auto-fill...">
-                    </div>
-                    <div class="mb-3">
-                        <label class="small fw-bold text-muted">FORMATTED ADDRESS</label>
-                        <input id="companyAddress" class="form-control border-0" readonly placeholder="...">
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer border-0 p-4">
-                <button type="submit" class="btn btn-success w-100 rounded-pill fw-bold py-3 shadow">Verify & Save Business</button>
-            </div>
-        </form>
-    </div>
-</div>
-
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 let chartInstances = {};
-let reviewsDataTable = null;
 
-// Helper: Escape HTML to prevent XSS
-function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/[&<>]/g, function(m) {
-        if (m === '&') return '&amp;';
-        if (m === '<') return '&lt;';
-        if (m === '>') return '&gt;';
-        return m;
-    });
+// ===================== LOAD REVIEWS =====================
+async function loadRecentReviews100() {
+    const cid = document.getElementById("companySelect").value;
+    if (!cid) return;
+
+    const res = await fetch(`/api/dashboard/recent-reviews?company_id=${cid}`);
+    const data = await res.json();
+
+    const box = document.getElementById("reviewsContainer");
+
+    const reviews = data.reviews || [];
+
+    box.innerHTML = reviews.map(r => `
+        <div class="border-bottom py-2">
+            <div><b>${"⭐".repeat(r.rating)}</b> <small>${r.date}</small></div>
+            <div>${r.text || ""}</div>
+        </div>
+    `).join("");
 }
 
-// 1. Google Autocomplete Integration
-function initGoogleAutocomplete() {
-    const input = document.getElementById('googleSearchInput');
-    const autocomplete = new google.maps.places.Autocomplete(input);
-    autocomplete.addListener('place_changed', function() {
-        const place = autocomplete.getPlace();
-        if (!place.place_id) {
-            alert("Please select a business from the dropdown list.");
-            return;
-        }
-        document.getElementById('companyName').value = place.name || "";
-        document.getElementById('placeId').value = place.place_id || "";
-        document.getElementById('companyAddress').value = place.formatted_address || "";
-    });
-}
-
-// 2. Load Company List - FIXED & IMPROVED (Now properly reads from your Postgres)
-async function loadCompanies() {
-    try {
-        console.log("🔄 Fetching companies from /api/companies...");
-        const res = await fetch("/api/companies");
-        
-        if (!res.ok) {
-            throw new Error(`HTTP error! status: ${res.status}`);
-        }
-        
-        const data = await res.json();
-        console.log("📊 Companies API Response:", data);
-
-        const sel = document.getElementById("companySelect");
-        let companies = [];
-
-        // Handle different possible response formats from your companies router
-        if (data && data.companies && Array.isArray(data.companies)) {
-            companies = data.companies;
-        } else if (Array.isArray(data)) {
-            companies = data;
-        } else if (data && data.data && Array.isArray(data.data)) {
-            companies = data.data;
-        }
-
-        if (companies.length > 0) {
-            sel.innerHTML = companies.map(c => {
-                const name = c.name || c.business_name || "Unnamed Business";
-                return `<option value="${c.id}">${escapeHtml(name)}</option>`;
-            }).join("");
-            
-            // Auto-select the first company
-            sel.value = companies[0].id;
-            console.log(`✅ Loaded ${companies.length} businesses successfully`);
-            
-            // Auto load dashboard data for the first business
-            setTimeout(() => {
-                triggerAllLoads();
-            }, 800);
-        } else {
-            sel.innerHTML = `<option value="">No businesses added yet</option>`;
-            console.log("⚠️ No companies returned from API");
-        }
-    } catch (e) { 
-        console.error("❌ Load Companies Failed:", e); 
-        document.getElementById("companySelect").innerHTML = `<option value="">Error loading businesses - Check Console</option>`;
-    }
-}
-
-// NEW: Load Latest 100 Reviews from Postgres (Railway)
-async function loadLatestReviews(companyId) {
-    if (!companyId) return;
-    
-    try {
-        console.log(`🔄 Fetching latest reviews for company ${companyId}...`);
-        const response = await fetch(`/api/dashboard/latest-reviews?company_id=${companyId}&limit=100`);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const reviews = await response.json();
-        const tbody = document.getElementById("reviewsTbody");
-        
-        if (!reviews || reviews.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No reviews found. Click "Sync Live Data" to fetch reviews.</td></tr>';
-            if (reviewsDataTable) {
-                reviewsDataTable.destroy();
-                reviewsDataTable = null;
-            }
-            return;
-        }
-        
-        let html = '';
-        reviews.forEach(r => {
-            let sentimentClass = '';
-            let sentimentText = r.sentiment || 'neutral';
-            if (sentimentText === 'positive') sentimentClass = 'badge-positive';
-            else if (sentimentText === 'negative') sentimentClass = 'badge-negative';
-            else sentimentClass = 'badge-neutral';
-            
-            let stars = '★'.repeat(r.rating) + '☆'.repeat(5 - (r.rating || 0));
-            let reviewDate = r.review_date ? r.review_date.split('T')[0] : 'unknown';
-            let reviewText = r.review_text || r.text || "No content";
-            let truncatedText = reviewText.length > 200 ? reviewText.substring(0, 200) + '...' : reviewText;
-            
-            html += `<tr>
-                        <td class="fw-bold">${stars} (${r.rating || '?'})</td>
-                        <td><span class="sentiment-badge ${sentimentClass}">${sentimentText.toUpperCase()}</span></td>
-                        <td class="review-text">${escapeHtml(truncatedText)}</td>
-                        <td>${reviewDate}</td>
-                        <td><i class="bi bi-google"></i> Google</td>
-                    </tr>`;
-        });
-        tbody.innerHTML = html;
-        
-        // Initialize or reinitialize DataTable
-        if (reviewsDataTable) {
-            reviewsDataTable.destroy();
-        }
-        reviewsDataTable = $('#reviewsTable').DataTable({
-            order: [[3, 'desc']],
-            pageLength: 10,
-            language: {
-                search: "🔍 Filter reviews:",
-                lengthMenu: "Show _MENU_ reviews per page",
-                info: "Showing _START_ to _END_ of _TOTAL_ reviews",
-                infoEmpty: "No reviews available"
-            },
-            responsive: true
-        });
-        
-        console.log(`✅ Loaded ${reviews.length} reviews into table`);
-    } catch (err) {
-        console.error("Error loading reviews table:", err);
-        document.getElementById("reviewsTbody").innerHTML = '<tr><td colspan="5" class="text-center text-danger">Error loading reviews. Please try again.</td></tr>';
-    }
-}
-
-// 3. Main Data Fetch (UPDATED: Also loads reviews table)
+// ===================== MAIN LOAD =====================
 async function triggerAllLoads() {
+
     const cid = document.getElementById("companySelect").value;
-    const start = document.getElementById("startDate").value || "2024-01-01";
-    const end = document.getElementById("endDate").value || new Date().toISOString().split('T')[0];
-   
-    if (!cid) return;
+    const start = document.getElementById("startDate").value;
+    const end = document.getElementById("endDate").value;
 
-    // Show loading state on analyze button
-    const loadBtn = document.getElementById("loadBtn");
-    const originalBtnText = loadBtn.innerHTML;
-    loadBtn.disabled = true;
-    loadBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Analyzing...`;
+    const res = await fetch(`/api/dashboard/ai/insights?company_id=${cid}&start=${start}&end=${end}`);
+    const data = await res.json();
 
-    try {
-        // Fetch main insights
-        const res = await fetch(`/api/dashboard/ai/insights?company_id=${cid}&start=${start}&end=${end}`);
-        const data = await res.json();
+    document.getElementById("kpiTotal").innerText = data.metadata.total_reviews;
+    document.getElementById("kpiRating").innerText = data.kpis.average_rating;
+    document.getElementById("riskSentiment").innerText = data.kpis.reputation_score;
 
-        if (data.metadata) {
-            document.getElementById("kpiTotal").innerText = data.metadata.total_reviews || 0;
-        }
-        if (data.kpis) {
-            document.getElementById("kpiRating").innerText = data.kpis.average_rating || data.kpis.benchmark?.your_avg || "—";
-            document.getElementById("riskSentiment").innerText = data.kpis.reputation_score || "—";
-        }
+    const r = await fetch(`/api/dashboard/revenue?company_id=${cid}`);
+    const risk = await r.json();
 
-        if (data.visualizations) {
-            renderCharts(data.visualizations);
-        }
+    document.getElementById("riskPct").innerText = risk.risk_percent + "%";
+    document.getElementById("riskImpact").innerText = risk.impact;
 
-        // Fetch revenue risk data
-        const revRes = await fetch(`/api/dashboard/revenue?company_id=${cid}`);
-        const revData = await revRes.json();
-        document.getElementById("riskPct").innerText = (revData.risk_percent || 0) + "%";
-        document.getElementById("riskImpact").innerText = revData.impact || "N/A";
+    renderCharts(data.visualizations);
 
-        // NEW: Load latest 100 reviews table
-        await loadLatestReviews(cid);
-
-    } catch (e) { 
-        console.error("Dashboard Load Error:", e);
-        const chatWindow = document.getElementById("chatWindow");
-        chatWindow.innerHTML += `<div class="chat-msg chat-ai text-danger">⚠️ Error loading dashboard data. Please check your connection.</div>`;
-    } finally {
-        loadBtn.disabled = false;
-        loadBtn.innerHTML = originalBtnText;
-    }
+    // 🔥 LOAD REVIEWS (IMPORTANT)
+    loadRecentReviews100();
 }
 
-// 4. Chart Rendering (PRESERVED - Enhanced to handle new emotion labels)
-function renderCharts(vis) {
-    // Radar Chart - Emotions
-    const radarCtx = document.getElementById("chartEmotions");
-    if(chartInstances.emotions) chartInstances.emotions.destroy();
-    
-    let emotionLabels = Object.keys(vis.emotions || {});
-    let emotionValues = Object.values(vis.emotions || {});
-    
-    // If no emotions data, use default set
-    if (emotionLabels.length === 0) {
-        emotionLabels = ["Joy", "Anger", "Sadness", "Surprise", "Fear", "Love"];
-        emotionValues = [0, 0, 0, 0, 0, 0];
-    }
-    
-    chartInstances.emotions = new Chart(radarCtx, {
-        type: 'radar',
+// ===================== CHARTS =====================
+function renderCharts(v) {
+
+    if (chartInstances.e) chartInstances.e.destroy();
+    chartInstances.e = new Chart(chartEmotions, {
+        type: "radar",
         data: {
-            labels: emotionLabels,
+            labels: Object.keys(v.emotions),
             datasets: [{
-                label: 'Intensity',
-                data: emotionValues,
-                backgroundColor: 'rgba(168, 85, 247, 0.2)',
-                borderColor: '#a855f7',
-                borderWidth: 2,
-                pointBackgroundColor: '#6366f1'
+                data: Object.values(v.emotions)
             }]
-        },
-        options: { responsive: true, maintainAspectRatio: false }
+        }
     });
 
-    // Line Chart - Sentiment Trend
-    const lineCtx = document.getElementById("chartMonthly");
-    if(chartInstances.monthly) chartInstances.monthly.destroy();
-    
-    const trendData = vis.sentiment_trend || [];
-    chartInstances.monthly = new Chart(lineCtx, {
-        type: 'line',
+    if (chartInstances.m) chartInstances.m.destroy();
+    chartInstances.m = new Chart(chartMonthly, {
+        type: "line",
         data: {
-            labels: trendData.map(d => d.week || d.month || "Week"),
-            datasets: [{
-                label: 'Avg Sentiment',
-                data: trendData.map(d => d.avg),
-                borderColor: '#10b981',
-                backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                fill: true,
-                tension: 0.3
-            }]
-        },
-        options: { responsive: true, maintainAspectRatio: false }
+            labels: v.sentiment_trend.map(x => x.month),
+            datasets: [{ data: v.sentiment_trend.map(x => x.avg) }]
+        }
     });
 
-    // Bar Chart - Rating Distribution
-    const barCtx = document.getElementById("chartRatings");
-    if(chartInstances.ratings) chartInstances.ratings.destroy();
-    
-    const ratingsData = vis.ratings ? Object.values(vis.ratings) : [0,0,0,0,0];
-    chartInstances.ratings = new Chart(barCtx, {
-        type: 'bar',
+    if (chartInstances.r) chartInstances.r.destroy();
+    chartInstances.r = new Chart(chartRatings, {
+        type: "bar",
         data: {
-            labels: ['1★', '2★', '3★', '4★', '5★'],
-            datasets: [{
-                label: 'Reviews',
-                data: ratingsData,
-                backgroundColor: '#6366f1',
-                borderRadius: 8
-            }]
-        },
-        options: { responsive: true, maintainAspectRatio: false }
+            labels: ["1","2","3","4","5"],
+            datasets: [{ data: Object.values(v.ratings) }]
+        }
     });
 }
 
-// 5. Sync Button (PRESERVED)
-document.getElementById("syncBtn").onclick = async () => {
-    const cid = document.getElementById("companySelect").value;
-    const btn = document.getElementById("syncBtn");
-    if (!cid) return;
-    btn.disabled = true;
-    btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Syncing...`;
-    try {
-        const res = await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
-        const result = await res.json();
-        setTimeout(() => {
-            triggerAllLoads();
-            btn.disabled = false;
-            btn.innerHTML = "Sync Live Data";
-            alert(`Sync Complete! Found ${result.reviews_count || 0} reviews.`);
-        }, 1500);
-    } catch (e) {
-        alert("Sync failed. Check server logs.");
-        btn.disabled = false;
-        btn.innerHTML = "Sync Live Data";
-    }
-};
-
-// 6. Add Company Form (PRESERVED)
-document.getElementById('addCompanyForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const payload = {
-        name: document.getElementById('companyName').value,
-        place_id: document.getElementById('placeId').value,
-        address: document.getElementById('companyAddress').value
-    };
-    if (!payload.place_id) {
-        alert("Please search and select a business first.");
-        return;
-    }
-    try {
-        const res = await fetch('/api/companies', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        });
-        if (res.ok) {
-            alert("Business Linked Successfully!");
-            location.reload();
-        } else {
-            const error = await res.json();
-            alert("Error: " + (error.detail || "Unknown error"));
-        }
-    } catch (e) { 
-        console.error("Save Failed:", e);
-        alert("Network error. Please try again.");
-    }
-};
-
-// 7. AI Chat Integration (PRESERVED - Uses DeepSeek via backend)
+// ===================== CHAT =====================
 document.getElementById("chatBtn").onclick = async () => {
-    const input = document.getElementById("chatInput");
-    const msg = input.value.trim();
-    const cid = document.getElementById("companySelect").value;
-    if(!msg || !cid) return;
 
-    const win = document.getElementById("chatWindow");
-    win.innerHTML += `<div class="chat-msg chat-user">${escapeHtml(msg)}</div>`;
-    input.value = "";
-    win.scrollTop = win.scrollHeight;
+    const msg = chatInput.value;
+    const cid = companySelect.value;
 
-    // Show typing indicator
-    win.innerHTML += `<div class="chat-msg chat-ai" id="typingIndicator"><em>AI is thinking...</em></div>`;
-    win.scrollTop = win.scrollHeight;
+    const res = await fetch(`/api/dashboard/chat?company_id=${cid}`, {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({message: msg})
+    });
 
-    try {
-        const res = await fetch(`/api/dashboard/chat?company_id=${cid}`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ message: msg })
-        });
-        const data = await res.json();
-        
-        // Remove typing indicator
-        const typingIndicator = document.getElementById("typingIndicator");
-        if (typingIndicator) typingIndicator.remove();
-        
-        win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Expert:</strong> ${escapeHtml(data.answer)}</div>`;
-        win.scrollTop = win.scrollHeight;
-    } catch (e) {
-        const typingIndicator = document.getElementById("typingIndicator");
-        if (typingIndicator) typingIndicator.remove();
-        win.innerHTML += `<div class="chat-msg chat-ai text-danger">Error connecting to AI. Please try again.</div>`;
-        win.scrollTop = win.scrollHeight;
-    }
+    const data = await res.json();
+
+    chatWindow.innerHTML += `
+        <div class="chat-msg chat-user">${msg}</div>
+        <div class="chat-msg chat-ai">${data.answer}</div>
+    `;
 };
 
-// 8. Theme Toggle (PRESERVED)
-document.getElementById("toggleTheme").onclick = () => {
-    const current = document.documentElement.getAttribute("data-theme");
-    const target = current === "light" ? "dark" : "light";
-    document.documentElement.setAttribute("data-theme", target);
-};
-
-// Initial Setup
+// ===================== INIT =====================
 document.addEventListener("DOMContentLoaded", () => {
     loadCompanies();
-    initGoogleAutocomplete();
 });
 </script>
+
 </body>
 </html>
