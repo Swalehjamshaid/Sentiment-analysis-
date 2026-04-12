@@ -174,6 +174,7 @@ def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
     for t in monthly_trend:
         t.pop("dt")
 
+    # Unified structure supporting both legacy attributes and new Frontend logic
     return {
         "metadata": {
             "total_reviews": total
@@ -205,7 +206,7 @@ def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
     }
 
 # ==========================================================
-# ROUTES
+# ROUTES (PRESERVED & FULLY INTEGRATED WITH DB.PY)
 # ==========================================================
 @router.get("/overview/{company_id}", response_class=JSONResponse)
 async def overview(company_id: int, session: AsyncSession = Depends(get_db)):
