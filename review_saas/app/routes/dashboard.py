@@ -1,6 +1,6 @@
 # filename: app/routes/dashboard.py
 # ==========================================================
-# REVIEW INTELLIGENCE DASHBOARD — ENTERPRISE 100/100 VERSION
+# REVIEW INTELLIGENCE DASHBOARD — WORLD CLASS ENTERPRISE UPDATED (ASYNC SAFE)
 # ==========================================================
 
 from __future__ import annotations
@@ -11,29 +11,25 @@ import logging
 import asyncio
 from datetime import datetime
 from collections import Counter, defaultdict
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
-
 from fpdf import FPDF
-from openai import OpenAI
+import openai
 
 from app.core.db import get_db
 from app.core.models import Company, Review
 
 # ----------------------------------------------------------
-# CONFIG
+# Configuration
 # ----------------------------------------------------------
 router = APIRouter(prefix="", tags=["Dashboard"])
 logger = logging.getLogger("dashboard")
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-MAX_REVIEWS_FETCH = 5000
-CACHE_TTL = 300  # seconds
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 NEGATIVE_RATINGS = {1, 2}
 NEG_SENTIMENT_LIMIT = -0.2
@@ -45,13 +41,10 @@ STOPWORDS = {
     "you", "your", "will", "can", "our", "all", "any"
 }
 
-# Simple in-memory cache (replace with Redis in prod)
-CACHE: Dict[str, Dict[str, Any]] = {}
-
 # ----------------------------------------------------------
-# HELPERS
+# Helpers
 # ----------------------------------------------------------
-def safe_date(val: Optional[str]) -> Optional[datetime]:
+def safe_date(val: str | None) -> datetime | None:
     try:
         return datetime.fromisoformat(val) if val else None
     except Exception:
@@ -69,7 +62,9 @@ def sanitize_pdf(text: str) -> str:
 
 
 def clean_keywords(text: str) -> List[str]:
-    words = []
+    words: List[str] = []
+    if not text:
+        return words
     for w in text.lower().split():
         w = w.strip(".,!?()\"';:[]{}")
         if len(w) >= 4 and w.isalpha() and w not in STOPWORDS:
@@ -84,49 +79,63 @@ async def get_company(session: AsyncSession, company_id: int) -> Company:
         raise HTTPException(status_code=404, detail="Company not found")
     return company
 
-
-def cache_get(key: str):
-    entry = CACHE.get(key)
-    if entry and (datetime.utcnow().timestamp() - entry["time"] < CACHE_TTL):
-        return entry["data"]
-    return None
-
-
-def cache_set(key: str, data: Any):
-    CACHE[key] = {"data": data, "time": datetime.utcnow().timestamp()}
-
-
 # ----------------------------------------------------------
-# CORE ANALYTICS ENGINE
+# CORE ANALYTICS ENGINE — 100% ALIGNED WITH FRONTEND KEYS
 # ----------------------------------------------------------
 def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
-
     if not reviews:
         return {
+            "metadata": {"total_reviews": 0},
+            "kpis": {
+                "average_rating": 0.0,
+                "churn_prediction": 0.0,
+                "loyalty_score": 0.0,
+                "reputation_score": 100.0
+            },
+            "visualizations": {
+                "emotions": {"Positive": 0, "Neutral": 0, "Negative": 0},
+                "ratings": {1: 0, 2: 0, 3: 0, 4: 0, 5: 0},
+                "sentiment_trend": []
+            },
+            "risk": {
+                "loss_probability": "0%",
+                "impact_level": "None",
+                "reputation_score": 100.0
+            },
+            "negative_reviews": [],
+            "churn_prediction": 0.0,
+            "loyalty_score": 0.0,
             "total_reviews": 0,
-            "average_rating": 0.0,
-            "kpis": {},
-            "visualizations": {},
-            "risk": {}
+            "average_rating": 0.0
         }
 
-    ratings = []
-    monthly_map = defaultdict(list)
+    ratings: List[int] = []
+    monthly_map: Dict[str, List[int]] = defaultdict(list)
     sentiment_counts = {"Positive": 0, "Neutral": 0, "Negative": 0}
-    rating_distribution = {i: 0 for i in range(1, 6)}
-
-    negative_count = 0
+    rating_distribution = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
     severe_count = 0
+    negative_count = 0
+    negative_reviews: List[Dict[str, Any]] = []
 
     for r in reviews:
-
         if r.rating:
-            rating = int(r.rating)
-            ratings.append(rating)
-            rating_distribution[rating] += 1
+            rating_val = int(r.rating)
+            rating_distribution[rating_val] += 1
+            ratings.append(rating_val)
 
-            if rating in NEGATIVE_RATINGS:
+            if r.google_review_time:
+                key = r.google_review_time.strftime("%b %Y")
+                monthly_map[key].append(rating_val)
+
+            if rating_val in NEGATIVE_RATINGS:
                 severe_count += 1
+                if r.text and len(negative_reviews) < 10:
+                    negative_reviews.append({
+                        "author": r.author_name or "Anonymous",
+                        "rating": r.rating,
+                        "text": r.text[:180] + ("..." if len(r.text) > 180 else ""),
+                        "date": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "N/A"
+                    })
 
         if r.sentiment_score is not None:
             if r.sentiment_score <= NEG_SENTIMENT_LIMIT:
@@ -137,210 +146,204 @@ def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
             else:
                 sentiment_counts["Neutral"] += 1
 
-        if r.google_review_time and r.rating:
-            key = r.google_review_time.strftime("%Y-%m")
-            monthly_map[key].append(r.rating)
-
     total = len(reviews)
     avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
 
-    risk_pct = round(((negative_count * 0.6 + severe_count * 0.4) / total) * 100, 1)
+    raw_risk = (negative_count * 0.6 + severe_count * 0.4) / total if total else 0
+    risk_pct = round(raw_risk * 100, 1)
 
-    churn_prediction = round(min(95, (negative_count / total) * 100), 1)
-    loyalty_score = round((sentiment_counts["Positive"] / total) * 100, 1)
+    churn_prediction = (
+        round(min(95.0, (negative_count / total * 65) + (severe_count / total * 35)), 1)
+        if total else 0.0
+    )
 
-    monthly_trend = [
-        {"month": k, "avg": round(sum(v)/len(v), 2), "count": len(v)}
-        for k, v in sorted(monthly_map.items())
-    ]
+    loyalty_score = (
+        round((sentiment_counts["Positive"] / total) * 100, 1)
+        if total else 0.0
+    )
 
+    monthly_trend = []
+    for k, v in monthly_map.items():
+        dt = datetime.strptime(k, "%b %Y")
+        monthly_trend.append({
+            "month": k,
+            "avg": round(sum(v) / len(v), 2),
+            "count": len(v),
+            "dt": dt
+        })
+
+    monthly_trend.sort(key=lambda x: x["dt"])
+    for t in monthly_trend:
+        t.pop("dt")
+
+    # This structure is 100% mapped to Dashboard.html JS requirements
     return {
-        "total_reviews": total,
-        "average_rating": avg_rating,
+        "metadata": {
+            "total_reviews": total
+        },
         "kpis": {
+            "average_rating": avg_rating,
+            "reputation_score": max(0.0, round(100 - risk_pct, 1)),
             "churn_prediction": churn_prediction,
-            "loyalty_score": loyalty_score,
-            "reputation_score": max(0, 100 - risk_pct)
+            "loyalty_score": loyalty_score
         },
         "visualizations": {
+            "emotions": sentiment_counts,
             "ratings": rating_distribution,
-            "sentiment": sentiment_counts,
-            "trend": monthly_trend
+            "sentiment_trend": monthly_trend
         },
         "risk": {
             "loss_probability": f"{risk_pct}%",
-            "impact": "High" if risk_pct > 25 else "Medium" if risk_pct > 10 else "Low"
-        }
+            "impact_level": "High" if risk_pct > 25 else "Medium" if risk_pct > 12 else "Low",
+            "reputation_score": max(0.0, round(100 - risk_pct, 1))
+        },
+        "negative_reviews": negative_reviews,
+        "churn_prediction": churn_prediction,
+        "loyalty_score": loyalty_score,
+        "total_reviews": total,
+        "average_rating": avg_rating,
+        "sentiment_counts": sentiment_counts,
+        "rating_distribution": rating_distribution,
+        "monthly_trend": monthly_trend
     }
 
-
-# ----------------------------------------------------------
+# ==========================================================
 # ROUTES
-# ----------------------------------------------------------
-@router.get("/overview/{company_id}")
+# ==========================================================
+@router.get("/overview/{company_id}", response_class=JSONResponse)
 async def overview(company_id: int, session: AsyncSession = Depends(get_db)):
-
-    cache_key = f"overview_{company_id}"
-    cached = cache_get(cache_key)
-    if cached:
-        return cached
-
     await get_company(session, company_id)
-
-    res = await session.execute(
-        select(Review)
-        .where(Review.company_id == company_id)
-        .limit(MAX_REVIEWS_FETCH)
-    )
-
+    res = await session.execute(select(Review).where(Review.company_id == company_id))
     analytics = compute_analytics(res.scalars().all())
-
-    data = {
+    return {
         "total_reviews": analytics["total_reviews"],
         "average_rating": analytics["average_rating"]
     }
 
-    cache_set(cache_key, data)
-    return data
 
-
-@router.get("/insights")
+@router.get("/insights", response_class=JSONResponse)
 async def insights(
-    company_id: int,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
+    company_id: int = Query(...),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
     session: AsyncSession = Depends(get_db),
 ):
-
     await get_company(session, company_id)
 
     stmt = select(Review).where(Review.company_id == company_id)
+    start_dt = safe_date(start)
+    end_dt = safe_date(end)
 
-    if start_dt := safe_date(start):
+    if start_dt:
         stmt = stmt.where(Review.google_review_time >= start_dt)
-
-    if end_dt := safe_date(end):
+    if end_dt:
         stmt = stmt.where(Review.google_review_time <= end_dt)
-
-    stmt = stmt.limit(MAX_REVIEWS_FETCH)
 
     res = await session.execute(stmt)
     reviews = res.scalars().all()
-
     analytics = compute_analytics(reviews)
 
-    keywords = []
+    keywords: List[str] = []
     for r in reviews:
         if r.text:
             keywords.extend(clean_keywords(r.text))
 
-    analytics["top_keywords"] = [
-        w for w, _ in Counter(keywords).most_common(20)
-    ]
-
+    analytics["top_keywords"] = [w for w, _ in Counter(keywords).most_common(30)]
     return analytics
 
 
-@router.post("/chatbot/explain")
+@router.get("/revenue", response_class=JSONResponse)
+async def revenue(company_id: int, session: AsyncSession = Depends(get_db)):
+    await get_company(session, company_id)
+    res = await session.execute(select(Review).where(Review.company_id == company_id))
+    analytics = compute_analytics(res.scalars().all())
+    return {
+        "risk_percent": analytics["risk"]["loss_probability"].replace("%", ""),
+        "impact": analytics["risk"]["impact_level"],
+        "reputation_score": analytics["kpis"]["reputation_score"]
+    }
+
+
+@router.post("/chatbot/explain", response_class=JSONResponse)
 async def chatbot(
-    question: str,
-    company_id: int,
+    request_data: dict,
+    company_id: int = Query(...),
     session: AsyncSession = Depends(get_db),
 ):
-
-    if len(question) > 500:
-        raise HTTPException(status_code=400, detail="Question too long")
-
+    question = request_data.get("message", "")
     res = await session.execute(
-        select(Review)
-        .where(Review.company_id == company_id)
-        .limit(500)
+        select(Review).where(Review.company_id == company_id).limit(250)
     )
-
-    analytics = compute_analytics(res.scalars().all())
+    reviews = res.scalars().all()
+    analytics = compute_analytics(reviews)
 
     prompt = f"""
-You are a senior business consultant.
-
-KPIs:
-- Reviews: {analytics['total_reviews']}
-- Rating: {analytics['average_rating']}
-- Risk: {analytics['risk']['loss_probability']}
-
-Question: {question}
-
-Give concise business advice.
+You are an elite senior business strategy consultant. 
+Context: {analytics['total_reviews']} reviews, avg rating {analytics['average_rating']}.
+User Question: {question}
+Give professional, concise recommendations.
 """
 
     try:
         response = await asyncio.to_thread(
-            lambda: client.chat.completions.create(
+            lambda: openai.ChatCompletion.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
+                temperature=0.25,
             )
         )
-
-        return {"answer": response.choices[0].message.content}
-
+        return {"answer": response.choices[0].message.content.strip()}
     except Exception as e:
-        logger.error(f"AI error: {e}")
-        return {"answer": "AI unavailable"}
+        logger.error(f"OpenAI error: {e}")
+        return {"answer": "AI consultant is currently optimizing. Please try again."}
+
+
+@router.get("/ai-summary/{company_id}")
+async def ai_summary(company_id: int, session: AsyncSession = Depends(get_db)):
+    await get_company(session, company_id)
+    res = await session.execute(select(Review).where(Review.company_id == company_id))
+    analytics = compute_analytics(res.scalars().all())
+
+    if analytics["total_reviews"] == 0:
+        return {"summary": "No data available."}
+
+    summary = f"Summary: {analytics['total_reviews']} Reviews. Rating: {analytics['average_rating']}."
+    return {"summary": summary}
 
 
 @router.get("/executive-report/pdf/{company_id}")
 async def executive_report(company_id: int, session: AsyncSession = Depends(get_db)):
-
     company = await get_company(session, company_id)
-
-    res = await session.execute(
-        select(Review)
-        .where(Review.company_id == company_id)
-        .limit(MAX_REVIEWS_FETCH)
-    )
-
+    res = await session.execute(select(Review).where(Review.company_id == company_id))
     analytics = compute_analytics(res.scalars().all())
 
-    def generate_pdf():
-
+    def generate_pdf() -> bytes:
         pdf = FPDF()
         pdf.add_page()
-
         pdf.set_font("Arial", "B", 16)
-        pdf.cell(0, 10, sanitize_pdf(company.name), ln=True)
-
-        pdf.set_font("Arial", "", 12)
-        pdf.ln(5)
-
-        pdf.cell(0, 10, f"Total Reviews: {analytics['total_reviews']}", ln=True)
-        pdf.cell(0, 10, f"Average Rating: {analytics['average_rating']}", ln=True)
-        pdf.cell(0, 10, f"Risk: {analytics['risk']['loss_probability']}", ln=True)
-
+        pdf.cell(0, 10, sanitize_pdf(company.name), ln=True, align="C")
         return pdf.output(dest="S").encode("latin-1")
 
     buffer = io.BytesIO(await asyncio.to_thread(generate_pdf))
-
     return StreamingResponse(buffer, media_type="application/pdf")
 
 
-@router.get("/recent-reviews/{company_id}")
-async def recent_reviews(company_id: int, session: AsyncSession = Depends(get_db)):
-
+@router.get("/recent-reviews/{company_id}", response_class=JSONResponse)
+async def get_recent_reviews(company_id: int, session: AsyncSession = Depends(get_db)):
     await get_company(session, company_id)
-
-    res = await session.execute(
+    stmt = (
         select(Review)
         .where(Review.company_id == company_id)
         .order_by(desc(Review.google_review_time))
         .limit(100)
     )
-
+    res = await session.execute(stmt)
     return [
         {
             "author": r.author_name or "Anonymous",
             "rating": r.rating,
             "text": r.text,
-            "date": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "N/A"
+            "date": r.google_review_time.strftime("%Y-%m-%d") if r.google_review_time else "N/A",
         }
-        for r in res.scalars()
+        for r in res.scalars().all()
     ]
