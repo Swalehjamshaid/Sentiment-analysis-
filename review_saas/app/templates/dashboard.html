@@ -16,70 +16,148 @@
             --primary-grad: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
             --ai-grad: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
             --danger-grad: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            --glass: rgba(255,255,255,0.95);
+            --glass: rgba(255, 255, 255, 0.94);
+            --transition-main: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        body {
-            background: linear-gradient(145deg, #f8fafc 0%, #e0e7ff 100%);
-            font-family: 'Inter', system_ui, sans-serif;
-            color: #1e2937;
-            min-height: 100vh;
-            padding: 20px;
-        }
-        .navbar { background: var(--primary-grad) !important; border-radius: 20px; box-shadow: 0 15px 30px -10px rgba(99,102,241,0.4); }
-        .card {
-            border: none;
-            border-radius: 24px;
-            box-shadow: 0 10px 30px -8px rgba(0,0,0,0.1);
-            background: var(--glass);
-            backdrop-filter: blur(16px);
-            transition: all 0.4s ease;
-        }
-        .card:hover { transform: translateY(-6px); box-shadow: 0 20px 40px -12px rgba(0,0,0,0.15); }
-        .section-header {
-            background: linear-gradient(90deg, #7c3aed, #a855f7);
-            color: white;
-            padding: 12px 24px;
-            border-radius: 12px 12px 0 0;
-            font-weight: 600;
-        }
-        .kpi-value { font-family: 'Space Grotesk', sans-serif; font-size: 2.9rem; font-weight: 700; line-height: 1; }
-        .chart-wrapper { height: 310px; padding: 15px; }
-        .keyword-badge {
-            background: white;
-            border: 1px solid #e2e8f0;
-            padding: 10px 20px;
-            border-radius: 9999px;
-            font-weight: 500;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-        }
-        .alert-item {
-            background: #fee2e2;
-            border-left: 4px solid #ef4444;
-            padding: 12px;
-            margin-bottom: 10px;
-            border-radius: 8px;
-        }
-        .total-review-card { background: var(--primary-grad) !important; }
-        .risk-card { background: var(--danger-grad) !important; }
         
-        #chatWindow { height: 350px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-        .chat-msg { padding: 12px 18px; border-radius: 18px; max-width: 85%; font-size: 0.95rem; }
-        .chat-ai { background: #f1f5f9; align-self: flex-start; border-bottom-left-radius: 4px; }
+        body {
+            background: radial-gradient(circle at top right, #f8fafc, #eef2ff);
+            font-family: 'Inter', system_ui, -apple-system, sans-serif;
+            color: #1e293b;
+            min-height: 100vh;
+            padding: 24px;
+            transition: var(--transition-main);
+        }
+        
+        /* Premium Navigation Styling */
+        .navbar { 
+            background: var(--primary-grad) !important; 
+            border-radius: 24px; 
+            box-shadow: 0 20px 25px -5px rgba(99, 102, 241, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 24px;
+        }
+        
+        /* Modern Glassmorphism Cards */
+        .card {
+            border: 1px solid rgba(0, 0, 0, 0.04);
+            border-radius: 28px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            background: var(--glass);
+            backdrop-filter: blur(20px);
+            transition: var(--transition-main);
+        }
+        
+        .card:hover { 
+            transform: translateY(-6px); 
+            box-shadow: 0 25px 40px -12px rgba(0, 0, 0, 0.08); 
+        }
+        
+        .section-header {
+            background: linear-gradient(90deg, #6366f1, #a855f7);
+            color: white;
+            padding: 14px 28px;
+            border-radius: 20px 20px 0 0;
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        /* Typography Polish */
+        .kpi-value { 
+            font-family: 'Space Grotesk', sans-serif; 
+            font-size: 3.2rem; 
+            font-weight: 700; 
+            line-height: 1; 
+            letter-spacing: -1px;
+        }
+        
+        .chart-wrapper { height: 310px; padding: 15px; }
+        
+        .keyword-badge {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            padding: 12px 24px;
+            border-radius: 100px;
+            font-weight: 600;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+            transition: var(--transition-main);
+        }
+        
+        .keyword-badge:hover {
+            color: #6366f1;
+            border-color: #6366f1;
+            transform: scale(1.05);
+        }
+        
+        .alert-item {
+            background: #fff1f2;
+            border-left: 5px solid #ef4444;
+            padding: 16px;
+            margin-bottom: 12px;
+            border-radius: 12px;
+            transition: var(--transition-main);
+        }
+        
+        .alert-item:hover { transform: translateX(4px); }
+        
+        /* Semantic Card Variations */
+        .total-review-card { background: var(--primary-grad) !important; color: white !important; }
+        .risk-card { background: var(--danger-grad) !important; color: white !important; }
+        
+        /* Intelligence Consultant (Chat) */
+        #chatWindow { 
+            height: 380px; 
+            overflow-y: auto; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 12px; 
+            scrollbar-width: thin;
+        }
+        
+        .chat-msg { 
+            padding: 14px 18px; 
+            border-radius: 20px; 
+            max-width: 88%; 
+            font-size: 0.95rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+        }
+        
+        .chat-ai { background: #f8fafc; align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid #e2e8f0; }
         .chat-user { background: #6366f1; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
         
-        .btn-pill { border-radius: 50px; font-weight: 600; }
-        .review-table-container { max-height: 500px; overflow-y: auto; }
-        .star-rating { color: #f59e0b; }
+        .btn-pill { border-radius: 100px; font-weight: 600; padding: 10px 24px; transition: var(--transition-main); }
+        .review-table-container { max-height: 520px; overflow-y: auto; scrollbar-width: thin; }
+        .star-rating { color: #fbbf24; font-size: 1rem; }
+        
+        /* Form Element Polish */
+        .form-control, .form-select {
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            transition: var(--transition-main);
+        }
+        
+        .form-control:focus, .form-select:focus {
+            border-color: #6366f1;
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+        }
 
-        [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
-        [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
+        /* Dark Mode Optimization */
+        [data-theme="dark"] { background: #020617; color: #f8fafc; }
+        [data-theme="dark"] .card, [data-theme="dark"] .bg-white { 
+            background: #0f172a !important; 
+            border-color: rgba(255, 255, 255, 0.05);
+            color: #f8fafc; 
+        }
+        [data-theme="dark"] .section-header { opacity: 0.9; }
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark p-4">
+    <nav class="navbar navbar-expand-lg navbar-dark p-3">
         <div class="container-fluid">
             <span class="navbar-brand fw-bold fs-3 d-flex align-items-center">
-                <i class="bi bi-robot me-3 fs-1"></i>Review Intel AI
+                <i class="bi bi-robot me-3 fs-1 text-white"></i>Review Intel AI
             </span>
             <div class="d-flex gap-3 align-items-center">
                 {% set user = request.session.get("user") %}
@@ -89,13 +167,13 @@
                 </span>
                 {% endif %}
                 
-                <button onclick="downloadReport()" class="btn btn-light btn-pill d-flex align-items-center gap-2 px-4 py-2">
-                    <i class="bi bi-file-earmark-pdf"></i> Executive Report
+                <button onclick="downloadReport()" class="btn btn-light btn-pill d-flex align-items-center gap-2 px-4 py-2 border-0 shadow-sm">
+                    <i class="bi bi-file-earmark-pdf-fill text-danger"></i> Report
                 </button>
-                <button class="btn btn-success btn-pill d-flex align-items-center gap-2 px-4 py-2" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
-                    <i class="bi bi-plus-circle"></i> Add Business
+                <button class="btn btn-success btn-pill d-flex align-items-center gap-2 px-4 py-2 border-0 shadow-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+                    <i class="bi bi-plus-lg"></i> Add Business
                 </button>
-                <button id="toggleTheme" class="btn btn-light btn-pill px-4"><i class="bi bi-moon-stars"></i></button>
+                <button id="toggleTheme" class="btn btn-light btn-pill px-4 border-0 shadow-sm"><i class="bi bi-moon-stars-fill text-primary"></i></button>
                 
                 <form action="/api/auth/logout" method="get" class="m-0">
                     <button class="btn btn-outline-light btn-pill px-4">Logout</button>
@@ -104,24 +182,24 @@
         </div>
     </nav>
 
-    <div class="container-fluid mt-4">
-        <div class="row g-4 mb-5 p-5 bg-white rounded-5 shadow-sm">
+    <div class="container-fluid">
+        <div class="row g-4 mb-5 p-5 bg-white rounded-5 shadow-sm border">
             <div class="col-lg-3">
-                <label class="form-label fw-semibold text-muted small">ACTIVE BUSINESS</label>
+                <label class="form-label fw-bold text-primary small">ACTIVE BUSINESS UNIT</label>
                 <select id="companySelect" class="form-select py-3 shadow-none"></select>
             </div>
             <div class="col-lg-2">
-                <label class="form-label fw-semibold text-muted small">START DATE</label>
+                <label class="form-label fw-bold text-primary small">STARTING DATE</label>
                 <input id="startDate" type="date" class="form-control py-3 shadow-none">
             </div>
             <div class="col-lg-2">
-                <label class="form-label fw-semibold text-muted small">END DATE</label>
+                <label class="form-label fw-bold text-primary small">ENDING DATE</label>
                 <input id="endDate" type="date" class="form-control py-3 shadow-none">
             </div>
             <div class="col-lg-5">
                 <div class="d-flex gap-3 h-100 align-items-end">
                     <button id="loadBtn" onclick="triggerAllLoads()" class="btn btn-primary flex-fill btn-pill py-3">
-                        <i class="bi bi-graph-up me-2"></i> ANALYZE BUSINESS
+                        <i class="bi bi-cpu-fill me-2"></i> ANALYZE BUSINESS
                     </button>
                     <button id="syncBtn" class="btn btn-success flex-fill btn-pill py-3">
                         <i class="bi bi-arrow-repeat me-2"></i> SYNC LIVE DATA
@@ -132,7 +210,7 @@
 
         <div class="row g-4 mb-5 text-center">
             <div class="col-md-3">
-                <div class="card total-review-card p-5 h-100 text-white">
+                <div class="card total-review-card p-5 h-100">
                     <div class="text-uppercase small fw-bold opacity-75">TOTAL REVIEWS</div>
                     <div id="kpiTotal" class="kpi-value mt-2">0</div>
                     <div class="small opacity-75 mt-2">Loyalty Score: <span id="loyaltyScore">0%</span></div>
@@ -140,25 +218,25 @@
             </div>
             <div class="col-md-3">
                 <div class="card p-5 h-100">
-                    <div class="text-muted fw-semibold">AVERAGE RATING</div>
+                    <div class="text-muted fw-bold small">AVERAGE RATING</div>
                     <div id="kpiRating" class="kpi-value mt-2 text-primary">—</div>
                     <div class="text-muted small mt-2">Industry Baseline: 4.0</div>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="card p-5 h-100">
-                    <div class="text-muted fw-semibold">CHURN PREDICTION</div>
+                    <div class="text-muted fw-bold small">CHURN PREDICTION</div>
                     <div id="churnScore" class="kpi-value mt-2 text-danger">0%</div>
                     <div class="text-muted small mt-2">Probability of Exit</div>
                 </div>
             </div>
             <div class="col-md-3">
-                <div class="card risk-card p-5 h-100 text-white">
+                <div class="card risk-card p-5 h-100">
                     <div class="small fw-bold opacity-75 text-uppercase mb-3">REVENUE RISK MONITOR</div>
                     <div class="row text-center g-2">
-                        <div class="col-4"><small class="opacity-75 d-block small">Loss %</small><div id="riskPct" class="h5 fw-bold">—</div></div>
-                        <div class="col-4"><small class="opacity-75 d-block small">Impact</small><div id="riskImpact" class="h5 fw-bold">—</div></div>
-                        <div class="col-4"><small class="opacity-75 d-block small">Rep Score</small><div id="riskSentiment" class="h5 fw-bold">—</div></div>
+                        <div class="col-4"><small class="opacity-75 d-block text-xs">Loss %</small><div id="riskPct" class="h5 fw-bold mb-0">—</div></div>
+                        <div class="col-4"><small class="opacity-75 d-block text-xs">Impact</small><div id="riskImpact" class="h5 fw-bold mb-0">—</div></div>
+                        <div class="col-4"><small class="opacity-75 d-block text-xs">Rep Score</small><div id="riskSentiment" class="h5 fw-bold mb-0">—</div></div>
                     </div>
                 </div>
             </div>
@@ -170,7 +248,7 @@
                     <div class="col-12">
                         <div class="section-header">REVENUE RISK HEATMAP (LOSS PROBABILITY)</div>
                         <div class="card border-top-0 p-5 text-center">
-                            <div id="riskGauge" class="display-1 fw-bold text-danger mb-2">0%</div>
+                            <div id="riskGauge" class="display-1 fw-bold text-danger mb-2" style="font-size: 5rem; letter-spacing: -3px;">0%</div>
                             <p id="riskGaugeLabel" class="text-muted fw-semibold">Calculated Revenue Leakage Based on Sentiment Trends</p>
                         </div>
                     </div>
@@ -192,7 +270,7 @@
 
                     <div class="col-12">
                         <div class="section-header">TOP COMPLAINT & PRAISE KEYWORDS</div>
-                        <div id="keywordContainer" class="card border-top-0 p-5 d-flex flex-wrap gap-3 justify-content-center"></div>
+                        <div id="keywordContainer" class="card border-top-0 p-5 d-flex flex-wrap gap-3 justify-content-center bg-light bg-opacity-50"></div>
                     </div>
                 </div>
             </div>
@@ -202,39 +280,39 @@
                 <div class="card border-top-0 h-100">
                     <div class="card-body d-flex flex-column p-4">
                         <div id="chatWindow" class="flex-grow-1 mb-4">
-                            <div class="chat-msg chat-ai"><strong>AI Expert:</strong> Analysis engine ready. Select a company to begin strategic review.</div>
+                            <div class="chat-msg chat-ai"><strong>AI Intelligence:</strong> Strategic engine ready. Select a company to begin context-aware analysis.</div>
                         </div>
-                        <div class="input-group">
-                            <input id="chatInput" type="text" class="form-control py-3 shadow-none" placeholder="Ask about growth strategy...">
-                            <button onclick="askAI()" class="btn btn-primary px-4"><i class="bi bi-send-fill"></i></button>
+                        <div class="input-group bg-white p-1 rounded-pill border">
+                            <input id="chatInput" type="text" class="form-control py-3 border-0 bg-transparent shadow-none" placeholder="Ask a strategic question...">
+                            <button onclick="askAI()" class="btn btn-primary rounded-pill px-4"><i class="bi bi-send-fill"></i></button>
                         </div>
                     </div>
                 </div>
 
                 <div class="mt-4">
                     <div class="section-header">🚨 CRITICAL REPUTATION ALERTS</div>
-                    <div id="negativeAlerts" class="card border-top-0 p-3" style="max-height: 400px; overflow-y: auto;">
-                        <div class="text-center text-muted p-4">No critical alerts detected.</div>
+                    <div id="negativeAlerts" class="card border-top-0 p-4" style="max-height: 400px; overflow-y: auto;">
+                        <div class="text-center text-muted p-4 opacity-50"><i class="bi bi-shield-check fs-1 mb-2 d-block"></i>No critical anomalies detected.</div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="row mt-5">
+        <div class="row mt-5 mb-5">
             <div class="col-12">
                 <div class="section-header">LATEST 100 CUSTOMER INTERACTIONS</div>
                 <div class="card border-top-0 p-4">
                     <div class="review-table-container">
                         <table class="table table-hover align-middle mb-0">
-                            <thead class="sticky-top bg-white">
+                            <thead>
                                 <tr class="text-muted small text-uppercase">
-                                    <th>AUTHOR</th>
+                                    <th class="ps-3">AUTHOR</th>
                                     <th>RATING</th>
-                                    <th>REVIEW</th>
-                                    <th>DATE</th>
+                                    <th>REVIEW ANALYSIS</th>
+                                    <th class="pe-3">TIMESTAMP</th>
                                 </tr>
                             </thead>
-                            <tbody id="recentReviewsList"></tbody>
+                            <tbody id="recentReviewsList" class="border-top-0"></tbody>
                         </table>
                     </div>
                 </div>
@@ -242,34 +320,37 @@
         </div>
     </div>
 
-    <div class="modal fade" id="addCompanyModal" tabindex="-1">
+    <div class="modal fade" id="addCompanyModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
-            <form id="addCompanyForm" class="modal-content shadow-xl border-0 rounded-4">
-                <div class="modal-header bg-success text-white rounded-top-4 p-4">
-                    <h5 class="modal-title fw-bold">Link New Business</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            <form id="addCompanyForm" class="modal-content border-0 rounded-5 overflow-hidden">
+                <div class="modal-header bg-success text-white p-4 border-0">
+                    <h5 class="modal-title fw-bold d-flex align-items-center"><i class="bi bi-node-plus-fill me-2"></i>Link Enterprise Node</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div class="modal-body p-5">
-                    <input id="googleSearchInput" class="form-control form-control-lg mb-4 shadow-sm" placeholder="Search business on Google Maps...">
-                    <div class="p-4 bg-light rounded-4">
+                <div class="modal-body p-5 bg-white">
+                    <div class="mb-4">
+                        <label class="form-label fw-bold text-muted small">LOCATION SEARCH</label>
+                        <input id="googleSearchInput" class="form-control form-control-lg mb-4 shadow-sm" placeholder="Enter business name or Google Place ID...">
+                    </div>
+                    <div class="p-4 bg-light rounded-4 border">
                         <div class="mb-3">
-                            <label class="form-label fw-semibold text-muted small">BUSINESS NAME</label>
-                            <input id="companyName" class="form-control" readonly required>
+                            <label class="form-label fw-bold text-muted small">IDENTIFIED BUSINESS</label>
+                            <input id="companyName" class="form-control bg-white" readonly required>
                         </div>
                         <div class="row">
                             <div class="col-md-6 mb-3">
-                                <label class="form-label fw-semibold text-muted small">PLACE ID</label>
-                                <input id="placeId" class="form-control" readonly required>
+                                <label class="form-label fw-bold text-muted small">UID (PLACE ID)</label>
+                                <input id="placeId" class="form-control bg-white" readonly required>
                             </div>
                             <div class="col-md-6 mb-3">
-                                <label class="form-label fw-semibold text-muted small">ADDRESS</label>
-                                <input id="companyAddress" class="form-control" readonly required>
+                                <label class="form-label fw-bold text-muted small">VERIFIED ADDRESS</label>
+                                <input id="companyAddress" class="form-control bg-white" readonly required>
                             </div>
                         </div>
                     </div>
                 </div>
-                <div class="modal-footer border-0 p-4">
-                    <button type="submit" id="saveCompanyBtn" class="btn btn-success w-100 btn-pill py-3 fw-bold shadow-sm">SAVE ENTERPRISE</button>
+                <div class="modal-footer border-0 p-4 bg-white">
+                    <button type="submit" id="saveCompanyBtn" class="btn btn-success w-100 btn-pill py-3 fw-bold shadow-sm">SAVE ENTITY</button>
                 </div>
             </form>
         </div>
@@ -279,6 +360,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
+        // Stability: Defensive state management
         let chartInstances = {};
 
         const API = {
@@ -302,13 +384,17 @@
             if (!cid) return;
 
             const btn = document.getElementById("loadBtn");
+            const originalContent = btn.innerHTML;
             btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span> ANALYZING...`;
             btn.disabled = true;
 
             try {
+                const startDate = document.getElementById("startDate").value || "";
+                const endDate = document.getElementById("endDate").value || "";
+
                 const [overRes, insRes, revRes] = await Promise.all([
                     fetch(`${API.overview}/${cid}`).then(r => r.json()),
-                    fetch(`${API.insights}?company_id=${cid}&start=${document.getElementById("startDate").value || ""}&end=${document.getElementById("endDate").value || ""}`).then(r => r.json()),
+                    fetch(`${API.insights}?company_id=${cid}&start=${startDate}&end=${endDate}`).then(r => r.json()),
                     fetch(`${API.revenue}?company_id=${cid}`).then(r => r.json())
                 ]);
 
@@ -329,23 +415,32 @@
 
                 loadRecentReviews(cid);
             } catch (e) {
-                console.error("Critical Load Error:", e);
+                console.error("Dashboard Load Error:", e);
             } finally {
-                btn.innerHTML = `<i class="bi bi-graph-up me-2"></i> ANALYZE BUSINESS`;
+                btn.innerHTML = originalContent;
                 btn.disabled = false;
             }
         }
 
         function renderCharts(data) {
+            const commonOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } };
+
             const ctxRadar = document.getElementById("chartEmotions").getContext('2d');
             if (chartInstances.emotions) chartInstances.emotions.destroy();
             chartInstances.emotions = new Chart(ctxRadar, {
                 type: 'radar',
                 data: {
                     labels: Object.keys(data.sentiment_counts || {}),
-                    datasets: [{ label: 'Intensity', data: Object.values(data.sentiment_counts || {}), backgroundColor: 'rgba(168, 85, 247, 0.25)', borderColor: '#a855f7', borderWidth: 3 }]
+                    datasets: [{ 
+                        label: 'Intensity', 
+                        data: Object.values(data.sentiment_counts || {}), 
+                        backgroundColor: 'rgba(99, 102, 241, 0.2)', 
+                        borderColor: '#6366f1', 
+                        borderWidth: 3,
+                        pointBackgroundColor: '#6366f1'
+                    }]
                 },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+                options: commonOptions
             });
 
             const ctxLine = document.getElementById("chartMonthly").getContext('2d');
@@ -355,9 +450,17 @@
                 type: 'line',
                 data: {
                     labels: trendArray.map(t => t.month),
-                    datasets: [{ label: 'Avg Rating', data: trendArray.map(t => t.avg), borderColor: '#10b981', tension: 0.4, fill: true, backgroundColor: 'rgba(16, 185, 129, 0.1)' }]
+                    datasets: [{ 
+                        label: 'Avg Rating', 
+                        data: trendArray.map(t => t.avg), 
+                        borderColor: '#10b981', 
+                        tension: 0.4, 
+                        fill: true, 
+                        backgroundColor: 'rgba(16, 185, 129, 0.05)',
+                        pointRadius: 4
+                    }]
                 },
-                options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 1, max: 5 } } }
+                options: { ...commonOptions, scales: { y: { min: 1, max: 5 } } }
             });
 
             const ctxBar = document.getElementById("chartRatings").getContext('2d');
@@ -367,26 +470,32 @@
                 type: 'bar',
                 data: {
                     labels: ['1★','2★','3★','4★','5★'],
-                    datasets: [{ label: 'Count', data: [dist[1]||0, dist[2]||0, dist[3]||0, dist[4]||0, dist[5]||0], backgroundColor: '#6366f1', borderRadius: 12 }]
+                    datasets: [{ 
+                        label: 'Count', 
+                        data: [dist[1]||0, dist[2]||0, dist[3]||0, dist[4]||0, dist[5]||0], 
+                        backgroundColor: '#6366f1', 
+                        borderRadius: 12,
+                        barThickness: 30
+                    }]
                 },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+                options: commonOptions
             });
         }
 
         function renderKeywords(keywords) {
-            document.getElementById("keywordContainer").innerHTML = keywords.map(kw => `<span class="keyword-badge shadow-sm">${kw}</span>`).join('');
+            document.getElementById("keywordContainer").innerHTML = (keywords || []).map(kw => `<span class="keyword-badge">${kw}</span>`).join('');
         }
 
         function renderAlerts(alerts) {
             const container = document.getElementById("negativeAlerts");
             if (!alerts || !alerts.length) {
-                container.innerHTML = `<div class="text-center text-muted p-4">No critical alerts. Reputation is healthy.</div>`;
+                container.innerHTML = `<div class="text-center text-muted p-4 opacity-50"><i class="bi bi-shield-check fs-1 mb-2 d-block"></i>No critical anomalies detected.</div>`;
                 return;
             }
             container.innerHTML = alerts.map(r => `
                 <div class="alert-item shadow-sm">
                     <div class="d-flex justify-content-between align-items-center">
-                        <strong class="text-danger">${r.author}</strong>
+                        <strong class="text-danger fw-bold small">${r.author}</strong>
                         <span class="badge bg-danger rounded-pill">${r.rating}★</span>
                     </div>
                     <p class="mb-0 mt-2 small text-dark">${r.text}</p>
@@ -398,15 +507,15 @@
             try {
                 const res = await fetch(`${API.recent}/${cid}`);
                 const data = await res.json();
-                document.getElementById("recentReviewsList").innerHTML = data.map(r => `
+                document.getElementById("recentReviewsList").innerHTML = (data || []).map(r => `
                     <tr>
-                        <td class="fw-bold">${r.author}</td>
-                        <td><span class="star-rating">${'★'.repeat(r.rating || 0)}</span></td>
-                        <td class="small text-muted">${r.text ? r.text.substring(0, 160) + '...' : '—'}</td>
-                        <td class="small fw-semibold">${r.date}</td>
+                        <td class="fw-bold ps-3">${r.author}</td>
+                        <td><span class="star-rating">${'★'.repeat(r.rating || 0)}${'☆'.repeat(5-(r.rating||0))}</span></td>
+                        <td class="small text-muted py-3">${r.text ? r.text.substring(0, 160) + '...' : '—'}</td>
+                        <td class="small fw-semibold pe-3 text-nowrap">${r.date}</td>
                     </tr>
                 `).join('');
-            } catch (e) {}
+            } catch (e) { console.warn("Table sync failure"); }
         }
 
         async function askAI() {
@@ -423,9 +532,9 @@
             try {
                 const res = await fetch(`${API.chat}?question=${encodeURIComponent(msg)}&company_id=${cid}`, { method: 'POST' });
                 const data = await res.json();
-                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI:</strong> ${data.answer}</div>`;
+                win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Agent:</strong> ${data.answer}</div>`;
             } catch (e) {
-                win.innerHTML += `<div class="chat-msg chat-ai text-danger">AI engine offline.</div>`;
+                win.innerHTML += `<div class="chat-msg chat-ai text-danger">Network Exception: Strategic Context Unavailable.</div>`;
             }
             win.scrollTop = win.scrollHeight;
         }
@@ -435,19 +544,29 @@
                 const res = await fetch(API.companies);
                 const list = await res.json();
                 const sel = document.getElementById("companySelect");
-                sel.innerHTML = list.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+                sel.innerHTML = (list || []).map(c => `<option value="${c.id}">${c.name}</option>`).join("");
                 if (sel.options.length > 0) triggerAllLoads();
-            } catch (e) {}
+            } catch (e) { console.error("Entity Registry Failure"); }
         }
 
+        // Stability: Defensive Google Maps initialization
         window.initGoogleAutocomplete = function() {
-            const autocomplete = new google.maps.places.Autocomplete(document.getElementById('googleSearchInput'));
-            autocomplete.addListener('place_changed', () => {
-                const p = autocomplete.getPlace();
-                document.getElementById('companyName').value = p.name || "";
-                document.getElementById('placeId').value = p.place_id || "";
-                document.getElementById('companyAddress').value = p.formatted_address || "";
-            });
+            try {
+                const input = document.getElementById('googleSearchInput');
+                if (!input) return;
+                
+                const autocomplete = new google.maps.places.Autocomplete(input);
+                autocomplete.addListener('place_changed', () => {
+                    const p = autocomplete.getPlace();
+                    if (!p || !p.place_id) return;
+                    
+                    document.getElementById('companyName').value = p.name || "";
+                    document.getElementById('placeId').value = p.place_id || "";
+                    document.getElementById('companyAddress').value = p.formatted_address || "";
+                });
+            } catch (err) {
+                console.error("Google API Interface Error");
+            }
         };
 
         document.getElementById("addCompanyForm").onsubmit = async (e) => {
@@ -463,7 +582,8 @@
                 body: JSON.stringify(payload)
             });
             if (res.ok) {
-                bootstrap.Modal.getInstance(document.getElementById('addCompanyModal')).hide();
+                const modal = bootstrap.Modal.getInstance(document.getElementById('addCompanyModal'));
+                if (modal) modal.hide();
                 loadCompanies();
             }
         };
@@ -472,13 +592,27 @@
             const cid = document.getElementById("companySelect").value;
             if (!cid) return;
             const btn = document.getElementById("syncBtn");
-            btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span>`;
-            await fetch(`${API.sync}/${cid}`, { method: 'POST' });
-            btn.innerHTML = `<i class="bi bi-arrow-repeat me-2"></i> SYNC LIVE DATA`;
-            triggerAllLoads();
+            const original = btn.innerHTML;
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>SYNCING...`;
+            btn.disabled = true;
+            
+            try {
+                await fetch(`${API.sync}/${cid}`, { method: 'POST' });
+                triggerAllLoads();
+            } finally {
+                btn.innerHTML = original;
+                btn.disabled = false;
+            }
         };
 
         window.addEventListener("DOMContentLoaded", loadCompanies);
+        
+        // Dark Mode Logic
+        document.getElementById("toggleTheme").onclick = () => {
+            const html = document.documentElement;
+            const isDark = html.getAttribute("data-theme") === "dark";
+            html.setAttribute("data-theme", isDark ? "light" : "dark");
+        };
     </script>
 </body>
 </html>
