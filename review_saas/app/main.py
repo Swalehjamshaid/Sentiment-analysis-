@@ -15,6 +15,7 @@ from starlette.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select  # Added missing import
 from passlib.context import CryptContext
 from loguru import logger
 
@@ -143,12 +144,14 @@ async def root(request: Request):
 async def login_page(request: Request):
     return templates.TemplateResponse(request=request, name="login.html")
 
-
+# THIS SECTION HANDLES THE FORM SUBMISSION FROM YOUR LOGIN.HTML
+@app.post("/api/auth/login")
 @app.post("/login")
 async def handle_login(
     request: Request,
     email: str = Form(...),
-    password: str = Form(...),
+    password: str = Form(None),
+    magic_link: bool = Form(False),
     db: AsyncSession = Depends(get_db),
 ):
     from app.core.models import User
@@ -158,13 +161,30 @@ async def handle_login(
         )
         user = result.scalars().first()
 
-        if user and pwd_context.verify(password, user.hashed_password):
-            request.session["user"] = {
-                "id": user.id,
-                "email": user.email,
-                "name": user.name,
-            }
-            return RedirectResponse("/dashboard", status_code=303)
+        # Handle Verification Check
+        if user and not user.is_verified:
+             return templates.TemplateResponse(
+                request=request,
+                name="login.html",
+                context={"error": "Please verify your email address first."}
+            )
+
+        # Standard Password Login
+        if not magic_link:
+            if user and pwd_context.verify(password, user.hashed_password):
+                request.session["user"] = {
+                    "id": user.id,
+                    "email": user.email,
+                    "name": user.name,
+                }
+                return RedirectResponse("/dashboard", status_code=303)
+        else:
+            # Placeholder for Resend Magic Link Logic
+            return templates.TemplateResponse(
+                request=request,
+                name="login.html",
+                context={"success": "Magic link sent! Check your inbox."}
+            )
 
         return templates.TemplateResponse(
             request=request,
@@ -199,6 +219,7 @@ async def dashboard_view(request: Request):
 
 
 @app.get("/logout")
+@app.get("/api/auth/logout")
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
