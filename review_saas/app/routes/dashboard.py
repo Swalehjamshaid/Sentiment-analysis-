@@ -78,16 +78,23 @@ async def get_company(session: AsyncSession, company_id: int) -> Company:
     return company
 
 # ----------------------------------------------------------
-# CORE ANALYTICS ENGINE
+# CORE ANALYTICS ENGINE — ALIGNED WITH FRONTEND
 # ----------------------------------------------------------
 def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
     if not reviews:
         return {
-            "total_reviews": 0,
-            "average_rating": 0.0,
-            "sentiment_counts": {"Positive": 0, "Neutral": 0, "Negative": 0},
-            "rating_distribution": {i: 0 for i in range(1, 6)},
-            "monthly_trend": [],
+            "metadata": {"total_reviews": 0},
+            "kpis": {
+                "average_rating": 0.0,
+                "churn_prediction": 0.0,
+                "loyalty_score": 0.0,
+                "reputation_score": 100.0
+            },
+            "visualizations": {
+                "emotions": {"Positive": 0, "Neutral": 0, "Negative": 0},
+                "ratings": {i: 0 for i in range(1, 6)},
+                "sentiment_trend": []
+            },
             "risk": {
                 "loss_probability": "0%",
                 "impact_level": "None",
@@ -95,7 +102,9 @@ def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
             },
             "negative_reviews": [],
             "churn_prediction": 0.0,
-            "loyalty_score": 0.0
+            "loyalty_score": 0.0,
+            "total_reviews": 0,
+            "average_rating": 0.0
         }
 
     ratings: List[int] = []
@@ -108,14 +117,15 @@ def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
 
     for r in reviews:
         if r.rating:
-            rating_distribution[int(r.rating)] += 1
-            ratings.append(int(r.rating))
+            rating_val = int(r.rating)
+            rating_distribution[rating_val] += 1
+            ratings.append(rating_val)
 
             if r.google_review_time:
                 key = r.google_review_time.strftime("%b %Y")
-                monthly_map[key].append(int(r.rating))
+                monthly_map[key].append(rating_val)
 
-            if r.rating in NEGATIVE_RATINGS:
+            if rating_val in NEGATIVE_RATINGS:
                 severe_count += 1
                 if r.text and len(negative_reviews) < 10:
                     negative_reviews.append({
@@ -164,12 +174,22 @@ def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
     for t in monthly_trend:
         t.pop("dt")
 
+    # This structure is now 100% matched to the JS frontend requirements
     return {
-        "total_reviews": total,
-        "average_rating": avg_rating,
-        "sentiment_counts": sentiment_counts,
-        "rating_distribution": rating_distribution,
-        "monthly_trend": monthly_trend,
+        "metadata": {
+            "total_reviews": total
+        },
+        "kpis": {
+            "average_rating": avg_rating,
+            "reputation_score": max(0.0, round(100 - risk_pct, 1)),
+            "churn_prediction": churn_prediction,
+            "loyalty_score": loyalty_score
+        },
+        "visualizations": {
+            "emotions": sentiment_counts,
+            "ratings": rating_distribution,
+            "sentiment_trend": monthly_trend
+        },
         "risk": {
             "loss_probability": f"{risk_pct}%",
             "impact_level": "High" if risk_pct > 25 else "Medium" if risk_pct > 12 else "Low",
@@ -177,11 +197,16 @@ def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
         },
         "negative_reviews": negative_reviews,
         "churn_prediction": churn_prediction,
-        "loyalty_score": loyalty_score
+        "loyalty_score": loyalty_score,
+        "total_reviews": total,
+        "average_rating": avg_rating,
+        "sentiment_counts": sentiment_counts,
+        "rating_distribution": rating_distribution,
+        "monthly_trend": monthly_trend
     }
 
 # ==========================================================
-# ROUTES (ALL PRESERVED)
+# ROUTES
 # ==========================================================
 @router.get("/overview/{company_id}", response_class=JSONResponse)
 async def overview(company_id: int, session: AsyncSession = Depends(get_db)):
@@ -265,6 +290,7 @@ Give professional, concise recommendations tied to revenue impact.
 """
 
     try:
+        # Note: If using openai >= 1.0.0, use client.chat.completions.create instead
         response = await asyncio.to_thread(
             lambda: openai.ChatCompletion.create(
                 model="gpt-4o-mini",
@@ -314,7 +340,8 @@ async def executive_report(company_id: int, session: AsyncSession = Depends(get_
         pdf.set_auto_page_break(auto=True, margin=15)
         pdf.set_font("Arial", "B", 16)
         pdf.cell(0, 10, sanitize_pdf(company.name), ln=True, align="C")
-        return pdf.output(dest="S").encode("utf-8")
+        # You can add more attributes to the PDF here based on 'analytics'
+        return pdf.output(dest="S").encode("latin-1")
 
     buffer = io.BytesIO(await asyncio.to_thread(generate_pdf))
     return StreamingResponse(buffer, media_type="application/pdf")
