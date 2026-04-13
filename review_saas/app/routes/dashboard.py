@@ -44,9 +44,6 @@ logger = logging.getLogger("dashboard")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 
-# Google Places API Key (for reference, used in frontend)
-GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc")
-
 # Sentiment thresholds
 NEGATIVE_RATINGS = {1, 2}
 POSITIVE_RATINGS = {4, 5}
@@ -66,11 +63,11 @@ STOPWORDS = {
 
 # Emotion keywords mapping for enhanced sentiment analysis
 EMOTION_KEYWORDS = {
-    "Joy": ["happy", "great", "amazing", "excellent", "fantastic", "wonderful", "love", "perfect", "awesome", "pleased", "satisfied", "delighted", "enjoy", "beautiful", "best", "nice", "cool", "fantastic"],
+    "Joy": ["happy", "great", "amazing", "excellent", "fantastic", "wonderful", "love", "perfect", "awesome", "pleased", "satisfied", "delighted", "enjoy", "beautiful", "best", "nice", "cool"],
     "Anger": ["angry", "furious", "terrible", "awful", "horrible", "hate", "disgusting", "worst", "frustrated", "annoying", "useless", "waste", "mad", "upset", "irritated", "unacceptable", "poor"],
-    "Sadness": ["sad", "disappointed", "unfortunate", "sorry", "regret", "depressing", "bad experience", "let down", "missed", "unhappy", "gloomy", "heartbreaking", "tear"],
-    "Surprise": ["surprised", "unexpected", "shocked", "amazed", "astonished", "wow", "unbelievable", "remarkable", "stunning", "incredible", "mind blowing"],
-    "Fear": ["worried", "concerned", "scared", "afraid", "nervous", "anxious", "fear", "terrified", "risky", "dangerous", "unsafe", "worrisome"],
+    "Sadness": ["sad", "disappointed", "unfortunate", "sorry", "regret", "depressing", "bad experience", "let down", "missed", "unhappy", "gloomy", "heartbreaking"],
+    "Surprise": ["surprised", "unexpected", "shocked", "amazed", "astonished", "wow", "unbelievable", "remarkable", "stunning", "incredible"],
+    "Fear": ["worried", "concerned", "scared", "afraid", "nervous", "anxious", "fear", "terrified", "risky", "dangerous", "unsafe"],
     "Love": ["love", "adore", "cherish", "appreciate", "grateful", "thankful", "blessed", "heartwarming", "wonderful", "affection", "admire", "respect"]
 }
 
@@ -87,7 +84,7 @@ def safe_date(val: str | None) -> datetime | None:
         return None
 
 def sanitize_pdf(text: str) -> str:
-    """Sanitize text for PDF generation (FDPF compatibility)"""
+    """Sanitize text for PDF generation (FPDF compatibility)"""
     if not text:
         return ""
     replacements = {
@@ -98,7 +95,6 @@ def sanitize_pdf(text: str) -> str:
     }
     for k, v in replacements.items():
         text = text.replace(k, v)
-    # Remove any non-latin1 characters
     text = text.encode('latin-1', errors='ignore').decode('latin-1')
     return text
 
@@ -108,11 +104,9 @@ def extract_keywords(text: str) -> List[str]:
         return []
     
     words: List[str] = []
-    # Remove common punctuation and convert to lowercase
     cleaned = re.sub(r'[^\w\s]', ' ', text.lower())
     
     for w in cleaned.split():
-        # Filter: length >= 4, alphabetic, not a stopword
         if len(w) >= 4 and w.isalpha() and w not in STOPWORDS:
             words.append(w)
     
@@ -130,7 +124,6 @@ def compute_emotion_scores(text: str) -> Dict[str, int]:
         count = 0
         for kw in keywords:
             count += text_lower.count(kw)
-        # Cap at 100, scale by 5 (max 20 occurrences = 100)
         scores[emotion] = min(count * 5, 100)
     
     return scores
@@ -242,14 +235,8 @@ def compute_complete_analytics(
     # Initialize accumulators
     ratings: List[int] = []
     rating_distribution = {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
-    
-    # Weekly trend: key = week_start (YYYY-WW), value = list of sentiment scores
     weekly_trend: Dict[str, List[float]] = defaultdict(list)
-    
-    # Emotion scores accumulator
     emotion_accumulator: Dict[str, List[int]] = defaultdict(list)
-    
-    # Keyword extraction
     all_keywords: List[str] = []
     
     # Counters for risk calculation
@@ -278,25 +265,19 @@ def compute_complete_analytics(
             emotions = compute_emotion_scores(review.text)
             for emotion, score in emotions.items():
                 emotion_accumulator[emotion].append(score)
-            
-            # Extract keywords
             all_keywords.extend(extract_keywords(review.text))
         
         # Weekly trend
         if review.google_review_time:
-            # Group by week
             week_start = review.google_review_time - timedelta(days=review.google_review_time.weekday())
             week_key = week_start.strftime("%Y-%m-%d")
             
-            # Use sentiment_score if available, otherwise approximate from rating
             if review.sentiment_score is not None:
                 weekly_trend[week_key].append(review.sentiment_score)
             elif review.rating is not None:
-                # Convert rating (1-5) to sentiment score (-1 to 1)
                 sent_score = (review.rating - 3) / 2
                 weekly_trend[week_key].append(sent_score)
             
-            # Count recent reviews (last 30 days)
             if review.google_review_time >= thirty_days_ago:
                 recent_count += 1
     
@@ -308,17 +289,15 @@ def compute_complete_analytics(
     for emotion, scores in emotion_accumulator.items():
         avg_emotions[emotion] = round(sum(scores) / len(scores), 1) if scores else 0
     
-    # Ensure all emotions are present
     for emotion in EMOTION_KEYWORDS.keys():
         if emotion not in avg_emotions:
             avg_emotions[emotion] = 0
     
-    # Build sentiment trend (convert sentiment scores to 1-5 scale for frontend)
+    # Build sentiment trend
     sentiment_trend = []
     for week_key in sorted(weekly_trend.keys()):
         scores = weekly_trend[week_key]
         avg_sent_score = sum(scores) / len(scores) if scores else 0
-        # Convert from -1..1 to 1..5 scale
         avg_rating_from_sent = 3 + (avg_sent_score * 2)
         sentiment_trend.append({
             "week": week_key,
@@ -330,7 +309,6 @@ def compute_complete_analytics(
     raw_risk = (negative_count * 0.6 + severe_count * 0.4) / total if total > 0 else 0
     risk_pct = round(raw_risk * 100, 1)
     
-    # Determine impact level
     if risk_pct > 40:
         impact_level = "Critical"
     elif risk_pct > 25:
@@ -361,7 +339,7 @@ def compute_complete_analytics(
             "reputation_score": reputation_score,
             "benchmark": {
                 "your_avg": avg_rating,
-                "industry_avg": 4.2  # Mock industry benchmark
+                "industry_avg": 4.2
             }
         },
         "visualizations": {
@@ -389,20 +367,12 @@ async def get_ai_insights(
     end: Optional[str] = Query(None, description="End date (ISO format)"),
     session: AsyncSession = Depends(get_db)
 ):
-    """
-    MAIN INSIGHTS ENDPOINT
-    Returns all data needed for:
-    - KPIs (total reviews, avg rating, reputation score)
-    - Visualizations (emotions radar, sentiment trend, rating distribution)
-    - Risk metrics
-    - Top keywords
-    """
+    """MAIN INSIGHTS ENDPOINT - Returns all data for KPIs, visualizations, and risk metrics"""
     await get_company(session, company_id)
     
     start_dt = safe_date(start) if start else None
     end_dt = safe_date(end) if end else None
     
-    # Build query
     stmt = select(Review).where(Review.company_id == company_id)
     if start_dt:
         stmt = stmt.where(Review.google_review_time >= start_dt)
@@ -415,19 +385,12 @@ async def get_ai_insights(
     analytics = compute_complete_analytics(reviews, start_dt, end_dt)
     return JSONResponse(content=analytics)
 
-
 @router.get("/revenue")
 async def get_revenue_risk(
     company_id: int = Query(..., description="Company ID"),
     session: AsyncSession = Depends(get_db)
 ):
-    """
-    REVENUE RISK MONITORING ENDPOINT
-    Used by the risk card in frontend to display:
-    - Loss Probability (%)
-    - Impact Level
-    - Reputation Score
-    """
+    """REVENUE RISK MONITORING - Used by the risk card in frontend"""
     await get_company(session, company_id)
     
     stmt = select(Review).where(Review.company_id == company_id)
@@ -442,7 +405,6 @@ async def get_revenue_risk(
         "reputation_score": analytics["kpis"]["reputation_score"]
     }
 
-
 @router.get("/latest-reviews")
 async def get_latest_reviews(
     company_id: int = Query(..., description="Company ID"),
@@ -452,7 +414,7 @@ async def get_latest_reviews(
     """
     LATEST REVIEWS TABLE ENDPOINT
     Returns the most recent reviews for the DataTable in frontend.
-    Includes: rating, sentiment label, review text, date, source.
+    This is the key endpoint for the "Latest 100 Reviews" table.
     """
     await get_company(session, company_id)
     
@@ -482,22 +444,17 @@ async def get_latest_reviews(
     
     return JSONResponse(content=formatted_reviews)
 
-
 @router.post("/chat")
 async def chat_with_ai(
     request_data: dict,
     company_id: int = Query(..., description="Company ID for context"),
     session: AsyncSession = Depends(get_db)
 ):
-    """
-    AI CHAT ENDPOINT for Strategy Consultant widget.
-    Uses DeepSeek API with company review data as context.
-    """
+    """AI CHAT ENDPOINT for Strategy Consultant widget - Uses DeepSeek API"""
     user_message = request_data.get("message", "").strip()
     if not user_message:
         return {"answer": "Please enter a question about your business reviews."}
     
-    # Get company and recent reviews for context
     company = await get_company(session, company_id)
     
     stmt = (
@@ -509,17 +466,15 @@ async def chat_with_ai(
     result = await session.execute(stmt)
     recent_reviews = result.scalars().all()
     
-    # Compute analytics for context
     analytics = compute_complete_analytics(recent_reviews)
     
     # Prepare review snippets for AI context
     review_snippets = []
-    for review in recent_reviews[:10]:  # Top 10 most recent
+    for review in recent_reviews[:10]:
         if review.text:
             snippet = f"Rating {review.rating}/5: {review.text[:200]}"
             review_snippets.append(snippet)
     
-    # Build system prompt with company context
     system_prompt = f"""You are an expert Business Strategy Consultant specializing in customer review analysis and reputation management.
 
 COMPANY CONTEXT:
@@ -537,8 +492,7 @@ INSTRUCTIONS:
 - Provide actionable, data-driven advice
 - Keep responses concise (2-4 sentences)
 - Focus on operational improvements, customer satisfaction, and revenue protection
-- Be professional and helpful
-- If asked about specific reviews, reference the data provided"""
+- Be professional and helpful"""
     
     messages = [
         {"role": "system", "content": system_prompt},
@@ -548,16 +502,12 @@ INSTRUCTIONS:
     answer = await call_deepseek_api(messages)
     return {"answer": answer}
 
-
 @router.get("/executive-report/pdf/{company_id}")
 async def generate_executive_pdf(
     company_id: int,
     session: AsyncSession = Depends(get_db)
 ):
-    """
-    PDF REPORT ENDPOINT
-    Generates a downloadable PDF executive summary.
-    """
+    """PDF REPORT ENDPOINT - Generates downloadable executive summary"""
     company = await get_company(session, company_id)
     
     stmt = select(Review).where(Review.company_id == company_id)
@@ -570,17 +520,14 @@ async def generate_executive_pdf(
         pdf = FPDF()
         pdf.add_page()
         
-        # Title
         pdf.set_font("Arial", "B", 18)
         pdf.cell(0, 15, sanitize_pdf(f"Executive Report: {company.name}"), ln=True, align="C")
         pdf.ln(5)
         
-        # Date
         pdf.set_font("Arial", "", 10)
         pdf.cell(0, 8, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align="R")
         pdf.ln(5)
         
-        # Key Metrics
         pdf.set_font("Arial", "B", 14)
         pdf.cell(0, 10, "Key Performance Indicators", ln=True)
         pdf.set_font("Arial", "", 11)
@@ -589,7 +536,6 @@ async def generate_executive_pdf(
         pdf.cell(0, 8, f"Reputation Score: {analytics['kpis']['reputation_score']}%", ln=True)
         pdf.ln(5)
         
-        # Risk Assessment
         pdf.set_font("Arial", "B", 14)
         pdf.cell(0, 10, "Risk Assessment", ln=True)
         pdf.set_font("Arial", "", 11)
@@ -597,7 +543,6 @@ async def generate_executive_pdf(
         pdf.cell(0, 8, f"Impact Level: {analytics['risk']['impact_level']}", ln=True)
         pdf.ln(5)
         
-        # Rating Distribution
         pdf.set_font("Arial", "B", 14)
         pdf.cell(0, 10, "Rating Distribution", ln=True)
         pdf.set_font("Arial", "", 11)
@@ -618,24 +563,18 @@ async def generate_executive_pdf(
         }
     )
 
-
 @router.get("/sync-status/{company_id}")
 async def get_sync_status(
     company_id: int,
     session: AsyncSession = Depends(get_db)
 ):
-    """
-    SYNC STATUS ENDPOINT (Optional)
-    Returns information about when reviews were last synced.
-    """
+    """SYNC STATUS ENDPOINT - Returns information about when reviews were last synced"""
     await get_company(session, company_id)
     
-    # Get latest review date
     latest_stmt = select(func.max(Review.google_review_time)).where(Review.company_id == company_id)
     latest_result = await session.execute(latest_stmt)
     latest_review_date = latest_result.scalar()
     
-    # Get total count
     count_stmt = select(func.count()).where(Review.company_id == company_id)
     count_result = await session.execute(count_stmt)
     total_reviews = count_result.scalar()
@@ -647,10 +586,6 @@ async def get_sync_status(
         "sync_required": latest_review_date is None or (datetime.now() - latest_review_date).days > 7
     }
 
-
-# ==========================================================
-# HEALTH CHECK ENDPOINT
-# ==========================================================
 @router.get("/health")
 async def health_check():
     """Simple health check endpoint"""
