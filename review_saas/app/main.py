@@ -15,7 +15,7 @@ from starlette.templating import Jinja2Templates
 from starlette.staticfiles import StaticFiles
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select  # Added missing import
+from sqlalchemy.future import select
 from passlib.context import CryptContext
 from loguru import logger
 
@@ -26,7 +26,7 @@ from app.core.config import settings
 from app.core.db import init_models, get_db
 
 # ----------------------------------------------------------
-# LOGGING
+# LOGGING CONFIGURATION
 # ----------------------------------------------------------
 logger.remove()
 logger.add(sys.stdout, level="DEBUG", backtrace=True, diagnose=True, enqueue=True)
@@ -35,7 +35,7 @@ logging.basicConfig(level=logging.INFO)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ----------------------------------------------------------
-# LIFESPAN
+# LIFESPAN (Startup / Shutdown)
 # ----------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
 
 
 # ----------------------------------------------------------
-# APP INIT
+# APP INITIALIZATION
 # ----------------------------------------------------------
 app = FastAPI(title="Review Intel AI", lifespan=lifespan)
 
@@ -81,7 +81,7 @@ app.add_middleware(
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
 # ----------------------------------------------------------
-# TEMPLATES
+# TEMPLATES ENGINE
 # ----------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 possible_paths = [
@@ -98,7 +98,7 @@ templates.env.cache = None
 logger.info(f"✅ Templates loaded from: {template_path}")
 
 # ----------------------------------------------------------
-# JINJA FILTER
+# JINJA2 FILTERS
 # ----------------------------------------------------------
 def format_date(value, format="%Y-%m-%d"):
     if not value:
@@ -113,7 +113,7 @@ def format_date(value, format="%Y-%m-%d"):
 templates.env.filters["date"] = format_date
 
 # ----------------------------------------------------------
-# STATIC FILES
+# STATIC FILES MOUNTING
 # ----------------------------------------------------------
 static_paths = [
     os.path.join(BASE_DIR, "static"),
@@ -126,12 +126,12 @@ if static_dir:
     logger.info(f"📁 Static files mounted from: {static_dir}")
 
 # ----------------------------------------------------------
-# ROUTES IMPORT
+# ROUTE IMPORTS
 # ----------------------------------------------------------
 from app.routes import auth, companies, dashboard, reviews
 
 # ----------------------------------------------------------
-# UI ROUTES
+# UI / VIEW ROUTES
 # ----------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
@@ -144,7 +144,7 @@ async def root(request: Request):
 async def login_page(request: Request):
     return templates.TemplateResponse(request=request, name="login.html")
 
-# THIS SECTION HANDLES THE FORM SUBMISSION FROM YOUR LOGIN.HTML
+
 @app.post("/api/auth/login")
 @app.post("/login")
 async def handle_login(
@@ -161,7 +161,7 @@ async def handle_login(
         )
         user = result.scalars().first()
 
-        # Handle Verification Check
+        # Check Verification
         if user and not user.is_verified:
              return templates.TemplateResponse(
                 request=request,
@@ -179,11 +179,11 @@ async def handle_login(
                 }
                 return RedirectResponse("/dashboard", status_code=303)
         else:
-            # Placeholder for Resend Magic Link Logic
+            # Resend Magic Link Placeholder
             return templates.TemplateResponse(
                 request=request,
                 name="login.html",
-                context={"success": "Magic link sent! Check your inbox."}
+                context={"success": "Magic link logic triggered. Check inbox."}
             )
 
         return templates.TemplateResponse(
@@ -226,8 +226,9 @@ async def logout(request: Request):
 
 
 # ----------------------------------------------------------
-# API ROUTES
+# API ROUTER INCLUSION
 # ----------------------------------------------------------
+# Ensure the dashboard router is included to fix 404 errors
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
@@ -235,7 +236,7 @@ app.include_router(reviews.router, prefix="/api", tags=["reviews"])
 
 
 # ----------------------------------------------------------
-# ENTRYPOINT
+# ENTRYPOINT (UVICORN)
 # ----------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
