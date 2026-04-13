@@ -27,7 +27,8 @@ from app.core.models import Company, Review
 # ----------------------------------------------------------
 # Configuration
 # ----------------------------------------------------------
-router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
+# Prefix is set to /dashboard. Combined with /api in main.py, the final path is /api/dashboard/...
+router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 logger = logging.getLogger("dashboard")
 
 # DeepSeek API Configuration
@@ -60,6 +61,7 @@ EMOTION_KEYWORDS = {
 # Helper Functions
 # ----------------------------------------------------------
 def safe_date(val: str | None) -> datetime | None:
+    """Convert ISO string to datetime safely."""
     if not val:
         return None
     try:
@@ -68,6 +70,7 @@ def safe_date(val: str | None) -> datetime | None:
         return None
 
 def sanitize_pdf(text: str) -> str:
+    """Sanitize text for FPDF latin-1 encoding."""
     if not text:
         return ""
     replacements = {
@@ -79,6 +82,7 @@ def sanitize_pdf(text: str) -> str:
     return text.encode('latin-1', errors='ignore').decode('latin-1')
 
 def extract_keywords(text: str) -> List[str]:
+    """Extract keywords from review text."""
     if not text:
         return []
     words = []
@@ -89,6 +93,7 @@ def extract_keywords(text: str) -> List[str]:
     return words
 
 def compute_emotion_scores(text: str) -> Dict[str, int]:
+    """Calculate intensity scores for different emotions based on keywords."""
     if not text:
         return {emotion: 0 for emotion in EMOTION_KEYWORDS}
     text_lower = text.lower()
@@ -99,6 +104,7 @@ def compute_emotion_scores(text: str) -> Dict[str, int]:
     return scores
 
 def get_sentiment_label(rating: Optional[int], sentiment_score: Optional[float]) -> str:
+    """Determine UI-friendly sentiment label."""
     if sentiment_score is not None:
         if sentiment_score <= NEG_SENTIMENT_LIMIT:
             return "negative"
@@ -114,6 +120,7 @@ def get_sentiment_label(rating: Optional[int], sentiment_score: Optional[float])
     return "neutral"
 
 async def get_company(session: AsyncSession, company_id: int) -> Company:
+    """Fetch company or raise 404."""
     result = await session.execute(select(Company).where(Company.id == company_id))
     company = result.scalars().first()
     if not company:
@@ -121,9 +128,10 @@ async def get_company(session: AsyncSession, company_id: int) -> Company:
     return company
 
 async def call_deepseek_api(messages: List[Dict]) -> str:
+    """Interface with DeepSeek Chat API."""
     if not DEEPSEEK_API_KEY:
         logger.warning("DEEPSEEK_API_KEY not set")
-        return "DeepSeek API key not configured."
+        return "⚠️ DeepSeek API key not configured."
     
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
@@ -145,12 +153,13 @@ async def call_deepseek_api(messages: List[Dict]) -> str:
             return data["choices"][0]["message"]["content"]
         except Exception as e:
             logger.error(f"DeepSeek API error: {e}")
-            return "AI service temporarily unavailable."
+            return "🔧 AI service temporarily unavailable."
 
 # ----------------------------------------------------------
 # Core Analytics Engine
 # ----------------------------------------------------------
 def compute_complete_analytics(reviews: List[Review]) -> Dict[str, Any]:
+    """Generates the full data structure for the frontend dashboard."""
     total_reviews = len(reviews)
     
     if total_reviews == 0:
@@ -162,13 +171,14 @@ def compute_complete_analytics(reviews: List[Review]) -> Dict[str, Any]:
                 "ratings": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0},
                 "sentiment_trend": []
             },
-            "risk": {"loss_probability": "0%", "impact_level": "Low", "reputation_score": 100.0}
+            "risk": {"loss_probability": "0%", "impact_level": "Low", "reputation_score": 100.0},
+            "top_keywords": []
         }
     
     ratings = []
     rating_distribution = {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
     weekly_trend = {}
-    emotion_accumulator = {}
+    emotion_accumulator = {emo: [] for emo in EMOTION_KEYWORDS}
     all_keywords = []
     negative_count = 0
     severe_count = 0
@@ -178,7 +188,7 @@ def compute_complete_analytics(reviews: List[Review]) -> Dict[str, Any]:
     for review in reviews:
         if review.rating is not None:
             rating_val = int(review.rating)
-            rating_distribution[str(rating_val)] = rating_distribution.get(str(rating_val), 0) + 1
+            rating_distribution[str(rating_val)] += 1
             ratings.append(rating_val)
             if rating_val in NEGATIVE_RATINGS:
                 severe_count += 1
@@ -190,8 +200,6 @@ def compute_complete_analytics(reviews: List[Review]) -> Dict[str, Any]:
         if review.text:
             emotions = compute_emotion_scores(review.text)
             for emotion, score in emotions.items():
-                if emotion not in emotion_accumulator:
-                    emotion_accumulator[emotion] = []
                 emotion_accumulator[emotion].append(score)
             all_keywords.extend(extract_keywords(review.text))
         
@@ -209,12 +217,8 @@ def compute_complete_analytics(reviews: List[Review]) -> Dict[str, Any]:
     
     avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
     
-    avg_emotions = {}
-    for emotion, scores in emotion_accumulator.items():
-        avg_emotions[emotion] = round(sum(scores) / len(scores), 1) if scores else 0
-    for emotion in EMOTION_KEYWORDS:
-        if emotion not in avg_emotions:
-            avg_emotions[emotion] = 0
+    avg_emotions = {emo: round(sum(scores)/len(scores), 1) if scores else 0 
+                   for emo, scores in emotion_accumulator.items()}
     
     sentiment_trend = []
     for week_key in sorted(weekly_trend.keys())[-12:]:
@@ -228,27 +232,24 @@ def compute_complete_analytics(reviews: List[Review]) -> Dict[str, Any]:
     raw_risk = (negative_count * 0.6 + severe_count * 0.4) / total_reviews if total_reviews > 0 else 0
     risk_pct = round(raw_risk * 100, 1)
     
-    if risk_pct > 40:
-        impact_level = "Critical"
-    elif risk_pct > 25:
-        impact_level = "High"
-    elif risk_pct > 12:
-        impact_level = "Medium"
-    else:
-        impact_level = "Low"
+    if risk_pct > 40: impact_level = "Critical"
+    elif risk_pct > 25: impact_level = "High"
+    elif risk_pct > 12: impact_level = "Medium"
+    else: impact_level = "Low"
     
+    reputation_score = max(0.0, round(100 - risk_pct, 1))
     keyword_counts = Counter(all_keywords)
     top_keywords = [word for word, _ in keyword_counts.most_common(10)]
     
     return {
         "metadata": {"total_reviews": total_reviews, "recent_count": recent_count},
-        "kpis": {"average_rating": avg_rating, "reputation_score": max(0.0, round(100 - risk_pct, 1))},
+        "kpis": {"average_rating": avg_rating, "reputation_score": reputation_score},
         "visualizations": {
             "emotions": avg_emotions,
             "ratings": rating_distribution,
             "sentiment_trend": sentiment_trend
         },
-        "risk": {"loss_probability": f"{risk_pct}%", "impact_level": impact_level, "reputation_score": max(0.0, round(100 - risk_pct, 1))},
+        "risk": {"loss_probability": f"{risk_pct}%", "impact_level": impact_level, "reputation_score": reputation_score},
         "top_keywords": top_keywords
     }
 
@@ -269,10 +270,8 @@ async def get_ai_insights(
         end_dt = safe_date(end) if end else None
         
         stmt = select(Review).where(Review.company_id == company_id)
-        if start_dt:
-            stmt = stmt.where(Review.google_review_time >= start_dt)
-        if end_dt:
-            stmt = stmt.where(Review.google_review_time <= end_dt)
+        if start_dt: stmt = stmt.where(Review.google_review_time >= start_dt)
+        if end_dt: stmt = stmt.where(Review.google_review_time <= end_dt)
         
         result = await session.execute(stmt)
         reviews = result.scalars().all()
@@ -344,7 +343,7 @@ async def chat_with_ai(
     try:
         user_message = request_data.get("message", "").strip()
         if not user_message:
-            return {"answer": "Please enter a question."}
+            return {"answer": "Please enter a question about your business."}
         
         company = await get_company(session, company_id)
         stmt = select(Review).where(Review.company_id == company_id).order_by(desc(Review.google_review_time)).limit(50)
@@ -352,7 +351,11 @@ async def chat_with_ai(
         recent_reviews = result.scalars().all()
         analytics = compute_complete_analytics(recent_reviews)
         
-        system_prompt = f"You are an AI strategy consultant for {company.name}. Avg rating: {analytics['kpis']['average_rating']}/5."
+        system_prompt = f"""You are an expert Strategy Consultant for {company.name}. 
+        Company Stats: Avg Rating {analytics['kpis']['average_rating']}/5, Score {analytics['kpis']['reputation_score']}%. 
+        Top customer keywords: {', '.join(analytics['top_keywords'])}.
+        Provide data-driven, actionable advice to help the business owner grow."""
+
         answer = await call_deepseek_api([
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message}
@@ -360,7 +363,7 @@ async def chat_with_ai(
         return {"answer": answer}
     except Exception as e:
         logger.error(f"Error in chat_with_ai: {e}")
-        return {"answer": "AI service unavailable."}
+        return {"answer": "I'm having trouble connecting to my strategist engine. Please try again soon."}
 
 @router.get("/executive-report/pdf/{company_id}")
 async def generate_executive_pdf(
@@ -377,16 +380,25 @@ async def generate_executive_pdf(
         def generate_pdf() -> bytes:
             pdf = FPDF()
             pdf.add_page()
-            pdf.set_font("Arial", "B", 16)
-            pdf.cell(0, 10, sanitize_pdf(f"Report: {company.name}"), ln=True, align="C")
+            pdf.set_font("Arial", "B", 18)
+            pdf.cell(0, 15, sanitize_pdf(f"Executive Report: {company.name}"), ln=True, align="C")
+            pdf.ln(5)
+            pdf.set_font("Arial", "B", 14)
+            pdf.cell(0, 10, "Summary Metrics", ln=True)
             pdf.set_font("Arial", "", 12)
-            pdf.cell(0, 10, f"Rating: {analytics['kpis']['average_rating']}", ln=True)
-            pdf.cell(0, 10, f"Score: {analytics['kpis']['reputation_score']}%", ln=True)
+            pdf.cell(0, 8, f"Average Rating: {analytics['kpis']['average_rating']} / 5.0", ln=True)
+            pdf.cell(0, 8, f"Reputation Score: {analytics['kpis']['reputation_score']}%", ln=True)
+            pdf.cell(0, 8, f"Risk Level: {analytics['risk']['impact_level']}", ln=True)
             return pdf.output(dest="S")
         
         pdf_content = await asyncio.to_thread(generate_pdf)
-        return StreamingResponse(io.BytesIO(pdf_content), media_type="application/pdf")
+        return StreamingResponse(
+            io.BytesIO(pdf_content), 
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename=Report_{company.name}.pdf"}
+        )
     except Exception as e:
+        logger.error(f"Error in generate_executive_pdf: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/health")
