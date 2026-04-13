@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Review Intelligence AI Dashboard</title>
+    
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
@@ -32,7 +33,6 @@
         .chart-wrapper { height: 280px; position: relative; }
         .btn-pill { border-radius: 50px; padding: 10px 25px; font-weight: 600; }
         
-        /* Review Table Styles */
         .review-table-container { border-radius: 15px; overflow: hidden; }
         .review-text { font-size: 0.85rem; max-width: 450px; white-space: normal; word-break: break-word; }
         .sentiment-badge { padding: 4px 12px; border-radius: 30px; font-size: 0.7rem; font-weight: 600; }
@@ -40,7 +40,6 @@
         .badge-negative { background: #ef444420; color: #b91c1c; border: 1px solid #ef444440; }
         .badge-neutral { background: #f59e0b20; color: #b45309; border: 1px solid #f59e0b40; }
         
-        /* Dark Theme Support */
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
         [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
         [data-theme="dark"] .bg-light { background: #334155 !important; color: white; }
@@ -232,19 +231,18 @@ async function loadCompanies() {
 async function loadLatestReviews(companyId) {
     if (!companyId) return;
     try {
-        const response = await fetch(`/api/dashboard/recent-reviews/${companyId}`);
+        const response = await fetch(`/api/dashboard/latest-reviews?company_id=${companyId}&limit=100`);
         const reviews = await response.json();
         const tbody = document.getElementById("reviewsTbody");
         
         let html = reviews.map(r => {
-            let sentiment = r.rating >= 4 ? 'positive' : (r.rating <= 2 ? 'negative' : 'neutral');
-            let badgeClass = `badge-${sentiment}`;
-            let stars = '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
+            let badgeClass = `badge-${r.sentiment}`;
+            let stars = '★'.repeat(r.rating || 0) + '☆'.repeat(5 - (r.rating || 0));
             return `<tr>
                 <td class="fw-bold text-warning">${stars}</td>
-                <td><span class="sentiment-badge ${badgeClass}">${sentiment.toUpperCase()}</span></td>
-                <td class="review-text">${escapeHtml(r.text)}</td>
-                <td>${r.date}</td>
+                <td><span class="sentiment-badge ${badgeClass}">${r.sentiment.toUpperCase()}</span></td>
+                <td class="review-text">${escapeHtml(r.review_text)}</td>
+                <td>${r.review_date ? r.review_date.split('T')[0] : 'N/A'}</td>
                 <td><i class="bi bi-google"></i> Google</td>
             </tr>`;
         }).join('');
@@ -252,13 +250,13 @@ async function loadLatestReviews(companyId) {
         tbody.innerHTML = html;
         if (reviewsDataTable) reviewsDataTable.destroy();
         reviewsDataTable = $('#reviewsTable').DataTable({ order: [[3, 'desc']], pageLength: 10 });
-    } catch (err) { console.error("Reviews Load Error:", err); }
+    } catch (err) { console.error("Table Load Error:", err); }
 }
 
 async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
-    const start = document.getElementById("startDate").value || "2024-01-01";
-    const end = document.getElementById("endDate").value || new Date().toISOString().split('T')[0];
+    const start = document.getElementById("startDate").value || "";
+    const end = document.getElementById("endDate").value || "";
     if (!cid) return;
 
     try {
@@ -267,7 +265,7 @@ async function triggerAllLoads() {
 
         document.getElementById("kpiTotal").innerText = data.metadata.total_reviews || 0;
         document.getElementById("kpiRating").innerText = data.kpis.average_rating || "—";
-        document.getElementById("riskSentiment").innerText = data.kpis.reputation_score || "—";
+        document.getElementById("riskSentiment").innerText = data.kpis.reputation_score + "%" || "—";
 
         if (data.visualizations) renderCharts(data.visualizations);
 
@@ -281,27 +279,55 @@ async function triggerAllLoads() {
 }
 
 function renderCharts(vis) {
-    const charts = [
-        { id: 'chartEmotions', type: 'radar', data: vis.emotions, label: 'Intensity', color: '#a855f7' },
-        { id: 'chartMonthly', type: 'line', data: vis.sentiment_trend, label: 'Avg Sentiment', color: '#10b981' },
-        { id: 'chartRatings', type: 'bar', data: vis.ratings, label: 'Reviews', color: '#6366f1' }
-    ];
+    // Radar Emotion
+    const radarCtx = document.getElementById("chartEmotions");
+    if(chartInstances.emotions) chartInstances.emotions.destroy();
+    chartInstances.emotions = new Chart(radarCtx, {
+        type: 'radar',
+        data: {
+            labels: Object.keys(vis.emotions),
+            datasets: [{
+                label: 'Intensity',
+                data: Object.values(vis.emotions),
+                backgroundColor: 'rgba(168, 85, 247, 0.2)',
+                borderColor: '#a855f7'
+            }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
 
-    charts.forEach(c => {
-        const ctx = document.getElementById(c.id);
-        if (chartInstances[c.id]) chartInstances[c.id].destroy();
-        
-        let labels = c.id === 'chartMonthly' ? c.data.map(d => d.month) : Object.keys(c.data || {});
-        let vals = c.id === 'chartMonthly' ? c.data.map(d => d.avg) : Object.values(c.data || {});
+    // Trend Line
+    const lineCtx = document.getElementById("chartMonthly");
+    if(chartInstances.monthly) chartInstances.monthly.destroy();
+    chartInstances.monthly = new Chart(lineCtx, {
+        type: 'line',
+        data: {
+            labels: vis.sentiment_trend.map(d => d.week),
+            datasets: [{
+                label: 'Avg sentiment',
+                data: vis.sentiment_trend.map(d => d.avg),
+                borderColor: '#10b981',
+                fill: false,
+                tension: 0.3
+            }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
 
-        chartInstances[c.id] = new Chart(ctx, {
-            type: c.type,
-            data: {
-                labels: labels,
-                datasets: [{ label: c.label, data: vals, borderColor: c.color, backgroundColor: c.color + '20', fill: true }]
-            },
-            options: { responsive: true, maintainAspectRatio: false }
-        });
+    // Distribution Bar
+    const barCtx = document.getElementById("chartRatings");
+    if(chartInstances.ratings) chartInstances.ratings.destroy();
+    chartInstances.ratings = new Chart(barCtx, {
+        type: 'bar',
+        data: {
+            labels: ['1★', '2★', '3★', '4★', '5★'],
+            datasets: [{
+                label: 'Reviews',
+                data: Object.values(vis.ratings),
+                backgroundColor: '#6366f1'
+            }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
     });
 }
 
@@ -324,7 +350,7 @@ document.getElementById("chatBtn").onclick = async () => {
         const data = await res.json();
         win.innerHTML += `<div class="chat-msg chat-ai"><strong>Advisor:</strong> ${escapeHtml(data.answer)}</div>`;
         win.scrollTop = win.scrollHeight;
-    } catch (e) { win.innerHTML += `<div class="chat-msg chat-ai text-danger">AI Error</div>`; }
+    } catch (e) { win.innerHTML += `<div class="chat-msg chat-ai text-danger">AI Service Offline</div>`; }
 };
 
 document.getElementById("toggleTheme").onclick = () => {
@@ -332,10 +358,9 @@ document.getElementById("toggleTheme").onclick = () => {
     document.documentElement.setAttribute("data-theme", current === "light" ? "dark" : "light");
 };
 
-// Initial Setup
+// Autocomplete and Initial Load
 document.addEventListener("DOMContentLoaded", () => {
     loadCompanies();
-    // Autocomplete Init
     const input = document.getElementById('googleSearchInput');
     const autocomplete = new google.maps.places.Autocomplete(input);
     autocomplete.addListener('place_changed', () => {
