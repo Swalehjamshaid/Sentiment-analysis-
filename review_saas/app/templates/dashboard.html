@@ -6,12 +6,13 @@
     <title>Review Intelligence AI Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <!-- DataTables CSS for enhanced review table -->
     <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    
     <style>
         :root {
             --primary-grad: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
@@ -32,52 +33,26 @@
         .btn-pill { border-radius: 50px; padding: 10px 25px; font-weight: 600; }
         
         /* Review Table Styles */
-        .review-table-container { max-height: 500px; overflow-y: auto; border-radius: 15px; }
+        .review-table-container { border-radius: 15px; overflow: hidden; }
         .review-text { font-size: 0.85rem; max-width: 450px; white-space: normal; word-break: break-word; }
         .sentiment-badge { padding: 4px 12px; border-radius: 30px; font-size: 0.7rem; font-weight: 600; }
         .badge-positive { background: #10b98120; color: #059669; border: 1px solid #10b98140; }
         .badge-negative { background: #ef444420; color: #b91c1c; border: 1px solid #ef444440; }
         .badge-neutral { background: #f59e0b20; color: #b45309; border: 1px solid #f59e0b40; }
         
-        /* DataTables Customization */
-        .dataTables_wrapper .dataTables_filter input { 
-            border-radius: 40px; 
-            padding: 6px 12px; 
-            border: 1px solid #cbd5e1;
-            background: #f8fafc;
-        }
-        table.dataTable thead th { 
-            background: #f8fafc;
-            font-weight: 600;
-        }
-        .dataTables_wrapper .dataTables_length select {
-            border-radius: 8px;
-            padding: 4px 8px;
-        }
-        
+        /* Dark Theme Support */
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
         [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
         [data-theme="dark"] .bg-light { background: #334155 !important; color: white; }
         [data-theme="dark"] #chatWindow { background: #1e293b; border-color: #334155; }
         [data-theme="dark"] .chat-ai { background: #334155; color: #f1f5f9; border-color: #475569; }
-        [data-theme="dark"] .dataTables_wrapper .dataTables_filter input {
-            background: #334155;
-            color: white;
-            border-color: #475569;
-        }
-        [data-theme="dark"] table.dataTable thead th {
-            background: #1e293b;
-            color: #f1f5f9;
-        }
-        [data-theme="dark"] .dataTables_wrapper .dataTables_info,
-        [data-theme="dark"] .dataTables_wrapper .dataTables_length {
-            color: #cbd5e1;
-        }
-       
+        [data-theme="dark"] table.dataTable thead th { background: #1e293b; color: #f1f5f9; }
+        
         .pac-container { z-index: 9999 !important; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); border: none; }
     </style>
 </head>
 <body>
+
 <nav class="navbar navbar-expand-lg navbar-dark p-3 shadow-lg">
     <div class="container-fluid">
         <span class="navbar-brand fw-bold fs-4"><i class="bi bi-robot me-2"></i>Review Intel AI</span>
@@ -86,10 +61,13 @@
                 <i class="bi bi-plus-circle me-1"></i> Add Business
             </button>
             <button id="toggleTheme" class="btn btn-light btn-sm rounded-pill px-3">Theme</button>
-            <form action="/logout" method="post" class="m-0"><button class="btn btn-danger btn-sm rounded-pill px-3">Logout</button></form>
+            <form action="/api/auth/logout" method="GET" class="m-0">
+                <button type="submit" class="btn btn-danger btn-sm rounded-pill px-3">Logout</button>
+            </form>
         </div>
     </div>
 </nav>
+
 <div class="container-fluid">
     <div class="row g-3 align-items-end mb-4 p-4 bg-white rounded-4 shadow-sm">
         <div class="col-md-3">
@@ -111,6 +89,7 @@
             </div>
         </div>
     </div>
+
     <div class="row g-3 mb-4 text-center">
         <div class="col-md-3">
             <div class="card total-review-card p-4 h-100 shadow-sm">
@@ -135,6 +114,7 @@
             </div>
         </div>
     </div>
+
     <div class="row g-4 mb-4">
         <div class="col-lg-8">
             <div class="row g-4">
@@ -167,12 +147,11 @@
             </div>
         </div>
     </div>
-    
-    <!-- NEW SECTION: Latest 100 Reviews Table -->
+
     <div class="row g-4 mt-2">
         <div class="col-12">
             <div class="ai-badge"><i class="bi bi-table me-1"></i> LATEST 100 REVIEWS</div>
-            <div class="card shadow-sm p-3">
+            <div class="card shadow-sm p-3 bg-white">
                 <div class="review-table-container">
                     <table id="reviewsTable" class="table table-hover align-middle" style="width:100%">
                         <thead class="table-light">
@@ -185,7 +164,7 @@
                             </tr>
                         </thead>
                         <tbody id="reviewsTbody">
-                            <tr><td colspan="5" class="text-center text-muted">Select a business and click "Analyze" to load reviews</td></tr>
+                            <tr><td colspan="5" class="text-center text-muted py-4">Waiting for analysis...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -202,26 +181,24 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4">
-                <label class="small fw-bold text-muted mb-2">SEARCH GOOGLE MAPS</label>
-                <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Enter business name or address...">
-               
+                <input id="googleSearchInput" class="form-control form-control-lg bg-light border-0 mb-4" placeholder="Search Google Maps...">
                 <div class="p-4 bg-light rounded-4">
                     <div class="mb-3">
                         <label class="small fw-bold text-muted">BUSINESS NAME</label>
-                        <input id="companyName" class="form-control border-0" readonly placeholder="Waiting for selection...">
+                        <input id="companyName" class="form-control border-0" readonly>
                     </div>
                     <div class="mb-3">
-                        <label class="small fw-bold text-muted">GOOGLE PLACE ID (CRITICAL)</label>
-                        <input id="placeId" class="form-control border-0" readonly placeholder="Will auto-fill...">
+                        <label class="small fw-bold text-muted">GOOGLE PLACE ID</label>
+                        <input id="placeId" class="form-control border-0" readonly>
                     </div>
                     <div class="mb-3">
-                        <label class="small fw-bold text-muted">FORMATTED ADDRESS</label>
-                        <input id="companyAddress" class="form-control border-0" readonly placeholder="...">
+                        <label class="small fw-bold text-muted">ADDRESS</label>
+                        <input id="companyAddress" class="form-control border-0" readonly>
                     </div>
                 </div>
             </div>
             <div class="modal-footer border-0 p-4">
-                <button type="submit" class="btn btn-success w-100 rounded-pill fw-bold py-3 shadow">Verify & Save Business</button>
+                <button type="submit" class="btn btn-success w-100 rounded-pill fw-bold py-3 shadow">Save Business</button>
             </div>
         </form>
     </div>
@@ -229,323 +206,105 @@
 
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3Wak4maUWhSXstPmnbBOOKGVGfc&libraries=places"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
 <script>
 let chartInstances = {};
 let reviewsDataTable = null;
 
-// Helper function to escape HTML
 function escapeHtml(str) {
     if (!str) return '';
-    return str.replace(/[&<>]/g, function(m) {
-        if (m === '&') return '&amp;';
-        if (m === '<') return '&lt;';
-        if (m === '>') return '&gt;';
-        return m;
-    });
+    return str.replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
 }
 
-// Helper function to get sentiment label
-function getSentimentLabel(rating, sentimentScore) {
-    if (sentimentScore !== null && sentimentScore !== undefined) {
-        if (sentimentScore <= -0.2) return 'negative';
-        if (sentimentScore >= 0.2) return 'positive';
-        return 'neutral';
-    }
-    if (rating) {
-        if (rating <= 2) return 'negative';
-        if (rating >= 4) return 'positive';
-        return 'neutral';
-    }
-    return 'neutral';
-}
-
-// 1. Google Autocomplete Integration
-function initGoogleAutocomplete() {
-    const input = document.getElementById('googleSearchInput');
-    const autocomplete = new google.maps.places.Autocomplete(input);
-    autocomplete.addListener('place_changed', function() {
-        const place = autocomplete.getPlace();
-        if (!place.place_id) {
-            alert("Please select a business from the dropdown list.");
-            return;
-        }
-        document.getElementById('companyName').value = place.name || "";
-        document.getElementById('placeId').value = place.place_id || "";
-        document.getElementById('companyAddress').value = place.formatted_address || "";
-    });
-}
-
-// 2. Load Company List - FIXED & IMPROVED (Now properly reads from your Postgres)
 async function loadCompanies() {
     try {
-        console.log("🔄 Fetching companies from /api/companies...");
         const res = await fetch("/api/companies");
-        
-        if (!res.ok) {
-            throw new Error(`HTTP error! status: ${res.status}`);
-        }
-        
         const data = await res.json();
-        console.log("📊 Companies API Response:", data);   // Helpful for debugging
-
         const sel = document.getElementById("companySelect");
-        let companies = [];
-
-        // Handle different possible response formats from your companies router
-        if (data && data.companies && Array.isArray(data.companies)) {
-            companies = data.companies;
-        } else if (Array.isArray(data)) {
-            companies = data;
-        } else if (data && data.data && Array.isArray(data.data)) {
-            companies = data.data;
-        }
-
+        let companies = Array.isArray(data) ? data : (data.companies || data.data || []);
         if (companies.length > 0) {
-            sel.innerHTML = companies.map(c => {
-                const name = c.name || c.business_name || "Unnamed Business";
-                return `<option value="${c.id}">${escapeHtml(name)}</option>`;
-            }).join("");
-            
-            // Auto-select the first company
-            sel.value = companies[0].id;
-            console.log(`✅ Loaded ${companies.length} businesses successfully`);
-            
-            // Auto load dashboard data for the first business
-            setTimeout(() => {
-                triggerAllLoads();
-            }, 800);
-        } else {
-            sel.innerHTML = `<option value="">No businesses added yet</option>`;
-            console.log("⚠️ No companies returned from API");
+            sel.innerHTML = companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+            triggerAllLoads();
         }
-    } catch (e) { 
-        console.error("❌ Load Companies Failed:", e); 
-        document.getElementById("companySelect").innerHTML = `<option value="">Error loading businesses - Check Console</option>`;
-    }
+    } catch (e) { console.error("Load Companies Failed:", e); }
 }
 
-// NEW FUNCTION: Load Latest 100 Reviews
 async function loadLatestReviews(companyId) {
     if (!companyId) return;
-    
-    console.log(`🔄 Fetching latest reviews for company ${companyId}...`);
-    
     try {
-        const response = await fetch(`/api/dashboard/latest-reviews?company_id=${companyId}&limit=100`);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
+        const response = await fetch(`/api/dashboard/recent-reviews/${companyId}`);
         const reviews = await response.json();
         const tbody = document.getElementById("reviewsTbody");
         
-        if (!reviews || reviews.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No reviews found. Click "Sync Live Data" to fetch reviews.</td></tr>';
-            if (reviewsDataTable) {
-                reviewsDataTable.destroy();
-                reviewsDataTable = null;
-            }
-            return;
-        }
+        let html = reviews.map(r => {
+            let sentiment = r.rating >= 4 ? 'positive' : (r.rating <= 2 ? 'negative' : 'neutral');
+            let badgeClass = `badge-${sentiment}`;
+            let stars = '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
+            return `<tr>
+                <td class="fw-bold text-warning">${stars}</td>
+                <td><span class="sentiment-badge ${badgeClass}">${sentiment.toUpperCase()}</span></td>
+                <td class="review-text">${escapeHtml(r.text)}</td>
+                <td>${r.date}</td>
+                <td><i class="bi bi-google"></i> Google</td>
+            </tr>`;
+        }).join('');
         
-        let html = '';
-        reviews.forEach(review => {
-            let sentimentClass = '';
-            let sentimentText = review.sentiment || 'neutral';
-            if (sentimentText === 'positive') sentimentClass = 'badge-positive';
-            else if (sentimentText === 'negative') sentimentClass = 'badge-negative';
-            else sentimentClass = 'badge-neutral';
-            
-            let stars = '★'.repeat(review.rating || 0) + '☆'.repeat(5 - (review.rating || 0));
-            let reviewDate = review.review_date ? review.review_date.split('T')[0] : 'unknown';
-            let reviewText = review.review_text || "No content available";
-            let truncatedText = reviewText.length > 200 ? reviewText.substring(0, 200) + '...' : reviewText;
-            
-            html += `<tr>
-                        <td class="fw-bold">${stars} (${review.rating || '?'})</td>
-                        <td><span class="sentiment-badge ${sentimentClass}">${sentimentText.toUpperCase()}</span></td>
-                        <td class="review-text">${escapeHtml(truncatedText)}</td>
-                        <td>${reviewDate}</td>
-                        <td><i class="bi bi-google"></i> Google</td>
-                    </tr>`;
-        });
         tbody.innerHTML = html;
-        
-        // Initialize or reinitialize DataTable
-        if (reviewsDataTable) {
-            reviewsDataTable.destroy();
-        }
-        reviewsDataTable = $('#reviewsTable').DataTable({
-            order: [[3, 'desc']],
-            pageLength: 10,
-            language: {
-                search: "🔍 Filter reviews:",
-                lengthMenu: "Show _MENU_ reviews per page",
-                info: "Showing _START_ to _END_ of _TOTAL_ reviews",
-                infoEmpty: "No reviews available",
-                zeroRecords: "No matching reviews found"
-            },
-            responsive: true
-        });
-        
-        console.log(`✅ Loaded ${reviews.length} reviews into table`);
-    } catch (err) {
-        console.error("Error loading reviews table:", err);
-        document.getElementById("reviewsTbody").innerHTML = '<tr><td colspan="5" class="text-center text-danger">Error loading reviews. Please try again.</td></tr>';
-    }
+        if (reviewsDataTable) reviewsDataTable.destroy();
+        reviewsDataTable = $('#reviewsTable').DataTable({ order: [[3, 'desc']], pageLength: 10 });
+    } catch (err) { console.error("Reviews Load Error:", err); }
 }
 
-// 3. Main Data Fetch (UPDATED to also load reviews)
 async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
     const start = document.getElementById("startDate").value || "2024-01-01";
     const end = document.getElementById("endDate").value || new Date().toISOString().split('T')[0];
-   
     if (!cid) return;
-
-    // Show loading state on analyze button
-    const loadBtn = document.getElementById("loadBtn");
-    const originalText = loadBtn.innerHTML;
-    loadBtn.disabled = true;
-    loadBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Analyzing...`;
 
     try {
         const res = await fetch(`/api/dashboard/ai/insights?company_id=${cid}&start=${start}&end=${end}`);
         const data = await res.json();
 
-        if (data.metadata) {
-            document.getElementById("kpiTotal").innerText = data.metadata.total_reviews || 0;
-        }
-        if (data.kpis) {
-            document.getElementById("kpiRating").innerText = data.kpis.average_rating || data.kpis.benchmark?.your_avg || "—";
-            document.getElementById("riskSentiment").innerText = data.kpis.reputation_score || "—";
-        }
+        document.getElementById("kpiTotal").innerText = data.metadata.total_reviews || 0;
+        document.getElementById("kpiRating").innerText = data.kpis.average_rating || "—";
+        document.getElementById("riskSentiment").innerText = data.kpis.reputation_score || "—";
 
-        if (data.visualizations) {
-            renderCharts(data.visualizations);
-        }
+        if (data.visualizations) renderCharts(data.visualizations);
 
         const revRes = await fetch(`/api/dashboard/revenue?company_id=${cid}`);
         const revData = await revRes.json();
         document.getElementById("riskPct").innerText = (revData.risk_percent || 0) + "%";
         document.getElementById("riskImpact").innerText = revData.impact || "N/A";
 
-        // NEW: Load latest 100 reviews
         await loadLatestReviews(cid);
-
-    } catch (e) { 
-        console.error("Dashboard Load Error:", e);
-        const chatWindow = document.getElementById("chatWindow");
-        chatWindow.innerHTML += `<div class="chat-msg chat-ai text-danger">⚠️ Error loading dashboard data. Please check your connection.</div>`;
-    } finally {
-        loadBtn.disabled = false;
-        loadBtn.innerHTML = originalText;
-    }
+    } catch (e) { console.error("Load Error:", e); }
 }
 
-// 4. Chart Rendering
 function renderCharts(vis) {
-    const radarCtx = document.getElementById("chartEmotions");
-    if(chartInstances.emotions) chartInstances.emotions.destroy();
-    chartInstances.emotions = new Chart(radarCtx, {
-        type: 'radar',
-        data: {
-            labels: Object.keys(vis.emotions || {}),
-            datasets: [{
-                label: 'Intensity',
-                data: Object.values(vis.emotions || {}),
-                backgroundColor: 'rgba(168, 85, 247, 0.2)',
-                borderColor: '#a855f7'
-            }]
-        },
-        options: { responsive: true, maintainAspectRatio: false }
-    });
+    const charts = [
+        { id: 'chartEmotions', type: 'radar', data: vis.emotions, label: 'Intensity', color: '#a855f7' },
+        { id: 'chartMonthly', type: 'line', data: vis.sentiment_trend, label: 'Avg Sentiment', color: '#10b981' },
+        { id: 'chartRatings', type: 'bar', data: vis.ratings, label: 'Reviews', color: '#6366f1' }
+    ];
 
-    const lineCtx = document.getElementById("chartMonthly");
-    if(chartInstances.monthly) chartInstances.monthly.destroy();
-    chartInstances.monthly = new Chart(lineCtx, {
-        type: 'line',
-        data: {
-            labels: (vis.sentiment_trend || []).map(d => d.week || d.month || "Week"),
-            datasets: [{
-                label: 'Avg Sentiment',
-                data: (vis.sentiment_trend || []).map(d => d.avg),
-                borderColor: '#10b981',
-                backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                fill: true,
-                tension: 0.3
-            }]
-        },
-        options: { responsive: true, maintainAspectRatio: false }
-    });
+    charts.forEach(c => {
+        const ctx = document.getElementById(c.id);
+        if (chartInstances[c.id]) chartInstances[c.id].destroy();
+        
+        let labels = c.id === 'chartMonthly' ? c.data.map(d => d.month) : Object.keys(c.data || {});
+        let vals = c.id === 'chartMonthly' ? c.data.map(d => d.avg) : Object.values(c.data || {});
 
-    const barCtx = document.getElementById("chartRatings");
-    if(chartInstances.ratings) chartInstances.ratings.destroy();
-    chartInstances.ratings = new Chart(barCtx, {
-        type: 'bar',
-        data: {
-            labels: ['1★', '2★', '3★', '4★', '5★'],
-            datasets: [{
-                label: 'Reviews',
-                data: vis.ratings ? Object.values(vis.ratings) : [0,0,0,0,0],
-                backgroundColor: '#6366f1',
-                borderRadius: 8
-            }]
-        },
-        options: { responsive: true, maintainAspectRatio: false }
+        chartInstances[c.id] = new Chart(ctx, {
+            type: c.type,
+            data: {
+                labels: labels,
+                datasets: [{ label: c.label, data: vals, borderColor: c.color, backgroundColor: c.color + '20', fill: true }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
     });
 }
 
-// 5. Sync Button
-document.getElementById("syncBtn").onclick = async () => {
-    const cid = document.getElementById("companySelect").value;
-    const btn = document.getElementById("syncBtn");
-    if (!cid) return;
-    btn.disabled = true;
-    btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Syncing...`;
-    try {
-        const res = await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
-        const result = await res.json();
-        setTimeout(() => {
-            triggerAllLoads();
-            btn.disabled = false;
-            btn.innerHTML = "Sync Live Data";
-            alert(`Sync Complete! Found ${result.reviews_count || 0} reviews.`);
-        }, 1500);
-    } catch (e) {
-        alert("Sync failed. Check server logs.");
-        btn.disabled = false;
-        btn.innerHTML = "Sync Live Data";
-    }
-};
-
-// 6. Add Company Form
-document.getElementById('addCompanyForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const payload = {
-        name: document.getElementById('companyName').value,
-        place_id: document.getElementById('placeId').value,
-        address: document.getElementById('companyAddress').value
-    };
-    if (!payload.place_id) {
-        alert("Please search and select a business first.");
-        return;
-    }
-    try {
-        const res = await fetch('/api/companies', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        });
-        if (res.ok) {
-            alert("Business Linked Successfully!");
-            location.reload();
-        }
-    } catch (e) { console.error("Save Failed:", e); }
-};
-
-// 7. AI Chat Integration
 document.getElementById("chatBtn").onclick = async () => {
     const input = document.getElementById("chatInput");
     const msg = input.value.trim();
@@ -555,12 +314,7 @@ document.getElementById("chatBtn").onclick = async () => {
     const win = document.getElementById("chatWindow");
     win.innerHTML += `<div class="chat-msg chat-user">${escapeHtml(msg)}</div>`;
     input.value = "";
-    win.scrollTop = win.scrollHeight;
-
-    // Show typing indicator
-    win.innerHTML += `<div class="chat-msg chat-ai" id="typingIndicator"><em>AI is thinking...</em></div>`;
-    win.scrollTop = win.scrollHeight;
-
+    
     try {
         const res = await fetch(`/api/dashboard/chat?company_id=${cid}`, {
             method: 'POST',
@@ -568,31 +322,28 @@ document.getElementById("chatBtn").onclick = async () => {
             body: JSON.stringify({ message: msg })
         });
         const data = await res.json();
-        
-        // Remove typing indicator
-        const typingIndicator = document.getElementById("typingIndicator");
-        if (typingIndicator) typingIndicator.remove();
-        
-        win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Expert:</strong> ${escapeHtml(data.answer)}</div>`;
+        win.innerHTML += `<div class="chat-msg chat-ai"><strong>Advisor:</strong> ${escapeHtml(data.answer)}</div>`;
         win.scrollTop = win.scrollHeight;
-    } catch (e) {
-        const typingIndicator = document.getElementById("typingIndicator");
-        if (typingIndicator) typingIndicator.remove();
-        win.innerHTML += `<div class="chat-msg chat-ai text-danger">Error connecting to AI.</div>`;
-    }
+    } catch (e) { win.innerHTML += `<div class="chat-msg chat-ai text-danger">AI Error</div>`; }
 };
 
-// 8. Theme Toggle
 document.getElementById("toggleTheme").onclick = () => {
     const current = document.documentElement.getAttribute("data-theme");
-    const target = current === "light" ? "dark" : "light";
-    document.documentElement.setAttribute("data-theme", target);
+    document.documentElement.setAttribute("data-theme", current === "light" ? "dark" : "light");
 };
 
 // Initial Setup
 document.addEventListener("DOMContentLoaded", () => {
     loadCompanies();
-    initGoogleAutocomplete();
+    // Autocomplete Init
+    const input = document.getElementById('googleSearchInput');
+    const autocomplete = new google.maps.places.Autocomplete(input);
+    autocomplete.addListener('place_changed', () => {
+        const place = autocomplete.getPlace();
+        document.getElementById('companyName').value = place.name;
+        document.getElementById('placeId').value = place.place_id;
+        document.getElementById('companyAddress').value = place.formatted_address;
+    });
 });
 </script>
 </body>
