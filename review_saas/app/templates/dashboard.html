@@ -40,14 +40,43 @@
         .badge-negative { background: #ef444420; color: #b91c1c; border: 1px solid #ef444440; }
         .badge-neutral { background: #f59e0b20; color: #b45309; border: 1px solid #f59e0b40; }
         
+        /* DataTables customization */
+        .dataTables_wrapper .dataTables_filter input { 
+            border-radius: 40px; 
+            padding: 6px 12px; 
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+        }
+        table.dataTable thead th { 
+            background: #f8fafc;
+            font-weight: 600;
+        }
+        
         [data-theme="dark"] { background: #0f172a; color: #f8fafc; }
         [data-theme="dark"] .card, [data-theme="dark"] .bg-white { background: #1e293b !important; color: #f8fafc; }
         [data-theme="dark"] .bg-light { background: #334155 !important; color: white; }
         [data-theme="dark"] #chatWindow { background: #1e293b; border-color: #334155; }
         [data-theme="dark"] .chat-ai { background: #334155; color: #f1f5f9; border-color: #475569; }
         [data-theme="dark"] table.dataTable thead th { background: #1e293b; color: #f1f5f9; }
+        [data-theme="dark"] .dataTables_wrapper .dataTables_filter input {
+            background: #334155;
+            color: white;
+            border-color: #475569;
+        }
         
         .pac-container { z-index: 9999 !important; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); border: none; }
+        
+        /* Loading spinner */
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -147,6 +176,7 @@
         </div>
     </div>
 
+    <!-- LATEST 100 REVIEWS TABLE -->
     <div class="row g-4 mt-2">
         <div class="col-12">
             <div class="ai-badge"><i class="bi bi-table me-1"></i> LATEST 100 REVIEWS</div>
@@ -163,7 +193,7 @@
                             </tr>
                         </thead>
                         <tbody id="reviewsTbody">
-                            <tr><td colspan="5" class="text-center text-muted py-4">Waiting for analysis...</td></tr>
+                            <tr><td colspan="5" class="text-center text-muted py-4">Select a business and click "Analyze" to load reviews</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -210,127 +240,272 @@
 let chartInstances = {};
 let reviewsDataTable = null;
 
+// Helper: Escape HTML
 function escapeHtml(str) {
     if (!str) return '';
     return str.replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
 }
 
+// 1. Load Companies from API
 async function loadCompanies() {
     try {
+        console.log("🔄 Fetching companies...");
         const res = await fetch("/api/companies");
         const data = await res.json();
         const sel = document.getElementById("companySelect");
         let companies = Array.isArray(data) ? data : (data.companies || data.data || []);
+        
         if (companies.length > 0) {
-            sel.innerHTML = companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
-            triggerAllLoads();
+            sel.innerHTML = companies.map(c => `<option value="${c.id}">${escapeHtml(c.name || c.business_name)}</option>`).join("");
+            console.log(`✅ Loaded ${companies.length} companies`);
+            // Auto-load first company
+            setTimeout(() => triggerAllLoads(), 500);
+        } else {
+            sel.innerHTML = '<option value="">No businesses added yet</option>';
         }
-    } catch (e) { console.error("Load Companies Failed:", e); }
+    } catch (e) { 
+        console.error("Load Companies Failed:", e);
+        document.getElementById("companySelect").innerHTML = '<option value="">Error loading businesses</option>';
+    }
 }
 
+// 2. Load Latest 100 Reviews for the table
 async function loadLatestReviews(companyId) {
     if (!companyId) return;
+    console.log(`🔄 Fetching latest reviews for company ${companyId}...`);
+    
     try {
         const response = await fetch(`/api/dashboard/latest-reviews?company_id=${companyId}&limit=100`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
         const reviews = await response.json();
         const tbody = document.getElementById("reviewsTbody");
         
-        let html = reviews.map(r => {
-            let badgeClass = `badge-${r.sentiment}`;
+        if (!reviews || reviews.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">No reviews found. Click "Sync Live Data" to fetch reviews.</td></tr>';
+            if (reviewsDataTable) {
+                reviewsDataTable.destroy();
+                reviewsDataTable = null;
+            }
+            return;
+        }
+        
+        let html = '';
+        reviews.forEach(r => {
+            let badgeClass = `badge-${r.sentiment || 'neutral'}`;
             let stars = '★'.repeat(r.rating || 0) + '☆'.repeat(5 - (r.rating || 0));
-            return `<tr>
-                <td class="fw-bold text-warning">${stars}</td>
-                <td><span class="sentiment-badge ${badgeClass}">${r.sentiment.toUpperCase()}</span></td>
-                <td class="review-text">${escapeHtml(r.review_text)}</td>
-                <td>${r.review_date ? r.review_date.split('T')[0] : 'N/A'}</td>
+            let reviewDate = r.review_date ? r.review_date.split('T')[0] : 'N/A';
+            let reviewText = r.review_text || "No content available";
+            let truncatedText = reviewText.length > 200 ? reviewText.substring(0, 200) + '...' : reviewText;
+            
+            html += `<tr>
+                <td class="fw-bold text-warning">${stars} (${r.rating || '?'})</td>
+                <td><span class="sentiment-badge ${badgeClass}">${(r.sentiment || 'NEUTRAL').toUpperCase()}</span></td>
+                <td class="review-text">${escapeHtml(truncatedText)}</td>
+                <td>${reviewDate}</td>
                 <td><i class="bi bi-google"></i> Google</td>
             </tr>`;
-        }).join('');
+        });
         
         tbody.innerHTML = html;
+        
+        // Reinitialize DataTable
         if (reviewsDataTable) reviewsDataTable.destroy();
-        reviewsDataTable = $('#reviewsTable').DataTable({ order: [[3, 'desc']], pageLength: 10 });
-    } catch (err) { console.error("Table Load Error:", err); }
+        reviewsDataTable = $('#reviewsTable').DataTable({ 
+            order: [[3, 'desc']], 
+            pageLength: 10,
+            language: {
+                search: "🔍 Filter reviews:",
+                lengthMenu: "Show _MENU_ reviews per page",
+                info: "Showing _START_ to _END_ of _TOTAL_ reviews",
+                infoEmpty: "No reviews available"
+            }
+        });
+        
+        console.log(`✅ Loaded ${reviews.length} reviews into table`);
+    } catch (err) { 
+        console.error("Table Load Error:", err);
+        document.getElementById("reviewsTbody").innerHTML = '<tr><td colspan="5" class="text-center text-danger py-4">Error loading reviews. Please try again.</td></tr>';
+    }
 }
 
+// 3. Main Data Fetch - Load all dashboard data
 async function triggerAllLoads() {
     const cid = document.getElementById("companySelect").value;
     const start = document.getElementById("startDate").value || "";
     const end = document.getElementById("endDate").value || "";
     if (!cid) return;
 
+    // Show loading state
+    const loadBtn = document.getElementById("loadBtn");
+    const originalText = loadBtn.innerHTML;
+    loadBtn.disabled = true;
+    loadBtn.innerHTML = `<span class="loading-spinner"></span> Analyzing...`;
+
     try {
+        console.log(`📊 Fetching insights for company ${cid}...`);
         const res = await fetch(`/api/dashboard/ai/insights?company_id=${cid}&start=${start}&end=${end}`);
         const data = await res.json();
 
-        document.getElementById("kpiTotal").innerText = data.metadata.total_reviews || 0;
-        document.getElementById("kpiRating").innerText = data.kpis.average_rating || "—";
-        document.getElementById("riskSentiment").innerText = data.kpis.reputation_score + "%" || "—";
+        // Update KPIs
+        document.getElementById("kpiTotal").innerText = data.metadata?.total_reviews || 0;
+        document.getElementById("kpiRating").innerText = data.kpis?.average_rating?.toFixed(1) || "—";
+        document.getElementById("riskSentiment").innerText = (data.kpis?.reputation_score || 0) + "%";
 
+        // Render charts
         if (data.visualizations) renderCharts(data.visualizations);
 
+        // Fetch revenue risk
         const revRes = await fetch(`/api/dashboard/revenue?company_id=${cid}`);
         const revData = await revRes.json();
         document.getElementById("riskPct").innerText = (revData.risk_percent || 0) + "%";
         document.getElementById("riskImpact").innerText = revData.impact || "N/A";
 
+        // Load latest reviews table
         await loadLatestReviews(cid);
-    } catch (e) { console.error("Load Error:", e); }
+        
+        console.log("✅ Dashboard fully loaded");
+
+    } catch (e) { 
+        console.error("Load Error:", e);
+        const chatWindow = document.getElementById("chatWindow");
+        chatWindow.innerHTML += `<div class="chat-msg chat-ai text-danger">⚠️ Error loading dashboard data. Please check connection.</div>`;
+    } finally {
+        loadBtn.disabled = false;
+        loadBtn.innerHTML = originalText;
+    }
 }
 
+// 4. Chart Rendering Functions
 function renderCharts(vis) {
-    // Radar Emotion
+    // Radar Chart - Emotions
     const radarCtx = document.getElementById("chartEmotions");
     if(chartInstances.emotions) chartInstances.emotions.destroy();
+    
+    let emotionLabels = Object.keys(vis.emotions || {});
+    let emotionValues = Object.values(vis.emotions || {});
+    if (emotionLabels.length === 0) {
+        emotionLabels = ["Joy", "Anger", "Sadness", "Surprise", "Fear", "Love"];
+        emotionValues = [0, 0, 0, 0, 0, 0];
+    }
+    
     chartInstances.emotions = new Chart(radarCtx, {
         type: 'radar',
         data: {
-            labels: Object.keys(vis.emotions),
+            labels: emotionLabels,
             datasets: [{
                 label: 'Intensity',
-                data: Object.values(vis.emotions),
+                data: emotionValues,
                 backgroundColor: 'rgba(168, 85, 247, 0.2)',
-                borderColor: '#a855f7'
+                borderColor: '#a855f7',
+                borderWidth: 2,
+                pointBackgroundColor: '#6366f1'
             }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
 
-    // Trend Line
+    // Line Chart - Sentiment Trend
     const lineCtx = document.getElementById("chartMonthly");
     if(chartInstances.monthly) chartInstances.monthly.destroy();
+    
+    const trendData = vis.sentiment_trend || [];
     chartInstances.monthly = new Chart(lineCtx, {
         type: 'line',
         data: {
-            labels: vis.sentiment_trend.map(d => d.week),
+            labels: trendData.map(d => d.week || d.month || "Week"),
             datasets: [{
-                label: 'Avg sentiment',
-                data: vis.sentiment_trend.map(d => d.avg),
+                label: 'Avg Sentiment (1-5)',
+                data: trendData.map(d => d.avg),
                 borderColor: '#10b981',
-                fill: false,
+                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                fill: true,
                 tension: 0.3
             }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
 
-    // Distribution Bar
+    // Bar Chart - Rating Distribution
     const barCtx = document.getElementById("chartRatings");
     if(chartInstances.ratings) chartInstances.ratings.destroy();
+    
+    const ratingsData = vis.ratings ? Object.values(vis.ratings) : [0, 0, 0, 0, 0];
     chartInstances.ratings = new Chart(barCtx, {
         type: 'bar',
         data: {
             labels: ['1★', '2★', '3★', '4★', '5★'],
             datasets: [{
                 label: 'Reviews',
-                data: Object.values(vis.ratings),
-                backgroundColor: '#6366f1'
+                data: ratingsData,
+                backgroundColor: '#6366f1',
+                borderRadius: 8
             }]
         },
         options: { responsive: true, maintainAspectRatio: false }
     });
 }
 
+// 5. Sync Button Handler
+document.getElementById("syncBtn").onclick = async () => {
+    const cid = document.getElementById("companySelect").value;
+    const btn = document.getElementById("syncBtn");
+    if (!cid) return;
+    
+    btn.disabled = true;
+    btn.innerHTML = `<span class="loading-spinner"></span> Syncing...`;
+    console.log(`🔄 Syncing reviews for company ${cid}...`);
+    
+    try {
+        const res = await fetch(`/api/reviews/ingest/${cid}`, { method: 'POST' });
+        const result = await res.json();
+        setTimeout(() => {
+            triggerAllLoads();
+            btn.disabled = false;
+            btn.innerHTML = "Sync Live Data";
+            alert(`✅ Sync Complete! Found ${result.reviews_count || 0} reviews.`);
+        }, 1500);
+    } catch (e) {
+        console.error("Sync failed:", e);
+        alert("❌ Sync failed. Check server logs.");
+        btn.disabled = false;
+        btn.innerHTML = "Sync Live Data";
+    }
+};
+
+// 6. Add Company Form Handler
+document.getElementById('addCompanyForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const payload = {
+        name: document.getElementById('companyName').value,
+        place_id: document.getElementById('placeId').value,
+        address: document.getElementById('companyAddress').value
+    };
+    if (!payload.place_id) {
+        alert("Please search and select a business first.");
+        return;
+    }
+    
+    try {
+        const res = await fetch('/api/companies', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+            alert("✅ Business Linked Successfully!");
+            location.reload();
+        } else {
+            const error = await res.json();
+            alert("Error: " + (error.detail || "Unknown error"));
+        }
+    } catch (e) { 
+        console.error("Save Failed:", e);
+        alert("Network error. Please try again.");
+    }
+};
+
+// 7. AI Chat Integration
 document.getElementById("chatBtn").onclick = async () => {
     const input = document.getElementById("chatInput");
     const msg = input.value.trim();
@@ -340,6 +515,11 @@ document.getElementById("chatBtn").onclick = async () => {
     const win = document.getElementById("chatWindow");
     win.innerHTML += `<div class="chat-msg chat-user">${escapeHtml(msg)}</div>`;
     input.value = "";
+    win.scrollTop = win.scrollHeight;
+    
+    // Show typing indicator
+    win.innerHTML += `<div class="chat-msg chat-ai" id="typingIndicator"><em>🤔 AI is thinking...</em></div>`;
+    win.scrollTop = win.scrollHeight;
     
     try {
         const res = await fetch(`/api/dashboard/chat?company_id=${cid}`, {
@@ -348,26 +528,50 @@ document.getElementById("chatBtn").onclick = async () => {
             body: JSON.stringify({ message: msg })
         });
         const data = await res.json();
-        win.innerHTML += `<div class="chat-msg chat-ai"><strong>Advisor:</strong> ${escapeHtml(data.answer)}</div>`;
+        
+        // Remove typing indicator
+        const typingIndicator = document.getElementById("typingIndicator");
+        if (typingIndicator) typingIndicator.remove();
+        
+        win.innerHTML += `<div class="chat-msg chat-ai"><strong>AI Expert:</strong> ${escapeHtml(data.answer)}</div>`;
         win.scrollTop = win.scrollHeight;
-    } catch (e) { win.innerHTML += `<div class="chat-msg chat-ai text-danger">AI Service Offline</div>`; }
+    } catch (e) {
+        const typingIndicator = document.getElementById("typingIndicator");
+        if (typingIndicator) typingIndicator.remove();
+        win.innerHTML += `<div class="chat-msg chat-ai text-danger">⚠️ AI Service temporarily unavailable</div>`;
+        console.error("Chat error:", e);
+    }
 };
 
+// 8. Theme Toggle
 document.getElementById("toggleTheme").onclick = () => {
     const current = document.documentElement.getAttribute("data-theme");
-    document.documentElement.setAttribute("data-theme", current === "light" ? "dark" : "light");
+    const target = current === "light" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", target);
 };
 
-document.addEventListener("DOMContentLoaded", () => {
-    loadCompanies();
+// 9. Google Autocomplete Initialization
+function initGoogleAutocomplete() {
     const input = document.getElementById('googleSearchInput');
-    const autocomplete = new google.maps.places.Autocomplete(input);
-    autocomplete.addListener('place_changed', () => {
-        const place = autocomplete.getPlace();
-        document.getElementById('companyName').value = place.name;
-        document.getElementById('placeId').value = place.place_id;
-        document.getElementById('companyAddress').value = place.formatted_address;
-    });
+    if (input && google && google.maps) {
+        const autocomplete = new google.maps.places.Autocomplete(input);
+        autocomplete.addListener('place_changed', () => {
+            const place = autocomplete.getPlace();
+            if (place.place_id) {
+                document.getElementById('companyName').value = place.name || '';
+                document.getElementById('placeId').value = place.place_id || '';
+                document.getElementById('companyAddress').value = place.formatted_address || '';
+            }
+        });
+        console.log("✅ Google Autocomplete initialized");
+    }
+}
+
+// 10. Initial Setup
+document.addEventListener("DOMContentLoaded", () => {
+    console.log("🚀 Dashboard initializing...");
+    loadCompanies();
+    setTimeout(() => initGoogleAutocomplete(), 500);
 });
 </script>
 </body>
