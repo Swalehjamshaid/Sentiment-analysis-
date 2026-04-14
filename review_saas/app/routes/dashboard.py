@@ -3,18 +3,32 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
 import datetime
+import logging
 
-# Assuming you have these in your project
-from ..dependencies import get_current_user  # or your auth dependency
-from ..services.company_service import CompanyService
-from ..services.review_service import ReviewService
-from ..services.ai_insights_service import AIInsightsService
-from ..services.revenue_risk_service import RevenueRiskService
-from ..services.chat_service import AIChatService
+logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["dashboard"])
+# ====================== Lazy Imports to Avoid Circular / Bootstrap Issues ======================
+def get_company_service():
+    from app.services.company_service import CompanyService
+    return CompanyService
 
-# ====================== MODELS ======================
+def get_review_service():
+    from app.services.review_service import ReviewService
+    return ReviewService
+
+def get_ai_insights_service():
+    from app.services.ai_insights_service import AIInsightsService
+    return AIInsightsService
+
+def get_revenue_risk_service():
+    from app.services.revenue_risk_service import RevenueRiskService
+    return RevenueRiskService
+
+def get_ai_chat_service():
+    from app.services.chat_service import AIChatService
+    return AIChatService
+
+# ====================== Pydantic Models ======================
 
 class Company(BaseModel):
     id: int
@@ -24,11 +38,11 @@ class Company(BaseModel):
     address: Optional[str] = None
 
 class Review(BaseModel):
-    id: int
-    rating: Optional[int]
-    sentiment: Optional[str]
-    review_text: Optional[str]
-    review_date: Optional[datetime.datetime]
+    id: Optional[int] = None
+    rating: Optional[int] = None
+    sentiment: Optional[str] = None
+    review_text: Optional[str] = None
+    review_date: Optional[datetime.datetime] = None
     source: str = "Google"
 
 class InsightsResponse(BaseModel):
@@ -47,112 +61,154 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
 
-# ====================== ROUTES ======================
+# ====================== Router ======================
+
+router = APIRouter(prefix="/api", tags=["dashboard"])
+
 
 @router.get("/companies")
-async def get_companies(user = Depends(get_current_user)):
+async def get_companies(user=Depends(get_current_user)):   # Replace with your actual auth dependency
     """Return all companies linked by the current user"""
-    companies = await CompanyService.get_user_companies(user.id)
-    return {"companies": companies}
+    try:
+        CompanyService = get_company_service()
+        companies = await CompanyService.get_user_companies(user.id)
+        return {"companies": companies}
+    except Exception as e:
+        logger.error(f"Error fetching companies: {e}")
+        raise HTTPException(status_code=500, detail="Failed to load companies")
 
 
 @router.post("/companies")
-async def add_company(payload: Dict[str, Any], user = Depends(get_current_user)):
-    """Add new business (Google Place)"""
+async def add_company(payload: Dict[str, Any], user=Depends(get_current_user)):
+    """Add new business via Google Place ID"""
     if not payload.get("place_id"):
         raise HTTPException(status_code=400, detail="place_id is required")
 
-    company = await CompanyService.create_company(
-        user_id=user.id,
-        name=payload.get("name"),
-        place_id=payload.get("place_id"),
-        address=payload.get("address")
-    )
-    return {"message": "Business linked successfully", "company": company}
+    try:
+        CompanyService = get_company_service()
+        company = await CompanyService.create_company(
+            user_id=user.id,
+            name=payload.get("name"),
+            place_id=payload.get("place_id"),
+            address=payload.get("address")
+        )
+        return {"message": "Business linked successfully", "company": company}
+    except Exception as e:
+        logger.error(f"Error adding company: {e}")
+        raise HTTPException(status_code=500, detail="Failed to add business")
 
 
 @router.get("/dashboard/ai/insights")
 async def get_ai_insights(
-    company_id: int = Query(..., description="Company ID"),
-    start: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    end: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
-    user = Depends(get_current_user)
+    company_id: int = Query(..., gt=0),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    user=Depends(get_current_user)
 ):
-    """Main dashboard insights (called by Analyze Business button)"""
-    # Verify user owns the company
-    if not await CompanyService.user_owns_company(user.id, company_id):
-        raise HTTPException(status_code=403, detail="Access denied")
+    """Main AI insights for dashboard (Analyze Business)"""
+    try:
+        # Optional: Add ownership check
+        CompanyService = get_company_service()
+        if not await CompanyService.user_owns_company(user.id, company_id):
+            raise HTTPException(status_code=403, detail="Access denied to this business")
 
-    insights = await AIInsightsService.generate_insights(
-        company_id=company_id,
-        start_date=start,
-        end_date=end
-    )
-
-    return insights
+        AIInsightsService = get_ai_insights_service()
+        insights = await AIInsightsService.generate_insights(
+            company_id=company_id,
+            start_date=start,
+            end_date=end
+        )
+        return insights
+    except Exception as e:
+        logger.error(f"Insights generation failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate insights")
 
 
 @router.get("/dashboard/latest-reviews")
 async def get_latest_reviews(
     company_id: int = Query(...),
     limit: int = Query(100, le=500),
-    user = Depends(get_current_user)
+    user=Depends(get_current_user)
 ):
-    """Latest reviews for the table"""
-    if not await CompanyService.user_owns_company(user.id, company_id):
-        raise HTTPException(status_code=403, detail="Access denied")
+    """Latest reviews for the data table"""
+    try:
+        CompanyService = get_company_service()
+        if not await CompanyService.user_owns_company(user.id, company_id):
+            raise HTTPException(status_code=403, detail="Access denied")
 
-    reviews = await ReviewService.get_latest_reviews(company_id, limit=limit)
-    return reviews
+        ReviewService = get_review_service()
+        reviews = await ReviewService.get_latest_reviews(company_id, limit=limit)
+        return reviews
+    except Exception as e:
+        logger.error(f"Failed to load latest reviews: {e}")
+        raise HTTPException(status_code=500, detail="Failed to load reviews")
 
 
 @router.get("/dashboard/revenue")
 async def get_revenue_risk(
     company_id: int = Query(...),
-    user = Depends(get_current_user)
+    user=Depends(get_current_user)
 ):
     """Revenue risk monitoring"""
-    if not await CompanyService.user_owns_company(user.id, company_id):
-        raise HTTPException(status_code=403, detail="Access denied")
+    try:
+        CompanyService = get_company_service()
+        if not await CompanyService.user_owns_company(user.id, company_id):
+            raise HTTPException(status_code=403, detail="Access denied")
 
-    risk_data = await RevenueRiskService.calculate_risk(company_id)
-    return risk_data
+        RevenueRiskService = get_revenue_risk_service()
+        risk_data = await RevenueRiskService.calculate_risk(company_id)
+        return risk_data
+    except Exception as e:
+        logger.error(f"Revenue risk calculation failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to calculate risk")
 
 
 @router.post("/reviews/ingest/{company_id}")
-async def sync_live_reviews(company_id: int, user = Depends(get_current_user)):
-    """Sync latest reviews from Google (called by Sync Live Data)"""
-    if not await CompanyService.user_owns_company(user.id, company_id):
-        raise HTTPException(status_code=403, detail="Access denied")
+async def sync_live_reviews(company_id: int, user=Depends(get_current_user)):
+    """Sync latest reviews from Google"""
+    try:
+        CompanyService = get_company_service()
+        if not await CompanyService.user_owns_company(user.id, company_id):
+            raise HTTPException(status_code=403, detail="Access denied")
 
-    result = await ReviewService.ingest_from_google(company_id)
-    return {
-        "message": "Sync completed",
-        "reviews_count": result.get("ingested_count", 0),
-        "new_reviews": result.get("new_reviews", 0)
-    }
+        ReviewService = get_review_service()
+        result = await ReviewService.ingest_from_google(company_id)
+
+        return {
+            "message": "Sync completed successfully",
+            "reviews_count": result.get("ingested_count", 0),
+            "new_reviews": result.get("new_reviews", 0)
+        }
+    except Exception as e:
+        logger.error(f"Sync failed: {e}")
+        raise HTTPException(status_code=500, detail="Sync operation failed")
 
 
 @router.post("/dashboard/chat")
 async def ai_chat(
     company_id: int = Query(...),
     request: ChatRequest = Body(...),
-    user = Depends(get_current_user)
+    user=Depends(get_current_user)
 ):
     """AI Strategy Consultant Chat"""
-    if not await CompanyService.user_owns_company(user.id, company_id):
-        raise HTTPException(status_code=403, detail="Access denied")
+    try:
+        CompanyService = get_company_service()
+        if not await CompanyService.user_owns_company(user.id, company_id):
+            raise HTTPException(status_code=403, detail="Access denied")
 
-    answer = await AIChatService.get_response(
-        company_id=company_id,
-        user_message=request.message
-    )
+        AIChatService = get_ai_chat_service()
+        answer = await AIChatService.get_response(
+            company_id=company_id,
+            user_message=request.message
+        )
+        return {"answer": answer}
+    except Exception as e:
+        logger.error(f"AI Chat failed: {e}")
+        raise HTTPException(status_code=500, detail="AI service temporarily unavailable")
 
-    return {"answer": answer}
 
-
-# Optional: Logout route (if you want to handle it server-side)
 @router.get("/auth/logout")
-async def logout(user = Depends(get_current_user)):
-    # Implement your logout logic (clear session / token)
+async def logout(user=Depends(get_current_user)):
+    """Simple logout endpoint"""
+    # Add your logout logic here (clear token/session)
     return {"message": "Logged out successfully"}
