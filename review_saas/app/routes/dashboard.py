@@ -1,308 +1,158 @@
-# ==========================================================
-# filename: app/routes/dashboard.py
-# ==========================================================
-# REVIEW INTELLIGENCE AI – DASHBOARD BACKEND (ERROR‑FREE)
-# Fully compatible with provided frontend
-# ==========================================================
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import List, Dict, Optional, Any
+import datetime
+
+# Assuming you have these in your project
+from ..dependencies import get_current_user  # or your auth dependency
+from ..services.company_service import CompanyService
+from ..services.review_service import ReviewService
+from ..services.ai_insights_service import AIInsightsService
+from ..services.revenue_risk_service import RevenueRiskService
+from ..services.chat_service import AIChatService
+
+router = APIRouter(prefix="/api", tags=["dashboard"])
+
+# ====================== MODELS ======================
+
+class Company(BaseModel):
+    id: int
+    name: str
+    business_name: Optional[str] = None
+    place_id: str
+    address: Optional[str] = None
+
+class Review(BaseModel):
+    id: int
+    rating: Optional[int]
+    sentiment: Optional[str]
+    review_text: Optional[str]
+    review_date: Optional[datetime.datetime]
+    source: str = "Google"
+
+class InsightsResponse(BaseModel):
+    metadata: Dict[str, Any]
+    kpis: Dict[str, Any]
+    visualizations: Dict[str, Any]
+
+class RevenueRiskResponse(BaseModel):
+    risk_percent: float
+    impact: str
+    details: Optional[Dict] = None
+
+class ChatRequest(BaseModel):
+    message: str
+
+class ChatResponse(BaseModel):
+    answer: str
+
+# ====================== ROUTES ======================
+
+@router.get("/companies")
+async def get_companies(user = Depends(get_current_user)):
+    """Return all companies linked by the current user"""
+    companies = await CompanyService.get_user_companies(user.id)
+    return {"companies": companies}
 
 
-from __future__ import annotations
+@router.post("/companies")
+async def add_company(payload: Dict[str, Any], user = Depends(get_current_user)):
+    """Add new business (Google Place)"""
+    if not payload.get("place_id"):
+        raise HTTPException(status_code=400, detail="place_id is required")
 
-import os
-import io
-import asyncio
-import logging
-from datetime import datetime, timedelta
-from collections import defaultdict
-from typing import Optional, Dict, List, Any
-
-from fastapi import APIRouter, Depends, Query, HTTPException
-from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
-import httpx
-from fpdf import FPDF
-
-from app.core.db import get_db
-from app.core.models import Company, Review
-
-# ----------------------------------------------------------
-# Router
-# ----------------------------------------------------------
-router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
-logger = logging.getLogger("dashboard")
-
-# ----------------------------------------------------------
-# AI (DeepSeek)
-# ----------------------------------------------------------
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
-
-# ----------------------------------------------------------
-# Constants
-# ----------------------------------------------------------
-NEGATIVE_RATINGS = {1, 2}
-
-EMOTION_KEYWORDS = {
-    "Joy": ["happy", "great", "amazing", "excellent", "love", "awesome"],
-    "Anger": ["angry", "worst", "terrible", "awful", "hate", "poor"],
-    "Sadness": ["sad", "disappointed", "unhappy", "regret"],
-    "Surprise": ["surprised", "wow", "unexpected"],
-    "Fear": ["scared", "afraid", "unsafe", "risky"],
-    "Love": ["love", "adore", "grateful", "thankful"]
-}
-
-# ----------------------------------------------------------
-# Helpers
-# ----------------------------------------------------------
-def safe_date(val: Optional[str]) -> Optional[datetime]:
-    """
-    Safely parse ISO date string from frontend.
-    Returns None if invalid or empty.
-    """
-    if not val:
-        return None
-    try:
-        return datetime.fromisoformat(val)
-    except ValueError:
-        return None
-
-
-def sentiment_label(rating: Optional[int]) -> str:
-    if rating is None:
-        return "neutral"
-    if rating <= 2:
-        return "negative"
-    if rating >= 4:
-        return "positive"
-    return "neutral"
-
-
-def emotion_scores(text: Optional[str]) -> Dict[str, int]:
-    text = (text or "").lower()
-    scores = {}
-    for emotion, keywords in EMOTION_KEYWORDS.items():
-        scores[emotion] = min(
-            sum(text.count(k) for k in keywords) * 5,
-            100
-        )
-    return scores
-
-
-async def get_company(session: AsyncSession, company_id: int) -> Company:
-    result = await session.execute(
-        select(Company).where(Company.id == company_id)
+    company = await CompanyService.create_company(
+        user_id=user.id,
+        name=payload.get("name"),
+        place_id=payload.get("place_id"),
+        address=payload.get("address")
     )
-    company = result.scalars().first()
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
-    return company
+    return {"message": "Business linked successfully", "company": company}
 
 
-# ----------------------------------------------------------
-# Core Analytics Engine
-# ----------------------------------------------------------
-def compute_analytics(reviews: List[Review]) -> Dict[str, Any]:
-    total = len(reviews)
-    ratings_dist = {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
-    ratings: List[int] = []
-    negative_count = 0
-
-    emotions_acc = defaultdict(list)
-    weekly_trend = defaultdict(list)
-
-    for r in reviews:
-        if r.rating:
-            ratings_dist[str(r.rating)] += 1
-            ratings.append(r.rating)
-            if r.rating in NEGATIVE_RATINGS:
-                negative_count += 1
-
-        if r.text:
-            scores = emotion_scores(r.text)
-            for e, v in scores.items():
-                emotions_acc[e].append(v)
-
-        if r.google_review_time:
-            week = r.google_review_time - timedelta(
-                days=r.google_review_time.weekday()
-            )
-            weekly_trend[week.strftime("%Y-%m-%d")].append(r.rating or 3)
-
-    avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
-    risk_pct = round((negative_count / total) * 100, 1) if total else 0.0
-
-    sentiment_trend = [
-        {"week": k, "avg": round(sum(v) / len(v), 2)}
-        for k, v in sorted(weekly_trend.items())[-12:]
-    ]
-
-    return {
-        "metadata": {
-            "total_reviews": total
-        },
-        "kpis": {
-            "average_rating": avg_rating,
-            "reputation_score": max(0, int(100 - risk_pct))
-        },
-        "visualizations": {
-            "emotions": {
-                e: round(sum(v) / len(v), 1) if v else 0
-                for e, v in emotions_acc.items()
-            },
-            "ratings": ratings_dist,
-            "sentiment_trend": sentiment_trend
-        },
-        "risk": {
-            "loss_probability": f"{risk_pct}%",
-            "impact_level": (
-                "Critical" if risk_pct > 40 else
-                "High" if risk_pct > 25 else
-                "Medium" if risk_pct > 12 else
-                "Low"
-            )
-        }
-    }
-
-# ----------------------------------------------------------
-# API Endpoints
-# ----------------------------------------------------------
-@router.get("/health")
-async def health_check():
-    return {"status": "ok"}
-
-
-@router.get("/ai/insights")
-async def ai_insights(
-    company_id: int = Query(...),
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-    session: AsyncSession = Depends(get_db)
+@router.get("/dashboard/ai/insights")
+async def get_ai_insights(
+    company_id: int = Query(..., description="Company ID"),
+    start: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    user = Depends(get_current_user)
 ):
-    start_dt = safe_date(start)
-    end_dt = safe_date(end)
+    """Main dashboard insights (called by Analyze Business button)"""
+    # Verify user owns the company
+    if not await CompanyService.user_owns_company(user.id, company_id):
+        raise HTTPException(status_code=403, detail="Access denied")
 
-    stmt = select(Review).where(Review.company_id == company_id)
-    if start_dt:
-        stmt = stmt.where(Review.google_review_time >= start_dt)
-    if end_dt:
-        stmt = stmt.where(Review.google_review_time <= end_dt)
-
-    result = await session.execute(stmt)
-    reviews = result.scalars().all()
-    return JSONResponse(content=compute_analytics(reviews))
-
-
-@router.get("/revenue")
-async def revenue_risk(
-    company_id: int = Query(...),
-    session: AsyncSession = Depends(get_db)
-):
-    result = await session.execute(
-        select(Review).where(Review.company_id == company_id)
+    insights = await AIInsightsService.generate_insights(
+        company_id=company_id,
+        start_date=start,
+        end_date=end
     )
-    analytics = compute_analytics(result.scalars().all())
+
+    return insights
+
+
+@router.get("/dashboard/latest-reviews")
+async def get_latest_reviews(
+    company_id: int = Query(...),
+    limit: int = Query(100, le=500),
+    user = Depends(get_current_user)
+):
+    """Latest reviews for the table"""
+    if not await CompanyService.user_owns_company(user.id, company_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    reviews = await ReviewService.get_latest_reviews(company_id, limit=limit)
+    return reviews
+
+
+@router.get("/dashboard/revenue")
+async def get_revenue_risk(
+    company_id: int = Query(...),
+    user = Depends(get_current_user)
+):
+    """Revenue risk monitoring"""
+    if not await CompanyService.user_owns_company(user.id, company_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    risk_data = await RevenueRiskService.calculate_risk(company_id)
+    return risk_data
+
+
+@router.post("/reviews/ingest/{company_id}")
+async def sync_live_reviews(company_id: int, user = Depends(get_current_user)):
+    """Sync latest reviews from Google (called by Sync Live Data)"""
+    if not await CompanyService.user_owns_company(user.id, company_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    result = await ReviewService.ingest_from_google(company_id)
     return {
-        "risk_percent": analytics["risk"]["loss_probability"].replace("%", ""),
-        "impact": analytics["risk"]["impact_level"]
+        "message": "Sync completed",
+        "reviews_count": result.get("ingested_count", 0),
+        "new_reviews": result.get("new_reviews", 0)
     }
 
 
-@router.get("/latest-reviews")
-async def latest_reviews(
+@router.post("/dashboard/chat")
+async def ai_chat(
     company_id: int = Query(...),
-    limit: int = 100,
-    session: AsyncSession = Depends(get_db)
+    request: ChatRequest = Body(...),
+    user = Depends(get_current_user)
 ):
-    result = await session.execute(
-        select(Review)
-        .where(Review.company_id == company_id)
-        .order_by(desc(Review.google_review_time))
-        .limit(limit)
+    """AI Strategy Consultant Chat"""
+    if not await CompanyService.user_owns_company(user.id, company_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    answer = await AIChatService.get_response(
+        company_id=company_id,
+        user_message=request.message
     )
 
-    return [
-        {
-            "rating": r.rating,
-            "sentiment": sentiment_label(r.rating),
-            "review_text": r.text or "",
-            "review_date": r.google_review_time.isoformat()
-            if r.google_review_time else None,
-            "source": "Google"
-        }
-        for r in result.scalars().all()
-    ]
+    return {"answer": answer}
 
 
-@router.post("/chat")
-async def chat_ai(
-    payload: Dict[str, str],
-    company_id: int = Query(...),
-    session: AsyncSession = Depends(get_db)
-):
-    user_message = payload.get("message", "").strip()
-    company = await get_company(session, company_id)
-
-    if not DEEPSEEK_API_KEY:
-        return {"answer": "AI service is not configured."}
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            DEEPSEEK_API_URL,
-            headers={
-                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "deepseek-chat",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": f"You are a business consultant for {company.name}."
-                    },
-                    {
-                        "role": "user",
-                        "content": user_message
-                    }
-                ],
-                "temperature": 0.7,
-                "max_tokens": 400
-            }
-        )
-
-        data = response.json()
-        return {"answer": data["choices"][0]["message"]["content"]}
-
-
-@router.get("/executive-report/pdf/{company_id}")
-async def executive_pdf(
-    company_id: int,
-    session: AsyncSession = Depends(get_db)
-):
-    company = await get_company(session, company_id)
-    result = await session.execute(
-        select(Review).where(Review.company_id == company_id)
-    )
-    analytics = compute_analytics(result.scalars().all())
-
-    def build_pdf() -> bytes:
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", "B", 16)
-        pdf.cell(0, 10, company.name, ln=True)
-
-        pdf.set_font("Arial", "", 12)
-        pdf.cell(0, 10, f"Average Rating: {analytics['kpis']['average_rating']}", ln=True)
-        pdf.cell(0, 10, f"Risk Level: {analytics['risk']['impact_level']}", ln=True)
-
-        return pdf.output(dest="S")
-
-    pdf_bytes = await asyncio.to_thread(build_pdf)
-
-    return StreamingResponse(
-        io.BytesIO(pdf_bytes),
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f"attachment; filename=Executive_Report_{company_id}.pdf"
-        }
-    )
+# Optional: Logout route (if you want to handle it server-side)
+@router.get("/auth/logout")
+async def logout(user = Depends(get_current_user)):
+    # Implement your logout logic (clear session / token)
+    return {"message": "Logged out successfully"}
