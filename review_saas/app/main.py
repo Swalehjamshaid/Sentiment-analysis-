@@ -1,4 +1,3 @@
-# filename: app/main.py
 import os
 import sys
 import logging
@@ -78,23 +77,34 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.SECRET_KEY
+)
 
 # ----------------------------------------------------------
 # TEMPLATES ENGINE
 # ----------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 possible_paths = [
     os.path.join(BASE_DIR, "templates"),
     "/app/app/templates",
     "/app/templates",
 ]
-template_path = next((p for p in possible_paths if os.path.isdir(p)), None)
+
+template_path = next(
+    (p for p in possible_paths if os.path.isdir(p)),
+    None
+)
+
 if not template_path:
     raise RuntimeError("❌ Templates directory NOT FOUND")
 
 templates = Jinja2Templates(directory=template_path)
 templates.env.cache = None
+
 logger.info(f"✅ Templates loaded from: {template_path}")
 
 # ----------------------------------------------------------
@@ -103,10 +113,13 @@ logger.info(f"✅ Templates loaded from: {template_path}")
 def format_date(value, format="%Y-%m-%d"):
     if not value:
         return ""
+
     try:
         if isinstance(value, str):
             value = datetime.fromisoformat(value)
+
         return value.strftime(format)
+
     except Exception:
         return str(value)
 
@@ -120,31 +133,70 @@ static_paths = [
     "/app/app/static",
     "/app/static",
 ]
-static_dir = next((p for p in static_paths if os.path.isdir(p)), None)
+
+static_dir = next(
+    (p for p in static_paths if os.path.isdir(p)),
+    None
+)
+
 if static_dir:
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    app.mount(
+        "/static",
+        StaticFiles(directory=static_dir),
+        name="static"
+    )
+
     logger.info(f"📁 Static files mounted from: {static_dir}")
 
 # ----------------------------------------------------------
-# ROUTE IMPORTS
+# ROUTE IMPORTS WITH DEBUGGING
 # ----------------------------------------------------------
-from app.routes import auth, companies, dashboard, reviews
+try:
+    from app.routes import auth
+    print("✅ auth imported successfully")
+
+    from app.routes import companies
+    print("✅ companies imported successfully")
+
+    from app.routes import dashboard
+    print("✅ dashboard imported successfully")
+
+    from app.routes import reviews
+    print("✅ reviews imported successfully")
+
+except Exception as e:
+    print("❌ ROUTE IMPORT FAILURE:", str(e))
+
+    import traceback
+    traceback.print_exc()
+
+    raise e
 
 # ----------------------------------------------------------
-# UI / VIEW ROUTES
+# ROOT ROUTE
 # ----------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
+
     if not request.session.get("user"):
         return RedirectResponse("/login", status_code=303)
+
     return RedirectResponse("/dashboard", status_code=303)
 
-
+# ----------------------------------------------------------
+# LOGIN PAGE
+# ----------------------------------------------------------
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse(request=request, name="login.html")
 
+    return templates.TemplateResponse(
+        request=request,
+        name="login.html"
+    )
 
+# ----------------------------------------------------------
+# LOGIN HANDLER
+# ----------------------------------------------------------
 @app.post("/api/auth/login")
 @app.post("/login")
 async def handle_login(
@@ -155,90 +207,155 @@ async def handle_login(
     db: AsyncSession = Depends(get_db),
 ):
     from app.core.models import User
+
     try:
         result = await db.execute(
-            select(User).where(User.email == email.strip().lower())
+            select(User).where(
+                User.email == email.strip().lower()
+            )
         )
+
         user = result.scalars().first()
 
         # Check Verification
         if user and not user.is_verified:
-             return templates.TemplateResponse(
+            return templates.TemplateResponse(
                 request=request,
                 name="login.html",
-                context={"error": "Please verify your email address first."}
+                context={
+                    "error": "Please verify your email address first."
+                }
             )
 
-        # Standard Password Login
+        # Password Login
         if not magic_link:
-            if user and pwd_context.verify(password, user.hashed_password):
+
+            if user and pwd_context.verify(
+                password,
+                user.hashed_password
+            ):
+
                 request.session["user"] = {
                     "id": user.id,
                     "email": user.email,
                     "name": user.name,
                 }
-                return RedirectResponse("/dashboard", status_code=303)
+
+                return RedirectResponse(
+                    "/dashboard",
+                    status_code=303
+                )
+
         else:
-            # Resend Magic Link Placeholder
             return templates.TemplateResponse(
                 request=request,
                 name="login.html",
-                context={"success": "Magic link logic triggered. Check inbox."}
+                context={
+                    "success": "Magic link logic triggered. Check inbox."
+                }
             )
 
         return templates.TemplateResponse(
             request=request,
             name="login.html",
-            context={"error": "Invalid email or password"}
+            context={
+                "error": "Invalid email or password"
+            }
         )
+
     except Exception:
         logger.error("❌ Login Error")
         logger.error(traceback.format_exc())
+
         return templates.TemplateResponse(
             request=request,
             name="login.html",
-            context={"error": "Something went wrong. Please try again."}
+            context={
+                "error": "Something went wrong. Please try again."
+            }
         )
 
-
+# ----------------------------------------------------------
+# REGISTER PAGE
+# ----------------------------------------------------------
 @app.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request):
-    return templates.TemplateResponse(request=request, name="register.html")
 
+    return templates.TemplateResponse(
+        request=request,
+        name="register.html"
+    )
 
+# ----------------------------------------------------------
+# DASHBOARD PAGE
+# ----------------------------------------------------------
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_view(request: Request):
+
     if not request.session.get("user"):
         return RedirectResponse("/login", status_code=303)
 
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
-        context={"user": request.session.get("user")}
+        context={
+            "user": request.session.get("user")
+        }
     )
 
-
+# ----------------------------------------------------------
+# LOGOUT
+# ----------------------------------------------------------
 @app.get("/logout")
 @app.get("/api/auth/logout")
 async def logout(request: Request):
-    request.session.clear()
-    return RedirectResponse("/login", status_code=303)
 
+    request.session.clear()
+
+    return RedirectResponse(
+        "/login",
+        status_code=303
+    )
 
 # ----------------------------------------------------------
 # API ROUTER INCLUSION
 # ----------------------------------------------------------
-# Ensure the dashboard router is included to fix 404 errors
-app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
-app.include_router(companies.router, prefix="/api", tags=["companies"])
-app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
-app.include_router(reviews.router, prefix="/api", tags=["reviews"])
+app.include_router(
+    auth.router,
+    prefix="/api/auth",
+    tags=["auth"]
+)
 
+app.include_router(
+    companies.router,
+    prefix="/api",
+    tags=["companies"]
+)
+
+app.include_router(
+    dashboard.router,
+    prefix="/api",
+    tags=["dashboard"]
+)
+
+app.include_router(
+    reviews.router,
+    prefix="/api",
+    tags=["reviews"]
+)
 
 # ----------------------------------------------------------
-# ENTRYPOINT (UVICORN)
+# ENTRYPOINT
 # ----------------------------------------------------------
 if __name__ == "__main__":
+
     import uvicorn
+
     port = int(os.environ.get("PORT", 8080))
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
+
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=False
+    )
