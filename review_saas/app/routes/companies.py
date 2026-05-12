@@ -1,9 +1,11 @@
 # filename: app/routes/companies.py
+
 from __future__ import annotations
 
 import logging
 import httpx
 import os
+
 from typing import Any, Dict, List, Optional
 
 from fastapi import (
@@ -12,212 +14,432 @@ from fastapi import (
     HTTPException,
     status,
     BackgroundTasks,
-    Query,
     Depends,
 )
-from fastapi.responses import JSONResponse
+
 from pydantic import BaseModel
-from sqlalchemy import select, func, desc
+
+from sqlalchemy import (
+    select,
+    func,
+    desc,
+)
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# --- REFINED ALIGNMENT IMPORTS ---
+# ==========================================================
+# INTERNAL IMPORTS
+# ==========================================================
+
 from app.core.db import get_db
-# ✅ MODELS REMOVED FROM TOP TO BREAK THE DEADLOCK
 from app.core.config import settings
 
 logger = logging.getLogger("app.companies")
 
 router = APIRouter(tags=["companies"])
 
-# ----------------------------------------------------------
-# AUTH CHECK (Refined to use session logic)
-# ----------------------------------------------------------
+# ==========================================================
+# AUTH CHECK
+# ==========================================================
+
 def _require_user(request: Request) -> Dict[str, Any]:
-    """
-    Checks if a user exists in the session.
-    Internal helper for companies route.
-    """
+
     user = request.session.get("user")
+
     if not user:
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized"
         )
+
     return user
 
-# ----------------------------------------------------------
+# ==========================================================
 # PAYLOAD
-# ----------------------------------------------------------
+# ==========================================================
+
 class CompanyCreate(BaseModel):
+
     name: str
+
     place_id: str
+
     address: Optional[str] = None
 
-# ----------------------------------------------------------
+# ==========================================================
 # OUTSCRAPER CLIENT
-# ----------------------------------------------------------
+# ==========================================================
+
 class OutscraperClient:
+
     BASE = "https://api.app.outscraper.com/maps"
 
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str):
+
         if not api_key:
-            raise RuntimeError("Outscraper API key missing")
+
+            raise RuntimeError(
+                "Outscraper API key missing"
+            )
+
         self.api_key = api_key
 
-    async def search(self, query: str) -> List[Dict[str, Any]]:
-        params = {"query": query, "async": "false", "limit": 5}
+    async def search(
+        self,
+        query: str
+    ) -> List[Dict[str, Any]]:
+
+        params = {
+            "query": query,
+            "async": "false",
+            "limit": 5
+        }
+
         async with httpx.AsyncClient(timeout=20) as c:
+
             r = await c.get(
+
                 f"{self.BASE}/search-v2",
+
                 params=params,
-                headers={"X-API-KEY": self.api_key},
+
+                headers={
+                    "X-API-KEY": self.api_key
+                },
             )
+
             r.raise_for_status()
+
             return r.json().get("data", [])
 
-    async def details(self, place_id: str) -> Optional[Dict[str, Any]]:
-        params = {"query": place_id, "async": "false", "limit": 1}
+    async def details(
+        self,
+        place_id: str
+    ) -> Optional[Dict[str, Any]]:
+
+        params = {
+            "query": place_id,
+            "async": "false",
+            "limit": 1
+        }
+
         async with httpx.AsyncClient(timeout=20) as c:
+
             r = await c.get(
+
                 f"{self.BASE}/details",
+
                 params=params,
-                headers={"X-API-KEY": self.api_key},
+
+                headers={
+                    "X-API-KEY": self.api_key
+                },
             )
+
             r.raise_for_status()
+
             data = r.json().get("data", [])
+
             return data[0] if data else None
 
 def _osc() -> Optional[OutscraperClient]:
-    key = os.getenv("OUTSCRAPER_API_KEY") or settings.OUTSCRAPER_API_KEY
+
+    key = (
+        os.getenv("OUTSCRAPER_API_KEY")
+        or settings.OUTSCRAPER_API_KEY
+    )
+
     if not key:
+
         return None
+
     return OutscraperClient(key)
 
-# ----------------------------------------------------------
-# COMPANIES LIST
-# ----------------------------------------------------------
+# ==========================================================
+# GET COMPANIES
+# ==========================================================
+
 @router.get("/companies")
+
 async def companies_list(
+
     request: Request,
+
     page: int = 1,
+
     size: int = 20,
+
     q: Optional[str] = None,
+
     session: AsyncSession = Depends(get_db),
+
 ) -> List[Dict[str, Any]]:
 
     _require_user(request)
-    # ✅ LOCAL IMPORT: Breaks the Vicious Circle
+
     from app.core.models import Company, Review
 
     page = max(page, 1)
+
     size = max(1, min(100, size))
 
     stmt = select(Company)
+
     if q:
-        stmt = stmt.where(Company.name.ilike(f"%{q}%"))
 
-    stmt = stmt.order_by(desc(Company.created_at))
+        stmt = stmt.where(
+            Company.name.ilike(f"%{q}%")
+        )
 
-    res = await session.execute(stmt.offset((page - 1) * size).limit(size))
+    stmt = stmt.order_by(
+        desc(Company.created_at)
+    )
+
+    res = await session.execute(
+        stmt.offset((page - 1) * size).limit(size)
+    )
+
     companies = res.scalars().all()
 
     items: List[Dict[str, Any]] = []
 
     for c in companies:
-        stats_stmt = select(
-            func.count(Review.id),
-            func.avg(Review.rating)
-        ).where(Review.company_id == c.id)
 
-        stats_res = await session.execute(stats_stmt)
+        stats_stmt = select(
+
+            func.count(Review.id),
+
+            func.avg(Review.rating)
+
+        ).where(
+            Review.company_id == c.id
+        )
+
+        stats_res = await session.execute(
+            stats_stmt
+        )
+
         stats_data = stats_res.first()
 
         count = stats_data[0] if stats_data else 0
+
         avg = stats_data[1] if stats_data else 0
 
         items.append({
+
             "id": c.id,
+
             "name": c.name,
+
             "place_id": c.google_place_id,
+
             "address": c.address or "",
+
             "review_count": int(count or 0),
+
             "avg_rating": round(float(avg or 0), 2),
         })
 
     return items
 
-# ----------------------------------------------------------
+# ==========================================================
 # ADD COMPANY
-# ----------------------------------------------------------
+# ==========================================================
+
 @router.post("/companies")
+
 async def add_company(
+
     request: Request,
+
     company_in: CompanyCreate,
+
     background: BackgroundTasks,
+
     session: AsyncSession = Depends(get_db),
+
 ) -> Dict[str, Any]:
 
     _require_user(request)
-    # ✅ LOCAL IMPORT: Breaks the Vicious Circle
+
     from app.core.models import Company
 
-    res = await session.execute(
-        select(Company).where(Company.google_place_id == company_in.place_id.strip())
-    )
-    existing = res.scalar_one_or_none()
+    try:
 
-    if existing:
+        # ==================================================
+        # VALIDATION
+        # ==================================================
+
+        if not company_in.name.strip():
+
+            raise HTTPException(
+
+                status_code=400,
+
+                detail="Company name required"
+            )
+
+        if not company_in.place_id.strip():
+
+            raise HTTPException(
+
+                status_code=400,
+
+                detail="Google Place ID required"
+            )
+
+        # ==================================================
+        # CHECK EXISTING
+        # ==================================================
+
+        res = await session.execute(
+
+            select(Company).where(
+
+                Company.google_place_id ==
+
+                company_in.place_id.strip()
+            )
+        )
+
+        existing = res.scalar_one_or_none()
+
+        if existing:
+
+            logger.warning(
+
+                "⚠️ Company already exists: %s",
+
+                existing.name
+            )
+
+            return {
+
+                "status": "exists",
+
+                "company": {
+
+                    "id": existing.id,
+
+                    "name": existing.name,
+
+                    "place_id":
+                        existing.google_place_id,
+
+                    "address":
+                        existing.address,
+                }
+            }
+
+        # ==================================================
+        # CREATE COMPANY
+        # ==================================================
+
+        new_company = Company(
+
+            name=
+                company_in.name.strip(),
+
+            google_place_id=
+                company_in.place_id.strip(),
+
+            address=
+                company_in.address.strip()
+                if company_in.address
+                else "",
+        )
+
+        session.add(new_company)
+
+        await session.commit()
+
+        await session.refresh(new_company)
+
+        logger.info(
+
+            "✅ Created new company: %s",
+
+            new_company.name
+        )
+
         return {
-            "status": "exists",
+
+            "status": "created",
+
             "company": {
-                "id": existing.id,
-                "name": existing.name,
-                "place_id": existing.google_place_id,
-                "address": existing.address,
+
+                "id": new_company.id,
+
+                "name": new_company.name,
+
+                "place_id":
+                    new_company.google_place_id,
+
+                "address":
+                    new_company.address,
             }
         }
 
-    new_company = Company(
-        name=company_in.name.strip(),
-        google_place_id=company_in.place_id.strip(),
-        address=company_in.address or "",
-    )
+    except HTTPException:
 
-    session.add(new_company)
-    await session.commit()
-    await session.refresh(new_company)
+        raise
 
-    logger.info("✅ Created new company: %s", new_company.name)
+    except Exception as e:
 
-    return {
-        "status": "created",
-        "company": {
-            "id": new_company.id,
-            "name": new_company.name,
-            "place_id": new_company.google_place_id,
-            "address": new_company.address,
-        }
-    }
+        logger.exception(
+            "❌ Failed to create company"
+        )
 
-# ----------------------------------------------------------
+        await session.rollback()
+
+        raise HTTPException(
+
+            status_code=500,
+
+            detail=
+                f"Company creation failed: {str(e)}"
+        )
+
+# ==========================================================
 # DELETE COMPANY
-# ----------------------------------------------------------
+# ==========================================================
+
 @router.post("/companies/{company_id}/delete")
+
 async def delete_company(
+
     request: Request,
+
     company_id: int,
+
     session: AsyncSession = Depends(get_db),
+
 ) -> Dict[str, Any]:
 
     _require_user(request)
-    # ✅ LOCAL IMPORT: Breaks the Vicious Circle
+
     from app.core.models import Company
 
-    comp = await session.get(Company, company_id)
+    comp = await session.get(
+        Company,
+        company_id
+    )
+
     if not comp:
-        raise HTTPException(status_code=404, detail="Company not found")
+
+        raise HTTPException(
+            status_code=404,
+            detail="Company not found"
+        )
 
     await session.delete(comp)
+
     await session.commit()
 
-    return {"status": "deleted", "id": company_id}
+    return {
+
+        "status": "deleted",
+
+        "id": company_id
+    }
