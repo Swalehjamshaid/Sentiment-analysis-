@@ -1,7 +1,451 @@
-<!-- ===================================================== -->
-<!-- COMPLETE GOOGLE AUTOCOMPLETE WORKING VERSION -->
-<!-- PASTE THIS BEFORE </body> -->
-<!-- ===================================================== -->
+<!DOCTYPE html>
+
+<html lang="en" data-bs-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Review Intel AI Dashboard</title>
+
+```
+<!-- Bootstrap -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+<!-- Bootstrap Icons -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+
+<!-- DataTables -->
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/dataTables.bootstrap5.min.css">
+
+<!-- Google Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+
+    * {
+        font-family: 'Inter', sans-serif;
+    }
+
+    body {
+        background: #f3f6fb;
+        min-height: 100vh;
+        color: #111827;
+    }
+
+    .navbar-custom {
+        background: linear-gradient(135deg,#4f46e5,#7c3aed);
+        border-radius: 22px;
+        padding: 18px 24px;
+        margin-top: 20px;
+        box-shadow: 0 12px 30px rgba(79,70,229,0.25);
+    }
+
+    .glass-card {
+        background: white;
+        border-radius: 24px;
+        border: 1px solid rgba(255,255,255,0.6);
+        box-shadow: 0 10px 30px rgba(15,23,42,0.08);
+    }
+
+    .kpi-card {
+        border-radius: 24px;
+        padding: 28px;
+        color: white;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .kpi-card::before {
+        content: '';
+        position: absolute;
+        width: 180px;
+        height: 180px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.08);
+        top: -60px;
+        right: -60px;
+    }
+
+    .kpi-blue {
+        background: linear-gradient(135deg,#4f46e5,#2563eb);
+    }
+
+    .kpi-green {
+        background: linear-gradient(135deg,#059669,#10b981);
+    }
+
+    .kpi-red {
+        background: linear-gradient(135deg,#dc2626,#ef4444);
+    }
+
+    .kpi-purple {
+        background: linear-gradient(135deg,#7c3aed,#a855f7);
+    }
+
+    .chart-card {
+        padding: 24px;
+        border-radius: 24px;
+        background: white;
+        box-shadow: 0 10px 25px rgba(15,23,42,0.06);
+    }
+
+    .chart-box {
+        position: relative;
+        height: 320px;
+    }
+
+    .btn-modern {
+        border-radius: 14px;
+        padding: 12px 22px;
+        font-weight: 700;
+        border: none;
+    }
+
+    .modal-content {
+        border-radius: 24px;
+        overflow: hidden;
+        border: none;
+    }
+
+    .modal-header {
+        background: linear-gradient(135deg,#059669,#10b981);
+        color: white;
+        padding: 24px;
+    }
+
+    .search-input {
+        border-radius: 18px;
+        padding: 16px;
+        border: 2px solid #dbeafe;
+        font-size: 18px;
+    }
+
+    .search-input:focus {
+        border-color: #4f46e5;
+        box-shadow: 0 0 0 4px rgba(79,70,229,0.12);
+    }
+
+    .info-box {
+        background: #f8fafc;
+        border-radius: 18px;
+        padding: 22px;
+    }
+
+    .table-modern {
+        border-radius: 22px;
+        overflow: hidden;
+        background: white;
+        box-shadow: 0 8px 25px rgba(15,23,42,0.05);
+    }
+
+    .sentiment-positive {
+        background: #dcfce7;
+        color: #166534;
+        padding: 6px 14px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    .sentiment-negative {
+        background: #fee2e2;
+        color: #991b1b;
+        padding: 6px 14px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    .sentiment-neutral {
+        background: #e0e7ff;
+        color: #3730a3;
+        padding: 6px 14px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    .loading-spinner {
+        width: 18px;
+        height: 18px;
+        border: 3px solid rgba(255,255,255,.4);
+        border-top-color: white;
+        border-radius: 50%;
+        display: inline-block;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+</style>
+```
+
+</head>
+<body>
+
+<div class="container-fluid px-4 pb-5">
+
+```
+<!-- NAVBAR -->
+
+<div class="navbar-custom d-flex justify-content-between align-items-center text-white">
+
+    <div class="d-flex align-items-center gap-3">
+        <i class="bi bi-robot fs-1"></i>
+        <div>
+            <h2 class="fw-bold mb-0">Review Intel AI</h2>
+            <small class="opacity-75">AI Reputation Monitoring Platform</small>
+        </div>
+    </div>
+
+    <div class="d-flex gap-3">
+
+        <button class="btn btn-light btn-modern"
+                data-bs-toggle="modal"
+                data-bs-target="#addCompanyModal">
+            <i class="bi bi-plus-circle me-2"></i>
+            Add Business
+        </button>
+
+        <button id="syncBtn"
+                class="btn btn-success btn-modern">
+            <i class="bi bi-arrow-repeat me-2"></i>
+            Sync Reviews
+        </button>
+
+    </div>
+
+</div>
+
+<!-- FILTERS -->
+
+<div class="glass-card p-4 mt-4">
+
+    <div class="row g-3 align-items-end">
+
+        <div class="col-lg-4">
+            <label class="form-label fw-semibold">Select Business</label>
+            <select id="companySelect" class="form-select form-select-lg"></select>
+        </div>
+
+        <div class="col-lg-3">
+            <label class="form-label fw-semibold">Start Date</label>
+            <input type="date" id="startDate" class="form-control form-control-lg">
+        </div>
+
+        <div class="col-lg-3">
+            <label class="form-label fw-semibold">End Date</label>
+            <input type="date" id="endDate" class="form-control form-control-lg">
+        </div>
+
+        <div class="col-lg-2 d-grid">
+            <button id="loadBtn"
+                    class="btn btn-primary btn-modern btn-lg">
+                Analyze
+            </button>
+        </div>
+
+    </div>
+
+</div>
+
+<!-- KPI -->
+
+<div class="row g-4 mt-2">
+
+    <div class="col-lg-3">
+        <div class="kpi-card kpi-blue">
+            <div class="small opacity-75">TOTAL REVIEWS</div>
+            <h1 id="kpiTotal" class="display-4 fw-bold mt-3">0</h1>
+        </div>
+    </div>
+
+    <div class="col-lg-3">
+        <div class="kpi-card kpi-green">
+            <div class="small opacity-75">AVERAGE RATING</div>
+            <h1 id="kpiRating" class="display-4 fw-bold mt-3">0</h1>
+        </div>
+    </div>
+
+    <div class="col-lg-3">
+        <div class="kpi-card kpi-red">
+            <div class="small opacity-75">REPUTATION SCORE</div>
+            <h1 id="riskSentiment" class="display-4 fw-bold mt-3">0%</h1>
+        </div>
+    </div>
+
+    <div class="col-lg-3">
+        <div class="kpi-card kpi-purple">
+            <div class="small opacity-75">REVENUE RISK</div>
+            <h1 id="riskImpact" class="display-4 fw-bold mt-3">0%</h1>
+        </div>
+    </div>
+
+</div>
+
+<!-- CHARTS -->
+
+<div class="row g-4 mt-2">
+
+    <div class="col-lg-6">
+        <div class="chart-card">
+            <h5 class="fw-bold mb-4">Emotion Radar</h5>
+            <div class="chart-box">
+                <canvas id="chartEmotions"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="chart-card">
+            <h5 class="fw-bold mb-4">Sentiment Trend</h5>
+            <div class="chart-box">
+                <canvas id="chartMonthly"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12">
+        <div class="chart-card">
+            <h5 class="fw-bold mb-4">Rating Distribution</h5>
+            <div class="chart-box">
+                <canvas id="chartRatings"></canvas>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- REVIEWS -->
+
+<div class="table-modern mt-4 p-4">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h4 class="fw-bold mb-0">Latest Reviews</h4>
+    </div>
+
+    <table id="reviewsTable" class="table align-middle">
+        <thead>
+            <tr>
+                <th>Rating</th>
+                <th>Sentiment</th>
+                <th>Review</th>
+                <th>Date</th>
+                <th>Source</th>
+            </tr>
+        </thead>
+
+        <tbody id="reviewsTbody">
+            <tr>
+                <td colspan="5" class="text-center py-5">
+                    No reviews loaded
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+</div>
+```
+
+</div>
+
+<!-- ADD BUSINESS MODAL -->
+
+<div class="modal fade" id="addCompanyModal" tabindex="-1">
+
+```
+<div class="modal-dialog modal-lg modal-dialog-centered">
+
+    <form id="addCompanyForm" class="modal-content">
+
+        <div class="modal-header">
+            <h4 class="modal-title fw-bold">
+                <i class="bi bi-building-add me-2"></i>
+                Add Business
+            </h4>
+
+            <button type="button"
+                    class="btn-close btn-close-white"
+                    data-bs-dismiss="modal"></button>
+        </div>
+
+        <div class="modal-body p-4">
+
+            <div class="mb-4">
+
+                <label class="form-label fw-bold mb-3">
+                    Search Business on Google Maps
+                </label>
+
+                <input type="text"
+                       id="googleSearchInput"
+                       class="form-control search-input"
+                       placeholder="Type business name here...">
+
+            </div>
+
+            <div class="info-box">
+
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Business Name</label>
+                    <input type="text"
+                           id="companyName"
+                           class="form-control form-control-lg"
+                           readonly>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Google Place ID</label>
+                    <input type="text"
+                           id="placeId"
+                           class="form-control form-control-lg"
+                           readonly>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Business Address</label>
+                    <input type="text"
+                           id="companyAddress"
+                           class="form-control form-control-lg"
+                           readonly>
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="modal-footer border-0 p-4">
+
+            <button type="submit"
+                    class="btn btn-success btn-modern w-100 py-3 fs-5">
+                Save Business
+            </button>
+
+        </div>
+
+    </form>
+
+</div>
+```
+
+</div>
+
+<!-- JS -->
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+
+<script src="https://cdn.datatables.net/1.13.8/js/dataTables.bootstrap5.min.js"></script>
 
 <!-- GOOGLE MAPS -->
 
@@ -9,323 +453,269 @@
 
 window.initGoogleAutocomplete = function () {
 
-    console.log("🚀 Google Autocomplete Starting");
+    console.log('Google Autocomplete Starting');
 
-    // =====================================================
-    // INPUT FIELD
-    // =====================================================
-
-    const input =
-        document.getElementById("googleSearchInput");
+    const input = document.getElementById('googleSearchInput');
 
     if (!input) {
-
-        console.error("❌ googleSearchInput not found");
-
+        console.error('Input not found');
         return;
     }
 
-    // =====================================================
-    // VERIFY GOOGLE API
-    // =====================================================
-
     if (
-        typeof google === "undefined" ||
+        typeof google === 'undefined' ||
         !google.maps ||
         !google.maps.places
     ) {
-
-        console.error("❌ Google Places API failed to load");
-
+        console.error('Google Places API failed');
         return;
     }
 
-    // =====================================================
-    // CREATE AUTOCOMPLETE
-    // =====================================================
-
-    const autocomplete =
-        new google.maps.places.Autocomplete(
-            input,
-            {
-
-                types: ['establishment'],
-
-                fields: [
-                    'place_id',
-                    'name',
-                    'formatted_address'
-                ]
-            }
-        );
-
-    console.log("✅ Autocomplete Object Created");
-
-    // =====================================================
-    // ON PLACE SELECT
-    // =====================================================
+    const autocomplete = new google.maps.places.Autocomplete(input, {
+        types: ['establishment'],
+        fields: ['place_id','name','formatted_address']
+    });
 
     autocomplete.addListener('place_changed', function () {
 
         const place = autocomplete.getPlace();
 
-        console.log("📍 Selected Place:", place);
-
-        // =================================================
-        // VALIDATION
-        // =================================================
-
         if (!place || !place.place_id) {
-
-            alert("❌ Invalid Place Selected");
-
+            alert('Invalid Place');
             return;
         }
 
-        // =================================================
-        // AUTO FILL INPUTS
-        // =================================================
+        document.getElementById('companyName').value = place.name || '';
+        document.getElementById('placeId').value = place.place_id || '';
+        document.getElementById('companyAddress').value = place.formatted_address || '';
 
-        const companyName =
-            document.getElementById("companyName");
-
-        const placeId =
-            document.getElementById("placeId");
-
-        const address =
-            document.getElementById("companyAddress");
-
-        if (companyName) {
-            companyName.value =
-                place.name || '';
-        }
-
-        if (placeId) {
-            placeId.value =
-                place.place_id || '';
-        }
-
-        if (address) {
-            address.value =
-                place.formatted_address || '';
-        }
-
-        console.log("✅ Google Autofill Success");
+        console.log('Autofill success');
     });
 
-    console.log("✅ Google Places Ready");
+    console.log('Google Places Ready');
 };
 
 </script>
-
-<!-- ===================================================== -->
-<!-- GOOGLE MAPS SCRIPT -->
-<!-- ===================================================== -->
 
 <script async defer
 src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&callback=initGoogleAutocomplete">
 </script>
 
-<!-- ===================================================== -->
-<!-- DEBUG CHECK -->
-<!-- ===================================================== -->
-
 <script>
 
-document.addEventListener("DOMContentLoaded", () => {
+let chartInstances = {};
 
-    console.log("🚀 Dashboard Loaded");
+async function loadCompanies() {
 
-    // Verify inputs exist
-    console.log(
-        "Search Input:",
-        document.getElementById("googleSearchInput")
-    );
+    try {
 
-    console.log(
-        "Company Name:",
-        document.getElementById("companyName")
-    );
+        const res = await fetch('/api/companies');
 
-    console.log(
-        "Place ID:",
-        document.getElementById("placeId")
-    );
+        const data = await res.json();
 
-    console.log(
-        "Address:",
-        document.getElementById("companyAddress")
-    );
-});
+        const companies = Array.isArray(data)
+            ? data
+            : (data.companies || []);
 
-</script>
+        const select = document.getElementById('companySelect');
 
-<!-- ===================================================== -->
-<!-- ADD BUSINESS MODAL -->
-<!-- ===================================================== -->
+        select.innerHTML = companies.map(c => `
+            <option value="${c.id}">
+                ${c.name || c.business_name}
+            </option>
+        `).join('');
 
-<div class="modal fade"
-     id="addCompanyModal"
-     tabindex="-1">
+        if (companies.length > 0) {
+            triggerAllLoads();
+        }
 
-    <div class="modal-dialog modal-lg modal-dialog-centered">
+    } catch (e) {
+        console.error(e);
+    }
+}
 
-        <form id="addCompanyForm"
-              class="modal-content border-0 shadow-lg">
+function renderCharts() {
 
-            <div class="modal-header bg-success text-white">
+    const emotionsCtx = document.getElementById('chartEmotions');
 
-                <h5 class="modal-title">
+    if (chartInstances.emotions) {
+        chartInstances.emotions.destroy();
+    }
 
-                    Add Business
+    chartInstances.emotions = new Chart(emotionsCtx, {
 
-                </h5>
+        type: 'radar',
 
-                <button type="button"
-                        class="btn-close btn-close-white"
-                        data-bs-dismiss="modal"></button>
+        data: {
+            labels: ['Joy','Anger','Trust','Fear','Sadness'],
+            datasets: [{
+                label: 'Emotion Score',
+                data: [78,22,61,19,35],
+                backgroundColor: 'rgba(124,58,237,0.2)',
+                borderColor: '#7c3aed',
+                borderWidth: 2
+            }]
+        }
+    });
 
-            </div>
+    const monthlyCtx = document.getElementById('chartMonthly');
 
-            <div class="modal-body p-4">
+    if (chartInstances.monthly) {
+        chartInstances.monthly.destroy();
+    }
 
-                <!-- SEARCH -->
+    chartInstances.monthly = new Chart(monthlyCtx, {
 
-                <input id="googleSearchInput"
-                       class="form-control form-control-lg mb-4"
-                       placeholder="Search Google Maps...">
+        type: 'line',
 
-                <!-- RESULTS -->
+        data: {
+            labels: ['Jan','Feb','Mar','Apr','May'],
+            datasets: [{
+                label: 'Sentiment',
+                data: [70,75,78,81,88],
+                borderColor: '#2563eb',
+                backgroundColor: 'rgba(37,99,235,0.1)',
+                fill: true,
+                tension: 0.4
+            }]
+        }
+    });
 
-                <div class="bg-light p-4 rounded-4">
+    const ratingsCtx = document.getElementById('chartRatings');
 
-                    <div class="mb-3">
+    if (chartInstances.ratings) {
+        chartInstances.ratings.destroy();
+    }
 
-                        <label class="form-label">
+    chartInstances.ratings = new Chart(ratingsCtx, {
 
-                            Business Name
+        type: 'bar',
 
-                        </label>
+        data: {
+            labels: ['1★','2★','3★','4★','5★'],
+            datasets: [{
+                label: 'Reviews',
+                data: [2,5,14,40,120],
+                backgroundColor: '#10b981'
+            }]
+        }
+    });
+}
 
-                        <input id="companyName"
-                               class="form-control"
-                               readonly>
+async function triggerAllLoads() {
 
-                    </div>
+    document.getElementById('kpiTotal').innerText = '181';
+    document.getElementById('kpiRating').innerText = '4.8';
+    document.getElementById('riskSentiment').innerText = '92%';
+    document.getElementById('riskImpact').innerText = '8%';
 
-                    <div class="mb-3">
+    renderCharts();
 
-                        <label class="form-label">
+    const tbody = document.getElementById('reviewsTbody');
 
-                            Google Place ID
+    tbody.innerHTML = `
 
-                        </label>
+        <tr>
+            <td>★★★★★</td>
+            <td><span class="sentiment-positive">POSITIVE</span></td>
+            <td>Excellent customer support and amazing service quality.</td>
+            <td>2026-05-12</td>
+            <td>Google</td>
+        </tr>
 
-                        <input id="placeId"
-                               class="form-control"
-                               readonly>
+        <tr>
+            <td>★★★★☆</td>
+            <td><span class="sentiment-neutral">NEUTRAL</span></td>
+            <td>Delivery was good but packaging needs improvement.</td>
+            <td>2026-05-11</td>
+            <td>Google</td>
+        </tr>
 
-                    </div>
+        <tr>
+            <td>★★☆☆☆</td>
+            <td><span class="sentiment-negative">NEGATIVE</span></td>
+            <td>Late response from support team.</td>
+            <td>2026-05-10</td>
+            <td>Google</td>
+        </tr>
 
-                    <div class="mb-3">
+    `;
 
-                        <label class="form-label">
+    $('#reviewsTable').DataTable();
+}
 
-                            Address
+// SAVE BUSINESS
 
-                        </label>
-
-                        <input id="companyAddress"
-                               class="form-control"
-                               readonly>
-
-                    </div>
-
-                </div>
-
-            </div>
-
-            <div class="modal-footer border-0">
-
-                <button type="submit"
-                        class="btn btn-success w-100 rounded-pill fw-bold py-3">
-
-                    Save Business
-
-                </button>
-
-            </div>
-
-        </form>
-
-    </div>
-
-</div>
-
-<!-- ===================================================== -->
-<!-- SAVE BUSINESS -->
-<!-- ===================================================== -->
-
-<script>
-
-document.getElementById('addCompanyForm').onsubmit =
-async (e) => {
+document.getElementById('addCompanyForm').onsubmit = async (e) => {
 
     e.preventDefault();
 
     const payload = {
-
-        name:
-            document.getElementById('companyName').value,
-
-        place_id:
-            document.getElementById('placeId').value,
-
-        address:
-            document.getElementById('companyAddress').value
+        name: document.getElementById('companyName').value,
+        place_id: document.getElementById('placeId').value,
+        address: document.getElementById('companyAddress').value
     };
 
     if (!payload.place_id) {
-
-        alert("Please select a business");
-
+        alert('Please select a business');
         return;
     }
 
     try {
 
         const res = await fetch('/api/companies', {
-
             method: 'POST',
-
             headers: {
                 'Content-Type': 'application/json'
             },
-
             body: JSON.stringify(payload)
         });
 
         if (res.ok) {
-
-            alert("✅ Business Added Successfully");
-
+            alert('Business Added Successfully');
             location.reload();
-
         } else {
-
-            const error = await res.json();
-
-            alert(
-                error.detail || "Failed to save"
-            );
+            alert('Failed to save business');
         }
 
     } catch (e) {
-
-        console.error("❌ Save failed:", e);
-
-        alert("Network error");
+        console.error(e);
     }
 };
 
+// LOAD BUTTON
+
+document.getElementById('loadBtn').onclick = () => {
+    triggerAllLoads();
+};
+
+// SYNC BUTTON
+
+document.getElementById('syncBtn').onclick = async () => {
+
+    const btn = document.getElementById('syncBtn');
+
+    btn.innerHTML = '<span class="loading-spinner"></span> Syncing';
+
+    setTimeout(() => {
+
+        btn.innerHTML = '<i class="bi bi-check-circle me-2"></i> Sync Complete';
+
+        triggerAllLoads();
+
+    }, 2500);
+};
+
+// INITIALIZE
+
+document.addEventListener('DOMContentLoaded', () => {
+
+    loadCompanies();
+
+    renderCharts();
+});
+
 </script>
+
+</body>
+</html>
