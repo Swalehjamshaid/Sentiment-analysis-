@@ -1,6 +1,6 @@
 # filename: app/services/scraper.py
 # ==========================================================
-# REVIEW INTELLIGENCE SCRAPER — APIFY + DEDUPLICATION
+# REVIEW INTELLIGENCE SCRAPER — APIFY + DEDUP SAFE
 # ==========================================================
 
 import os
@@ -13,14 +13,11 @@ import requests
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
-# APIFY
 from apify_client import ApifyClient
 
-# Database dependencies
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Internal models
 from app.core.models import Company, Review
 
 logger = logging.getLogger("app.scraper")
@@ -29,7 +26,6 @@ logger = logging.getLogger("app.scraper")
 # API CONFIGURATION
 # ==========================================================
 
-# Railway Variables
 APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 
@@ -37,19 +33,32 @@ SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 # APIFY CLIENT
 # ==========================================================
 
+if not APIFY_API_TOKEN:
+    logger.warning("⚠️ APIFY_API_TOKEN is missing")
+
 apify_client = ApifyClient(APIFY_API_TOKEN)
 
 # ==========================================================
-# UTILITY FUNCTIONS
+# SAFE DATETIME
+# ==========================================================
+
+def utc_now_naive() -> datetime:
+    """
+    Returns timezone-naive UTC datetime
+    compatible with PostgreSQL TIMESTAMP WITHOUT TIME ZONE
+    """
+    return datetime.utcnow().replace(tzinfo=None)
+
+# ==========================================================
+# RELATIVE DATE PARSER
 # ==========================================================
 
 def parse_relative_date(date_text: str) -> datetime:
-    """Converts relative dates into datetime"""
 
     if not date_text or not isinstance(date_text, str):
-        return datetime.utcnow()
+        return utc_now_naive()
 
-    now = datetime.utcnow()
+    now = utc_now_naive()
 
     match = re.search(r'(\d+)', date_text)
     quantity = int(match.group(1)) if match else 1
@@ -80,6 +89,32 @@ def parse_relative_date(date_text: str) -> datetime:
     return now
 
 # ==========================================================
+# SAFE ISO DATE PARSER
+# ==========================================================
+
+def safe_parse_iso_datetime(date_str: Optional[str]) -> datetime:
+
+    if not date_str:
+        return utc_now_naive()
+
+    try:
+
+        parsed = datetime.fromisoformat(
+            date_str.replace("Z", "+00:00")
+        )
+
+        # CRITICAL FIX:
+        # Convert timezone-aware datetime
+        # into timezone-naive datetime
+        return parsed.replace(tzinfo=None)
+
+    except Exception as e:
+
+        logger.warning(f"⚠️ Date parse failed: {e}")
+
+        return utc_now_naive()
+
+# ==========================================================
 # SERPER FALLBACK
 # ==========================================================
 
@@ -88,7 +123,7 @@ async def fetch_from_serper_fallback(
     limit: int = 10
 ) -> List[Dict[str, Any]]:
 
-    logger.info(f"📡 Fallback: Serper search for {company_name}")
+    logger.info(f"📡 Serper fallback for {company_name}")
 
     if not SERPER_API_KEY:
         logger.error("❌ SERPER_API_KEY missing")
@@ -103,8 +138,8 @@ async def fetch_from_serper_fallback(
     })
 
     headers = {
-        'X-API-KEY': SERPER_API_KEY,
-        'Content-Type': 'application/json'
+        "X-API-KEY": SERPER_API_KEY,
+        "Content-Type": "application/json"
     }
 
     try:
@@ -130,22 +165,33 @@ async def fetch_from_serper_fallback(
                 break
 
             results.append({
-                "google_review_id": f"serper_{idx}_{int(datetime.utcnow().timestamp())}",
-                "author_name": entry.get("title", "Web Mention"),
+                "google_review_id":
+                    f"serper_{idx}_{int(utc_now_naive().timestamp())}",
+
+                "author_name":
+                    entry.get("title", "Web Mention"),
+
                 "rating": 5,
-                "text": entry.get("snippet", "No content"),
-                "google_review_time": datetime.utcnow(),
+
+                "text":
+                    entry.get("snippet", "No content"),
+
+                "google_review_time":
+                    utc_now_naive(),
+
                 "review_likes": 0
             })
 
         return results
 
     except Exception as e:
-        logger.error(f"❌ Serper Fallback Error: {e}")
+
+        logger.error(f"❌ Serper fallback failed: {e}")
+
         return []
 
 # ==========================================================
-# MAIN APIFY REVIEW SCRAPER
+# MAIN REVIEW SCRAPER
 # ==========================================================
 
 async def fetch_reviews_from_google(
@@ -157,6 +203,7 @@ async def fetch_reviews_from_google(
 ) -> List[Dict[str, Any]]:
 
     all_reviews: List[Dict[str, Any]] = []
+
     existing_ids = set()
 
     company_name = "Business"
@@ -164,12 +211,14 @@ async def fetch_reviews_from_google(
     try:
 
         # ==================================================
-        # LOAD EXISTING DB REVIEWS
+        # LOAD COMPANY + EXISTING REVIEWS
         # ==================================================
 
         if session and company_id:
 
-            stmt = select(Review.google_review_id).where(
+            stmt = select(
+                Review.google_review_id
+            ).where(
                 Review.company_id == company_id
             )
 
@@ -177,7 +226,9 @@ async def fetch_reviews_from_google(
 
             existing_ids = set(res.scalars().all())
 
-            comp_stmt = select(Company).where(
+            comp_stmt = select(
+                Company
+            ).where(
                 Company.id == company_id
             )
 
@@ -186,14 +237,29 @@ async def fetch_reviews_from_google(
             company = comp_res.scalars().first()
 
             if company:
+
                 company_name = company.name
-                place_id = place_id or company.google_place_id
+
+                place_id = (
+                    place_id
+                    or company.google_place_id
+                )
+
+        # ==================================================
+        # VALIDATE PLACE ID
+        # ==================================================
 
         if not place_id:
-            logger.error(f"❌ No Place ID found for {company_name}")
+
+            logger.error(
+                f"❌ No Place ID for {company_name}"
+            )
+
             return []
 
-        logger.info(f"🚀 Starting APIFY Sync for {company_name}")
+        logger.info(
+            f"🚀 Starting APIFY Sync for {company_name}"
+        )
 
         # ==================================================
         # APIFY INPUT
@@ -202,7 +268,8 @@ async def fetch_reviews_from_google(
         run_input = {
             "startUrls": [
                 {
-                    "url": f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+                    "url":
+                    f"https://www.google.com/maps/place/?q=place_id:{place_id}"
                 }
             ],
             "maxReviews": target_limit,
@@ -211,29 +278,43 @@ async def fetch_reviews_from_google(
         }
 
         # ==================================================
-        # RUN APIFY ACTOR
+        # RUN ACTOR
         # ==================================================
 
         run = await asyncio.to_thread(
-            lambda: apify_client.actor(
+            lambda:
+            apify_client.actor(
                 "compass/google-maps-reviews-scraper"
             ).call(
                 run_input=run_input
             )
         )
 
-        dataset_id = run["defaultDatasetId"]
+        dataset_id = run.get("defaultDatasetId")
 
-        logger.info(f"✅ APIFY Run Completed | Dataset: {dataset_id}")
+        if not dataset_id:
+
+            logger.error("❌ No dataset returned from APIFY")
+
+            return []
+
+        logger.info(
+            f"✅ APIFY completed | Dataset: {dataset_id}"
+        )
 
         # ==================================================
-        # FETCH DATASET ITEMS
+        # FETCH DATASET
         # ==================================================
 
         dataset_items = await asyncio.to_thread(
-            lambda: apify_client.dataset(
+            lambda:
+            apify_client.dataset(
                 dataset_id
             ).list_items().items
+        )
+
+        logger.info(
+            f"📦 Reviews fetched: {len(dataset_items)}"
         )
 
         # ==================================================
@@ -242,71 +323,83 @@ async def fetch_reviews_from_google(
 
         for idx, review in enumerate(dataset_items):
 
-            review_id = review.get("reviewId")
+            try:
 
-            if not review_id:
-                review_id = f"apify_{idx}_{int(datetime.utcnow().timestamp())}"
-
-            # DB DUPLICATION CHECK
-            if review_id in existing_ids:
-
-                logger.info(
-                    f"📍 Existing review reached. DB already synced."
+                review_id = (
+                    review.get("reviewId")
+                    or f"apify_{idx}_{int(utc_now_naive().timestamp())}"
                 )
 
-                return all_reviews
+                # DUPLICATE DB CHECK
+                if review_id in existing_ids:
 
-            # INTERNAL DUPLICATION CHECK
-            if any(
-                r["google_review_id"] == review_id
-                for r in all_reviews
-            ):
+                    logger.info(
+                        f"📍 Existing review reached. Sync stopped."
+                    )
+
+                    return all_reviews
+
+                # INTERNAL DUPLICATE CHECK
+                if any(
+                    r["google_review_id"] == review_id
+                    for r in all_reviews
+                ):
+                    continue
+
+                review_text = (
+                    review.get("text")
+                    or review.get("reviewText")
+                    or "No content provided."
+                )
+
+                author_name = (
+                    review.get("name")
+                    or review.get("reviewerName")
+                    or "Anonymous"
+                )
+
+                try:
+                    rating = int(review.get("stars", 5))
+                except:
+                    rating = 5
+
+                review_time = safe_parse_iso_datetime(
+                    review.get("publishedAtDate")
+                )
+
+                likes = review.get("likesCount", 0)
+
+                if likes is None:
+                    likes = 0
+
+                all_reviews.append({
+
+                    "google_review_id": review_id,
+
+                    "author_name": author_name,
+
+                    "rating": rating,
+
+                    "text": review_text,
+
+                    "google_review_time": review_time,
+
+                    "review_likes": likes
+                })
+
+                if len(all_reviews) >= target_limit:
+                    break
+
+            except Exception as review_error:
+
+                logger.error(
+                    f"❌ Review processing failed: {review_error}"
+                )
+
                 continue
 
-            # REVIEW TEXT
-            review_text = (
-                review.get("text")
-                or review.get("reviewText")
-                or "No content provided."
-            )
-
-            # AUTHOR
-            author_name = (
-                review.get("name")
-                or review.get("reviewerName")
-                or "Anonymous"
-            )
-
-            # RATING
-            rating = int(review.get("stars", 5))
-
-            # DATE
-            review_date = review.get("publishedAtDate")
-
-            if review_date:
-                try:
-                    review_time = datetime.fromisoformat(
-                        review_date.replace("Z", "+00:00")
-                    )
-                except:
-                    review_time = datetime.utcnow()
-            else:
-                review_time = datetime.utcnow()
-
-            all_reviews.append({
-                "google_review_id": review_id,
-                "author_name": author_name,
-                "rating": rating,
-                "text": review_text,
-                "google_review_time": review_time,
-                "review_likes": review.get("likesCount", 0)
-            })
-
-            if len(all_reviews) >= target_limit:
-                break
-
         logger.info(
-            f"✅ Total New Reviews Collected: {len(all_reviews)}"
+            f"✅ Total New Reviews: {len(all_reviews)}"
         )
 
         return all_reviews
@@ -314,11 +407,11 @@ async def fetch_reviews_from_google(
     except Exception as primary_err:
 
         logger.error(
-            f"❌ APIFY Primary Path Failed: {primary_err}"
+            f"❌ APIFY sync failed: {primary_err}"
         )
 
         logger.warning(
-            f"⚠️ Falling back to Serper..."
+            "⚠️ Switching to Serper fallback..."
         )
 
         return await fetch_from_serper_fallback(
