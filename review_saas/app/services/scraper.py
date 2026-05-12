@@ -1,6 +1,6 @@
 # filename: app/services/scraper.py
 # ==========================================================
-# REVIEW INTELLIGENCE SCRAPER — DEDUPLICATION & SYNC ALIGNED
+# REVIEW INTELLIGENCE SCRAPER — APIFY + DEDUPLICATION
 # ==========================================================
 
 import os
@@ -9,16 +9,18 @@ import asyncio
 import re
 import json
 import requests
+
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
-# Official SerpApi Wrapper
-from serpapi import GoogleSearch
+# APIFY
+from apify_client import ApifyClient
+
 # Database dependencies
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Importing internal models
+# Internal models
 from app.core.models import Company, Review
 
 logger = logging.getLogger("app.scraper")
@@ -26,76 +28,126 @@ logger = logging.getLogger("app.scraper")
 # ==========================================================
 # API CONFIGURATION
 # ==========================================================
-SERPAPI_KEY = "f9f41e452ea716ca1e760081b94763a404c9e1e07aef30def9c6a05391890e8d"
-SERPER_API_KEY = "d978f3563ac6dd6bcce594ac487142f614c8db08"
+
+# Railway Variables
+APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN")
+SERPER_API_KEY = os.getenv("SERPER_API_KEY")
+
+# ==========================================================
+# APIFY CLIENT
+# ==========================================================
+
+apify_client = ApifyClient(APIFY_API_TOKEN)
 
 # ==========================================================
 # UTILITY FUNCTIONS
 # ==========================================================
+
 def parse_relative_date(date_text: str) -> datetime:
-    """ Converts strings like '2 weeks ago' into a datetime object. """
+    """Converts relative dates into datetime"""
+
     if not date_text or not isinstance(date_text, str):
         return datetime.utcnow()
+
     now = datetime.utcnow()
+
     match = re.search(r'(\d+)', date_text)
     quantity = int(match.group(1)) if match else 1
+
     date_text = date_text.lower()
-    if 'second' in date_text: return now - timedelta(seconds=quantity)
-    elif 'minute' in date_text: return now - timedelta(minutes=quantity)
-    elif 'hour' in date_text: return now - timedelta(hours=quantity)
-    elif 'day' in date_text: return now - timedelta(days=quantity)
-    elif 'week' in date_text: return now - timedelta(weeks=quantity)
-    elif 'month' in date_text: return now - timedelta(days=quantity * 30)
-    elif 'year' in date_text: return now - timedelta(days=quantity * 365)
+
+    if 'second' in date_text:
+        return now - timedelta(seconds=quantity)
+
+    elif 'minute' in date_text:
+        return now - timedelta(minutes=quantity)
+
+    elif 'hour' in date_text:
+        return now - timedelta(hours=quantity)
+
+    elif 'day' in date_text:
+        return now - timedelta(days=quantity)
+
+    elif 'week' in date_text:
+        return now - timedelta(weeks=quantity)
+
+    elif 'month' in date_text:
+        return now - timedelta(days=quantity * 30)
+
+    elif 'year' in date_text:
+        return now - timedelta(days=quantity * 365)
+
     return now
 
 # ==========================================================
-# SERPER.DEV FALLBACK (PLAYGROUND ALIGNED)
+# SERPER FALLBACK
 # ==========================================================
-async def fetch_from_serper_fallback(company_name: str, limit: int = 10) -> List[Dict[str, Any]]:
-    """ Standard Search endpoint fallback with Pakistan localization. """
-    logger.info(f"📡 Fallback: Fetching web mentions for {company_name} via Serper")
-    
+
+async def fetch_from_serper_fallback(
+    company_name: str,
+    limit: int = 10
+) -> List[Dict[str, Any]]:
+
+    logger.info(f"📡 Fallback: Serper search for {company_name}")
+
     if not SERPER_API_KEY:
-        logger.error("❌ SERPER_API_KEY is not defined.")
+        logger.error("❌ SERPER_API_KEY missing")
         return []
 
     url = "https://google.serper.dev/search"
+
     payload = json.dumps({
         "q": f"{company_name} reviews",
-        "gl": "pk", 
+        "gl": "pk",
         "hl": "en"
     })
-    headers = {'X-API-KEY': SERPER_API_KEY, 'Content-Type': 'application/json'}
-    
+
+    headers = {
+        'X-API-KEY': SERPER_API_KEY,
+        'Content-Type': 'application/json'
+    }
+
     try:
+
         response = await asyncio.to_thread(
-            lambda: requests.post(url, headers=headers, data=payload, timeout=15)
+            lambda: requests.post(
+                url,
+                headers=headers,
+                data=payload,
+                timeout=20
+            )
         )
+
         response.raise_for_status()
+
         data = response.json()
-        
+
         results = []
-        organic_results = data.get("organic", [])
-        
-        for idx, entry in enumerate(organic_results):
-            if len(results) >= limit: break
+
+        for idx, entry in enumerate(data.get("organic", [])):
+
+            if len(results) >= limit:
+                break
+
             results.append({
-                "google_review_id": f"serper_{int(datetime.utcnow().timestamp())}_{idx}",
+                "google_review_id": f"serper_{idx}_{int(datetime.utcnow().timestamp())}",
                 "author_name": entry.get("title", "Web Mention"),
-                "rating": 5, 
+                "rating": 5,
                 "text": entry.get("snippet", "No content"),
                 "google_review_time": datetime.utcnow(),
                 "review_likes": 0
             })
+
         return results
+
     except Exception as e:
-        logger.error(f"❌ Serper API Error: {e}")
+        logger.error(f"❌ Serper Fallback Error: {e}")
         return []
 
 # ==========================================================
-# MAIN SCRAPER LOGIC (SERPAPI + DEDUPLICATION)
+# MAIN APIFY REVIEW SCRAPER
 # ==========================================================
+
 async def fetch_reviews_from_google(
     place_id: Optional[str] = None,
     company_id: Optional[int] = None,
@@ -103,84 +155,173 @@ async def fetch_reviews_from_google(
     target_limit: int = 100,
     **kwargs
 ) -> List[Dict[str, Any]]:
-    """
-    Primary sync function. 
-    Checks for duplicates in DB and stops when it reaches existing data.
-    """
+
     all_reviews: List[Dict[str, Any]] = []
     existing_ids = set()
+
     company_name = "Business"
 
     try:
-        # 1. Load context and existing IDs to prevent duplicates in Postgres
+
+        # ==================================================
+        # LOAD EXISTING DB REVIEWS
+        # ==================================================
+
         if session and company_id:
-            stmt = select(Review.google_review_id).where(Review.company_id == company_id)
+
+            stmt = select(Review.google_review_id).where(
+                Review.company_id == company_id
+            )
+
             res = await session.execute(stmt)
+
             existing_ids = set(res.scalars().all())
-            
-            comp_stmt = select(Company).where(Company.id == company_id)
+
+            comp_stmt = select(Company).where(
+                Company.id == company_id
+            )
+
             comp_res = await session.execute(comp_stmt)
+
             company = comp_res.scalars().first()
+
             if company:
                 company_name = company.name
                 place_id = place_id or company.google_place_id
 
         if not place_id:
-            logger.error(f"❌ Aborting: No Place ID for {company_name}")
+            logger.error(f"❌ No Place ID found for {company_name}")
             return []
 
-        # 2. SerpApi Sync Loop
-        logger.info(f"🚀 Syncing {company_name} | Ensuring no duplicates")
-        
-        next_page_token = None
-        while len(all_reviews) < target_limit:
-            params = {
-                "engine": "google_maps_reviews",
-                "place_id": place_id,
-                "api_key": SERPAPI_KEY,
-                "next_page_token": next_page_token,
-                "sort_by": "newest" # CRITICAL: Allows us to stop when we hit old data
-            }
-            
-            search = await asyncio.to_thread(lambda: GoogleSearch(params).get_dict())
-            
-            if "error" in search:
-                raise Exception(search["error"])
+        logger.info(f"🚀 Starting APIFY Sync for {company_name}")
 
-            reviews = search.get("reviews", [])
-            if not reviews:
+        # ==================================================
+        # APIFY INPUT
+        # ==================================================
+
+        run_input = {
+            "startUrls": [
+                {
+                    "url": f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+                }
+            ],
+            "maxReviews": target_limit,
+            "reviewsSort": "newest",
+            "language": "en"
+        }
+
+        # ==================================================
+        # RUN APIFY ACTOR
+        # ==================================================
+
+        run = await asyncio.to_thread(
+            lambda: apify_client.actor(
+                "compass/google-maps-reviews-scraper"
+            ).call(
+                run_input=run_input
+            )
+        )
+
+        dataset_id = run["defaultDatasetId"]
+
+        logger.info(f"✅ APIFY Run Completed | Dataset: {dataset_id}")
+
+        # ==================================================
+        # FETCH DATASET ITEMS
+        # ==================================================
+
+        dataset_items = await asyncio.to_thread(
+            lambda: apify_client.dataset(
+                dataset_id
+            ).list_items().items
+        )
+
+        # ==================================================
+        # PROCESS REVIEWS
+        # ==================================================
+
+        for idx, review in enumerate(dataset_items):
+
+            review_id = review.get("reviewId")
+
+            if not review_id:
+                review_id = f"apify_{idx}_{int(datetime.utcnow().timestamp())}"
+
+            # DB DUPLICATION CHECK
+            if review_id in existing_ids:
+
+                logger.info(
+                    f"📍 Existing review reached. DB already synced."
+                )
+
+                return all_reviews
+
+            # INTERNAL DUPLICATION CHECK
+            if any(
+                r["google_review_id"] == review_id
+                for r in all_reviews
+            ):
+                continue
+
+            # REVIEW TEXT
+            review_text = (
+                review.get("text")
+                or review.get("reviewText")
+                or "No content provided."
+            )
+
+            # AUTHOR
+            author_name = (
+                review.get("name")
+                or review.get("reviewerName")
+                or "Anonymous"
+            )
+
+            # RATING
+            rating = int(review.get("stars", 5))
+
+            # DATE
+            review_date = review.get("publishedAtDate")
+
+            if review_date:
+                try:
+                    review_time = datetime.fromisoformat(
+                        review_date.replace("Z", "+00:00")
+                    )
+                except:
+                    review_time = datetime.utcnow()
+            else:
+                review_time = datetime.utcnow()
+
+            all_reviews.append({
+                "google_review_id": review_id,
+                "author_name": author_name,
+                "rating": rating,
+                "text": review_text,
+                "google_review_time": review_time,
+                "review_likes": review.get("likesCount", 0)
+            })
+
+            if len(all_reviews) >= target_limit:
                 break
 
-            for r in reviews:
-                r_id = r.get("review_id")
-                
-                # PREVENT DUPLICATION: If ID exists in DB, we are "Caught Up"
-                if r_id in existing_ids:
-                    logger.info(f"📍 Database is already up to date for {company_name}. Stopping.")
-                    return all_reviews
-                
-                # Prevent internal list duplicates if API returns same record twice
-                if any(ar['google_review_id'] == r_id for ar in all_reviews):
-                    continue
+        logger.info(
+            f"✅ Total New Reviews Collected: {len(all_reviews)}"
+        )
 
-                if len(all_reviews) >= target_limit:
-                    break
-                
-                all_reviews.append({
-                    "google_review_id": r_id,
-                    "author_name": r.get("user", {}).get("name", "Anonymous"),
-                    "rating": int(r.get("rating", 5)),
-                    "text": r.get("text") or r.get("snippet") or "No content provided.",
-                    "google_review_time": parse_relative_date(r.get("date", "")),
-                    "review_likes": r.get("likes", 0)
-                })
-            
-            next_page_token = search.get("serpapi_pagination", {}).get("next_page_token")
-            if not next_page_token:
-                break
-            
         return all_reviews
 
     except Exception as primary_err:
-        logger.warning(f"⚠️ SerpApi Primary Path interrupted. Attempting Fallback...")
-        return await fetch_from_serper_fallback(company_name, target_limit)
+
+        logger.error(
+            f"❌ APIFY Primary Path Failed: {primary_err}"
+        )
+
+        logger.warning(
+            f"⚠️ Falling back to Serper..."
+        )
+
+        return await fetch_from_serper_fallback(
+            company_name,
+            target_limit
+        )
