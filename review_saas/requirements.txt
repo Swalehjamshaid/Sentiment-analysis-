@@ -50,6 +50,7 @@ serpapi>=0.1.5
 
 # --- APIFY ---
 apify-client==1.8.1
+apify-shared==1.1.2
 
 # --- Environment & Logging ---
 python-dotenv>=1.0.1
