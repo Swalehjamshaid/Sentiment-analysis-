@@ -48,6 +48,9 @@ pypdf>=4.2.0
 reportlab>=4.1.0
 serpapi>=0.1.5
 
+# --- APIFY ---
+apify-client==1.8.1
+
 # --- Environment & Logging ---
 python-dotenv>=1.0.1
 loguru>=0.7.2
