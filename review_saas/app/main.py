@@ -1,361 +1,698 @@
+# filename: app/main.py
+
 import os
 import sys
 import logging
 import traceback
+
 from datetime import datetime
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Depends, Form
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi import (
+    FastAPI,
+    Request,
+    Depends,
+    Form,
+)
 
-from starlette.middleware.sessions import SessionMiddleware
-from starlette.templating import Jinja2Templates
-from starlette.staticfiles import StaticFiles
+from fastapi.middleware.cors import (
+    CORSMiddleware
+)
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.responses import (
+    HTMLResponse,
+    RedirectResponse,
+    JSONResponse,
+)
+
+from starlette.middleware.sessions import (
+    SessionMiddleware
+)
+
+from starlette.templating import (
+    Jinja2Templates
+)
+
+from starlette.staticfiles import (
+    StaticFiles
+)
+
+from sqlalchemy.ext.asyncio import (
+    AsyncSession
+)
+
 from sqlalchemy.future import select
-from passlib.context import CryptContext
+
+from passlib.context import (
+    CryptContext
+)
+
 from loguru import logger
 
-# ----------------------------------------------------------
+# ==========================================================
 # CORE IMPORTS
-# ----------------------------------------------------------
+# ==========================================================
+
 from app.core.config import settings
-from app.core.db import init_models, get_db
 
-# ----------------------------------------------------------
+from app.core.db import (
+    init_models,
+    get_db,
+)
+
+# ==========================================================
 # LOGGING CONFIGURATION
-# ----------------------------------------------------------
+# ==========================================================
+
 logger.remove()
-logger.add(sys.stdout, level="DEBUG", backtrace=True, diagnose=True, enqueue=True)
-logging.basicConfig(level=logging.INFO)
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+logger.add(
+    sys.stdout,
+    level="DEBUG",
+    backtrace=True,
+    diagnose=True,
+    enqueue=True
+)
 
-# ----------------------------------------------------------
-# LIFESPAN (Startup / Shutdown)
-# ----------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO
+)
+
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto"
+)
+
+# ==========================================================
+# LIFESPAN
+# ==========================================================
+
 @asynccontextmanager
+
 async def lifespan(app: FastAPI):
-    logger.info("🚀 Starting Review Intel AI...")
-    try:
-        await init_models()
-        logger.info("✅ Database initialized successfully")
-    except Exception:
-        logger.error("❌ Database initialization failed")
-        logger.error(traceback.format_exc())
-    yield
-    logger.info("🛑 Application shutdown complete")
 
-
-# ----------------------------------------------------------
-# APP INITIALIZATION
-# ----------------------------------------------------------
-app = FastAPI(title="Review Intel AI", lifespan=lifespan)
-
-# ----------------------------------------------------------
-# GLOBAL ERROR HANDLER
-# ----------------------------------------------------------
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"❌ GLOBAL ERROR at {request.url}")
-    logger.error(traceback.format_exc())
-    return JSONResponse(
-        status_code=500,
-        content={"message": "Internal Server Error", "detail": str(exc)},
+    logger.info(
+        "🚀 Starting Review Intel AI..."
     )
 
+    try:
 
-# ----------------------------------------------------------
+        await init_models()
+
+        logger.info(
+            "✅ Database initialized successfully"
+        )
+
+    except Exception:
+
+        logger.error(
+            "❌ Database initialization failed"
+        )
+
+        logger.error(
+            traceback.format_exc()
+        )
+
+    yield
+
+    logger.info(
+        "🛑 Application shutdown complete"
+    )
+
+# ==========================================================
+# FASTAPI APP
+# ==========================================================
+
+app = FastAPI(
+
+    title="Review Intel AI",
+
+    description=
+        "AI Powered Customer Review Intelligence Platform",
+
+    version="2.0.0",
+
+    lifespan=lifespan
+)
+
+# ==========================================================
+# GLOBAL ERROR HANDLER
+# ==========================================================
+
+@app.exception_handler(Exception)
+
+async def global_exception_handler(
+
+    request: Request,
+
+    exc: Exception
+):
+
+    logger.error(
+        f"❌ GLOBAL ERROR at {request.url}"
+    )
+
+    logger.error(
+        traceback.format_exc()
+    )
+
+    return JSONResponse(
+
+        status_code=500,
+
+        content={
+
+            "status": "error",
+
+            "message":
+                "Internal Server Error",
+
+            "detail":
+                str(exc)
+        },
+    )
+
+# ==========================================================
 # MIDDLEWARE
-# ----------------------------------------------------------
+# ==========================================================
+
 app.add_middleware(
+
     CORSMiddleware,
+
     allow_origins=["*"],
+
     allow_credentials=True,
+
     allow_methods=["*"],
+
     allow_headers=["*"],
 )
 
 app.add_middleware(
+
     SessionMiddleware,
-    secret_key=settings.SECRET_KEY
+
+    secret_key=settings.SECRET_KEY,
+
+    max_age=86400
 )
 
-# ----------------------------------------------------------
-# TEMPLATES ENGINE
-# ----------------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ==========================================================
+# TEMPLATE ENGINE
+# ==========================================================
+
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
 
 possible_paths = [
-    os.path.join(BASE_DIR, "templates"),
+
+    os.path.join(
+        BASE_DIR,
+        "templates"
+    ),
+
     "/app/app/templates",
+
     "/app/templates",
 ]
 
 template_path = next(
-    (p for p in possible_paths if os.path.isdir(p)),
+
+    (
+        p
+        for p in possible_paths
+        if os.path.isdir(p)
+    ),
+
     None
 )
 
 if not template_path:
-    raise RuntimeError("❌ Templates directory NOT FOUND")
 
-templates = Jinja2Templates(directory=template_path)
+    raise RuntimeError(
+        "❌ Templates directory NOT FOUND"
+    )
+
+templates = Jinja2Templates(
+    directory=template_path
+)
+
 templates.env.cache = None
 
-logger.info(f"✅ Templates loaded from: {template_path}")
+logger.info(
+    f"✅ Templates loaded from: {template_path}"
+)
 
-# ----------------------------------------------------------
-# JINJA2 FILTERS
-# ----------------------------------------------------------
-def format_date(value, format="%Y-%m-%d"):
+# ==========================================================
+# DATE FILTER
+# ==========================================================
+
+def format_date(
+    value,
+    format="%Y-%m-%d"
+):
+
     if not value:
         return ""
 
     try:
+
         if isinstance(value, str):
-            value = datetime.fromisoformat(value)
+
+            value = datetime.fromisoformat(
+                value
+            )
 
         return value.strftime(format)
 
     except Exception:
+
         return str(value)
 
 templates.env.filters["date"] = format_date
 
-# ----------------------------------------------------------
-# STATIC FILES MOUNTING
-# ----------------------------------------------------------
+# ==========================================================
+# STATIC FILES
+# ==========================================================
+
 static_paths = [
-    os.path.join(BASE_DIR, "static"),
+
+    os.path.join(
+        BASE_DIR,
+        "static"
+    ),
+
     "/app/app/static",
+
     "/app/static",
 ]
 
 static_dir = next(
-    (p for p in static_paths if os.path.isdir(p)),
+
+    (
+        p
+        for p in static_paths
+        if os.path.isdir(p)
+    ),
+
     None
 )
 
 if static_dir:
+
     app.mount(
+
         "/static",
+
         StaticFiles(directory=static_dir),
+
         name="static"
     )
 
-    logger.info(f"📁 Static files mounted from: {static_dir}")
+    logger.info(
+        f"📁 Static files mounted from: {static_dir}"
+    )
 
-# ----------------------------------------------------------
-# ROUTE IMPORTS WITH DEBUGGING
-# ----------------------------------------------------------
+# ==========================================================
+# ROUTE IMPORTS
+# ==========================================================
+
 try:
+
     from app.routes import auth
-    print("✅ auth imported successfully")
+
+    print(
+        "✅ auth imported successfully"
+    )
 
     from app.routes import companies
-    print("✅ companies imported successfully")
+
+    print(
+        "✅ companies imported successfully"
+    )
 
     from app.routes import dashboard
-    print("✅ dashboard imported successfully")
+
+    print(
+        "✅ dashboard imported successfully"
+    )
 
     from app.routes import reviews
-    print("✅ reviews imported successfully")
+
+    print(
+        "✅ reviews imported successfully"
+    )
 
 except Exception as e:
-    print("❌ ROUTE IMPORT FAILURE:", str(e))
 
-    import traceback
+    print(
+        "❌ ROUTE IMPORT FAILURE:",
+        str(e)
+    )
+
     traceback.print_exc()
 
     raise e
 
-# ----------------------------------------------------------
+# ==========================================================
 # ROOT ROUTE
-# ----------------------------------------------------------
-@app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
+# ==========================================================
+
+@app.get(
+    "/",
+    response_class=HTMLResponse
+)
+
+async def root(
+    request: Request
+):
 
     if not request.session.get("user"):
-        return RedirectResponse("/login", status_code=303)
 
-    return RedirectResponse("/dashboard", status_code=303)
+        return RedirectResponse(
+            "/login",
+            status_code=303
+        )
 
-# ----------------------------------------------------------
+    return RedirectResponse(
+        "/dashboard",
+        status_code=303
+    )
+
+# ==========================================================
 # LOGIN PAGE
-# ----------------------------------------------------------
-@app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
+# ==========================================================
+
+@app.get(
+    "/login",
+    response_class=HTMLResponse
+)
+
+async def login_page(
+    request: Request
+):
 
     return templates.TemplateResponse(
+
         request=request,
+
         name="login.html"
     )
 
-# ----------------------------------------------------------
+# ==========================================================
 # LOGIN HANDLER
-# ----------------------------------------------------------
+# ==========================================================
+
 @app.post("/api/auth/login")
 @app.post("/login")
+
 async def handle_login(
+
     request: Request,
+
     email: str = Form(...),
+
     password: str = Form(None),
+
     magic_link: bool = Form(False),
+
     db: AsyncSession = Depends(get_db),
 ):
+
     from app.core.models import User
 
     try:
+
         result = await db.execute(
+
             select(User).where(
-                User.email == email.strip().lower()
+
+                User.email ==
+
+                email.strip().lower()
             )
         )
 
         user = result.scalars().first()
 
-        # Check Verification
+        # ==================================================
+        # EMAIL VERIFICATION CHECK
+        # ==================================================
+
         if user and not user.is_verified:
+
             return templates.TemplateResponse(
+
                 request=request,
+
                 name="login.html",
+
                 context={
-                    "error": "Please verify your email address first."
+
+                    "error":
+                        "Please verify your email address first."
                 }
             )
 
-        # Password Login
+        # ==================================================
+        # PASSWORD LOGIN
+        # ==================================================
+
         if not magic_link:
 
             if user and pwd_context.verify(
+
                 password,
+
                 user.hashed_password
             ):
 
                 request.session["user"] = {
-                    "id": user.id,
-                    "email": user.email,
-                    "name": user.name,
+
+                    "id":
+                        user.id,
+
+                    "email":
+                        user.email,
+
+                    "name":
+                        user.name,
                 }
 
                 return RedirectResponse(
+
                     "/dashboard",
+
                     status_code=303
                 )
 
         else:
+
             return templates.TemplateResponse(
+
                 request=request,
+
                 name="login.html",
+
                 context={
-                    "success": "Magic link logic triggered. Check inbox."
+
+                    "success":
+                        "Magic link logic triggered. Check inbox."
                 }
             )
 
         return templates.TemplateResponse(
+
             request=request,
+
             name="login.html",
+
             context={
-                "error": "Invalid email or password"
+
+                "error":
+                    "Invalid email or password"
             }
         )
 
     except Exception:
-        logger.error("❌ Login Error")
-        logger.error(traceback.format_exc())
+
+        logger.error(
+            "❌ Login Error"
+        )
+
+        logger.error(
+            traceback.format_exc()
+        )
 
         return templates.TemplateResponse(
+
             request=request,
+
             name="login.html",
+
             context={
-                "error": "Something went wrong. Please try again."
+
+                "error":
+                    "Something went wrong. Please try again."
             }
         )
 
-# ----------------------------------------------------------
+# ==========================================================
 # REGISTER PAGE
-# ----------------------------------------------------------
-@app.get("/register", response_class=HTMLResponse)
-async def register_page(request: Request):
+# ==========================================================
+
+@app.get(
+    "/register",
+    response_class=HTMLResponse
+)
+
+async def register_page(
+    request: Request
+):
 
     return templates.TemplateResponse(
+
         request=request,
+
         name="register.html"
     )
 
-# ----------------------------------------------------------
+# ==========================================================
 # DASHBOARD PAGE
-# ----------------------------------------------------------
-@app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard_view(request: Request):
+# ==========================================================
+
+@app.get(
+    "/dashboard",
+    response_class=HTMLResponse
+)
+
+async def dashboard_view(
+    request: Request
+):
 
     if not request.session.get("user"):
-        return RedirectResponse("/login", status_code=303)
+
+        return RedirectResponse(
+            "/login",
+            status_code=303
+        )
 
     return templates.TemplateResponse(
+
         request=request,
+
         name="dashboard.html",
+
         context={
-            "user": request.session.get("user")
+
+            "user":
+                request.session.get("user")
         }
     )
 
-# ----------------------------------------------------------
+# ==========================================================
 # LOGOUT
-# ----------------------------------------------------------
+# ==========================================================
+
 @app.get("/logout")
 @app.get("/api/auth/logout")
-async def logout(request: Request):
+
+async def logout(
+    request: Request
+):
 
     request.session.clear()
 
     return RedirectResponse(
+
         "/login",
+
         status_code=303
     )
 
-# ----------------------------------------------------------
-# API ROUTER INCLUSION
-# ----------------------------------------------------------
+# ==========================================================
+# HEALTH CHECK
+# ==========================================================
+
+@app.get("/health")
+
+async def health_check():
+
+    return {
+
+        "status": "healthy",
+
+        "service":
+            "Review Intel AI",
+
+        "timestamp":
+            datetime.utcnow().isoformat()
+    }
+
+# ==========================================================
+# API ROUTERS
+# ==========================================================
+
 app.include_router(
+
     auth.router,
+
     prefix="/api/auth",
+
     tags=["auth"]
 )
 
 app.include_router(
+
     companies.router,
+
     prefix="/api",
+
     tags=["companies"]
 )
 
 app.include_router(
+
     dashboard.router,
+
     prefix="/api",
+
     tags=["dashboard"]
 )
 
 app.include_router(
+
     reviews.router,
+
     prefix="/api",
+
     tags=["reviews"]
 )
 
-# ----------------------------------------------------------
+# ==========================================================
 # ENTRYPOINT
-# ----------------------------------------------------------
+# ==========================================================
+
 if __name__ == "__main__":
 
     import uvicorn
 
-    port = int(os.environ.get("PORT", 8080))
+    port = int(
+        os.environ.get(
+            "PORT",
+            8080
+        )
+    )
 
     uvicorn.run(
+
         "app.main:app",
+
         host="0.0.0.0",
+
         port=port,
+
         reload=False
     )
