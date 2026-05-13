@@ -36,13 +36,17 @@ from app.core.config import settings
 
 logger = logging.getLogger("app.companies")
 
-router = APIRouter(tags=["companies"])
+router = APIRouter(
+    tags=["companies"]
+)
 
 # ==========================================================
 # AUTH CHECK
 # ==========================================================
 
-def _require_user(request: Request) -> Dict[str, Any]:
+def _require_user(
+    request: Request
+) -> Dict[str, Any]:
 
     user = request.session.get("user")
 
@@ -96,7 +100,9 @@ class OutscraperClient:
             "limit": 5
         }
 
-        async with httpx.AsyncClient(timeout=20) as c:
+        async with httpx.AsyncClient(
+            timeout=20
+        ) as c:
 
             r = await c.get(
 
@@ -124,7 +130,9 @@ class OutscraperClient:
             "limit": 1
         }
 
-        async with httpx.AsyncClient(timeout=20) as c:
+        async with httpx.AsyncClient(
+            timeout=20
+        ) as c:
 
             r = await c.get(
 
@@ -139,7 +147,10 @@ class OutscraperClient:
 
             r.raise_for_status()
 
-            data = r.json().get("data", [])
+            data = r.json().get(
+                "data",
+                []
+            )
 
             return data[0] if data else None
 
@@ -151,7 +162,6 @@ def _osc() -> Optional[OutscraperClient]:
     )
 
     if not key:
-
         return None
 
     return OutscraperClient(key)
@@ -174,11 +184,14 @@ async def companies_list(
 
     session: AsyncSession = Depends(get_db),
 
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
 
     _require_user(request)
 
-    from app.core.models import Company, Review
+    from app.core.models import (
+        Company,
+        Review
+    )
 
     page = max(page, 1)
 
@@ -189,7 +202,9 @@ async def companies_list(
     if q:
 
         stmt = stmt.where(
-            Company.name.ilike(f"%{q}%")
+            Company.name.ilike(
+                f"%{q}%"
+            )
         )
 
     stmt = stmt.order_by(
@@ -197,7 +212,10 @@ async def companies_list(
     )
 
     res = await session.execute(
-        stmt.offset((page - 1) * size).limit(size)
+
+        stmt.offset(
+            (page - 1) * size
+        ).limit(size)
     )
 
     companies = res.scalars().all()
@@ -228,20 +246,31 @@ async def companies_list(
 
         items.append({
 
-            "id": c.id,
+            "id":
+                c.id,
 
-            "name": c.name,
+            "name":
+                c.name,
 
-            "place_id": c.google_place_id,
+            "place_id":
+                c.google_place_id,
 
-            "address": c.address or "",
+            "address":
+                c.address or "",
 
-            "review_count": int(count or 0),
+            "review_count":
+                int(count or 0),
 
-            "avg_rating": round(float(avg or 0), 2),
+            "avg_rating":
+                round(float(avg or 0), 2),
         })
 
-    return items
+    return {
+
+        "status": "success",
+
+        "companies": items
+    }
 
 # ==========================================================
 # ADD COMPANY
@@ -320,9 +349,11 @@ async def add_company(
 
                 "company": {
 
-                    "id": existing.id,
+                    "id":
+                        existing.id,
 
-                    "name": existing.name,
+                    "name":
+                        existing.name,
 
                     "place_id":
                         existing.google_place_id,
@@ -369,9 +400,11 @@ async def add_company(
 
             "company": {
 
-                "id": new_company.id,
+                "id":
+                    new_company.id,
 
-                "name": new_company.name,
+                "name":
+                    new_company.name,
 
                 "place_id":
                     new_company.google_place_id,
