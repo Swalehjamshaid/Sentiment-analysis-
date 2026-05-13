@@ -1,6 +1,6 @@
 # filename: app/services/scraper.py
 # ==========================================================
-# REVIEW INTELLIGENCE SCRAPER — APIFY + DEDUP SAFE
+# REVIEW INTELLIGENCE SCRAPER — APIFY + POSTGRESQL INTEGRATED
 # ==========================================================
 
 import os
@@ -43,10 +43,7 @@ apify_client = ApifyClient(APIFY_API_TOKEN)
 # ==========================================================
 
 def utc_now_naive() -> datetime:
-    """
-    Returns timezone-naive UTC datetime
-    compatible with PostgreSQL TIMESTAMP WITHOUT TIME ZONE
-    """
+
     return datetime.utcnow().replace(tzinfo=None)
 
 # ==========================================================
@@ -61,6 +58,7 @@ def parse_relative_date(date_text: str) -> datetime:
     now = utc_now_naive()
 
     match = re.search(r'(\d+)', date_text)
+
     quantity = int(match.group(1)) if match else 1
 
     date_text = date_text.lower()
@@ -92,7 +90,9 @@ def parse_relative_date(date_text: str) -> datetime:
 # SAFE ISO DATE PARSER
 # ==========================================================
 
-def safe_parse_iso_datetime(date_str: Optional[str]) -> datetime:
+def safe_parse_iso_datetime(
+    date_str: Optional[str]
+) -> datetime:
 
     if not date_str:
         return utc_now_naive()
@@ -103,14 +103,13 @@ def safe_parse_iso_datetime(date_str: Optional[str]) -> datetime:
             date_str.replace("Z", "+00:00")
         )
 
-        # CRITICAL FIX:
-        # Convert timezone-aware datetime
-        # into timezone-naive datetime
         return parsed.replace(tzinfo=None)
 
     except Exception as e:
 
-        logger.warning(f"⚠️ Date parse failed: {e}")
+        logger.warning(
+            f"⚠️ Date parse failed: {e}"
+        )
 
         return utc_now_naive()
 
@@ -123,10 +122,16 @@ async def fetch_from_serper_fallback(
     limit: int = 10
 ) -> List[Dict[str, Any]]:
 
-    logger.info(f"📡 Serper fallback for {company_name}")
+    logger.info(
+        f"📡 Serper fallback for {company_name}"
+    )
 
     if not SERPER_API_KEY:
-        logger.error("❌ SERPER_API_KEY missing")
+
+        logger.error(
+            "❌ SERPER_API_KEY missing"
+        )
+
         return []
 
     url = "https://google.serper.dev/search"
@@ -159,22 +164,31 @@ async def fetch_from_serper_fallback(
 
         results = []
 
-        for idx, entry in enumerate(data.get("organic", [])):
+        for idx, entry in enumerate(
+            data.get("organic", [])
+        ):
 
             if len(results) >= limit:
                 break
 
             results.append({
+
                 "google_review_id":
                     f"serper_{idx}_{int(utc_now_naive().timestamp())}",
 
                 "author_name":
-                    entry.get("title", "Web Mention"),
+                    entry.get(
+                        "title",
+                        "Web Mention"
+                    ),
 
                 "rating": 5,
 
                 "text":
-                    entry.get("snippet", "No content"),
+                    entry.get(
+                        "snippet",
+                        "No content"
+                    ),
 
                 "google_review_time":
                     utc_now_naive(),
@@ -186,7 +200,9 @@ async def fetch_from_serper_fallback(
 
     except Exception as e:
 
-        logger.error(f"❌ Serper fallback failed: {e}")
+        logger.error(
+            f"❌ Serper fallback failed: {e}"
+        )
 
         return []
 
@@ -224,7 +240,9 @@ async def fetch_reviews_from_google(
 
             res = await session.execute(stmt)
 
-            existing_ids = set(res.scalars().all())
+            existing_ids = set(
+                res.scalars().all()
+            )
 
             comp_stmt = select(
                 Company
@@ -232,7 +250,9 @@ async def fetch_reviews_from_google(
                 Company.id == company_id
             )
 
-            comp_res = await session.execute(comp_stmt)
+            comp_res = await session.execute(
+                comp_stmt
+            )
 
             company = comp_res.scalars().first()
 
@@ -266,19 +286,23 @@ async def fetch_reviews_from_google(
         # ==================================================
 
         run_input = {
+
             "startUrls": [
                 {
                     "url":
                     f"https://www.google.com/maps/place/?q=place_id:{place_id}"
                 }
             ],
+
             "maxReviews": target_limit,
+
             "reviewsSort": "newest",
+
             "language": "en"
         }
 
         # ==================================================
-        # RUN ACTOR
+        # RUN APIFY ACTOR
         # ==================================================
 
         run = await asyncio.to_thread(
@@ -290,11 +314,15 @@ async def fetch_reviews_from_google(
             )
         )
 
-        dataset_id = run.get("defaultDatasetId")
+        dataset_id = run.get(
+            "defaultDatasetId"
+        )
 
         if not dataset_id:
 
-            logger.error("❌ No dataset returned from APIFY")
+            logger.error(
+                "❌ No dataset returned from APIFY"
+            )
 
             return []
 
@@ -331,6 +359,7 @@ async def fetch_reviews_from_google(
                 )
 
                 # DUPLICATE DB CHECK
+
                 if review_id in existing_ids:
 
                     logger.info(
@@ -340,6 +369,7 @@ async def fetch_reviews_from_google(
                     return all_reviews
 
                 # INTERNAL DUPLICATE CHECK
+
                 if any(
                     r["google_review_id"] == review_id
                     for r in all_reviews
@@ -359,7 +389,9 @@ async def fetch_reviews_from_google(
                 )
 
                 try:
-                    rating = int(review.get("stars", 5))
+                    rating = int(
+                        review.get("stars", 5)
+                    )
                 except:
                     rating = 5
 
@@ -367,24 +399,33 @@ async def fetch_reviews_from_google(
                     review.get("publishedAtDate")
                 )
 
-                likes = review.get("likesCount", 0)
+                likes = review.get(
+                    "likesCount",
+                    0
+                )
 
                 if likes is None:
                     likes = 0
 
                 all_reviews.append({
 
-                    "google_review_id": review_id,
+                    "google_review_id":
+                        review_id,
 
-                    "author_name": author_name,
+                    "author_name":
+                        author_name,
 
-                    "rating": rating,
+                    "rating":
+                        rating,
 
-                    "text": review_text,
+                    "text":
+                        review_text,
 
-                    "google_review_time": review_time,
+                    "google_review_time":
+                        review_time,
 
-                    "review_likes": likes
+                    "review_likes":
+                        likes
                 })
 
                 if len(all_reviews) >= target_limit:
@@ -418,15 +459,15 @@ async def fetch_reviews_from_google(
             company_name,
             target_limit
         )
+
 # ==========================================================
 # REVIEW SERVICE
-# DATABASE + DASHBOARD INTEGRATION
 # ==========================================================
 
 class ReviewService:
 
     # ======================================================
-    # GET LATEST REVIEWS FROM POSTGRES
+    # GET REVIEWS FROM POSTGRESQL
     # ======================================================
 
     @staticmethod
@@ -447,7 +488,7 @@ class ReviewService:
                         Review.company_id == company_id
                     )
                     .order_by(
-                        Review.created_at.desc()
+                        Review.google_review_time.desc()
                     )
                     .limit(limit)
                 )
@@ -479,14 +520,14 @@ class ReviewService:
                         "text":
                             getattr(
                                 review,
-                                "review_text",
+                                "text",
                                 ""
                             ),
 
                         "review_text":
                             getattr(
                                 review,
-                                "review_text",
+                                "text",
                                 ""
                             ),
 
@@ -494,7 +535,7 @@ class ReviewService:
                             str(
                                 getattr(
                                     review,
-                                    "created_at",
+                                    "google_review_time",
                                     ""
                                 )
                             ),
@@ -503,7 +544,7 @@ class ReviewService:
                             str(
                                 getattr(
                                     review,
-                                    "created_at",
+                                    "google_review_time",
                                     ""
                                 )
                             ),
@@ -531,7 +572,7 @@ class ReviewService:
                 return []
 
     # ======================================================
-    # INGEST REVIEWS INTO POSTGRES
+    # INGEST REVIEWS INTO POSTGRESQL
     # ======================================================
 
     @staticmethod
@@ -568,7 +609,7 @@ class ReviewService:
                     )
 
                 # ==========================================
-                # FETCH REVIEWS FROM APIFY
+                # FETCH REVIEWS
                 # ==========================================
 
                 reviews = await fetch_reviews_from_google(
@@ -581,7 +622,7 @@ class ReviewService:
                 ingested_count = 0
 
                 # ==========================================
-                # SAVE REVIEWS INTO POSTGRES
+                # SAVE INTO POSTGRESQL
                 # ==========================================
 
                 for item in reviews:
@@ -611,7 +652,8 @@ class ReviewService:
 
                         new_review = Review(
 
-                            company_id=company_id,
+                            company_id=
+                                company_id,
 
                             google_review_id=
                                 item.get(
@@ -629,22 +671,22 @@ class ReviewService:
                                     5
                                 ),
 
-                            review_text=
+                            text=
                                 item.get(
                                     "text",
                                     ""
+                                ),
+
+                            google_review_time=
+                                item.get(
+                                    "google_review_time",
+                                    utc_now_naive()
                                 ),
 
                             review_likes=
                                 item.get(
                                     "review_likes",
                                     0
-                                ),
-
-                            created_at=
-                                item.get(
-                                    "google_review_time",
-                                    utc_now_naive()
                                 )
                         )
 
@@ -671,8 +713,11 @@ class ReviewService:
                 )
 
                 return {
+
                     "status": "success",
-                    "ingested_count": ingested_count
+
+                    "ingested_count":
+                        ingested_count
                 }
 
             except Exception as e:
@@ -684,7 +729,10 @@ class ReviewService:
                 )
 
                 return {
+
                     "status": "error",
+
                     "ingested_count": 0,
+
                     "message": str(e)
                 }
