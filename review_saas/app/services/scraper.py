@@ -418,3 +418,273 @@ async def fetch_reviews_from_google(
             company_name,
             target_limit
         )
+# ==========================================================
+# REVIEW SERVICE
+# DATABASE + DASHBOARD INTEGRATION
+# ==========================================================
+
+class ReviewService:
+
+    # ======================================================
+    # GET LATEST REVIEWS FROM POSTGRES
+    # ======================================================
+
+    @staticmethod
+    async def get_latest_reviews(
+        company_id: int,
+        limit: int = 100
+    ):
+
+        from app.database import async_session
+
+        async with async_session() as session:
+
+            try:
+
+                stmt = (
+                    select(Review)
+                    .where(
+                        Review.company_id == company_id
+                    )
+                    .order_by(
+                        Review.created_at.desc()
+                    )
+                    .limit(limit)
+                )
+
+                result = await session.execute(stmt)
+
+                reviews = result.scalars().all()
+
+                formatted_reviews = []
+
+                for review in reviews:
+
+                    formatted_reviews.append({
+
+                        "author_name":
+                            getattr(
+                                review,
+                                "author_name",
+                                "Anonymous"
+                            ),
+
+                        "rating":
+                            getattr(
+                                review,
+                                "rating",
+                                0
+                            ),
+
+                        "text":
+                            getattr(
+                                review,
+                                "review_text",
+                                ""
+                            ),
+
+                        "review_text":
+                            getattr(
+                                review,
+                                "review_text",
+                                ""
+                            ),
+
+                        "created_at":
+                            str(
+                                getattr(
+                                    review,
+                                    "created_at",
+                                    ""
+                                )
+                            ),
+
+                        "relative_time_description":
+                            str(
+                                getattr(
+                                    review,
+                                    "created_at",
+                                    ""
+                                )
+                            ),
+
+                        "review_likes":
+                            getattr(
+                                review,
+                                "review_likes",
+                                0
+                            )
+                    })
+
+                logger.info(
+                    f"✅ Loaded {len(formatted_reviews)} reviews from PostgreSQL"
+                )
+
+                return formatted_reviews
+
+            except Exception as e:
+
+                logger.exception(
+                    "❌ Failed loading reviews from PostgreSQL"
+                )
+
+                return []
+
+    # ======================================================
+    # INGEST REVIEWS INTO POSTGRES
+    # ======================================================
+
+    @staticmethod
+    async def ingest_from_google(
+        company_id: int
+    ):
+
+        from app.database import async_session
+
+        async with async_session() as session:
+
+            try:
+
+                # ==========================================
+                # LOAD COMPANY
+                # ==========================================
+
+                company_stmt = select(
+                    Company
+                ).where(
+                    Company.id == company_id
+                )
+
+                company_result = await session.execute(
+                    company_stmt
+                )
+
+                company = company_result.scalars().first()
+
+                if not company:
+
+                    raise Exception(
+                        "Company not found"
+                    )
+
+                # ==========================================
+                # FETCH REVIEWS FROM APIFY
+                # ==========================================
+
+                reviews = await fetch_reviews_from_google(
+                    place_id=company.google_place_id,
+                    company_id=company_id,
+                    session=session,
+                    target_limit=100
+                )
+
+                ingested_count = 0
+
+                # ==========================================
+                # SAVE REVIEWS INTO POSTGRES
+                # ==========================================
+
+                for item in reviews:
+
+                    try:
+
+                        existing_stmt = select(
+                            Review
+                        ).where(
+                            Review.google_review_id
+                            ==
+                            item["google_review_id"]
+                        )
+
+                        existing_result = await session.execute(
+                            existing_stmt
+                        )
+
+                        existing_review = (
+                            existing_result
+                            .scalars()
+                            .first()
+                        )
+
+                        if existing_review:
+                            continue
+
+                        new_review = Review(
+
+                            company_id=company_id,
+
+                            google_review_id=
+                                item.get(
+                                    "google_review_id"
+                                ),
+
+                            author_name=
+                                item.get(
+                                    "author_name"
+                                ),
+
+                            rating=
+                                item.get(
+                                    "rating",
+                                    5
+                                ),
+
+                            review_text=
+                                item.get(
+                                    "text",
+                                    ""
+                                ),
+
+                            review_likes=
+                                item.get(
+                                    "review_likes",
+                                    0
+                                ),
+
+                            created_at=
+                                item.get(
+                                    "google_review_time",
+                                    utc_now_naive()
+                                )
+                        )
+
+                        session.add(new_review)
+
+                        ingested_count += 1
+
+                    except Exception as item_error:
+
+                        logger.error(
+                            f"❌ Review save failed: {item_error}"
+                        )
+
+                        continue
+
+                # ==========================================
+                # COMMIT DATABASE
+                # ==========================================
+
+                await session.commit()
+
+                logger.info(
+                    f"✅ PostgreSQL ingest complete: {ingested_count}"
+                )
+
+                return {
+                    "status": "success",
+                    "ingested_count": ingested_count
+                }
+
+            except Exception as e:
+
+                await session.rollback()
+
+                logger.exception(
+                    "❌ PostgreSQL ingest failed"
+                )
+
+                return {
+                    "status": "error",
+                    "ingested_count": 0,
+                    "message": str(e)
+                }
