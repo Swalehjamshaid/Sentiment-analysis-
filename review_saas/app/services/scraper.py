@@ -1,4 +1,5 @@
 # filename: app/services/scraper.py
+
 # ==========================================================
 # REVIEW INTELLIGENCE SCRAPER — APIFY + POSTGRESQL INTEGRATED
 # ==========================================================
@@ -226,10 +227,6 @@ async def fetch_reviews_from_google(
 
     try:
 
-        # ==================================================
-        # LOAD COMPANY + EXISTING REVIEWS
-        # ==================================================
-
         if session and company_id:
 
             stmt = select(
@@ -265,10 +262,6 @@ async def fetch_reviews_from_google(
                     or company.google_place_id
                 )
 
-        # ==================================================
-        # VALIDATE PLACE ID
-        # ==================================================
-
         if not place_id:
 
             logger.error(
@@ -280,10 +273,6 @@ async def fetch_reviews_from_google(
         logger.info(
             f"🚀 Starting APIFY Sync for {company_name}"
         )
-
-        # ==================================================
-        # APIFY INPUT
-        # ==================================================
 
         run_input = {
 
@@ -300,10 +289,6 @@ async def fetch_reviews_from_google(
 
             "language": "en"
         }
-
-        # ==================================================
-        # RUN APIFY ACTOR
-        # ==================================================
 
         run = await asyncio.to_thread(
             lambda:
@@ -330,10 +315,6 @@ async def fetch_reviews_from_google(
             f"✅ APIFY completed | Dataset: {dataset_id}"
         )
 
-        # ==================================================
-        # FETCH DATASET
-        # ==================================================
-
         dataset_items = await asyncio.to_thread(
             lambda:
             apify_client.dataset(
@@ -345,10 +326,6 @@ async def fetch_reviews_from_google(
             f"📦 Reviews fetched: {len(dataset_items)}"
         )
 
-        # ==================================================
-        # PROCESS REVIEWS
-        # ==================================================
-
         for idx, review in enumerate(dataset_items):
 
             try:
@@ -358,8 +335,6 @@ async def fetch_reviews_from_google(
                     or f"apify_{idx}_{int(utc_now_naive().timestamp())}"
                 )
 
-                # DUPLICATE DB CHECK
-
                 if review_id in existing_ids:
 
                     logger.info(
@@ -367,8 +342,6 @@ async def fetch_reviews_from_google(
                     )
 
                     return all_reviews
-
-                # INTERNAL DUPLICATE CHECK
 
                 if any(
                     r["google_review_id"] == review_id
@@ -476,9 +449,9 @@ class ReviewService:
         limit: int = 100
     ):
 
-        from app.database import async_session
+        from app.core.db import AsyncSessionLocal
 
-        async with async_session() as session:
+        async with AsyncSessionLocal() as session:
 
             try:
 
@@ -501,61 +474,98 @@ class ReviewService:
 
                 for review in reviews:
 
-                    formatted_reviews.append({
+                    try:
 
-                        "author_name":
-                            getattr(
-                                review,
-                                "author_name",
-                                "Anonymous"
-                            ),
+                        created_at = getattr(
+                            review,
+                            "google_review_time",
+                            None
+                        )
 
-                        "rating":
-                            getattr(
-                                review,
-                                "rating",
-                                0
-                            ),
+                        if created_at:
 
-                        "text":
-                            getattr(
-                                review,
-                                "text",
-                                ""
-                            ),
-
-                        "review_text":
-                            getattr(
-                                review,
-                                "text",
-                                ""
-                            ),
-
-                        "created_at":
-                            str(
-                                getattr(
-                                    review,
-                                    "google_review_time",
-                                    ""
-                                )
-                            ),
-
-                        "relative_time_description":
-                            str(
-                                getattr(
-                                    review,
-                                    "google_review_time",
-                                    ""
-                                )
-                            ),
-
-                        "review_likes":
-                            getattr(
-                                review,
-                                "review_likes",
-                                0
+                            created_at = (
+                                created_at.isoformat()
                             )
-                    })
+
+                        formatted_reviews.append({
+
+                            "id":
+                                getattr(
+                                    review,
+                                    "id",
+                                    None
+                                ),
+
+                            "author_name":
+                                getattr(
+                                    review,
+                                    "author_name",
+                                    "Anonymous"
+                                ),
+
+                            "rating":
+                                getattr(
+                                    review,
+                                    "rating",
+                                    0
+                                ),
+
+                            "text":
+                                getattr(
+                                    review,
+                                    "text",
+                                    ""
+                                ),
+
+                            "review_text":
+                                getattr(
+                                    review,
+                                    "text",
+                                    ""
+                                ),
+
+                            "created_at":
+                                created_at,
+
+                            "relative_time_description":
+                                created_at,
+
+                            "review_likes":
+                                getattr(
+                                    review,
+                                    "review_likes",
+                                    0
+                                ),
+
+                            "sentiment":
+                                (
+                                    "positive"
+                                    if getattr(
+                                        review,
+                                        "rating",
+                                        0
+                                    ) >= 4
+
+                                    else "negative"
+
+                                    if getattr(
+                                        review,
+                                        "rating",
+                                        0
+                                    ) <= 2
+
+                                    else "neutral"
+                                )
+                        })
+
+                    except Exception as row_error:
+
+                        logger.error(
+                            f"❌ Review formatting failed: {row_error}"
+                        )
+
+                        continue
 
                 logger.info(
                     f"✅ Loaded {len(formatted_reviews)} reviews from PostgreSQL"
@@ -580,15 +590,11 @@ class ReviewService:
         company_id: int
     ):
 
-        from app.database import async_session
+        from app.core.db import AsyncSessionLocal
 
-        async with async_session() as session:
+        async with AsyncSessionLocal() as session:
 
             try:
-
-                # ==========================================
-                # LOAD COMPANY
-                # ==========================================
 
                 company_stmt = select(
                     Company
@@ -608,22 +614,39 @@ class ReviewService:
                         "Company not found"
                     )
 
-                # ==========================================
-                # FETCH REVIEWS
-                # ==========================================
-
-                reviews = await fetch_reviews_from_google(
-                    place_id=company.google_place_id,
-                    company_id=company_id,
-                    session=session,
-                    target_limit=100
+                logger.info(
+                    f"🚀 Starting sync for: {company.name}"
                 )
 
-                ingested_count = 0
+                reviews = await fetch_reviews_from_google(
 
-                # ==========================================
-                # SAVE INTO POSTGRESQL
-                # ==========================================
+                    place_id=
+                        company.google_place_id,
+
+                    company_id=
+                        company_id,
+
+                    session=
+                        session,
+
+                    target_limit=
+                        100
+                )
+
+                if not reviews:
+
+                    logger.warning(
+                        "⚠️ No reviews fetched"
+                    )
+
+                    return {
+
+                        "status": "success",
+
+                        "ingested_count": 0
+                    }
+
+                ingested_count = 0
 
                 for item in reviews:
 
@@ -650,6 +673,41 @@ class ReviewService:
                         if existing_review:
                             continue
 
+                        author_name = (
+                            item.get(
+                                "author_name"
+                            )
+                            or "Anonymous"
+                        )
+
+                        rating = (
+                            item.get(
+                                "rating"
+                            )
+                            or 5
+                        )
+
+                        text = (
+                            item.get(
+                                "text"
+                            )
+                            or ""
+                        )
+
+                        review_time = (
+                            item.get(
+                                "google_review_time"
+                            )
+                            or utc_now_naive()
+                        )
+
+                        review_likes = (
+                            item.get(
+                                "review_likes"
+                            )
+                            or 0
+                        )
+
                         new_review = Review(
 
                             company_id=
@@ -661,33 +719,22 @@ class ReviewService:
                                 ),
 
                             author_name=
-                                item.get(
-                                    "author_name"
-                                ),
+                                author_name,
 
                             rating=
-                                item.get(
-                                    "rating",
-                                    5
-                                ),
+                                rating,
 
                             text=
-                                item.get(
-                                    "text",
-                                    ""
-                                ),
+                                text,
 
                             google_review_time=
-                                item.get(
-                                    "google_review_time",
-                                    utc_now_naive()
-                                ),
+                                review_time,
+
+                            first_seen_at=
+                                utc_now_naive(),
 
                             review_likes=
-                                item.get(
-                                    "review_likes",
-                                    0
-                                )
+                                review_likes
                         )
 
                         session.add(new_review)
@@ -702,10 +749,6 @@ class ReviewService:
 
                         continue
 
-                # ==========================================
-                # COMMIT DATABASE
-                # ==========================================
-
                 await session.commit()
 
                 logger.info(
@@ -714,7 +757,8 @@ class ReviewService:
 
                 return {
 
-                    "status": "success",
+                    "status":
+                        "success",
 
                     "ingested_count":
                         ingested_count
@@ -730,9 +774,12 @@ class ReviewService:
 
                 return {
 
-                    "status": "error",
+                    "status":
+                        "error",
 
-                    "ingested_count": 0,
+                    "ingested_count":
+                        0,
 
-                    "message": str(e)
+                    "message":
+                        str(e)
                 }
