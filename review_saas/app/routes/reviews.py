@@ -1,5 +1,9 @@
 # filename: app/routes/reviews.py
 
+# ==========================================================
+# REVIEW ROUTES — FULLY INTEGRATED WITH POSTGRESQL
+# ==========================================================
+
 import logging
 
 from datetime import datetime
@@ -21,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # INTERNAL IMPORTS
 # ==========================================================
 
-from app.core.db import get_session
+from app.core.db import get_db
 
 from app.core.models import (
     Review,
@@ -29,7 +33,8 @@ from app.core.models import (
 )
 
 from app.services.scraper import (
-    fetch_reviews_from_google
+    fetch_reviews_from_google,
+    ReviewService
 )
 
 # ==========================================================
@@ -43,7 +48,7 @@ logger = logging.getLogger(
 )
 
 # ==========================================================
-# INGEST REVIEWS
+# INGEST REVIEWS FROM GOOGLE
 # ==========================================================
 
 @router.post("/reviews/ingest/{company_id}")
@@ -52,7 +57,7 @@ async def ingest_reviews(
 
     company_id: int,
 
-    db: AsyncSession = Depends(get_session)
+    db: AsyncSession = Depends(get_db)
 
 ):
 
@@ -66,14 +71,17 @@ async def ingest_reviews(
         # VERIFY COMPANY
         # ==================================================
 
-        res = await db.execute(
-
-            select(Company).where(
-                Company.id == company_id
-            )
+        company_stmt = select(
+            Company
+        ).where(
+            Company.id == company_id
         )
 
-        company = res.scalar_one_or_none()
+        company_result = await db.execute(
+            company_stmt
+        )
+
+        company = company_result.scalars().first()
 
         if not company:
 
@@ -90,7 +98,7 @@ async def ingest_reviews(
 
                 status_code=400,
 
-                detail="Missing Google Place ID"
+                detail="Google Place ID missing"
             )
 
         # ==================================================
@@ -114,91 +122,116 @@ async def ingest_reviews(
 
         if not scraped_reviews:
 
+            logger.warning(
+                "⚠️ No reviews fetched from scraper"
+            )
+
             return {
 
-                "status": "success",
+                "status":
+                    "success",
 
-                "reviews_collected": 0
+                "reviews_collected":
+                    0,
+
+                "message":
+                    "No new reviews found"
             }
 
         # ==================================================
-        # PREPARE INSERT
+        # SAVE REVIEWS
         # ==================================================
 
-        new_entries = 0
+        inserted_count = 0
 
         for r_data in scraped_reviews:
 
             try:
 
-                # ==========================================
-                # SAFE DEFAULTS
-                # ==========================================
-
-                if not r_data.get("author_name"):
-
-                    r_data["author_name"] = (
-                        "Anonymous"
-                    )
-
-                if not r_data.get("rating"):
-
-                    r_data["rating"] = 5
-
-                if not r_data.get("text"):
-
-                    r_data["text"] = (
-                        "No content provided."
-                    )
-
-                if not r_data.get("review_likes"):
-
-                    r_data["review_likes"] = 0
-
-                review_time = r_data.get(
-                    "google_review_time"
+                google_review_id = r_data.get(
+                    "google_review_id"
                 )
 
-                if review_time:
-
-                    if (
-                        hasattr(review_time, "tzinfo")
-                        and review_time.tzinfo
-                    ):
-
-                        review_time = (
-                            review_time
-                            .replace(tzinfo=None)
-                        )
-
-                else:
-
-                    review_time = datetime.utcnow()
+                if not google_review_id:
+                    continue
 
                 # ==========================================
                 # DUPLICATE CHECK
                 # ==========================================
 
-                stmt = select(Review).where(
-
-                    Review.company_id ==
-                    company_id,
-
-                    Review.google_review_id ==
-                    r_data.get(
-                        "google_review_id"
-                    )
+                duplicate_stmt = select(
+                    Review
+                ).where(
+                    Review.google_review_id
+                    ==
+                    google_review_id
                 )
 
-                existing = await db.execute(stmt)
-
-                exists = (
-                    existing.scalar_one_or_none()
+                duplicate_result = await db.execute(
+                    duplicate_stmt
                 )
 
-                if exists:
+                existing_review = (
+                    duplicate_result
+                    .scalars()
+                    .first()
+                )
 
+                if existing_review:
                     continue
+
+                # ==========================================
+                # SAFE VALUES
+                # ==========================================
+
+                author_name = (
+                    r_data.get(
+                        "author_name"
+                    )
+                    or "Anonymous"
+                )
+
+                rating = (
+                    r_data.get(
+                        "rating"
+                    )
+                    or 5
+                )
+
+                text = (
+                    r_data.get(
+                        "text"
+                    )
+                    or "No content provided."
+                )
+
+                likes = (
+                    r_data.get(
+                        "review_likes"
+                    )
+                    or 0
+                )
+
+                review_time = (
+                    r_data.get(
+                        "google_review_time"
+                    )
+                    or datetime.utcnow()
+                )
+
+                # ==========================================
+                # REMOVE TZINFO
+                # ==========================================
+
+                if (
+                    hasattr(review_time, "tzinfo")
+                    and review_time.tzinfo
+                ):
+
+                    review_time = (
+                        review_time
+                        .replace(tzinfo=None)
+                    )
 
                 # ==========================================
                 # INSERT REVIEW
@@ -210,26 +243,22 @@ async def ingest_reviews(
                         company_id,
 
                     google_review_id=
-                        r_data.get(
-                            "google_review_id"
-                        ),
+                        google_review_id,
 
                     author_name=
-                        r_data.get(
-                            "author_name"
-                        ),
+                        author_name,
 
                     rating=
-                        r_data.get(
-                            "rating",
-                            5
+                        rating,
+
+                    sentiment_score=
+                        round(
+                            rating / 5,
+                            2
                         ),
 
                     text=
-                        r_data.get(
-                            "text",
-                            ""
-                        ),
+                        text,
 
                     google_review_time=
                         review_time,
@@ -238,20 +267,17 @@ async def ingest_reviews(
                         datetime.utcnow(),
 
                     review_likes=
-                        r_data.get(
-                            "review_likes",
-                            0
-                        )
+                        likes
                 )
 
                 db.add(new_review)
 
-                new_entries += 1
+                inserted_count += 1
 
             except Exception as row_error:
 
                 logger.exception(
-                    f"❌ Failed processing review row: {row_error}"
+                    f"❌ Failed processing review: {row_error}"
                 )
 
                 continue
@@ -260,27 +286,22 @@ async def ingest_reviews(
         # COMMIT
         # ==================================================
 
-        if new_entries > 0:
+        await db.commit()
 
-            await db.commit()
-
-            logger.info(
-
-                f"✅ Sync complete for ID {company_id} | Added: {new_entries}"
-            )
-
-        else:
-
-            logger.info(
-
-                f"ℹ️ All fetched reviews already existed for company {company_id}"
-            )
+        logger.info(
+            f"✅ Sync complete | Added: {inserted_count}"
+        )
 
         return {
 
-            "status": "success",
+            "status":
+                "success",
 
-            "reviews_collected": new_entries
+            "reviews_collected":
+                inserted_count,
+
+            "company":
+                company.name
         }
 
     except HTTPException:
@@ -292,7 +313,7 @@ async def ingest_reviews(
         await db.rollback()
 
         logger.exception(
-            f"❌ Sync failed for ID {company_id}"
+            "❌ Review sync failed"
         )
 
         raise HTTPException(
@@ -303,189 +324,18 @@ async def ingest_reviews(
         )
 
 # ==========================================================
-# AI INSIGHTS
+# GET COMPANY REVIEWS
 # ==========================================================
 
-@router.get("/dashboard/ai/insights")
+@router.get("/reviews/company/{company_id}")
 
-async def ai_insights(
-
-    company_id: int,
-
-    start: str = "",
-
-    end: str = "",
-
-    db: AsyncSession = Depends(get_session)
-
-):
-
-    try:
-
-        query = select(Review).where(
-            Review.company_id == company_id
-        )
-
-        # ==================================================
-        # OPTIONAL DATE FILTER
-        # ==================================================
-
-        if start:
-
-            try:
-
-                start_dt = datetime.fromisoformat(
-                    start
-                )
-
-                query = query.where(
-                    Review.first_seen_at >= start_dt
-                )
-
-            except Exception:
-
-                pass
-
-        if end:
-
-            try:
-
-                end_dt = datetime.fromisoformat(
-                    end
-                )
-
-                query = query.where(
-                    Review.first_seen_at <= end_dt
-                )
-
-            except Exception:
-
-                pass
-
-        result = await db.execute(query)
-
-        reviews = result.scalars().all()
-
-        total = len(reviews)
-
-        avg_score = (
-
-            sum(
-                r.rating
-                for r in reviews
-                if r.rating
-            ) / total
-
-            if total > 0 else 0
-        )
-
-        # ==================================================
-        # RATING COUNTS
-        # ==================================================
-
-        rating_counts = {
-
-            "1": 0,
-            "2": 0,
-            "3": 0,
-            "4": 0,
-            "5": 0,
-        }
-
-        for r in reviews:
-
-            if r.rating:
-
-                key = str(r.rating)
-
-                if key in rating_counts:
-
-                    rating_counts[key] += 1
-
-        return {
-
-            "status": "success",
-
-            "metadata": {
-
-                "total_reviews":
-                    total
-            },
-
-            "kpis": {
-
-                "average_rating":
-                    round(avg_score, 2),
-
-                "reputation_score":
-                    round(avg_score * 20, 2)
-            },
-
-            "visualizations": {
-
-                "ratings":
-                    rating_counts,
-
-                "emotions": {
-
-                    "Joy": 75,
-                    "Trust": 64,
-                    "Fear": 12,
-                    "Anger": 18,
-                    "Sadness": 22
-                },
-
-                "sentiment_trend": [
-
-                    {
-                        "month": "Jan",
-                        "avg": 72
-                    },
-
-                    {
-                        "month": "Feb",
-                        "avg": 76
-                    },
-
-                    {
-                        "month": "Mar",
-                        "avg": 82
-                    },
-
-                    {
-                        "month": "Apr",
-                        "avg": 86
-                    }
-                ]
-            }
-        }
-
-    except Exception as e:
-
-        logger.exception(
-            "❌ AI insight generation failed"
-        )
-
-        raise HTTPException(
-
-            status_code=500,
-
-            detail="Internal Server Error"
-        )
-
-# ==========================================================
-# LATEST REVIEWS
-# ==========================================================
-
-@router.get("/dashboard/latest-reviews")
-
-async def latest_reviews(
+async def get_company_reviews(
 
     company_id: int,
 
     limit: int = 100,
 
-    db: AsyncSession = Depends(get_session)
+    db: AsyncSession = Depends(get_db)
 
 ):
 
@@ -519,6 +369,9 @@ async def latest_reviews(
                 "id":
                     r.id,
 
+                "author":
+                    r.author_name,
+
                 "author_name":
                     r.author_name,
 
@@ -528,49 +381,210 @@ async def latest_reviews(
                 "review_text":
                     r.text,
 
-                "review_date":
+                "text":
+                    r.text,
+
+                "created_at":
                     (
                         r.google_review_time.isoformat()
                         if r.google_review_time
                         else None
                     ),
 
+                "review_likes":
+                    r.review_likes,
+
                 "sentiment":
                     (
                         "positive"
                         if (r.rating or 0) >= 4
+
                         else "negative"
+
                         if (r.rating or 0) <= 2
+
                         else "neutral"
                     )
             })
 
-        return items
+        return {
+
+            "status":
+                "success",
+
+            "total_reviews":
+                len(items),
+
+            "reviews":
+                items
+        }
 
     except Exception as e:
 
         logger.exception(
-            "❌ Latest reviews endpoint failed"
+            "❌ Failed loading company reviews"
         )
 
         raise HTTPException(
 
             status_code=500,
 
-            detail="Internal Server Error"
+            detail=str(e)
         )
 
 # ==========================================================
-# REVENUE METRICS
+# AI INSIGHTS
 # ==========================================================
 
-@router.get("/dashboard/revenue")
+@router.get("/dashboard/ai/insights")
 
-async def revenue_metrics(
+async def ai_insights(
 
     company_id: int,
 
-    db: AsyncSession = Depends(get_session)
+    db: AsyncSession = Depends(get_db)
+
+):
+
+    try:
+
+        stmt = select(
+            Review
+        ).where(
+            Review.company_id == company_id
+        )
+
+        result = await db.execute(stmt)
+
+        reviews = result.scalars().all()
+
+        total_reviews = len(reviews)
+
+        if total_reviews == 0:
+
+            return {
+
+                "status":
+                    "success",
+
+                "kpis": {
+
+                    "average_rating": 0,
+
+                    "reputation_score": 0
+                },
+
+                "metadata": {
+
+                    "total_reviews": 0
+                }
+            }
+
+        ratings = [
+
+            r.rating
+            for r in reviews
+            if r.rating
+        ]
+
+        avg_rating = round(
+            sum(ratings) / len(ratings),
+            2
+        )
+
+        reputation_score = round(
+            avg_rating * 20,
+            2
+        )
+
+        rating_distribution = {
+
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0,
+            "5": 0
+        }
+
+        for r in reviews:
+
+            if r.rating:
+
+                key = str(r.rating)
+
+                if key in rating_distribution:
+
+                    rating_distribution[key] += 1
+
+        return {
+
+            "status":
+                "success",
+
+            "metadata": {
+
+                "total_reviews":
+                    total_reviews
+            },
+
+            "kpis": {
+
+                "average_rating":
+                    avg_rating,
+
+                "reputation_score":
+                    reputation_score
+            },
+
+            "visualizations": {
+
+                "ratings":
+                    rating_distribution,
+
+                "sentiment": {
+
+                    "positive":
+                        len(
+                            [r for r in reviews if (r.rating or 0) >= 4]
+                        ),
+
+                    "neutral":
+                        len(
+                            [r for r in reviews if (r.rating or 0) == 3]
+                        ),
+
+                    "negative":
+                        len(
+                            [r for r in reviews if (r.rating or 0) <= 2]
+                        )
+                }
+            }
+        }
+
+    except Exception as e:
+
+        logger.exception(
+            "❌ AI insights failed"
+        )
+
+        raise HTTPException(
+
+            status_code=500,
+
+            detail=str(e)
+        )
+
+# ==========================================================
+# REVENUE RISK
+# ==========================================================
+
+@router.get("/dashboard/revenue/{company_id}")
+
+async def revenue_risk(
+
+    company_id: int,
+
+    db: AsyncSession = Depends(get_db)
 
 ):
 
@@ -593,22 +607,42 @@ async def revenue_metrics(
 
         return {
 
-            "risk_percent":
-                risk_percent,
+            "status":
+                "success",
 
-            "impact":
-                f"{risk_percent}%"
+            "average_rating":
+                round(avg_rating, 2),
+
+            "risk_percent":
+                risk_percent
         }
 
     except Exception as e:
 
         logger.exception(
-            "❌ Revenue endpoint failed"
+            "❌ Revenue analytics failed"
         )
 
         raise HTTPException(
 
             status_code=500,
 
-            detail="Internal Server Error"
+            detail=str(e)
         )
+
+# ==========================================================
+# HEALTH TEST
+# ==========================================================
+
+@router.get("/reviews/health")
+
+async def review_health():
+
+    return {
+
+        "status":
+            "healthy",
+
+        "service":
+            "reviews-api"
+    }`
