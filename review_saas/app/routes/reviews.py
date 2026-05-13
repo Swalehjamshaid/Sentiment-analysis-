@@ -2,7 +2,7 @@
 
 import logging
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import (
     APIRouter,
@@ -56,11 +56,6 @@ async def ingest_reviews(
 
 ):
 
-    """
-    Triggered by Sync Live Data button.
-    Fetches reviews and stores them safely.
-    """
-
     logger.info(
         f"🚀 Sync requested for company_id: {company_id}"
     )
@@ -82,10 +77,6 @@ async def ingest_reviews(
 
         if not company:
 
-            logger.error(
-                f"❌ Company {company_id} not found"
-            )
-
             raise HTTPException(
 
                 status_code=404,
@@ -94,10 +85,6 @@ async def ingest_reviews(
             )
 
         if not company.google_place_id:
-
-            logger.error(
-                f"❌ Missing Google Place ID for company {company_id}"
-            )
 
             raise HTTPException(
 
@@ -119,14 +106,13 @@ async def ingest_reviews(
                 company_id,
 
             session=
-                db
+                db,
+
+            target_limit=
+                100
         )
 
         if not scraped_reviews:
-
-            logger.info(
-                f"ℹ️ No new reviews found for company {company_id}"
-            )
 
             return {
 
@@ -141,43 +127,12 @@ async def ingest_reviews(
 
         new_entries = 0
 
-        allowed_cols = (
-            Review.__table__.columns.keys()
-        )
-
         for r_data in scraped_reviews:
 
             try:
 
                 # ==========================================
-                # FIX DATETIME ISSUES
-                # ==========================================
-
-                if "google_review_time" in r_data:
-
-                    review_time = r_data.pop(
-                        "google_review_time"
-                    )
-
-                    if review_time:
-
-                        # Remove timezone info
-                        if (
-                            hasattr(review_time, "tzinfo")
-                            and review_time.tzinfo
-                        ):
-
-                            review_time = (
-                                review_time
-                                .replace(tzinfo=None)
-                            )
-
-                    r_data["first_seen_at"] = (
-                        review_time
-                    )
-
-                # ==========================================
-                # DEFAULT VALUES
+                # SAFE DEFAULTS
                 # ==========================================
 
                 if not r_data.get("author_name"):
@@ -200,18 +155,25 @@ async def ingest_reviews(
 
                     r_data["review_likes"] = 0
 
-                # ==========================================
-                # FILTER ALLOWED COLS
-                # ==========================================
+                review_time = r_data.get(
+                    "google_review_time"
+                )
 
-                filtered_data = {
+                if review_time:
 
-                    k: v
+                    if (
+                        hasattr(review_time, "tzinfo")
+                        and review_time.tzinfo
+                    ):
 
-                    for k, v in r_data.items()
+                        review_time = (
+                            review_time
+                            .replace(tzinfo=None)
+                        )
 
-                    if k in allowed_cols
-                }
+                else:
+
+                    review_time = datetime.utcnow()
 
                 # ==========================================
                 # DUPLICATE CHECK
@@ -223,7 +185,7 @@ async def ingest_reviews(
                     company_id,
 
                     Review.google_review_id ==
-                    filtered_data.get(
+                    r_data.get(
                         "google_review_id"
                     )
                 )
@@ -247,7 +209,39 @@ async def ingest_reviews(
                     company_id=
                         company_id,
 
-                    **filtered_data
+                    google_review_id=
+                        r_data.get(
+                            "google_review_id"
+                        ),
+
+                    author_name=
+                        r_data.get(
+                            "author_name"
+                        ),
+
+                    rating=
+                        r_data.get(
+                            "rating",
+                            5
+                        ),
+
+                    text=
+                        r_data.get(
+                            "text",
+                            ""
+                        ),
+
+                    google_review_time=
+                        review_time,
+
+                    first_seen_at=
+                        datetime.utcnow(),
+
+                    review_likes=
+                        r_data.get(
+                            "review_likes",
+                            0
+                        )
                 )
 
                 db.add(new_review)
@@ -326,15 +320,7 @@ async def ai_insights(
 
 ):
 
-    """
-    Dashboard AI insights endpoint.
-    """
-
     try:
-
-        # ==================================================
-        # BASE QUERY
-        # ==================================================
 
         query = select(Review).where(
             Review.company_id == company_id
@@ -376,10 +362,6 @@ async def ai_insights(
 
                 pass
 
-        # ==================================================
-        # EXECUTE
-        # ==================================================
-
         result = await db.execute(query)
 
         reviews = result.scalars().all()
@@ -398,10 +380,11 @@ async def ai_insights(
         )
 
         # ==================================================
-        # SIMPLE VISUAL DATA
+        # RATING COUNTS
         # ==================================================
 
         rating_counts = {
+
             "1": 0,
             "2": 0,
             "3": 0,
@@ -419,17 +402,14 @@ async def ai_insights(
 
                     rating_counts[key] += 1
 
-        # ==================================================
-        # RESPONSE
-        # ==================================================
-
         return {
 
             "status": "success",
 
             "metadata": {
 
-                "total_reviews": total
+                "total_reviews":
+                    total
             },
 
             "kpis": {
@@ -449,13 +429,9 @@ async def ai_insights(
                 "emotions": {
 
                     "Joy": 75,
-
                     "Trust": 64,
-
                     "Fear": 12,
-
                     "Anger": 18,
-
                     "Sadness": 22
                 },
 
@@ -524,7 +500,7 @@ async def latest_reviews(
             )
 
             .order_by(
-                Review.first_seen_at.desc()
+                Review.google_review_time.desc()
             )
 
             .limit(limit)
@@ -540,7 +516,8 @@ async def latest_reviews(
 
             items.append({
 
-                "id": r.id,
+                "id":
+                    r.id,
 
                 "author_name":
                     r.author_name,
@@ -553,8 +530,8 @@ async def latest_reviews(
 
                 "review_date":
                     (
-                        r.first_seen_at.isoformat()
-                        if r.first_seen_at
+                        r.google_review_time.isoformat()
+                        if r.google_review_time
                         else None
                     ),
 
@@ -584,7 +561,7 @@ async def latest_reviews(
         )
 
 # ==========================================================
-# REVENUE
+# REVENUE METRICS
 # ==========================================================
 
 @router.get("/dashboard/revenue")
