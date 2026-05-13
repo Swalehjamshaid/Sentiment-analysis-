@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, Body, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 from typing import Dict, Any
 import logging
@@ -7,6 +7,11 @@ from datetime import datetime
 from collections import Counter
 
 logger = logging.getLogger(__name__)
+
+router = APIRouter(
+    prefix="/api",
+    tags=["dashboard"]
+)
 
 # ==========================================================
 # SESSION AUTH
@@ -25,62 +30,53 @@ def get_current_user(request: Request):
     return user
 
 # ==========================================================
-# SERVICE LOADER
-# ==========================================================
-
-def get_service(name: str):
-
-    try:
-
-        if name == "company":
-            from app.services.company_service import CompanyService
-            return CompanyService
-
-        elif name == "review":
-            from app.services.review_service import ReviewService
-            return ReviewService
-
-        elif name == "insights":
-            from app.services.ai_insights_service import AIInsightsService
-            return AIInsightsService
-
-        elif name == "revenue":
-            from app.services.revenue_risk_service import RevenueRiskService
-            return RevenueRiskService
-
-        elif name == "chat":
-            from app.services.chat_service import AIChatService
-            return AIChatService
-
-    except Exception as e:
-
-        logger.error(f"Service load failed: {e}")
-
-        raise HTTPException(
-            status_code=500,
-            detail=f"Service {name} unavailable"
-        )
-
-    raise HTTPException(
-        status_code=500,
-        detail="Unknown service"
-    )
-
-# ==========================================================
-# ROUTER
-# ==========================================================
-
-router = APIRouter(
-    prefix="/api",
-    tags=["dashboard"]
-)
-
-# ==========================================================
 # REQUEST MODEL
 # ==========================================================
 
 class ChatRequest(BaseModel):
     message: str
+
+# ==========================================================
+# SAFE SERVICE IMPORTS
+# ==========================================================
+
+def get_company_service():
+    try:
+        from app.services.company_service import CompanyService
+        return CompanyService
+    except Exception as e:
+        logger.exception("CompanyService import failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"CompanyService error: {str(e)}"
+        )
+
+def get_review_service():
+    try:
+        try:
+            from app.services.review_service import ReviewService
+            return ReviewService
+        except:
+            from app.services.scraper import ReviewService
+            return ReviewService
+
+    except Exception as e:
+        logger.exception("ReviewService import failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"ReviewService error: {str(e)}"
+        )
+
+def get_insights_service():
+    try:
+        from app.services.ai_insights_service import AIInsightsService
+        return AIInsightsService
+    except Exception as e:
+        logger.exception("InsightsService import failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"InsightsService error: {str(e)}"
+        )
 
 # ==========================================================
 # UTILITIES
@@ -92,7 +88,6 @@ def safe_rating(review):
         return int(review.get("rating", 0))
     except:
         return 0
-
 
 def calculate_sentiment(avg_rating: float):
 
@@ -106,6 +101,7 @@ def calculate_sentiment(avg_rating: float):
 
 # ==========================================================
 # GET COMPANIES
+# FRONTEND API READY
 # ==========================================================
 
 @router.get("/companies")
@@ -115,13 +111,16 @@ async def get_companies(request: Request):
 
     try:
 
-        CompanyService = get_service("company")
+        CompanyService = get_company_service()
 
         companies = await CompanyService.get_user_companies(
             user["id"]
         )
 
-        return companies or []
+        return {
+            "status": "success",
+            "companies": companies or []
+        }
 
     except Exception as e:
 
@@ -129,7 +128,7 @@ async def get_companies(request: Request):
 
         raise HTTPException(
             status_code=500,
-            detail="Failed to load companies"
+            detail=str(e)
         )
 
 # ==========================================================
@@ -144,16 +143,16 @@ async def add_company(
 
     user = get_current_user(request)
 
-    if not payload.get("place_id"):
-
-        raise HTTPException(
-            status_code=400,
-            detail="place_id is required"
-        )
-
     try:
 
-        CompanyService = get_service("company")
+        if not payload.get("place_id"):
+
+            raise HTTPException(
+                status_code=400,
+                detail="place_id is required"
+            )
+
+        CompanyService = get_company_service()
 
         company = await CompanyService.create_company(
             user_id=user["id"],
@@ -164,7 +163,7 @@ async def add_company(
 
         return {
             "status": "success",
-            "message": "Business added successfully",
+            "message": "Company added successfully",
             "company": company
         }
 
@@ -174,11 +173,12 @@ async def add_company(
 
         raise HTTPException(
             status_code=500,
-            detail="Failed to add business"
+            detail=str(e)
         )
 
 # ==========================================================
-# MAIN DASHBOARD API
+# DASHBOARD DATA
+# FRONTEND + DATABASE CONNECTED
 # ==========================================================
 
 @router.get("/dashboard/{company_id}")
@@ -191,13 +191,15 @@ async def get_dashboard_data(
 
     try:
 
-        CompanyService = get_service("company")
-        ReviewService = get_service("review")
+        CompanyService = get_company_service()
+        ReviewService = get_review_service()
 
-        if not await CompanyService.user_owns_company(
+        owns = await CompanyService.user_owns_company(
             user["id"],
             company_id
-        ):
+        )
+
+        if not owns:
 
             raise HTTPException(
                 status_code=403,
@@ -208,6 +210,8 @@ async def get_dashboard_data(
             company_id,
             500
         )
+
+        reviews = reviews or []
 
         total_reviews = len(reviews)
 
@@ -245,11 +249,11 @@ async def get_dashboard_data(
         sentiment_score = round(
             (positive_reviews / total_reviews) * 100,
             2
-        ) if total_reviews > 0 else 0
+        ) if total_reviews else 0
 
-        revenue_risk = max(
-            0,
-            round(100 - reputation_score, 2)
+        revenue_risk = round(
+            max(0, 100 - reputation_score),
+            2
         )
 
         rating_counter = Counter(ratings)
@@ -260,20 +264,6 @@ async def get_dashboard_data(
             rating_counter.get(3, 0),
             rating_counter.get(2, 0),
             rating_counter.get(1, 0)
-        ]
-
-        chart_labels = [
-            "Week 1",
-            "Week 2",
-            "Week 3",
-            "Week 4"
-        ]
-
-        chart_values = [
-            max(0, positive_reviews - 5),
-            max(0, positive_reviews - 2),
-            positive_reviews,
-            positive_reviews + 3
         ]
 
         return {
@@ -291,22 +281,31 @@ async def get_dashboard_data(
                 average_rating
             ),
             "rating_distribution": rating_distribution,
-            "chart_labels": chart_labels,
-            "chart_values": chart_values,
+            "chart_labels": [
+                "1 Star",
+                "2 Star",
+                "3 Star",
+                "4 Star",
+                "5 Star"
+            ],
+            "chart_values": rating_distribution,
             "last_updated": datetime.utcnow().isoformat()
         }
 
+    except HTTPException:
+        raise
+
     except Exception as e:
 
-        logger.exception("Dashboard data failed")
+        logger.exception("Dashboard load failed")
 
         raise HTTPException(
             status_code=500,
-            detail=f"Dashboard load failed: {str(e)}"
+            detail=str(e)
         )
 
 # ==========================================================
-# GET COMPANY REVIEWS
+# GET REVIEWS
 # ==========================================================
 
 @router.get("/reviews/company/{company_id}")
@@ -320,19 +319,20 @@ async def get_company_reviews(
 
     try:
 
-        CompanyService = get_service("company")
+        CompanyService = get_company_service()
+        ReviewService = get_review_service()
 
-        if not await CompanyService.user_owns_company(
+        owns = await CompanyService.user_owns_company(
             user["id"],
             company_id
-        ):
+        )
+
+        if not owns:
 
             raise HTTPException(
                 status_code=403,
                 detail="Access denied"
             )
-
-        ReviewService = get_service("review")
 
         reviews = await ReviewService.get_latest_reviews(
             company_id,
@@ -344,28 +344,37 @@ async def get_company_reviews(
         for review in reviews:
 
             formatted_reviews.append({
-                "author": review.get("author_name") or "Anonymous",
+                "author": review.get("author_name", "Anonymous"),
                 "rating": review.get("rating", 0),
-                "review_text": review.get("text") or review.get("review_text") or "",
-                "created_at": review.get("relative_time_description") or review.get("created_at") or "-",
+                "review_text": review.get("text")
+                or review.get("review_text")
+                or "",
+                "created_at": review.get(
+                    "relative_time_description"
+                ) or review.get(
+                    "created_at"
+                ) or "-",
                 "sentiment": calculate_sentiment(
                     review.get("rating", 0)
                 )
             })
 
-        return formatted_reviews
+        return {
+            "status": "success",
+            "reviews": formatted_reviews
+        }
 
     except Exception as e:
 
-        logger.exception("Reviews fetch failed")
+        logger.exception("Reviews load failed")
 
         raise HTTPException(
             status_code=500,
-            detail="Failed to load reviews"
+            detail=str(e)
         )
 
 # ==========================================================
-# REVIEW INGEST
+# INGEST GOOGLE REVIEWS
 # ==========================================================
 
 @router.post("/reviews/ingest/{company_id}")
@@ -378,19 +387,20 @@ async def ingest_reviews(
 
     try:
 
-        CompanyService = get_service("company")
+        CompanyService = get_company_service()
+        ReviewService = get_review_service()
 
-        if not await CompanyService.user_owns_company(
+        owns = await CompanyService.user_owns_company(
             user["id"],
             company_id
-        ):
+        )
+
+        if not owns:
 
             raise HTTPException(
                 status_code=403,
                 detail="Access denied"
             )
-
-        ReviewService = get_service("review")
 
         result = await ReviewService.ingest_from_google(
             company_id
@@ -398,7 +408,7 @@ async def ingest_reviews(
 
         return {
             "status": "success",
-            "message": "Review sync completed",
+            "message": "Reviews synced successfully",
             "reviews_collected": result.get(
                 "ingested_count",
                 0
@@ -412,48 +422,7 @@ async def ingest_reviews(
 
         raise HTTPException(
             status_code=500,
-            detail=f"Review sync failed: {str(e)}"
-        )
-
-# ==========================================================
-# EXPORT REPORT
-# ==========================================================
-
-@router.get("/exports/company/{company_id}")
-async def export_company_report(
-    request: Request,
-    company_id: int
-):
-
-    user = get_current_user(request)
-
-    try:
-
-        CompanyService = get_service("company")
-
-        if not await CompanyService.user_owns_company(
-            user["id"],
-            company_id
-        ):
-
-            raise HTTPException(
-                status_code=403,
-                detail="Access denied"
-            )
-
-        return {
-            "status": "success",
-            "message": "Export API ready",
-            "download_url": f"/api/exports/company/{company_id}/download"
-        }
-
-    except Exception as e:
-
-        logger.exception("Export failed")
-
-        raise HTTPException(
-            status_code=500,
-            detail="Export failed"
+            detail=str(e)
         )
 
 # ==========================================================
@@ -470,13 +439,15 @@ async def ai_insights(
 
     try:
 
-        CompanyService = get_service("company")
-        InsightsService = get_service("insights")
+        CompanyService = get_company_service()
+        InsightsService = get_insights_service()
 
-        if not await CompanyService.user_owns_company(
+        owns = await CompanyService.user_owns_company(
             user["id"],
             company_id
-        ):
+        )
+
+        if not owns:
 
             raise HTTPException(
                 status_code=403,
@@ -497,11 +468,11 @@ async def ai_insights(
 
     except Exception as e:
 
-        logger.exception("Insights failed")
+        logger.exception("AI insights failed")
 
         raise HTTPException(
             status_code=500,
-            detail="AI insights unavailable"
+            detail=str(e)
         )
 
 # ==========================================================
@@ -519,13 +490,15 @@ async def dashboard_ai_chat(
 
     try:
 
-        CompanyService = get_service("company")
-        ReviewService = get_service("review")
+        CompanyService = get_company_service()
+        ReviewService = get_review_service()
 
-        if not await CompanyService.user_owns_company(
+        owns = await CompanyService.user_owns_company(
             user["id"],
             company_id
-        ):
+        )
+
+        if not owns:
 
             raise HTTPException(
                 status_code=403,
@@ -537,35 +510,38 @@ async def dashboard_ai_chat(
             100
         )
 
-        avg_rating = round(statistics.mean([
+        ratings = [
             safe_rating(r)
             for r in reviews
             if safe_rating(r) > 0
-        ]), 2) if reviews else 0
+        ]
 
-        response = {
-            "question": payload.message,
-            "business_health_score": round(
-                (avg_rating / 5) * 100,
-                2
-            ),
-            "average_rating": avg_rating,
-            "customer_sentiment": calculate_sentiment(
-                avg_rating
-            ),
-            "recommendations": [
-                "Reply to all negative reviews quickly",
-                "Improve response timing",
-                "Encourage happy customers to review",
-                "Track recurring complaints",
-                "Use AI analytics weekly"
-            ],
-            "generated_at": datetime.utcnow().isoformat()
-        }
+        avg_rating = round(
+            statistics.mean(ratings),
+            2
+        ) if ratings else 0
 
         return {
             "status": "success",
-            "chatbot": response
+            "chatbot": {
+                "question": payload.message,
+                "average_rating": avg_rating,
+                "customer_sentiment": calculate_sentiment(
+                    avg_rating
+                ),
+                "business_health_score": round(
+                    (avg_rating / 5) * 100,
+                    2
+                ),
+                "recommendations": [
+                    "Reply quickly to negative reviews",
+                    "Encourage happy customers to review",
+                    "Monitor review sentiment weekly",
+                    "Track repeated complaints",
+                    "Improve customer response time"
+                ],
+                "generated_at": datetime.utcnow().isoformat()
+            }
         }
 
     except Exception as e:
@@ -574,7 +550,7 @@ async def dashboard_ai_chat(
 
         raise HTTPException(
             status_code=500,
-            detail=f"AI chat unavailable: {str(e)}"
+            detail=str(e)
         )
 
 # ==========================================================
