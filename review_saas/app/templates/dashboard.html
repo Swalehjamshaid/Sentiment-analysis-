@@ -1411,7 +1411,403 @@ function initializeGoogleAutocomplete() {
 <script async defer
 src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBDGZGCBMMZ289ZCFlghMyh-vVrZwk7RpM.&libraries=places">
 </script>
+<!-- ===================================================== -->
+<!-- AI CHATBOT -->
+<!-- ===================================================== -->
 
+<style>
+
+#aiChatbotContainer{
+
+    position:fixed;
+
+    bottom:20px;
+
+    right:20px;
+
+    width:380px;
+
+    height:600px;
+
+    background:#ffffff;
+
+    border-radius:20px;
+
+    box-shadow:0 10px 40px rgba(0,0,0,0.2);
+
+    overflow:hidden;
+
+    z-index:99999;
+
+    display:flex;
+
+    flex-direction:column;
+
+    font-family:Arial,sans-serif;
+}
+
+#aiChatbotHeader{
+
+    background:#111827;
+
+    color:white;
+
+    padding:15px;
+
+    font-size:18px;
+
+    font-weight:bold;
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+}
+
+#aiChatMessages{
+
+    flex:1;
+
+    overflow-y:auto;
+
+    padding:15px;
+
+    background:#f3f4f6;
+}
+
+.chatMessage{
+
+    margin-bottom:15px;
+
+    padding:12px;
+
+    border-radius:12px;
+
+    line-height:1.5;
+}
+
+.userMessage{
+
+    background:#2563eb;
+
+    color:white;
+
+    margin-left:40px;
+}
+
+.botMessage{
+
+    background:white;
+
+    color:#111827;
+
+    margin-right:40px;
+
+    border:1px solid #ddd;
+}
+
+#aiChatInputContainer{
+
+    display:flex;
+
+    padding:10px;
+
+    border-top:1px solid #ddd;
+
+    background:white;
+}
+
+#aiChatInput{
+
+    flex:1;
+
+    padding:12px;
+
+    border:1px solid #ccc;
+
+    border-radius:10px;
+
+    outline:none;
+
+    font-size:14px;
+}
+
+#aiChatSendBtn{
+
+    margin-left:10px;
+
+    padding:12px 18px;
+
+    background:#2563eb;
+
+    color:white;
+
+    border:none;
+
+    border-radius:10px;
+
+    cursor:pointer;
+
+    font-weight:bold;
+}
+
+#aiChatSendBtn:hover{
+
+    background:#1d4ed8;
+}
+
+</style>
+
+<!-- ===================================================== -->
+<!-- CHATBOT CONTAINER -->
+<!-- ===================================================== -->
+
+<div id="aiChatbotContainer">
+
+    <div id="aiChatbotHeader">
+
+        AI Business Expert
+
+    </div>
+
+    <div id="aiChatMessages">
+
+        <div class="chatMessage botMessage">
+
+            Hello 👋<br><br>
+
+            I am your AI Business Intelligence Assistant.<br><br>
+
+            Ask me about:
+            <br>
+            • Customer complaints
+            <br>
+            • Delivery issues
+            <br>
+            • Product quality
+            <br>
+            • Staff behavior
+            <br>
+            • Business trends
+            <br>
+            • Customer sentiment
+
+        </div>
+
+    </div>
+
+    <div id="aiChatInputContainer">
+
+        <input
+            type="text"
+            id="aiChatInput"
+            placeholder="Ask AI about business reviews..."
+        >
+
+        <button id="aiChatSendBtn">
+
+            Send
+
+        </button>
+
+    </div>
+
+</div>
+
+<!-- ===================================================== -->
+<!-- CHATBOT SCRIPT -->
+<!-- ===================================================== -->
+
+<script>
+
+const chatInput =
+    document.getElementById(
+        "aiChatInput"
+    );
+
+const sendBtn =
+    document.getElementById(
+        "aiChatSendBtn"
+    );
+
+const messagesContainer =
+    document.getElementById(
+        "aiChatMessages"
+    );
+
+async function sendChatMessage(){
+
+    const message =
+        chatInput.value.trim();
+
+    if(!message){
+        return;
+    }
+
+    // =====================================================
+    // USER MESSAGE
+    // =====================================================
+
+    messagesContainer.innerHTML += `
+
+        <div class="chatMessage userMessage">
+
+            ${message}
+
+        </div>
+
+    `;
+
+    // =====================================================
+    // CLEAR INPUT
+    // =====================================================
+
+    chatInput.value = "";
+
+    messagesContainer.scrollTop =
+        messagesContainer.scrollHeight;
+
+    // =====================================================
+    // COMPANY ID
+    // =====================================================
+
+    const companySelect =
+        document.getElementById(
+            "companySelect"
+        );
+
+    const companyId =
+        companySelect
+        ? companySelect.value
+        : null;
+
+    // =====================================================
+    // LOADING MESSAGE
+    // =====================================================
+
+    messagesContainer.innerHTML += `
+
+        <div class="chatMessage botMessage" id="typingMessage">
+
+            AI is analyzing reviews...
+
+        </div>
+
+    `;
+
+    messagesContainer.scrollTop =
+        messagesContainer.scrollHeight;
+
+    try{
+
+        const response = await fetch(
+
+            "/chatbot/chat",
+
+            {
+
+                method:"POST",
+
+                headers:{
+                    "Content-Type":"application/json"
+                },
+
+                body:JSON.stringify({
+
+                    company_id:companyId,
+
+                    message:message
+
+                })
+
+            }
+
+        );
+
+        const data =
+            await response.json();
+
+        // =================================================
+        // REMOVE TYPING
+        // =================================================
+
+        const typing =
+            document.getElementById(
+                "typingMessage"
+            );
+
+        if(typing){
+            typing.remove();
+        }
+
+        // =================================================
+        // BOT RESPONSE
+        // =================================================
+
+        messagesContainer.innerHTML += `
+
+            <div class="chatMessage botMessage">
+
+                ${data.answer}
+
+            </div>
+
+        `;
+
+        messagesContainer.scrollTop =
+            messagesContainer.scrollHeight;
+
+    }catch(error){
+
+        console.error(error);
+
+        const typing =
+            document.getElementById(
+                "typingMessage"
+            );
+
+        if(typing){
+            typing.remove();
+        }
+
+        messagesContainer.innerHTML += `
+
+            <div class="chatMessage botMessage">
+
+                AI Server Error occurred.
+
+            </div>
+
+        `;
+    }
+}
+
+sendBtn.addEventListener(
+
+    "click",
+
+    sendChatMessage
+
+);
+
+chatInput.addEventListener(
+
+    "keypress",
+
+    function(event){
+
+        if(event.key === "Enter"){
+
+            sendChatMessage();
+
+        }
+
+    }
+
+);
+
+</script>
 </body>
 
 </html>
