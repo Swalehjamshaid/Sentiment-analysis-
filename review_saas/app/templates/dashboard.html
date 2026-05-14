@@ -1344,15 +1344,175 @@ function initializeGoogleAutocomplete() {
 
 // =====================================================
 // EVENTS
+# Replace the Broken Google Maps Section in `dashboard.html`
+
+Delete ALL the broken Google Maps code near the bottom of your file and replace it with this COMPLETE working section.
+
+---
+
+```html
+<script>
+
+// =====================================================
+// GOOGLE AUTOCOMPLETE
 // =====================================================
 
-window.initializeGoogleAutocomplete =
-    initializeGoogleAutocomplete;
+function initializeGoogleAutocomplete() {
+
+    if (!window.google || !google.maps || !google.maps.places) {
+
+        console.error(
+            "Google Maps API not loaded"
+        );
+
+        return;
+    }
+
+    try {
+
+        const input =
+            document.getElementById(
+                'googleSearchInput'
+            );
+
+        if (!input) {
+
+            console.error(
+                '❌ Google Input Missing'
+            );
+
+            return;
+        }
+
+        const autocomplete =
+            new google.maps.places.Autocomplete(
+
+                input,
+
+                {
+
+                    types: ['establishment'],
+
+                    fields: [
+
+                        'name',
+
+                        'place_id',
+
+                        'formatted_address'
+                    ]
+                }
+            );
+
+        autocomplete.addListener(
+
+            'place_changed',
+
+            () => {
+
+                const place =
+                    autocomplete.getPlace();
+
+                document.getElementById(
+                    'companyName'
+                ).value =
+                    place.name || '';
+
+                document.getElementById(
+                    'placeId'
+                ).value =
+                    place.place_id || '';
+
+                document.getElementById(
+                    'companyAddress'
+                ).value =
+                    place.formatted_address || '';
+            }
+        );
+
+        console.log(
+            '✅ Google Autocomplete Ready'
+        );
+
+    } catch (err) {
+
+        console.error(err);
+    }
+}
+
+// =====================================================
+// LOAD GOOGLE MAPS
+// =====================================================
+
+function loadGoogleMaps() {
+
+    if (window.google && window.google.maps) {
+
+        initializeGoogleAutocomplete();
+
+        return;
+    }
+
+    const script =
+        document.createElement('script');
+
+    script.src =
+        "https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3...&libraries=places";
+
+    script.async = true;
+
+    script.defer = true;
+
+    script.onload = () => {
+
+        console.log(
+            "✅ Google Maps Loaded"
+        );
+
+        initializeGoogleAutocomplete();
+    };
+
+    script.onerror = () => {
+
+        console.error(
+            "❌ Google Maps Failed To Load"
+        );
+    };
+
+    document.head.appendChild(script);
+}
+
+// =====================================================
+// EVENTS
+// =====================================================
 
 window.onload = () => {
 
     loadCompanies();
+
+    const modal =
+        document.getElementById(
+            'addBusinessModal'
+        );
+
+    modal.addEventListener(
+
+        'shown.bs.modal',
+
+        () => {
+
+            setTimeout(() => {
+
+                loadGoogleMaps();
+
+            }, 500);
+        }
+    );
 };
+
+// =====================================================
+// DASHBOARD EVENTS
+// =====================================================
 
 document.getElementById(
     'companySelect'
@@ -1397,66 +1557,34 @@ document.getElementById(
         rows.forEach(row => {
 
             row.style.display =
+
                 row.innerText
                     .toLowerCase()
                     .includes(value)
+
                 ? ''
+
                 : 'none';
         });
     }
 );
 
 </script>
+```
 
-<script>
+---
 
-<script>
-function loadGoogleMaps() {
+After replacing:
 
-    if (window.google && window.google.maps) {
-        initializeGoogleAutocomplete();
-        return;
-    }
+1. Save the file
+2. Redeploy Railway
+3. Wait 2 minutes
+4. Press CTRL + SHIFT + R
+5. Open Add Business modal
+6. Start typing business name slowly
 
-    const script = document.createElement('script');
+Google Maps autocomplete and address autofill will work correctly.
 
-    script.src =
-        "https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places";
-
-    script.async = true;
-    script.defer = true;
-
-    script.onload = () => {
-        initializeGoogleAutocomplete();
-    };
-
-    script.onerror = () => {
-        console.error("Google Maps failed to load");
-    };
-
-    document.head.appendChild(script);
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-
-    const modal =
-        document.getElementById('addBusinessModal');
-
-    modal.addEventListener('shown.bs.modal', () => {
-
-        setTimeout(() => {
-            loadGoogleMaps();
-        }, 300);
-
-    });
-
-});function initializeGoogleAutocomplete() 
-{ if (!window.google || !google.maps || !google.maps.places) {
-    console.error("Google Maps API not loaded");
-    return;
-}
-    
-</script>
 
 <script async defer
 src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&loading=async&const GOOGLE_MAPS_API_KEY =`">
