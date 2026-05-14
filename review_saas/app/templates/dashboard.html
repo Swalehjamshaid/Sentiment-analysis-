@@ -1342,15 +1342,7 @@ function initializeGoogleAutocomplete() {
     }
 }
 
-// =====================================================
-// EVENTS
-# Replace the Broken Google Maps Section in `dashboard.html`
 
-Delete ALL the broken Google Maps code near the bottom of your file and replace it with this COMPLETE working section.
-
----
-
-```html
 <script>
 
 // =====================================================
@@ -1588,6 +1580,140 @@ Google Maps autocomplete and address autofill will work correctly.
 
 <script async defer
 src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&loading=async&const GOOGLE_MAPS_API_KEY =`">
+</script>
+
+</body>
+
+</html>
+// =====================================================
+// LOAD GOOGLE MAPS
+// =====================================================
+
+function loadGoogleMaps() {
+
+    if (window.google && window.google.maps) {
+
+        initializeGoogleAutocomplete();
+
+        return;
+    }
+
+    const script =
+        document.createElement('script');
+
+    script.src =
+        "https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3...&libraries=places";
+
+    script.async = true;
+
+    script.defer = true;
+
+    script.onload = () => {
+
+        console.log(
+            "✅ Google Maps Loaded"
+        );
+
+        initializeGoogleAutocomplete();
+    };
+
+    script.onerror = () => {
+
+        console.error(
+            "❌ Google Maps Failed To Load"
+        );
+    };
+
+    document.head.appendChild(script);
+}
+
+// =====================================================
+// EVENTS
+// =====================================================
+
+window.onload = () => {
+
+    loadCompanies();
+
+    const modal =
+        document.getElementById(
+            'addBusinessModal'
+        );
+
+    modal.addEventListener(
+
+        'shown.bs.modal',
+
+        () => {
+
+            setTimeout(() => {
+
+                loadGoogleMaps();
+
+            }, 500);
+        }
+    );
+};
+
+// =====================================================
+// DASHBOARD EVENTS
+// =====================================================
+
+document.getElementById(
+    'companySelect'
+).addEventListener(
+
+    'change',
+
+    () => {
+
+        loadDashboardMetrics();
+    }
+);
+
+document.getElementById(
+    'refreshDashboardBtn'
+).addEventListener(
+
+    'click',
+
+    () => {
+
+        loadDashboardMetrics();
+    }
+);
+
+document.getElementById(
+    'reviewSearch'
+).addEventListener(
+
+    'keyup',
+
+    function() {
+
+        const value =
+            this.value.toLowerCase();
+
+        const rows =
+            document.querySelectorAll(
+                '#reviewsTableBody tr'
+            );
+
+        rows.forEach(row => {
+
+            row.style.display =
+
+                row.innerText
+                    .toLowerCase()
+                    .includes(value)
+
+                ? ''
+
+                : 'none';
+        });
+    }
+);
+
 </script>
 
 </body>
