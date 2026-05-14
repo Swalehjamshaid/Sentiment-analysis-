@@ -40,7 +40,7 @@ from sqlalchemy import select
 # AI / NLP LIBRARIES
 # ==========================================================
 
-import google.generativeai as genai
+from groq import Groq
 
 from textblob import TextBlob
 
@@ -94,14 +94,9 @@ model = None
 
 try:
 
-    genai.configure(
-        api_key=GEMINI_API_KEY
-    )
-
-    model = genai.GenerativeModel(
-        "gemini-2.0-flash"
-    )
-
+    client = Groq(
+    api_key=os.getenv("GROQ_API_KEY")
+)
     logger.info(
         "✅ Gemini AI initialized successfully"
     )
