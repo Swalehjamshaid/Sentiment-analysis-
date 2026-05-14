@@ -344,11 +344,9 @@ async def chatbot_api(
 
             return JSONResponse({
 
-                "answer":
-                    "Please select a company first."
-
-            })
-
+    "answer":
+        response.choices[0].message.content
+})
         if not user_message:
 
             return JSONResponse({
@@ -690,13 +688,28 @@ IMPORTANT RULES:
 
         try:
 
-            response = model.generate_content(
+            response = client.chat.completions.create(
 
-                prompt,
+    model="llama3-70b-8192",
 
-                request_options={
-                    "timeout": 60
-                }
+    messages=[
+
+        {
+            "role": "system",
+            "content":
+                "You are an expert AI business analyst."
+        },
+
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ],
+
+    temperature=0.3,
+
+    max_tokens=500
+)
 
             )
 
@@ -706,7 +719,7 @@ IMPORTANT RULES:
 
                 hasattr(response, "text")
 
-                and response.text
+                and response.choices[0].message.content
 
             ):
 
