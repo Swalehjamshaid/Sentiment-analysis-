@@ -1410,13 +1410,56 @@ document.getElementById(
 
 <script>
 
-const GOOGLE_MAPS_API_KEY =
-"{{ google_maps_api_key }}";
+<script>
+function loadGoogleMaps() {
 
+    if (window.google && window.google.maps) {
+        initializeGoogleAutocomplete();
+        return;
+    }
+
+    const script = document.createElement('script');
+
+    script.src =
+        "https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places";
+
+    script.async = true;
+    script.defer = true;
+
+    script.onload = () => {
+        initializeGoogleAutocomplete();
+    };
+
+    script.onerror = () => {
+        console.error("Google Maps failed to load");
+    };
+
+    document.head.appendChild(script);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+
+    const modal =
+        document.getElementById('addBusinessModal');
+
+    modal.addEventListener('shown.bs.modal', () => {
+
+        setTimeout(() => {
+            loadGoogleMaps();
+        }, 300);
+
+    });
+
+});function initializeGoogleAutocomplete() 
+{ if (!window.google || !google.maps || !google.maps.places) {
+    console.error("Google Maps API not loaded");
+    return;
+}
+    
 </script>
 
 <script async defer
-src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&loading=async&callback=initializeGoogleAutocomplete">
+src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&loading=async&const GOOGLE_MAPS_API_KEY =`">
 </script>
 
 </body>
