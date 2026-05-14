@@ -1264,86 +1264,116 @@ document.getElementById(
     }
 };
 
+<script>
+
 // =====================================================
 // GOOGLE AUTOCOMPLETE
 // =====================================================
 
 function initializeGoogleAutocomplete() {
 
-    try {
+    if (!window.google || !google.maps || !google.maps.places) {
 
-        const input =
-            document.getElementById(
-                'googleSearchInput'
-            );
+        console.error("Google Maps API not loaded");
 
-        if (!input) {
+        return;
+    }
 
-            console.error(
-                '❌ Google Input Missing'
-            );
+    const input =
+        document.getElementById(
+            'googleSearchInput'
+        );
 
-            return;
-        }
+    if (!input) {
 
-        const autocomplete =
-            new google.maps.places.Autocomplete(
+        console.error(
+            "Google input not found"
+        );
 
-                input,
+        return;
+    }
 
-                {
+    const autocomplete =
+        new google.maps.places.Autocomplete(
 
-                    types: ['establishment'],
+            input,
 
-                    fields: [
+            {
+                types: ['establishment'],
 
-                        'name',
-
-                        'place_id',
-
-                        'formatted_address'
-                    ]
-                }
-            );
-
-        autocomplete.addListener(
-
-            'place_changed',
-
-            () => {
-
-                const place =
-                    autocomplete.getPlace();
-
-                document.getElementById(
-                    'companyName'
-                ).value =
-                    place.name || '';
-
-                document.getElementById(
-                    'placeId'
-                ).value =
-                    place.place_id || '';
-
-                document.getElementById(
-                    'companyAddress'
-                ).value =
-                    place.formatted_address || '';
+                fields: [
+                    'name',
+                    'place_id',
+                    'formatted_address'
+                ]
             }
         );
 
-        console.log(
-            '✅ Google Autocomplete Ready'
-        );
+    autocomplete.addListener(
 
-    } catch (err) {
+        'place_changed',
 
-        console.error(err);
-    }
+        function () {
+
+            const place =
+                autocomplete.getPlace();
+
+            document.getElementById(
+                'companyName'
+            ).value =
+                place.name || '';
+
+            document.getElementById(
+                'placeId'
+            ).value =
+                place.place_id || '';
+
+            document.getElementById(
+                'companyAddress'
+            ).value =
+                place.formatted_address || '';
+        }
+    );
+
+    console.log(
+        "✅ Google Autocomplete Ready"
+    );
 }
 
+// =====================================================
+// PAGE LOAD
+// =====================================================
 
+window.onload = function () {
 
+    loadCompanies();
+
+    const modal =
+        document.getElementById(
+            'addBusinessModal'
+        );
+
+    modal.addEventListener(
+
+        'shown.bs.modal',
+
+        function () {
+
+            setTimeout(function () {
+
+                initializeGoogleAutocomplete();
+
+            }, 500);
+        }
+    );
+};
+
+</script>
+
+<!-- GOOGLE MAPS API -->
+
+<script async defer
+src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDjQFzX3...&libraries=places">
 </script>
 
 </body>
