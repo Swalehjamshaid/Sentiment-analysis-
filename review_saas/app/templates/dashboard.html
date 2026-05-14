@@ -1344,9 +1344,46 @@ function initializeGoogleAutocomplete() {
 // PAGE LOAD
 // =====================================================
 
-window.onload = function () {
+
+    window.onload = function () {
 
     loadCompanies();
+
+    // =========================================
+    // COMPANY CHANGE EVENT
+    // =========================================
+
+    document.getElementById(
+        'companySelect'
+    ).addEventListener(
+
+        'change',
+
+        function () {
+
+            loadDashboardMetrics();
+        }
+    );
+
+    // =========================================
+    // REFRESH DASHBOARD BUTTON
+    // =========================================
+
+    document.getElementById(
+        'refreshDashboardBtn'
+    ).addEventListener(
+
+        'click',
+
+        function () {
+
+            loadDashboardMetrics();
+        }
+    );
+
+    // =========================================
+    // GOOGLE MODAL
+    // =========================================
 
     const modal =
         document.getElementById(
@@ -1367,7 +1404,6 @@ window.onload = function () {
         }
     );
 };
-
 </script>
 
 <!-- GOOGLE MAPS API -->
