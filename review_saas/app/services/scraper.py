@@ -293,7 +293,8 @@ async def fetch_reviews_from_google(
         run = await asyncio.to_thread(
             lambda:
             apify_client.actor(
-               alexey/google-maps-reviews-scraper
+    "alexey/google-maps-reviews-scraper"
+)
             ).call(
                 run_input=run_input
             )
