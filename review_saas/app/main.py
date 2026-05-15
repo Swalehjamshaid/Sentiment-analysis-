@@ -420,7 +420,7 @@ async def login_page(
     magic_link: bool = Form(False),
 
     db: AsyncSession = Depends(get_db),
-):
+
 
     from app.core.models import User
 
