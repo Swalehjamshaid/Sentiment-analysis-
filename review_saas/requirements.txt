@@ -168,3 +168,4 @@ crawlee
 beautifulsoup4
 lxml
 greenlet
+browserforge
