@@ -71,7 +71,7 @@ logger.info(
 # ==========================================================
 
 embedding_model = SentenceTransformer(
-    "all-MiniLM-L6-v2"
+    "paraphrase-MiniLM-L3-v2"
 )
 
 logger.info(
