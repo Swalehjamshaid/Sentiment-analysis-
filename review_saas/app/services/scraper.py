@@ -15,6 +15,10 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
 from apify_client import ApifyClient
+from crawlee.crawlers import (
+    PlaywrightCrawler,
+    PlaywrightCrawlingContext
+)
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -206,7 +210,39 @@ async def fetch_from_serper_fallback(
         )
 
         return []
+# ==========================================================
+# PLAYWRIGHT FALLBACK SCRAPER
+# ==========================================================
 
+async def fetch_reviews_playwright(
+    url: str
+):
+
+    reviews = []
+
+    crawler = PlaywrightCrawler(
+        headless=True
+    )
+
+    @crawler.router.default_handler
+
+    async def request_handler(
+        context: PlaywrightCrawlingContext
+    ):
+
+        page = context.page
+
+        await page.wait_for_timeout(5000)
+
+        title = await page.title()
+
+        reviews.append({
+            "title": title
+        })
+
+    await crawler.run([url])
+
+    return reviews
 # ==========================================================
 # MAIN REVIEW SCRAPER
 # ==========================================================
