@@ -227,6 +227,10 @@ async def fetch_reviews_from_google(
 
     try:
 
+        # ==================================================
+        # LOAD EXISTING REVIEW IDS
+        # ==================================================
+
         if session and company_id:
 
             stmt = select(
@@ -239,6 +243,10 @@ async def fetch_reviews_from_google(
 
             existing_ids = set(
                 res.scalars().all()
+            )
+
+            logger.info(
+                f"✅ Existing reviews in DB: {len(existing_ids)}"
             )
 
             comp_stmt = select(
@@ -262,6 +270,10 @@ async def fetch_reviews_from_google(
                     or company.google_place_id
                 )
 
+        # ==================================================
+        # VALIDATE PLACE ID
+        # ==================================================
+
         if not place_id:
 
             logger.error(
@@ -274,6 +286,12 @@ async def fetch_reviews_from_google(
             f"🚀 Starting APIFY Sync for {company_name}"
         )
 
+        # ==================================================
+        # FETCH EXTRA REVIEWS TO GET NEW UNIQUE REVIEWS
+        # ==================================================
+
+        fetch_limit = target_limit + 500
+
         run_input = {
 
             "startUrls": [
@@ -283,12 +301,22 @@ async def fetch_reviews_from_google(
                 }
             ],
 
-            "maxReviews": target_limit,
+            "maxReviews": fetch_limit,
 
             "reviewsSort": "newest",
-"reviewsOrigin": "all",
+
+            "reviewsOrigin": "all",
+
             "language": "en"
         }
+
+        logger.info(
+            f"📡 Fetching {fetch_limit} reviews from APIFY"
+        )
+
+        # ==================================================
+        # RUN APIFY ACTOR
+        # ==================================================
 
         run = await asyncio.to_thread(
             lambda:
@@ -298,6 +326,7 @@ async def fetch_reviews_from_google(
                 run_input=run_input
             )
         )
+
         dataset_id = run.get(
             "defaultDatasetId"
         )
@@ -314,6 +343,10 @@ async def fetch_reviews_from_google(
             f"✅ APIFY completed | Dataset: {dataset_id}"
         )
 
+        # ==================================================
+        # LOAD DATASET ITEMS
+        # ==================================================
+
         dataset_items = await asyncio.to_thread(
             lambda:
             apify_client.dataset(
@@ -322,8 +355,14 @@ async def fetch_reviews_from_google(
         )
 
         logger.info(
-            f"📦 Reviews fetched: {len(dataset_items)}"
+            f"📦 Total Reviews fetched from APIFY: {len(dataset_items)}"
         )
+
+        skipped_duplicates = 0
+
+        # ==================================================
+        # PROCESS REVIEWS
+        # ==================================================
 
         for idx, review in enumerate(dataset_items):
 
@@ -333,14 +372,31 @@ async def fetch_reviews_from_google(
                     review.get("reviewId")
                     or f"apify_{idx}_{int(utc_now_naive().timestamp())}"
                 )
+
+                # ==========================================
+                # SKIP EXISTING DATABASE REVIEWS
+                # ==========================================
+
                 if review_id in existing_ids:
+
+                    skipped_duplicates += 1
                     continue
+
+                # ==========================================
+                # SKIP DUPLICATES IN CURRENT SESSION
+                # ==========================================
 
                 if any(
                     r["google_review_id"] == review_id
                     for r in all_reviews
                 ):
+
+                    skipped_duplicates += 1
                     continue
+
+                # ==========================================
+                # EXTRACT REVIEW DATA
+                # ==========================================
 
                 review_text = (
                     review.get("text")
@@ -355,10 +411,13 @@ async def fetch_reviews_from_google(
                 )
 
                 try:
+
                     rating = int(
                         review.get("stars", 5)
                     )
+
                 except:
+
                     rating = 5
 
                 review_time = safe_parse_iso_datetime(
@@ -372,6 +431,10 @@ async def fetch_reviews_from_google(
 
                 if likes is None:
                     likes = 0
+
+                # ==========================================
+                # APPEND CLEAN REVIEW
+                # ==========================================
 
                 all_reviews.append({
 
@@ -394,6 +457,10 @@ async def fetch_reviews_from_google(
                         likes
                 })
 
+                # ==========================================
+                # STOP WHEN TARGET REACHED
+                # ==========================================
+
                 if len(all_reviews) >= target_limit:
                     break
 
@@ -406,7 +473,11 @@ async def fetch_reviews_from_google(
                 continue
 
         logger.info(
-            f"✅ Total New Reviews: {len(all_reviews)}"
+            f"✅ New unique reviews collected: {len(all_reviews)}"
+        )
+
+        logger.info(
+            f"⚠️ Duplicate reviews skipped: {skipped_duplicates}"
         )
 
         return all_reviews
@@ -623,7 +694,7 @@ class ReviewService:
                         session,
 
                     target_limit=
-                        1000
+                        3000
                 )
 
                 if not reviews:
@@ -640,6 +711,8 @@ class ReviewService:
                     }
 
                 ingested_count = 0
+
+                skipped_existing = 0
 
                 for item in reviews:
 
@@ -664,6 +737,8 @@ class ReviewService:
                         )
 
                         if existing_review:
+
+                            skipped_existing += 1
                             continue
 
                         author_name = (
@@ -748,13 +823,20 @@ class ReviewService:
                     f"✅ PostgreSQL ingest complete: {ingested_count}"
                 )
 
+                logger.info(
+                    f"⚠️ Existing reviews skipped: {skipped_existing}"
+                )
+
                 return {
 
                     "status":
                         "success",
 
                     "ingested_count":
-                        ingested_count
+                        ingested_count,
+
+                    "skipped_existing":
+                        skipped_existing
                 }
 
             except Exception as e:
