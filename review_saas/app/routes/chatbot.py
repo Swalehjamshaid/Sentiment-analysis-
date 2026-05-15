@@ -683,9 +683,7 @@ async def chatbot_api(
         # CLUSTERING
         # ==================================================
 
-        review_clusters = cluster_reviews(
-            review_texts
-        )
+        review_clusters = []
 
         # ==================================================
         # SEMANTIC SEARCH
