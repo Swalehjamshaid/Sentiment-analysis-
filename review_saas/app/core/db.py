@@ -21,7 +21,7 @@ from app.core.base import Base
 # SCHEMA VERSION
 # ==========================================================
 
-CURRENT_SCHEMA_VERSION = "2026-05-13-V2"
+CURRENT_SCHEMA_VERSION = "2026-05-13-V21"
 
 # ==========================================================
 # LOGGING
