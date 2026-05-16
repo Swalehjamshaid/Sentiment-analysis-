@@ -1,4 +1,6 @@
+# ==========================================================
 # app/main.py
+# ==========================================================
 
 import os
 import sys
@@ -103,7 +105,6 @@ app = FastAPI(
 # ==========================================================
 
 @app.exception_handler(Exception)
-
 async def global_exception_handler(
     request: Request,
     exc: Exception
@@ -147,7 +148,7 @@ app.add_middleware(
 )
 
 # ==========================================================
-# SESSION
+# SESSION MIDDLEWARE
 # ==========================================================
 
 app.add_middleware(
@@ -277,7 +278,6 @@ except Exception as e:
 # ==========================================================
 
 @app.get("/", response_class=HTMLResponse)
-
 async def root(request: Request):
 
     if not request.session.get("user_id"):
@@ -297,7 +297,6 @@ async def root(request: Request):
 # ==========================================================
 
 @app.get("/login", response_class=HTMLResponse)
-
 async def login_page(request: Request):
 
     return templates.TemplateResponse(
@@ -314,7 +313,6 @@ async def login_page(request: Request):
 # ==========================================================
 
 @app.get("/register", response_class=HTMLResponse)
-
 async def register_page(request: Request):
 
     return templates.TemplateResponse(
@@ -331,7 +329,6 @@ async def register_page(request: Request):
 # ==========================================================
 
 @app.get("/dashboard", response_class=HTMLResponse)
-
 async def dashboard_page(request: Request):
 
     if not request.session.get("user_id"):
@@ -374,7 +371,9 @@ async def logout(request: Request):
 
     request.session.clear()
 
-    logger.info("✅ User logged out")
+    logger.info(
+        "✅ User logged out"
+    )
 
     return RedirectResponse(
         "/login",
