@@ -39,17 +39,34 @@ def get_current_user(
     request: Request
 ):
 
-    user = request.session.get("user")
+    user_id = request.session.get(
+        "user_id"
+    )
 
-    if not user:
+    if not user_id:
 
         raise HTTPException(
             status_code=401,
             detail="Unauthorized"
         )
 
-    return user
+    return {
 
+        "id":
+            request.session.get(
+                "user_id"
+            ),
+
+        "name":
+            request.session.get(
+                "user_name"
+            ),
+
+        "email":
+            request.session.get(
+                "user_email"
+            )
+    }
 # ==========================================================
 # REQUEST MODEL
 # ==========================================================
