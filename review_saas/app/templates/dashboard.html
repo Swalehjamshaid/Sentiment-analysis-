@@ -347,7 +347,15 @@ body {
                 <i class="bi bi-arrow-clockwise"></i>
 
                 Refresh Dashboard
+<button
+    class="btn btn-danger btn-main px-4"
+    id="logoutBtn">
 
+    <i class="bi bi-box-arrow-right"></i>
+
+    Logout
+
+</button>
             </button>
 
         </div>
@@ -1353,7 +1361,17 @@ function initializeGoogleAutocomplete() {
 // PAGE LOAD
 // =====================================================
 
+document.getElementById(
+    'logoutBtn'
+).addEventListener(
 
+    'click',
+
+    function () {
+
+        window.location.href = '/logout';
+    }
+);
     window.onload = function () {
 
     loadCompanies();
