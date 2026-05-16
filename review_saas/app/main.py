@@ -1,39 +1,25 @@
-# filename: app/main.py
+# app/main.py
 
 import os
 import sys
-import logging
 import traceback
+import logging
 
 from datetime import datetime
 from contextlib import asynccontextmanager
 
-from fastapi import (
-    FastAPI,
-    Request,
-)
-
-from fastapi.middleware.cors import (
-    CORSMiddleware
-)
-
+from fastapi import FastAPI, Request
 from fastapi.responses import (
     HTMLResponse,
     RedirectResponse,
     JSONResponse,
 )
 
-from starlette.middleware.sessions import (
-    SessionMiddleware
-)
+from fastapi.middleware.cors import CORSMiddleware
 
-from starlette.templating import (
-    Jinja2Templates
-)
-
-from starlette.staticfiles import (
-    StaticFiles
-)
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.templating import Jinja2Templates
+from starlette.staticfiles import StaticFiles
 
 from loguru import logger
 
@@ -42,13 +28,10 @@ from loguru import logger
 # ==========================================================
 
 from app.core.config import settings
-
-from app.core.db import (
-    init_models,
-)
+from app.core.db import init_models
 
 # ==========================================================
-# LOGGING CONFIGURATION
+# LOGGING
 # ==========================================================
 
 logger.remove()
@@ -61,8 +44,14 @@ logger.add(
     enqueue=True
 )
 
-logging.basicConfig(
-    level=logging.INFO
+logging.basicConfig(level=logging.INFO)
+
+# ==========================================================
+# BASE DIRECTORY
+# ==========================================================
+
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
 )
 
 # ==========================================================
@@ -72,15 +61,13 @@ logging.basicConfig(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
-    logger.info(
-        "🚀 Starting Review Intel AI..."
-    )
+    logger.info("🚀 Starting Review Intel AI")
 
     try:
 
         await init_models()
 
-        logger.info(
+        logger.success(
             "✅ Database initialized successfully"
         )
 
@@ -90,15 +77,11 @@ async def lifespan(app: FastAPI):
             "❌ Database initialization failed"
         )
 
-        logger.error(
-            traceback.format_exc()
-        )
+        logger.error(traceback.format_exc())
 
     yield
 
-    logger.info(
-        "🛑 Application shutdown complete"
-    )
+    logger.info("🛑 Application shutdown complete")
 
 # ==========================================================
 # FASTAPI APP
@@ -108,10 +91,9 @@ app = FastAPI(
 
     title="Review Intel AI",
 
-    description=
-        "AI Powered Customer Review Intelligence Platform",
+    description="AI Powered Review Intelligence Platform",
 
-    version="2.0.0",
+    version="3.0.0",
 
     lifespan=lifespan
 )
@@ -123,19 +105,15 @@ app = FastAPI(
 @app.exception_handler(Exception)
 
 async def global_exception_handler(
-
     request: Request,
-
     exc: Exception
 ):
 
     logger.error(
-        f"❌ GLOBAL ERROR at {request.url}"
+        f"❌ GLOBAL ERROR: {request.url}"
     )
 
-    logger.error(
-        traceback.format_exc()
-    )
+    logger.error(traceback.format_exc())
 
     return JSONResponse(
 
@@ -145,16 +123,14 @@ async def global_exception_handler(
 
             "status": "error",
 
-            "message":
-                "Internal Server Error",
+            "message": "Internal Server Error",
 
-            "detail":
-                str(exc)
-        },
+            "detail": str(exc)
+        }
     )
 
 # ==========================================================
-# CORS MIDDLEWARE
+# CORS
 # ==========================================================
 
 app.add_middleware(
@@ -171,7 +147,7 @@ app.add_middleware(
 )
 
 # ==========================================================
-# SESSION MIDDLEWARE
+# SESSION
 # ==========================================================
 
 app.add_middleware(
@@ -184,56 +160,34 @@ app.add_middleware(
 
     max_age=86400,
 
-    same_site="none",
+    same_site="lax",
 
-    https_only=True
+    https_only=False
 )
 
 # ==========================================================
-# TEMPLATE ENGINE
+# TEMPLATE DIRECTORY
 # ==========================================================
 
-BASE_DIR = os.path.dirname(
-    os.path.abspath(__file__)
+TEMPLATE_DIR = os.path.join(
+    BASE_DIR,
+    "templates"
 )
 
-possible_paths = [
-
-    os.path.join(
-        BASE_DIR,
-        "templates"
-    ),
-
-    "/app/app/templates",
-
-    "/app/templates",
-]
-
-template_path = next(
-
-    (
-        p
-        for p in possible_paths
-        if os.path.isdir(p)
-    ),
-
-    None
-)
-
-if not template_path:
+if not os.path.exists(TEMPLATE_DIR):
 
     raise RuntimeError(
-        "❌ Templates directory NOT FOUND"
+        f"❌ Templates folder not found: {TEMPLATE_DIR}"
     )
 
 templates = Jinja2Templates(
-    directory=template_path
+    directory=TEMPLATE_DIR
 )
 
 templates.env.cache = None
 
-logger.info(
-    f"✅ Templates loaded from: {template_path}"
+logger.success(
+    f"✅ Templates Loaded: {TEMPLATE_DIR}"
 )
 
 # ==========================================================
@@ -252,9 +206,7 @@ def format_date(
 
         if isinstance(value, str):
 
-            value = datetime.fromisoformat(
-                value
-            )
+            value = datetime.fromisoformat(value)
 
         return value.strftime(format)
 
@@ -268,103 +220,65 @@ templates.env.filters["date"] = format_date
 # STATIC FILES
 # ==========================================================
 
-static_paths = [
-
-    os.path.join(
-        BASE_DIR,
-        "static"
-    ),
-
-    "/app/app/static",
-
-    "/app/static",
-]
-
-static_dir = next(
-
-    (
-        p
-        for p in static_paths
-        if os.path.isdir(p)
-    ),
-
-    None
+STATIC_DIR = os.path.join(
+    BASE_DIR,
+    "static"
 )
 
-if static_dir:
+if os.path.exists(STATIC_DIR):
 
     app.mount(
 
         "/static",
 
-        StaticFiles(directory=static_dir),
+        StaticFiles(directory=STATIC_DIR),
 
         name="static"
     )
 
-    logger.info(
-        f"📁 Static files mounted from: {static_dir}"
+    logger.success(
+        f"✅ Static Mounted: {STATIC_DIR}"
+    )
+
+else:
+
+    logger.warning(
+        "⚠️ Static folder not found"
     )
 
 # ==========================================================
-# ROUTE IMPORTS
+# ROUTES IMPORT
 # ==========================================================
 
 try:
 
     from app.routes import auth
-
-    print(
-        "✅ auth imported successfully"
-    )
-
     from app.routes import companies
-
-    print(
-        "✅ companies imported successfully"
-    )
-
     from app.routes import dashboard
-
-    print(
-        "✅ dashboard imported successfully"
-    )
-
     from app.routes import reviews
-
-    print(
-        "✅ reviews imported successfully"
-    )
-
     from app.routes import chatbot
 
-    print(
-        "✅ chatbot imported successfully"
+    logger.success(
+        "✅ All routes imported successfully"
     )
 
 except Exception as e:
 
-    print(
-        "❌ ROUTE IMPORT FAILURE:",
-        str(e)
+    logger.error(
+        f"❌ Route import failed: {str(e)}"
     )
 
-    traceback.print_exc()
+    logger.error(traceback.format_exc())
 
     raise e
 
 # ==========================================================
-# ROOT ROUTE
+# ROOT
 # ==========================================================
 
-@app.get(
-    "/",
-    response_class=HTMLResponse
-)
+@app.get("/", response_class=HTMLResponse)
 
-async def root(
-    request: Request
-):
+async def root(request: Request):
 
     if not request.session.get("user_id"):
 
@@ -382,54 +296,43 @@ async def root(
 # LOGIN PAGE
 # ==========================================================
 
-@app.get(
-    "/login",
-    response_class=HTMLResponse
-)
+@app.get("/login", response_class=HTMLResponse)
 
-async def login_page(
-    request: Request
-):
+async def login_page(request: Request):
 
     return templates.TemplateResponse(
 
-        request=request,
+        "login.html",
 
-        name="login.html"
+        {
+            "request": request
+        }
     )
 
 # ==========================================================
 # REGISTER PAGE
 # ==========================================================
 
-@app.get(
-    "/register",
-    response_class=HTMLResponse
-)
+@app.get("/register", response_class=HTMLResponse)
 
-async def register_page(
-    request: Request
-):
+async def register_page(request: Request):
 
     return templates.TemplateResponse(
 
-        request=request,
+        "register.html",
 
-        name="register.html"
+        {
+            "request": request
+        }
     )
 
 # ==========================================================
 # DASHBOARD PAGE
 # ==========================================================
 
-@app.get(
-    "/dashboard",
-    response_class=HTMLResponse
-)
+@app.get("/dashboard", response_class=HTMLResponse)
 
-async def dashboard_view(
-    request: Request
-):
+async def dashboard_page(request: Request):
 
     if not request.session.get("user_id"):
 
@@ -440,11 +343,11 @@ async def dashboard_view(
 
     return templates.TemplateResponse(
 
-        request=request,
+        "dashboard.html",
 
-        name="dashboard.html",
+        {
 
-        context={
+            "request": request,
 
             "user": {
 
@@ -467,20 +370,14 @@ async def dashboard_view(
 @app.get("/logout")
 @app.get("/api/auth/logout")
 
-async def logout(
-    request: Request
-):
+async def logout(request: Request):
 
     request.session.clear()
 
-    logger.info(
-        "✅ User logged out"
-    )
+    logger.info("✅ User logged out")
 
     return RedirectResponse(
-
         "/login",
-
         status_code=303
     )
 
@@ -496,8 +393,7 @@ async def health_check():
 
         "status": "healthy",
 
-        "service":
-            "Review Intel AI",
+        "service": "Review Intel AI",
 
         "timestamp":
             datetime.utcnow().isoformat()
@@ -513,7 +409,7 @@ app.include_router(
 
     prefix="/api/auth",
 
-    tags=["auth"]
+    tags=["Authentication"]
 )
 
 app.include_router(
@@ -522,7 +418,7 @@ app.include_router(
 
     prefix="/api",
 
-    tags=["companies"]
+    tags=["Companies"]
 )
 
 app.include_router(
@@ -531,7 +427,7 @@ app.include_router(
 
     prefix="/api",
 
-    tags=["dashboard"]
+    tags=["Dashboard"]
 )
 
 app.include_router(
@@ -540,30 +436,25 @@ app.include_router(
 
     prefix="/api",
 
-    tags=["reviews"]
+    tags=["Reviews"]
 )
 
 app.include_router(
 
     chatbot.router,
 
-    tags=["chatbot"]
+    prefix="/api",
+
+    tags=["Chatbot"]
 )
 
 # ==========================================================
-# ENTRYPOINT
+# STARTUP
 # ==========================================================
 
 if __name__ == "__main__":
 
     import uvicorn
-
-    port = int(
-        os.environ.get(
-            "PORT",
-            8080
-        )
-    )
 
     uvicorn.run(
 
@@ -571,7 +462,11 @@ if __name__ == "__main__":
 
         host="0.0.0.0",
 
-        port=port,
+        port=int(
+            os.environ.get("PORT", 8080)
+        ),
 
-        reload=False
+        reload=True,
+
+        workers=1
     )
