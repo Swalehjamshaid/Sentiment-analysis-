@@ -111,9 +111,7 @@ app = FastAPI(
 
     title="Review Intel AI",
 
-    description="""
-    AI Powered Review Intelligence Platform
-    """,
+    description="AI Powered Review Intelligence Platform",
 
     version="3.0.0",
 
@@ -279,7 +277,7 @@ else:
     )
 
 # ==========================================================
-# ROUTES IMPORT
+# IMPORT ROUTERS
 # ==========================================================
 
 try:
@@ -289,10 +287,31 @@ try:
     from app.routes import dashboard
     from app.routes import reviews
     from app.routes import chatbot
-    from app.routes import reports
+
+    # ==============================================
+    # OPTIONAL REPORTS ROUTER
+    # ==============================================
+
+    REPORTS_ENABLED = True
+
+    try:
+
+        from app.routes import reports
+
+        logger.success(
+            "✅ Reports router imported"
+        )
+
+    except Exception as report_error:
+
+        REPORTS_ENABLED = False
+
+        logger.error(
+            f"❌ Reports router failed: {report_error}"
+        )
 
     logger.success(
-        "✅ All routes imported successfully"
+        "✅ Core routes imported successfully"
     )
 
 except Exception as e:
@@ -516,15 +535,24 @@ app.include_router(
 )
 
 # ==========================================================
-# REPORTS ROUTER
+# OPTIONAL REPORTS ROUTER
 # ==========================================================
 
-app.include_router(
+if REPORTS_ENABLED:
 
-    reports.router,
+    app.include_router(
+        reports.router
+    )
 
-    tags=["Reports"]
-)
+    logger.success(
+        "✅ Reports router enabled"
+    )
+
+else:
+
+    logger.warning(
+        "⚠️ Reports router disabled"
+    )
 
 # ==========================================================
 # STARTUP
