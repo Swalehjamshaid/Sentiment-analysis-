@@ -1,5 +1,5 @@
 # ==========================================================
-# app/main.py
+# FILE: app/main.py
 # ==========================================================
 
 import os
@@ -10,7 +10,11 @@ import logging
 from datetime import datetime
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import (
+    FastAPI,
+    Request,
+)
+
 from fastapi.responses import (
     HTMLResponse,
     RedirectResponse,
@@ -19,9 +23,17 @@ from fastapi.responses import (
 
 from fastapi.middleware.cors import CORSMiddleware
 
-from starlette.middleware.sessions import SessionMiddleware
-from starlette.templating import Jinja2Templates
-from starlette.staticfiles import StaticFiles
+from starlette.middleware.sessions import (
+    SessionMiddleware
+)
+
+from starlette.templating import (
+    Jinja2Templates
+)
+
+from starlette.staticfiles import (
+    StaticFiles
+)
 
 from loguru import logger
 
@@ -63,7 +75,9 @@ BASE_DIR = os.path.dirname(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
-    logger.info("🚀 Starting Review Intel AI")
+    logger.info(
+        "🚀 Starting Review Intel AI"
+    )
 
     try:
 
@@ -79,11 +93,15 @@ async def lifespan(app: FastAPI):
             "❌ Database initialization failed"
         )
 
-        logger.error(traceback.format_exc())
+        logger.error(
+            traceback.format_exc()
+        )
 
     yield
 
-    logger.info("🛑 Application shutdown complete")
+    logger.info(
+        "🛑 Application shutdown complete"
+    )
 
 # ==========================================================
 # FASTAPI APP
@@ -93,7 +111,9 @@ app = FastAPI(
 
     title="Review Intel AI",
 
-    description="AI Powered Review Intelligence Platform",
+    description="""
+    AI Powered Review Intelligence Platform
+    """,
 
     version="3.0.0",
 
@@ -105,16 +125,22 @@ app = FastAPI(
 # ==========================================================
 
 @app.exception_handler(Exception)
+
 async def global_exception_handler(
+
     request: Request,
+
     exc: Exception
+
 ):
 
     logger.error(
         f"❌ GLOBAL ERROR: {request.url}"
     )
 
-    logger.error(traceback.format_exc())
+    logger.error(
+        traceback.format_exc()
+    )
 
     return JSONResponse(
 
@@ -122,11 +148,14 @@ async def global_exception_handler(
 
         content={
 
-            "status": "error",
+            "status":
+                "error",
 
-            "message": "Internal Server Error",
+            "message":
+                "Internal Server Error",
 
-            "detail": str(exc)
+            "detail":
+                str(exc)
         }
     )
 
@@ -207,7 +236,9 @@ def format_date(
 
         if isinstance(value, str):
 
-            value = datetime.fromisoformat(value)
+            value = datetime.fromisoformat(
+                value
+            )
 
         return value.strftime(format)
 
@@ -258,6 +289,7 @@ try:
     from app.routes import dashboard
     from app.routes import reviews
     from app.routes import chatbot
+    from app.routes import reports
 
     logger.success(
         "✅ All routes imported successfully"
@@ -269,7 +301,9 @@ except Exception as e:
         f"❌ Route import failed: {str(e)}"
     )
 
-    logger.error(traceback.format_exc())
+    logger.error(
+        traceback.format_exc()
+    )
 
     raise e
 
@@ -277,8 +311,14 @@ except Exception as e:
 # ROOT
 # ==========================================================
 
-@app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
+@app.get(
+    "/",
+    response_class=HTMLResponse
+)
+
+async def root(
+    request: Request
+):
 
     if not request.session.get("user_id"):
 
@@ -296,8 +336,14 @@ async def root(request: Request):
 # LOGIN PAGE
 # ==========================================================
 
-@app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
+@app.get(
+    "/login",
+    response_class=HTMLResponse
+)
+
+async def login_page(
+    request: Request
+):
 
     return templates.TemplateResponse(
 
@@ -312,8 +358,14 @@ async def login_page(request: Request):
 # REGISTER PAGE
 # ==========================================================
 
-@app.get("/register", response_class=HTMLResponse)
-async def register_page(request: Request):
+@app.get(
+    "/register",
+    response_class=HTMLResponse
+)
+
+async def register_page(
+    request: Request
+):
 
     return templates.TemplateResponse(
 
@@ -328,8 +380,14 @@ async def register_page(request: Request):
 # DASHBOARD PAGE
 # ==========================================================
 
-@app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard_page(request: Request):
+@app.get(
+    "/dashboard",
+    response_class=HTMLResponse
+)
+
+async def dashboard_page(
+    request: Request
+):
 
     if not request.session.get("user_id"):
 
@@ -347,13 +405,19 @@ async def dashboard_page(request: Request):
             "user": {
 
                 "id":
-                    request.session.get("user_id"),
+                    request.session.get(
+                        "user_id"
+                    ),
 
                 "name":
-                    request.session.get("user_name"),
+                    request.session.get(
+                        "user_name"
+                    ),
 
                 "email":
-                    request.session.get("user_email")
+                    request.session.get(
+                        "user_email"
+                    )
             }
         },
 
@@ -367,7 +431,9 @@ async def dashboard_page(request: Request):
 @app.get("/logout")
 @app.get("/api/auth/logout")
 
-async def logout(request: Request):
+async def logout(
+    request: Request
+):
 
     request.session.clear()
 
@@ -390,16 +456,18 @@ async def health_check():
 
     return {
 
-        "status": "healthy",
+        "status":
+            "healthy",
 
-        "service": "Review Intel AI",
+        "service":
+            "Review Intel AI",
 
         "timestamp":
             datetime.utcnow().isoformat()
     }
 
 # ==========================================================
-# API ROUTERS
+# INCLUDE ROUTERS
 # ==========================================================
 
 app.include_router(
@@ -448,6 +516,17 @@ app.include_router(
 )
 
 # ==========================================================
+# REPORTS ROUTER
+# ==========================================================
+
+app.include_router(
+
+    reports.router,
+
+    tags=["Reports"]
+)
+
+# ==========================================================
 # STARTUP
 # ==========================================================
 
@@ -462,7 +541,10 @@ if __name__ == "__main__":
         host="0.0.0.0",
 
         port=int(
-            os.environ.get("PORT", 8080)
+            os.environ.get(
+                "PORT",
+                8080
+            )
         ),
 
         reload=True,
