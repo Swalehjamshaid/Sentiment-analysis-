@@ -339,7 +339,15 @@ body {
                 Sync Reviews
 
             </button>
+<button
+    class="btn btn-info btn-main px-4"
+    id="generateReportBtn">
 
+    <i class="bi bi-file-earmark-pdf"></i>
+
+    Executive Report
+
+</button>
             <button
                 class="btn btn-warning btn-main px-4"
                 id="refreshDashboardBtn">
@@ -1281,7 +1289,50 @@ document.getElementById(
     }
 };
 
+// =====================================================
+// EXECUTIVE REPORT
+// =====================================================
 
+document.getElementById(
+    'generateReportBtn'
+).onclick = async () => {
+
+    try {
+
+        const companyId =
+            document.getElementById(
+                'companySelect'
+            ).value;
+
+        if (!companyId) {
+
+            alert(
+                'Please select company'
+            );
+
+            return;
+        }
+
+        showLoading();
+
+        window.open(
+            `/api/reports/${companyId}/download`,
+            '_blank'
+        );
+
+        hideLoading();
+
+    } catch (err) {
+
+        hideLoading();
+
+        console.error(err);
+
+        alert(
+            '❌ Failed to generate report'
+        );
+    }
+};
 
 // =====================================================
 // GOOGLE AUTOCOMPLETE
