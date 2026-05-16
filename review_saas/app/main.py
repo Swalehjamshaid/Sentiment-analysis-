@@ -194,7 +194,14 @@ app.add_middleware(
 
     secret_key=settings.SECRET_KEY,
 
-    max_age=86400
+    session_cookie="review_intel_session",
+
+    max_age=86400,
+
+    same_site="none",
+
+    https_only=True
+)
 )
 
 # ==========================================================
