@@ -169,3 +169,4 @@ beautifulsoup4
 lxml
 greenlet
 browserforge
+matplotlib
