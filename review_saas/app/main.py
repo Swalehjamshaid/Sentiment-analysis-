@@ -45,6 +45,17 @@ from app.core.config import settings
 from app.core.db import init_models
 
 # ==========================================================
+# ROUTES IMPORTS
+# ==========================================================
+
+from app.routes import auth
+from app.routes import companies
+from app.routes import dashboard
+from app.routes import reviews
+from app.routes import chatbot
+from app.routes import reports
+
+# ==========================================================
 # LOGGING
 # ==========================================================
 
@@ -87,7 +98,7 @@ async def lifespan(app: FastAPI):
             "✅ Database initialized successfully"
         )
 
-    except Exception:
+    except Exception as e:
 
         logger.error(
             "❌ Database initialization failed"
@@ -96,6 +107,8 @@ async def lifespan(app: FastAPI):
         logger.error(
             traceback.format_exc()
         )
+
+        raise e
 
     yield
 
@@ -111,7 +124,10 @@ app = FastAPI(
 
     title="Review Intel AI",
 
-    description="AI Powered Review Intelligence Platform",
+    description="""
+    AI Reputation Monitoring &
+    Business Intelligence Platform
+    """,
 
     version="3.0.0",
 
@@ -275,56 +291,6 @@ else:
     logger.warning(
         "⚠️ Static folder not found"
     )
-
-# ==========================================================
-# IMPORT ROUTERS
-# ==========================================================
-
-try:
-
-    from app.routes import auth
-    from app.routes import companies
-    from app.routes import dashboard
-    from app.routes import reviews
-    from app.routes import chatbot
-
-    # ==============================================
-    # OPTIONAL REPORTS ROUTER
-    # ==============================================
-
-    REPORTS_ENABLED = True
-
-    try:
-
-        from app.routes import reports
-
-        logger.success(
-            "✅ Reports router imported"
-        )
-
-    except Exception as report_error:
-
-        REPORTS_ENABLED = False
-
-        logger.error(
-            f"❌ Reports router failed: {report_error}"
-        )
-
-    logger.success(
-        "✅ Core routes imported successfully"
-    )
-
-except Exception as e:
-
-    logger.error(
-        f"❌ Route import failed: {str(e)}"
-    )
-
-    logger.error(
-        traceback.format_exc()
-    )
-
-    raise e
 
 # ==========================================================
 # ROOT
@@ -535,24 +501,16 @@ app.include_router(
 )
 
 # ==========================================================
-# OPTIONAL REPORTS ROUTER
+# REPORTS ROUTER
 # ==========================================================
 
-if REPORTS_ENABLED:
+app.include_router(
+    reports.router
+)
 
-    app.include_router(
-        reports.router
-    )
-
-    logger.success(
-        "✅ Reports router enabled"
-    )
-
-else:
-
-    logger.warning(
-        "⚠️ Reports router disabled"
-    )
+logger.success(
+    "✅ Reports router enabled"
+)
 
 # ==========================================================
 # STARTUP
