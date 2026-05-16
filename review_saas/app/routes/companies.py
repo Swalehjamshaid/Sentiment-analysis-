@@ -43,22 +43,28 @@ router = APIRouter(
 # ==========================================================
 # AUTH CHECK
 # ==========================================================
+# ==========================================================
+# AUTH CHECK
+# ==========================================================
 
 def _require_user(
     request: Request
-) -> Dict[str, Any]:
+) -> Any:
 
-    user = request.session.get("user")
+    user_id = request.session.get("user_id")
 
-    if not user:
+    if not user_id:
+
+        logger.warning(
+            "❌ Unauthorized access attempt"
+        )
 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized"
         )
 
-    return user
-
+    return user_id
 # ==========================================================
 # PAYLOAD
 # ==========================================================
