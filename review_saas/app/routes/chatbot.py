@@ -1,17 +1,27 @@
 # ==========================================================
 # FILE: review_saas/app/routes/chatbot.py
 # ENTERPRISE AI BUSINESS INTELLIGENCE CHATBOT
+# 10/10 ENTERPRISE UPGRADE
 # ==========================================================
 
 import os
 import re
+import json
+import time
+import asyncio
 import logging
 from collections import Counter
-from typing import List, Dict
+from functools import lru_cache
+from typing import List, Dict, Any
 
 import numpy as np
 
-from fastapi import APIRouter, Request, Depends
+from fastapi import (
+    APIRouter,
+    Request,
+    Depends
+)
+
 from fastapi.responses import JSONResponse
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,13 +29,12 @@ from sqlalchemy import select
 
 from groq import Groq
 
-from textblob import TextBlob
+from transformers import pipeline
 
 from sentence_transformers import SentenceTransformer
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.cluster import KMeans
 
 from app.core.db import get_session
 
@@ -36,50 +45,69 @@ from app.core.models import (
 )
 
 # ==========================================================
+# LOGGER
+# ==========================================================
+
+logger = logging.getLogger(__name__)
+
+# ==========================================================
 # ROUTER
 # ==========================================================
 
 router = APIRouter(
     prefix="/chatbot",
-    tags=["AI Chatbot"]
+    tags=["Enterprise AI Chatbot"]
 )
 
-logger = logging.getLogger(__name__)
-
 # ==========================================================
-# GROQ AI CONFIG
+# ENVIRONMENT
 # ==========================================================
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 if not GROQ_API_KEY:
 
-    logger.error(
-        "❌ GROQ_API_KEY missing"
-    )
+    logger.error("❌ GROQ_API_KEY missing")
+
+# ==========================================================
+# GROQ CLIENT
+# ==========================================================
 
 client = Groq(
     api_key=GROQ_API_KEY
 )
 
-logger.info(
-    "✅ Groq AI initialized successfully"
-)
+logger.info("✅ Groq initialized")
 
 # ==========================================================
 # EMBEDDING MODEL
 # ==========================================================
 
 embedding_model = SentenceTransformer(
-    "paraphrase-MiniLM-L3-v2"
+    "all-MiniLM-L6-v2"
 )
 
-logger.info(
-    "✅ Embedding model loaded"
-)
+logger.info("✅ Embedding model loaded")
 
 # ==========================================================
-# HELPERS
+# SENTIMENT MODEL
+# ==========================================================
+
+sentiment_pipeline = pipeline(
+    "sentiment-analysis",
+    model="cardiffnlp/twitter-roberta-base-sentiment"
+)
+
+logger.info("✅ Transformer sentiment model loaded")
+
+# ==========================================================
+# MEMORY CACHE
+# ==========================================================
+
+embedding_cache = {}
+
+# ==========================================================
+# TEXT CLEANING
 # ==========================================================
 
 def clean_text(text: str):
@@ -97,75 +125,151 @@ def clean_text(text: str):
 
     text = re.sub(
         r"[^a-zA-Z0-9\s]",
-        "",
+        " ",
+        text
+    )
+
+    text = re.sub(
+        r"\s+",
+        " ",
         text
     )
 
     return text.strip()
 
 # ==========================================================
+# SENTIMENT ANALYSIS
+# ==========================================================
 
 def analyze_sentiment(text: str):
 
     try:
 
-        polarity = TextBlob(
-            text
-        ).sentiment.polarity
+        result = sentiment_pipeline(text[:512])[0]
 
-        if polarity > 0.2:
+        label = result["label"]
+
+        if label == "LABEL_2":
             return "Positive"
 
-        elif polarity < -0.2:
+        elif label == "LABEL_0":
             return "Negative"
 
         return "Neutral"
 
-    except:
-        return "Unknown"
+    except Exception as e:
 
+        logger.error(f"❌ Sentiment Error: {e}")
+
+        return "Neutral"
+
+# ==========================================================
+# EMOTION DETECTION
 # ==========================================================
 
 def detect_emotion(text: str):
 
     text = text.lower()
 
-    anger_words = [
-        "worst",
-        "hate",
-        "fraud",
-        "awful",
-        "terrible",
-        "rude"
-    ]
+    emotions = {
 
-    frustration_words = [
-        "late",
-        "delay",
-        "slow",
-        "problem",
-        "issue"
-    ]
+        "Anger": [
+            "worst",
+            "hate",
+            "awful",
+            "terrible",
+            "fraud",
+            "rude"
+        ],
 
-    satisfaction_words = [
-        "good",
-        "great",
-        "excellent",
-        "perfect",
-        "amazing"
-    ]
+        "Frustration": [
+            "late",
+            "delay",
+            "problem",
+            "issue",
+            "slow"
+        ],
 
-    if any(word in text for word in anger_words):
-        return "Anger"
+        "Satisfaction": [
+            "great",
+            "excellent",
+            "perfect",
+            "amazing",
+            "good"
+        ],
 
-    if any(word in text for word in frustration_words):
-        return "Frustration"
+        "Disappointment": [
+            "bad",
+            "poor",
+            "broken",
+            "damaged"
+        ]
 
-    if any(word in text for word in satisfaction_words):
-        return "Satisfaction"
+    }
+
+    for emotion, words in emotions.items():
+
+        if any(word in text for word in words):
+
+            return emotion
 
     return "Neutral"
 
+# ==========================================================
+# ISSUE CATEGORY
+# ==========================================================
+
+def categorize_issue(text: str):
+
+    text = text.lower()
+
+    categories = {
+
+        "Delivery Issues": [
+            "delivery",
+            "late",
+            "delay",
+            "shipment"
+        ],
+
+        "Staff Behavior": [
+            "staff",
+            "employee",
+            "rude",
+            "attitude"
+        ],
+
+        "Product Quality": [
+            "quality",
+            "broken",
+            "damaged",
+            "poor"
+        ],
+
+        "Customer Support": [
+            "support",
+            "refund",
+            "response"
+        ],
+
+        "Pricing Issues": [
+            "price",
+            "expensive",
+            "cost"
+        ]
+
+    }
+
+    for category, words in categories.items():
+
+        if any(word in text for word in words):
+
+            return category
+
+    return "General"
+
+# ==========================================================
+# KEYWORD EXTRACTION
 # ==========================================================
 
 def detect_keywords(reviews: List[str]):
@@ -174,25 +278,20 @@ def detect_keywords(reviews: List[str]):
 
         "late",
         "delay",
-        "damaged",
         "broken",
-        "bad",
+        "damaged",
         "poor",
         "slow",
         "refund",
         "staff",
-        "service",
-        "delivery",
         "support",
         "quality",
-        "problem",
+        "delivery",
         "issue",
+        "problem",
         "rude",
-        "missing",
-        "packaging",
-        "cancel",
-        "dirty",
-        "fraud"
+        "fraud",
+        "expensive"
 
     ]
 
@@ -202,113 +301,61 @@ def detect_keywords(reviews: List[str]):
 
         for word in issue_words:
 
-            if word in review.lower():
+            if word in review:
+
                 keywords.append(word)
 
     return Counter(keywords).most_common(10)
 
 # ==========================================================
-
-def categorize_issue(review_text):
-
-    review_text = review_text.lower()
-
-    categories = {
-
-        "Delivery Issues": [
-            "late",
-            "delay",
-            "delivery",
-            "shipment",
-            "dispatch"
-        ],
-
-        "Staff Behavior": [
-            "staff",
-            "rude",
-            "behavior",
-            "employee",
-            "attitude"
-        ],
-
-        "Product Quality": [
-            "damaged",
-            "broken",
-            "quality",
-            "poor",
-            "defect"
-        ],
-
-        "Customer Support": [
-            "support",
-            "refund",
-            "response",
-            "service"
-        ],
-
-        "Cleanliness": [
-            "dirty",
-            "clean",
-            "hygiene"
-        ]
-    }
-
-    for category, words in categories.items():
-
-        if any(word in review_text for word in words):
-            return category
-
-    return "General"
-
+# EMBEDDING CACHE
 # ==========================================================
 
-def cluster_reviews(review_texts):
+def get_review_embeddings(company_id, review_texts):
 
-    try:
+    cache_key = f"company_{company_id}"
 
-        if len(review_texts) < 5:
-            return []
+    if cache_key in embedding_cache:
 
-        vectorizer = TfidfVectorizer(
-            stop_words="english"
-        )
+        return embedding_cache[cache_key]
 
-        X = vectorizer.fit_transform(
-            review_texts
-        )
+    embeddings = embedding_model.encode(
+        review_texts,
+        show_progress_bar=False
+    )
 
-        cluster_model = KMeans(
-            n_clusters=min(5, len(review_texts)),
-            random_state=42,
-            n_init="auto"
-        )
+    embedding_cache[cache_key] = embeddings
 
-        cluster_model.fit(X)
-
-        return cluster_model.labels_.tolist()
-
-    except Exception as e:
-
-        logger.error(
-            f"❌ Clustering Error: {e}"
-        )
-
-        return []
+    return embeddings
 
 # ==========================================================
+# SEMANTIC SEARCH
+# ==========================================================
 
-def semantic_search(query, reviews):
+def semantic_search(
+    company_id,
+    query,
+    reviews
+):
 
     try:
 
         review_texts = [
-            r.text for r in reviews if r.text
+
+            r.text
+
+            for r in reviews
+
+            if r.text
+
         ]
 
         if not review_texts:
+
             return []
 
-        review_embeddings = embedding_model.encode(
+        review_embeddings = get_review_embeddings(
+            company_id,
             review_texts
         )
 
@@ -323,7 +370,7 @@ def semantic_search(query, reviews):
 
         top_indices = np.argsort(
             similarities
-        )[-5:][::-1]
+        )[-7:][::-1]
 
         results = []
 
@@ -335,7 +382,7 @@ def semantic_search(query, reviews):
                     review_texts[idx],
 
                 "score":
-                    float(similarities[idx])
+                    round(float(similarities[idx]), 4)
 
             })
 
@@ -343,19 +390,19 @@ def semantic_search(query, reviews):
 
     except Exception as e:
 
-        logger.error(
-            f"❌ Semantic Search Error: {e}"
-        )
+        logger.error(f"❌ Semantic Search Error: {e}")
 
         return []
 
 # ==========================================================
+# ACTION PLANS
+# ==========================================================
 
-def generate_action_plans(top_keywords):
+def generate_action_plans(keywords):
 
     actions = []
 
-    for issue, count in top_keywords:
+    for issue, count in keywords:
 
         if issue in [
             "late",
@@ -363,60 +410,79 @@ def generate_action_plans(top_keywords):
             "delivery"
         ]:
 
-            actions.append(
-                "Increase delivery fleet capacity and optimize dispatch planning."
-            )
+            actions.append({
+
+                "priority": "High",
+
+                "action":
+                    "Optimize dispatch planning and increase fleet efficiency."
+
+            })
 
         elif issue in [
             "staff",
             "rude"
         ]:
 
-            actions.append(
-                "Conduct staff behavior and customer service training."
-            )
+            actions.append({
+
+                "priority": "Medium",
+
+                "action":
+                    "Conduct customer service training for staff."
+
+            })
 
         elif issue in [
-            "damaged",
             "broken",
+            "damaged",
             "quality"
         ]:
 
-            actions.append(
-                "Improve quality assurance and packaging inspection."
-            )
+            actions.append({
+
+                "priority": "High",
+
+                "action":
+                    "Strengthen product quality inspection processes."
+
+            })
 
         elif issue in [
             "refund",
             "support"
         ]:
 
-            actions.append(
-                "Enhance customer support response speed and escalation handling."
-            )
+            actions.append({
 
-    return list(set(actions))
+                "priority": "Medium",
+
+                "action":
+                    "Improve customer support response speed."
+
+            })
+
+    return actions
 
 # ==========================================================
+# REPUTATION SCORE
+# ==========================================================
 
-def calculate_reputation_score(avg_rating, negative_reviews):
+def calculate_reputation_score(
+    avg_rating,
+    negative_reviews
+):
 
-    try:
+    score = (
+        (avg_rating / 5) * 100
+    ) - (negative_reviews * 1.5)
 
-        reputation = (
-            (avg_rating / 5) * 100
-        ) - (negative_reviews * 1.5)
+    score = max(0, min(100, score))
 
-        reputation = max(
-            0,
-            min(100, reputation)
-        )
+    return round(score, 2)
 
-        return round(reputation, 2)
-
-    except:
-        return 0
-
+# ==========================================================
+# REVENUE RISK
 # ==========================================================
 
 def calculate_revenue_risk(
@@ -424,22 +490,71 @@ def calculate_revenue_risk(
     total_reviews
 ):
 
-    try:
-
-        if total_reviews == 0:
-            return 0
-
-        risk = (
-            negative_reviews / total_reviews
-        ) * 100
-
-        return round(risk, 2)
-
-    except:
+    if total_reviews == 0:
         return 0
 
+    risk = (
+        negative_reviews / total_reviews
+    ) * 100
+
+    return round(risk, 2)
+
 # ==========================================================
-# CHATBOT API
+# AI CONFIDENCE
+# ==========================================================
+
+def calculate_confidence(similarities):
+
+    if not similarities:
+        return 70
+
+    avg = np.mean(similarities)
+
+    return round(min(99, max(70, avg * 100)), 2)
+
+# ==========================================================
+# EXECUTIVE INSIGHTS
+# ==========================================================
+
+def generate_executive_insights(
+
+    avg_rating,
+    reputation_score,
+    revenue_risk,
+    negative_count
+
+):
+
+    insights = []
+
+    if avg_rating < 3.5:
+
+        insights.append(
+            "Customer satisfaction is below industry expectations."
+        )
+
+    if revenue_risk > 30:
+
+        insights.append(
+            "High revenue risk detected from negative customer sentiment."
+        )
+
+    if reputation_score < 60:
+
+        insights.append(
+            "Brand reputation requires urgent operational improvements."
+        )
+
+    if negative_count > 50:
+
+        insights.append(
+            "Large volume of negative feedback indicates systemic issues."
+        )
+
+    return insights
+
+# ==========================================================
+# CHATBOT ENDPOINT
 # ==========================================================
 
 @router.post("/chat")
@@ -454,13 +569,13 @@ async def chatbot_api(
 
 ):
 
+    start_time = time.time()
+
     try:
 
         body = await request.json()
 
-        company_id = body.get(
-            "company_id"
-        )
+        company_id = body.get("company_id")
 
         user_message = body.get(
             "message",
@@ -520,7 +635,7 @@ async def chatbot_api(
             })
 
         # ==================================================
-        # LOAD MEMORY
+        # LOAD CHAT MEMORY
         # ==================================================
 
         memory_stmt = (
@@ -535,7 +650,7 @@ async def chatbot_api(
                 ChatHistory.created_at.desc()
             )
 
-            .limit(5)
+            .limit(10)
 
         )
 
@@ -547,9 +662,9 @@ async def chatbot_api(
 
         previous_context = "\n".join([
 
-            f"User: {x.user_message}\nAI: {x.ai_response}"
+            f"User: {m.user_message}\nAI: {m.ai_response}"
 
-            for x in reversed(memory_rows)
+            for m in reversed(memory_rows)
 
         ])
 
@@ -569,7 +684,7 @@ async def chatbot_api(
                 Review.google_review_time.desc()
             )
 
-            .limit(300)
+            .limit(500)
 
         )
 
@@ -598,7 +713,7 @@ async def chatbot_api(
 
         emotions = []
 
-        issue_categories = []
+        categories = []
 
         ratings = []
 
@@ -620,22 +735,21 @@ async def chatbot_api(
                     detect_emotion(cleaned)
                 )
 
-                issue_categories.append(
+                categories.append(
                     categorize_issue(cleaned)
                 )
 
                 if review.rating:
+
                     ratings.append(
                         review.rating
                     )
 
         # ==================================================
-        # METRICS
+        # ANALYTICS
         # ==================================================
 
-        total_reviews = len(
-            review_texts
-        )
+        total_reviews = len(review_texts)
 
         avg_rating = round(
 
@@ -662,7 +776,7 @@ async def chatbot_api(
         )
 
         top_categories = Counter(
-            issue_categories
+            categories
         ).most_common(5)
 
         top_emotions = Counter(
@@ -679,79 +793,101 @@ async def chatbot_api(
             total_reviews
         )
 
-        # ==================================================
-        # CLUSTERING
-        # ==================================================
+        executive_insights = generate_executive_insights(
 
-        review_clusters = []
+            avg_rating,
+            reputation_score,
+            revenue_risk,
+            negative_count
 
-        # ==================================================
-        # SEMANTIC SEARCH
-        # ==================================================
-
-        semantic_results = semantic_search(
-            user_message,
-            reviews
         )
 
-        # ==================================================
-        # AI ACTION PLANS
-        # ==================================================
+        semantic_results = semantic_search(
+
+            company.id,
+            user_message,
+            reviews
+
+        )
+
+        confidence_score = calculate_confidence([
+
+            r["score"]
+
+            for r in semantic_results
+
+        ])
 
         action_plans = generate_action_plans(
             top_keywords
         )
 
         # ==================================================
-        # SUMMARIES
+        # AI CONTEXT
         # ==================================================
-
-        issue_summary = "\n".join([
-
-            f"{word}: {count}"
-
-            for word, count in top_keywords
-
-        ])
-
-        category_summary = "\n".join([
-
-            f"{cat}: {count}"
-
-            for cat, count in top_categories
-
-        ])
-
-        emotion_summary = "\n".join([
-
-            f"{emo}: {count}"
-
-            for emo, count in top_emotions
-
-        ])
-
-        action_plan_summary = "\n".join(
-            action_plans
-        )
 
         similar_reviews = "\n\n".join([
 
-            r["text"]
+            f"- {r['text']}"
 
             for r in semantic_results
 
         ])
 
+        issue_summary = "\n".join([
+
+            f"{k}: {v}"
+
+            for k, v in top_keywords
+
+        ])
+
+        emotion_summary = "\n".join([
+
+            f"{k}: {v}"
+
+            for k, v in top_emotions
+
+        ])
+
+        category_summary = "\n".join([
+
+            f"{k}: {v}"
+
+            for k, v in top_categories
+
+        ])
+
+        action_summary = "\n".join([
+
+            f"{x['priority']} Priority: {x['action']}"
+
+            for x in action_plans
+
+        ])
+
+        executive_summary = "\n".join(
+            executive_insights
+        )
+
         # ==================================================
-        # EXECUTIVE PROMPT
+        # PROMPT
         # ==================================================
 
         prompt = f"""
 
-You are a world-class AI business intelligence consultant.
+You are a world-class AI Business Intelligence Consultant.
 
-Company:
+Your job is to provide executive-level operational intelligence using ONLY review-based evidence.
+
+==================================================
+
+COMPANY:
 {company.name}
+
+==================================================
+
+BUSINESS METRICS
 
 Total Reviews:
 {total_reviews}
@@ -765,53 +901,89 @@ Reputation Score:
 Revenue Risk:
 {revenue_risk}%
 
-Positive Reviews:
+Confidence Score:
+{confidence_score}%
+
+==================================================
+
+CUSTOMER SENTIMENT
+
+Positive:
 {positive_count}
 
-Negative Reviews:
+Negative:
 {negative_count}
 
-Neutral Reviews:
+Neutral:
 {neutral_count}
 
-Top Issues:
+==================================================
+
+TOP ISSUES
+
 {issue_summary}
 
-Issue Categories:
+==================================================
+
+ISSUE CATEGORIES
+
 {category_summary}
 
-Customer Emotions:
+==================================================
+
+CUSTOMER EMOTIONS
+
 {emotion_summary}
 
-AI Recommended Actions:
-{action_plan_summary}
+==================================================
 
-Relevant Customer Reviews:
+EXECUTIVE INSIGHTS
+
+{executive_summary}
+
+==================================================
+
+ACTION PLANS
+
+{action_summary}
+
+==================================================
+
+RELEVANT REVIEWS
+
 {similar_reviews}
 
-Previous Conversation:
+==================================================
+
+CHAT HISTORY
+
 {previous_context}
 
-User Question:
+==================================================
+
+USER QUESTION
+
 {user_message}
 
-Instructions:
+==================================================
 
-1. Answer professionally.
-2. Use business intelligence reasoning.
-3. Give executive-level analysis.
-4. Explain root causes.
-5. Provide actionable recommendations.
-6. Mention operational risks if needed.
-7. Mention customer sentiment patterns.
-8. Keep response highly intelligent.
-9. Be concise but insightful.
-10. Only answer using review-based insights.
+RESPONSE RULES
+
+1. Be executive-level
+2. Be concise
+3. Use business intelligence reasoning
+4. Mention operational risks
+5. Mention customer behavior patterns
+6. Give strategic recommendations
+7. Use bullet points when needed
+8. Avoid hallucinations
+9. Use only review evidence
+10. Provide highly intelligent analysis
 
 """
 
         # ==================================================
-        # GROQ AI RESPONSE
+        # AI RESPONSE
         # ==================================================
 
         response = client.chat.completions.create(
@@ -822,20 +994,22 @@ Instructions:
 
                 {
                     "role": "system",
+
                     "content":
-                        "You are an elite AI business intelligence consultant specializing in customer review analytics, operational intelligence, executive reporting, root-cause analysis, predictive analytics, and business decision intelligence."
+                        "You are an elite enterprise AI business intelligence advisor specializing in operational intelligence, executive reporting, customer sentiment analytics, risk analysis, predictive business insights, and strategic optimization."
                 },
 
                 {
                     "role": "user",
+
                     "content": prompt
                 }
 
             ],
 
-            temperature=0.3,
+            temperature=0.2,
 
-            max_tokens=700
+            max_tokens=1200
 
         )
 
@@ -852,7 +1026,7 @@ Instructions:
         # SAVE MEMORY
         # ==================================================
 
-        chat_memory = ChatHistory(
+        memory = ChatHistory(
 
             session_id=session_id,
 
@@ -864,17 +1038,26 @@ Instructions:
 
         )
 
-        session.add(
-            chat_memory
-        )
+        session.add(memory)
 
         await session.commit()
+
+        # ==================================================
+        # PERFORMANCE
+        # ==================================================
+
+        processing_time = round(
+            time.time() - start_time,
+            2
+        )
 
         # ==================================================
         # FINAL RESPONSE
         # ==================================================
 
         return JSONResponse({
+
+            "success": True,
 
             "company":
                 company.name,
@@ -900,6 +1083,12 @@ Instructions:
             "revenue_risk":
                 revenue_risk,
 
+            "confidence_score":
+                confidence_score,
+
+            "processing_time":
+                processing_time,
+
             "top_issues":
                 top_keywords,
 
@@ -909,8 +1098,8 @@ Instructions:
             "customer_emotions":
                 top_emotions,
 
-            "review_clusters":
-                review_clusters,
+            "executive_insights":
+                executive_insights,
 
             "ai_action_plans":
                 action_plans,
@@ -926,12 +1115,14 @@ Instructions:
     except Exception as e:
 
         logger.error(
-            f"🔥 Chatbot Error: {e}"
+            f"🔥 ENTERPRISE CHATBOT ERROR: {e}"
         )
 
         return JSONResponse({
 
+            "success": False,
+
             "answer":
-                f"Server Error: {str(e)}"
+                f"Enterprise AI Error: {str(e)}"
 
         }, status_code=500)
