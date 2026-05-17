@@ -74,7 +74,7 @@ response_formatter
 
 # ==========================================================
 
-logger = logging.getLogger(**name**)
+logger = logging.getLogger(__name__)
 
 # ==========================================================
 
