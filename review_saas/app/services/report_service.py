@@ -23,19 +23,26 @@ from reportlab.platypus import (
     Table,
     TableStyle,
     PageBreak,
+    KeepTogether,
 )
 
 from reportlab.lib import colors
+
 from reportlab.lib.styles import (
     getSampleStyleSheet,
     ParagraphStyle,
 )
 
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.enums import TA_CENTER
+
+from reportlab.lib.enums import (
+    TA_CENTER,
+)
+
 from reportlab.lib.units import inch
 
 logger = logging.getLogger("app.report_service")
+
 
 # ==========================================================
 # REPORT SERVICE
@@ -55,43 +62,57 @@ class ReportService:
         )
 
         # ==================================================
-        # CUSTOM STYLES
+        # EXECUTIVE STYLES
         # ==================================================
 
         self.title_style = ParagraphStyle(
             'ExecutiveTitle',
             parent=self.styles['Heading1'],
+            fontName='Helvetica-Bold',
             fontSize=26,
-            leading=30,
+            leading=32,
             textColor=colors.HexColor("#0F172A"),
             alignment=TA_CENTER,
-            spaceAfter=20,
+            spaceAfter=18,
+        )
+
+        self.sub_title_style = ParagraphStyle(
+            'ExecutiveSubTitle',
+            parent=self.styles['BodyText'],
+            fontName='Helvetica',
+            fontSize=12,
+            leading=18,
+            textColor=colors.HexColor("#64748B"),
+            alignment=TA_CENTER,
         )
 
         self.heading_style = ParagraphStyle(
             'ExecutiveHeading',
             parent=self.styles['Heading2'],
-            fontSize=18,
-            leading=22,
+            fontName='Helvetica-Bold',
+            fontSize=17,
+            leading=20,
             textColor=colors.HexColor("#1E3A8A"),
-            spaceBefore=14,
-            spaceAfter=12,
+            spaceBefore=8,
+            spaceAfter=6,
         )
 
         self.body_style = ParagraphStyle(
             'ExecutiveBody',
             parent=self.styles['BodyText'],
-            fontSize=11,
-            leading=18,
+            fontName='Helvetica',
+            fontSize=10,
+            leading=15,
             textColor=colors.HexColor("#334155"),
         )
 
-        self.kpi_style = ParagraphStyle(
-            'KPIStyle',
+        self.small_style = ParagraphStyle(
+            'ExecutiveSmall',
             parent=self.styles['BodyText'],
-            fontSize=12,
-            leading=18,
-            textColor=colors.white,
+            fontName='Helvetica',
+            fontSize=8,
+            leading=10,
+            textColor=colors.HexColor("#64748B"),
             alignment=TA_CENTER,
         )
 
@@ -164,7 +185,7 @@ class ReportService:
         )
 
         # ==================================================
-        # AI SUMMARY
+        # EXECUTIVE CONTENT
         # ==================================================
 
         executive_summary = self._generate_summary(
@@ -207,7 +228,7 @@ class ReportService:
         )
 
         # ==================================================
-        # GENERATE PDF
+        # BUILD PDF
         # ==================================================
 
         self._build_pdf(
@@ -267,15 +288,18 @@ class ReportService:
         ])
 
         positive_percent = round(
-            (positive / total_reviews) * 100, 2
+            (positive / total_reviews) * 100,
+            2
         )
 
         neutral_percent = round(
-            (neutral / total_reviews) * 100, 2
+            (neutral / total_reviews) * 100,
+            2
         )
 
         negative_percent = round(
-            (negative / total_reviews) * 100, 2
+            (negative / total_reviews) * 100,
+            2
         )
 
         return {
@@ -298,18 +322,13 @@ class ReportService:
 
             "engagement_level":
                 "High"
-                if total_reviews > 200
+                if total_reviews >= 200
                 else "Medium",
 
             "retention_risk":
                 "Low"
                 if average_rating >= 4
                 else "Medium",
-
-            "brand_health":
-                "Strong"
-                if positive_percent >= 75
-                else "Moderate",
         }
 
     # ======================================================
@@ -336,35 +355,36 @@ class ReportService:
 
         pie_path = os.path.join(
             self.output_dir,
-            f"{safe_name}_sentiment_pie.png"
+            f"{safe_name}_pie_chart.png"
         )
 
-        plt.figure(figsize=(6, 6))
+        plt.figure(figsize=(4.5, 4.5))
 
         plt.pie(
-
             [
                 analytics["positive_reviews"],
                 analytics["neutral_reviews"],
                 analytics["negative_reviews"],
             ],
-
             labels=[
                 "Positive",
                 "Neutral",
                 "Negative",
             ],
-
             autopct='%1.1f%%',
         )
 
         plt.title(
-            "Customer Sentiment Distribution"
+            "Customer Sentiment Distribution",
+            fontsize=12,
         )
+
+        plt.tight_layout()
 
         plt.savefig(
             pie_path,
-            bbox_inches="tight"
+            bbox_inches="tight",
+            dpi=300
         )
 
         plt.close()
@@ -377,12 +397,12 @@ class ReportService:
 
         bar_path = os.path.join(
             self.output_dir,
-            f"{safe_name}_kpi_bar.png"
+            f"{safe_name}_bar_chart.png"
         )
 
-        plt.figure(figsize=(8, 5))
+        plt.figure(figsize=(6.2, 3))
 
-        metrics = [
+        labels = [
             "Positive",
             "Neutral",
             "Negative",
@@ -394,15 +414,24 @@ class ReportService:
             analytics["negative_percent"],
         ]
 
-        plt.bar(metrics, values)
+        plt.bar(
+            labels,
+            values,
+        )
 
         plt.ylabel("Percentage")
 
-        plt.title("Customer Sentiment KPI Analysis")
+        plt.title(
+            "Customer Sentiment KPI Analysis",
+            fontsize=12,
+        )
+
+        plt.tight_layout()
 
         plt.savefig(
             bar_path,
-            bbox_inches="tight"
+            bbox_inches="tight",
+            dpi=300
         )
 
         plt.close()
@@ -428,7 +457,7 @@ class ReportService:
         <b>{analytics['total_reviews']}</b> verified customer
         interactions.
 
-        Current sentiment analysis indicates a highly positive
+        Current sentiment analysis indicates highly positive
         market perception with
         <b>{analytics['positive_percent']}%</b>
         positive customer sentiment.
@@ -437,15 +466,10 @@ class ReportService:
         performance, healthy customer engagement, and
         strong brand reliability indicators.
 
-        While overall business sentiment remains highly positive,
-        isolated operational inefficiencies and service
-        inconsistencies present measurable opportunities for
-        customer experience optimization and retention
-        acceleration.
-
-        Overall analytics indicate that the business is operating
-        from a position of strong customer trust and scalable
-        engagement performance.
+        While overall business sentiment remains highly
+        positive, isolated operational inefficiencies present
+        measurable opportunities for customer experience
+        optimization and retention acceleration.
         """
 
     # ======================================================
@@ -457,29 +481,18 @@ class ReportService:
         analytics: Dict[str, Any],
     ) -> List[str]:
 
-        insights = []
+        return [
 
-        insights.append(
-            "Customer satisfaction is primarily driven by strong service consistency and positive engagement trends."
-        )
+            "Customer satisfaction is primarily driven by positive service consistency and operational stability.",
 
-        insights.append(
-            "The business demonstrates resilient customer trust indicators despite isolated operational concerns."
-        )
+            "The business demonstrates resilient customer trust indicators despite isolated operational concerns.",
 
-        insights.append(
-            "Negative customer experiences appear operational rather than systemic in nature."
-        )
+            "Negative customer experiences appear operational rather than systemic in nature.",
 
-        insights.append(
-            "Brand perception remains highly positive and commercially advantageous."
-        )
+            "Brand perception remains commercially advantageous and highly positive.",
 
-        insights.append(
-            "Operational optimization during peak engagement periods could further improve customer retention performance."
-        )
-
-        return insights
+            "Operational optimization during high-volume periods could further improve retention performance.",
+        ]
 
     # ======================================================
     # RECOMMENDATIONS
@@ -490,29 +503,18 @@ class ReportService:
         analytics: Dict[str, Any],
     ) -> List[str]:
 
-        recommendations = []
+        return [
 
-        recommendations.append(
-            "Implement operational optimization protocols for high-volume customer periods."
-        )
+            "Implement operational optimization protocols for high-volume customer periods.",
 
-        recommendations.append(
-            "Strengthen customer recovery workflows for negative experience management."
-        )
+            "Strengthen customer recovery workflows for negative experience management.",
 
-        recommendations.append(
-            "Leverage positive customer sentiment within digital marketing and brand positioning campaigns."
-        )
+            "Leverage positive customer sentiment in digital marketing campaigns.",
 
-        recommendations.append(
-            "Deploy AI-driven customer sentiment monitoring for proactive issue detection."
-        )
+            "Deploy AI-driven customer sentiment monitoring for proactive issue detection.",
 
-        recommendations.append(
-            "Increase focus on service consistency and response-time optimization."
-        )
-
-        return recommendations
+            "Increase focus on response-time optimization and service consistency.",
+        ]
 
     # ======================================================
     # ACTION PLAN
@@ -525,24 +527,24 @@ class ReportService:
             {
                 "timeline": "30 Days",
                 "objective":
-                    "Address recurring operational complaints and customer service bottlenecks."
+                    "Address operational complaints and customer service bottlenecks."
             },
 
             {
                 "timeline": "60 Days",
                 "objective":
-                    "Optimize support workflows and strengthen service consistency monitoring."
+                    "Optimize support workflows and service consistency."
             },
 
             {
                 "timeline": "90 Days",
                 "objective":
-                    "Launch retention enhancement and customer loyalty initiatives."
+                    "Launch customer retention and loyalty enhancement initiatives."
             },
         ]
 
     # ======================================================
-    # EXECUTIVE CONCLUSION
+    # CONCLUSION
     # ======================================================
 
     def _generate_conclusion(
@@ -567,6 +569,70 @@ class ReportService:
         """
 
     # ======================================================
+    # PAGE FOOTER
+    # ======================================================
+
+    def _add_page_number(
+        self,
+        canvas,
+        doc,
+    ):
+
+        canvas.saveState()
+
+        canvas.setFont(
+            'Helvetica',
+            8
+        )
+
+        canvas.setFillColor(
+            colors.HexColor("#64748B")
+        )
+
+        canvas.drawString(
+            36,
+            20,
+            "Confidential • AI Executive Intelligence Platform"
+        )
+
+        canvas.drawRightString(
+            570,
+            20,
+            f"Page {doc.page}"
+        )
+
+        canvas.restoreState()
+
+    # ======================================================
+    # DIVIDER
+    # ======================================================
+
+    def _divider(self):
+
+        divider = Table(
+            [['']],
+            colWidths=[6.7 * inch],
+            rowHeights=[0.02 * inch]
+        )
+
+        divider.setStyle(
+
+            TableStyle([
+
+                (
+                    'BACKGROUND',
+                    (0, 0),
+                    (-1, -1),
+                    colors.HexColor("#E2E8F0")
+                )
+            ])
+        )
+
+        divider.hAlign = 'CENTER'
+
+        return divider
+
+    # ======================================================
     # PDF BUILDER
     # ======================================================
 
@@ -586,10 +652,10 @@ class ReportService:
         doc = SimpleDocTemplate(
             pdf_path,
             pagesize=letter,
-            rightMargin=40,
-            leftMargin=40,
-            topMargin=40,
-            bottomMargin=30,
+            rightMargin=36,
+            leftMargin=36,
+            topMargin=36,
+            bottomMargin=32,
         )
 
         story = []
@@ -610,35 +676,35 @@ class ReportService:
         )
 
         story.append(
-            Spacer(1, 0.5 * inch)
+            Spacer(1, 0.12 * inch)
         )
 
         story.append(
             Paragraph(
                 company_name,
-                self.heading_style
+                self.sub_title_style
             )
         )
 
         story.append(
-            Spacer(1, 0.3 * inch)
+            Spacer(1, 0.1 * inch)
         )
 
         story.append(
             Paragraph(
                 f"Generated on {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
-                self.body_style
+                self.sub_title_style
             )
         )
 
         story.append(
-            Spacer(1, 3 * inch)
+            Spacer(1, 3.2 * inch)
         )
 
         story.append(
             Paragraph(
                 "Confidential Executive Business Intelligence Document",
-                self.body_style
+                self.small_style
             )
         )
 
@@ -665,7 +731,15 @@ class ReportService:
         )
 
         story.append(
-            Spacer(1, 0.3 * inch)
+            Spacer(1, 0.15 * inch)
+        )
+
+        story.append(
+            self._divider()
+        )
+
+        story.append(
+            Spacer(1, 0.15 * inch)
         )
 
         # ==================================================
@@ -724,12 +798,17 @@ class ReportService:
             ],
         ]
 
-        table = Table(
+        kpi_table = Table(
             kpi_data,
-            colWidths=[2 * inch] * 4
+            colWidths=[
+                2.0 * inch,
+                1.2 * inch,
+                1.2 * inch,
+                1.4 * inch,
+            ]
         )
 
-        table.setStyle(
+        kpi_table.setStyle(
 
             TableStyle([
 
@@ -755,33 +834,74 @@ class ReportService:
                 ),
 
                 (
-                    'GRID',
+                    'FONTSIZE',
                     (0, 0),
                     (-1, -1),
-                    1,
-                    colors.HexColor("#CBD5E1")
-                ),
-
-                (
-                    'BACKGROUND',
-                    (0, 1),
-                    (-1, -1),
-                    colors.HexColor("#F8FAFC")
+                    9
                 ),
 
                 (
                     'BOTTOMPADDING',
                     (0, 0),
                     (-1, 0),
-                    12
+                    10
+                ),
+
+                (
+                    'TOPPADDING',
+                    (0, 0),
+                    (-1, 0),
+                    10
+                ),
+
+                (
+                    'GRID',
+                    (0, 0),
+                    (-1, -1),
+                    0.7,
+                    colors.HexColor("#CBD5E1")
+                ),
+
+                (
+                    'ALIGN',
+                    (0, 0),
+                    (-1, -1),
+                    'CENTER'
+                ),
+
+                (
+                    'VALIGN',
+                    (0, 0),
+                    (-1, -1),
+                    'MIDDLE'
+                ),
+
+                (
+                    'ROWBACKGROUNDS',
+                    (0, 1),
+                    (-1, -1),
+                    [
+                        colors.white,
+                        colors.HexColor("#F8FAFC")
+                    ]
                 ),
             ])
         )
 
-        story.append(table)
+        kpi_table.hAlign = 'CENTER'
+
+        story.append(kpi_table)
 
         story.append(
-            Spacer(1, 0.4 * inch)
+            Spacer(1, 0.18 * inch)
+        )
+
+        story.append(
+            self._divider()
+        )
+
+        story.append(
+            Spacer(1, 0.18 * inch)
         )
 
         # ==================================================
@@ -795,38 +915,58 @@ class ReportService:
             )
         )
 
+        chart_elements = []
+
         if os.path.exists(
             chart_paths["pie_chart"]
         ):
 
-            story.append(
-
-                Image(
-                    chart_paths["pie_chart"],
-                    width=4.8 * inch,
-                    height=4.8 * inch,
-                )
+            pie_chart = Image(
+                chart_paths["pie_chart"],
+                width=3.5 * inch,
+                height=3.5 * inch,
             )
 
-        story.append(
-            Spacer(1, 0.3 * inch)
+            pie_chart.hAlign = 'CENTER'
+
+            chart_elements.append(
+                pie_chart
+            )
+
+        chart_elements.append(
+            Spacer(1, 0.12 * inch)
         )
 
         if os.path.exists(
             chart_paths["bar_chart"]
         ):
 
-            story.append(
+            bar_chart = Image(
+                chart_paths["bar_chart"],
+                width=5.4 * inch,
+                height=2.5 * inch,
+            )
 
-                Image(
-                    chart_paths["bar_chart"],
-                    width=6 * inch,
-                    height=3.5 * inch,
-                )
+            bar_chart.hAlign = 'CENTER'
+
+            chart_elements.append(
+                bar_chart
             )
 
         story.append(
-            Spacer(1, 0.4 * inch)
+            KeepTogether(chart_elements)
+        )
+
+        story.append(
+            Spacer(1, 0.18 * inch)
+        )
+
+        story.append(
+            self._divider()
+        )
+
+        story.append(
+            Spacer(1, 0.18 * inch)
         )
 
         # ==================================================
@@ -851,11 +991,19 @@ class ReportService:
             )
 
         story.append(
-            Spacer(1, 0.4 * inch)
+            Spacer(1, 0.18 * inch)
+        )
+
+        story.append(
+            self._divider()
+        )
+
+        story.append(
+            Spacer(1, 0.18 * inch)
         )
 
         # ==================================================
-        # OPERATIONAL RISK TABLE
+        # RISK ASSESSMENT
         # ==================================================
 
         story.append(
@@ -900,7 +1048,11 @@ class ReportService:
 
         risk_table = Table(
             risk_data,
-            colWidths=[2.2 * inch] * 3
+            colWidths=[
+                2.2 * inch,
+                1.4 * inch,
+                2.2 * inch,
+            ]
         )
 
         risk_table.setStyle(
@@ -922,26 +1074,60 @@ class ReportService:
                 ),
 
                 (
+                    'FONTNAME',
+                    (0, 0),
+                    (-1, 0),
+                    'Helvetica-Bold'
+                ),
+
+                (
                     'GRID',
                     (0, 0),
                     (-1, -1),
-                    1,
+                    0.7,
                     colors.HexColor("#CBD5E1")
                 ),
 
                 (
-                    'BACKGROUND',
+                    'ALIGN',
+                    (0, 0),
+                    (-1, -1),
+                    'CENTER'
+                ),
+
+                (
+                    'VALIGN',
+                    (0, 0),
+                    (-1, -1),
+                    'MIDDLE'
+                ),
+
+                (
+                    'ROWBACKGROUNDS',
                     (0, 1),
                     (-1, -1),
-                    colors.HexColor("#F8FAFC")
+                    [
+                        colors.white,
+                        colors.HexColor("#F8FAFC")
+                    ]
                 ),
             ])
         )
 
+        risk_table.hAlign = 'CENTER'
+
         story.append(risk_table)
 
         story.append(
-            Spacer(1, 0.4 * inch)
+            Spacer(1, 0.18 * inch)
+        )
+
+        story.append(
+            self._divider()
+        )
+
+        story.append(
+            Spacer(1, 0.18 * inch)
         )
 
         # ==================================================
@@ -966,11 +1152,19 @@ class ReportService:
             )
 
         story.append(
-            Spacer(1, 0.4 * inch)
+            Spacer(1, 0.18 * inch)
+        )
+
+        story.append(
+            self._divider()
+        )
+
+        story.append(
+            Spacer(1, 0.18 * inch)
         )
 
         # ==================================================
-        # ACTION PLAN
+        # STRATEGIC ROADMAP
         # ==================================================
 
         story.append(
@@ -981,7 +1175,11 @@ class ReportService:
         )
 
         roadmap_data = [
-            ["Timeline", "Strategic Objective"]
+
+            [
+                "Timeline",
+                "Strategic Objective"
+            ]
         ]
 
         for item in action_plan:
@@ -993,7 +1191,10 @@ class ReportService:
 
         roadmap_table = Table(
             roadmap_data,
-            colWidths=[2 * inch, 4.5 * inch]
+            colWidths=[
+                1.7 * inch,
+                4.8 * inch,
+            ]
         )
 
         roadmap_table.setStyle(
@@ -1015,26 +1216,60 @@ class ReportService:
                 ),
 
                 (
+                    'FONTNAME',
+                    (0, 0),
+                    (-1, 0),
+                    'Helvetica-Bold'
+                ),
+
+                (
                     'GRID',
                     (0, 0),
                     (-1, -1),
-                    1,
+                    0.7,
                     colors.HexColor("#CBD5E1")
                 ),
 
                 (
-                    'BACKGROUND',
+                    'ALIGN',
+                    (0, 0),
+                    (-1, -1),
+                    'CENTER'
+                ),
+
+                (
+                    'VALIGN',
+                    (0, 0),
+                    (-1, -1),
+                    'MIDDLE'
+                ),
+
+                (
+                    'ROWBACKGROUNDS',
                     (0, 1),
                     (-1, -1),
-                    colors.HexColor("#F8FAFC")
+                    [
+                        colors.white,
+                        colors.HexColor("#F8FAFC")
+                    ]
                 ),
             ])
         )
 
+        roadmap_table.hAlign = 'CENTER'
+
         story.append(roadmap_table)
 
         story.append(
-            Spacer(1, 0.4 * inch)
+            Spacer(1, 0.18 * inch)
+        )
+
+        story.append(
+            self._divider()
+        )
+
+        story.append(
+            Spacer(1, 0.18 * inch)
         )
 
         # ==================================================
@@ -1056,7 +1291,7 @@ class ReportService:
         )
 
         story.append(
-            Spacer(1, 0.5 * inch)
+            Spacer(1, 0.22 * inch)
         )
 
         # ==================================================
@@ -1066,7 +1301,7 @@ class ReportService:
         story.append(
             Paragraph(
                 "Confidential • AI Executive Intelligence Platform • Internal Business Use Only",
-                self.body_style
+                self.small_style
             )
         )
 
@@ -1074,4 +1309,8 @@ class ReportService:
         # BUILD PDF
         # ==================================================
 
-        doc.build(story)
+        doc.build(
+            story,
+            onFirstPage=self._add_page_number,
+            onLaterPages=self._add_page_number,
+        )
