@@ -170,3 +170,4 @@ lxml
 greenlet
 browserforge
 matplotlib
+vaderSentiment
