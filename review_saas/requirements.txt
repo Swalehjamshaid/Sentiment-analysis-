@@ -1,6 +1,7 @@
 # ==========================================================
-# TRUSTLYTICS AI SaaS - CLEAN PRODUCTION REQUIREMENTS
-# FastAPI + AI Chatbot + PDF Reports + Scraping + Railway
+# TRUSTLYTICS AI SaaS - STABLE PRODUCTION REQUIREMENTS
+# Optimized for:
+# Railway + FastAPI + AI Chatbot + PDF Reports + Scraping
 # ==========================================================
 
 # ==========================================================
@@ -108,7 +109,7 @@ tenacity==8.5.0
 # ==========================================================
 
 crewai==0.51.1
-instructor==1.4.2
+instructor==1.3.3
 
 # ==========================================================
 # NLP / ANALYTICS
