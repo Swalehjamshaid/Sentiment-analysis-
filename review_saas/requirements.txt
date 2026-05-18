@@ -181,3 +181,14 @@ aiocache>=0.12.3
 pdfplumber>=0.11.4
 pymupdf>=1.24.9
 langsmith>=0.1.99
+# ==========================================================
+# SCRAPING & BROWSER AUTOMATION
+# ==========================================================
+
+playwright==1.52.0
+crawlee
+apify-client
+requests
+beautifulsoup4
+lxml
+httpx
