@@ -1,56 +1,194 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Review Intel AI{% endblock %}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-</head>
-<body class="bg-slate-50 min-h-screen flex flex-col">
 
-    <nav class="bg-white border-b border-slate-200 px-6 py-4 shadow-sm">
-        <div class="max-w-7xl mx-auto flex justify-between items-center">
-            <div class="flex items-center gap-2">
-                <div class="bg-indigo-600 p-1.5 rounded-lg">
-                    <i class="fas fa-brain text-white"></i>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>{% block title %}Review Intel AI{% endblock %}</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+    />
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet"
+    />
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+
+<body class="bg-gradient-to-br from-slate-50 via-white to-indigo-50 min-h-screen flex flex-col text-slate-800">
+
+    <!-- ========================= -->
+    <!-- NAVBAR -->
+    <!-- ========================= -->
+
+    <nav class="sticky top-0 z-50 glass border-b border-slate-200 shadow-sm">
+
+        <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+
+            <!-- Logo -->
+
+            <div class="flex items-center gap-3">
+
+                <div class="bg-gradient-to-r from-indigo-600 to-violet-600 p-2 rounded-xl shadow-lg">
+                    <i class="fas fa-brain text-white text-lg"></i>
                 </div>
-                <span class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600">
-                    Review Intel AI
-                </span>
+
+                <div>
+                    <h1 class="text-xl font-extrabold bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">
+                        Review Intel AI
+                    </h1>
+
+                    <p class="text-xs text-slate-400 hidden sm:block">
+                        Enterprise Sentiment Intelligence
+                    </p>
+                </div>
+
             </div>
 
-            <div class="flex items-center gap-6">
-                {% set user = request.session.get("user") %}
-                {% if user %}
-                    <div class="flex items-center gap-4">
-                        <span class="text-slate-600 font-medium hidden md:block">
-                            Welcome, {{ user["name"] }}
-                        </span>
-                        <a href="/api/auth/logout" class="text-sm font-semibold text-red-500 hover:text-red-700 transition">
-                            <i class="fas fa-sign-out-alt mr-1"></i> Logout
-                        </a>
+            <!-- Right Side -->
+
+            <div class="flex items-center gap-4">
+
+                {% if request.session and request.session.get("user") %}
+
+                    {% set user = request.session.get("user") %}
+
+                    <div class="hidden md:flex items-center gap-3">
+
+                        <div class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold">
+                            {{ user["name"][0] }}
+                        </div>
+
+                        <div class="flex flex-col leading-tight">
+                            <span class="font-semibold text-slate-700">
+                                {{ user["name"] }}
+                            </span>
+
+                            <span class="text-xs text-slate-400">
+                                Enterprise User
+                            </span>
+                        </div>
+
                     </div>
+
+                    <a
+                        href="/api/auth/logout"
+                        class="bg-red-50 text-red-600 hover:bg-red-100 transition px-4 py-2 rounded-xl text-sm font-semibold border border-red-100"
+                    >
+                        <i class="fas fa-sign-out-alt mr-2"></i>
+                        Logout
+                    </a>
+
                 {% else %}
-                    <a href="/login" class="text-slate-600 hover:text-indigo-600 font-medium transition">Login</a>
-                    <a href="/register" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition font-medium shadow-md shadow-indigo-100">
+
+                    <a
+                        href="/login"
+                        class="text-slate-600 hover:text-indigo-600 font-medium transition"
+                    >
+                        Login
+                    </a>
+
+                    <a
+                        href="/register"
+                        class="bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-5 py-2.5 rounded-xl hover:scale-105 transition transform shadow-lg shadow-indigo-200 font-semibold"
+                    >
                         Get Started
                     </a>
+
                 {% endif %}
+
             </div>
+
         </div>
+
     </nav>
 
-    <main class="flex-grow flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
-        {% block content %}{% endblock %}
+    <!-- ========================= -->
+    <!-- MAIN CONTENT -->
+    <!-- ========================= -->
+
+    <main class="flex-grow w-full">
+
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+
+            {% block content %}
+            {% endblock %}
+
+        </div>
+
     </main>
 
-    <footer class="bg-white border-t border-slate-200 py-8">
-        <div class="text-center text-slate-400 text-sm">
-            &copy; 2026 Review Intel AI. Built with precision for logistics and sentiment analysis.
+    <!-- ========================= -->
+    <!-- FOOTER -->
+    <!-- ========================= -->
+
+    <footer class="bg-white border-t border-slate-200 mt-auto">
+
+        <div class="max-w-7xl mx-auto px-6 py-8">
+
+            <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+
+                <div>
+                    <h3 class="font-bold text-slate-700">
+                        Review Intel AI
+                    </h3>
+
+                    <p class="text-sm text-slate-400 mt-1">
+                        AI-powered logistics and sentiment intelligence platform.
+                    </p>
+                </div>
+
+                <div class="flex items-center gap-5 text-slate-400 text-lg">
+
+                    <a href="#" class="hover:text-indigo-600 transition">
+                        <i class="fab fa-linkedin"></i>
+                    </a>
+
+                    <a href="#" class="hover:text-indigo-600 transition">
+                        <i class="fab fa-github"></i>
+                    </a>
+
+                    <a href="#" class="hover:text-indigo-600 transition">
+                        <i class="fab fa-twitter"></i>
+                    </a>
+
+                </div>
+
+            </div>
+
+            <div class="mt-6 pt-6 border-t border-slate-100 text-center text-sm text-slate-400">
+
+                © 2026 Review Intel AI — Built for enterprise analytics, logistics intelligence, and AI-driven customer insights.
+
+            </div>
+
         </div>
+
     </footer>
 
-    {% block scripts %}{% endblock %}
+    <!-- ========================= -->
+    <!-- EXTRA SCRIPTS -->
+    <!-- ========================= -->
+
+    {% block scripts %}
+    {% endblock %}
+
 </body>
+
 </html>
