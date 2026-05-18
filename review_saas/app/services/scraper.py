@@ -1,7 +1,7 @@
 # ==========================================================
-# ULTRA OPTIMIZED REVIEW SCRAPER
-# PRODUCTION GRADE
+# PRODUCTION GRADE REVIEW SCRAPER
 # FASTAPI + PLAYWRIGHT + APIFY + GOOGLE MAPS
+# FULLY OPTIMIZED FOR RAILWAY DEPLOYMENT
 # ==========================================================
 
 import os
@@ -34,7 +34,7 @@ from app.core.models import Company, Review
 logger = logging.getLogger("app.scraper")
 
 # ==========================================================
-# ENV
+# ENVIRONMENT VARIABLES
 # ==========================================================
 
 APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN")
@@ -52,7 +52,7 @@ USE_PROXY_SCRAPER_FIRST = (
 )
 
 # ==========================================================
-# APIFY
+# APIFY CLIENT
 # ==========================================================
 
 apify_client = ApifyClient(
@@ -128,7 +128,7 @@ async def block_resources(route):
 
     resource_type = route.request.resource_type
 
-    blocked = [
+    blocked_resources = [
 
         "image",
         "media",
@@ -137,7 +137,7 @@ async def block_resources(route):
         "websocket"
     ]
 
-    if resource_type in blocked:
+    if resource_type in blocked_resources:
 
         await route.abort()
 
@@ -146,7 +146,7 @@ async def block_resources(route):
         await route.continue_()
 
 # ==========================================================
-# PARSE REVIEW CARD
+# REVIEW PARSER
 # ==========================================================
 
 async def parse_review_card(card, idx):
@@ -189,7 +189,7 @@ async def parse_review_card(card, idx):
                 )
 
                 match = re.search(
-                    r"(\\d)",
+                    r"(\d)",
                     aria or ""
                 )
 
@@ -238,13 +238,13 @@ async def parse_review_card(card, idx):
     except Exception as e:
 
         logger.error(
-            f"❌ Parse failed: {e}"
+            f"❌ Review parsing failed: {e}"
         )
 
         return None
 
 # ==========================================================
-# CRAWLEE SCRAPER
+# PLAYWRIGHT + CRAWLEE SCRAPER
 # ==========================================================
 
 async def fetch_reviews_with_crawlee(
@@ -256,7 +256,7 @@ async def fetch_reviews_with_crawlee(
 ):
 
     logger.info(
-        "🚀 Starting Crawlee Scraper"
+        "🚀 Starting Crawlee scraper"
     )
 
     reviews = []
@@ -308,13 +308,21 @@ async def fetch_reviews_with_crawlee(
         try:
 
             logger.info(
-                "🌐 Opening Google Maps"
+                f"🌐 Opening URL: {google_maps_url}"
             )
+
+            # ==================================================
+            # BLOCK HEAVY RESOURCES
+            # ==================================================
 
             await page.route(
                 "**/*",
                 block_resources
             )
+
+            # ==================================================
+            # OPEN PAGE
+            # ==================================================
 
             await page.goto(
 
@@ -326,11 +334,11 @@ async def fetch_reviews_with_crawlee(
             )
 
             await page.wait_for_timeout(
-                random.randint(1000, 2000)
+                random.randint(1000, 2500)
             )
 
             # ==================================================
-            # OPEN REVIEW PANEL
+            # OPEN REVIEWS PANEL
             # ==================================================
 
             try:
@@ -344,13 +352,13 @@ async def fetch_reviews_with_crawlee(
                     await review_button.first.click()
 
                     await page.wait_for_timeout(
-                        random.randint(1000, 2500)
+                        random.randint(1500, 3000)
                     )
 
-            except Exception as e:
+            except Exception as review_button_error:
 
                 logger.warning(
-                    f"⚠️ Review button issue: {e}"
+                    f"⚠️ Failed opening reviews panel: {review_button_error}"
                 )
 
             # ==================================================
@@ -371,13 +379,13 @@ async def fetch_reviews_with_crawlee(
                 )
 
                 await page.wait_for_timeout(
-                    random.randint(700, 1400)
+                    random.randint(800, 1600)
                 )
 
                 current_count = await review_cards.count()
 
                 logger.info(
-                    f"📦 Reviews Loaded: {current_count}"
+                    f"📦 Loaded reviews: {current_count}"
                 )
 
                 if current_count == previous_count:
@@ -388,7 +396,7 @@ async def fetch_reviews_with_crawlee(
             count = await review_cards.count()
 
             logger.info(
-                f"✅ Total Reviews Found: {count}"
+                f"✅ Total reviews found: {count}"
             )
 
             tasks = [
@@ -403,18 +411,18 @@ async def fetch_reviews_with_crawlee(
                 )
             ]
 
-            results = await asyncio.gather(
+            parsed_results = await asyncio.gather(
                 *tasks
             )
 
             reviews.extend([
-                r for r in results if r
+                r for r in parsed_results if r
             ])
 
         except Exception as e:
 
             logger.error(
-                f"❌ Crawlee failed: {e}"
+                f"❌ Crawlee scraping failed: {e}"
             )
 
     await crawler.run([
@@ -440,7 +448,7 @@ async def fetch_reviews_from_apify(
 ):
 
     logger.info(
-        "⚡ Starting APIFY"
+        "⚡ Starting APIFY scraper"
     )
 
     fetch_limit = target_limit + 20
@@ -479,7 +487,7 @@ async def fetch_reviews_from_apify(
     if not dataset_id:
 
         raise Exception(
-            "No dataset returned"
+            "No APIFY dataset returned"
         )
 
     dataset_items = await asyncio.to_thread(
@@ -589,7 +597,7 @@ async def fetch_from_serper_fallback(
             })
 
         logger.info(
-            f"✅ Serper returned {len(reviews)}"
+            f"✅ Serper returned {len(reviews)} reviews"
         )
 
         return reviews
@@ -603,7 +611,7 @@ async def fetch_from_serper_fallback(
         return []
 
 # ==========================================================
-# MAIN FETCHER
+# MAIN SCRAPER
 # ==========================================================
 
 async def fetch_reviews_from_google(
@@ -629,7 +637,7 @@ async def fetch_reviews_from_google(
     try:
 
         # ==================================================
-        # LOAD COMPANY + EXISTING IDS
+        # LOAD COMPANY
         # ==================================================
 
         if session and company_id:
@@ -668,13 +676,13 @@ async def fetch_reviews_from_google(
                 )
 
         # ==================================================
-        # PLACE ID CHECK
+        # PLACE ID VALIDATION
         # ==================================================
 
         if not place_id:
 
             logger.error(
-                "❌ Missing Place ID"
+                "❌ Missing Google Place ID"
             )
 
             return []
@@ -684,7 +692,7 @@ async def fetch_reviews_from_google(
         )
 
         logger.info(
-            f"📍 URL: {google_maps_url}"
+            f"📍 Google Maps URL: {google_maps_url}"
         )
 
         # ==================================================
@@ -767,7 +775,7 @@ async def fetch_reviews_from_google(
             if all_reviews:
 
                 logger.info(
-                    f"✅ APIFY Success: {len(all_reviews)}"
+                    f"✅ APIFY success: {len(all_reviews)} reviews"
                 )
 
                 return all_reviews
@@ -779,7 +787,7 @@ async def fetch_reviews_from_google(
             )
 
         # ==================================================
-        # CRAWLEE SECOND
+        # PLAYWRIGHT FALLBACK
         # ==================================================
 
         if USE_PROXY_SCRAPER_FIRST:
@@ -796,7 +804,7 @@ async def fetch_reviews_from_google(
                 if crawlee_reviews:
 
                     logger.info(
-                        f"✅ Crawlee Success: {len(crawlee_reviews)}"
+                        f"✅ Crawlee success: {len(crawlee_reviews)} reviews"
                     )
 
                     return crawlee_reviews
@@ -808,7 +816,7 @@ async def fetch_reviews_from_google(
                 )
 
         # ==================================================
-        # SERPER LAST
+        # SERPER FINAL FALLBACK
         # ==================================================
 
         return await fetch_from_serper_fallback(
@@ -825,255 +833,3 @@ async def fetch_reviews_from_google(
         )
 
         return []
-
-# ==========================================================
-# REVIEW SERVICE
-# ==========================================================
-
-class ReviewService:
-
-    @staticmethod
-    async def get_latest_reviews(
-
-        company_id: int,
-
-        limit: int = 300
-
-    ):
-
-        from app.core.db import AsyncSessionLocal
-
-        async with AsyncSessionLocal() as session:
-
-            try:
-
-                stmt = (
-
-                    select(Review)
-
-                    .where(
-                        Review.company_id == company_id
-                    )
-
-                    .order_by(
-                        Review.google_review_time.desc()
-                    )
-
-                    .limit(limit)
-                )
-
-                result = await session.execute(
-                    stmt
-                )
-
-                reviews = result.scalars().all()
-
-                formatted = []
-
-                for review in reviews:
-
-                    formatted.append({
-
-                        "id":
-                            review.id,
-
-                        "author_name":
-                            review.author_name,
-
-                        "rating":
-                            review.rating,
-
-                        "text":
-                            review.text,
-
-                        "review_text":
-                            review.text,
-
-                        "created_at":
-                            review.google_review_time.isoformat()
-                            if review.google_review_time
-                            else None,
-
-                        "review_likes":
-                            review.review_likes,
-
-                        "sentiment":
-                            (
-                                "positive"
-                                if review.rating >= 4
-                                else "negative"
-                                if review.rating <= 2
-                                else "neutral"
-                            )
-                    })
-
-                logger.info(
-                    f"✅ Loaded {len(formatted)} reviews"
-                )
-
-                return formatted
-
-            except Exception:
-
-                logger.exception(
-                    "❌ Failed loading reviews"
-                )
-
-                return []
-
-    @staticmethod
-    async def ingest_from_google(
-        company_id: int
-    ):
-
-        from app.core.db import AsyncSessionLocal
-
-        async with AsyncSessionLocal() as session:
-
-            try:
-
-                company_stmt = select(
-                    Company
-                ).where(
-                    Company.id == company_id
-                )
-
-                company_result = await session.execute(
-                    company_stmt
-                )
-
-                company = company_result.scalars().first()
-
-                if not company:
-
-                    raise Exception(
-                        "Company not found"
-                    )
-
-                reviews = await fetch_reviews_from_google(
-
-                    place_id=company.google_place_id,
-
-                    company_id=company_id,
-
-                    session=session,
-
-                    target_limit=300
-                )
-
-                if not reviews:
-
-                    return {
-
-                        "status":
-                            "success",
-
-                        "ingested_count":
-                            0
-                    }
-
-                stmt = select(
-                    Review.google_review_id
-                ).where(
-                    Review.company_id == company_id
-                )
-
-                result = await session.execute(
-                    stmt
-                )
-
-                existing_ids = set(
-                    result.scalars().all()
-                )
-
-                ingested_count = 0
-
-                for item in reviews:
-
-                    try:
-
-                        if item["google_review_id"] in existing_ids:
-                            continue
-
-                        new_review = Review(
-
-                            company_id=company_id,
-
-                            google_review_id=item.get(
-                                "google_review_id"
-                            ),
-
-                            author_name=item.get(
-                                "author_name",
-                                "Anonymous"
-                            ),
-
-                            rating=item.get(
-                                "rating",
-                                5
-                            ),
-
-                            text=item.get(
-                                "text",
-                                ""
-                            ),
-
-                            google_review_time=item.get(
-                                "google_review_time",
-                                utc_now_naive()
-                            ),
-
-                            first_seen_at=utc_now_naive(),
-
-                            review_likes=item.get(
-                                "review_likes",
-                                0
-                            )
-                        )
-
-                        session.add(
-                            new_review
-                        )
-
-                        ingested_count += 1
-
-                    except Exception as save_error:
-
-                        logger.error(
-                            f"❌ Save failed: {save_error}"
-                        )
-
-                await session.commit()
-
-                logger.info(
-                    f"✅ Ingested {ingested_count} reviews"
-                )
-
-                return {
-
-                    "status":
-                        "success",
-
-                    "ingested_count":
-                        ingested_count
-                }
-
-            except Exception as e:
-
-                await session.rollback()
-
-                logger.exception(
-                    "❌ Ingest failed"
-                )
-
-                return {
-
-                    "status":
-                        "error",
-
-                    "message":
-                        str(e),
-
-                    "ingested_count":
-                        0
-                }
