@@ -1,6 +1,6 @@
 # ==========================================================
 # TRUSTLYTICS - COMPLETE PRODUCTION SCRAPER
-# FASTAPI + PLAYWRIGHT + APIFY + GOOGLE MAPS
+# APIFY FIRST → PLAYWRIGHT FALLBACK → SERPER FALLBACK
 # ==========================================================
 
 import os
@@ -161,7 +161,7 @@ async def block_resources(route):
         await route.continue_()
 
 # ==========================================================
-# PARSE REVIEW CARD
+# REVIEW PARSER
 # ==========================================================
 
 async def parse_review_card(card, idx):
@@ -262,7 +262,7 @@ async def parse_review_card(card, idx):
         return None
 
 # ==========================================================
-# PLAYWRIGHT SCRAPER
+# PLAYWRIGHT FALLBACK SCRAPER
 # ==========================================================
 
 async def fetch_reviews_with_crawlee(
@@ -274,10 +274,12 @@ async def fetch_reviews_with_crawlee(
 ):
 
     logger.info(
-        "🚀 Starting Crawlee scraper"
+        "🚀 Starting Playwright fallback scraper"
     )
 
     reviews = []
+
+    proxy_config = build_proxy_config()
 
     launch_options = {
 
@@ -302,8 +304,6 @@ async def fetch_reviews_with_crawlee(
         ]
     }
 
-    proxy_config = build_proxy_config()
-
     if proxy_config:
         launch_options["proxy"] = proxy_config
 
@@ -325,13 +325,13 @@ async def fetch_reviews_with_crawlee(
 
         try:
 
-            logger.info(
-                f"🌐 Opening URL: {google_maps_url}"
-            )
-
             await page.route(
                 "**/*",
                 block_resources
+            )
+
+            logger.info(
+                f"🌐 Opening URL: {google_maps_url}"
             )
 
             await page.goto(
@@ -343,12 +343,7 @@ async def fetch_reviews_with_crawlee(
                 timeout=45000
             )
 
-            await page.wait_for_timeout(
-                random.randint(
-                    1000,
-                    2500
-                )
-            )
+            await page.wait_for_timeout(3000)
 
             try:
 
@@ -360,18 +355,10 @@ async def fetch_reviews_with_crawlee(
 
                     await review_button.first.click()
 
-                    await page.wait_for_timeout(
-                        random.randint(
-                            1500,
-                            3000
-                        )
-                    )
+                    await page.wait_for_timeout(4000)
 
-            except Exception as review_button_error:
-
-                logger.warning(
-                    f"⚠️ Failed opening reviews panel: {review_button_error}"
-                )
+            except Exception:
+                pass
 
             review_cards = page.locator(
                 'div[data-review-id]'
@@ -379,24 +366,24 @@ async def fetch_reviews_with_crawlee(
 
             previous_count = 0
 
-            for _ in range(12):
+            for _ in range(15):
 
                 await page.mouse.wheel(
                     0,
-                    6000
+                    7000
                 )
 
                 await page.wait_for_timeout(
                     random.randint(
-                        800,
-                        1600
+                        1000,
+                        2000
                     )
                 )
 
                 current_count = await review_cards.count()
 
                 logger.info(
-                    f"📦 Reviews loaded: {current_count}"
+                    f"📦 Loaded reviews: {current_count}"
                 )
 
                 if current_count == previous_count:
@@ -407,7 +394,7 @@ async def fetch_reviews_with_crawlee(
             count = await review_cards.count()
 
             logger.info(
-                f"✅ Final review count: {count}"
+                f"✅ Final reviews count: {count}"
             )
 
             tasks = [
@@ -433,7 +420,7 @@ async def fetch_reviews_with_crawlee(
         except Exception as e:
 
             logger.error(
-                f"❌ Crawlee failed: {e}"
+                f"❌ Playwright fallback failed: {e}"
             )
 
     await crawler.run([
@@ -532,11 +519,6 @@ async def fetch_from_serper_fallback(
     )
 
     if not SERPER_API_KEY:
-
-        logger.error(
-            "❌ SERPER_API_KEY missing"
-        )
-
         return []
 
     try:
@@ -611,22 +593,14 @@ async def fetch_from_serper_fallback(
                     0
             })
 
-        logger.info(
-            f"✅ Serper returned {len(reviews)} reviews"
-        )
-
         return reviews
 
-    except Exception as e:
-
-        logger.error(
-            f"❌ Serper failed: {e}"
-        )
+    except Exception:
 
         return []
 
 # ==========================================================
-# MAIN SCRAPER
+# MAIN GOOGLE SCRAPER
 # ==========================================================
 
 async def fetch_reviews_from_google(
@@ -704,6 +678,10 @@ async def fetch_reviews_from_google(
             f"📍 URL: {google_maps_url}"
         )
 
+        # ==================================================
+        # APIFY FIRST
+        # ==================================================
+
         try:
 
             dataset_items = await fetch_reviews_from_apify(
@@ -770,19 +748,19 @@ async def fetch_reviews_from_google(
                             )
                     })
 
-                    if len(all_reviews) >= target_limit:
-                        break
-
                 except Exception as parse_error:
 
                     logger.error(
                         f"❌ APIFY parse failed: {parse_error}"
                     )
 
+            # IMPORTANT:
+            # RETURN IMMEDIATELY IF APIFY WORKS
+
             if all_reviews:
 
                 logger.info(
-                    f"✅ APIFY success: {len(all_reviews)} reviews"
+                    f"✅ APIFY SUCCESS: {len(all_reviews)} reviews"
                 )
 
                 return all_reviews
@@ -793,30 +771,36 @@ async def fetch_reviews_from_google(
                 f"❌ APIFY failed: {apify_error}"
             )
 
-        if USE_PROXY_SCRAPER_FIRST:
+        # ==================================================
+        # PLAYWRIGHT FALLBACK
+        # ==================================================
 
-            try:
+        try:
 
-                crawlee_reviews = await fetch_reviews_with_crawlee(
+            crawlee_reviews = await fetch_reviews_with_crawlee(
 
-                    google_maps_url=google_maps_url,
+                google_maps_url=google_maps_url,
 
-                    limit=target_limit
+                limit=target_limit
+            )
+
+            if crawlee_reviews:
+
+                logger.info(
+                    f"✅ Playwright fallback success: {len(crawlee_reviews)}"
                 )
 
-                if crawlee_reviews:
+                return crawlee_reviews
 
-                    logger.info(
-                        f"✅ Crawlee success: {len(crawlee_reviews)} reviews"
-                    )
+        except Exception as crawlee_error:
 
-                    return crawlee_reviews
+            logger.error(
+                f"❌ Crawlee fallback failed: {crawlee_error}"
+            )
 
-            except Exception as crawlee_error:
-
-                logger.error(
-                    f"❌ Crawlee error: {crawlee_error}"
-                )
+        # ==================================================
+        # SERPER FINAL FALLBACK
+        # ==================================================
 
         return await fetch_from_serper_fallback(
 
@@ -904,20 +888,7 @@ class ReviewService:
                         ),
 
                     "review_likes":
-                        review.review_likes,
-
-                    "sentiment":
-                        (
-                            "positive"
-
-                            if (review.rating or 0) >= 4
-
-                            else "negative"
-
-                            if (review.rating or 0) <= 2
-
-                            else "neutral"
-                        )
+                        review.review_likes
                 })
 
             return formatted
@@ -1029,17 +1000,6 @@ class ReviewService:
                                 5
                             ),
 
-                        sentiment_score=
-                            round(
-                                (
-                                    item.get(
-                                        "rating",
-                                        5
-                                    ) / 5
-                                ),
-                                2
-                            ),
-
                         text=
                             item.get(
                                 "text",
@@ -1076,6 +1036,10 @@ class ReviewService:
 
             await session.commit()
 
+            logger.info(
+                f"✅ Stored {inserted_count} reviews in database"
+            )
+
             return {
 
                 "status":
@@ -1090,7 +1054,7 @@ class ReviewService:
             await session.rollback()
 
             logger.exception(
-                "❌ Ingest failed"
+                "❌ Review ingestion failed"
             )
 
             return {
