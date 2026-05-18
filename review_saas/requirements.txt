@@ -185,10 +185,3 @@ langsmith>=0.1.99
 # SCRAPING & BROWSER AUTOMATION
 # ==========================================================
 
-playwright==1.52.0
-crawlee
-apify-client
-requests
-beautifulsoup4
-lxml
-httpx
