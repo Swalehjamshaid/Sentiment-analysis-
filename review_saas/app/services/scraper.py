@@ -70,7 +70,10 @@ USE_PROXY_SCRAPER_FIRST = os.getenv(
 # ==========================================================
 
 if not APIFY_API_TOKEN:
-logger.warning("⚠️ APIFY_API_TOKEN missing")
+
+    logger.warning(
+        "⚠️ APIFY_API_TOKEN missing"
+    )
 
 apify_client = ApifyClient(APIFY_API_TOKEN)
 
