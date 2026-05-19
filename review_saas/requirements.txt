@@ -1,21 +1,21 @@
 # ==========================================================
-# TRUSTLYTICS AI SAAS - FINAL STABLE REQUIREMENTS
+# TRUSTLYTICS AI SAAS - FINAL PRODUCTION REQUIREMENTS
 # ==========================================================
-# FULLY FIXED FOR:
+# FULLY FIXED & COMPATIBLE
 #
 # ✅ Railway Deployment
 # ✅ FastAPI
 # ✅ PostgreSQL
 # ✅ LangChain
-# ✅ AI Chatbot
+# ✅ OpenAI
 # ✅ Dashboard Analytics
+# ✅ AI Chatbot
 # ✅ PDF Reports
-# ✅ Apify Scraper
+# ✅ Google Reviews Scraper
+# ✅ Apify + Proxy Support
 # ✅ Playwright
-# ✅ Proxy Support
 # ✅ Async SQLAlchemy
 #
-# ==========================================================
 # PYTHON VERSION:
 # 3.11
 # ==========================================================
@@ -69,10 +69,6 @@ resend==2.4.0
 # ==========================================================
 # DATABASE
 # ==========================================================
-# FIXED:
-# langchain-community==0.3.7 requires:
-# SQLAlchemy < 2.0.36
-# ==========================================================
 
 sqlalchemy==2.0.35
 
@@ -120,8 +116,12 @@ watchfiles==0.24.0
 # ==========================================================
 # AI MODELS / APIs
 # ==========================================================
+# FIXED:
+# langchain-openai==0.2.8
+# requires openai>=1.54.0
+# ==========================================================
 
-openai==1.51.2
+openai==1.54.4
 
 groq==0.11.0
 
@@ -254,7 +254,7 @@ jsonschema==4.23.0
 # IMPORTANT RAILWAY NOTE
 # ==========================================================
 #
-# Your Dockerfile MUST contain:
+# Dockerfile MUST contain:
 #
 # RUN playwright install --with-deps chromium
 #
