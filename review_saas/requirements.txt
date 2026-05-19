@@ -253,8 +253,7 @@ h11==0.14.0
 #
 # Railway Dockerfile MUST contain:
 #
-# RUN playwright install --with-deps chromium
-#
+# RUN playwright install chromium
 # DO NOT upgrade:
 #
 # - sqlalchemy
