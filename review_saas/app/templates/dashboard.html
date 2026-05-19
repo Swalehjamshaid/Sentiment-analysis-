@@ -926,8 +926,22 @@ async function loadDashboardMetrics() {
             return;
         }
 
+                // ==========================================
+        // ENTERPRISE TIMELINE FILTER
+        // ==========================================
+
+        const selectedDays = document.getElementById(
+            'dateRange'
+        ).value;
+
+        console.log(
+            '📊 Timeline Selected:',
+            selectedDays
+        );
+
         const response = await fetch(
-            `/api/dashboard/${companyId}`
+
+            `/api/dashboard/${companyId}?days=${selectedDays}`
         );
 
         const data = await response.json();
@@ -1474,6 +1488,21 @@ document.getElementById(
     ).addEventListener(
 
         'click',
+
+        function () {
+
+            loadDashboardMetrics();
+        }
+    );
+            // =========================================
+    // DATE RANGE CHANGE EVENT
+    // =========================================
+
+    document.getElementById(
+        'dateRange'
+    ).addEventListener(
+
+        'change',
 
         function () {
 
