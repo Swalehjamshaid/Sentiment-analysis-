@@ -4,7 +4,8 @@
 
 FROM python:3.11-slim
 
-# Prevent Python from writing pyc files
+
+Prevent Python from writing pyc files
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Prevent Python buffering logs
