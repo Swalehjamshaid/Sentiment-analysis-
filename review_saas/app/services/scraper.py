@@ -10,7 +10,7 @@ import logging
 import traceback
 
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 from sqlalchemy import (
     select,
@@ -55,40 +55,27 @@ logger = logging.getLogger(
 
 class ReviewService:
 
-    # ======================================================
-    # GET LATEST REVIEWS
-    # ======================================================
-
     @staticmethod
     async def get_latest_reviews(
-
         db: AsyncSession,
-
         company_id: int,
-
         limit: int = 50
     ):
 
         try:
 
             stmt = (
-
                 select(Review)
-
                 .where(
                     Review.company_id == company_id
                 )
-
                 .order_by(
                     desc(Review.created_at)
                 )
-
                 .limit(limit)
             )
 
-            result = await db.execute(
-                stmt
-            )
+            result = await db.execute(stmt)
 
             return result.scalars().all()
 
@@ -100,34 +87,24 @@ class ReviewService:
 
             return []
 
-    # ======================================================
-    # GET TOTAL REVIEWS
-    # ======================================================
-
     @staticmethod
     async def get_total_reviews(
-
         db: AsyncSession,
-
         company_id: int
     ):
 
         try:
 
             stmt = (
-
                 select(
                     func.count(Review.id)
                 )
-
                 .where(
                     Review.company_id == company_id
                 )
             )
 
-            result = await db.execute(
-                stmt
-            )
+            result = await db.execute(stmt)
 
             return result.scalar() or 0
 
@@ -135,80 +112,55 @@ class ReviewService:
 
             return 0
 
-    # ======================================================
-    # GET AVERAGE RATING
-    # ======================================================
-
     @staticmethod
     async def get_average_rating(
-
         db: AsyncSession,
-
         company_id: int
     ):
 
         try:
 
             stmt = (
-
                 select(
                     func.avg(Review.rating)
                 )
-
                 .where(
                     Review.company_id == company_id
                 )
             )
 
-            result = await db.execute(
-                stmt
-            )
+            result = await db.execute(stmt)
 
             avg = result.scalar()
 
             if avg is None:
-
                 return 0
 
-            return round(
-                float(avg),
-                2
-            )
+            return round(float(avg), 2)
 
         except Exception:
 
             return 0
 
-    # ======================================================
-    # GET NEGATIVE REVIEWS
-    # ======================================================
-
     @staticmethod
     async def get_negative_reviews(
-
         db: AsyncSession,
-
         company_id: int
     ):
 
         try:
 
             stmt = (
-
                 select(Review)
-
                 .where(
                     Review.company_id == company_id
                 )
-
                 .where(
                     Review.rating <= 2
                 )
             )
 
-            result = await db.execute(
-                stmt
-            )
+            result = await db.execute(stmt)
 
             return result.scalars().all()
 
@@ -216,36 +168,24 @@ class ReviewService:
 
             return []
 
-    # ======================================================
-    # GET DASHBOARD STATS
-    # ======================================================
-
     @staticmethod
     async def get_dashboard_stats(
-
         db: AsyncSession,
-
         company_id: int
     ):
 
         total_reviews = await ReviewService.get_total_reviews(
-
             db=db,
-
             company_id=company_id
         )
 
         average_rating = await ReviewService.get_average_rating(
-
             db=db,
-
             company_id=company_id
         )
 
         negative_reviews = await ReviewService.get_negative_reviews(
-
             db=db,
-
             company_id=company_id
         )
 
@@ -256,27 +196,17 @@ class ReviewService:
 
         return {
 
-            "total_reviews":
-                total_reviews,
-
-            "average_rating":
-                average_rating,
-
-            "negative_reviews":
-                len(negative_reviews),
-
-            "reputation_score":
-                reputation_score
+            "total_reviews": total_reviews,
+            "average_rating": average_rating,
+            "negative_reviews": len(negative_reviews),
+            "reputation_score": reputation_score
         }
 
 # ==========================================================
-# SAFE STRING
+# HELPERS
 # ==========================================================
 
-def safe_string(
-    value,
-    default=""
-):
+def safe_string(value, default=""):
 
     try:
 
@@ -289,14 +219,8 @@ def safe_string(
 
         return default
 
-# ==========================================================
-# SAFE INTEGER
-# ==========================================================
 
-def safe_int(
-    value,
-    default=0
-):
+def safe_int(value, default=0):
 
     try:
 
@@ -309,36 +233,12 @@ def safe_int(
 
         return default
 
-# ==========================================================
-# SAFE FLOAT
-# ==========================================================
-
-def safe_float(
-    value,
-    default=0.0
-):
-
-    try:
-
-        if value is None:
-            return default
-
-        return float(value)
-
-    except Exception:
-
-        return default
-
-# ==========================================================
-# SAFE DATETIME
-# ==========================================================
 
 def safe_datetime(value):
 
     try:
 
         if not value:
-
             return datetime.utcnow()
 
         if isinstance(value, datetime):
@@ -354,9 +254,7 @@ def safe_datetime(value):
             "+00:00"
         )
 
-        parsed = datetime.fromisoformat(
-            value
-        )
+        parsed = datetime.fromisoformat(value)
 
         return parsed.replace(
             tzinfo=None
@@ -366,9 +264,6 @@ def safe_datetime(value):
 
         return datetime.utcnow()
 
-# ==========================================================
-# CLEAN REVIEW TEXT
-# ==========================================================
 
 def clean_review_text(text):
 
@@ -377,52 +272,30 @@ def clean_review_text(text):
         ""
     )
 
-    text = text.replace(
-        "\n",
-        " "
-    )
-
-    text = text.replace(
-        "\r",
-        " "
-    )
-
-    text = text.replace(
-        "\t",
-        " "
-    )
+    text = text.replace("\n", " ")
+    text = text.replace("\r", " ")
+    text = text.replace("\t", " ")
 
     text = " ".join(
         text.split()
     )
 
     if len(text) > 5000:
-
         text = text[:5000]
 
     return text
 
-# ==========================================================
-# GENERATE HASH
-# ==========================================================
 
-def generate_hash(
-    author,
-    text
-):
+def generate_hash(author, text):
 
     raw = f"{author}_{text}"
 
     return hashlib.md5(
-
-        raw.encode(
-            "utf-8"
-        )
-
+        raw.encode("utf-8")
     ).hexdigest()
 
 # ==========================================================
-# CREATE APIFY CLIENT
+# APIFY CLIENT
 # ==========================================================
 
 def create_apify_client():
@@ -444,7 +317,7 @@ def create_apify_client():
     return ApifyClient(token)
 
 # ==========================================================
-# BUILD GOOGLE MAPS URL
+# GOOGLE MAPS URL
 # ==========================================================
 
 def build_google_maps_url(
@@ -455,80 +328,60 @@ def build_google_maps_url(
         "https://www.google.com/maps/search/"
         f"?api=1&query_place_id={place_id}"
     )
+
 # ==========================================================
-# BUILD ACTOR INPUT
+# ACTOR INPUT
 # ==========================================================
 
 def build_actor_input(
-
     google_maps_url: str,
-
     target_limit: int
-
 ):
 
     return {
 
         "startUrls": [
-
             {
-                "url":
-                    google_maps_url
+                "url": google_maps_url
             }
-
         ],
 
-        "language":
-            "en",
+        "language": "en",
 
-        "maxReviews":
-            target_limit,
+        "maxReviews": target_limit,
 
-        "reviewsSort":
-            "newest",
+        "reviewsSort": "newest",
 
-        "reviewsOrigin":
-            "all",
+        "reviewsOrigin": "all",
 
-        "personalData":
-            True,
+        "personalData": True,
 
-        "maxImages":
-            0,
+        "maxImages": 0,
 
-        "maxCrawledPlaces":
-            1,
+        "maxCrawledPlaces": 1,
 
         "proxy": {
-
-            "useApifyProxy":
-                True
+            "useApifyProxy": True
         }
     }
 
 # ==========================================================
-# GET EXISTING REVIEWS
+# EXISTING REVIEWS
 # ==========================================================
 
 async def get_existing_reviews(
-
     session: AsyncSession,
-
     company_id: int
 ):
 
     stmt = (
-
         select(Review)
-
         .where(
             Review.company_id == company_id
         )
     )
 
-    result = await session.execute(
-        stmt
-    )
+    result = await session.execute(stmt)
 
     reviews = result.scalars().all()
 
@@ -547,38 +400,19 @@ async def get_existing_reviews(
 # ==========================================================
 
 def normalize_review(
-
     item: Dict[str, Any],
-
     company_id: int
-
 ):
 
     try:
 
         author_name = (
-
             item.get("name")
-
-            or
-
-            item.get("reviewerName")
-
-            or
-
-            item.get("authorName")
-
-            or
-
-            item.get("userName")
-
-            or
-
-            item.get("reviewer")
-
-            or
-
-            "Anonymous"
+            or item.get("reviewerName")
+            or item.get("authorName")
+            or item.get("userName")
+            or item.get("reviewer")
+            or "Anonymous"
         )
 
         author_name = safe_string(
@@ -587,28 +421,12 @@ def normalize_review(
         )
 
         review_text = (
-
             item.get("text")
-
-            or
-
-            item.get("reviewText")
-
-            or
-
-            item.get("review")
-
-            or
-
-            item.get("comment")
-
-            or
-
-            item.get("reviewDescription")
-
-            or
-
-            ""
+            or item.get("reviewText")
+            or item.get("review")
+            or item.get("comment")
+            or item.get("reviewDescription")
+            or ""
         )
 
         review_text = clean_review_text(
@@ -624,20 +442,10 @@ def normalize_review(
             return None
 
         rating = (
-
             item.get("stars")
-
-            or
-
-            item.get("rating")
-
-            or
-
-            item.get("score")
-
-            or
-
-            5
+            or item.get("rating")
+            or item.get("score")
+            or 5
         )
 
         rating = safe_int(
@@ -651,16 +459,9 @@ def normalize_review(
         )
 
         review_likes = (
-
             item.get("likesCount")
-
-            or
-
-            item.get("likes")
-
-            or
-
-            0
+            or item.get("likes")
+            or 0
         )
 
         review_likes = safe_int(
@@ -669,20 +470,10 @@ def normalize_review(
         )
 
         review_time = (
-
             item.get("publishedAtDate")
-
-            or
-
-            item.get("publishedAt")
-
-            or
-
-            item.get("reviewDate")
-
-            or
-
-            item.get("date")
+            or item.get("publishedAt")
+            or item.get("reviewDate")
+            or item.get("date")
         )
 
         review_time = safe_datetime(
@@ -690,24 +481,15 @@ def normalize_review(
         )
 
         google_review_id = (
-
             item.get("reviewId")
-
-            or
-
-            item.get("review_id")
-
-            or
-
-            item.get("id")
+            or item.get("review_id")
+            or item.get("id")
         )
 
         if not google_review_id:
 
             google_review_id = (
-
                 f"{company_id}_"
-
                 f"{generate_hash(author_name, review_text)}"
             )
 
@@ -722,26 +504,13 @@ def normalize_review(
 
         return {
 
-            "google_review_id":
-                google_review_id,
-
-            "author_name":
-                author_name,
-
-            "rating":
-                rating,
-
-            "text":
-                review_text,
-
-            "google_review_time":
-                review_time,
-
-            "review_likes":
-                review_likes,
-
-            "sentiment_score":
-                sentiment_score
+            "google_review_id": google_review_id,
+            "author_name": author_name,
+            "rating": rating,
+            "text": review_text,
+            "google_review_time": review_time,
+            "review_likes": review_likes,
+            "sentiment_score": sentiment_score
         }
 
     except Exception as e:
@@ -785,22 +554,15 @@ async def fetch_reviews_from_google(
             return {
 
                 "success": False,
-
                 "inserted": 0,
-
                 "updated": 0,
-
                 "duplicates": 0,
-
                 "fetched": 0,
-
                 "reviews": []
             }
 
         existing_reviews = await get_existing_reviews(
-
             session=session,
-
             company_id=company_id
         )
 
@@ -815,15 +577,10 @@ async def fetch_reviews_from_google(
             return {
 
                 "success": False,
-
                 "inserted": 0,
-
                 "updated": 0,
-
                 "duplicates": 0,
-
                 "fetched": 0,
-
                 "reviews": []
             }
 
@@ -839,19 +596,8 @@ async def fetch_reviews_from_google(
             f"📦 Existing reviews in DB: {existing_count}"
         )
 
-        dynamic_target_limit = (
-
-            existing_count
-
-            +
-
-            target_limit
-        )
-
         dynamic_target_limit = min(
-
-            dynamic_target_limit,
-
+            existing_count + target_limit,
             5000
         )
 
@@ -860,11 +606,15 @@ async def fetch_reviews_from_google(
         )
 
         actor_input = build_actor_input(
+            google_maps_url=google_maps_url,
+            target_limit=dynamic_target_limit
+        )
 
-            google_maps_url=
-                google_maps_url,
+        logger.info(
+            f"🚀 Requesting {dynamic_target_limit} reviews from APIFY"
+        )
 
-            target_limit=        logger.info(
+        logger.info(
             "🚀 Starting APIFY actor..."
         )
 
@@ -884,38 +634,10 @@ async def fetch_reviews_from_google(
             return {
 
                 "success": False,
-
                 "inserted": 0,
-
                 "updated": 0,
-
                 "duplicates": 0,
-
                 "fetched": 0,
-
-                "reviews": []
-            }
-                dynamic_target_limit
-        )
-
-        
-
-            logger.error(
-                "❌ Actor execution failed"
-            )
-
-            return {
-
-                "success": False,
-
-                "inserted": 0,
-
-                "updated": 0,
-
-                "duplicates": 0,
-
-                "fetched": 0,
-
                 "reviews": []
             }
 
@@ -932,15 +654,10 @@ async def fetch_reviews_from_google(
             return {
 
                 "success": False,
-
                 "inserted": 0,
-
                 "updated": 0,
-
                 "duplicates": 0,
-
                 "fetched": 0,
-
                 "reviews": []
             }
 
@@ -951,10 +668,10 @@ async def fetch_reviews_from_google(
         raw_reviews = []
 
         # ==================================================
-        # WAIT FOR DATASET READINESS
+        # WAIT FOR DATASET
         # ==================================================
 
-                for attempt in range(10):
+        for attempt in range(10):
 
             try:
 
@@ -991,9 +708,6 @@ async def fetch_reviews_from_google(
             logger.warning(
                 "⚠️ No reviews returned from APIFY"
             )
-            logger.warning(
-                "⚠️ No reviews returned from APIFY"
-            )
 
         inserted_reviews = []
 
@@ -1012,14 +726,11 @@ async def fetch_reviews_from_google(
             try:
 
                 normalized = normalize_review(
-
                     item=item,
-
                     company_id=company_id
                 )
 
                 if not normalized:
-
                     continue
 
                 google_review_id = normalized.get(
@@ -1034,10 +745,6 @@ async def fetch_reviews_from_google(
                     f"PROCESSING REVIEW: {memory_key}"
                 )
 
-                # ==========================================
-                # MEMORY DUPLICATE CHECK
-                # ==========================================
-
                 if memory_key in memory_hashes:
 
                     duplicate_count += 1
@@ -1047,10 +754,6 @@ async def fetch_reviews_from_google(
                 memory_hashes.add(
                     memory_key
                 )
-
-                # ==========================================
-                # DATABASE DUPLICATE CHECK
-                # ==========================================
 
                 existing_review = existing_reviews.get(
                     google_review_id
@@ -1106,35 +809,25 @@ async def fetch_reviews_from_google(
 
                 new_review = Review(
 
-                    company_id=
-                        company_id,
+                    company_id=company_id,
 
-                    google_review_id=
-                        normalized["google_review_id"],
+                    google_review_id=normalized["google_review_id"],
 
-                    author_name=
-                        normalized["author_name"],
+                    author_name=normalized["author_name"],
 
-                    rating=
-                        normalized["rating"],
+                    rating=normalized["rating"],
 
-                    sentiment_score=
-                        normalized["sentiment_score"],
+                    sentiment_score=normalized["sentiment_score"],
 
-                    text=
-                        normalized["text"],
+                    text=normalized["text"],
 
-                    google_review_time=
-                        normalized["google_review_time"],
+                    google_review_time=normalized["google_review_time"],
 
-                    review_likes=
-                        normalized["review_likes"],
+                    review_likes=normalized["review_likes"],
 
-                    first_seen_at=
-                        datetime.utcnow(),
+                    first_seen_at=datetime.utcnow(),
 
-                    created_at=
-                        datetime.utcnow()
+                    created_at=datetime.utcnow()
                 )
 
                 session.add(
@@ -1146,10 +839,6 @@ async def fetch_reviews_from_google(
                 )
 
                 inserted_count += 1
-
-                # ======================================
-                # HARD INSERT LIMIT
-                # ======================================
 
                 if inserted_count >= target_limit:
 
@@ -1206,14 +895,8 @@ async def fetch_reviews_from_google(
                 "reviews": []
             }
 
-        # ==================================================
-        # MINIMUM EXECUTION TIME UX
-        # ==================================================
-
         execution_seconds = (
-
             datetime.utcnow() - started_at
-
         ).total_seconds()
 
         if execution_seconds < 5:
@@ -1221,10 +904,6 @@ async def fetch_reviews_from_google(
             await asyncio.sleep(
                 5 - execution_seconds
             )
-
-        # ==================================================
-        # FINAL LOGS
-        # ==================================================
 
         logger.info(
             f"✅ FETCHED: {len(raw_reviews)}"
@@ -1241,10 +920,6 @@ async def fetch_reviews_from_google(
         logger.info(
             f"✅ DUPLICATES: {duplicate_count}"
         )
-
-        # ==================================================
-        # RESPONSE
-        # ==================================================
 
         return {
 
@@ -1281,11 +956,9 @@ async def fetch_reviews_from_google(
     except Exception as e:
 
         try:
-
             await session.rollback()
 
         except Exception:
-
             pass
 
         logger.exception(
