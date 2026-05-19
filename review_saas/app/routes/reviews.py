@@ -29,20 +29,19 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # ==========================================================
-# DATABASE IMPORT
+# DATABASE
 # ==========================================================
 
-# IMPORTANT:
-# Change this import ONLY if your get_db()
-# exists somewhere else.
-
-from app.db.database import get_db
+from app.core.db import get_db
 
 # ==========================================================
 # MODELS
 # ==========================================================
 
-from app.core.models import Review
+from app.core.models import (
+    Review,
+    Company
+)
 
 # ==========================================================
 # SCRAPER
@@ -89,7 +88,7 @@ async def reviews_health():
     }
 
 # ==========================================================
-# SYNC REVIEWS
+# SYNC REVIEWS FROM GOOGLE
 # ==========================================================
 
 @router.post("/sync")
@@ -110,6 +109,37 @@ async def sync_reviews(
     )
 
     try:
+
+        # ==================================================
+        # VALIDATE COMPANY
+        # ==================================================
+
+        company_stmt = select(
+            Company
+        ).where(
+            Company.id == company_id
+        )
+
+        company_result = await db.execute(
+            company_stmt
+        )
+
+        company = company_result.scalar_one_or_none()
+
+        if not company:
+
+            raise HTTPException(
+
+                status_code=
+                    status.HTTP_404_NOT_FOUND,
+
+                detail=
+                    "Company not found"
+            )
+
+        # ==================================================
+        # FETCH REVIEWS
+        # ==================================================
 
         reviews = await fetch_reviews_from_google(
 
@@ -145,10 +175,17 @@ async def sync_reviews(
                 reviews
         }
 
+    except HTTPException:
+        raise
+
     except Exception as e:
 
         logger.exception(
             f"❌ Sync failed: {e}"
+        )
+
+        logger.error(
+            traceback.format_exc()
         )
 
         raise HTTPException(
@@ -237,6 +274,24 @@ async def get_all_reviews(
                 "first_seen_at":
                     review.first_seen_at,
 
+                "issue_category":
+                    review.issue_category,
+
+                "emotion":
+                    review.emotion,
+
+                "urgency_score":
+                    review.urgency_score,
+
+                "ai_summary":
+                    review.ai_summary,
+
+                "risk_score":
+                    review.risk_score,
+
+                "topic_cluster":
+                    review.topic_cluster,
+
                 "created_at":
                     review.created_at
             })
@@ -257,6 +312,10 @@ async def get_all_reviews(
 
         logger.exception(
             f"❌ Get reviews failed: {e}"
+        )
+
+        logger.error(
+            traceback.format_exc()
         )
 
         raise HTTPException(
@@ -341,6 +400,24 @@ async def get_review(
                 "first_seen_at":
                     review.first_seen_at,
 
+                "issue_category":
+                    review.issue_category,
+
+                "emotion":
+                    review.emotion,
+
+                "urgency_score":
+                    review.urgency_score,
+
+                "ai_summary":
+                    review.ai_summary,
+
+                "risk_score":
+                    review.risk_score,
+
+                "topic_cluster":
+                    review.topic_cluster,
+
                 "created_at":
                     review.created_at
             }
@@ -353,6 +430,10 @@ async def get_review(
 
         logger.exception(
             f"❌ Get review failed: {e}"
+        )
+
+        logger.error(
+            traceback.format_exc()
         )
 
         raise HTTPException(
@@ -561,6 +642,9 @@ async def dashboard_stats(
                 "review_likes":
                     review.review_likes,
 
+                "sentiment_score":
+                    review.sentiment_score,
+
                 "created_at":
                     review.created_at
             })
@@ -600,6 +684,10 @@ async def dashboard_stats(
 
         logger.exception(
             f"❌ Dashboard stats failed: {e}"
+        )
+
+        logger.error(
+            traceback.format_exc()
         )
 
         raise HTTPException(
@@ -675,6 +763,10 @@ async def delete_review(
 
         logger.exception(
             f"❌ Delete failed: {e}"
+        )
+
+        logger.error(
+            traceback.format_exc()
         )
 
         raise HTTPException(
