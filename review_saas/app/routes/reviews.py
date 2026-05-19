@@ -2,26 +2,15 @@
 # FILE: app/routes/reviews.py
 # TRUSTLYTICS AI SAAS - ENTERPRISE REVIEWS ROUTES
 # ==========================================================
-#
-# FULLY INTEGRATED WITH:
-#
-# ✅ FastAPI
-# ✅ PostgreSQL
-# ✅ Async SQLAlchemy
-# ✅ APIFY Scraper
-# ✅ Dashboard Analytics
-# ✅ AI Chatbot
-# ✅ Review Persistence
-# ✅ Duplicate Protection
-# ✅ Railway Deployment
-# ✅ Production Logging
-#
-# ==========================================================
 
 import logging
 import traceback
 
-from typing import List, Dict, Any
+from typing import (
+    List,
+    Dict,
+    Any
+)
 
 from fastapi import (
     APIRouter,
@@ -39,8 +28,25 @@ from sqlalchemy import (
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
+# ==========================================================
+# DATABASE IMPORT
+# ==========================================================
+
+# IMPORTANT:
+# Change this import ONLY if your get_db()
+# exists somewhere else.
+
+from app.db.database import get_db
+
+# ==========================================================
+# MODELS
+# ==========================================================
+
 from app.core.models import Review
+
+# ==========================================================
+# SCRAPER
+# ==========================================================
 
 from app.services.scraper import (
     fetch_reviews_from_google
@@ -83,7 +89,7 @@ async def reviews_health():
     }
 
 # ==========================================================
-# SYNC REVIEWS FROM GOOGLE
+# SYNC REVIEWS
 # ==========================================================
 
 @router.post("/sync")
@@ -100,7 +106,7 @@ async def sync_reviews(
 ):
 
     logger.info(
-        f"🚀 Sync reviews started | company_id={company_id}"
+        f"🚀 Review sync started | company={company_id}"
     )
 
     try:
@@ -142,7 +148,7 @@ async def sync_reviews(
     except Exception as e:
 
         logger.exception(
-            f"❌ Review sync failed: {e}"
+            f"❌ Sync failed: {e}"
         )
 
         raise HTTPException(
@@ -263,12 +269,108 @@ async def get_all_reviews(
         )
 
 # ==========================================================
+# GET SINGLE REVIEW
+# ==========================================================
+
+@router.get("/{review_id}")
+
+async def get_review(
+
+    review_id: int,
+
+    db: AsyncSession = Depends(get_db)
+):
+
+    try:
+
+        stmt = select(Review).where(
+            Review.id == review_id
+        )
+
+        result = await db.execute(
+            stmt
+        )
+
+        review = result.scalar_one_or_none()
+
+        if not review:
+
+            raise HTTPException(
+
+                status_code=
+                    status.HTTP_404_NOT_FOUND,
+
+                detail=
+                    "Review not found"
+            )
+
+        return {
+
+            "success":
+                True,
+
+            "review": {
+
+                "id":
+                    review.id,
+
+                "company_id":
+                    review.company_id,
+
+                "google_review_id":
+                    review.google_review_id,
+
+                "author_name":
+                    review.author_name,
+
+                "rating":
+                    review.rating,
+
+                "text":
+                    review.text,
+
+                "sentiment_score":
+                    review.sentiment_score,
+
+                "review_likes":
+                    review.review_likes,
+
+                "google_review_time":
+                    review.google_review_time,
+
+                "first_seen_at":
+                    review.first_seen_at,
+
+                "created_at":
+                    review.created_at
+            }
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        logger.exception(
+            f"❌ Get review failed: {e}"
+        )
+
+        raise HTTPException(
+
+            status_code=
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+            detail=
+                str(e)
+        )
+
+# ==========================================================
 # DASHBOARD ANALYTICS
 # ==========================================================
 
-@router.get("/dashboard")
+@router.get("/dashboard/stats")
 
-async def dashboard_analytics(
+async def dashboard_stats(
 
     company_id: int,
 
@@ -384,6 +486,37 @@ async def dashboard_analytics(
         )
 
         # ==================================================
+        # RATING DISTRIBUTION
+        # ==================================================
+
+        rating_distribution = {}
+
+        for rating in range(1, 6):
+
+            stmt = (
+
+                select(
+                    func.count(Review.id)
+                )
+
+                .where(
+                    Review.company_id == company_id
+                )
+
+                .where(
+                    Review.rating == rating
+                )
+            )
+
+            result = await db.execute(
+                stmt
+            )
+
+            rating_distribution[str(rating)] = (
+                result.scalar() or 0
+            )
+
+        # ==================================================
         # RECENT REVIEWS
         # ==================================================
 
@@ -433,38 +566,7 @@ async def dashboard_analytics(
             })
 
         # ==================================================
-        # RATING DISTRIBUTION
-        # ==================================================
-
-        rating_distribution = {}
-
-        for rating in range(1, 6):
-
-            stmt = (
-
-                select(
-                    func.count(Review.id)
-                )
-
-                .where(
-                    Review.company_id == company_id
-                )
-
-                .where(
-                    Review.rating == rating
-                )
-            )
-
-            result = await db.execute(
-                stmt
-            )
-
-            rating_distribution[str(rating)] = (
-                result.scalar() or 0
-            )
-
-        # ==================================================
-        # RETURN DASHBOARD DATA
+        # RESPONSE
         # ==================================================
 
         return {
@@ -497,7 +599,7 @@ async def dashboard_analytics(
     except Exception as e:
 
         logger.exception(
-            f"❌ Dashboard analytics failed: {e}"
+            f"❌ Dashboard stats failed: {e}"
         )
 
         raise HTTPException(
@@ -545,7 +647,9 @@ async def delete_review(
                     "Review not found"
             )
 
-        await db.delete(review)
+        await db.delete(
+            review
+        )
 
         await db.commit()
 
@@ -570,7 +674,7 @@ async def delete_review(
         await db.rollback()
 
         logger.exception(
-            f"❌ Delete review failed: {e}"
+            f"❌ Delete failed: {e}"
         )
 
         raise HTTPException(
