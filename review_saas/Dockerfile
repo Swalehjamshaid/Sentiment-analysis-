@@ -28,7 +28,6 @@ RUN apt-get update && apt-get install -y \
     gcc \
     wget \
     curl \
-    gnupg \
     unzip \
     ca-certificates \
     fonts-liberation \
@@ -63,14 +62,10 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 
 # ==========================================
-# UPGRADE PIP
+# INSTALL PYTHON DEPENDENCIES
 # ==========================================
 
 RUN pip install --upgrade pip
-
-# ==========================================
-# INSTALL PYTHON PACKAGES
-# ==========================================
 
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -81,7 +76,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN playwright install chromium
 
 # ==========================================
-# COPY PROJECT FILES
+# COPY APPLICATION FILES
 # ==========================================
 
 COPY . .
@@ -93,7 +88,7 @@ COPY . .
 EXPOSE 8080
 
 # ==========================================
-# START FASTAPI APPLICATION
+# START APPLICATION
 # ==========================================
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
