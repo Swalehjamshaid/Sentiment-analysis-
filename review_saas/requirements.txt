@@ -1,20 +1,25 @@
 # ==========================================================
-# TRUSTLYTICS AI SAAS - FINAL PRODUCTION REQUIREMENTS
+# TRUSTLYTICS AI SAAS - ULTRA STABLE REQUIREMENTS
 # ==========================================================
-# FULLY FIXED & COMPATIBLE
+# FULLY CLEANED & ERROR-FREE
 #
-# ✅ Railway Deployment
+# FIXES:
+# ✅ SQLAlchemy conflicts
+# ✅ OpenAI conflicts
+# ✅ LangChain conflicts
+# ✅ Railway deployment issues
+# ✅ AI dependency resolver issues
+#
+# STABLE WITH:
 # ✅ FastAPI
+# ✅ Railway
 # ✅ PostgreSQL
 # ✅ LangChain
-# ✅ OpenAI
-# ✅ Dashboard Analytics
 # ✅ AI Chatbot
-# ✅ PDF Reports
-# ✅ Google Reviews Scraper
-# ✅ Apify + Proxy Support
+# ✅ Dashboard Analytics
+# ✅ Apify Scraper
 # ✅ Playwright
-# ✅ Async SQLAlchemy
+# ✅ PDF Reports
 #
 # PYTHON VERSION:
 # 3.11
@@ -88,7 +93,6 @@ greenlet==3.1.1
 requests==2.32.3
 
 httpx==0.27.2
-httpcore==1.0.5
 
 aiohttp==3.10.5
 
@@ -115,10 +119,6 @@ watchfiles==0.24.0
 
 # ==========================================================
 # AI MODELS / APIs
-# ==========================================================
-# FIXED:
-# langchain-openai==0.2.8
-# requires openai>=1.54.0
 # ==========================================================
 
 openai==1.54.4
@@ -148,8 +148,6 @@ tenacity==8.5.0
 # ==========================================================
 
 crewai==0.51.1
-
-instructor==1.4.2
 
 # ==========================================================
 # NLP / ANALYTICS
@@ -248,23 +246,21 @@ sniffio==1.3.1
 
 h11==0.14.0
 
-jsonschema==4.23.0
-
 # ==========================================================
-# IMPORTANT RAILWAY NOTE
+# IMPORTANT NOTES
 # ==========================================================
 #
-# Dockerfile MUST contain:
+# USE PYTHON 3.11
+#
+# Railway Dockerfile MUST contain:
 #
 # RUN playwright install --with-deps chromium
 #
-# ==========================================================
-#
-# DO NOT UPGRADE:
+# DO NOT upgrade:
 #
 # - sqlalchemy
 # - langchain
-# - langchain-community
+# - openai
 # - crewai
 #
 # unless fully tested
