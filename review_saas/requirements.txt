@@ -267,3 +267,4 @@ playwright==1.52.0
 beautifulsoup4==4.12.3
 fake-useragent==1.5.1
 tenacity==9.0.0
+selectolax==0.3.26
