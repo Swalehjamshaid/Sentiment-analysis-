@@ -169,16 +169,16 @@ async def get_dashboard_data(
 
         from app.core.db import AsyncSessionLocal
 
-async with AsyncSessionLocal() as db:
+        async with AsyncSessionLocal() as db:
 
-    reviews = await ReviewService.get_latest_reviews(
+            reviews = await ReviewService.get_latest_reviews(
 
-        db=db,
+                db=db,
 
-        company_id=company_id,
+                company_id=company_id,
 
-        limit=1000
-    )
+                limit=1000
+            )
 
         reviews = reviews or []
 
