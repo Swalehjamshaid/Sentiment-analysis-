@@ -202,7 +202,9 @@ async def get_dashboard_data(
 
     request: Request,
 
-    company_id: int
+company_id: int,
+
+days: int = Query(365)
 ):
 
     try:
@@ -222,7 +224,161 @@ async def get_dashboard_data(
                 limit=1000
             )
 
-        reviews = reviews or []
+              # ==================================================
+        # ENTERPRISE TIMELINE FILTERING
+        # ==================================================
+
+        now = datetime.utcnow()
+
+        # ==============================================
+        # TIMELINE LABELS
+        # ==============================================
+
+        if days == 7:
+
+            timeline_label = "Last 7 Days"
+
+        elif days == 30:
+
+            timeline_label = "Last 30 Days"
+
+        elif days == 90:
+
+            timeline_label = "Last Quarter"
+
+        elif days == 120:
+
+            timeline_label = "Last 4 Months"
+
+        elif days == 180:
+
+            timeline_label = "Last 6 Months"
+
+        elif days == 365:
+
+            timeline_label = "Last 12 Months"
+
+        elif days == 730:
+
+            timeline_label = "Last 24 Months"
+
+        elif days == 1095:
+
+            timeline_label = "Last 36 Months"
+
+        elif days == 1825:
+
+            timeline_label = "Last 5 Years"
+
+        elif days == 3650:
+
+            timeline_label = "Last 10 Years"
+
+        elif days == 99999:
+
+            timeline_label = "All Historical Data"
+
+        else:
+
+            timeline_label = "Custom Timeline"
+
+        # ==============================================
+        # START DATE
+        # ==============================================
+
+        if days == 99999:
+
+            start_date = datetime(
+                2000,
+                1,
+                1
+            )
+
+        else:
+
+            start_date = now - timedelta(
+                days=days
+            )
+
+        filtered_reviews = []
+
+        # ==============================================
+        # FILTER REVIEWS
+        # ==============================================
+
+        for review in reviews:
+
+            try:
+
+                created_at = safe_get(
+                    review,
+                    "created_at"
+                )
+
+                if not created_at:
+
+                    continue
+
+                # ======================================
+                # STRING DATE SUPPORT
+                # ======================================
+
+                if isinstance(
+                    created_at,
+                    str
+                ):
+
+                    review_date = datetime.fromisoformat(
+
+                        created_at.replace(
+                            "Z",
+                            "+00:00"
+                        )
+                    )
+
+                else:
+
+                    review_date = created_at
+
+                # ======================================
+                # REMOVE TZ
+                # ======================================
+
+                if review_date.tzinfo:
+
+                    review_date = review_date.replace(
+                        tzinfo=None
+                    )
+
+                # ======================================
+                # APPLY TIMELINE FILTER
+                # ======================================
+
+                if review_date >= start_date:
+
+                    filtered_reviews.append(
+                        review
+                    )
+
+            except Exception as e:
+
+                logger.warning(
+                    f"Timeline filtering failed: {e}"
+                )
+
+        # ==============================================
+        # REPLACE ORIGINAL REVIEWS
+        # ==============================================
+
+        reviews = filtered_reviews
+
+        logger.info(
+            f"📊 Timeline Selected: {timeline_label}"
+        )
+
+        logger.info(
+            f"📊 Timeline Reviews Count: {len(reviews)}"
+        )
 
         # ==================================================
         # BASIC KPIs
