@@ -283,8 +283,16 @@ async def get_dashboard_data(
 
                         dt = created_at
 
+                                     # ======================================
+                    # YEAR + MONTH GROUPING
+                    # ======================================
+
+                    month_key = dt.strftime(
+                        "%Y-%m"
+                    )
+
                     monthly_reviews[
-                        month_name(dt)
+                        month_key
                     ] += 1
 
             except:
@@ -392,13 +400,27 @@ async def get_dashboard_data(
         # MONTHLY TREND
         # ==================================================
 
-        month_labels = list(
-            monthly_reviews.keys()
+               # ==============================================
+        # SORT MONTHLY ANALYTICS
+        # ==============================================
+
+        sorted_months = sorted(
+            monthly_reviews.items()
         )
 
-        month_values = list(
-            monthly_reviews.values()
-        )
+        month_labels = [
+
+            item[0]
+
+            for item in sorted_months
+        ]
+
+        month_values = [
+
+            item[1]
+
+            for item in sorted_months
+        ]
 
         # ==================================================
         # TOP KEYWORDS
