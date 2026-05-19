@@ -4,14 +4,20 @@
 
 FROM python:3.11-slim
 
+# ==========================================
+# PYTHON SETTINGS
+# ==========================================
 
-Prevent Python from writing pyc files
+# Prevent Python from writing pyc files
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Prevent Python buffering logs
 ENV PYTHONUNBUFFERED=1
 
-# Set working directory
+# ==========================================
+# WORK DIRECTORY
+# ==========================================
+
 WORKDIR /app
 
 # ==========================================
@@ -44,7 +50,6 @@ RUN apt-get update && apt-get install -y \
     libxshmfence1 \
     ca-certificates \
     fonts-liberation \
-    libappindicator3-1 \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
@@ -63,12 +68,6 @@ RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ==========================================
-# INSTALL PLAYWRIGHT
-# ==========================================
-
-
-
-# ==========================================
 # COPY PROJECT FILES
 # ==========================================
 
@@ -81,7 +80,7 @@ COPY . .
 EXPOSE 8080
 
 # ==========================================
-# START FASTAPI APP
+# START FASTAPI APPLICATION
 # ==========================================
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
