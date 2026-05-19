@@ -878,10 +878,9 @@ async def fetch_reviews_from_google(
 
         run = await asyncio.to_thread(
 
-            client.actor(
-                "compass/google-maps-reviews-scraper"
-            ).call,
-
+           client.actor(
+    "compass~google-maps-reviews-scraper"
+).call,
             run_input=actor_input
         )
 
@@ -945,13 +944,14 @@ async def fetch_reviews_from_google(
 
             try:
 
-                dataset_items = await asyncio.to_thread(
+               dataset_items = await asyncio.to_thread(
 
-                    dataset.list_items,
+    dataset.list_items,
 
-                    limit=dynamic_target_limit
-                )
+    clean=True,
 
+    limit=dynamic_target_limit
+)
                 raw_reviews = dataset_items.items
 
                 if raw_reviews:
