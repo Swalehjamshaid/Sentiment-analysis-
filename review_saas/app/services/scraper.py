@@ -1,7 +1,7 @@
 # ==========================================================
 # FILE: app/services/scraper.py
 # TRUSTLYTICS AI SAAS - ENTERPRISE APIFY SCRAPER
-# ENTERPRISE UPGRADED VERSION 10/10
+# FULLY FIXED PRODUCTION VERSION
 # ==========================================================
 
 import asyncio
@@ -10,7 +10,7 @@ import logging
 import traceback
 
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import Dict, Any, List
 
 from sqlalchemy import (
     select,
@@ -167,6 +167,7 @@ class ReviewService:
             avg = result.scalar()
 
             if avg is None:
+
                 return 0
 
             return round(
@@ -373,7 +374,7 @@ def clean_review_text(text):
 
     text = safe_string(
         text,
-        "No review text"
+        ""
     )
 
     text = text.replace(
@@ -566,6 +567,18 @@ def normalize_review(
 
             or
 
+            item.get("authorName")
+
+            or
+
+            item.get("userName")
+
+            or
+
+            item.get("reviewer")
+
+            or
+
             "Anonymous"
         )
 
@@ -584,12 +597,32 @@ def normalize_review(
 
             or
 
-            "No review text"
+            item.get("review")
+
+            or
+
+            item.get("comment")
+
+            or
+
+            item.get("reviewDescription")
+
+            or
+
+            ""
         )
 
         review_text = clean_review_text(
             review_text
         )
+
+        if not review_text.strip():
+
+            logger.warning(
+                f"⚠️ Empty review skipped: {item}"
+            )
+
+            return None
 
         rating = (
 
@@ -598,6 +631,10 @@ def normalize_review(
             or
 
             item.get("rating")
+
+            or
+
+            item.get("score")
 
             or
 
@@ -642,6 +679,10 @@ def normalize_review(
 
             or
 
+            item.get("reviewDate")
+
+            or
+
             item.get("date")
         )
 
@@ -656,6 +697,10 @@ def normalize_review(
             or
 
             item.get("review_id")
+
+            or
+
+            item.get("id")
         )
 
         if not google_review_id:
@@ -787,24 +832,6 @@ async def fetch_reviews_from_google(
             place_id
         )
 
-               # ==================================================
-        # ENTERPRISE DYNAMIC FETCH STRATEGY
-        # ==================================================
-        #
-        # EXAMPLE:
-        #
-        # Existing DB Reviews = 100
-        # Target Fetch = 100
-        #
-        # APIFY FETCHES:
-        # 200 REVIEWS
-        #
-        # SCRAPER:
-        # - first 100 become duplicates
-        # - next 100 become new inserts
-        #
-        # ==================================================
-
         existing_count = len(
             existing_reviews
         )
@@ -812,10 +839,6 @@ async def fetch_reviews_from_google(
         logger.info(
             f"📦 Existing reviews in DB: {existing_count}"
         )
-
-        # ==================================================
-        # DYNAMIC TARGET LIMIT
-        # ==================================================
 
         dynamic_target_limit = (
 
@@ -825,10 +848,6 @@ async def fetch_reviews_from_google(
 
             target_limit
         )
-
-        # ==================================================
-        # SAFETY LIMIT
-        # ==================================================
 
         dynamic_target_limit = min(
 
@@ -840,10 +859,6 @@ async def fetch_reviews_from_google(
         logger.info(
             f"🚀 Dynamic APIFY fetch limit: {dynamic_target_limit}"
         )
-
-        # ==================================================
-        # BUILD ACTOR INPUT
-        # ==================================================
 
         actor_input = build_actor_input(
 
@@ -857,6 +872,7 @@ async def fetch_reviews_from_google(
         logger.info(
             f"🚀 Requesting {dynamic_target_limit} reviews from APIFY"
         )
+
         logger.info(
             "🚀 Starting APIFY actor..."
         )
@@ -931,7 +947,10 @@ async def fetch_reviews_from_google(
             try:
 
                 dataset_items = await asyncio.to_thread(
-                    dataset.list_items
+
+                    dataset.list_items,
+
+                    limit=dynamic_target_limit
                 )
 
                 raw_reviews = dataset_items.items
@@ -966,39 +985,13 @@ async def fetch_reviews_from_google(
 
         memory_hashes = set()
 
+        # ==================================================
+        # PROCESS REVIEWS
+        # ==================================================
+
         for item in raw_reviews:
 
             try:
-                # ==========================================
-                # TIMELINE FILTERING
-                # ==========================================
-
-                review_date_raw = (
-
-                    item.get("publishedAtDate")
-
-                    or
-
-                    item.get("publishedAt")
-
-                    or
-
-                    item.get("reviewDate")
-
-                    or
-
-                    item.get("date")
-
-                    or
-
-                    item.get("reviewTime")
-                )
-
-                review_date = safe_datetime(
-                    review_date_raw
-                )
-
-                # ==========================================
 
                 normalized = normalize_review(
 
@@ -1008,13 +1001,25 @@ async def fetch_reviews_from_google(
                 )
 
                 if not normalized:
+
                     continue
 
                 google_review_id = normalized.get(
                     "google_review_id"
                 )
 
-                memory_key = generate_hash(
+                memory_key = normalized[
+                    "google_review_id"
+                ]
+
+                logger.info(
+                    f"PROCESSING REVIEW: {memory_key}"
+                )
+
+                # ==========================================
+                # MEMORY DUPLICATE CHECK
+                # ==========================================
+
                 if memory_key in memory_hashes:
 
                     duplicate_count += 1
@@ -1024,6 +1029,10 @@ async def fetch_reviews_from_google(
                 memory_hashes.add(
                     memory_key
                 )
+
+                # ==========================================
+                # DATABASE DUPLICATE CHECK
+                # ==========================================
 
                 existing_review = existing_reviews.get(
                     google_review_id
@@ -1063,6 +1072,10 @@ async def fetch_reviews_from_google(
 
                         updated_count += 1
 
+                    else:
+
+                        duplicate_count += 1
+
                     continue
 
                 # ==========================================
@@ -1070,8 +1083,9 @@ async def fetch_reviews_from_google(
                 # ==========================================
 
                 logger.info(
-    f"➕ INSERTING REVIEW: {normalized['google_review_id']}"
-)
+                    f"➕ INSERTING REVIEW: {normalized['google_review_id']}"
+                )
+
                 new_review = Review(
 
                     company_id=
@@ -1126,7 +1140,6 @@ async def fetch_reviews_from_google(
                     )
 
                     break
-            
 
             except Exception as row_error:
 
@@ -1142,12 +1155,15 @@ async def fetch_reviews_from_google(
 
         try:
 
-           logger.info(
-    f"🚀 Committing {inserted_count} reviews to database"
-)
-            
-            
+            logger.info(
+                f"🚀 Committing {inserted_count} reviews to database"
+            )
+
             await session.commit()
+
+            logger.info(
+                "✅ Database commit successful"
+            )
 
         except Exception as commit_error:
 
@@ -1207,8 +1223,9 @@ async def fetch_reviews_from_google(
         logger.info(
             f"✅ DUPLICATES: {duplicate_count}"
         )
+
         # ==================================================
-        # FRONTEND SYNCHRONIZED RESPONSE
+        # RESPONSE
         # ==================================================
 
         return {
@@ -1246,8 +1263,11 @@ async def fetch_reviews_from_google(
     except Exception as e:
 
         try:
+
             await session.rollback()
+
         except Exception:
+
             pass
 
         logger.exception(
