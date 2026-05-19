@@ -67,6 +67,7 @@ def get_current_user(
                 "user_email"
             )
     }
+
 # ==========================================================
 # REQUEST MODEL
 # ==========================================================
@@ -122,14 +123,55 @@ NEGATIVE_WORDS = [
 def safe_rating(review):
 
     try:
+
+        if isinstance(review, dict):
+
+            return int(
+                review.get(
+                    "rating",
+                    0
+                )
+            )
+
         return int(
-            review.get(
+            getattr(
+                review,
                 "rating",
                 0
             )
         )
+
     except:
+
         return 0
+
+def safe_get(
+
+    review,
+
+    field,
+
+    default=None
+):
+
+    try:
+
+        if isinstance(review, dict):
+
+            return review.get(
+                field,
+                default
+            )
+
+        return getattr(
+            review,
+            field,
+            default
+        )
+
+    except:
+
+        return default
 
 def calculate_sentiment(
     avg_rating: float
@@ -221,15 +263,25 @@ async def get_dashboard_data(
 
             try:
 
-                created_at = review.get(
+                created_at = safe_get(
+                    review,
                     "created_at"
                 )
 
                 if created_at:
 
-                    dt = datetime.fromisoformat(
-                        str(created_at)
-                    )
+                    if isinstance(
+                        created_at,
+                        str
+                    ):
+
+                        dt = datetime.fromisoformat(
+                            str(created_at)
+                        )
+
+                    else:
+
+                        dt = created_at
 
                     monthly_reviews[
                         month_name(dt)
@@ -243,7 +295,8 @@ async def get_dashboard_data(
             # ==============================================
 
             text = str(
-                review.get(
+                safe_get(
+                    review,
                     "text",
                     ""
                 )
@@ -576,7 +629,8 @@ async def get_company_reviews(
     try:
 
         ReviewService = get_review_service()
-from app.core.db import AsyncSessionLocal
+
+        from app.core.db import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db:
 
@@ -588,6 +642,7 @@ from app.core.db import AsyncSessionLocal
 
                 limit=limit
             )
+
         formatted = []
 
         for review in reviews:
@@ -610,7 +665,8 @@ from app.core.db import AsyncSessionLocal
             formatted.append({
 
                 "author":
-                    review.get(
+                    safe_get(
+                        review,
                         "author_name",
                         "Anonymous"
                     ),
@@ -619,13 +675,15 @@ from app.core.db import AsyncSessionLocal
                     rating,
 
                 "review_text":
-                    review.get(
+                    safe_get(
+                        review,
                         "text",
                         ""
                     ),
 
                 "created_at":
-                    review.get(
+                    safe_get(
+                        review,
                         "created_at",
                         "-"
                     ),
@@ -634,7 +692,8 @@ from app.core.db import AsyncSessionLocal
                     sentiment,
 
                 "review_likes":
-                    review.get(
+                    safe_get(
+                        review,
                         "review_likes",
                         0
                     )
@@ -693,6 +752,7 @@ async def dashboard_chat(
 
                 limit=300
             )
+
         ratings = [
 
             safe_rating(r)
