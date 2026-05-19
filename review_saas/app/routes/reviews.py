@@ -1,13 +1,34 @@
 # ==========================================================
 # FILE: app/routes/reviews.py
-# TRUSTLYTICS AI SAAS - REVIEWS ROUTES
+# TRUSTLYTICS AI SAAS - ENTERPRISE REVIEWS ROUTES
 # ==========================================================
+#
+# FULLY INTEGRATED WITH:
+#
+# ✅ FastAPI
+# ✅ PostgreSQL
+# ✅ Async SQLAlchemy
+# ✅ APIFY Scraper
+# ✅ Dashboard Analytics
+# ✅ AI Chatbot
+# ✅ Review Persistence
+# ✅ Duplicate Protection
+# ✅ Railway Deployment
+# ✅ Production Logging
+#
+# ==========================================================
+
+import logging
+import traceback
+
+from typing import List, Dict, Any
 
 from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
-    Query
+    Query,
+    status
 )
 
 from sqlalchemy import (
@@ -18,13 +39,19 @@ from sqlalchemy import (
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from typing import List
-
 from app.core.database import get_db
 from app.core.models import Review
 
 from app.services.scraper import (
     fetch_reviews_from_google
+)
+
+# ==========================================================
+# LOGGER
+# ==========================================================
+
+logger = logging.getLogger(
+    "app.routes.reviews"
 )
 
 # ==========================================================
@@ -41,18 +68,26 @@ router = APIRouter(
 # ==========================================================
 
 @router.get("/health")
+
 async def reviews_health():
 
     return {
-        "status": "healthy",
-        "service": "reviews"
+
+        "success": True,
+
+        "service":
+            "reviews",
+
+        "status":
+            "healthy"
     }
 
 # ==========================================================
-# SYNC REVIEWS
+# SYNC REVIEWS FROM GOOGLE
 # ==========================================================
 
 @router.post("/sync")
+
 async def sync_reviews(
 
     place_id: str,
@@ -64,22 +99,38 @@ async def sync_reviews(
     db: AsyncSession = Depends(get_db)
 ):
 
+    logger.info(
+        f"🚀 Sync reviews started | company_id={company_id}"
+    )
+
     try:
 
         reviews = await fetch_reviews_from_google(
 
-            place_id=place_id,
+            place_id=
+                place_id,
 
-            company_id=company_id,
+            company_id=
+                company_id,
 
-            session=db,
+            session=
+                db,
 
-            target_limit=target_limit
+            target_limit=
+                target_limit
+        )
+
+        logger.info(
+            f"✅ Sync completed | inserted={len(reviews)}"
         )
 
         return {
 
-            "success": True,
+            "success":
+                True,
+
+            "company_id":
+                company_id,
 
             "inserted_reviews":
                 len(reviews),
@@ -90,11 +141,17 @@ async def sync_reviews(
 
     except Exception as e:
 
+        logger.exception(
+            f"❌ Review sync failed: {e}"
+        )
+
         raise HTTPException(
 
-            status_code=500,
+            status_code=
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
 
-            detail=str(e)
+            detail=
+                str(e)
         )
 
 # ==========================================================
@@ -102,11 +159,15 @@ async def sync_reviews(
 # ==========================================================
 
 @router.get("/all")
+
 async def get_all_reviews(
 
     company_id: int,
 
-    limit: int = Query(50, le=500),
+    limit: int = Query(
+        default=50,
+        le=500
+    ),
 
     db: AsyncSession = Depends(get_db)
 ):
@@ -128,7 +189,9 @@ async def get_all_reviews(
             .limit(limit)
         )
 
-        result = await db.execute(stmt)
+        result = await db.execute(
+            stmt
+        )
 
         reviews = result.scalars().all()
 
@@ -140,6 +203,12 @@ async def get_all_reviews(
 
                 "id":
                     review.id,
+
+                "company_id":
+                    review.company_id,
+
+                "google_review_id":
+                    review.google_review_id,
 
                 "author_name":
                     review.author_name,
@@ -159,13 +228,17 @@ async def get_all_reviews(
                 "google_review_time":
                     review.google_review_time,
 
+                "first_seen_at":
+                    review.first_seen_at,
+
                 "created_at":
                     review.created_at
             })
 
         return {
 
-            "success": True,
+            "success":
+                True,
 
             "count":
                 len(response),
@@ -176,11 +249,17 @@ async def get_all_reviews(
 
     except Exception as e:
 
+        logger.exception(
+            f"❌ Get reviews failed: {e}"
+        )
+
         raise HTTPException(
 
-            status_code=500,
+            status_code=
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
 
-            detail=str(e)
+            detail=
+                str(e)
         )
 
 # ==========================================================
@@ -188,6 +267,7 @@ async def get_all_reviews(
 # ==========================================================
 
 @router.get("/dashboard")
+
 async def dashboard_analytics(
 
     company_id: int,
@@ -196,6 +276,10 @@ async def dashboard_analytics(
 ):
 
     try:
+
+        # ==================================================
+        # TOTAL REVIEWS
+        # ==================================================
 
         total_stmt = (
 
@@ -212,7 +296,13 @@ async def dashboard_analytics(
             total_stmt
         )
 
-        total_reviews = total_result.scalar() or 0
+        total_reviews = (
+            total_result.scalar() or 0
+        )
+
+        # ==================================================
+        # AVERAGE RATING
+        # ==================================================
 
         avg_stmt = (
 
@@ -239,6 +329,10 @@ async def dashboard_analytics(
             2
         )
 
+        # ==================================================
+        # POSITIVE REVIEWS
+        # ==================================================
+
         positive_stmt = (
 
             select(
@@ -262,6 +356,10 @@ async def dashboard_analytics(
             positive_result.scalar() or 0
         )
 
+        # ==================================================
+        # NEGATIVE REVIEWS
+        # ==================================================
+
         negative_stmt = (
 
             select(
@@ -284,6 +382,10 @@ async def dashboard_analytics(
         negative_reviews = (
             negative_result.scalar() or 0
         )
+
+        # ==================================================
+        # RECENT REVIEWS
+        # ==================================================
 
         recent_stmt = (
 
@@ -323,13 +425,52 @@ async def dashboard_analytics(
                 "text":
                     review.text,
 
+                "review_likes":
+                    review.review_likes,
+
                 "created_at":
                     review.created_at
             })
 
+        # ==================================================
+        # RATING DISTRIBUTION
+        # ==================================================
+
+        rating_distribution = {}
+
+        for rating in range(1, 6):
+
+            stmt = (
+
+                select(
+                    func.count(Review.id)
+                )
+
+                .where(
+                    Review.company_id == company_id
+                )
+
+                .where(
+                    Review.rating == rating
+                )
+            )
+
+            result = await db.execute(
+                stmt
+            )
+
+            rating_distribution[str(rating)] = (
+                result.scalar() or 0
+            )
+
+        # ==================================================
+        # RETURN DASHBOARD DATA
+        # ==================================================
+
         return {
 
-            "success": True,
+            "success":
+                True,
 
             "dashboard": {
 
@@ -345,6 +486,9 @@ async def dashboard_analytics(
                 "negative_reviews":
                     negative_reviews,
 
+                "rating_distribution":
+                    rating_distribution,
+
                 "recent_reviews":
                     recent_reviews_data
             }
@@ -352,9 +496,88 @@ async def dashboard_analytics(
 
     except Exception as e:
 
+        logger.exception(
+            f"❌ Dashboard analytics failed: {e}"
+        )
+
         raise HTTPException(
 
-            status_code=500,
+            status_code=
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
 
-            detail=str(e)
+            detail=
+                str(e)
+        )
+
+# ==========================================================
+# DELETE REVIEW
+# ==========================================================
+
+@router.delete("/{review_id}")
+
+async def delete_review(
+
+    review_id: int,
+
+    db: AsyncSession = Depends(get_db)
+):
+
+    try:
+
+        stmt = select(Review).where(
+            Review.id == review_id
+        )
+
+        result = await db.execute(
+            stmt
+        )
+
+        review = result.scalar_one_or_none()
+
+        if not review:
+
+            raise HTTPException(
+
+                status_code=
+                    status.HTTP_404_NOT_FOUND,
+
+                detail=
+                    "Review not found"
+            )
+
+        await db.delete(review)
+
+        await db.commit()
+
+        logger.info(
+            f"🗑️ Review deleted | id={review_id}"
+        )
+
+        return {
+
+            "success":
+                True,
+
+            "message":
+                "Review deleted successfully"
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        await db.rollback()
+
+        logger.exception(
+            f"❌ Delete review failed: {e}"
+        )
+
+        raise HTTPException(
+
+            status_code=
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+            detail=
+                str(e)
         )
