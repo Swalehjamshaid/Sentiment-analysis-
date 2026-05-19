@@ -999,25 +999,7 @@ async def fetch_reviews_from_google(
                 )
 
                 # ==========================================
-                # LAST 12 MONTHS FILTER
-                # ==========================================
 
-                months_limit = 12
-
-                current_date = datetime.utcnow()
-
-                months_difference = (
-
-                    (current_date.year - review_date.year) * 12
-
-                    +
-
-                    (current_date.month - review_date.month)
-                )
-
-                if months_difference > months_limit:
-
-                    continue
                 normalized = normalize_review(
 
                     item=item,
@@ -1033,12 +1015,6 @@ async def fetch_reviews_from_google(
                 )
 
                 memory_key = generate_hash(
-
-                    normalized["author_name"],
-
-                    normalized["text"]
-                )
-
                 if memory_key in memory_hashes:
 
                     duplicate_count += 1
@@ -1093,6 +1069,9 @@ async def fetch_reviews_from_google(
                 # INSERT NEW REVIEW
                 # ==========================================
 
+                logger.info(
+    f"➕ INSERTING REVIEW: {normalized['google_review_id']}"
+)
                 new_review = Review(
 
                     company_id=
@@ -1163,6 +1142,11 @@ async def fetch_reviews_from_google(
 
         try:
 
+           logger.info(
+    f"🚀 Committing {inserted_count} reviews to database"
+)
+            
+            
             await session.commit()
 
         except Exception as commit_error:
