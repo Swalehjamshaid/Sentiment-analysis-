@@ -787,15 +787,76 @@ async def fetch_reviews_from_google(
             place_id
         )
 
+               # ==================================================
+        # ENTERPRISE DYNAMIC FETCH STRATEGY
+        # ==================================================
+        #
+        # EXAMPLE:
+        #
+        # Existing DB Reviews = 100
+        # Target Fetch = 100
+        #
+        # APIFY FETCHES:
+        # 200 REVIEWS
+        #
+        # SCRAPER:
+        # - first 100 become duplicates
+        # - next 100 become new inserts
+        #
+        # ==================================================
+
+        existing_count = len(
+            existing_reviews
+        )
+
+        logger.info(
+            f"📦 Existing reviews in DB: {existing_count}"
+        )
+
+        # ==================================================
+        # DYNAMIC TARGET LIMIT
+        # ==================================================
+
+        dynamic_target_limit = (
+
+            existing_count
+
+            +
+
+            target_limit
+        )
+
+        # ==================================================
+        # SAFETY LIMIT
+        # ==================================================
+
+        dynamic_target_limit = min(
+
+            dynamic_target_limit,
+
+            5000
+        )
+
+        logger.info(
+            f"🚀 Dynamic APIFY fetch limit: {dynamic_target_limit}"
+        )
+
+        # ==================================================
+        # BUILD ACTOR INPUT
+        # ==================================================
+
         actor_input = build_actor_input(
 
             google_maps_url=
                 google_maps_url,
 
             target_limit=
-                target_limit
+                dynamic_target_limit
         )
 
+        logger.info(
+            f"🚀 Requesting {dynamic_target_limit} reviews from APIFY"
+        )
         logger.info(
             "🚀 Starting APIFY actor..."
         )
@@ -1101,20 +1162,40 @@ async def fetch_reviews_from_google(
         logger.info(
             f"✅ DUPLICATES: {duplicate_count}"
         )
+        # ==================================================
+        # FRONTEND SYNCHRONIZED RESPONSE
+        # ==================================================
 
         return {
 
             "success": True,
 
-            "inserted": inserted_count,
+            "message":
+                f"{inserted_count} new reviews added successfully",
 
-            "updated": updated_count,
+            "inserted":
+                inserted_count,
 
-            "duplicates": duplicate_count,
+            "updated":
+                updated_count,
 
-            "fetched": len(raw_reviews),
+            "duplicates":
+                duplicate_count,
 
-            "reviews": inserted_reviews
+            "fetched":
+                len(raw_reviews),
+
+            "requested":
+                dynamic_target_limit,
+
+            "existing":
+                existing_count,
+
+            "final_total":
+                existing_count + inserted_count,
+
+            "reviews":
+                inserted_reviews
         }
 
     except Exception as e:
