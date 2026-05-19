@@ -1,6 +1,7 @@
 # ==========================================================
 # FILE: app/services/scraper.py
 # TRUSTLYTICS AI SAAS - ENTERPRISE APIFY SCRAPER
+# ENTERPRISE UPGRADED VERSION 10/10
 # ==========================================================
 
 import asyncio
@@ -506,30 +507,40 @@ def build_actor_input(
     }
 
 # ==========================================================
-# GET EXISTING REVIEW IDS
+# GET EXISTING REVIEWS
 # ==========================================================
 
-async def get_existing_review_ids(
+async def get_existing_reviews(
 
     session: AsyncSession,
 
     company_id: int
-
 ):
 
-    stmt = select(
-        Review.google_review_id
-    ).where(
-        Review.company_id == company_id
+    stmt = (
+
+        select(Review)
+
+        .where(
+            Review.company_id == company_id
+        )
     )
 
     result = await session.execute(
         stmt
     )
 
-    rows = result.scalars().all()
+    reviews = result.scalars().all()
 
-    return set(rows)
+    mapped = {}
+
+    for review in reviews:
+
+        mapped[
+            review.google_review_id
+        ] = review
+
+    return mapped
 
 # ==========================================================
 # NORMALIZE REVIEW
@@ -598,11 +609,10 @@ def normalize_review(
             5
         )
 
-        if rating < 1:
-            rating = 1
-
-        if rating > 5:
-            rating = 5
+        rating = max(
+            1,
+            min(5, rating)
+        )
 
         review_likes = (
 
@@ -712,11 +722,13 @@ async def fetch_reviews_from_google(
 
     target_limit: int = 100
 
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
 
     logger.info(
         f"🚀 SCRAPER STARTED | company_id={company_id}"
     )
+
+    started_at = datetime.utcnow()
 
     try:
 
@@ -726,9 +738,22 @@ async def fetch_reviews_from_google(
                 "❌ place_id missing"
             )
 
-            return []
+            return {
 
-        existing_ids = await get_existing_review_ids(
+                "success": False,
+
+                "inserted": 0,
+
+                "updated": 0,
+
+                "duplicates": 0,
+
+                "fetched": 0,
+
+                "reviews": []
+            }
+
+        existing_reviews = await get_existing_reviews(
 
             session=session,
 
@@ -736,14 +761,27 @@ async def fetch_reviews_from_google(
         )
 
         logger.info(
-            f"📦 Existing reviews: {len(existing_ids)}"
+            f"📦 Existing reviews: {len(existing_reviews)}"
         )
 
         client = create_apify_client()
 
         if not client:
 
-            return []
+            return {
+
+                "success": False,
+
+                "inserted": 0,
+
+                "updated": 0,
+
+                "duplicates": 0,
+
+                "fetched": 0,
+
+                "reviews": []
+            }
 
         google_maps_url = build_google_maps_url(
             place_id
@@ -777,7 +815,20 @@ async def fetch_reviews_from_google(
                 "❌ Actor execution failed"
             )
 
-            return []
+            return {
+
+                "success": False,
+
+                "inserted": 0,
+
+                "updated": 0,
+
+                "duplicates": 0,
+
+                "fetched": 0,
+
+                "reviews": []
+            }
 
         dataset_id = run.get(
             "defaultDatasetId"
@@ -789,19 +840,68 @@ async def fetch_reviews_from_google(
                 "❌ Dataset ID missing"
             )
 
-            return []
+            return {
+
+                "success": False,
+
+                "inserted": 0,
+
+                "updated": 0,
+
+                "duplicates": 0,
+
+                "fetched": 0,
+
+                "reviews": []
+            }
 
         dataset = client.dataset(
             dataset_id
         )
 
-        dataset_items = await asyncio.to_thread(
-            dataset.list_items
-        )
+        raw_reviews = []
 
-        raw_reviews = dataset_items.items
+        # ==================================================
+        # WAIT FOR DATASET READINESS
+        # ==================================================
+
+        for attempt in range(10):
+
+            try:
+
+                dataset_items = await asyncio.to_thread(
+                    dataset.list_items
+                )
+
+                raw_reviews = dataset_items.items
+
+                if raw_reviews:
+
+                    logger.info(
+                        f"✅ Dataset ready | reviews={len(raw_reviews)}"
+                    )
+
+                    break
+
+            except Exception as dataset_error:
+
+                logger.warning(
+                    f"⚠️ Dataset retry {attempt + 1}: {dataset_error}"
+                )
+
+            await asyncio.sleep(2)
+
+        if not raw_reviews:
+
+            logger.warning(
+                "⚠️ No reviews returned from APIFY"
+            )
 
         inserted_reviews = []
+
+        inserted_count = 0
+        updated_count = 0
+        duplicate_count = 0
 
         memory_hashes = set()
 
@@ -823,9 +923,6 @@ async def fetch_reviews_from_google(
                     "google_review_id"
                 )
 
-                if google_review_id in existing_ids:
-                    continue
-
                 memory_key = generate_hash(
 
                     normalized["author_name"],
@@ -834,11 +931,58 @@ async def fetch_reviews_from_google(
                 )
 
                 if memory_key in memory_hashes:
+
+                    duplicate_count += 1
+
                     continue
 
                 memory_hashes.add(
                     memory_key
                 )
+
+                existing_review = existing_reviews.get(
+                    google_review_id
+                )
+
+                # ==========================================
+                # UPDATE EXISTING REVIEW
+                # ==========================================
+
+                if existing_review:
+
+                    updated = False
+
+                    if existing_review.text != normalized["text"]:
+
+                        existing_review.text = normalized["text"]
+
+                        updated = True
+
+                    if existing_review.rating != normalized["rating"]:
+
+                        existing_review.rating = normalized["rating"]
+
+                        updated = True
+
+                    if existing_review.review_likes != normalized["review_likes"]:
+
+                        existing_review.review_likes = normalized["review_likes"]
+
+                        updated = True
+
+                    if updated:
+
+                        existing_review.sentiment_score = normalized["sentiment_score"]
+
+                        existing_review.google_review_time = normalized["google_review_time"]
+
+                        updated_count += 1
+
+                    continue
+
+                # ==========================================
+                # INSERT NEW REVIEW
+                # ==========================================
 
                 new_review = Review(
 
@@ -881,6 +1025,8 @@ async def fetch_reviews_from_google(
                     normalized
                 )
 
+                inserted_count += 1
+
             except Exception as row_error:
 
                 logger.exception(
@@ -889,33 +1035,87 @@ async def fetch_reviews_from_google(
 
                 continue
 
-        if inserted_reviews:
+        # ==================================================
+        # COMMIT
+        # ==================================================
 
-            try:
+        try:
 
-                await session.commit()
+            await session.commit()
 
-            except Exception as commit_error:
+        except Exception as commit_error:
 
-                await session.rollback()
+            await session.rollback()
 
-                logger.exception(
-                    f"❌ Commit failed: {commit_error}"
-                )
-
-                return []
-
-            logger.info(
-                f"✅ INSERTED {len(inserted_reviews)} REVIEWS"
+            logger.exception(
+                f"❌ Commit failed: {commit_error}"
             )
 
-        else:
+            return {
 
-            logger.info(
-                "ℹ️ No new reviews found"
+                "success": False,
+
+                "inserted": 0,
+
+                "updated": 0,
+
+                "duplicates": 0,
+
+                "fetched": len(raw_reviews),
+
+                "reviews": []
+            }
+
+        # ==================================================
+        # MINIMUM EXECUTION TIME UX
+        # ==================================================
+
+        execution_seconds = (
+
+            datetime.utcnow() - started_at
+
+        ).total_seconds()
+
+        if execution_seconds < 5:
+
+            await asyncio.sleep(
+                5 - execution_seconds
             )
 
-        return inserted_reviews
+        # ==================================================
+        # FINAL LOGS
+        # ==================================================
+
+        logger.info(
+            f"✅ FETCHED: {len(raw_reviews)}"
+        )
+
+        logger.info(
+            f"✅ INSERTED: {inserted_count}"
+        )
+
+        logger.info(
+            f"✅ UPDATED: {updated_count}"
+        )
+
+        logger.info(
+            f"✅ DUPLICATES: {duplicate_count}"
+        )
+
+        return {
+
+            "success": True,
+
+            "inserted": inserted_count,
+
+            "updated": updated_count,
+
+            "duplicates": duplicate_count,
+
+            "fetched": len(raw_reviews),
+
+            "reviews": inserted_reviews
+        }
 
     except Exception as e:
 
@@ -932,4 +1132,19 @@ async def fetch_reviews_from_google(
             traceback.format_exc()
         )
 
-        return []
+        return {
+
+            "success": False,
+
+            "inserted": 0,
+
+            "updated": 0,
+
+            "duplicates": 0,
+
+            "fetched": 0,
+
+            "reviews": [],
+
+            "error": str(e)
+        }
