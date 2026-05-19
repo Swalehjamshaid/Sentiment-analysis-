@@ -876,13 +876,14 @@ async def fetch_reviews_from_google(
             "🚀 Starting APIFY actor..."
         )
 
-        run = await asyncio.to_thread(
+       run = await asyncio.to_thread(
 
-           client.actor(
-    "compass~google-maps-reviews-scraper"
-).call,
-            run_input=actor_input
-        )
+    client.actor(
+        "compass~google-maps-reviews-scraper"
+    ).call,
+
+    run_input=actor_input
+)
 
         if not run:
 
@@ -944,7 +945,7 @@ async def fetch_reviews_from_google(
 
             try:
 
-               dataset_items = await asyncio.to_thread(
+             dataset_items = await asyncio.to_thread(
 
     dataset.list_items,
 
@@ -953,6 +954,9 @@ async def fetch_reviews_from_google(
     limit=dynamic_target_limit
 )
                 raw_reviews = dataset_items.items
+                logger.info(
+    f"📦 RAW REVIEWS RECEIVED: {len(raw_reviews)}"
+)
 
                 if raw_reviews:
 
