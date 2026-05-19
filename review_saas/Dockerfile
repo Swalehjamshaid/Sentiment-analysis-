@@ -1,5 +1,6 @@
 # ==========================================
 # REVIEW INTEL AI — COMPLETE RAILWAY DOCKERFILE
+# PLAYWRIGHT + FASTAPI + RAILWAY OPTIMIZED
 # ==========================================
 
 FROM python:3.11-slim
@@ -13,6 +14,9 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 # Prevent Python buffering logs
 ENV PYTHONUNBUFFERED=1
+
+# Playwright browser path
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # ==========================================
 # WORK DIRECTORY
@@ -31,6 +35,9 @@ RUN apt-get update && apt-get install -y \
     curl \
     gnupg \
     unzip \
+    ca-certificates \
+    fonts-liberation \
+    xdg-utils \
     libglib2.0-0 \
     libnss3 \
     libnspr4 \
@@ -48,9 +55,10 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     libatspi2.0-0 \
     libxshmfence1 \
-    ca-certificates \
-    fonts-liberation \
-    xdg-utils \
+    libgtk-3-0 \
+    libu2f-udev \
+    libvulkan1 \
+    libglu1-mesa \
     && rm -rf /var/lib/apt/lists/*
 
 # ==========================================
@@ -66,6 +74,12 @@ COPY requirements.txt .
 RUN pip install --upgrade pip
 
 RUN pip install --no-cache-dir -r requirements.txt
+
+# ==========================================
+# INSTALL PLAYWRIGHT CHROMIUM
+# ==========================================
+
+RUN playwright install chromium
 
 # ==========================================
 # COPY PROJECT FILES
