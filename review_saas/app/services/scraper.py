@@ -452,10 +452,9 @@ def build_google_maps_url(
 ):
 
     return (
-        "https://www.google.com/maps/place/"
-        f"?q=place_id:{place_id}"
+        "https://www.google.com/maps/search/"
+        f"?api=1&query_place_id={place_id}"
     )
-
 # ==========================================================
 # BUILD ACTOR INPUT
 # ==========================================================
