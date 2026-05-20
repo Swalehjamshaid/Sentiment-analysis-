@@ -304,185 +304,270 @@ async def warmup_session(page):
 async def open_reviews_panel(page):
 
     logger.info(
-        "📦 OPENING REVIEWS PANEL"
+        "📦 ADVANCED REVIEW PANEL DETECTION STARTED"
     )
 
-    await asyncio.sleep(10)
+    await asyncio.sleep(12)
 
-    selectors = [
+    try:
 
-        'button[aria-label*="Reviews"]',
+        # ==================================================
+        # MASSIVE DOM WARMUP
+        # ==================================================
 
-        'button[aria-label*="reviews"]',
+        for _ in range(3):
 
-        'button[data-value="Reviews"]',
+            await page.mouse.wheel(0, 1200)
 
-        'div[role="tab"]',
+            await asyncio.sleep(3)
 
-        'button[jsaction]',
+        # ==================================================
+        # FIND ALL CLICKABLE ELEMENTS
+        # ==================================================
 
-        'span',
+        clickable_selectors = [
 
-        'button'
-    ]
+            "button",
 
-    for selector in selectors:
+            "span",
 
-        try:
+            "div",
 
-            elements = await page.query_selector_all(
-                selector
-            )
+            "a",
 
-            logger.info(
-                f"📦 ELEMENTS FOUND ({selector}): {len(elements)}"
-            )
+            '[role="button"]',
 
-            for idx, element in enumerate(elements):
+            '[role="tab"]'
+        ]
 
-                try:
+        candidates = []
 
-                    text = safe_string(
+        for selector in clickable_selectors:
 
-                        await element.inner_text()
-                    ).lower()
+            try:
 
-                    aria = safe_string(
+                elements = await page.query_selector_all(
+                    selector
+                )
 
-                        await element.get_attribute(
-                            "aria-label"
-                        )
+                logger.info(
+                    f"📦 FOUND {len(elements)} ELEMENTS FOR {selector}"
+                )
 
-                    ).lower()
+                for element in elements:
 
-                    combined = (
-                        f"{text} {aria}"
-                    ).lower()
+                    try:
 
-                    logger.info(
-                        f"🔍 ELEMENT [{idx}]: {combined[:120]}"
-                    )
+                        text = safe_string(
 
-                    keywords = [
+                            await element.inner_text()
+                        ).lower()
 
-                        "review",
-                        "reviews",
-                        "rating",
-                        "ratings"
-                    ]
+                        aria = safe_string(
 
-                    matched = any(
-
-                        keyword in combined
-
-                        for keyword in keywords
-                    )
-
-                    if not matched:
-                        continue
-
-                    await element.scroll_into_view_if_needed()
-
-                    await asyncio.sleep(3)
-
-                    clicked = False
-
-                    click_methods = [
-
-                        lambda: element.click(
-                            timeout=10000
-                        ),
-
-                        lambda: page.evaluate(
-                            "(el) => el.click()",
-                            element
-                        )
-                    ]
-
-                    for method in click_methods:
-
-                        try:
-
-                            await method()
-
-                            clicked = True
-
-                            logger.info(
-                                "✅ REVIEW BUTTON CLICKED"
+                            await element.get_attribute(
+                                "aria-label"
                             )
+                        ).lower()
 
-                            break
+                        title = safe_string(
 
-                        except Exception:
+                            await element.get_attribute(
+                                "title"
+                            )
+                        ).lower()
+
+                        combined = (
+                            f"{text} {aria} {title}"
+                        ).lower()
+
+                        if len(combined) < 3:
                             continue
 
-                    if not clicked:
+                        score = 0
+
+                        keywords = [
+
+                            "review",
+                            "reviews",
+                            "rating",
+                            "ratings",
+                            "google reviews",
+                            "customer reviews"
+                        ]
+
+                        for keyword in keywords:
+
+                            if keyword in combined:
+                                score += 10
+
+                        if "5" in combined:
+                            score += 2
+
+                        if "star" in combined:
+                            score += 3
+
+                        if score <= 0:
+                            continue
+
+                        candidates.append({
+
+                            "element": element,
+
+                            "score": score,
+
+                            "text": combined[:300]
+                        })
+
+                    except Exception:
                         continue
 
-                    await asyncio.sleep(15)
+            except Exception:
+                continue
+
+        # ==================================================
+        # SORT BEST CANDIDATES
+        # ==================================================
+
+        candidates = sorted(
+
+            candidates,
+
+            key=lambda x: x["score"],
+
+            reverse=True
+        )
+
+        logger.info(
+            f"📦 REVIEW CANDIDATES: {len(candidates)}"
+        )
+
+        # ==================================================
+        # TRY CLICKING BEST CANDIDATES
+        # ==================================================
+
+        for idx, candidate in enumerate(candidates[:25]):
+
+            try:
+
+                logger.info(
+                    f"🔍 TRYING CANDIDATE [{idx}] => {candidate['text']}"
+                )
+
+                element = candidate["element"]
+
+                await element.scroll_into_view_if_needed()
+
+                await asyncio.sleep(2)
+
+                clicked = False
+
+                click_methods = [
+
+                    lambda: element.click(
+                        timeout=10000
+                    ),
+
+                    lambda: page.evaluate(
+                        "(el) => el.click()",
+                        element
+                    )
+                ]
+
+                for method in click_methods:
+
+                    try:
+
+                        await method()
+
+                        clicked = True
+
+                        logger.info(
+                            "✅ REVIEW BUTTON CLICKED"
+                        )
+
+                        break
+
+                    except Exception:
+                        continue
+
+                if not clicked:
+                    continue
+
+                # ==============================================
+                # WAIT FOR GOOGLE LAZY RENDER
+                # ==============================================
+
+                await asyncio.sleep(20)
+
+                for _ in range(4):
 
                     await page.mouse.wheel(
                         0,
-                        1500
+                        1800
                     )
 
-                    await asyncio.sleep(6)
+                    await asyncio.sleep(4)
 
-                    feed_selectors = [
+                # ==============================================
+                # VERIFY REVIEW FEED
+                # ==============================================
 
-                        'div[role="feed"]',
+                feed_selectors = [
 
-                        'div.m6QErb[aria-label]',
+                    'div[role="feed"]',
 
-                        'div[class*="review"]',
+                    'div[data-review-id]',
 
-                        'div.jftiEf',
+                    'div.jftiEf',
 
-                        'div[role="article"]'
-                    ]
+                    'div[role="article"]',
 
-                    for feed_selector in feed_selectors:
+                    'div[class*="review"]',
 
-                        try:
+                    'div[class*="jftiEf"]'
+                ]
 
-                            feed = await page.query_selector(
-                                feed_selector
+                for selector in feed_selectors:
+
+                    try:
+
+                        feed = await page.query_selector(
+                            selector
+                        )
+
+                        if feed:
+
+                            logger.info(
+                                f"✅ REVIEW FEED VERIFIED: {selector}"
                             )
 
-                            if feed:
+                            return True
 
-                                logger.info(
-                                    f"✅ REVIEW FEED VERIFIED: {feed_selector}"
-                                )
+                    except Exception:
+                        pass
 
-                                return True
+            except Exception:
+                continue
 
-                        except Exception:
-                            pass
+        logger.warning(
+            "⚠️ REVIEW BUTTON NOT FOUND"
+        )
 
-                except Exception:
-                    continue
+        await save_debug_files(
+            page,
+            "review_button_failed"
+        )
 
-        except Exception:
-            continue
+        return False
 
-    logger.warning(
-        "⚠️ REVIEW BUTTON NOT FOUND"
-    )
+    except Exception as e:
 
-    await save_debug_files(
-        page,
-        "review_panel_failed"
-    )
+        logger.exception(
+            f"❌ REVIEW PANEL ERROR: {e}"
+        )
 
-    return False
-
-# ==========================================================
-# EXPAND REVIEWS
-# ==========================================================
-
-async def expand_reviews(page):
-
+        return False
     selectors = [
 
         'button.w8nwRe',
