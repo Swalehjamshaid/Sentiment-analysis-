@@ -1,6 +1,6 @@
 # ==========================================================
 # REVIEW INTEL AI — RAILWAY PRODUCTION DOCKERFILE
-# FASTAPI + SELENIUMBASE + CHROMIUM
+# FASTAPI + CAMOUFOX + PLAYWRIGHT + FIREFOX
 # ==========================================================
 
 FROM python:3.11-slim
@@ -11,6 +11,7 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # ==========================================================
 # WORK DIRECTORY
@@ -32,19 +33,27 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     fonts-liberation \
     xdg-utils \
+    firefox-esr \
     libglib2.0-0 \
     libnss3 \
     libnspr4 \
     libdbus-1-3 \
+    libdbus-glib-1-2 \
     libatk1.0-0 \
     libatk-bridge2.0-0 \
     libcups2 \
     libdrm2 \
     libxkbcommon0 \
     libxcomposite1 \
+    libxcursor1 \
     libxdamage1 \
     libxfixes3 \
     libxrandr2 \
+    libxrender1 \
+    libx11-xcb1 \
+    libxcb-dri3-0 \
+    libxt6 \
+    libxi6 \
     libgbm1 \
     libasound2 \
     libatspi2.0-0 \
@@ -53,8 +62,6 @@ RUN apt-get update && apt-get install -y \
     libu2f-udev \
     libvulkan1 \
     libglu1-mesa \
-    chromium \
-    chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
 # ==========================================================
@@ -64,15 +71,37 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 
 # ==========================================================
-# INSTALL PYTHON DEPENDENCIES
+# UPGRADE PIP
 # ==========================================================
 
-RUN pip install --upgrade pip
+RUN pip install --upgrade pip setuptools wheel
+
+# ==========================================================
+# INSTALL PYTHON REQUIREMENTS
+# ==========================================================
 
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ==========================================================
-# COPY APPLICATION FILES
+# INSTALL PLAYWRIGHT FIREFOX
+# ==========================================================
+
+RUN playwright install firefox
+
+# ==========================================================
+# INSTALL PLAYWRIGHT SYSTEM DEPS
+# ==========================================================
+
+RUN python -m playwright install-deps
+
+# ==========================================================
+# INSTALL CAMOUFOX BROWSER
+# ==========================================================
+
+RUN python -m camoufox fetch
+
+# ==========================================================
+# COPY PROJECT FILES
 # ==========================================================
 
 COPY . .
@@ -84,7 +113,7 @@ COPY . .
 EXPOSE 8080
 
 # ==========================================================
-# START APPLICATION
+# START FASTAPI
 # ==========================================================
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
