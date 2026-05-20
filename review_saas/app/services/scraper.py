@@ -646,7 +646,32 @@ async def playwright_scraper(
             # FINAL HTML
             # ==================================================
 
-            html = await page.content()
+          # ==========================================================
+# SAVE DEBUG HTML + SCREENSHOT
+# ==========================================================
+
+html = await page.content()
+
+with open(
+    "debug_google.html",
+    "w",
+    encoding="utf-8"
+) as f:
+
+    f.write(html)
+
+logger.info(
+    "✅ DEBUG HTML SAVED"
+)
+
+await page.screenshot(
+    path="debug_google.png",
+    full_page=True
+)
+
+logger.info(
+    "✅ DEBUG SCREENSHOT SAVED"
+)
 
             with open(
                 "debug_after_reviews.html",
@@ -671,9 +696,24 @@ async def playwright_scraper(
             tree = HTMLParser(html)
 
             review_blocks = soup.select(
-                'div[data-review-id]'
-            )
+    'div.jftiEf'
+)
 
+if not review_blocks:
+
+    review_blocks = soup.select(
+        'div[data-review-id]'
+    )
+
+if not review_blocks:
+
+    review_blocks = soup.select(
+        'div.MyEned'
+    )
+
+logger.info(
+    f"📦 REVIEW BLOCKS FOUND: {len(review_blocks)}"
+)
             logger.info(
                 f"📦 PLAYWRIGHT REVIEWS FOUND: {len(review_blocks)}"
             )
@@ -682,14 +722,32 @@ async def playwright_scraper(
 
                 try:
 
-                    reviewer = block.select_one(".d4r55")
+                    reviewer = (
+
+    block.select_one(".d4r55")
+
+    or
+
+    block.select_one(".TSUbDb")
+)
 
                     reviewer_name = (
                         reviewer.text.strip()
                         if reviewer else "Anonymous"
                     )
 
-                    review_text_elem = block.select_one(".wiI7pd")
+                  review_text_elem = (
+
+    block.select_one(".wiI7pd")
+
+    or
+
+    block.select_one(".MyEned")
+
+    or
+
+    block.select_one(".OA1nbd")
+)
 
                     review_text = (
                         review_text_elem.text.strip()
