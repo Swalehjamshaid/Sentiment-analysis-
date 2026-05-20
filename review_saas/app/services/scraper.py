@@ -1,7 +1,8 @@
 # ==========================================================
 # FILE: app/services/scraper.py
-# REVIEW INTEL AI - ENTERPRISE SCRAPER
-# RAILWAY + FASTAPI + PLAYWRIGHT + PROXY
+# ENTERPRISE GOOGLE REVIEW SCRAPER
+# APIFY PRIMARY + PLAYWRIGHT FALLBACK
+# RAILWAY READY
 # ==========================================================
 
 import os
@@ -13,11 +14,9 @@ import traceback
 import random
 
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 import httpx
-import aiohttp
-
 from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
 
@@ -43,8 +42,7 @@ from playwright.async_api import (
 from apify_client import ApifyClient
 
 # ==========================================================
-# IMPORTANT:
-# UPDATE THESE IMPORTS ACCORDING TO YOUR PROJECT
+# MODELS
 # ==========================================================
 
 from app.core.models import (
@@ -61,10 +59,8 @@ logger = logging.getLogger(
 )
 
 # ==========================================================
-# SETTINGS
+# ENV VARIABLES
 # ==========================================================
-
-HEADLESS = True
 
 PROXY_SERVER = os.getenv(
     "PROXY_SERVER",
@@ -85,7 +81,80 @@ APIFY_TOKEN = os.getenv(
     "APIFY_TOKEN"
 )
 
+HEADLESS = True
+
 ua = UserAgent()
+
+# ==========================================================
+# REVIEW SERVICE
+# ==========================================================
+
+class ReviewService:
+
+    @staticmethod
+    async def get_latest_reviews(
+        db: AsyncSession,
+        company_id: int,
+        limit: int = 50
+    ):
+
+        stmt = (
+            select(Review)
+            .where(
+                Review.company_id == company_id
+            )
+            .order_by(
+                desc(Review.created_at)
+            )
+            .limit(limit)
+        )
+
+        result = await db.execute(stmt)
+
+        return result.scalars().all()
+
+    @staticmethod
+    async def get_total_reviews(
+        db: AsyncSession,
+        company_id: int
+    ):
+
+        stmt = (
+            select(
+                func.count(Review.id)
+            )
+            .where(
+                Review.company_id == company_id
+            )
+        )
+
+        result = await db.execute(stmt)
+
+        return result.scalar() or 0
+
+    @staticmethod
+    async def get_average_rating(
+        db: AsyncSession,
+        company_id: int
+    ):
+
+        stmt = (
+            select(
+                func.avg(Review.rating)
+            )
+            .where(
+                Review.company_id == company_id
+            )
+        )
+
+        result = await db.execute(stmt)
+
+        avg = result.scalar()
+
+        if avg is None:
+            return 0
+
+        return round(float(avg), 2)
 
 # ==========================================================
 # HELPERS
@@ -200,7 +269,7 @@ def normalize_rating(text):
     return 5
 
 # ==========================================================
-# APIFY CLIENT
+# APIFY
 # ==========================================================
 
 def create_apify_client():
@@ -261,7 +330,7 @@ async def get_existing_reviews(
     return mapped
 
 # ==========================================================
-# NORMALIZE REVIEW
+# NORMALIZE
 # ==========================================================
 
 def normalize_review(
@@ -354,7 +423,7 @@ def normalize_review(
     except Exception as e:
 
         logger.exception(
-            f"❌ normalize_review failed: {e}"
+            f"❌ Normalize failed: {e}"
         )
 
         return None
@@ -377,7 +446,7 @@ async def playwright_scraper(
 ):
 
     logger.info(
-        "🚀 PLAYWRIGHT SCRAPER STARTED"
+        "🚀 PLAYWRIGHT FALLBACK STARTED"
     )
 
     reviews = []
@@ -432,10 +501,6 @@ async def playwright_scraper(
                 random.uniform(3, 6)
             )
 
-            # ==================================================
-            # SAVE DEBUG
-            # ==================================================
-
             html_before = await page.content()
 
             with open(
@@ -450,10 +515,6 @@ async def playwright_scraper(
                 path="debug_before_reviews.png",
                 full_page=True
             )
-
-            # ==================================================
-            # OPEN REVIEW PANEL
-            # ==================================================
 
             selectors = [
 
@@ -483,7 +544,7 @@ async def playwright_scraper(
                         opened = True
 
                         logger.info(
-                            f"✅ Reviews opened using: {selector}"
+                            f"✅ Opened reviews using {selector}"
                         )
 
                         break
@@ -494,16 +555,12 @@ async def playwright_scraper(
             if not opened:
 
                 logger.warning(
-                    "⚠️ Could not open review panel"
+                    "⚠️ Could not open reviews panel"
                 )
 
             await asyncio.sleep(
                 random.uniform(3, 5)
             )
-
-            # ==================================================
-            # SCROLL
-            # ==================================================
 
             previous_height = 0
             retries = 0
@@ -542,10 +599,6 @@ async def playwright_scraper(
 
                 previous_height = current_height
 
-            # ==================================================
-            # FINAL HTML
-            # ==================================================
-
             html = await page.content()
 
             with open(
@@ -566,10 +619,6 @@ async def playwright_scraper(
                 "lxml"
             )
 
-            # ==================================================
-            # REVIEW SELECTORS
-            # ==================================================
-
             review_blocks = soup.select(
                 "div.jftiEf"
             )
@@ -587,12 +636,8 @@ async def playwright_scraper(
                 )
 
             logger.info(
-                f"📦 REVIEW BLOCKS FOUND: {len(review_blocks)}"
+                f"📦 PLAYWRIGHT REVIEWS FOUND: {len(review_blocks)}"
             )
-
-            # ==================================================
-            # PARSE REVIEWS
-            # ==================================================
 
             for block in review_blocks[:target_limit]:
 
@@ -687,7 +732,7 @@ async def playwright_scraper(
                 except Exception as row_error:
 
                     logger.exception(
-                        f"❌ Review parse failed: {row_error}"
+                        f"❌ Parse failed: {row_error}"
                     )
 
         except PlaywrightTimeoutError:
@@ -714,16 +759,16 @@ async def playwright_scraper(
     return reviews
 
 # ==========================================================
-# APIFY FALLBACK
+# APIFY SCRAPER
 # ==========================================================
 
-async def apify_fallback_scraper(
+async def apify_scraper(
     google_maps_url: str,
     target_limit: int
 ):
 
     logger.info(
-        "🚀 APIFY FALLBACK STARTED"
+        "🚀 APIFY SCRAPER STARTED"
     )
 
     client = create_apify_client()
@@ -846,10 +891,10 @@ async def fetch_reviews_from_google(
         )
 
         # ==================================================
-        # PRIMARY SCRAPER
+        # STEP 1: APIFY
         # ==================================================
 
-        raw_reviews = await playwright_scraper(
+        raw_reviews = await apify_scraper(
 
             google_maps_url=google_maps_url,
 
@@ -857,16 +902,16 @@ async def fetch_reviews_from_google(
         )
 
         # ==================================================
-        # APIFY FALLBACK
+        # STEP 2: PLAYWRIGHT FALLBACK
         # ==================================================
 
         if not raw_reviews:
 
             logger.warning(
-                "⚠️ PLAYWRIGHT returned 0 reviews"
+                "⚠️ APIFY returned 0 reviews"
             )
 
-            raw_reviews = await apify_fallback_scraper(
+            raw_reviews = await playwright_scraper(
 
                 google_maps_url=google_maps_url,
 
@@ -918,21 +963,41 @@ async def fetch_reviews_from_google(
 
                     google_review_id=normalized["google_review_id"],
 
-                    author_name=normalized["author_name"],
+                    author_name=str(
+                        normalized.get(
+                            "author_name",
+                            "Anonymous"
+                        )
+                    ),
 
-                    rating=normalized["rating"],
+                    rating=int(
+                        normalized.get(
+                            "rating",
+                            5
+                        )
+                    ),
 
-                    sentiment_score=normalized["sentiment_score"],
+                    sentiment_score=float(
+                        normalized.get(
+                            "sentiment_score",
+                            0.5
+                        )
+                    ),
 
                     text=normalized["text"],
 
-                    google_review_time=normalized["google_review_time"],
+                    google_review_time=normalized.get(
+                        "google_review_time",
+                        datetime.utcnow()
+                    ),
 
-                    review_likes=normalized["review_likes"],
+                    review_likes=0,
 
                     first_seen_at=datetime.utcnow(),
 
-                    created_at=datetime.utcnow()
+                    created_at=datetime.utcnow(),
+
+                    updated_at=datetime.utcnow()
                 )
 
                 session.add(
@@ -944,7 +1009,7 @@ async def fetch_reviews_from_google(
             except Exception as row_error:
 
                 logger.exception(
-                    f"❌ Row insert failed: {row_error}"
+                    f"❌ Insert failed: {row_error}"
                 )
 
         try:
