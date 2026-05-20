@@ -4,6 +4,7 @@
 # ENTERPRISE GOOGLE REVIEW SCRAPER
 # PLAYWRIGHT ONLY VERSION
 # FAST + POWERFUL + 500 REVIEWS OPTIMIZED
+# FULLY INTEGRATED WITH reviews.py
 # ==========================================================
 
 import os
@@ -73,10 +74,10 @@ PROXY_PASSWORD = os.getenv(
 
 HEADLESS = True
 
-SCROLL_PAUSE_MIN = 1.2
-SCROLL_PAUSE_MAX = 2.2
+SCROLL_PAUSE_MIN = 1.5
+SCROLL_PAUSE_MAX = 2.5
 
-MAX_SCROLL_RETRIES = 6
+MAX_SCROLL_RETRIES = 8
 
 SCRAPER_SEMAPHORE = asyncio.Semaphore(2)
 
@@ -470,20 +471,6 @@ async def playwright_scraper(
 
             await stealth_async(page)
 
-            # ==================================================
-            # BLOCK UNNECESSARY RESOURCES
-            # ==================================================
-
-            await page.route(
-                "**/*",
-                lambda route: (
-                    route.abort()
-                    if route.request.resource_type
-                    in ["image", "media", "font"]
-                    else route.continue_()
-                )
-            )
-
             try:
 
                 logger.info(
@@ -494,12 +481,20 @@ async def playwright_scraper(
 
                     google_maps_url,
 
-                    wait_until="commit",
+                    wait_until="domcontentloaded",
 
                     timeout=120000
                 )
 
-                await asyncio.sleep(5)
+                await asyncio.sleep(6)
+
+                # ==================================================
+                # SCREENSHOT DEBUG
+                # ==================================================
+
+                await page.screenshot(
+                    path="debug_1_page_loaded.png"
+                )
 
                 # ==================================================
                 # CAPTCHA DETECTION
@@ -560,7 +555,9 @@ async def playwright_scraper(
 
                     'button[aria-label*=" reviews"]',
 
-                    'button[aria-label*=" Reviews"]'
+                    'button[aria-label*=" Reviews"]',
+
+                    'button[role="tab"]'
                 ]
 
                 opened = False
@@ -582,12 +579,20 @@ async def playwright_scraper(
 
                             opened = True
 
+                            logger.info(
+                                "✅ REVIEWS BUTTON CLICKED"
+                            )
+
                             break
 
                     except Exception:
                         pass
 
                 await asyncio.sleep(5)
+
+                await page.screenshot(
+                    path="debug_2_reviews_opened.png"
+                )
 
                 if not opened:
 
@@ -605,6 +610,10 @@ async def playwright_scraper(
 
                 await review_feed.wait_for(
                     timeout=30000
+                )
+
+                logger.info(
+                    "✅ REVIEW FEED FOUND"
                 )
 
                 loaded_count = 0
@@ -632,7 +641,7 @@ async def playwright_scraper(
                         )
 
                         # ==========================================
-                        # EXPAND REVIEWS
+                        # EXPAND MORE BUTTONS
                         # ==========================================
 
                         more_buttons = await page.locator(
@@ -655,7 +664,7 @@ async def playwright_scraper(
                         # ==========================================
 
                         review_elements = await page.locator(
-                            'div[data-review-id]'
+                            'div.jftiEf'
                         ).all()
 
                         current_count = len(
@@ -663,7 +672,7 @@ async def playwright_scraper(
                         )
 
                         logger.info(
-                            f"📦 LOADED REVIEWS: {current_count}"
+                            f"📦 CURRENT REVIEW COUNT: {current_count}"
                         )
 
                         # ==========================================
@@ -685,11 +694,8 @@ async def playwright_scraper(
                                     "Anonymous"
                                 )
 
-                                review_text_elem = (
-
-                                    review_element.locator(".wiI7pd")
-
-                                    or review_element.locator(".MyEned")
+                                review_text_elem = review_element.locator(
+                                    ".wiI7pd"
                                 )
 
                                 review_text = await review_text_elem.text_content()
@@ -761,7 +767,7 @@ async def playwright_scraper(
                             break
 
                         # ==========================================
-                        # SCROLL STOP DETECTION
+                        # STOP DETECTION
                         # ==========================================
 
                         if current_count == loaded_count:
@@ -895,10 +901,6 @@ async def fetch_reviews_from_google(
         )
 
         inserted_reviews = []
-
-        # ==================================================
-        # SAVE REVIEWS
-        # ==================================================
 
         for idx, item in enumerate(reviews):
 
