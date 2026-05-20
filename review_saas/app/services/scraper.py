@@ -213,6 +213,52 @@ async def warmup_session(page):
         timeout=120000
     )
 
+# ==================================================
+# SAVE HTML DEBUG
+# ==================================================
+
+html = await page.content()
+
+with open(
+
+    "/tmp/maps_page.html",
+
+    "w",
+
+    encoding="utf-8"
+) as f:
+
+    f.write(html)
+
+logger.info(
+    "📄 MAPS HTML SAVED"
+)
+
+# ==================================================
+# SAVE SCREENSHOT
+# ==================================================
+
+screenshot_path = "/tmp/google_maps.png"
+
+await page.screenshot(
+
+    path=screenshot_path,
+
+    full_page=True
+)
+
+logger.info(
+    f"📸 SCREENSHOT SAVED: {screenshot_path}"
+)
+logger.info(
+    f"🌐 PAGE TITLE: {await page.title()}"
+)
+
+logger.info(
+    f"🌐 CURRENT URL: {page.url}"
+)
+
+    
     await asyncio.sleep(8)
 
     await human_scroll(page)
