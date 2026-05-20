@@ -832,6 +832,52 @@ async def scrape_google_reviews(
             f"🌐 MAPS URL: {maps_url}"
         )
 
+
+        await asyncio.sleep(15)
+
+# ==================================================
+# SAVE DEBUG SCREENSHOT
+# ==================================================
+
+await page.screenshot(
+
+    path="/tmp/maps_loaded.png",
+
+    full_page=True
+)
+
+logger.info(
+    "📸 MAPS SCREENSHOT SAVED"
+)
+
+# ==================================================
+# SAVE HTML
+# ==================================================
+
+html = await page.content()
+
+with open(
+
+    "/tmp/maps_loaded.html",
+
+    "w",
+
+    encoding="utf-8"
+) as f:
+
+    f.write(html)
+
+logger.info(
+    "📄 MAPS HTML SAVED"
+)
+
+logger.info(
+    f"🌐 PAGE TITLE: {await page.title()}"
+)
+
+logger.info(
+    f"🌐 CURRENT URL: {page.url}"
+)
         await page.goto(
 
             maps_url,
