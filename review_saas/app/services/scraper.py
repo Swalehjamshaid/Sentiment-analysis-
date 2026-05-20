@@ -641,10 +641,11 @@ async def playwright_scraper(
 
             while retries < 8:
 
-                await page.mouse.wheel(
-                    0,
-                    5000
-                )
+               review_feed = page.locator('div[role="feed"]')
+
+await review_feed.evaluate(
+    "(el) => el.scrollBy(0, 5000)"
+)
 
                 await asyncio.sleep(3)
 
