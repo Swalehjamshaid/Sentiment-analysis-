@@ -276,3 +276,10 @@ aiohttp==3.10.5
 selectolax==0.3.26
 tenacity==9.0.0
 playwright-stealth==1.0.6
+
+
+seleniumbase>=4.34.9
+selenium>=4.21.0
+undetected-chromedriver>=3.5.5
+rich>=13.7.0
+PyYAML>=6.0
