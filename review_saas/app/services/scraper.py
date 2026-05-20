@@ -1,28 +1,30 @@
 # ==========================================================
 # FILE: app/services/scraper.py
-# TRUSTLYTICS AI SAAS
-# PLAYWRIGHT GOOGLE REVIEW SCRAPER
-# FAST + STABLE + RAILWAY OPTIMIZED
-# FULLY INTEGRATED WITH reviews.py
+# GOOGLE MAPS REVIEW SCRAPER
+# SELENIUMBASE UC MODE + PLAYWRIGHT HYBRID
+# ENTERPRISE STABLE VERSION
 # ==========================================================
 
 import os
 import re
 import gc
-import asyncio
+import time
+import random
 import hashlib
+import asyncio
 import logging
 import traceback
-import random
 
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from tenacity import (
     retry,
     stop_after_attempt,
     wait_exponential
 )
+
+from fake_useragent import UserAgent
 
 from sqlalchemy import (
     select,
@@ -32,12 +34,7 @@ from sqlalchemy import (
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from playwright.async_api import (
-    async_playwright,
-    TimeoutError as PlaywrightTimeoutError
-)
-
-from playwright_stealth import stealth_async
+from seleniumbase import Driver
 
 from app.core.models import (
     Review,
@@ -53,12 +50,12 @@ logger = logging.getLogger(
 )
 
 # ==========================================================
-# ENVIRONMENT
+# ENV
 # ==========================================================
 
 PROXY_SERVER = os.getenv(
     "PROXY_SERVER",
-    "http://gw.dataimpulse.com:823"
+    "gw.dataimpulse.com:823"
 )
 
 PROXY_USERNAME = os.getenv(
@@ -74,24 +71,8 @@ HEADLESS = True
 SCROLL_PAUSE_MIN = 2
 SCROLL_PAUSE_MAX = 4
 
-MAX_SCROLL_RETRIES = 15
-
-SCRAPER_SEMAPHORE = asyncio.Semaphore(2)
-
-# ==========================================================
-# USER AGENTS
-# ==========================================================
-
-USER_AGENTS = [
-
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
-
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
-
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
-
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edge/124.0 Safari/537.36"
-]
+MAX_SCROLL_ATTEMPTS = 80
+MAX_IDLE_SCROLLS = 10
 
 # ==========================================================
 # HELPERS
@@ -115,48 +96,11 @@ def safe_int(value, default=0):
 
     try:
 
-        if value is None:
-            return default
-
         return int(float(value))
 
     except Exception:
 
         return default
-
-
-def safe_datetime(value):
-
-    try:
-
-        if not value:
-
-            return datetime.utcnow()
-
-        if isinstance(value, datetime):
-
-            return value.replace(
-                tzinfo=None
-            )
-
-        value = str(value)
-
-        value = value.replace(
-            "Z",
-            "+00:00"
-        )
-
-        parsed = datetime.fromisoformat(
-            value
-        )
-
-        return parsed.replace(
-            tzinfo=None
-        )
-
-    except Exception:
-
-        return datetime.utcnow()
 
 
 def clean_review_text(text):
@@ -167,9 +111,7 @@ def clean_review_text(text):
     text = text.replace("\r", " ")
     text = text.replace("\t", " ")
 
-    text = " ".join(text.split())
-
-    return text[:5000]
+    return " ".join(text.split())
 
 
 def generate_hash(author, text):
@@ -181,13 +123,13 @@ def generate_hash(author, text):
     ).hexdigest()
 
 
-def normalize_rating(text):
+def normalize_rating(label):
 
     try:
 
         match = re.search(
             r"([0-9.]+)",
-            str(text)
+            str(label)
         )
 
         if match:
@@ -203,18 +145,16 @@ def normalize_rating(text):
 
     return 5
 
-# ==========================================================
-# GOOGLE MAPS URL
-# ==========================================================
 
-def build_google_maps_url(
-    place_id: str
-):
+def build_google_maps_search_url(query: str):
 
-    place_id = str(place_id).strip()
+    query = query.replace(
+        " ",
+        "+"
+    )
 
     return (
-        f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+        f"https://www.google.com/maps/search/{query}"
     )
 
 # ==========================================================
@@ -239,15 +179,15 @@ async def get_existing_reviews(
         stmt
     )
 
-    reviews = result.scalars().all()
+    rows = result.scalars().all()
 
     mapped = {}
 
-    for review in reviews:
+    for row in rows:
 
         mapped[
-            review.google_review_id
-        ] = review
+            row.google_review_id
+        ] = row
 
     return mapped
 
@@ -262,81 +202,33 @@ def normalize_review(
 
     try:
 
-        author_name = (
-
-            item.get("name")
-
-            or item.get("reviewerName")
-
-            or item.get("authorName")
-
-            or "Anonymous"
-        )
-
         author_name = safe_string(
-            author_name
-        )
-
-        review_text = (
-
-            item.get("text")
-
-            or item.get("review")
-
-            or item.get("comment")
-
-            or ""
+            item.get("author_name"),
+            "Anonymous"
         )
 
         review_text = clean_review_text(
-            review_text
+            item.get("text")
         )
 
         if not review_text:
             return None
 
-        rating = (
-
-            item.get("stars")
-
-            or item.get("rating")
-
-            or 5
-        )
-
         rating = safe_int(
-            rating,
+            item.get("rating"),
             5
         )
 
-        review_date = (
-
-            item.get("publishedAtDate")
-
-            or item.get("date")
-        )
-
-        review_date = safe_datetime(
-            review_date
-        )
+        review_date = datetime.utcnow()
 
         google_review_id = (
 
-            item.get("reviewId")
+            item.get("review_id")
 
-            or item.get("id")
-        )
-
-        if not google_review_id:
-
-            google_review_id = (
-                f"{company_id}_"
-                f"{generate_hash(author_name, review_text)}"
+            or generate_hash(
+                author_name,
+                review_text
             )
-
-        sentiment_score = round(
-            rating / 5,
-            2
         )
 
         return {
@@ -360,19 +252,442 @@ def normalize_review(
                 0,
 
             "sentiment_score":
-                sentiment_score
+                round(rating / 5, 2)
         }
 
     except Exception as e:
 
         logger.exception(
-            f"❌ Normalize failed: {e}"
+            f"❌ NORMALIZE FAILED: {e}"
         )
 
         return None
 
 # ==========================================================
-# PLAYWRIGHT SCRAPER
+# SELENIUMBASE DRIVER
+# ==========================================================
+
+def create_driver():
+
+    logger.info(
+        "🚀 STARTING SELENIUMBASE DRIVER"
+    )
+
+    proxy = None
+
+    if (
+        PROXY_SERVER
+        and PROXY_USERNAME
+        and PROXY_PASSWORD
+    ):
+
+        proxy = (
+
+            f"{PROXY_USERNAME}:"
+            f"{PROXY_PASSWORD}@"
+            f"{PROXY_SERVER}"
+        )
+
+    driver = Driver(
+
+        uc=True,
+
+        headless=HEADLESS,
+
+        proxy=proxy,
+
+        agent=UserAgent().random,
+
+        incognito=True,
+
+        disable_gpu=True,
+
+        do_not_track=True,
+
+        undetectable=True,
+
+        chromium_arg=[
+
+            "--disable-dev-shm-usage",
+
+            "--no-sandbox",
+
+            "--disable-blink-features=AutomationControlled",
+
+            "--disable-popup-blocking",
+
+            "--disable-notifications",
+
+            "--disable-infobars",
+
+            "--window-size=1400,900",
+        ]
+    )
+
+    return driver
+
+# ==========================================================
+# CAPTCHA DETECTION
+# ==========================================================
+
+def is_captcha_page(driver):
+
+    try:
+
+        url = driver.current_url.lower()
+
+        source = driver.page_source.lower()
+
+        keywords = [
+
+            "captcha",
+
+            "sorry",
+
+            "unusual traffic",
+
+            "not a robot"
+        ]
+
+        for keyword in keywords:
+
+            if keyword in url:
+                return True
+
+            if keyword in source:
+                return True
+
+        return False
+
+    except Exception:
+        return False
+
+# ==========================================================
+# CLICK REVIEWS TAB
+# ==========================================================
+
+def open_reviews_panel(driver):
+
+    logger.info(
+        "📦 OPENING REVIEWS PANEL"
+    )
+
+    buttons = driver.find_elements(
+        "css selector",
+        "button"
+    )
+
+    for btn in buttons:
+
+        try:
+
+            text = safe_string(
+                btn.text
+            ).lower()
+
+            aria = safe_string(
+                btn.get_attribute(
+                    "aria-label"
+                )
+            ).lower()
+
+            combined = f"{text} {aria}"
+
+            if "review" in combined:
+
+                try:
+
+                    driver.execute_script(
+                        "arguments[0].click();",
+                        btn
+                    )
+
+                except Exception:
+
+                    btn.click()
+
+                logger.info(
+                    "✅ REVIEWS BUTTON CLICKED"
+                )
+
+                time.sleep(8)
+
+                return True
+
+        except Exception:
+            pass
+
+    return False
+
+# ==========================================================
+# EXTRACT REVIEWS
+# ==========================================================
+
+def extract_reviews(
+    driver,
+    target_limit=500
+):
+
+    logger.info(
+        "📦 STARTING REVIEW EXTRACTION"
+    )
+
+    reviews = []
+
+    seen_ids = set()
+
+    try:
+
+        scroll_container = driver.find_element(
+            "css selector",
+            'div[role="feed"]'
+        )
+
+    except Exception:
+
+        logger.warning(
+            "⚠️ REVIEW FEED NOT FOUND"
+        )
+
+        return reviews
+
+    idle_scrolls = 0
+    previous_count = 0
+
+    for attempt in range(
+        MAX_SCROLL_ATTEMPTS
+    ):
+
+        try:
+
+            cards = driver.find_elements(
+
+                "css selector",
+
+                'div[data-review-id], div.jftiEf, div[role="article"]'
+            )
+
+            logger.info(
+                f"📦 REVIEW CARDS FOUND: {len(cards)}"
+            )
+
+            for card in cards:
+
+                try:
+
+                    author = ""
+
+                    rating = 5
+
+                    review_text = ""
+
+                    # ==============================
+                    # AUTHOR
+                    # ==============================
+
+                    try:
+
+                        author_elem = card.find_element(
+                            "css selector",
+                            ".d4r55"
+                        )
+
+                        author = safe_string(
+                            author_elem.text
+                        )
+
+                    except Exception:
+                        pass
+
+                    # ==============================
+                    # REVIEW TEXT
+                    # ==============================
+
+                    text_selectors = [
+
+                        ".wiI7pd",
+
+                        ".MyEned",
+
+                        "span[class*='wiI7pd']"
+                    ]
+
+                    for selector in text_selectors:
+
+                        try:
+
+                            elem = card.find_element(
+                                "css selector",
+                                selector
+                            )
+
+                            review_text = clean_review_text(
+                                elem.text
+                            )
+
+                            if review_text:
+                                break
+
+                        except Exception:
+                            pass
+
+                    if not review_text:
+                        continue
+
+                    # ==============================
+                    # RATING
+                    # ==============================
+
+                    try:
+
+                        rating_elem = card.find_element(
+
+                            "css selector",
+
+                            "span[aria-label*='star']"
+                        )
+
+                        rating_label = rating_elem.get_attribute(
+                            "aria-label"
+                        )
+
+                        rating = normalize_rating(
+                            rating_label
+                        )
+
+                    except Exception:
+                        pass
+
+                    # ==============================
+                    # UNIQUE ID
+                    # ==============================
+
+                    review_id = generate_hash(
+                        author,
+                        review_text
+                    )
+
+                    if review_id in seen_ids:
+                        continue
+
+                    seen_ids.add(
+                        review_id
+                    )
+
+                    reviews.append({
+
+                        "review_id":
+                            review_id,
+
+                        "author_name":
+                            author,
+
+                        "rating":
+                            rating,
+
+                        "text":
+                            review_text
+                    })
+
+                except Exception:
+                    pass
+
+            logger.info(
+                f"✅ TOTAL REVIEWS: {len(reviews)}"
+            )
+
+            if len(reviews) >= target_limit:
+
+                logger.info(
+                    f"🎯 TARGET LIMIT REACHED: {target_limit}"
+                )
+
+                break
+
+            # ==================================
+            # SCROLL
+            # ==================================
+
+            driver.execute_script(
+                """
+                arguments[0].scrollBy(
+                    0,
+                    8000
+                );
+                """,
+                scroll_container
+            )
+
+            time.sleep(
+
+                random.uniform(
+                    SCROLL_PAUSE_MIN,
+                    SCROLL_PAUSE_MAX
+                )
+            )
+
+            # ==================================
+            # EXPAND MORE BUTTONS
+            # ==================================
+
+            try:
+
+                more_buttons = driver.find_elements(
+
+                    "css selector",
+
+                    "button.w8nwRe"
+                )
+
+                for btn in more_buttons:
+
+                    try:
+
+                        driver.execute_script(
+                            "arguments[0].click();",
+                            btn
+                        )
+
+                    except Exception:
+                        pass
+
+            except Exception:
+                pass
+
+            current_count = len(
+                reviews
+            )
+
+            if current_count == previous_count:
+
+                idle_scrolls += 1
+
+            else:
+
+                idle_scrolls = 0
+
+            previous_count = current_count
+
+            if idle_scrolls >= MAX_IDLE_SCROLLS:
+
+                logger.warning(
+                    "⚠️ SCROLL IDLE LIMIT REACHED"
+                )
+
+                break
+
+        except Exception as e:
+
+            logger.exception(
+                f"❌ SCROLL FAILED: {e}"
+            )
+
+    gc.collect()
+
+    return reviews
+
+# ==========================================================
+# MAIN SCRAPER
 # ==========================================================
 
 @retry(
@@ -383,472 +698,102 @@ def normalize_review(
         max=10
     )
 )
-async def playwright_scraper(
-    google_maps_url: str,
+async def scrape_google_reviews(
+    business_name: str,
     target_limit: int = 500
 ):
 
-    async with SCRAPER_SEMAPHORE:
+    driver = None
+
+    try:
+
+        driver = create_driver()
 
         logger.info(
-            "🚀 PLAYWRIGHT SCRAPER STARTED"
+            "🌐 VERIFYING PROXY"
+        )
+
+        driver.get(
+            "https://api.ipify.org"
         )
 
         logger.info(
-            f"🌐 PROXY SERVER: {PROXY_SERVER}"
+            f"🌐 ACTIVE IP: {driver.page_source}"
+        )
+
+        # ======================================
+        # SEARCH-BASED NAVIGATION
+        # ======================================
+
+        search_url = build_google_maps_search_url(
+            business_name
         )
 
         logger.info(
-            f"🌐 USERNAME EXISTS: {bool(PROXY_USERNAME)}"
+            f"🌐 SEARCH URL: {search_url}"
         )
 
-        logger.info(
-            f"🌐 PASSWORD EXISTS: {bool(PROXY_PASSWORD)}"
+        driver.get(
+            search_url
         )
 
-        reviews = []
+        time.sleep(10)
 
-        seen_review_ids = set()
+        if is_captcha_page(driver):
 
-        async with async_playwright() as p:
-
-            browser = await p.chromium.launch(
-
-                headless=HEADLESS,
-
-                proxy={
-
-                    "server":
-                        PROXY_SERVER,
-
-                    "username":
-                        PROXY_USERNAME,
-
-                    "password":
-                        PROXY_PASSWORD,
-                },
-
-                args=[
-
-                    "--disable-blink-features=AutomationControlled",
-
-                    "--disable-dev-shm-usage",
-
-                    "--disable-setuid-sandbox",
-
-                    "--no-sandbox",
-
-                    "--disable-gpu",
-
-                    "--disable-extensions",
-
-                    "--disable-background-networking",
-
-                    "--disable-background-timer-throttling",
-
-                    "--disable-renderer-backgrounding",
-
-                    "--disable-sync",
-
-                    "--metrics-recording-only",
-
-                    "--mute-audio",
-
-                    "--no-first-run",
-
-                    "--disable-popup-blocking",
-
-                    "--disable-notifications",
-                ]
+            logger.warning(
+                "⚠️ CAPTCHA DETECTED"
             )
 
-            context = await browser.new_context(
+            return []
 
-                viewport={
-                    "width": 1400,
-                    "height": 900,
-                },
+        opened = open_reviews_panel(
+            driver
+        )
 
-                user_agent=random.choice(
-                    USER_AGENTS
-                ),
+        if not opened:
 
-                locale="en-US"
+            logger.warning(
+                "⚠️ REVIEWS PANEL FAILED"
             )
 
-            page = await context.new_page()
+            return []
 
-            page.set_default_timeout(45000)
+        reviews = extract_reviews(
 
-            await stealth_async(page)
+            driver,
 
-            try:
-
-                # ==================================================
-                # VERIFY PROXY
-                # ==================================================
-
-                await page.goto(
-                    "https://api.ipify.org?format=json"
-                )
-
-                proxy_ip = await page.text_content(
-                    "body"
-                )
-
-                logger.info(
-                    f"🌐 ACTIVE PROXY IP: {proxy_ip}"
-                )
-
-                # ==================================================
-                # OPEN GOOGLE MAPS
-                # ==================================================
-
-                logger.info(
-                    f"🌐 Opening URL: {google_maps_url}"
-                )
-
-                await page.goto(
-
-                    google_maps_url,
-
-                    wait_until="domcontentloaded",
-
-                    timeout=45000
-                )
-
-                await asyncio.sleep(10)
-
-                # ==================================================
-                # CAPTCHA CHECK
-                # ==================================================
-
-                if "sorry/index" in page.url:
-
-                    logger.warning(
-                        "⚠️ GOOGLE CAPTCHA PAGE DETECTED"
-                    )
-
-                    return []
-
-                # ==================================================
-                # CONSENT
-                # ==================================================
-
-                try:
-
-                    consent_buttons = await page.locator(
-                        "button"
-                    ).all()
-
-                    for btn in consent_buttons:
-
-                        try:
-
-                            text = await btn.text_content()
-
-                            if text:
-
-                                lower = text.lower()
-
-                                if (
-
-                                    "accept" in lower
-
-                                    or "agree" in lower
-                                ):
-
-                                    await btn.click()
-
-                                    logger.info(
-                                        "✅ CONSENT ACCEPTED"
-                                    )
-
-                                    await asyncio.sleep(3)
-
-                                    break
-
-                        except Exception:
-                            pass
-
-                except Exception:
-                    pass
-
-                # ==================================================
-                # OPEN REVIEWS PANEL
-                # ==================================================
-
-                buttons = await page.locator(
-                    "button"
-                ).all()
-
-                opened = False
-
-                for btn in buttons:
-
-                    try:
-
-                        text = await btn.text_content()
-
-                        aria = await btn.get_attribute(
-                            "aria-label"
-                        )
-
-                        combined = (
-                            f"{text} {aria}"
-                        ).lower()
-
-                        if "review" in combined:
-
-                            await btn.click()
-
-                            opened = True
-
-                            logger.info(
-                                "✅ REVIEW BUTTON FOUND AND CLICKED"
-                            )
-
-                            await asyncio.sleep(10)
-
-                            break
-
-                    except Exception:
-                        pass
-
-                if not opened:
-
-                    logger.warning(
-                        "⚠️ REVIEWS BUTTON NOT FOUND"
-                    )
-
-                    return []
-
-                # ==================================================
-                # REVIEW FEED
-                # ==================================================
-
-                review_feed = page.locator(
-                    'div[role="feed"]'
-                )
-
-                await asyncio.sleep(8)
-
-                feed_html = await review_feed.inner_html()
-
-                logger.info(
-                    f"📦 REVIEW FEED HTML LENGTH: {len(feed_html)}"
-                )
-
-                loaded_count = 0
-
-                same_count = 0
-
-                while loaded_count < target_limit:
-
-                    try:
-
-                        # ==========================================
-                        # SCROLL
-                        # ==========================================
-
-                        await review_feed.evaluate(
-                            "(el) => el.scrollBy(0, 8000)"
-                        )
-
-                        await asyncio.sleep(
-
-                            random.uniform(
-                                SCROLL_PAUSE_MIN,
-                                SCROLL_PAUSE_MAX
-                            )
-                        )
-
-                        # ==========================================
-                        # EXPAND MORE
-                        # ==========================================
-
-                        more_buttons = await page.locator(
-                            'button.w8nwRe'
-                        ).all()
-
-                        for btn in more_buttons:
-
-                            try:
-
-                                await btn.click(
-                                    timeout=500
-                                )
-
-                            except Exception:
-                                pass
-
-                        # ==========================================
-                        # REVIEW ELEMENTS
-                        # ==========================================
-
-                        review_elements = await page.locator(
-
-                            'div[data-review-id], div.jftiEf, div[role="article"]'
-
-                        ).all()
-
-                        current_count = len(
-                            review_elements
-                        )
-
-                        logger.info(
-                            f"📦 CURRENT REVIEW COUNT: {current_count}"
-                        )
-
-                        # ==========================================
-                        # EXTRACT REVIEWS
-                        # ==========================================
-
-                        for review_element in review_elements:
-
-                            try:
-
-                                reviewer_elem = review_element.locator(
-                                    ".d4r55"
-                                )
-
-                                reviewer_name = await reviewer_elem.text_content()
-
-                                reviewer_name = safe_string(
-                                    reviewer_name,
-                                    "Anonymous"
-                                )
-
-                                review_text_elem = review_element.locator(
-
-                                    ".wiI7pd, .MyEned, span[class*='wiI7pd']"
-                                )
-
-                                review_text = await review_text_elem.text_content()
-
-                                review_text = clean_review_text(
-                                    review_text
-                                )
-
-                                if not review_text:
-                                    continue
-
-                                rating_elem = review_element.locator(
-                                    "span[aria-label*='star']"
-                                )
-
-                                rating_label = await rating_elem.get_attribute(
-                                    "aria-label"
-                                )
-
-                                rating = normalize_rating(
-                                    rating_label
-                                )
-
-                                review_id = generate_hash(
-                                    reviewer_name,
-                                    review_text
-                                )
-
-                                if review_id in seen_review_ids:
-                                    continue
-
-                                seen_review_ids.add(
-                                    review_id
-                                )
-
-                                review = {
-
-                                    "reviewId":
-                                        review_id,
-
-                                    "reviewerName":
-                                        reviewer_name,
-
-                                    "text":
-                                        review_text,
-
-                                    "stars":
-                                        rating,
-
-                                    "publishedAtDate":
-                                        datetime.utcnow().isoformat()
-                                }
-
-                                reviews.append(review)
-
-                            except Exception:
-                                pass
-
-                        # ==========================================
-                        # TARGET REACHED
-                        # ==========================================
-
-                        if len(reviews) >= target_limit:
-
-                            logger.info(
-                                f"🎯 TARGET LIMIT REACHED: {target_limit}"
-                            )
-
-                            break
-
-                        # ==========================================
-                        # STOP DETECTION
-                        # ==========================================
-
-                        if current_count == loaded_count:
-
-                            same_count += 1
-
-                        else:
-
-                            same_count = 0
-
-                        loaded_count = current_count
-
-                        if same_count >= MAX_SCROLL_RETRIES:
-
-                            logger.warning(
-                                "⚠️ NO MORE REVIEWS LOADING"
-                            )
-
-                            break
-
-                        del review_elements
-
-                        gc.collect()
-
-                    except Exception as scroll_error:
-
-                        logger.exception(
-                            f"❌ SCROLL FAILED: {scroll_error}"
-                        )
-
-                        break
-
-            except PlaywrightTimeoutError:
-
-                logger.exception(
-                    "❌ PLAYWRIGHT TIMEOUT OCCURRED"
-                )
-
-            except Exception as e:
-
-                logger.exception(
-                    f"❌ PLAYWRIGHT FAILED: {e}"
-                )
-
-            finally:
-
-                await context.close()
-
-                await browser.close()
+            target_limit=target_limit
+        )
 
         logger.info(
-            f"✅ PLAYWRIGHT FINAL REVIEWS: {len(reviews)}"
+            f"✅ SCRAPED REVIEWS: {len(reviews)}"
         )
 
         return reviews
+
+    except Exception as e:
+
+        logger.exception(
+            f"❌ SCRAPER FAILED: {e}"
+        )
+
+        logger.error(
+            traceback.format_exc()
+        )
+
+        return []
+
+    finally:
+
+        try:
+
+            if driver:
+
+                driver.quit()
+
+        except Exception:
+            pass
 
 # ==========================================================
 # FETCH REVIEWS
@@ -856,7 +801,7 @@ async def playwright_scraper(
 
 async def fetch_reviews_from_google(
 
-    place_id: str,
+    business_name: str,
 
     company_id: int,
 
@@ -866,22 +811,16 @@ async def fetch_reviews_from_google(
 ):
 
     logger.info(
-        f"🚀 FETCH GOOGLE REVIEWS STARTED | company={company_id}"
+        f"🚀 FETCH REVIEWS STARTED | company={company_id}"
     )
 
     try:
 
-        google_maps_url = build_google_maps_url(
-            place_id
-        )
+        reviews = await scrape_google_reviews(
 
-        reviews = await playwright_scraper(
+            business_name=business_name,
 
-            google_maps_url=
-                google_maps_url,
-
-            target_limit=
-                target_limit
+            target_limit=target_limit
         )
 
         if not reviews:
@@ -985,39 +924,31 @@ async def fetch_reviews_from_google(
                     "text":
                         normalized[
                             "text"
-                        ],
-
-                    "google_review_time":
-                        str(
-                            normalized[
-                                "google_review_time"
-                            ]
-                        ),
-
-                    "sentiment_score":
-                        normalized[
-                            "sentiment_score"
                         ]
                 })
+
+                # ==============================
+                # BATCH COMMIT
+                # ==============================
 
                 if idx % 50 == 0:
 
                     await session.commit()
 
-            except Exception as row_error:
+            except Exception as e:
 
                 logger.exception(
-                    f"❌ SAVE REVIEW FAILED: {row_error}"
+                    f"❌ SAVE REVIEW FAILED: {e}"
                 )
 
         try:
 
             await session.commit()
 
-        except Exception as commit_error:
+        except Exception as e:
 
             logger.exception(
-                f"❌ DB COMMIT FAILED: {commit_error}"
+                f"❌ FINAL COMMIT FAILED: {e}"
             )
 
             await session.rollback()
@@ -1033,11 +964,7 @@ async def fetch_reviews_from_google(
     except Exception as e:
 
         logger.exception(
-            f"❌ FETCH REVIEWS FAILED: {e}"
-        )
-
-        logger.error(
-            traceback.format_exc()
+            f"❌ FETCH FAILED: {e}"
         )
 
         try:
@@ -1048,7 +975,7 @@ async def fetch_reviews_from_google(
         return []
 
 # ==========================================================
-# ANALYTICS HELPERS
+# ANALYTICS
 # ==========================================================
 
 class ReviewService:
