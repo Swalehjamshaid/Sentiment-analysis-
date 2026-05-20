@@ -267,17 +267,17 @@ h11==0.14.0
 # SCRAPING & GOOGLE REVIEWS
 # ==========================================================
 
-playwright==1.52.0
+# ==========================================================
+# SCRAPING & GOOGLE REVIEWS
+# PROFESSIONAL SELENIUMBASE STACK
+# ==========================================================
+
 beautifulsoup4==4.12.3
 lxml==5.2.2
 fake-useragent==1.5.1
 httpx==0.27.2
 aiohttp==3.10.5
-selectolax==0.3.26
 tenacity==9.0.0
-playwright-stealth==1.0.6
-
-
 seleniumbase>=4.34.9
 selenium>=4.21.0
 undetected-chromedriver>=3.5.5
