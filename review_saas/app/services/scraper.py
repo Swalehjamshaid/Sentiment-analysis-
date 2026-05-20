@@ -511,110 +511,152 @@ def click_first_search_result(driver):
 # OPEN REVIEWS PANEL
 # ==========================================================
 
+# ==========================================================
+# OPEN REVIEWS PANEL
+# ==========================================================
+
 def open_reviews_panel(driver):
 
     logger.info(
         "📦 OPENING REVIEWS PANEL"
     )
 
-    time.sleep(8)
+    time.sleep(15)
 
-    review_selectors = [
+    try:
 
-        'button[jsaction]',
+        elements = driver.find_elements(
 
-        'button[aria-label*="review"]',
+            "css selector",
 
-        'button[aria-label*="Review"]',
+            "button, div, span, a"
+        )
 
-        'button[aria-label*="reviews"]',
+        logger.info(
+            f"📦 TOTAL CLICKABLE ELEMENTS: {len(elements)}"
+        )
 
-        'button[aria-label*="Reviews"]',
+        for idx, element in enumerate(elements):
 
-        'div[role="tab"]'
-    ]
+            try:
 
-    for selector in review_selectors:
+                text = safe_string(
+                    element.text
+                ).lower()
 
-        try:
+                aria = safe_string(
+                    element.get_attribute(
+                        "aria-label"
+                    )
+                ).lower()
 
-            buttons = driver.find_elements(
-                "css selector",
-                selector
-            )
+                title = safe_string(
+                    element.get_attribute(
+                        "title"
+                    )
+                ).lower()
 
-            logger.info(
-                f"📦 BUTTONS FOUND ({selector}): {len(buttons)}"
-            )
+                combined = (
+                    f"{text} {aria} {title}"
+                ).lower()
 
-            for btn in buttons:
+                if not combined.strip():
+                    continue
 
-                try:
+                logger.info(
+                    f"🔍 ELEMENT [{idx}]: {combined[:100]}"
+                )
 
-                    text = safe_string(
-                        btn.text
-                    ).lower()
+                if (
+                    "review" in combined
+                    or "reviews" in combined
+                    or "rating" in combined
+                ):
 
-                    aria = safe_string(
-                        btn.get_attribute(
-                            "aria-label"
+                    logger.info(
+                        f"✅ REVIEW ELEMENT FOUND: {combined}"
+                    )
+
+                    try:
+
+                        driver.execute_script(
+                            """
+                            arguments[0].scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'center'
+                            });
+                            """,
+                            element
                         )
-                    ).lower()
 
-                    combined = f"{text} {aria}"
+                        time.sleep(2)
 
-                    for keyword in REVIEW_WORDS:
+                    except Exception:
+                        pass
 
-                        if keyword in combined:
+                    clicked = False
+
+                    click_methods = [
+
+                        lambda: driver.execute_script(
+                            "arguments[0].click();",
+                            element
+                        ),
+
+                        lambda: element.click(),
+
+                        lambda: element.send_keys("\\n")
+                    ]
+
+                    for method in click_methods:
+
+                        try:
+
+                            method()
+
+                            clicked = True
 
                             logger.info(
-                                f"✅ REVIEW BUTTON FOUND: {combined}"
+                                "✅ REVIEW BUTTON CLICKED"
                             )
 
-                            try:
+                            break
 
-                                driver.execute_script(
-                                    "arguments[0].click();",
-                                    btn
-                                )
+                        except Exception:
+                            continue
 
-                            except Exception:
+                    if not clicked:
+                        continue
 
-                                try:
+                    time.sleep(10)
 
-                                    btn.click()
+                    feed = driver.find_elements(
 
-                                except Exception:
+                        "css selector",
 
-                                    try:
+                        'div[role="feed"]'
+                    )
 
-                                        btn.send_keys("\n")
+                    if feed:
 
-                                    except Exception:
-                                        pass
+                        logger.info(
+                            "✅ REVIEW FEED VERIFIED"
+                        )
 
-                            time.sleep(8)
+                        return True
 
-                            feed = driver.find_elements(
+            except Exception:
+                continue
 
-                                "css selector",
+    except Exception as e:
 
-                                'div[role="feed"]'
-                            )
+        logger.exception(
+            f"❌ REVIEW PANEL ERROR: {e}"
+        )
 
-                            if feed:
-
-                                logger.info(
-                                    "✅ REVIEW FEED VERIFIED"
-                                )
-
-                                return True
-
-                except Exception:
-                    pass
-
-        except Exception:
-            pass
+    logger.warning(
+        "⚠️ REVIEWS BUTTON NOT FOUND"
+    )
 
     return False
 
