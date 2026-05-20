@@ -275,3 +275,4 @@ httpx==0.27.2
 aiohttp==3.10.5
 selectolax==0.3.26
 tenacity==9.0.0
+playwright-stealth==1.0.6
