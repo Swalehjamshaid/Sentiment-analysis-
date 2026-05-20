@@ -2,6 +2,7 @@
 # FILE: app/services/scraper.py
 # ENTERPRISE GOOGLE REVIEW SCRAPER
 # APIFY PRIMARY + PLAYWRIGHT FALLBACK
+# RAILWAY SAFE VERSION
 # ==========================================================
 
 import os
@@ -13,10 +14,9 @@ import traceback
 import random
 
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from bs4 import BeautifulSoup
-from fake_useragent import UserAgent
 
 from tenacity import (
     retry,
@@ -52,9 +52,7 @@ from app.core.models import (
 # LOGGER
 # ==========================================================
 
-logger = logging.getLogger(
-    "app.services.scraper"
-)
+logger = logging.getLogger("app.services.scraper")
 
 # ==========================================================
 # ENV
@@ -66,13 +64,11 @@ PROXY_SERVER = os.getenv(
 )
 
 PROXY_USERNAME = os.getenv(
-    "PROXY_USERNAME",
-    "f24ab799ffcf42cf2c54"
+    "PROXY_USERNAME"
 )
 
 PROXY_PASSWORD = os.getenv(
-    "PROXY_PASSWORD",
-    "e25628cf2c1b3ba3"
+    "PROXY_PASSWORD"
 )
 
 APIFY_TOKEN = os.getenv(
@@ -81,7 +77,18 @@ APIFY_TOKEN = os.getenv(
 
 HEADLESS = True
 
-ua = UserAgent()
+# ==========================================================
+# USER AGENTS
+# ==========================================================
+
+USER_AGENTS = [
+
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+]
 
 # ==========================================================
 # REVIEW SERVICE
@@ -219,18 +226,13 @@ def safe_datetime(value):
 
 def clean_review_text(text):
 
-    text = safe_string(
-        text,
-        ""
-    )
+    text = safe_string(text)
 
     text = text.replace("\n", " ")
     text = text.replace("\r", " ")
     text = text.replace("\t", " ")
 
-    text = " ".join(
-        text.split()
-    )
+    text = " ".join(text.split())
 
     return text[:5000]
 
@@ -346,9 +348,7 @@ def normalize_review(
             or "Anonymous"
         )
 
-        author_name = safe_string(
-            author_name
-        )
+        author_name = safe_string(author_name)
 
         review_text = (
             item.get("text")
@@ -428,6 +428,71 @@ def normalize_review(
         return None
 
 # ==========================================================
+# APIFY SCRAPER
+# ==========================================================
+
+async def apify_scraper(
+    google_maps_url: str,
+    target_limit: int = 100
+):
+
+    try:
+
+        logger.info(
+            "🚀 APIFY SCRAPER STARTED"
+        )
+
+        client = create_apify_client()
+
+        if not client:
+
+            return []
+
+        run_input = {
+
+            "startUrls": [
+                {
+                    "url": google_maps_url
+                }
+            ],
+
+            "maxReviews": target_limit,
+
+            "reviewsSort": "newest",
+
+            "language": "en"
+        }
+
+        run = client.actor(
+            "compass/google-maps-reviews-scraper"
+        ).call(
+            run_input=run_input
+        )
+
+        dataset_id = run["defaultDatasetId"]
+
+        items = list(
+
+            client.dataset(
+                dataset_id
+            ).iterate_items()
+        )
+
+        logger.info(
+            f"✅ APIFY REVIEWS: {len(items)}"
+        )
+
+        return items
+
+    except Exception as e:
+
+        logger.exception(
+            f"❌ APIFY FAILED: {e}"
+        )
+
+        return []
+
+# ==========================================================
 # PLAYWRIGHT SCRAPER
 # ==========================================================
 
@@ -473,11 +538,11 @@ async def playwright_scraper(
         context = await browser.new_context(
 
             viewport={
-                "width": random.randint(1200, 1600),
-                "height": random.randint(700, 1000),
+                "width": 1400,
+                "height": 900,
             },
 
-            user_agent=ua.random,
+            user_agent=random.choice(USER_AGENTS),
 
             locale="en-US"
         )
@@ -485,10 +550,6 @@ async def playwright_scraper(
         page = await context.new_page()
 
         try:
-
-            logger.info(
-                f"🌐 Opening URL: {google_maps_url}"
-            )
 
             await page.goto(
                 google_maps_url,
@@ -498,13 +559,9 @@ async def playwright_scraper(
 
             await asyncio.sleep(8)
 
-            # ==================================================
-            # GOOGLE CONSENT
-            # ==================================================
-
             try:
 
-                consent_buttons = [
+                buttons = [
 
                     'button:has-text("Accept all")',
 
@@ -513,23 +570,17 @@ async def playwright_scraper(
                     'button:has-text("Accept")'
                 ]
 
-                for selector in consent_buttons:
+                for selector in buttons:
 
                     try:
 
-                        button = await page.query_selector(
-                            selector
-                        )
+                        btn = await page.query_selector(selector)
 
-                        if button:
+                        if btn:
 
-                            await button.click()
+                            await btn.click()
 
-                            logger.info(
-                                "✅ Consent accepted"
-                            )
-
-                            await asyncio.sleep(3)
+                            await asyncio.sleep(2)
 
                             break
 
@@ -539,23 +590,13 @@ async def playwright_scraper(
             except Exception:
                 pass
 
-            # ==================================================
-            # OPEN REVIEWS
-            # ==================================================
-
             selectors = [
 
                 'button[jsaction*="pane.reviewChart.moreReviews"]',
 
                 'button[aria-label*=" reviews"]',
 
-                'button[aria-label*=" Reviews"]',
-
-                'button[data-tab-index="1"]',
-
-                'button[role="tab"]',
-
-                'div[role="button"][aria-label*="reviews"]'
+                'button[aria-label*=" Reviews"]'
             ]
 
             opened = False
@@ -565,9 +606,7 @@ async def playwright_scraper(
                 try:
 
                     button = await page.wait_for_selector(
-
                         selector,
-
                         timeout=10000
                     )
 
@@ -577,26 +616,18 @@ async def playwright_scraper(
 
                         opened = True
 
-                        logger.info(
-                            f"✅ Opened reviews using {selector}"
-                        )
-
                         break
 
                 except Exception:
                     pass
 
+            await asyncio.sleep(5)
+
             if not opened:
 
                 logger.warning(
-                    "⚠️ Could not open reviews panel"
+                    "⚠️ Reviews panel not opened"
                 )
-
-            await asyncio.sleep(5)
-
-            # ==================================================
-            # SCROLL
-            # ==================================================
 
             previous_height = 0
             retries = 0
@@ -608,9 +639,7 @@ async def playwright_scraper(
                     5000
                 )
 
-                await asyncio.sleep(
-                    random.uniform(2, 4)
-                )
+                await asyncio.sleep(3)
 
                 current_height = await page.evaluate(
                     """
@@ -619,10 +648,6 @@ async def playwright_scraper(
                         return feed ? feed.scrollHeight : 0;
                     }
                     """
-                )
-
-                logger.info(
-                    f"📜 Scroll Height: {current_height}"
                 )
 
                 if current_height == previous_height:
@@ -635,32 +660,9 @@ async def playwright_scraper(
 
                 previous_height = current_height
 
-            # ==================================================
-            # HTML
-            # ==================================================
-
             html = await page.content()
 
-            with open(
-                "debug_google.html",
-                "w",
-                encoding="utf-8"
-            ) as f:
-
-                f.write(html)
-
-            await page.screenshot(
-                path="debug_google.png",
-                full_page=True
-            )
-
-            logger.info(
-                "✅ DEBUG FILES SAVED"
-            )
-
-            # ==================================================
-            # CAPTCHA DETECTION
-            # ==================================================
+            html_lower = html.lower()
 
             captcha_keywords = [
 
@@ -668,12 +670,8 @@ async def playwright_scraper(
 
                 "captcha",
 
-                "detected unusual traffic",
-
                 "not a robot"
             ]
-
-            html_lower = html.lower()
 
             for keyword in captcha_keywords:
 
@@ -694,17 +692,9 @@ async def playwright_scraper(
 
                 soup.select("div.jftiEf")
 
-                or
+                or soup.select("div[data-review-id]")
 
-                soup.select("div[data-review-id]")
-
-                or
-
-                soup.select("div.MyEned")
-
-                or
-
-                soup.select('div[role="article"]')
+                or soup.select('div[role="article"]')
             )
 
             logger.info(
@@ -719,9 +709,7 @@ async def playwright_scraper(
 
                         block.select_one(".d4r55")
 
-                        or
-
-                        block.select_one(".TSUbDb")
+                        or block.select_one(".TSUbDb")
                     )
 
                     reviewer_name = (
@@ -735,13 +723,7 @@ async def playwright_scraper(
 
                         block.select_one(".wiI7pd")
 
-                        or
-
-                        block.select_one(".MyEned")
-
-                        or
-
-                        block.select_one(".OA1nbd")
+                        or block.select_one(".MyEned")
                     )
 
                     review_text = (
@@ -755,9 +737,7 @@ async def playwright_scraper(
 
                         block.select_one("span.kvMYJc")
 
-                        or
-
-                        block.select_one(
+                        or block.select_one(
                             "span[aria-label*='star']"
                         )
                     )
@@ -797,9 +777,7 @@ async def playwright_scraper(
 
                     if review_text:
 
-                        reviews.append(
-                            review
-                        )
+                        reviews.append(review)
 
                 except Exception as row_error:
 
@@ -829,3 +807,261 @@ async def playwright_scraper(
     )
 
     return reviews
+
+# ==========================================================
+# SAVE REVIEWS
+# ==========================================================
+
+async def save_reviews(
+    db: AsyncSession,
+    company_id: int,
+    reviews: List[Dict]
+):
+
+    inserted = 0
+
+    existing = await get_existing_reviews(
+        db,
+        company_id
+    )
+
+    for item in reviews:
+
+        try:
+
+            normalized = normalize_review(
+                item,
+                company_id
+            )
+
+            if not normalized:
+                continue
+
+            review_id = normalized[
+                "google_review_id"
+            ]
+
+            if review_id in existing:
+                continue
+
+            review = Review(
+
+                company_id=company_id,
+
+                google_review_id=normalized[
+                    "google_review_id"
+                ],
+
+                author_name=normalized[
+                    "author_name"
+                ],
+
+                rating=normalized[
+                    "rating"
+                ],
+
+                text=normalized[
+                    "text"
+                ],
+
+                google_review_time=normalized[
+                    "google_review_time"
+                ],
+
+                review_likes=normalized[
+                    "review_likes"
+                ],
+
+                sentiment_score=normalized[
+                    "sentiment_score"
+                ]
+            )
+
+            db.add(review)
+
+            inserted += 1
+
+        except Exception as e:
+
+            logger.exception(
+                f"❌ SAVE FAILED: {e}"
+            )
+
+    try:
+
+        await db.commit()
+
+    except Exception as e:
+
+        logger.exception(
+            f"❌ DB COMMIT FAILED: {e}"
+        )
+
+        await db.rollback()
+
+    return inserted
+
+# ==========================================================
+# MAIN SCRAPER
+# ==========================================================
+
+async def scrape_google_reviews(
+    db: AsyncSession,
+    company_id: int,
+    place_id: str,
+    target_limit: int = 100
+):
+
+    logger.info(
+        "🚀 GOOGLE REVIEW SCRAPER STARTED"
+    )
+
+    try:
+
+        google_maps_url = build_google_maps_url(
+            place_id
+        )
+
+        reviews = []
+
+        # ==================================================
+        # APIFY PRIMARY
+        # ==================================================
+
+        try:
+
+            reviews = await apify_scraper(
+                google_maps_url,
+                target_limit
+            )
+
+        except Exception as e:
+
+            logger.exception(
+                f"❌ APIFY PRIMARY FAILED: {e}"
+            )
+
+        # ==================================================
+        # PLAYWRIGHT FALLBACK
+        # ==================================================
+
+        if not reviews:
+
+            logger.warning(
+                "⚠️ FALLING BACK TO PLAYWRIGHT"
+            )
+
+            reviews = await playwright_scraper(
+                google_maps_url,
+                target_limit
+            )
+
+        if not reviews:
+
+            logger.warning(
+                "⚠️ NO REVIEWS FOUND"
+            )
+
+            return {
+
+                "success": False,
+
+                "inserted": 0,
+
+                "total_scraped": 0,
+
+                "reviews": []
+            }
+
+        inserted = await save_reviews(
+            db,
+            company_id,
+            reviews
+        )
+
+        logger.info(
+            f"✅ INSERTED REVIEWS: {inserted}"
+        )
+
+        return {
+
+            "success": True,
+
+            "inserted": inserted,
+
+            "total_scraped": len(reviews),
+
+            "reviews": reviews
+        }
+
+    except Exception as e:
+
+        logger.exception(
+            f"❌ MAIN SCRAPER FAILED: {e}"
+        )
+
+        traceback.print_exc()
+
+        return {
+
+            "success": False,
+
+            "inserted": 0,
+
+            "total_scraped": 0,
+
+            "reviews": [],
+
+            "error": str(e)
+        }
+
+# ==========================================================
+# COMPANY SCRAPER
+# ==========================================================
+
+async def sync_company_reviews(
+    db: AsyncSession,
+    company: Company,
+    target_limit: int = 100
+):
+
+    try:
+
+        if not company.place_id:
+
+            logger.warning(
+                "⚠️ COMPANY PLACE ID MISSING"
+            )
+
+            return {
+
+                "success": False,
+
+                "error": "Missing place_id"
+            }
+
+        result = await scrape_google_reviews(
+
+            db=db,
+
+            company_id=company.id,
+
+            place_id=company.place_id,
+
+            target_limit=target_limit
+        )
+
+        return result
+
+    except Exception as e:
+
+        logger.exception(
+            f"❌ COMPANY SYNC FAILED: {e}"
+        )
+
+        return {
+
+            "success": False,
+
+            "error": str(e)
+        }
