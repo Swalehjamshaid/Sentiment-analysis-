@@ -833,6 +833,7 @@ async def extract_reviews(
 )
 async def scrape_google_reviews(
 
+    
     place_id: str,
 
     target_limit: int = 500
@@ -990,6 +991,18 @@ async def scrape_google_reviews(
 
             target_limit=target_limit
         )
+
+if len(reviews) == 0:
+
+    logger.warning(
+        "⚠️ NO REVIEWS SCRAPED"
+    )
+
+    await save_debug_files(
+        page,
+        "no_reviews_scraped"
+    )
+        
 
         logger.info(
             f"✅ SCRAPED REVIEWS: {len(reviews)}"
