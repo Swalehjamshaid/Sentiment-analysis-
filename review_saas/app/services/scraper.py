@@ -15,7 +15,7 @@ import logging
 import traceback
 
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 from tenacity import (
     retry,
@@ -64,7 +64,13 @@ PROXY_PASSWORD = os.getenv(
     "PROXY_PASSWORD"
 )
 
-HEADLESS = True
+# ==========================================================
+# IMPORTANT
+# ==========================================================
+# UC MODE WORKS BETTER ON RAILWAY WITH HEADLESS FALSE
+# ==========================================================
+
+HEADLESS = False
 
 MAX_SCROLL_ATTEMPTS = 120
 MAX_IDLE_SCROLLS = 12
@@ -440,7 +446,11 @@ def click_first_search_result(driver):
 
         'div[role="article"] a',
 
-        'a[jsaction]'
+        'a[jsaction]',
+
+        'a[href*="/maps/place/"]',
+
+        'div.Nv2PK a'
     ]
 
     for selector in selectors:
@@ -450,6 +460,10 @@ def click_first_search_result(driver):
             results = driver.find_elements(
                 "css selector",
                 selector
+            )
+
+            logger.info(
+                f"📦 RESULTS FOUND: {len(results)}"
             )
 
             if not results:
@@ -476,8 +490,11 @@ def click_first_search_result(driver):
 
                         first.send_keys("\n")
 
-                    except Exception:
-                        pass
+                    except Exception as click_error:
+
+                        logger.exception(
+                            f"❌ CLICK FAILED: {click_error}"
+                        )
 
             logger.info(
                 "✅ SEARCH RESULT CLICKED"
@@ -487,8 +504,11 @@ def click_first_search_result(driver):
 
             return True
 
-        except Exception:
-            pass
+        except Exception as e:
+
+            logger.exception(
+                f"❌ SEARCH RESULT FAILED: {e}"
+            )
 
     return False
 
@@ -505,8 +525,14 @@ def open_reviews_panel(driver):
     time.sleep(5)
 
     buttons = driver.find_elements(
+
         "css selector",
-        "button"
+
+        'button[jsaction], button[aria-label]'
+    )
+
+    logger.info(
+        f"📦 BUTTONS FOUND: {len(buttons)}"
     )
 
     for btn in buttons:
@@ -529,6 +555,10 @@ def open_reviews_panel(driver):
 
                 if keyword in combined:
 
+                    logger.info(
+                        f"✅ REVIEW BUTTON MATCHED: {combined}"
+                    )
+
                     try:
 
                         driver.execute_script(
@@ -548,8 +578,11 @@ def open_reviews_panel(driver):
 
                                 btn.send_keys("\n")
 
-                            except Exception:
-                                pass
+                            except Exception as click_error:
+
+                                logger.exception(
+                                    f"❌ REVIEW CLICK FAILED: {click_error}"
+                                )
 
                     logger.info(
                         "✅ REVIEWS BUTTON CLICKED"
@@ -572,8 +605,11 @@ def open_reviews_panel(driver):
 
                         return True
 
-        except Exception:
-            pass
+        except Exception as e:
+
+            logger.exception(
+                f"❌ REVIEW BUTTON ERROR: {e}"
+            )
 
     return False
 
@@ -631,10 +667,10 @@ def extract_reviews(
             'div[role="feed"]'
         )
 
-    except Exception:
+    except Exception as e:
 
-        logger.warning(
-            "⚠️ REVIEW FEED NOT FOUND"
+        logger.exception(
+            f"❌ REVIEW FEED NOT FOUND: {e}"
         )
 
         return reviews
@@ -647,6 +683,10 @@ def extract_reviews(
     ):
 
         try:
+
+            logger.info(
+                f"📦 SCROLL ATTEMPT: {attempt}"
+            )
 
             cards = driver.find_elements(
 
@@ -733,7 +773,6 @@ def extract_reviews(
                     except Exception:
                         pass
 
-                    # REVIEW ID
                     review_id = generate_hash(
                         author,
                         review_text
@@ -761,8 +800,11 @@ def extract_reviews(
                             review_text
                     })
 
-                except Exception:
-                    pass
+                except Exception as review_error:
+
+                    logger.exception(
+                        f"❌ REVIEW PARSE FAILED: {review_error}"
+                    )
 
             logger.info(
                 f"✅ TOTAL REVIEWS: {len(reviews)}"
@@ -780,11 +822,15 @@ def extract_reviews(
                 driver
             )
 
+            # ==================================================
+            # SLOWER HUMAN-LIKE SCROLL
+            # ==================================================
+
             driver.execute_script(
                 """
                 arguments[0].scrollBy(
                     0,
-                    8000
+                    3000
                 );
                 """,
                 scroll_container
@@ -853,6 +899,10 @@ async def scrape_google_reviews(
 
         driver = create_driver()
 
+        logger.info(
+            f"🌐 DRIVER TITLE: {driver.title}"
+        )
+
         # VERIFY PROXY
         logger.info(
             "🌐 VERIFYING PROXY"
@@ -884,6 +934,10 @@ async def scrape_google_reviews(
             search_url
         )
 
+        logger.info(
+            f"🌐 CURRENT URL: {driver.current_url}"
+        )
+
         time.sleep(10)
 
         # CAPTCHA CHECK
@@ -907,6 +961,12 @@ async def scrape_google_reviews(
             logger.warning(
                 "⚠️ SEARCH RESULT CLICK FAILED"
             )
+
+            return []
+
+        logger.info(
+            f"🌐 PAGE TITLE: {driver.title}"
+        )
 
         # OPEN REVIEWS
         opened = open_reviews_panel(
