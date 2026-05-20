@@ -8,6 +8,7 @@
 
 import os
 import re
+import gc
 import asyncio
 import hashlib
 import logging
@@ -38,7 +39,7 @@ from playwright.async_api import (
     TimeoutError as PlaywrightTimeoutError
 )
 
-from playwright_stealth import stealth
+from playwright_stealth import stealth_async
 
 from app.core.models import (
     Review,
@@ -76,6 +77,8 @@ SCROLL_PAUSE_MIN = 1.2
 SCROLL_PAUSE_MAX = 2.2
 
 MAX_SCROLL_RETRIES = 6
+
+SCRAPER_SEMAPHORE = asyncio.Semaphore(2)
 
 # ==========================================================
 # USER AGENTS
@@ -217,7 +220,7 @@ def build_google_maps_url(
     )
 
 # ==========================================================
-# GET EXISTING REVIEWS
+# EXISTING REVIEWS
 # ==========================================================
 
 async def get_existing_reviews(
@@ -292,7 +295,6 @@ def normalize_review(
         )
 
         if not review_text:
-
             return None
 
         rating = (
@@ -388,442 +390,460 @@ async def playwright_scraper(
     target_limit: int = 500
 ):
 
-    logger.info(
-        "🚀 PLAYWRIGHT SCRAPER STARTED"
-    )
+    async with SCRAPER_SEMAPHORE:
 
-    reviews = []
-
-    seen_review_ids = set()
-
-    async with async_playwright() as p:
-
-        browser = await p.chromium.launch(
-
-            headless=HEADLESS,
-
-            proxy={
-
-                "server":
-                    PROXY_SERVER,
-
-                "username":
-                    PROXY_USERNAME,
-
-                "password":
-                    PROXY_PASSWORD,
-            },
-
-            args=[
-
-                "--disable-blink-features=AutomationControlled",
-
-                "--disable-dev-shm-usage",
-
-                "--disable-setuid-sandbox",
-
-                "--no-sandbox",
-
-                "--disable-gpu",
-
-                "--disable-extensions",
-
-                "--disable-background-networking",
-
-                "--disable-background-timer-throttling",
-
-                "--disable-renderer-backgrounding",
-
-                "--disable-sync",
-
-                "--metrics-recording-only",
-
-                "--mute-audio",
-
-                "--no-first-run",
-
-                "--disable-popup-blocking",
-
-                "--disable-notifications",
-            ]
+        logger.info(
+            "🚀 PLAYWRIGHT SCRAPER STARTED"
         )
 
-        context = await browser.new_context(
+        reviews = []
 
-            viewport={
-                "width": 1400,
-                "height": 900,
-            },
+        seen_review_ids = set()
 
-            user_agent=random.choice(
-                USER_AGENTS
-            ),
+        async with async_playwright() as p:
 
-            locale="en-US"
-        )
+            browser = await p.chromium.launch(
 
-        page = await context.new_page()
+                headless=HEADLESS,
 
-        await stealth(page)
+                proxy={
 
-        try:
+                    "server":
+                        PROXY_SERVER,
 
-            logger.info(
-                f"🌐 Opening URL: {google_maps_url}"
+                    "username":
+                        PROXY_USERNAME,
+
+                    "password":
+                        PROXY_PASSWORD,
+                },
+
+                args=[
+
+                    "--disable-blink-features=AutomationControlled",
+
+                    "--disable-dev-shm-usage",
+
+                    "--disable-setuid-sandbox",
+
+                    "--no-sandbox",
+
+                    "--disable-gpu",
+
+                    "--disable-extensions",
+
+                    "--disable-background-networking",
+
+                    "--disable-background-timer-throttling",
+
+                    "--disable-renderer-backgrounding",
+
+                    "--disable-sync",
+
+                    "--metrics-recording-only",
+
+                    "--mute-audio",
+
+                    "--no-first-run",
+
+                    "--disable-popup-blocking",
+
+                    "--disable-notifications",
+                ]
             )
 
-            await page.goto(
+            context = await browser.new_context(
 
-                google_maps_url,
+                viewport={
+                    "width": 1400,
+                    "height": 900,
+                },
 
-                wait_until="commit",
+                user_agent=random.choice(
+                    USER_AGENTS
+                ),
 
-                timeout=120000
+                locale="en-US"
             )
 
-            await asyncio.sleep(6)
+            page = await context.new_page()
+
+            await stealth_async(page)
 
             # ==================================================
-            # CONSENT
+            # BLOCK UNNECESSARY RESOURCES
             # ==================================================
+
+            await page.route(
+                "**/*",
+                lambda route: (
+                    route.abort()
+                    if route.request.resource_type
+                    in ["image", "media", "font"]
+                    else route.continue_()
+                )
+            )
 
             try:
 
-                consent_selectors = [
+                logger.info(
+                    f"🌐 Opening URL: {google_maps_url}"
+                )
 
-                    'button:has-text("Accept all")',
+                await page.goto(
 
-                    'button:has-text("I agree")',
+                    google_maps_url,
 
-                    'button:has-text("Accept")'
+                    wait_until="commit",
+
+                    timeout=120000
+                )
+
+                await asyncio.sleep(5)
+
+                # ==================================================
+                # CAPTCHA DETECTION
+                # ==================================================
+
+                if "sorry/index" in page.url:
+
+                    logger.warning(
+                        "⚠️ GOOGLE CAPTCHA PAGE DETECTED"
+                    )
+
+                    return []
+
+                # ==================================================
+                # CONSENT
+                # ==================================================
+
+                try:
+
+                    consent_selectors = [
+
+                        'button:has-text("Accept all")',
+
+                        'button:has-text("I agree")',
+
+                        'button:has-text("Accept")'
+                    ]
+
+                    for selector in consent_selectors:
+
+                        try:
+
+                            button = await page.query_selector(
+                                selector
+                            )
+
+                            if button:
+
+                                await button.click()
+
+                                await asyncio.sleep(2)
+
+                                break
+
+                        except Exception:
+                            pass
+
+                except Exception:
+                    pass
+
+                # ==================================================
+                # OPEN REVIEWS
+                # ==================================================
+
+                selectors = [
+
+                    'button[jsaction*="pane.reviewChart.moreReviews"]',
+
+                    'button[aria-label*=" reviews"]',
+
+                    'button[aria-label*=" Reviews"]'
                 ]
 
-                for selector in consent_selectors:
+                opened = False
+
+                for selector in selectors:
 
                     try:
 
-                        button = await page.query_selector(
-                            selector
+                        button = await page.wait_for_selector(
+
+                            selector,
+
+                            timeout=15000
                         )
 
                         if button:
 
                             await button.click()
 
-                            await asyncio.sleep(2)
+                            opened = True
 
                             break
 
                     except Exception:
                         pass
 
-            except Exception:
-                pass
+                await asyncio.sleep(5)
 
-            # ==================================================
-            # OPEN REVIEWS
-            # ==================================================
-
-            selectors = [
-
-                'button[jsaction*="pane.reviewChart.moreReviews"]',
-
-                'button[aria-label*=" reviews"]',
-
-                'button[aria-label*=" Reviews"]'
-            ]
-
-            opened = False
-
-            for selector in selectors:
-
-                try:
-
-                    button = await page.wait_for_selector(
-
-                        selector,
-
-                        timeout=15000
-                    )
-
-                    if button:
-
-                        await button.click()
-
-                        opened = True
-
-                        break
-
-                except Exception:
-                    pass
-
-            await asyncio.sleep(5)
-
-            if not opened:
-
-                logger.warning(
-                    "⚠️ Could not open reviews panel"
-                )
-
-            # ==================================================
-            # REVIEW FEED
-            # ==================================================
-
-            review_feed = page.locator(
-                'div[role="feed"]'
-            )
-
-            await review_feed.wait_for(
-                timeout=30000
-            )
-
-            loaded_count = 0
-
-            same_count = 0
-
-            while loaded_count < target_limit:
-
-                try:
-
-                    await review_feed.evaluate(
-                        "(el) => el.scrollBy(0, 5000)"
-                    )
-
-                    await asyncio.sleep(
-
-                        random.uniform(
-                            SCROLL_PAUSE_MIN,
-                            SCROLL_PAUSE_MAX
-                        )
-                    )
-
-                    # ==========================================
-                    # EXPAND MORE BUTTONS
-                    # ==========================================
-
-                    more_buttons = await page.locator(
-                        'button.w8nwRe'
-                    ).all()
-
-                    for btn in more_buttons:
-
-                        try:
-
-                            await btn.click(
-                                timeout=500
-                            )
-
-                        except Exception:
-                            pass
-
-                    review_elements = await page.locator(
-                        'div[data-review-id]'
-                    ).all()
-
-                    current_count = len(
-                        review_elements
-                    )
-
-                    logger.info(
-                        f"📦 LOADED REVIEWS: {current_count}"
-                    )
-
-                    if current_count >= target_limit:
-
-                        logger.info(
-                            f"🎯 TARGET LIMIT REACHED: {target_limit}"
-                        )
-
-                        break
-
-                    if current_count == loaded_count:
-
-                        same_count += 1
-
-                    else:
-
-                        same_count = 0
-
-                    loaded_count = current_count
-
-                    if same_count >= MAX_SCROLL_RETRIES:
-
-                        logger.warning(
-                            "⚠️ NO MORE REVIEWS LOADING"
-                        )
-
-                        break
-
-                except Exception as scroll_error:
-
-                    logger.exception(
-                        f"❌ SCROLL FAILED: {scroll_error}"
-                    )
-
-                    break
-
-            # ==================================================
-            # GET HTML
-            # ==================================================
-
-            html = await page.content()
-
-            html_lower = html.lower()
-
-            captcha_keywords = [
-
-                "unusual traffic",
-
-                "captcha",
-
-                "not a robot"
-            ]
-
-            for keyword in captcha_keywords:
-
-                if keyword in html_lower:
+                if not opened:
 
                     logger.warning(
-                        f"⚠️ CAPTCHA DETECTED: {keyword}"
+                        "⚠️ Could not open reviews panel"
                     )
 
-                    return []
+                # ==================================================
+                # REVIEW FEED
+                # ==================================================
 
-            soup = BeautifulSoup(
-                html,
-                "lxml"
-            )
+                review_feed = page.locator(
+                    'div[role="feed"]'
+                )
 
-            review_blocks = (
+                await review_feed.wait_for(
+                    timeout=30000
+                )
 
-                soup.select("div[data-review-id]")
+                loaded_count = 0
 
-                or soup.select("div.jftiEf")
+                same_count = 0
 
-                or soup.select('div[role="article"]')
-            )
+                while loaded_count < target_limit:
 
-            logger.info(
-                f"📦 PLAYWRIGHT REVIEWS FOUND: {len(review_blocks)}"
-            )
+                    try:
 
-            for block in review_blocks[:target_limit]:
+                        # ==========================================
+                        # SCROLL INSIDE FEED
+                        # ==========================================
 
-                try:
-
-                    reviewer = (
-
-                        block.select_one(".d4r55")
-
-                        or block.select_one(".TSUbDb")
-                    )
-
-                    reviewer_name = (
-
-                        reviewer.text.strip()
-
-                        if reviewer else "Anonymous"
-                    )
-
-                    review_text_elem = (
-
-                        block.select_one(".wiI7pd")
-
-                        or block.select_one(".MyEned")
-                    )
-
-                    review_text = (
-
-                        review_text_elem.text.strip()
-
-                        if review_text_elem else ""
-                    )
-
-                    rating_elem = (
-
-                        block.select_one("span.kvMYJc")
-
-                        or block.select_one(
-                            "span[aria-label*='star']"
+                        await review_feed.evaluate(
+                            "(el) => el.scrollBy(0, 5000)"
                         )
-                    )
 
-                    rating = 5
+                        await asyncio.sleep(
 
-                    if rating_elem:
-
-                        rating = normalize_rating(
-
-                            rating_elem.get(
-                                "aria-label",
-                                ""
+                            random.uniform(
+                                SCROLL_PAUSE_MIN,
+                                SCROLL_PAUSE_MAX
                             )
                         )
 
-                    if not review_text:
-                        continue
+                        # ==========================================
+                        # EXPAND REVIEWS
+                        # ==========================================
 
-                    review_id = generate_hash(
-                        reviewer_name,
-                        review_text
-                    )
+                        more_buttons = await page.locator(
+                            'button.w8nwRe'
+                        ).all()
 
-                    if review_id in seen_review_ids:
-                        continue
+                        for btn in more_buttons:
 
-                    seen_review_ids.add(
-                        review_id
-                    )
+                            try:
 
-                    review = {
+                                await btn.click(
+                                    timeout=500
+                                )
 
-                        "reviewId":
-                            review_id,
+                            except Exception:
+                                pass
 
-                        "reviewerName":
-                            reviewer_name,
+                        # ==========================================
+                        # REVIEW ELEMENTS
+                        # ==========================================
 
-                        "text":
-                            review_text,
+                        review_elements = await page.locator(
+                            'div[data-review-id]'
+                        ).all()
 
-                        "stars":
-                            rating,
+                        current_count = len(
+                            review_elements
+                        )
 
-                        "publishedAtDate":
-                            datetime.utcnow().isoformat()
-                    }
+                        logger.info(
+                            f"📦 LOADED REVIEWS: {current_count}"
+                        )
 
-                    reviews.append(review)
+                        # ==========================================
+                        # LIVE EXTRACTION
+                        # ==========================================
 
-                except Exception as parse_error:
+                        for review_element in review_elements:
 
-                    logger.exception(
-                        f"❌ Parse failed: {parse_error}"
-                    )
+                            try:
 
-        except PlaywrightTimeoutError:
+                                reviewer_elem = review_element.locator(
+                                    ".d4r55"
+                                )
 
-            logger.error(
-                "❌ PLAYWRIGHT TIMEOUT"
-            )
+                                reviewer_name = await reviewer_elem.text_content()
 
-        except Exception as e:
+                                reviewer_name = safe_string(
+                                    reviewer_name,
+                                    "Anonymous"
+                                )
 
-            logger.exception(
-                f"❌ PLAYWRIGHT FAILED: {e}"
-            )
+                                review_text_elem = (
 
-        finally:
+                                    review_element.locator(".wiI7pd")
 
-            await context.close()
+                                    or review_element.locator(".MyEned")
+                                )
 
-            await browser.close()
+                                review_text = await review_text_elem.text_content()
 
-    logger.info(
-        f"✅ PLAYWRIGHT FINAL REVIEWS: {len(reviews)}"
-    )
+                                review_text = clean_review_text(
+                                    review_text
+                                )
 
-    return reviews
+                                if not review_text:
+                                    continue
+
+                                rating_elem = review_element.locator(
+                                    "span[aria-label*='star']"
+                                )
+
+                                rating_label = await rating_elem.get_attribute(
+                                    "aria-label"
+                                )
+
+                                rating = normalize_rating(
+                                    rating_label
+                                )
+
+                                review_id = generate_hash(
+                                    reviewer_name,
+                                    review_text
+                                )
+
+                                if review_id in seen_review_ids:
+                                    continue
+
+                                seen_review_ids.add(
+                                    review_id
+                                )
+
+                                review = {
+
+                                    "reviewId":
+                                        review_id,
+
+                                    "reviewerName":
+                                        reviewer_name,
+
+                                    "text":
+                                        review_text,
+
+                                    "stars":
+                                        rating,
+
+                                    "publishedAtDate":
+                                        datetime.utcnow().isoformat()
+                                }
+
+                                reviews.append(review)
+
+                            except Exception:
+                                pass
+
+                        # ==========================================
+                        # TARGET REACHED
+                        # ==========================================
+
+                        if len(reviews) >= target_limit:
+
+                            logger.info(
+                                f"🎯 TARGET LIMIT REACHED: {target_limit}"
+                            )
+
+                            break
+
+                        # ==========================================
+                        # SCROLL STOP DETECTION
+                        # ==========================================
+
+                        if current_count == loaded_count:
+
+                            same_count += 1
+
+                        else:
+
+                            same_count = 0
+
+                        loaded_count = current_count
+
+                        if same_count >= MAX_SCROLL_RETRIES:
+
+                            logger.warning(
+                                "⚠️ NO MORE REVIEWS LOADING"
+                            )
+
+                            break
+
+                        del review_elements
+
+                        gc.collect()
+
+                    except Exception as scroll_error:
+
+                        logger.exception(
+                            f"❌ SCROLL FAILED: {scroll_error}"
+                        )
+
+                        break
+
+                # ==================================================
+                # CAPTCHA CHECK
+                # ==================================================
+
+                html = await page.content()
+
+                html_lower = html.lower()
+
+                captcha_keywords = [
+
+                    "unusual traffic",
+
+                    "captcha",
+
+                    "not a robot"
+                ]
+
+                for keyword in captcha_keywords:
+
+                    if keyword in html_lower:
+
+                        logger.warning(
+                            f"⚠️ CAPTCHA DETECTED: {keyword}"
+                        )
+
+                        return []
+
+            except PlaywrightTimeoutError:
+
+                logger.error(
+                    "❌ PLAYWRIGHT TIMEOUT"
+                )
+
+            except Exception as e:
+
+                logger.exception(
+                    f"❌ PLAYWRIGHT FAILED: {e}"
+                )
+
+            finally:
+
+                await context.close()
+
+                await browser.close()
+
+        logger.info(
+            f"✅ PLAYWRIGHT FINAL REVIEWS: {len(reviews)}"
+        )
+
+        return reviews
 
 # ==========================================================
 # MAIN FETCH FUNCTION
@@ -880,7 +900,7 @@ async def fetch_reviews_from_google(
         # SAVE REVIEWS
         # ==================================================
 
-        for item in reviews:
+        for idx, item in enumerate(reviews):
 
             try:
 
@@ -979,6 +999,14 @@ async def fetch_reviews_from_google(
                         ]
                 })
 
+                # ==============================================
+                # BATCH COMMIT
+                # ==============================================
+
+                if idx % 50 == 0:
+
+                    await session.commit()
+
             except Exception as row_error:
 
                 logger.exception(
@@ -986,7 +1014,7 @@ async def fetch_reviews_from_google(
                 )
 
         # ==================================================
-        # COMMIT
+        # FINAL COMMIT
         # ==================================================
 
         try:
