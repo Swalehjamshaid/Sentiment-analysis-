@@ -1,4 +1,5 @@
 # ==========================================================
+# FILE: app/services/scraper.py
 # CAMOUFOX + GOOGLE REVIEWS SCRAPER
 # PROFESSIONAL STEALTH VERSION
 # ==========================================================
@@ -15,7 +16,7 @@ import logging
 import traceback
 
 from datetime import datetime
-from typing import Dict, List, Any
+from typing import Dict, Any, List
 
 from fake_useragent import UserAgent
 
@@ -25,7 +26,7 @@ from tenacity import (
     wait_exponential
 )
 
-from playwright.async_api import async_playwright
+from playwright.async_api import TimeoutError
 
 from camoufox.async_api import AsyncCamoufox
 
@@ -38,20 +39,14 @@ logger = logging.getLogger(
 )
 
 # ==========================================================
-# ENV VARIABLES
+# PROXY CONFIG
 # ==========================================================
 
-PROXY_SERVER = os.getenv(
-    "PROXY_SERVER"
-)
+PROXY_SERVER = "http://gw.dataimpulse.com:823"
 
-PROXY_USERNAME = os.getenv(
-    "PROXY_USERNAME"
-)
+PROXY_USERNAME = "f24ab799ffcf42cf2c54"
 
-PROXY_PASSWORD = os.getenv(
-    "PROXY_PASSWORD"
-)
+PROXY_PASSWORD = "e25628cf2c1b3ba3"
 
 # ==========================================================
 # CONFIG
@@ -60,6 +55,8 @@ PROXY_PASSWORD = os.getenv(
 HEADLESS = True
 
 MAX_SCROLLS = 120
+
+MAX_IDLE_SCROLLS = 12
 
 SCROLL_PAUSE_MIN = 2
 
@@ -91,18 +88,20 @@ def clean_text(text):
 
     text = text.replace("\r", " ")
 
+    text = text.replace("\t", " ")
+
     text = " ".join(text.split())
 
     return text[:5000]
 
 
-def normalize_rating(text):
+def normalize_rating(value):
 
     try:
 
         match = re.search(
             r"([0-9.]+)",
-            str(text)
+            str(value)
         )
 
         if match:
@@ -128,10 +127,10 @@ def generate_hash(author, text):
     ).hexdigest()
 
 # ==========================================================
-# CAPTCHA DETECTION
+# DETECT BLOCKING
 # ==========================================================
 
-async def detect_block(page):
+async def detect_google_block(page):
 
     try:
 
@@ -153,11 +152,17 @@ async def detect_block(page):
         for keyword in keywords:
 
             if keyword in content:
+
+                logger.warning(
+                    f"⚠️ BLOCK DETECTED: {keyword}"
+                )
+
                 return True
 
         return False
 
     except Exception:
+
         return False
 
 # ==========================================================
@@ -166,23 +171,52 @@ async def detect_block(page):
 
 async def human_scroll(page):
 
-    amount = random.randint(
-        500,
-        1200
+    scroll_amount = random.randint(
+        600,
+        1400
     )
 
     await page.mouse.wheel(
+
         0,
-        amount
+
+        scroll_amount
     )
 
     await asyncio.sleep(
 
         random.uniform(
+
             SCROLL_PAUSE_MIN,
+
             SCROLL_PAUSE_MAX
         )
     )
+
+# ==========================================================
+# WARMUP SESSION
+# ==========================================================
+
+async def warmup_session(page):
+
+    logger.info(
+        "🔥 WARMING SESSION"
+    )
+
+    await page.goto(
+
+        "https://www.google.com",
+
+        wait_until="domcontentloaded",
+
+        timeout=90000
+    )
+
+    await asyncio.sleep(8)
+
+    await human_scroll(page)
+
+    await asyncio.sleep(3)
 
 # ==========================================================
 # OPEN REVIEWS PANEL
@@ -196,7 +230,7 @@ async def open_reviews_panel(page):
 
     await asyncio.sleep(10)
 
-    selectors = [
+    smart_selectors = [
 
         'button[aria-label*="Reviews"]',
 
@@ -209,7 +243,7 @@ async def open_reviews_panel(page):
         'button[jsaction]'
     ]
 
-    for selector in selectors:
+    for selector in smart_selectors:
 
         try:
 
@@ -226,6 +260,7 @@ async def open_reviews_panel(page):
                 try:
 
                     text = safe_string(
+
                         await element.inner_text()
                     ).lower()
 
@@ -279,7 +314,7 @@ async def open_reviews_panel(page):
                         "✅ REVIEW BUTTON CLICKED"
                     )
 
-                    await asyncio.sleep(8)
+                    await asyncio.sleep(10)
 
                     feed = await page.query_selector(
                         'div[role="feed"]'
@@ -300,7 +335,7 @@ async def open_reviews_panel(page):
             continue
 
     logger.warning(
-        "⚠️ REVIEW BUTTON NOT FOUND"
+        "⚠️ REVIEWS BUTTON NOT FOUND"
     )
 
     return False
@@ -326,11 +361,11 @@ async def expand_reviews(page):
                 selector
             )
 
-            for btn in buttons:
+            for button in buttons:
 
                 try:
 
-                    await btn.click()
+                    await button.click()
 
                 except Exception:
                     pass
@@ -355,7 +390,7 @@ async def extract_reviews(
 
     reviews = []
 
-    seen = set()
+    seen_ids = set()
 
     idle_scrolls = 0
 
@@ -375,7 +410,7 @@ async def extract_reviews(
             )
 
             logger.info(
-                f"📦 CARDS FOUND: {len(cards)}"
+                f"📦 REVIEW CARDS: {len(cards)}"
             )
 
             for card in cards:
@@ -383,7 +418,7 @@ async def extract_reviews(
                 try:
 
                     author = ""
-                    text = ""
+                    review_text = ""
                     rating = 5
 
                     author_selectors = [
@@ -431,18 +466,18 @@ async def extract_reviews(
 
                             if elem:
 
-                                text = clean_text(
+                                review_text = clean_text(
 
                                     await elem.inner_text()
                                 )
 
-                                if text:
+                                if review_text:
                                     break
 
                         except Exception:
                             pass
 
-                    if not text:
+                    if not review_text:
                         continue
 
                     rating_selectors = [
@@ -477,15 +512,13 @@ async def extract_reviews(
 
                     review_id = generate_hash(
                         author,
-                        text
+                        review_text
                     )
 
-                    if review_id in seen:
+                    if review_id in seen_ids:
                         continue
 
-                    seen.add(
-                        review_id
-                    )
+                    seen_ids.add(review_id)
 
                     reviews.append({
 
@@ -499,7 +532,7 @@ async def extract_reviews(
                             rating,
 
                         "text":
-                            text
+                            review_text
                     })
 
                 except Exception:
@@ -517,17 +550,11 @@ async def extract_reviews(
 
                 break
 
-            await expand_reviews(
-                page
-            )
+            await expand_reviews(page)
 
-            await human_scroll(
-                page
-            )
+            await human_scroll(page)
 
-            current_count = len(
-                reviews
-            )
+            current_count = len(reviews)
 
             if current_count == previous_count:
 
@@ -539,10 +566,10 @@ async def extract_reviews(
 
             previous_count = current_count
 
-            if idle_scrolls >= 12:
+            if idle_scrolls >= MAX_IDLE_SCROLLS:
 
                 logger.warning(
-                    "⚠️ IDLE SCROLL LIMIT"
+                    "⚠️ IDLE SCROLL LIMIT REACHED"
                 )
 
                 break
@@ -580,42 +607,35 @@ async def scrape_google_reviews(
 
     try:
 
-        proxy = None
+        proxy = {
 
-        if (
-            PROXY_SERVER
-            and PROXY_USERNAME
-            and PROXY_PASSWORD
-        ):
+            "server":
+                PROXY_SERVER,
 
-            proxy = {
+            "username":
+                PROXY_USERNAME,
 
-                "server":
-                    f"http://{PROXY_SERVER}",
-
-                "username":
-                    PROXY_USERNAME,
-
-                "password":
-                    PROXY_PASSWORD
-            }
+            "password":
+                PROXY_PASSWORD
+        }
 
         logger.info(
             "🚀 STARTING CAMOUFOX"
         )
 
         browser = await AsyncCamoufox(
+
             headless=HEADLESS,
 
             humanize=True,
-
-            proxy=proxy,
 
             geoip=True,
 
             block_webrtc=True,
 
-            i_know_what_im_doing=True
+            i_know_what_im_doing=True,
+
+            proxy=proxy
         ).start()
 
         context = await browser.new_context(
@@ -660,22 +680,10 @@ async def scrape_google_reviews(
         )
 
         # ==================================================
-        # WARMUP SESSION
+        # WARMUP
         # ==================================================
 
-        logger.info(
-            "🔥 WARMING SESSION"
-        )
-
-        await page.goto(
-            "https://www.google.com"
-        )
-
-        await asyncio.sleep(8)
-
-        await human_scroll(
-            page
-        )
+        await warmup_session(page)
 
         # ==================================================
         # GOOGLE MAPS SEARCH
@@ -705,7 +713,7 @@ async def scrape_google_reviews(
 
         await asyncio.sleep(12)
 
-        blocked = await detect_block(
+        blocked = await detect_google_block(
             page
         )
 
@@ -718,7 +726,7 @@ async def scrape_google_reviews(
             return []
 
         # ==================================================
-        # CLICK FIRST BUSINESS
+        # CLICK BUSINESS
         # ==================================================
 
         selectors = [
@@ -776,9 +784,7 @@ async def scrape_google_reviews(
 
         await asyncio.sleep(15)
 
-        await human_scroll(
-            page
-        )
+        await human_scroll(page)
 
         # ==================================================
         # OPEN REVIEWS
@@ -825,6 +831,14 @@ async def scrape_google_reviews(
         )
 
         return reviews
+
+    except TimeoutError:
+
+        logger.exception(
+            "❌ PLAYWRIGHT TIMEOUT"
+        )
+
+        return []
 
     except Exception as e:
 
