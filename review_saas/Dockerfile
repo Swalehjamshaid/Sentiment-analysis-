@@ -1,22 +1,5 @@
 # ==========================================================
-# TRUSTLYTICS AI — FINAL STABLE RAILWAY DOCKERFILE
-# MAY 2026 ENTERPRISE PRODUCTION VERSION
-#
-# FEATURES:
-# ✅ FastAPI
-# ✅ Playwright
-# ✅ Google Maps Scraping
-# ✅ AI Chatbot
-# ✅ PDF Reporting
-# ✅ Railway Stable
-# ✅ Lightweight
-# ✅ No Chromium Conflicts
-# ✅ No OS Compatibility Warning
-# ✅ Production Optimized
-# ==========================================================
-
-# ==========================================================
-# USE OFFICIAL PLAYWRIGHT IMAGE
+# TRUSTLYTICS AI — RAILWAY STABLE DOCKERFILE
 # ==========================================================
 
 FROM mcr.microsoft.com/playwright/python:v1.53.0-jammy
@@ -31,13 +14,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # ==========================================================
-# WORK DIRECTORY
+# WORKDIR
 # ==========================================================
 
 WORKDIR /app
 
 # ==========================================================
-# INSTALL REQUIRED SYSTEM PACKAGES ONLY
+# SYSTEM PACKAGES
 # ==========================================================
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -64,22 +47,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 
 # ==========================================================
-# UPGRADE PIP
+# INSTALL PYTHON PACKAGES
 # ==========================================================
 
-RUN python -m pip install --upgrade \
-    pip \
-    setuptools \
-    wheel
-
-# ==========================================================
-# INSTALL PYTHON DEPENDENCIES
-# ==========================================================
+RUN pip install --upgrade pip setuptools wheel
 
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ==========================================================
-# CREATE REQUIRED DIRECTORIES
+# CREATE DIRECTORIES
 # ==========================================================
 
 RUN mkdir -p \
@@ -88,7 +64,7 @@ RUN mkdir -p \
     /app/uploads
 
 # ==========================================================
-# COPY APPLICATION FILES
+# COPY PROJECT
 # ==========================================================
 
 COPY . .
@@ -103,24 +79,10 @@ EXPOSE 8080
 # HEALTHCHECK
 # ==========================================================
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
-CMD curl --fail http://localhost:8080/ || exit 1
+HEALTHCHECK CMD curl --fail http://localhost:8080/health || exit 1
 
 # ==========================================================
-# GUNICORN SETTINGS
+# START COMMAND
 # ==========================================================
 
-ENV GUNICORN_CMD_ARGS="\
---workers=1 \
---worker-class=uvicorn.workers.UvicornWorker \
---bind=0.0.0.0:8080 \
---timeout=300 \
---keep-alive=5 \
---max-requests=500 \
---max-requests-jitter=50"
-
-# ==========================================================
-# START APPLICATION
-# ==========================================================
-
-CMD ["gunicorn", "app.main:app"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --log-level debug"]
