@@ -1,7 +1,25 @@
 # ==========================================================
 # FILE: app/services/scraper.py
-# GOOGLE REVIEWS SCRAPER - MAY 2026 ENTERPRISE VERSION
-# PLAYWRIGHT + CAMOUFOX + COOKIES + PROXY + STEALTH
+# MULTI-LAYER GOOGLE REVIEW SCRAPER - MAY 2026
+#
+# ENGINES:
+# 1. CAMOUFOX + PLAYWRIGHT
+# 2. PLAYWRIGHT STEALTH
+# 3. SELENIUMBASE UC
+# 4. REQUESTS + BS4 FALLBACK
+#
+# FEATURES:
+# ✅ MULTI ENGINE FAILOVER
+# ✅ MULTI SELECTOR EXTRACTION
+# ✅ CAPTCHA DETECTION
+# ✅ REVIEW FEED RECOVERY
+# ✅ MODAL RECOVERY
+# ✅ DYNAMIC SCROLLING
+# ✅ COOKIES SUPPORT
+# ✅ STEALTH PATCHES
+# ✅ DEBUGGING SYSTEM
+# ✅ DUPLICATE REMOVAL
+# ✅ HUMANIZED BROWSING
 # ==========================================================
 
 import os
@@ -17,21 +35,58 @@ import traceback
 
 from typing import List, Dict, Any
 
+# ==========================================================
+# RETRIES
+# ==========================================================
+
 from tenacity import (
     retry,
     stop_after_attempt,
     wait_exponential
 )
 
+# ==========================================================
+# USER AGENT
+# ==========================================================
+
 from fake_useragent import UserAgent
 
+# ==========================================================
+# PLAYWRIGHT
+# ==========================================================
+
 from playwright.async_api import (
-    TimeoutError
+    async_playwright,
+    TimeoutError as PlaywrightTimeout
 )
+
+# ==========================================================
+# CAMOUFOX
+# ==========================================================
 
 from camoufox.async_api import (
     AsyncCamoufox
 )
+
+# ==========================================================
+# PLAYWRIGHT STEALTH
+# ==========================================================
+
+from playwright_stealth import stealth_async
+
+# ==========================================================
+# SELENIUMBASE
+# ==========================================================
+
+from seleniumbase import SB
+
+# ==========================================================
+# REQUESTS / BS4
+# ==========================================================
+
+import requests
+
+from bs4 import BeautifulSoup
 
 # ==========================================================
 # LOGGER
@@ -49,54 +104,22 @@ HEADLESS = False
 
 MAX_SCROLLS = 120
 
-MAX_IDLE_SCROLLS = 10
-
-SCROLL_PAUSE_MIN = 2
-
-SCROLL_PAUSE_MAX = 6
+MAX_IDLE_SCROLLS = 8
 
 DEBUG_DIR = "/tmp"
 
 COOKIES_FILE = "cookies.json"
 
 # ==========================================================
-# PROXY CONFIG
-# ==========================================================
-
-PROXY_SERVER = os.getenv(
-    "PROXY_SERVER",
-    "http://gw.dataimpulse.com:823"
-)
-
-PROXY_USERNAME = os.getenv(
-    "PROXY_USERNAME"
-)
-
-PROXY_PASSWORD = os.getenv(
-    "PROXY_PASSWORD"
-)
-
-# ==========================================================
 # HELPERS
 # ==========================================================
 
-def safe_string(value, default=""):
-
-    try:
-
-        if value is None:
-            return default
-
-        return str(value).strip()
-
-    except Exception:
-
-        return default
-
-
 def clean_text(text):
 
-    text = safe_string(text)
+    if not text:
+        return ""
+
+    text = str(text)
 
     text = text.replace("\n", " ")
 
@@ -109,13 +132,13 @@ def clean_text(text):
     return text[:5000]
 
 
-def normalize_rating(value):
+def normalize_rating(text):
 
     try:
 
         match = re.search(
             r"([0-9.]+)",
-            str(value)
+            str(text)
         )
 
         if match:
@@ -141,28 +164,30 @@ def generate_hash(author, text):
     ).hexdigest()
 
 # ==========================================================
-# DEBUGGING
+# DEBUG FILES
 # ==========================================================
 
-async def save_debug_files(page, name="debug"):
+async def save_debug_files(page, name):
 
     try:
 
-        screenshot_path = f"{DEBUG_DIR}/{name}.png"
-
-        html_path = f"{DEBUG_DIR}/{name}.html"
-
         await page.screenshot(
-            path=screenshot_path,
+
+            path=f"{DEBUG_DIR}/{name}.png",
+
             full_page=True
         )
 
         html = await page.content()
 
         with open(
-            html_path,
+
+            f"{DEBUG_DIR}/{name}.html",
+
             "w",
+
             encoding="utf-8"
+
         ) as f:
 
             f.write(html)
@@ -171,22 +196,14 @@ async def save_debug_files(page, name="debug"):
             f"📸 DEBUG SAVED => {name}"
         )
 
-        logger.info(
-            f"🌐 TITLE => {await page.title()}"
-        )
-
-        logger.info(
-            f"🌐 URL => {page.url}"
-        )
-
     except Exception as e:
 
-        logger.exception(
-            f"❌ DEBUG SAVE FAILED => {e}"
+        logger.warning(
+            f"⚠️ DEBUG SAVE FAILED => {e}"
         )
 
 # ==========================================================
-# CAPTCHA / GOOGLE BLOCK DETECTION
+# CAPTCHA DETECTION
 # ==========================================================
 
 async def detect_google_block(page):
@@ -207,9 +224,7 @@ async def detect_google_block(page):
 
             "/sorry/",
 
-            "automated queries",
-
-            "detected unusual traffic"
+            "automated queries"
         ]
 
         for keyword in keywords:
@@ -229,57 +244,6 @@ async def detect_google_block(page):
         return False
 
 # ==========================================================
-# LOAD COOKIES
-# ==========================================================
-
-async def load_cookies(context):
-
-    try:
-
-        if not os.path.exists(COOKIES_FILE):
-
-            logger.warning(
-                "⚠️ cookies.json NOT FOUND"
-            )
-
-            return
-
-        with open(
-            COOKIES_FILE,
-            "r",
-            encoding="utf-8"
-        ) as f:
-
-            cookies = json.load(f)
-
-        for cookie in cookies:
-
-            if cookie.get("sameSite") not in [
-
-                "Strict",
-
-                "Lax",
-
-                "None"
-            ]:
-
-                cookie["sameSite"] = "None"
-
-        await context.add_cookies(
-            cookies
-        )
-
-        logger.info(
-            f"🍪 COOKIES LOADED => {len(cookies)}"
-        )
-
-    except Exception as e:
-
-        logger.exception(
-            f"❌ COOKIE LOAD FAILED => {e}"
-        )
-
-# ==========================================================
 # HUMAN SCROLL
 # ==========================================================
 
@@ -287,24 +251,16 @@ async def human_scroll(page):
 
     try:
 
-        amount = random.randint(
-            1200,
-            4000
-        )
-
         await page.mouse.wheel(
+
             0,
-            amount
+
+            random.randint(1500, 4000)
         )
 
         await asyncio.sleep(
 
-            random.uniform(
-
-                SCROLL_PAUSE_MIN,
-
-                SCROLL_PAUSE_MAX
-            )
+            random.uniform(3, 7)
         )
 
     except Exception:
@@ -331,7 +287,9 @@ async def handle_google_consent(page):
                 ).lower()
 
                 if any(
+
                     x in text
+
                     for x in [
 
                         "accept",
@@ -359,16 +317,45 @@ async def handle_google_consent(page):
         pass
 
 # ==========================================================
-# OPEN REVIEWS PANEL
+# LOAD COOKIES
+# ==========================================================
+
+async def load_cookies(context):
+
+    try:
+
+        if not os.path.exists(
+            COOKIES_FILE
+        ):
+            return
+
+        with open(
+            COOKIES_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            cookies = json.load(f)
+
+        await context.add_cookies(
+            cookies
+        )
+
+        logger.info(
+            f"🍪 COOKIES LOADED => {len(cookies)}"
+        )
+
+    except Exception as e:
+
+        logger.warning(
+            f"⚠️ COOKIE LOAD FAILED => {e}"
+        )
+
+# ==========================================================
+# OPEN REVIEW PANEL
 # ==========================================================
 
 async def open_reviews_panel(page):
-
-    logger.info(
-        "📦 OPENING REVIEW PANEL"
-    )
-
-    await asyncio.sleep(10)
 
     selectors = [
 
@@ -379,8 +366,6 @@ async def open_reviews_panel(page):
         'button[aria-label*="Reviews"]',
 
         'div[role="button"][aria-label*="reviews"]',
-
-        'div[role="button"][aria-label*="Reviews"]',
 
         'xpath=//span[@class="z3HNkc"]/following-sibling::span//a'
     ]
@@ -405,15 +390,13 @@ async def open_reviews_panel(page):
 
                     await asyncio.sleep(2)
 
-                    await element.click(
-                        timeout=15000
-                    )
+                    await element.click()
 
                     logger.info(
                         "✅ REVIEW BUTTON CLICKED"
                     )
 
-                    await asyncio.sleep(12)
+                    await asyncio.sleep(10)
 
                     review_feed = await page.query_selector(
                         'div[role="feed"], div.RVCQse'
@@ -432,10 +415,6 @@ async def open_reviews_panel(page):
 
         except Exception:
             continue
-
-    logger.warning(
-        "⚠️ REVIEW PANEL NOT OPENED"
-    )
 
     return False
 
@@ -459,15 +438,7 @@ async def expand_reviews(page):
                     await button.inner_text()
                 ).lower()
 
-                if any(
-                    x in text
-                    for x in [
-
-                        "more",
-
-                        "full review"
-                    ]
-                ):
+                if "more" in text:
 
                     await button.click()
 
@@ -480,23 +451,19 @@ async def expand_reviews(page):
         pass
 
 # ==========================================================
-# EXTRACT REVIEWS
+# COMMON EXTRACTION ENGINE
 # ==========================================================
 
-async def extract_reviews(
+async def extract_reviews_common(
 
     page,
 
     target_limit=500
 ):
 
-    logger.info(
-        "📦 STARTING ADVANCED EXTRACTION"
-    )
-
     reviews = []
 
-    seen_ids = set()
+    seen_reviews = set()
 
     idle_scrolls = 0
 
@@ -510,12 +477,7 @@ async def extract_reviews(
 
     for retry in range(5):
 
-        logger.info(
-            f"🔄 REVIEW FEED DETECTION => {retry}"
-        )
-
         review_feed = await page.query_selector(
-
             'div[role="feed"], div.RVCQse'
         )
 
@@ -559,9 +521,9 @@ async def extract_reviews(
 
         try:
 
-            # ==================================================
+            # ==============================================
             # CAPTCHA DETECTION
-            # ==================================================
+            # ==============================================
 
             blocked = await detect_google_block(
                 page
@@ -569,20 +531,16 @@ async def extract_reviews(
 
             if blocked:
 
-                logger.warning(
-                    "⚠️ CAPTCHA DURING EXTRACTION"
-                )
-
                 await save_debug_files(
                     page,
-                    "captcha_mid_scrape"
+                    "captcha_detected"
                 )
 
                 break
 
-            # ==================================================
-            # REVIEW MODAL VALIDATION
-            # ==================================================
+            # ==============================================
+            # MODAL RECOVERY
+            # ==============================================
 
             review_modal = await page.query_selector(
                 'div[role="dialog"]'
@@ -591,7 +549,7 @@ async def extract_reviews(
             if not review_modal:
 
                 logger.warning(
-                    "⚠️ REVIEW MODAL CLOSED"
+                    "⚠️ MODAL CLOSED"
                 )
 
                 reopened = await open_reviews_panel(
@@ -601,14 +559,14 @@ async def extract_reviews(
                 if reopened:
 
                     logger.info(
-                        "✅ REVIEW MODAL REOPENED"
+                        "✅ MODAL REOPENED"
                     )
 
                     await asyncio.sleep(10)
 
-            # ==================================================
-            # WAIT FOR REVIEW CARDS
-            # ==================================================
+            # ==============================================
+            # WAIT FOR REVIEWS
+            # ==============================================
 
             try:
 
@@ -618,22 +576,17 @@ async def extract_reviews(
 
                     'div[jsname="ShBeI"], '
 
-                    'div.jftiEf, '
-
-                    'div.MyEned',
+                    'div.jftiEf',
 
                     timeout=30000
                 )
 
             except Exception:
+                pass
 
-                logger.warning(
-                    "⚠️ REVIEW CARD WAIT TIMEOUT"
-                )
-
-            # ==================================================
+            # ==============================================
             # MULTI SELECTOR EXTRACTION
-            # ==================================================
+            # ==============================================
 
             review_selectors = [
 
@@ -659,21 +612,19 @@ async def extract_reviews(
                     )
 
                     logger.info(
-                        f"📦 SELECTOR => {selector} => {len(selector_cards)}"
+                        f"📦 {selector} => {len(selector_cards)}"
                     )
 
-                    if len(selector_cards) > 0:
-
-                        cards.extend(
-                            selector_cards
-                        )
+                    cards.extend(
+                        selector_cards
+                    )
 
                 except Exception:
                     continue
 
-            # ==================================================
+            # ==============================================
             # REMOVE DUPLICATES
-            # ==================================================
+            # ==============================================
 
             unique_cards = []
 
@@ -696,9 +647,7 @@ async def extract_reviews(
                         element_hash
                     )
 
-                    unique_cards.append(
-                        card
-                    )
+                    unique_cards.append(card)
 
                 except Exception:
                     continue
@@ -709,9 +658,9 @@ async def extract_reviews(
                 f"📦 UNIQUE CARDS => {len(cards)}"
             )
 
-            # ==================================================
+            # ==============================================
             # PARSE REVIEWS
-            # ==================================================
+            # ==============================================
 
             for card in cards:
 
@@ -725,9 +674,9 @@ async def extract_reviews(
 
                     review_date = ""
 
-                    # ==========================================
+                    # ======================================
                     # AUTHOR
-                    # ==========================================
+                    # ======================================
 
                     author_selectors = [
 
@@ -735,9 +684,7 @@ async def extract_reviews(
 
                         '.TSUbDb',
 
-                        '.Vpc5Fe',
-
-                        'span[class*="d4r55"]'
+                        '.Vpc5Fe'
                     ]
 
                     for selector in author_selectors:
@@ -761,9 +708,9 @@ async def extract_reviews(
                         except Exception:
                             continue
 
-                    # ==========================================
+                    # ======================================
                     # REVIEW TEXT
-                    # ==========================================
+                    # ======================================
 
                     text_selectors = [
 
@@ -773,9 +720,7 @@ async def extract_reviews(
 
                         '.OA1nbd',
 
-                        'span[jscontroller]',
-
-                        'div[class*="review"] span'
+                        'span[jscontroller]'
                     ]
 
                     for selector in text_selectors:
@@ -802,9 +747,9 @@ async def extract_reviews(
                     if not review_text:
                         continue
 
-                    # ==========================================
+                    # ======================================
                     # RATING
-                    # ==========================================
+                    # ======================================
 
                     rating_selectors = [
 
@@ -838,9 +783,9 @@ async def extract_reviews(
                         except Exception:
                             continue
 
-                    # ==========================================
+                    # ======================================
                     # DATE
-                    # ==========================================
+                    # ======================================
 
                     date_selectors = [
 
@@ -870,19 +815,19 @@ async def extract_reviews(
                         except Exception:
                             continue
 
-                    # ==========================================
+                    # ======================================
                     # DEDUPLICATION
-                    # ==========================================
+                    # ======================================
 
                     review_id = generate_hash(
                         author,
                         review_text
                     )
 
-                    if review_id in seen_ids:
+                    if review_id in seen_reviews:
                         continue
 
-                    seen_ids.add(
+                    seen_reviews.add(
                         review_id
                     )
 
@@ -904,39 +849,26 @@ async def extract_reviews(
                             review_text
                     })
 
-                except Exception as e:
-
-                    logger.warning(
-                        f"⚠️ REVIEW PARSE FAILED => {e}"
-                    )
-
+                except Exception:
                     continue
 
             logger.info(
                 f"✅ TOTAL REVIEWS => {len(reviews)}"
             )
 
-            # ==================================================
-            # TARGET LIMIT
-            # ==================================================
-
             if len(reviews) >= target_limit:
-
-                logger.info(
-                    "🎯 TARGET LIMIT REACHED"
-                )
 
                 break
 
-            # ==================================================
+            # ==============================================
             # EXPAND REVIEWS
-            # ==================================================
+            # ==============================================
 
             await expand_reviews(page)
 
-            # ==================================================
-            # PRIMARY FEED SCROLL
-            # ==================================================
+            # ==============================================
+            # FEED SCROLL
+            # ==============================================
 
             try:
 
@@ -948,7 +880,7 @@ async def extract_reviews(
                             'div[role="feed"], div.RVCQse'
                         );
 
-                        if (feed) {
+                        if(feed){
 
                             feed.scrollBy(
                                 0,
@@ -960,33 +892,13 @@ async def extract_reviews(
                 """)
 
             except Exception:
-
-                logger.warning(
-                    "⚠️ FEED SCROLL FAILED"
-                )
-
-            # ==================================================
-            # FALLBACK PAGE SCROLL
-            # ==================================================
-
-            try:
-
-                await page.mouse.wheel(
-                    0,
-                    4000
-                )
-
-            except Exception:
                 pass
 
-            await asyncio.sleep(
+            # ==============================================
+            # FALLBACK SCROLL
+            # ==============================================
 
-                random.uniform(4, 8)
-            )
-
-            # ==================================================
-            # IDLE DETECTION
-            # ==================================================
+            await human_scroll(page)
 
             current_count = len(reviews)
 
@@ -995,7 +907,7 @@ async def extract_reviews(
                 idle_scrolls += 1
 
                 logger.warning(
-                    f"⚠️ IDLE SCROLL => {idle_scrolls}"
+                    f"⚠️ IDLE => {idle_scrolls}"
                 )
 
             else:
@@ -1004,91 +916,49 @@ async def extract_reviews(
 
             previous_count = current_count
 
-            # ==================================================
-            # RECOVERY REOPEN
-            # ==================================================
-
             if idle_scrolls >= 3:
 
-                logger.warning(
-                    "⚠️ REOPENING REVIEW PANEL"
-                )
-
-                await open_reviews_panel(
-                    page
-                )
-
-                await asyncio.sleep(10)
-
-            # ==================================================
-            # FINAL STOP
-            # ==================================================
+                await open_reviews_panel(page)
 
             if idle_scrolls >= MAX_IDLE_SCROLLS:
-
-                logger.warning(
-                    "⚠️ MAX IDLE SCROLL REACHED"
-                )
 
                 break
 
         except Exception as e:
 
             logger.exception(
-                f"❌ EXTRACTION LOOP ERROR => {e}"
+                f"❌ EXTRACTION ERROR => {e}"
             )
 
             await save_debug_files(
                 page,
-                f"extraction_error_{scroll}"
+                f"extract_error_{scroll}"
             )
 
     logger.info(
-        f"✅ FINAL REVIEW COUNT => {len(reviews)}"
+        f"✅ FINAL REVIEWS => {len(reviews)}"
     )
-
-    gc.collect()
 
     return reviews
 
 # ==========================================================
-# MAIN SCRAPER
+# ENGINE 1 - CAMOUFOX
 # ==========================================================
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(
-        multiplier=2,
-        min=3,
-        max=20
-    )
-)
-async def scrape_google_reviews(
+async def scrape_with_camoufox(
 
-    place_id: str,
+    place_id,
 
-    target_limit: int = 500
+    target_limit
 ):
+
+    logger.info(
+        "🚀 ENGINE 1 => CAMOUFOX"
+    )
 
     browser = None
 
     try:
-
-        logger.info(
-            "🚀 STARTING SCRAPER"
-        )
-
-        proxy = {
-
-            "server":
-                PROXY_SERVER,
-
-            "username":
-                PROXY_USERNAME,
-
-            "password":
-                PROXY_PASSWORD
-        }
 
         browser = await AsyncCamoufox(
 
@@ -1100,16 +970,11 @@ async def scrape_google_reviews(
 
             block_webrtc=True,
 
-            i_know_what_im_doing=True,
+            i_know_what_im_doing=True
 
-            proxy=proxy
         ).start()
 
         context = await browser.new_context(
-
-            locale="en-US",
-
-            timezone_id="America/New_York",
 
             user_agent=UserAgent().random,
 
@@ -1121,89 +986,15 @@ async def scrape_google_reviews(
             }
         )
 
-        # ==================================================
-        # LOAD COOKIES
-        # ==================================================
-
         await load_cookies(context)
 
         page = await context.new_page()
 
-        # ==================================================
-        # STEALTH PATCH
-        # ==================================================
-
-        await page.add_init_script("""
-
-            Object.defineProperty(
-                navigator,
-                'webdriver',
-                {
-                    get: () => undefined
-                }
-            );
-
-        """)
-
-        # ==================================================
-        # VERIFY PROXY
-        # ==================================================
-
-        logger.info(
-            "🌐 VERIFYING PROXY"
-        )
+        await stealth_async(page)
 
         await page.goto(
 
-            "https://ipinfo.io/json",
-
-            wait_until="domcontentloaded",
-
-            timeout=120000
-        )
-
-        ip_data = await page.text_content(
-            "body"
-        )
-
-        logger.info(
-            f"🌐 ACTIVE PROXY IP => {ip_data}"
-        )
-
-        # ==================================================
-        # GOOGLE WARMUP
-        # ==================================================
-
-        await page.goto(
-
-            "https://www.google.com",
-
-            wait_until="domcontentloaded",
-
-            timeout=120000
-        )
-
-        await asyncio.sleep(8)
-
-        await handle_google_consent(page)
-
-        await human_scroll(page)
-
-        # ==================================================
-        # OPEN MAPS
-        # ==================================================
-
-        maps_url = (
-            f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-        )
-
-        logger.info(
-            f"🌐 OPENING URL => {maps_url}"
-        )
-
-        await page.goto(
-
-            maps_url,
+            f"https://www.google.com/maps/place/?q=place_id:{place_id}",
 
             wait_until="domcontentloaded",
 
@@ -1214,104 +1005,34 @@ async def scrape_google_reviews(
 
         await handle_google_consent(page)
 
-        await save_debug_files(
-            page,
-            "maps_loaded"
-        )
-
-        # ==================================================
-        # GOOGLE BLOCK CHECK
-        # ==================================================
-
-        blocked = await detect_google_block(
-            page
-        )
+        blocked = await detect_google_block(page)
 
         if blocked:
-
-            logger.warning(
-                "⚠️ GOOGLE BLOCK DETECTED"
-            )
-
-            await save_debug_files(
-                page,
-                "google_blocked"
-            )
-
             return []
 
-        # ==================================================
-        # OPEN REVIEW PANEL
-        # ==================================================
-
-        opened = await open_reviews_panel(
-            page
-        )
+        opened = await open_reviews_panel(page)
 
         if not opened:
-
-            logger.warning(
-                "⚠️ REVIEW PANEL FAILED"
-            )
-
-            await save_debug_files(
-                page,
-                "review_panel_failed"
-            )
-
             return []
 
-        # ==================================================
-        # EXTRACT REVIEWS
-        # ==================================================
-
-        reviews = await extract_reviews(
+        reviews = await extract_reviews_common(
 
             page,
 
-            target_limit=target_limit
+            target_limit
         )
 
-        if len(reviews) == 0:
-
-            logger.warning(
-                "⚠️ NO REVIEWS SCRAPED"
-            )
-
-            await save_debug_files(
-                page,
-                "no_reviews_scraped"
-            )
-
-        else:
-
-            logger.info(
-                f"✅ SCRAPED REVIEWS => {len(reviews)}"
-            )
-
-            await save_debug_files(
-                page,
-                "reviews_success"
-            )
+        await save_debug_files(
+            page,
+            "camoufox_success"
+        )
 
         return reviews
-
-    except TimeoutError:
-
-        logger.exception(
-            "❌ PLAYWRIGHT TIMEOUT"
-        )
-
-        return []
 
     except Exception as e:
 
         logger.exception(
-            f"❌ SCRAPER FAILED => {e}"
-        )
-
-        logger.error(
-            traceback.format_exc()
+            f"❌ CAMOUFOX FAILED => {e}"
         )
 
         return []
@@ -1321,10 +1042,396 @@ async def scrape_google_reviews(
         try:
 
             if browser:
-
                 await browser.close()
-
         except Exception:
             pass
+
+# ==========================================================
+# ENGINE 2 - PLAYWRIGHT
+# ==========================================================
+
+async def scrape_with_playwright(
+
+    place_id,
+
+    target_limit
+):
+
+    logger.info(
+        "🚀 ENGINE 2 => PLAYWRIGHT"
+    )
+
+    browser = None
+
+    try:
+
+        pw = await async_playwright().start()
+
+        browser = await pw.chromium.launch(
+
+            headless=HEADLESS
+        )
+
+        context = await browser.new_context(
+
+            user_agent=UserAgent().random
+        )
+
+        await load_cookies(context)
+
+        page = await context.new_page()
+
+        await stealth_async(page)
+
+        await page.goto(
+
+            f"https://www.google.com/maps/place/?q=place_id:{place_id}",
+
+            wait_until="domcontentloaded",
+
+            timeout=120000
+        )
+
+        await asyncio.sleep(15)
+
+        await handle_google_consent(page)
+
+        opened = await open_reviews_panel(page)
+
+        if not opened:
+            return []
+
+        reviews = await extract_reviews_common(
+
+            page,
+
+            target_limit
+        )
+
+        await save_debug_files(
+            page,
+            "playwright_success"
+        )
+
+        return reviews
+
+    except Exception as e:
+
+        logger.exception(
+            f"❌ PLAYWRIGHT FAILED => {e}"
+        )
+
+        return []
+
+    finally:
+
+        try:
+
+            if browser:
+                await browser.close()
+        except Exception:
+            pass
+
+# ==========================================================
+# ENGINE 3 - SELENIUMBASE
+# ==========================================================
+
+def scrape_with_seleniumbase(
+
+    place_id,
+
+    target_limit
+):
+
+    logger.info(
+        "🚀 ENGINE 3 => SELENIUMBASE"
+    )
+
+    reviews = []
+
+    try:
+
+        with SB(
+
+            uc=True,
+
+            headed=True
+        ) as sb:
+
+            url = (
+                f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+            )
+
+            sb.open(url)
+
+            time.sleep(15)
+
+            try:
+
+                sb.click(
+                    'button[jsaction*="pane.reviewChart.moreReviews"]'
+                )
+
+            except Exception:
+                pass
+
+            time.sleep(10)
+
+            cards = sb.find_elements(
+                'div[data-review-id]'
+            )
+
+            for card in cards:
+
+                try:
+
+                    text = clean_text(
+                        card.text
+                    )
+
+                    if not text:
+                        continue
+
+                    review_id = generate_hash(
+                        "selenium",
+                        text
+                    )
+
+                    reviews.append({
+
+                        "review_id":
+                            review_id,
+
+                        "author_name":
+                            "selenium",
+
+                        "rating":
+                            5,
+
+                        "text":
+                            text
+                    })
+
+                except Exception:
+                    continue
+
+        return reviews
+
+    except Exception as e:
+
+        logger.exception(
+            f"❌ SELENIUMBASE FAILED => {e}"
+        )
+
+        return []
+
+# ==========================================================
+# ENGINE 4 - REQUESTS FALLBACK
+# ==========================================================
+
+def scrape_with_requests(
+
+    place_id
+):
+
+    logger.info(
+        "🚀 ENGINE 4 => REQUESTS"
+    )
+
+    try:
+
+        url = (
+            f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+        )
+
+        headers = {
+
+            "User-Agent":
+                UserAgent().random
+        }
+
+        response = requests.get(
+
+            url,
+
+            headers=headers,
+
+            timeout=60
+        )
+
+        soup = BeautifulSoup(
+
+            response.text,
+
+            "lxml"
+        )
+
+        text = clean_text(
+            soup.get_text()
+        )
+
+        if not text:
+            return []
+
+        return [{
+
+            "review_id":
+                generate_hash(
+                    "requests",
+                    text[:100]
+                ),
+
+            "author_name":
+                "requests",
+
+            "rating":
+                5,
+
+            "text":
+                text[:3000]
+        }]
+
+    except Exception as e:
+
+        logger.exception(
+            f"❌ REQUESTS FAILED => {e}"
+        )
+
+        return []
+
+# ==========================================================
+# MAIN MULTI ENGINE SCRAPER
+# ==========================================================
+
+@retry(
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(
+        multiplier=2,
+        min=3,
+        max=15
+    )
+)
+async def scrape_google_reviews(
+
+    place_id: str,
+
+    target_limit: int = 500
+):
+
+    try:
+
+        logger.info(
+            "🚀 STARTING MULTI ENGINE SCRAPER"
+        )
+
+        # ==================================================
+        # ENGINE 1
+        # ==================================================
+
+        reviews = await scrape_with_camoufox(
+
+            place_id,
+
+            target_limit
+        )
+
+        if reviews:
+
+            logger.info(
+                f"✅ CAMOUFOX SUCCESS => {len(reviews)}"
+            )
+
+            return reviews
+
+        logger.warning(
+            "⚠️ CAMOUFOX FAILED"
+        )
+
+        # ==================================================
+        # ENGINE 2
+        # ==================================================
+
+        reviews = await scrape_with_playwright(
+
+            place_id,
+
+            target_limit
+        )
+
+        if reviews:
+
+            logger.info(
+                f"✅ PLAYWRIGHT SUCCESS => {len(reviews)}"
+            )
+
+            return reviews
+
+        logger.warning(
+            "⚠️ PLAYWRIGHT FAILED"
+        )
+
+        # ==================================================
+        # ENGINE 3
+        # ==================================================
+
+        reviews = await asyncio.to_thread(
+
+            scrape_with_seleniumbase,
+
+            place_id,
+
+            target_limit
+        )
+
+        if reviews:
+
+            logger.info(
+                f"✅ SELENIUMBASE SUCCESS => {len(reviews)}"
+            )
+
+            return reviews
+
+        logger.warning(
+            "⚠️ SELENIUMBASE FAILED"
+        )
+
+        # ==================================================
+        # ENGINE 4
+        # ==================================================
+
+        reviews = await asyncio.to_thread(
+
+            scrape_with_requests,
+
+            place_id
+        )
+
+        if reviews:
+
+            logger.info(
+                f"✅ REQUESTS SUCCESS => {len(reviews)}"
+            )
+
+            return reviews
+
+        logger.warning(
+            "⚠️ ALL ENGINES FAILED"
+        )
+
+        return []
+
+    except Exception as e:
+
+        logger.exception(
+            f"❌ MAIN SCRAPER FAILED => {e}"
+        )
+
+        logger.error(
+            traceback.format_exc()
+        )
+
+        return []
+
+    finally:
 
         gc.collect()
