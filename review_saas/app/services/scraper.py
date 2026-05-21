@@ -991,6 +991,36 @@ async def scrape_google_reviews(
 
             target_limit=target_limit
         )
+logger.info(
+    f"📦 PAGE CONTENT LENGTH: {len(await page.content())}"
+)
+
+content = (await page.content()).lower()
+
+keywords = [
+
+    "review",
+
+    "reviews",
+
+    "rating",
+
+    "ratings",
+
+    "jftief",
+
+    "data-review-id"
+]
+
+for keyword in keywords:
+
+    logger.info(
+        f"🔍 KEYWORD [{keyword}] EXISTS: {keyword in content}"
+    )
+
+
+
+
 
 if len(reviews) == 0:
 
