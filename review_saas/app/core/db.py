@@ -1,7 +1,13 @@
-# filename: app/core/db.py
+# ==========================================================
+# FILE: app/core/db.py
+# TRUSTLYTICS AI — FINAL STABLE DATABASE CONFIG
+# MAY 2026 ENTERPRISE VERSION
+# ==========================================================
 
 import os
 import logging
+
+from sqlalchemy import text
 
 from sqlalchemy.ext.asyncio import (
     create_async_engine,
@@ -9,17 +15,18 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
 )
 
-from sqlalchemy import text
-
-
 # ==========================================================
 # BASE + MODELS IMPORT
 # ==========================================================
 
 from app.core.base import Base
 
+# ==========================================================
 # VERY IMPORTANT
-# FORCE LOAD ALL MODELS
+# SAFE MODEL LOADING
+# PREVENTS CIRCULAR IMPORT ISSUES
+# ==========================================================
+
 import app.core.models
 
 # ==========================================================
@@ -70,7 +77,7 @@ if DATABASE_URL.startswith(
     )
 
 # ==========================================================
-# ENGINE
+# DATABASE ENGINE
 # ==========================================================
 
 engine = create_async_engine(
@@ -117,9 +124,9 @@ async def init_models():
 
         async with engine.begin() as conn:
 
-            # ==============================================
-            # CREATE SCHEMA TRACKER TABLE
-            # ==============================================
+            # ==================================================
+            # CREATE SCHEMA TRACKER
+            # ==================================================
 
             await conn.execute(
 
@@ -133,9 +140,9 @@ async def init_models():
 
             )
 
-            # ==============================================
-            # GET CURRENT DATABASE VERSION
-            # ==============================================
+            # ==================================================
+            # GET CURRENT SCHEMA VERSION
+            # ==================================================
 
             result = await conn.execute(
 
@@ -151,15 +158,15 @@ async def init_models():
 
             db_version = result.scalar()
 
-            # ==============================================
-            # SCHEMA VERSION CHECK
-            # ==============================================
+            # ==================================================
+            # VERSION CHECK
+            # ==================================================
 
             if db_version != CURRENT_SCHEMA_VERSION:
 
                 logger.warning(
 
-                    f"⚠️ Schema update detected | DB={db_version} | CODE={CURRENT_SCHEMA_VERSION}"
+                    f"⚠️ Schema mismatch | DB={db_version} | CODE={CURRENT_SCHEMA_VERSION}"
 
                 )
 
@@ -171,22 +178,24 @@ async def init_models():
 
                 )
 
-            # ==============================================
-            # CREATE TABLES SAFELY
-            # ==============================================
+            # ==================================================
+            # CREATE TABLES
+            # ==================================================
 
             await conn.run_sync(
                 Base.metadata.create_all
             )
 
-            # ==============================================
+            # ==================================================
             # UPDATE SCHEMA TRACKER
-            # ==============================================
+            # ==================================================
 
             await conn.execute(
+
                 text(
                     "DELETE FROM _schema_tracker"
                 )
+
             )
 
             await conn.execute(
@@ -222,9 +231,6 @@ async def init_models():
 # ==========================================================
 
 async def get_db():
-    async def get_session():
-    async for session in get_db():
-        yield session
 
     async with AsyncSessionLocal() as session:
 
@@ -240,4 +246,64 @@ async def get_db():
 # BACKWARD COMPATIBILITY
 # ==========================================================
 
-get_session = get_db
+async def get_session():
+
+    async for session in get_db():
+
+        yield session
+
+# ==========================================================
+# DATABASE HEALTH CHECK
+# ==========================================================
+
+async def check_database_connection():
+
+    """
+    DATABASE CONNECTION TEST
+    """
+
+    try:
+
+        async with engine.begin() as conn:
+
+            await conn.execute(
+                text("SELECT 1")
+            )
+
+        logger.info(
+            "✅ Database connection healthy"
+        )
+
+        return True
+
+    except Exception as e:
+
+        logger.error(
+            f"❌ Database connection failed: {e}"
+        )
+
+        return False
+
+# ==========================================================
+# CLEAN SHUTDOWN
+# ==========================================================
+
+async def close_database():
+
+    """
+    CLOSE DATABASE ENGINE
+    """
+
+    try:
+
+        await engine.dispose()
+
+        logger.info(
+            "🛑 Database engine closed"
+        )
+
+    except Exception as e:
+
+        logger.error(
+            f"❌ Database shutdown failed: {e}"
+        )
