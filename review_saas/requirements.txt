@@ -101,7 +101,7 @@ google-generativeai==0.8.5
 # ==========================================================
 
 langchain==0.3.7
-langchain-core==0.3.19
+
 langchain-community==0.3.7
 langchain-openai==0.2.8
 
