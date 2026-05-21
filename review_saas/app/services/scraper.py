@@ -851,9 +851,9 @@ async def scrape_google_reviews(
         # OPEN GOOGLE MAPS PLACE
         # ==================================================
 
-        maps_url = (
-            f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-        )
+       maps_url = (
+    f"https://search.google.com/local/reviews?placeid={place_id}"
+)
 
         logger.info(
             f"🌐 Opening URL: {maps_url}"
