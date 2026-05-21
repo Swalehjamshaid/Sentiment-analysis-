@@ -19,7 +19,7 @@ async def register_user(name: str, email: str, password: str, db: AsyncSession =
     if result.scalars().first():
         raise HTTPException(status_code=400, detail="Email is already registered.")
 
-    # 2. Create new user with email_verified=False (matching your User model)
+    # 2. Create new user with is_verified=False (matching your User model)
     new_user = User(
         name=name,
         email=email,
