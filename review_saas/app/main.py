@@ -1,8 +1,7 @@
 # ==========================================================
 # FILE: app/main.py
-# TRUSTLYTICS AI — FINAL FULLY INTEGRATED MAIN.PY
-# LOGIN + DASHBOARD + ROUTES + TEMPLATES
-# MAY 2026 ENTERPRISE VERSION
+# TRUSTLYTICS AI — FINAL 100% INTEGRATED MAIN.PY
+# MAY 2026 ENTERPRISE PRODUCTION VERSION
 # ==========================================================
 
 import os
@@ -53,7 +52,7 @@ print(
 )
 
 # ==========================================================
-# LOGGING
+# LOGGER
 # ==========================================================
 
 logger.remove()
@@ -153,7 +152,7 @@ except Exception as e:
     traceback.print_exc()
 
 # ==========================================================
-# FASTAPI LIFESPAN
+# LIFESPAN
 # ==========================================================
 
 @asynccontextmanager
@@ -164,7 +163,7 @@ async def lifespan(app: FastAPI):
     )
 
     # ======================================================
-    # DATABASE HEALTH CHECK
+    # DATABASE HEALTH
     # ======================================================
 
     try:
@@ -192,7 +191,7 @@ async def lifespan(app: FastAPI):
         )
 
     # ======================================================
-    # DATABASE INITIALIZATION
+    # INIT DATABASE
     # ======================================================
 
     try:
@@ -279,6 +278,7 @@ print(
 # ==========================================================
 
 @app.exception_handler(Exception)
+
 async def global_exception_handler(
 
     request: Request,
@@ -423,7 +423,7 @@ else:
     )
 
 # ==========================================================
-# ROOT ROUTE
+# ROOT REDIRECT
 # ==========================================================
 
 @app.get("/")
@@ -449,17 +449,15 @@ async def login_page(
 
     try:
 
-        if templates:
+        return templates.TemplateResponse(
 
-            return templates.TemplateResponse(
+            "login.html",
 
-                "login.html",
+            {
 
-                {
-
-                    "request": request
-                }
-            )
+                "request": request
+            }
+        )
 
     except Exception as e:
 
@@ -467,10 +465,10 @@ async def login_page(
             f"❌ LOGIN TEMPLATE ERROR: {e}"
         )
 
-    return HTMLResponse(
+        return HTMLResponse(
 
-        "<h1>Login Page Missing</h1>"
-    )
+            "<h1>Login Template Missing</h1>"
+        )
 
 # ==========================================================
 # REGISTER PAGE
@@ -484,17 +482,15 @@ async def register_page(
 
     try:
 
-        if templates:
+        return templates.TemplateResponse(
 
-            return templates.TemplateResponse(
+            "register.html",
 
-                "register.html",
+            {
 
-                {
-
-                    "request": request
-                }
-            )
+                "request": request
+            }
+        )
 
     except Exception as e:
 
@@ -502,10 +498,10 @@ async def register_page(
             f"❌ REGISTER TEMPLATE ERROR: {e}"
         )
 
-    return HTMLResponse(
+        return HTMLResponse(
 
-        "<h1>Register Page Missing</h1>"
-    )
+            "<h1>Register Template Missing</h1>"
+        )
 
 # ==========================================================
 # DASHBOARD PAGE
@@ -519,17 +515,37 @@ async def dashboard_page(
 
     try:
 
-        if templates:
+        # ==================================================
+        # SESSION CHECK
+        # ==================================================
 
-            return templates.TemplateResponse(
+        user_id = request.session.get(
+            "user_id"
+        )
 
-                "dashboard.html",
+        if not user_id:
 
-                {
-
-                    "request": request
-                }
+            return RedirectResponse(
+                "/login"
             )
+
+        return templates.TemplateResponse(
+
+            "dashboard.html",
+
+            {
+
+                "request": request,
+
+                "user_id": user_id,
+
+                "user_name":
+                    request.session.get(
+                        "user_name",
+                        "User"
+                    )
+            }
+        )
 
     except Exception as e:
 
@@ -537,16 +553,16 @@ async def dashboard_page(
             f"❌ DASHBOARD TEMPLATE ERROR: {e}"
         )
 
-    return HTMLResponse(
+        return HTMLResponse(
 
-        "<h1>Dashboard Page Missing</h1>"
-    )
+            "<h1>Dashboard Template Missing</h1>"
+        )
 
 # ==========================================================
 # COMPANIES PAGE
 # ==========================================================
 
-@app.get("/companies", response_class=HTMLResponse)
+@app.get("/companies-page", response_class=HTMLResponse)
 
 async def companies_page(
     request: Request
@@ -554,17 +570,15 @@ async def companies_page(
 
     try:
 
-        if templates:
+        return templates.TemplateResponse(
 
-            return templates.TemplateResponse(
+            "companies.html",
 
-                "companies.html",
+            {
 
-                {
-
-                    "request": request
-                }
-            )
+                "request": request
+            }
+        )
 
     except Exception as e:
 
@@ -572,10 +586,10 @@ async def companies_page(
             f"❌ COMPANIES TEMPLATE ERROR: {e}"
         )
 
-    return HTMLResponse(
+        return HTMLResponse(
 
-        "<h1>Companies Page Missing</h1>"
-    )
+            "<h1>Companies Template Missing</h1>"
+        )
 
 # ==========================================================
 # HEALTH CHECK
@@ -593,11 +607,12 @@ async def health_check():
 
         "status": "healthy",
 
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp":
+            datetime.utcnow().isoformat()
     }
 
 # ==========================================================
-# ROUTE LOADER
+# ROUTES
 # ==========================================================
 
 ROUTES = [
@@ -616,7 +631,7 @@ ROUTES = [
 ]
 
 # ==========================================================
-# SAFE ROUTER REGISTRATION
+# SAFE ROUTE LOADER
 # ==========================================================
 
 for route_name in ROUTES:
@@ -635,13 +650,27 @@ for route_name in ROUTES:
         )
 
         router = getattr(
-
             module,
-
             "router"
         )
 
-        app.include_router(router)
+        # ==================================================
+        # API PREFIX INTEGRATION
+        # ==================================================
+
+        if route_name == "auth":
+
+            # auth already has /api/auth
+            app.include_router(router)
+
+        else:
+
+            app.include_router(
+
+                router,
+
+                prefix="/api"
+            )
 
         print(
             f"✅ {route_name.upper()} ROUTER REGISTERED"
