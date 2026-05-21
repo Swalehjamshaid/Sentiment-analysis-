@@ -1,4 +1,8 @@
-# filename: app/routes/auth.py
+# =====================================================
+# FILE: app/routes/auth.py
+# TRUSTLYTICS AI — ENTERPRISE AUTH SYSTEM
+# MAY 2026 STABLE VERSION
+# =====================================================
 
 import os
 import resend
@@ -8,15 +12,25 @@ from fastapi import (
     Depends,
     Form,
     Request,
-    BackgroundTasks
+    BackgroundTasks,
+    HTTPException
 )
 
-from fastapi.responses import RedirectResponse
+from fastapi.responses import (
+    RedirectResponse
+)
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import (
+    AsyncSession
+)
 
-from passlib.context import CryptContext
+from sqlalchemy.future import (
+    select
+)
+
+from passlib.context import (
+    CryptContext
+)
 
 from loguru import logger
 
@@ -25,16 +39,31 @@ from loguru import logger
 # =====================================================
 
 from app.core.db import get_db
-from app.core.models import User, VerificationToken
+
+from app.core.models import (
+    User,
+    VerificationToken
+)
 
 # =====================================================
 # ROUTER
 # =====================================================
 
-router = APIRouter()
+router = APIRouter(
+
+    prefix="/api/auth",
+
+    tags=["Authentication"]
+)
+
+# =====================================================
+# PASSWORD HASHING
+# =====================================================
 
 pwd_context = CryptContext(
+
     schemes=["bcrypt"],
+
     deprecated="auto"
 )
 
@@ -46,13 +75,23 @@ resend.api_key = os.getenv(
     "RESEND_API_KEY"
 )
 
+MAIL_FROM = os.getenv(
+
+    "MAIL_FROM",
+
+    "onboarding@resend.dev"
+)
+
 # =====================================================
 # SEND VERIFICATION EMAIL
 # =====================================================
 
 def send_verification_email(
+
     name: str,
+
     email: str,
+
     verify_url: str
 ):
 
@@ -60,15 +99,12 @@ def send_verification_email(
 
         resend.Emails.send({
 
-            "from": os.getenv(
-                "MAIL_FROM",
-                "onboarding@resend.dev"
-            ),
+            "from": MAIL_FROM,
 
             "to": email,
 
             "subject":
-                "Verify your Review Intel AI Account",
+                "Verify your Trustlytics AI Account",
 
             "html": f"""
 
@@ -83,7 +119,7 @@ def send_verification_email(
 
                     <h2 style="color:#4f46e5;">
 
-                        Welcome to Review Intel AI!
+                        Welcome to Trustlytics AI!
 
                     </h2>
 
@@ -153,10 +189,11 @@ def send_verification_email(
         )
 
 # =====================================================
-# REGISTER
+# REGISTER USER
 # =====================================================
 
 @router.post("/register")
+
 async def register_user(
 
     request: Request,
@@ -176,7 +213,7 @@ async def register_user(
 ):
 
     # =================================================
-    # PASSWORD CHECK
+    # PASSWORD MATCH
     # =================================================
 
     if password != confirm_password:
@@ -235,10 +272,11 @@ async def register_user(
         await db.flush()
 
         # =============================================
-        # TOKEN
+        # CREATE TOKEN
         # =============================================
 
         token_entry = VerificationToken(
+
             user_id=new_user.id
         )
 
@@ -249,7 +287,7 @@ async def register_user(
         await db.refresh(token_entry)
 
         # =============================================
-        # EMAIL
+        # VERIFICATION URL
         # =============================================
 
         verify_url = (
@@ -258,6 +296,10 @@ async def register_user(
             f"api/auth/verify?"
             f"token={token_entry.token}"
         )
+
+        # =============================================
+        # SEND EMAIL
+        # =============================================
 
         background_tasks.add_task(
 
@@ -301,6 +343,7 @@ async def register_user(
 # =====================================================
 
 @router.get("/verify")
+
 async def verify_email(
 
     token: str,
@@ -380,10 +423,11 @@ async def verify_email(
         )
 
 # =====================================================
-# LOGIN
+# LOGIN USER
 # =====================================================
 
 @router.post("/login")
+
 async def login_user(
 
     request: Request,
@@ -412,7 +456,7 @@ async def login_user(
     user = result.scalars().first()
 
     # =================================================
-    # INVALID USER
+    # USER NOT FOUND
     # =================================================
 
     if not user:
@@ -445,7 +489,7 @@ async def login_user(
         )
 
     # =================================================
-    # VERIFIED CHECK
+    # EMAIL VERIFIED
     # =================================================
 
     if not user.is_verified:
@@ -471,6 +515,10 @@ async def login_user(
         f"✅ User logged in: {user.email}"
     )
 
+    # =================================================
+    # REDIRECT
+    # =================================================
+
     return RedirectResponse(
 
         url="/dashboard",
@@ -483,11 +531,17 @@ async def login_user(
 # =====================================================
 
 @router.get("/logout")
-async def logout_user(request: Request):
+
+async def logout_user(
+
+    request: Request
+):
 
     request.session.clear()
 
-    logger.info("✅ User logged out")
+    logger.info(
+        "✅ User logged out"
+    )
 
     return RedirectResponse(
 
