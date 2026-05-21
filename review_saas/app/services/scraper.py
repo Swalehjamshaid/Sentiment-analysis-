@@ -1,14 +1,14 @@
 # ==========================================================
 # FILE: app/services/scraper.py
-# CAMOUFOX + PLAYWRIGHT GOOGLE REVIEWS SCRAPER
-# ADVANCED RAILWAY PRODUCTION VERSION
+# PRODUCTION GOOGLE REVIEWS SCRAPER 2026
+# PLAYWRIGHT + CAMOUFOX + RESIDENTIAL PROXY
 # ==========================================================
 
 import os
 import re
 import gc
-import time
 import json
+import time
 import random
 import asyncio
 import hashlib
@@ -17,13 +17,13 @@ import traceback
 
 from typing import List, Dict, Any
 
-from fake_useragent import UserAgent
-
 from tenacity import (
     retry,
     stop_after_attempt,
     wait_exponential
 )
+
+from fake_useragent import UserAgent
 
 from playwright.async_api import (
     TimeoutError
@@ -42,7 +42,21 @@ logger = logging.getLogger(
 )
 
 # ==========================================================
-# PROXY CONFIG
+# CONFIG
+# ==========================================================
+
+HEADLESS = True
+
+MAX_SCROLLS = 120
+
+MAX_IDLE_SCROLLS = 12
+
+SCROLL_PAUSE_MIN = 2
+
+SCROLL_PAUSE_MAX = 5
+
+# ==========================================================
+# PROXY
 # ==========================================================
 
 PROXY_SERVER = os.getenv(
@@ -57,32 +71,6 @@ PROXY_USERNAME = os.getenv(
 PROXY_PASSWORD = os.getenv(
     "PROXY_PASSWORD"
 )
-
-logger.info(
-    f"🌐 PROXY SERVER: {PROXY_SERVER}"
-)
-
-logger.info(
-    f"🌐 USERNAME EXISTS: {bool(PROXY_USERNAME)}"
-)
-
-logger.info(
-    f"🌐 PASSWORD EXISTS: {bool(PROXY_PASSWORD)}"
-)
-
-# ==========================================================
-# CONFIG
-# ==========================================================
-
-HEADLESS = True
-
-MAX_SCROLLS = 120
-
-MAX_IDLE_SCROLLS = 12
-
-SCROLL_PAUSE_MIN = 2
-
-SCROLL_PAUSE_MAX = 5
 
 # ==========================================================
 # HELPERS
@@ -149,53 +137,14 @@ def generate_hash(author, text):
     ).hexdigest()
 
 # ==========================================================
-# DETECT GOOGLE BLOCK
-# ==========================================================
-
-async def detect_google_block(page):
-
-    try:
-
-        content = (
-            await page.content()
-        ).lower()
-
-        keywords = [
-
-            "captcha",
-
-            "unusual traffic",
-
-            "not a robot",
-
-            "/sorry/"
-        ]
-
-        for keyword in keywords:
-
-            if keyword in content:
-
-                logger.warning(
-                    f"⚠️ GOOGLE BLOCK DETECTED: {keyword}"
-                )
-
-                return True
-
-        return False
-
-    except Exception:
-
-        return False
-
-# ==========================================================
 # HUMAN SCROLL
 # ==========================================================
 
 async def human_scroll(page):
 
     amount = random.randint(
-        600,
-        1400
+        1000,
+        3000
     )
 
     await page.mouse.wheel(
@@ -237,10 +186,6 @@ async def save_debug_files(
             full_page=True
         )
 
-        logger.info(
-            f"📸 SCREENSHOT SAVED: {screenshot_path}"
-        )
-
         html = await page.content()
 
         with open(
@@ -255,15 +200,15 @@ async def save_debug_files(
             f.write(html)
 
         logger.info(
-            f"📄 HTML SAVED: {html_path}"
+            f"📸 DEBUG FILES SAVED => {name}"
         )
 
         logger.info(
-            f"🌐 PAGE TITLE: {await page.title()}"
+            f"🌐 PAGE TITLE => {await page.title()}"
         )
 
         logger.info(
-            f"🌐 CURRENT URL: {page.url}"
+            f"🌐 CURRENT URL => {page.url}"
         )
 
     except Exception as e:
@@ -273,255 +218,210 @@ async def save_debug_files(
         )
 
 # ==========================================================
-# WARMUP SESSION
+# DETECT GOOGLE BLOCK
 # ==========================================================
 
-async def warmup_session(page):
+async def detect_google_block(page):
 
-    logger.info(
-        "🔥 WARMING SESSION"
-    )
+    try:
 
-    await page.goto(
+        content = (
+            await page.content()
+        ).lower()
 
-        "https://www.google.com",
+        keywords = [
 
-        wait_until="domcontentloaded",
+            "captcha",
 
-        timeout=120000
-    )
+            "unusual traffic",
 
-    await asyncio.sleep(8)
+            "not a robot",
 
-    await human_scroll(page)
+            "/sorry/",
 
-    await asyncio.sleep(4)
+            "automated queries",
+
+            "detected unusual traffic"
+        ]
+
+        for keyword in keywords:
+
+            if keyword in content:
+
+                logger.warning(
+                    f"⚠️ GOOGLE BLOCK DETECTED => {keyword}"
+                )
+
+                return True
+
+        return False
+
+    except Exception:
+
+        return False
 
 # ==========================================================
-# OPEN REVIEW PANEL
+# HANDLE CONSENT
 # ==========================================================
-# OPEN REVIEW PANEL
+
+async def handle_google_consent(page):
+
+    try:
+
+        buttons = await page.query_selector_all(
+            "button"
+        )
+
+        for button in buttons:
+
+            try:
+
+                text = clean_text(
+                    await button.inner_text()
+                ).lower()
+
+                if any(
+                    x in text
+                    for x in [
+                        "accept",
+                        "i agree",
+                        "accept all"
+                    ]
+                ):
+
+                    await button.click()
+
+                    logger.info(
+                        "✅ GOOGLE CONSENT ACCEPTED"
+                    )
+
+                    await asyncio.sleep(5)
+
+                    return
+
+            except Exception:
+                continue
+
+    except Exception:
+        pass
+
+# ==========================================================
+# OPEN REVIEWS PANEL
 # ==========================================================
 
 async def open_reviews_panel(page):
 
     logger.info(
-        "📦 TEXT-BASED REVIEW DETECTION STARTED"
+        "📦 OPENING REVIEW PANEL"
     )
 
     await asyncio.sleep(10)
 
-    try:
+    selectors = [
 
-        # ==============================================
-        # FORCE GOOGLE MAPS FULL RENDER
-        # ==============================================
+        'button[jsaction*="pane.reviewChart.moreReviews"]',
 
-        for _ in range(4):
+        'button[aria-label*="reviews"]',
 
-            await page.mouse.wheel(0, 1800)
+        'button[aria-label*="Reviews"]',
 
-            await asyncio.sleep(3)
+        'div[role="button"][aria-label*="reviews"]',
 
-        # ==============================================
-        # GET ALL CLICKABLE ELEMENTS
-        # ==============================================
+        'div[role="button"][aria-label*="Reviews"]'
+    ]
 
-        elements = await page.query_selector_all(
+    for selector in selectors:
 
-            "button, div, span, a, [role='button'], [role='tab']"
-        )
+        try:
 
-        logger.info(
-            f"📦 TOTAL CLICKABLE ELEMENTS: {len(elements)}"
-        )
+            elements = await page.query_selector_all(
+                selector
+            )
 
-        review_candidates = []
+            logger.info(
+                f"📦 SELECTOR [{selector}] => {len(elements)}"
+            )
 
-        # ==============================================
-        # FIND REVIEW RELATED TEXT
-        # ==============================================
+            for element in elements:
 
-        for idx, element in enumerate(elements):
+                try:
 
-            try:
+                    await element.scroll_into_view_if_needed()
 
-                text = safe_string(
+                    await asyncio.sleep(2)
 
-                    await element.inner_text()
-                ).lower()
-
-                aria = safe_string(
-
-                    await element.get_attribute(
-                        "aria-label"
+                    await element.click(
+                        timeout=15000
                     )
-                ).lower()
 
-                title = safe_string(
-
-                    await element.get_attribute(
-                        "title"
+                    logger.info(
+                        "✅ REVIEW BUTTON CLICKED"
                     )
-                ).lower()
 
-                combined = (
-                    f"{text} {aria} {title}"
-                ).lower()
+                    await asyncio.sleep(12)
 
-                logger.info(
-                    f"🔍 ELEMENT [{idx}] => {combined[:200]}"
-                )
-
-                keywords = [
-
-                    "review",
-                    "reviews",
-                    "rating",
-                    "ratings",
-                    "google reviews"
-                ]
-
-                if any(
-
-                    keyword in combined
-
-                    for keyword in keywords
-                ):
-
-                    review_candidates.append({
-
-                        "element": element,
-
-                        "text": combined
-                    })
-
-            except Exception:
-                continue
-
-        logger.info(
-            f"📦 REVIEW CANDIDATES FOUND: {len(review_candidates)}"
-        )
-
-        # ==============================================
-        # CLICK REVIEW CANDIDATES
-        # ==============================================
-
-        for idx, candidate in enumerate(review_candidates):
-
-            try:
-
-                logger.info(
-                    f"🚀 TRYING REVIEW CANDIDATE [{idx}]"
-                )
-
-                element = candidate["element"]
-
-                await element.scroll_into_view_if_needed()
-
-                await asyncio.sleep(2)
-
-                clicked = False
-
-                click_methods = [
-
-                    lambda: element.click(
-                        timeout=10000
-                    ),
-
-                    lambda: page.evaluate(
-                        "(el) => el.click()",
-                        element
+                    review_feed = await page.query_selector(
+                        'div[role="feed"]'
                     )
-                ]
 
-                for method in click_methods:
-
-                    try:
-
-                        await method()
-
-                        clicked = True
+                    if review_feed:
 
                         logger.info(
-                            "✅ REVIEW BUTTON CLICKED"
+                            "✅ REVIEW FEED FOUND"
                         )
 
-                        break
+                        return True
 
-                    except Exception:
-                        continue
-
-                if not clicked:
+                except Exception:
                     continue
 
-                # ======================================
-                # WAIT FOR GOOGLE LAZY RENDER
-                # ======================================
+        except Exception:
+            continue
 
-                await asyncio.sleep(20)
+    logger.warning(
+        "⚠️ REVIEW PANEL NOT OPENED"
+    )
 
-                for _ in range(3):
+    return False
 
-                    await page.mouse.wheel(
-                        0,
-                        2000
-                    )
+# ==========================================================
+# EXPAND REVIEWS
+# ==========================================================
 
-                    await asyncio.sleep(4)
+async def expand_reviews(page):
 
-                # ======================================
-                # VERIFY REVIEW FEED
-                # ======================================
+    try:
 
-                review_selectors = [
+        buttons = await page.query_selector_all(
+            'button'
+        )
 
-                    'div[data-review-id]',
+        for button in buttons:
 
-                    'div.jftiEf',
+            try:
 
-                    'div[role="article"]',
+                text = clean_text(
+                    await button.inner_text()
+                ).lower()
 
-                    'div[role="feed"]',
+                if any(
+                    x in text
+                    for x in [
+                        "more",
+                        "full review"
+                    ]
+                ):
 
-                    'div[class*="review"]'
-                ]
+                    await button.click()
 
-                for selector in review_selectors:
-
-                    try:
-
-                        reviews = await page.query_selector_all(
-                            selector
-                        )
-
-                        if len(reviews) > 0:
-
-                            logger.info(
-                                f"✅ REVIEW FEED VERIFIED => {selector}"
-                            )
-
-                            return True
-
-                    except Exception:
-                        continue
+                    await asyncio.sleep(1)
 
             except Exception:
                 continue
 
-        logger.warning(
-            "⚠️ REVIEWS BUTTON NOT FOUND"
-        )
+    except Exception:
+        pass
 
-        return False
-
-    except Exception as e:
-
-        logger.exception(
-            f"❌ REVIEW PANEL ERROR: {e}"
-        )
-
-        return False
 # ==========================================================
 # EXTRACT REVIEWS
 # ==========================================================
@@ -534,7 +434,7 @@ async def extract_reviews(
 ):
 
     logger.info(
-        "📦 STARTING REVIEW EXTRACTION"
+        "📦 STARTING EXTRACTION"
     )
 
     reviews = []
@@ -545,10 +445,22 @@ async def extract_reviews(
 
     previous_count = 0
 
+    review_feed = await page.query_selector(
+        'div[role="feed"]'
+    )
+
+    if not review_feed:
+
+        logger.warning(
+            "⚠️ REVIEW FEED NOT FOUND"
+        )
+
+        return []
+
     for scroll in range(MAX_SCROLLS):
 
         logger.info(
-            f"📦 SCROLL #{scroll}"
+            f"📦 SCROLL => {scroll}"
         )
 
         try:
@@ -556,13 +468,16 @@ async def extract_reviews(
             cards = await page.query_selector_all(
 
                 'div[data-review-id], '
+
                 'div.jftiEf, '
-                'div[role="article"], '
-                'div[class*="review"]'
+
+                'div.MyEned, '
+
+                'div[role="article"]'
             )
 
             logger.info(
-                f"📦 REVIEW CARDS FOUND: {len(cards)}"
+                f"📦 CARDS FOUND => {len(cards)}"
             )
 
             for card in cards:
@@ -570,8 +485,14 @@ async def extract_reviews(
                 try:
 
                     author = ""
+
                     review_text = ""
+
                     rating = 5
+
+                    # ======================================
+                    # AUTHOR
+                    # ======================================
 
                     author_selectors = [
 
@@ -603,6 +524,10 @@ async def extract_reviews(
                         except Exception:
                             pass
 
+                    # ======================================
+                    # REVIEW TEXT
+                    # ======================================
+
                     text_selectors = [
 
                         '.wiI7pd',
@@ -611,9 +536,7 @@ async def extract_reviews(
 
                         'span[jscontroller]',
 
-                        'span[class*="wiI7pd"]',
-
-                        'div[class*="review"] span'
+                        'span[class*="wiI7pd"]'
                     ]
 
                     for selector in text_selectors:
@@ -639,6 +562,10 @@ async def extract_reviews(
 
                     if not review_text:
                         continue
+
+                    # ======================================
+                    # RATING
+                    # ======================================
 
                     rating_selectors = [
 
@@ -701,7 +628,7 @@ async def extract_reviews(
                     continue
 
             logger.info(
-                f"✅ TOTAL REVIEWS: {len(reviews)}"
+                f"✅ TOTAL REVIEWS => {len(reviews)}"
             )
 
             if len(reviews) >= target_limit:
@@ -714,7 +641,29 @@ async def extract_reviews(
 
             await expand_reviews(page)
 
-            await human_scroll(page)
+            await page.evaluate("""
+
+                () => {
+
+                    const feed = document.querySelector(
+                        'div[role="feed"]'
+                    );
+
+                    if (feed) {
+
+                        feed.scrollBy(
+                            0,
+                            3000
+                        );
+                    }
+                }
+
+            """)
+
+            await asyncio.sleep(
+
+                random.uniform(4, 7)
+            )
 
             current_count = len(reviews)
 
@@ -739,7 +688,7 @@ async def extract_reviews(
         except Exception as e:
 
             logger.exception(
-                f"❌ EXTRACTION FAILED: {e}"
+                f"❌ EXTRACTION ERROR => {e}"
             )
 
     gc.collect()
@@ -760,7 +709,6 @@ async def extract_reviews(
 )
 async def scrape_google_reviews(
 
-    
     place_id: str,
 
     target_limit: int = 500
@@ -769,6 +717,10 @@ async def scrape_google_reviews(
     browser = None
 
     try:
+
+        logger.info(
+            "🚀 STARTING GOOGLE SCRAPER"
+        )
 
         proxy = {
 
@@ -781,10 +733,6 @@ async def scrape_google_reviews(
             "password":
                 PROXY_PASSWORD
         }
-
-        logger.info(
-            "🚀 STARTING CAMOUFOX"
-        )
 
         browser = await AsyncCamoufox(
 
@@ -820,6 +768,22 @@ async def scrape_google_reviews(
         page = await context.new_page()
 
         # ==================================================
+        # ANTI-DETECTION
+        # ==================================================
+
+        await page.add_init_script("""
+
+            Object.defineProperty(
+                navigator,
+                'webdriver',
+                {
+                    get: () => undefined
+                }
+            );
+
+        """)
+
+        # ==================================================
         # VERIFY PROXY
         # ==================================================
 
@@ -836,27 +800,39 @@ async def scrape_google_reviews(
             timeout=120000
         )
 
-        await save_debug_files(
-            page,
-            "proxy_check"
+        logger.info(
+            f"🌐 ACTIVE PROXY IP => {await page.text_content('body')}"
         )
 
         # ==================================================
-        # WARMUP SESSION
+        # GOOGLE WARMUP
         # ==================================================
 
-        await warmup_session(page)
+        await page.goto(
+
+            "https://www.google.com",
+
+            wait_until="domcontentloaded",
+
+            timeout=120000
+        )
+
+        await asyncio.sleep(8)
+
+        await handle_google_consent(page)
+
+        await human_scroll(page)
 
         # ==================================================
-        # OPEN GOOGLE MAPS PLACE
+        # OPEN GOOGLE MAPS
         # ==================================================
 
-       maps_url = (
-    f"https://search.google.com/local/reviews?placeid={place_id}"
-)
+        maps_url = (
+            f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+        )
 
         logger.info(
-            f"🌐 Opening URL: {maps_url}"
+            f"🌐 OPENING MAPS => {maps_url}"
         )
 
         await page.goto(
@@ -870,10 +846,16 @@ async def scrape_google_reviews(
 
         await asyncio.sleep(15)
 
+        await handle_google_consent(page)
+
         await save_debug_files(
             page,
             "maps_loaded"
         )
+
+        # ==================================================
+        # DETECT BLOCK
+        # ==================================================
 
         blocked = await detect_google_block(
             page
@@ -882,7 +864,7 @@ async def scrape_google_reviews(
         if blocked:
 
             logger.warning(
-                "⚠️ GOOGLE BLOCK DETECTED"
+                "⚠️ GOOGLE BLOCKED REQUEST"
             )
 
             await save_debug_files(
@@ -892,31 +874,29 @@ async def scrape_google_reviews(
 
             return []
 
-       # ==================================================
-# DIRECT GOOGLE REVIEWS PAGE LOADED
-# ==================================================
+        # ==================================================
+        # OPEN REVIEWS
+        # ==================================================
 
-logger.info(
-    "✅ DIRECT GOOGLE REVIEWS PAGE LOADED"
-)
+        opened = await open_reviews_panel(
+            page
+        )
 
-await asyncio.sleep(10)
+        if not opened:
 
-# ==================================================
-# FORCE REVIEW RENDERING
-# ==================================================
+            logger.warning(
+                "⚠️ REVIEWS PANEL FAILED"
+            )
 
-for _ in range(6):
+            await save_debug_files(
+                page,
+                "review_panel_failed"
+            )
 
-    await page.mouse.wheel(
-        0,
-        2500
-    )
-
-    await asyncio.sleep(4)
+            return []
 
         # ==================================================
-        # EXTRACT REVIEWS
+        # EXTRACTION
         # ==================================================
 
         reviews = await extract_reviews(
@@ -925,57 +905,36 @@ for _ in range(6):
 
             target_limit=target_limit
         )
-logger.info(
-    f"📦 PAGE CONTENT LENGTH: {len(await page.content())}"
-)
 
-content = (await page.content()).lower()
-
-keywords = [
-
-    "review",
-
-    "reviews",
-
-    "rating",
-
-    "ratings",
-
-    "jftief",
-
-    "data-review-id"
-]
-
-for keyword in keywords:
-
-    logger.info(
-        f"🔍 KEYWORD [{keyword}] EXISTS: {keyword in content}"
-    )
-
-
-
-
-
-if len(reviews) == 0:
-
-    logger.warning(
-        "⚠️ NO REVIEWS SCRAPED"
-    )
-
-    await save_debug_files(
-        page,
-        "no_reviews_scraped"
-    )
-        
+        # ==================================================
+        # DEBUGGING
+        # ==================================================
 
         logger.info(
-            f"✅ SCRAPED REVIEWS: {len(reviews)}"
+            f"📦 PAGE LENGTH => {len(await page.content())}"
         )
 
-        await save_debug_files(
-            page,
-            "reviews_extracted"
-        )
+        if len(reviews) == 0:
+
+            logger.warning(
+                "⚠️ NO REVIEWS SCRAPED"
+            )
+
+            await save_debug_files(
+                page,
+                "no_reviews_scraped"
+            )
+
+        else:
+
+            logger.info(
+                f"✅ SCRAPED REVIEWS => {len(reviews)}"
+            )
+
+            await save_debug_files(
+                page,
+                "reviews_success"
+            )
 
         return reviews
 
@@ -990,7 +949,7 @@ if len(reviews) == 0:
     except Exception as e:
 
         logger.exception(
-            f"❌ SCRAPER FAILED: {e}"
+            f"❌ SCRAPER FAILED => {e}"
         )
 
         logger.error(
@@ -1009,3 +968,5 @@ if len(reviews) == 0:
 
         except Exception:
             pass
+
+        gc.collect()
