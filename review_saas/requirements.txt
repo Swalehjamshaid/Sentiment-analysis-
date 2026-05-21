@@ -1,9 +1,9 @@
 # ==========================================================
 # TRUSTLYTICS AI SAAS - STABLE PRODUCTION REQUIREMENTS
-# FASTAPI + AI CHATBOT + PDF + SELENIUMBASE SCRAPER
+# MAY 2026 - CLEAN & RAILWAY STABLE VERSION
+# FASTAPI + AI + PDF + SCRAPING + PLAYWRIGHT
 # PYTHON 3.11
 # ==========================================================
-
 
 # ==========================================================
 # CORE FRAMEWORK
@@ -64,10 +64,13 @@ greenlet==3.1.1
 # ==========================================================
 
 requests==2.32.3
+httpx>=0.28.1
 
 aiohttp==3.10.5
 
 websockets==12.0
+
+brotli>=1.1.0
 
 # ==========================================================
 # HTML / TEMPLATES
@@ -80,11 +83,11 @@ markupsafe==2.1.5
 # PERFORMANCE
 # ==========================================================
 
-
-
 uvloop==0.19.0
 httptools==0.6.1
 watchfiles==0.24.0
+
+orjson>=3.10.18
 
 # ==========================================================
 # AI MODELS / APIs
@@ -103,6 +106,7 @@ google-generativeai>=0.7.2,<0.9.0
 langchain>=0.3.7,<0.4.0
 
 langchain-community>=0.3.7,<0.4.0
+
 langchain-openai>=0.2.8,<0.3.0
 
 langgraph==0.2.39
@@ -115,12 +119,6 @@ tiktoken==0.8.0
 
 numpy==1.26.4
 pandas==2.2.2
-
-scikit-learn==1.5.2
-
-textblob==0.18.0.post0
-
-vaderSentiment==3.3.2
 
 rapidfuzz==3.9.7
 
@@ -144,12 +142,20 @@ pymupdf==1.24.10
 
 # ==========================================================
 # SCRAPING / GOOGLE REVIEWS
-# PROFESSIONAL SELENIUMBASE STACK
+# ENTERPRISE MULTI-LAYER STACK
 # ==========================================================
 
 seleniumbase>=4.34.9
+
 selenium>=4.21.0
+
 undetected-chromedriver>=3.5.5
+
+playwright>=1.53.0
+
+camoufox[geoip]>=0.4.11
+
+playwright-stealth>=1.0.6
 
 beautifulsoup4==4.12.3
 
@@ -160,16 +166,8 @@ fake-useragent==1.5.1
 tenacity==9.0.0
 
 PyYAML>=6.0
-playwright>=1.53.0
-camoufox>=0.4.11
-playwright-stealth>=1.0.6
-requests>=2.32.3
-httpx>=0.28.1
-brotli>=1.1.0
+
 aiofiles>=24.1.0
-orjson>=3.10.18
-
-
 
 # ==========================================================
 # CACHE / REDIS
@@ -185,7 +183,7 @@ aiocache==0.12.3
 # VISUALIZATION
 # ==========================================================
 
-matplotlib-base
+matplotlib==3.9.2
 
 # ==========================================================
 # UTILITIES
@@ -208,5 +206,3 @@ anyio==4.6.0
 sniffio==1.3.1
 
 h11==0.14.0
-camoufox[geoip]==0.4.11
-
