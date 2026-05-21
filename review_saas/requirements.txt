@@ -192,3 +192,7 @@ idna==3.10
 # huggingface-hub==0.25.2
 # langgraph==0.2.39
 # langsmith==0.1.147
+
+scikit-learn==1.5.2
+vaderSentiment==3.3.2
+numpy==1.26.4
