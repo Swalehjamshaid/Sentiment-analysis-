@@ -1,12 +1,18 @@
 # ==========================================================
 # FILE: app/services/scraper.py
-# GOOGLE REVIEWS SCRAPER - MAY 2026 PRODUCTION EDITION
-# PLAYWRIGHT + CAMOUFOX + RESIDENTIAL PROXY
+# GOOGLE REVIEWS SCRAPER - MAY 2026 PRODUCTION VERSION
+# BASED ON:
+# - CAMOUFOX
+# - PLAYWRIGHT
+# - SESSION COOKIES
+# - DYNAMIC REVIEW FEED
+# - HUMANIZED SCROLLING
 # ==========================================================
 
 import os
 import re
 import gc
+import csv
 import json
 import time
 import random
@@ -45,7 +51,7 @@ logger = logging.getLogger(
 # CONFIG
 # ==========================================================
 
-HEADLESS = True
+HEADLESS = False
 
 MAX_SCROLLS = 120
 
@@ -56,6 +62,8 @@ SCROLL_PAUSE_MIN = 2
 SCROLL_PAUSE_MAX = 5
 
 DEBUG_DIR = "/tmp"
+
+COOKIES_FILE = "cookies.json"
 
 # ==========================================================
 # PROXY CONFIG
@@ -139,7 +147,7 @@ def generate_hash(author, text):
     ).hexdigest()
 
 # ==========================================================
-# DEBUGGING
+# SAVE DEBUG FILES
 # ==========================================================
 
 async def save_debug_files(page, name="debug"):
@@ -184,7 +192,7 @@ async def save_debug_files(page, name="debug"):
         )
 
 # ==========================================================
-# DETECT GOOGLE BLOCK
+# GOOGLE BLOCK DETECTION
 # ==========================================================
 
 async def detect_google_block(page):
@@ -195,7 +203,7 @@ async def detect_google_block(page):
             await page.content()
         ).lower()
 
-        block_keywords = [
+        keywords = [
 
             "captcha",
 
@@ -210,7 +218,7 @@ async def detect_google_block(page):
             "detected unusual traffic"
         ]
 
-        for keyword in block_keywords:
+        for keyword in keywords:
 
             if keyword in content:
 
@@ -227,7 +235,58 @@ async def detect_google_block(page):
         return False
 
 # ==========================================================
-# HUMANIZATION
+# LOAD COOKIES
+# ==========================================================
+
+async def load_cookies(context):
+
+    try:
+
+        if not os.path.exists(COOKIES_FILE):
+
+            logger.warning(
+                "⚠️ cookies.json NOT FOUND"
+            )
+
+            return
+
+        with open(
+            COOKIES_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            cookies = json.load(f)
+
+        for cookie in cookies:
+
+            if cookie.get("sameSite") not in [
+
+                "Strict",
+
+                "Lax",
+
+                "None"
+            ]:
+
+                cookie["sameSite"] = "None"
+
+        await context.add_cookies(
+            cookies
+        )
+
+        logger.info(
+            f"🍪 COOKIES LOADED => {len(cookies)}"
+        )
+
+    except Exception as e:
+
+        logger.exception(
+            f"❌ COOKIE LOAD FAILED => {e}"
+        )
+
+# ==========================================================
+# HUMAN SCROLL
 # ==========================================================
 
 async def human_scroll(page):
@@ -235,7 +294,7 @@ async def human_scroll(page):
     try:
 
         amount = random.randint(
-            1200,
+            1000,
             3000
         )
 
@@ -258,7 +317,7 @@ async def human_scroll(page):
         pass
 
 # ==========================================================
-# HANDLE CONSENT
+# HANDLE GOOGLE CONSENT
 # ==========================================================
 
 async def handle_google_consent(page):
@@ -306,7 +365,88 @@ async def handle_google_consent(page):
         pass
 
 # ==========================================================
-# EXPAND REVIEW TEXT
+# OPEN REVIEW PANEL
+# ==========================================================
+
+async def open_reviews_panel(page):
+
+    logger.info(
+        "📦 OPENING REVIEW PANEL"
+    )
+
+    await asyncio.sleep(10)
+
+    selectors = [
+
+        'button[jsaction*="pane.reviewChart.moreReviews"]',
+
+        'button[aria-label*="reviews"]',
+
+        'button[aria-label*="Reviews"]',
+
+        'div[role="button"][aria-label*="reviews"]',
+
+        'div[role="button"][aria-label*="Reviews"]',
+
+        'xpath=//span[@class="z3HNkc"]/following-sibling::span//a'
+    ]
+
+    for selector in selectors:
+
+        try:
+
+            elements = await page.query_selector_all(
+                selector
+            )
+
+            logger.info(
+                f"📦 SELECTOR => {selector} => {len(elements)}"
+            )
+
+            for element in elements:
+
+                try:
+
+                    await element.scroll_into_view_if_needed()
+
+                    await asyncio.sleep(2)
+
+                    await element.click(
+                        timeout=15000
+                    )
+
+                    logger.info(
+                        "✅ REVIEW BUTTON CLICKED"
+                    )
+
+                    await asyncio.sleep(12)
+
+                    review_feed = await page.query_selector(
+                        'div[role="feed"], div.RVCQse'
+                    )
+
+                    if review_feed:
+
+                        logger.info(
+                            "✅ REVIEW FEED FOUND"
+                        )
+
+                        return True
+
+                except Exception:
+                    continue
+
+        except Exception:
+            continue
+
+    logger.warning(
+        "⚠️ REVIEW PANEL NOT OPENED"
+    )
+
+    return False
+
+# ==========================================================
+# EXPAND REVIEWS
 # ==========================================================
 
 async def expand_reviews(page):
@@ -346,83 +486,29 @@ async def expand_reviews(page):
         pass
 
 # ==========================================================
-# OPEN REVIEW PANEL
+# SCROLL REVIEW FEED
 # ==========================================================
 
-async def open_reviews_panel(page):
+async def scroll_review_feed(page):
 
-    logger.info(
-        "📦 OPENING REVIEW PANEL"
-    )
+    await page.evaluate("""
 
-    await asyncio.sleep(10)
+        () => {
 
-    selectors = [
+            const feed = document.querySelector(
+                'div[role="feed"], div.RVCQse'
+            );
 
-        'button[jsaction*="pane.reviewChart.moreReviews"]',
+            if (feed) {
 
-        'button[aria-label*="reviews"]',
+                feed.scrollBy(
+                    0,
+                    4000
+                );
+            }
+        }
 
-        'button[aria-label*="Reviews"]',
-
-        'div[role="button"][aria-label*="reviews"]',
-
-        'div[role="button"][aria-label*="Reviews"]'
-    ]
-
-    for selector in selectors:
-
-        try:
-
-            elements = await page.query_selector_all(
-                selector
-            )
-
-            logger.info(
-                f"📦 SELECTOR => {selector} => {len(elements)}"
-            )
-
-            for element in elements:
-
-                try:
-
-                    await element.scroll_into_view_if_needed()
-
-                    await asyncio.sleep(2)
-
-                    await element.click(
-                        timeout=15000
-                    )
-
-                    logger.info(
-                        "✅ REVIEW BUTTON CLICKED"
-                    )
-
-                    await asyncio.sleep(12)
-
-                    review_feed = await page.query_selector(
-                        'div[role="feed"]'
-                    )
-
-                    if review_feed:
-
-                        logger.info(
-                            "✅ REVIEW FEED FOUND"
-                        )
-
-                        return True
-
-                except Exception:
-                    continue
-
-        except Exception:
-            continue
-
-    logger.warning(
-        "⚠️ REVIEW PANEL NOT OPENED"
-    )
-
-    return False
+    """)
 
 # ==========================================================
 # EXTRACT REVIEWS
@@ -447,18 +533,6 @@ async def extract_reviews(
 
     previous_count = 0
 
-    review_feed = await page.query_selector(
-        'div[role="feed"]'
-    )
-
-    if not review_feed:
-
-        logger.warning(
-            "⚠️ REVIEW FEED NOT FOUND"
-        )
-
-        return []
-
     for scroll in range(MAX_SCROLLS):
 
         logger.info(
@@ -474,6 +548,8 @@ async def extract_reviews(
                 'div.jftiEf, '
 
                 'div.MyEned, '
+
+                'div[jsname="ShBeI"], '
 
                 'div[role="article"]'
             )
@@ -492,9 +568,11 @@ async def extract_reviews(
 
                     rating = 5
 
-                    # ==================================
+                    review_date = ""
+
+                    # ======================================
                     # AUTHOR
-                    # ==================================
+                    # ======================================
 
                     author_selectors = [
 
@@ -502,7 +580,7 @@ async def extract_reviews(
 
                         '.TSUbDb',
 
-                        'span[class*="d4r55"]'
+                        '.Vpc5Fe'
                     ]
 
                     for selector in author_selectors:
@@ -526,9 +604,9 @@ async def extract_reviews(
                         except Exception:
                             pass
 
-                    # ==================================
+                    # ======================================
                     # REVIEW TEXT
-                    # ==================================
+                    # ======================================
 
                     text_selectors = [
 
@@ -536,9 +614,9 @@ async def extract_reviews(
 
                         '.MyEned',
 
-                        'span[jscontroller]',
+                        '.OA1nbd',
 
-                        'span[class*="wiI7pd"]'
+                        'span[jscontroller]'
                     ]
 
                     for selector in text_selectors:
@@ -565,15 +643,17 @@ async def extract_reviews(
                     if not review_text:
                         continue
 
-                    # ==================================
+                    # ======================================
                     # RATING
-                    # ==================================
+                    # ======================================
 
                     rating_selectors = [
 
                         'span[aria-label*="star"]',
 
-                        'span.kvMYJc'
+                        '.kvMYJc',
+
+                        '.dHX2k'
                     ]
 
                     for selector in rating_selectors:
@@ -595,6 +675,38 @@ async def extract_reviews(
                                 )
 
                                 break
+
+                        except Exception:
+                            pass
+
+                    # ======================================
+                    # DATE
+                    # ======================================
+
+                    date_selectors = [
+
+                        '.rsqaWe',
+
+                        '.y3Ibjb'
+                    ]
+
+                    for selector in date_selectors:
+
+                        try:
+
+                            elem = await card.query_selector(
+                                selector
+                            )
+
+                            if elem:
+
+                                review_date = clean_text(
+
+                                    await elem.inner_text()
+                                )
+
+                                if review_date:
+                                    break
 
                         except Exception:
                             pass
@@ -622,6 +734,9 @@ async def extract_reviews(
                         "rating":
                             rating,
 
+                        "review_date":
+                            review_date,
+
                         "text":
                             review_text
                     })
@@ -643,28 +758,7 @@ async def extract_reviews(
 
             await expand_reviews(page)
 
-            # ==========================================
-            # SCROLL REVIEW FEED
-            # ==========================================
-
-            await page.evaluate("""
-
-                () => {
-
-                    const feed = document.querySelector(
-                        'div[role="feed"]'
-                    );
-
-                    if (feed) {
-
-                        feed.scrollBy(
-                            0,
-                            3500
-                        );
-                    }
-                }
-
-            """)
+            await scroll_review_feed(page)
 
             await asyncio.sleep(
 
@@ -771,6 +865,12 @@ async def scrape_google_reviews(
             }
         )
 
+        # ==================================================
+        # LOAD COOKIES
+        # ==================================================
+
+        await load_cookies(context)
+
         page = await context.new_page()
 
         # ==================================================
@@ -834,7 +934,7 @@ async def scrape_google_reviews(
         await human_scroll(page)
 
         # ==================================================
-        # OPEN GOOGLE MAPS
+        # OPEN MAPS
         # ==================================================
 
         maps_url = (
@@ -885,7 +985,7 @@ async def scrape_google_reviews(
             return []
 
         # ==================================================
-        # OPEN REVIEW PANEL
+        # OPEN REVIEWS
         # ==================================================
 
         opened = await open_reviews_panel(
@@ -919,10 +1019,6 @@ async def scrape_google_reviews(
         logger.info(
             f"📦 PAGE LENGTH => {len(await page.content())}"
         )
-
-        # ==================================================
-        # DEBUG OUTPUT
-        # ==================================================
 
         if len(reviews) == 0:
 
