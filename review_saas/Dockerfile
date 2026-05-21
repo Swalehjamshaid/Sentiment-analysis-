@@ -1,6 +1,6 @@
 # ==========================================================
 # TRUSTLYTICS AI — RAILWAY PRODUCTION DOCKERFILE
-# MAY 2026 STABLE ENTERPRISE VERSION
+# MAY 2026 OPTIMIZED ENTERPRISE VERSION
 #
 # SUPPORTS:
 # ✅ FASTAPI
@@ -13,17 +13,22 @@
 # ✅ RAG SYSTEM
 # ✅ PDF REPORTING
 # ✅ RAILWAY DEPLOYMENT
+# ✅ MEMORY OPTIMIZED
+# ✅ LIGHTWEIGHT BUILD
 # ==========================================================
 
 FROM python:3.11-slim
 
 # ==========================================================
-# PYTHON SETTINGS
+# ENVIRONMENT VARIABLES
 # ==========================================================
 
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    DEBIAN_FRONTEND=noninteractive
 
 # ==========================================================
 # WORK DIRECTORY
@@ -35,12 +40,12 @@ WORKDIR /app
 # INSTALL SYSTEM DEPENDENCIES
 # ==========================================================
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
     g++ \
-    wget \
     curl \
+    wget \
     unzip \
     git \
     xvfb \
@@ -48,6 +53,7 @@ RUN apt-get update && apt-get install -y \
     fonts-liberation \
     xdg-utils \
     chromium \
+    chromium-driver \
     libglib2.0-0 \
     libnss3 \
     libnspr4 \
@@ -80,58 +86,62 @@ RUN apt-get update && apt-get install -y \
     libjpeg-dev \
     libffi-dev \
     libssl-dev \
+    libpq-dev \
+    pkg-config \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # ==========================================================
-# COPY REQUIREMENTS
+# UPGRADE PIP TO LATEST STABLE
+# ==========================================================
+
+RUN python -m pip install --upgrade \
+    pip \
+    setuptools \
+    wheel
+
+# ==========================================================
+# COPY REQUIREMENTS FIRST
 # ==========================================================
 
 COPY requirements.txt .
 
 # ==========================================================
-# UPGRADE PIP
-# ==========================================================
-
-RUN pip install --upgrade pip setuptools wheel
-
-# ==========================================================
-# INSTALL PYTHON REQUIREMENTS
+# INSTALL PYTHON DEPENDENCIES
 # ==========================================================
 
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ==========================================================
-# INSTALL PLAYWRIGHT BROWSER
+# INSTALL PLAYWRIGHT BROWSERS
 # ==========================================================
 
-RUN playwright install chromium
+RUN playwright install --with-deps chromium
 
 # ==========================================================
-# INSTALL CAMOUFOX
+# INSTALL CAMOUFOX BROWSER
 # ==========================================================
 
-RUN python -m camoufox fetch
+RUN python -m camoufox fetch || true
 
 # ==========================================================
-# CREATE PLAYWRIGHT CACHE
+# CREATE REQUIRED DIRECTORIES
 # ==========================================================
 
-RUN mkdir -p /ms-playwright
+RUN mkdir -p \
+    /ms-playwright \
+    /tmp \
+    /app/logs \
+    /app/uploads
 
 # ==========================================================
-# COPY PROJECT FILES
+# COPY APPLICATION FILES
 # ==========================================================
 
 COPY . .
 
 # ==========================================================
-# CREATE TMP DIRECTORY
-# ==========================================================
-
-RUN mkdir -p /tmp
-
-# ==========================================================
-# EXPOSE PORT
+# PORT
 # ==========================================================
 
 EXPOSE 8080
@@ -140,10 +150,24 @@ EXPOSE 8080
 # HEALTHCHECK
 # ==========================================================
 
-HEALTHCHECK CMD curl --fail http://localhost:8080 || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+CMD curl -f http://localhost:8080/ || exit 1
 
 # ==========================================================
-# START FASTAPI (PRODUCTION)
+# GUNICORN SETTINGS
 # ==========================================================
 
-CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080"]
+ENV GUNICORN_CMD_ARGS="\
+--workers=2 \
+--worker-class=uvicorn.workers.UvicornWorker \
+--timeout=300 \
+--keep-alive=5 \
+--max-requests=1000 \
+--max-requests-jitter=50 \
+--bind=0.0.0.0:8080"
+
+# ==========================================================
+# START APPLICATION
+# ==========================================================
+
+CMD ["gunicorn", "app.main:app"]
