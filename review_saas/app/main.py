@@ -1,8 +1,8 @@
 # ==========================================================
 # FILE: app/main.py
-# TRUSTLYTICS AI — FINAL ENTERPRISE MAIN.PY
-# RAILWAY + FASTAPI + AI + CHATBOT + AUTH + REPORTS
-# MAY 2026 STABLE PRODUCTION VERSION
+# TRUSTLYTICS AI — FINAL FULLY INTEGRATED MAIN.PY
+# LOGIN + DASHBOARD + ROUTES + TEMPLATES
+# MAY 2026 ENTERPRISE VERSION
 # ==========================================================
 
 import os
@@ -20,16 +20,21 @@ from fastapi import (
 
 from fastapi.responses import (
     JSONResponse,
-    HTMLResponse
+    HTMLResponse,
+    RedirectResponse
 )
 
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import (
+    CORSMiddleware
+)
 
 from starlette.middleware.sessions import (
     SessionMiddleware
 )
 
-from starlette.staticfiles import StaticFiles
+from starlette.staticfiles import (
+    StaticFiles
+)
 
 from starlette.templating import (
     Jinja2Templates
@@ -400,7 +405,9 @@ if os.path.exists(STATIC_DIR):
 
         "/static",
 
-        StaticFiles(directory=STATIC_DIR),
+        StaticFiles(
+            directory=STATIC_DIR
+        ),
 
         name="static"
     )
@@ -416,98 +423,159 @@ else:
     )
 
 # ==========================================================
-# HOME PAGE
+# ROOT ROUTE
 # ==========================================================
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 
-async def home():
+async def root():
 
-    return """
+    return RedirectResponse(
 
-    <html>
+        url="/login",
 
-        <head>
+        status_code=302
+    )
 
-            <title>Trustlytics AI</title>
+# ==========================================================
+# LOGIN PAGE
+# ==========================================================
 
-            <style>
+@app.get("/login", response_class=HTMLResponse)
 
-                body {
+async def login_page(
+    request: Request
+):
 
-                    font-family: Arial;
+    try:
 
-                    background: #f5f7fb;
+        if templates:
 
-                    padding: 50px;
+            return templates.TemplateResponse(
 
-                    text-align: center;
+                "login.html",
+
+                {
+
+                    "request": request
                 }
+            )
 
-                .card {
+    except Exception as e:
 
-                    background: white;
+        logger.error(
+            f"❌ LOGIN TEMPLATE ERROR: {e}"
+        )
 
-                    max-width: 700px;
+    return HTMLResponse(
 
-                    margin: auto;
+        "<h1>Login Page Missing</h1>"
+    )
 
-                    padding: 40px;
+# ==========================================================
+# REGISTER PAGE
+# ==========================================================
 
-                    border-radius: 16px;
+@app.get("/register", response_class=HTMLResponse)
 
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+async def register_page(
+    request: Request
+):
+
+    try:
+
+        if templates:
+
+            return templates.TemplateResponse(
+
+                "register.html",
+
+                {
+
+                    "request": request
                 }
+            )
 
-                h1 {
+    except Exception as e:
 
-                    color: #4f46e5;
+        logger.error(
+            f"❌ REGISTER TEMPLATE ERROR: {e}"
+        )
+
+    return HTMLResponse(
+
+        "<h1>Register Page Missing</h1>"
+    )
+
+# ==========================================================
+# DASHBOARD PAGE
+# ==========================================================
+
+@app.get("/dashboard", response_class=HTMLResponse)
+
+async def dashboard_page(
+    request: Request
+):
+
+    try:
+
+        if templates:
+
+            return templates.TemplateResponse(
+
+                "dashboard.html",
+
+                {
+
+                    "request": request
                 }
+            )
 
-                p {
+    except Exception as e:
 
-                    color: #555;
+        logger.error(
+            f"❌ DASHBOARD TEMPLATE ERROR: {e}"
+        )
+
+    return HTMLResponse(
+
+        "<h1>Dashboard Page Missing</h1>"
+    )
+
+# ==========================================================
+# COMPANIES PAGE
+# ==========================================================
+
+@app.get("/companies", response_class=HTMLResponse)
+
+async def companies_page(
+    request: Request
+):
+
+    try:
+
+        if templates:
+
+            return templates.TemplateResponse(
+
+                "companies.html",
+
+                {
+
+                    "request": request
                 }
+            )
 
-            </style>
+    except Exception as e:
 
-        </head>
+        logger.error(
+            f"❌ COMPANIES TEMPLATE ERROR: {e}"
+        )
 
-        <body>
+    return HTMLResponse(
 
-            <div class="card">
-
-                <h1>
-
-                    ✅ Trustlytics AI Running Successfully
-
-                </h1>
-
-                <p>
-
-                    Railway deployment healthy.
-
-                </p>
-
-                <p>
-
-                    FastAPI backend operational.
-
-                </p>
-
-                <p>
-
-                    Enterprise AI Chatbot Ready.
-
-                </p>
-
-            </div>
-
-        </body>
-
-    </html>
-
-    """
+        "<h1>Companies Page Missing</h1>"
+    )
 
 # ==========================================================
 # HEALTH CHECK
