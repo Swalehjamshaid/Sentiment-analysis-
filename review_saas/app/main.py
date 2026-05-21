@@ -1,9 +1,7 @@
-# app/main.py
-
-```python
 # ==========================================================
-# TRUSTLYTICS AI — FINAL STABLE MAIN.PY
-# RAILWAY + FASTAPI + PLAYWRIGHT SAFE VERSION
+# FILE: app/main.py
+# TRUSTLYTICS AI — FINAL COMPLETE RAILWAY STABLE MAIN.PY
+# MAY 2026 ENTERPRISE VERSION
 # ==========================================================
 
 import os
@@ -25,10 +23,10 @@ from starlette.templating import Jinja2Templates
 from loguru import logger
 
 # ==========================================================
-# DEBUG STARTUP
+# STARTUP DEBUG
 # ==========================================================
 
-print("🚀 TRUSTLYTICS STARTING")
+print("🚀 TRUSTLYTICS AI STARTING")
 print("🐍 PYTHON VERSION:", sys.version)
 
 # ==========================================================
@@ -53,16 +51,20 @@ logger.info("✅ LOGGER INITIALIZED")
 # BASE DIR
 # ==========================================================
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
 
 print(f"✅ BASE_DIR: {BASE_DIR}")
 
 # ==========================================================
-# SETTINGS IMPORT
+# SETTINGS
 # ==========================================================
 
 try:
+
     from app.core.config import settings
+
     print("✅ SETTINGS IMPORTED")
 
 except Exception as e:
@@ -77,13 +79,15 @@ except Exception as e:
     settings = DummySettings()
 
 # ==========================================================
-# DATABASE IMPORT
+# DATABASE
 # ==========================================================
 
 init_models = None
 
 try:
+
     from app.core.db import init_models
+
     print("✅ DATABASE MODULE IMPORTED")
 
 except Exception as e:
@@ -93,7 +97,7 @@ except Exception as e:
     traceback.print_exc()
 
 # ==========================================================
-# FASTAPI APP
+# FASTAPI LIFESPAN
 # ==========================================================
 
 @asynccontextmanager
@@ -111,8 +115,12 @@ async def lifespan(app: FastAPI):
 
             logger.info("📦 DATABASE INIT STARTED")
 
-            # TEMPORARILY SAFE
-            # COMMENT THIS IF DB FAILS
+            # ==================================================
+            # IMPORTANT:
+            # IF DATABASE CAUSES FREEZE,
+            # COMMENT THIS AGAIN
+            # ==================================================
+
             await init_models()
 
             logger.success("✅ DATABASE INITIALIZED")
@@ -127,37 +135,47 @@ async def lifespan(app: FastAPI):
 
         logger.warning("⚠️ DATABASE INIT SKIPPED")
 
-    logger.success("✅ STARTUP COMPLETE")
+    logger.success("✅ APPLICATION STARTUP COMPLETE")
 
     yield
 
     logger.info("🛑 APPLICATION SHUTDOWN")
 
 # ==========================================================
-# CREATE APP
+# FASTAPI APP
 # ==========================================================
 
 app = FastAPI(
+
     title="Trustlytics AI",
-    description="AI Reputation Intelligence Platform",
+
+    description="AI Reputation Intelligence SaaS",
+
     version="3.0.0",
+
     lifespan=lifespan
 )
 
 print("✅ FASTAPI APP CREATED")
 
 # ==========================================================
-# ERROR HANDLER
+# GLOBAL ERROR HANDLER
 # ==========================================================
 
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+async def global_exception_handler(
+    request: Request,
+    exc: Exception
+):
 
     logger.error(f"❌ GLOBAL ERROR: {request.url}")
+
     logger.error(traceback.format_exc())
 
     return JSONResponse(
+
         status_code=500,
+
         content={
             "status": "error",
             "message": str(exc)
@@ -169,17 +187,22 @@ async def global_exception_handler(request: Request, exc: Exception):
 # ==========================================================
 
 app.add_middleware(
+
     CORSMiddleware,
+
     allow_origins=["*"],
+
     allow_credentials=True,
+
     allow_methods=["*"],
+
     allow_headers=["*"]
 )
 
 print("✅ CORS ENABLED")
 
 # ==========================================================
-# SESSION
+# SESSION MIDDLEWARE
 # ==========================================================
 
 SECRET_KEY = getattr(
@@ -189,11 +212,17 @@ SECRET_KEY = getattr(
 )
 
 app.add_middleware(
+
     SessionMiddleware,
+
     secret_key=SECRET_KEY,
+
     session_cookie="trustlytics_session",
+
     max_age=86400,
+
     same_site="lax",
+
     https_only=False
 )
 
@@ -203,11 +232,18 @@ print("✅ SESSION ENABLED")
 # TEMPLATES
 # ==========================================================
 
-TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
+TEMPLATE_DIR = os.path.join(
+    BASE_DIR,
+    "templates"
+)
+
+templates = None
 
 if os.path.exists(TEMPLATE_DIR):
 
-    templates = Jinja2Templates(directory=TEMPLATE_DIR)
+    templates = Jinja2Templates(
+        directory=TEMPLATE_DIR
+    )
 
     print("✅ TEMPLATES LOADED")
 
@@ -219,13 +255,19 @@ else:
 # STATIC FILES
 # ==========================================================
 
-STATIC_DIR = os.path.join(BASE_DIR, "static")
+STATIC_DIR = os.path.join(
+    BASE_DIR,
+    "static"
+)
 
 if os.path.exists(STATIC_DIR):
 
     app.mount(
+
         "/static",
+
         StaticFiles(directory=STATIC_DIR),
+
         name="static"
     )
 
@@ -243,52 +285,86 @@ else:
 async def root():
 
     return {
+
         "status": "running",
+
         "service": "Trustlytics AI",
+
         "version": "3.0.0"
     }
+
+# ==========================================================
+# HEALTH CHECK
+# ==========================================================
 
 @app.get("/health")
 async def health_check():
 
     return {
+
         "status": "healthy",
+
         "timestamp": datetime.utcnow().isoformat()
     }
 
 # ==========================================================
-# SAFE ROUTER IMPORTS
+# SAFE ROUTER LOADER
 # ==========================================================
 
 ROUTES = [
+
     ("auth", "/api/auth"),
+
     ("companies", "/api"),
+
     ("dashboard", "/api"),
+
     ("reviews", "/api"),
+
     ("chatbot", "/api"),
+
     ("reports", "")
 ]
+
+# ==========================================================
+# ROUTER REGISTRATION
+# ==========================================================
 
 for route_name, prefix in ROUTES:
 
     try:
 
+        logger.info(f"📦 Loading Route: {route_name}")
+
         module = __import__(
+
             f"app.routes.{route_name}",
+
             fromlist=["router"]
         )
 
         router = getattr(module, "router")
 
-        app.include_router(router, prefix=prefix)
+        app.include_router(
+            router,
+            prefix=prefix
+        )
 
         print(f"✅ {route_name.upper()} ROUTER REGISTERED")
 
     except Exception as e:
 
         print(f"❌ {route_name.upper()} ROUTER FAILED")
+
         print(str(e))
+
         traceback.print_exc()
+
+# ==========================================================
+# STARTUP COMPLETE
+# ==========================================================
+
+print("✅ MAIN.PY FULLY LOADED")
 
 # ==========================================================
 # MAIN
@@ -299,70 +375,19 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
+
         "app.main:app",
+
         host="0.0.0.0",
-        port=int(os.environ.get("PORT", 8080)),
+
+        port=int(
+            os.environ.get(
+                "PORT",
+                8080
+            )
+        ),
+
         reload=False,
+
         log_level="info"
     )
-```
-
-# VERY IMPORTANT FIXES
-
-## 1. UPDATE app/core/db.py
-
-REPLACE:
-
-```python
-from app.core.models import *
-```
-
-WITH:
-
-```python
-import app.core.models
-```
-
-This prevents circular import crashes.
-
----
-
-## 2. RAILWAY START COMMAND
-
-Use EXACTLY:
-
-```bash
-sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --log-level debug'
-```
-
----
-
-## 3. REMOVE THESE TEMPORARILY FROM requirements.txt
-
-```txt
-camoufox
-chromadb
-faiss-cpu
-sentence-transformers
-transformers
-```
-
----
-
-## 4. MOST IMPORTANT
-
-The previous crash at:
-
-```txt
-File "/app/app/main.py", line 169
-```
-
-was likely caused by:
-
-* router import failure
-* circular import
-* StaticFiles issue
-* missing templates/static folders
-* route registration crash
-
-This new version safely isolates ALL router failures and prevents app-wide startup crashes.
