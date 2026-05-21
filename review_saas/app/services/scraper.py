@@ -1,25 +1,16 @@
+# app/services/scraper.py
+
+```python
 # ==========================================================
 # FILE: app/services/scraper.py
-# MULTI-LAYER GOOGLE REVIEW SCRAPER - MAY 2026
-#
+# ENTERPRISE GOOGLE REVIEW SCRAPER - MAY 2026
+# ==========================================================
 # ENGINES:
+# 0. SERPAPI
 # 1. CAMOUFOX + PLAYWRIGHT
 # 2. PLAYWRIGHT STEALTH
 # 3. SELENIUMBASE UC
 # 4. REQUESTS + BS4 FALLBACK
-#
-# FEATURES:
-# ✅ MULTI ENGINE FAILOVER
-# ✅ MULTI SELECTOR EXTRACTION
-# ✅ CAPTCHA DETECTION
-# ✅ REVIEW FEED RECOVERY
-# ✅ MODAL RECOVERY
-# ✅ DYNAMIC SCROLLING
-# ✅ COOKIES SUPPORT
-# ✅ STEALTH PATCHES
-# ✅ DEBUGGING SYSTEM
-# ✅ DUPLICATE REMOVAL
-# ✅ HUMANIZED BROWSING
 # ==========================================================
 
 import os
@@ -64,9 +55,7 @@ from playwright.async_api import (
 # CAMOUFOX
 # ==========================================================
 
-from camoufox.async_api import (
-    AsyncCamoufox
-)
+from camoufox.async_api import AsyncCamoufox
 
 # ==========================================================
 # PLAYWRIGHT STEALTH
@@ -109,6 +98,16 @@ MAX_IDLE_SCROLLS = 8
 DEBUG_DIR = "/tmp"
 
 COOKIES_FILE = "cookies.json"
+
+REQUEST_TIMEOUT = 120
+
+SERPAPI_API_KEY = os.getenv(
+    "SERPAPI_API_KEY"
+)
+
+PROXY_URL = os.getenv(
+    "PROXY_URL"
+)
 
 # ==========================================================
 # HELPERS
@@ -172,22 +171,16 @@ async def save_debug_files(page, name):
     try:
 
         await page.screenshot(
-
             path=f"{DEBUG_DIR}/{name}.png",
-
             full_page=True
         )
 
         html = await page.content()
 
         with open(
-
             f"{DEBUG_DIR}/{name}.html",
-
             "w",
-
             encoding="utf-8"
-
         ) as f:
 
             f.write(html)
@@ -215,15 +208,10 @@ async def detect_google_block(page):
         ).lower()
 
         keywords = [
-
             "captcha",
-
             "unusual traffic",
-
             "not a robot",
-
             "/sorry/",
-
             "automated queries"
         ]
 
@@ -252,14 +240,11 @@ async def human_scroll(page):
     try:
 
         await page.mouse.wheel(
-
             0,
-
             random.randint(1500, 4000)
         )
 
         await asyncio.sleep(
-
             random.uniform(3, 7)
         )
 
@@ -287,15 +272,10 @@ async def handle_google_consent(page):
                 ).lower()
 
                 if any(
-
                     x in text
-
                     for x in [
-
                         "accept",
-
                         "i agree",
-
                         "accept all"
                     ]
                 ):
@@ -358,15 +338,10 @@ async def load_cookies(context):
 async def open_reviews_panel(page):
 
     selectors = [
-
         'button[jsaction*="pane.reviewChart.moreReviews"]',
-
         'button[aria-label*="reviews"]',
-
         'button[aria-label*="Reviews"]',
-
         'div[role="button"][aria-label*="reviews"]',
-
         'xpath=//span[@class="z3HNkc"]/following-sibling::span//a'
     ]
 
@@ -455,9 +430,7 @@ async def expand_reviews(page):
 # ==========================================================
 
 async def extract_reviews_common(
-
     page,
-
     target_limit=500
 ):
 
@@ -468,10 +441,6 @@ async def extract_reviews_common(
     idle_scrolls = 0
 
     previous_count = 0
-
-    # ======================================================
-    # REVIEW FEED RECOVERY
-    # ======================================================
 
     review_feed = None
 
@@ -492,7 +461,6 @@ async def extract_reviews_common(
         await human_scroll(page)
 
         await asyncio.sleep(
-
             random.uniform(3, 7)
         )
 
@@ -509,10 +477,6 @@ async def extract_reviews_common(
 
         return []
 
-    # ======================================================
-    # EXTRACTION LOOP
-    # ======================================================
-
     for scroll in range(MAX_SCROLLS):
 
         logger.info(
@@ -520,10 +484,6 @@ async def extract_reviews_common(
         )
 
         try:
-
-            # ==============================================
-            # CAPTCHA DETECTION
-            # ==============================================
 
             blocked = await detect_google_block(
                 page
@@ -537,10 +497,6 @@ async def extract_reviews_common(
                 )
 
                 break
-
-            # ==============================================
-            # MODAL RECOVERY
-            # ==============================================
 
             review_modal = await page.query_selector(
                 'div[role="dialog"]'
@@ -564,40 +520,21 @@ async def extract_reviews_common(
 
                     await asyncio.sleep(10)
 
-            # ==============================================
-            # WAIT FOR REVIEWS
-            # ==============================================
-
             try:
 
                 await page.wait_for_selector(
-
-                    'div[data-review-id], '
-
-                    'div[jsname="ShBeI"], '
-
-                    'div.jftiEf',
-
+                    'div[data-review-id], div[jsname="ShBeI"], div.jftiEf',
                     timeout=30000
                 )
 
             except Exception:
                 pass
 
-            # ==============================================
-            # MULTI SELECTOR EXTRACTION
-            # ==============================================
-
             review_selectors = [
-
                 'div[data-review-id]',
-
                 'div[jsname="ShBeI"]',
-
                 'div.jftiEf',
-
                 'div.MyEned',
-
                 'div[role="article"]'
             ]
 
@@ -615,16 +552,10 @@ async def extract_reviews_common(
                         f"📦 {selector} => {len(selector_cards)}"
                     )
 
-                    cards.extend(
-                        selector_cards
-                    )
+                    cards.extend(selector_cards)
 
                 except Exception:
                     continue
-
-            # ==============================================
-            # REMOVE DUPLICATES
-            # ==============================================
 
             unique_cards = []
 
@@ -643,9 +574,7 @@ async def extract_reviews_common(
                     if element_hash in seen_elements:
                         continue
 
-                    seen_elements.add(
-                        element_hash
-                    )
+                    seen_elements.add(element_hash)
 
                     unique_cards.append(card)
 
@@ -657,10 +586,6 @@ async def extract_reviews_common(
             logger.info(
                 f"📦 UNIQUE CARDS => {len(cards)}"
             )
-
-            # ==============================================
-            # PARSE REVIEWS
-            # ==============================================
 
             for card in cards:
 
@@ -674,16 +599,9 @@ async def extract_reviews_common(
 
                     review_date = ""
 
-                    # ======================================
-                    # AUTHOR
-                    # ======================================
-
                     author_selectors = [
-
                         '.d4r55',
-
                         '.TSUbDb',
-
                         '.Vpc5Fe'
                     ]
 
@@ -698,7 +616,6 @@ async def extract_reviews_common(
                             if elem:
 
                                 author = clean_text(
-
                                     await elem.inner_text()
                                 )
 
@@ -708,18 +625,10 @@ async def extract_reviews_common(
                         except Exception:
                             continue
 
-                    # ======================================
-                    # REVIEW TEXT
-                    # ======================================
-
                     text_selectors = [
-
                         '.wiI7pd',
-
                         '.MyEned',
-
                         '.OA1nbd',
-
                         'span[jscontroller]'
                     ]
 
@@ -734,7 +643,6 @@ async def extract_reviews_common(
                             if elem:
 
                                 review_text = clean_text(
-
                                     await elem.inner_text()
                                 )
 
@@ -747,16 +655,9 @@ async def extract_reviews_common(
                     if not review_text:
                         continue
 
-                    # ======================================
-                    # RATING
-                    # ======================================
-
                     rating_selectors = [
-
                         'span[aria-label*="star"]',
-
                         '.kvMYJc',
-
                         '.dHX2k'
                     ]
 
@@ -783,14 +684,8 @@ async def extract_reviews_common(
                         except Exception:
                             continue
 
-                    # ======================================
-                    # DATE
-                    # ======================================
-
                     date_selectors = [
-
                         '.rsqaWe',
-
                         '.y3Ibjb'
                     ]
 
@@ -805,7 +700,6 @@ async def extract_reviews_common(
                             if elem:
 
                                 review_date = clean_text(
-
                                     await elem.inner_text()
                                 )
 
@@ -815,10 +709,6 @@ async def extract_reviews_common(
                         except Exception:
                             continue
 
-                    # ======================================
-                    # DEDUPLICATION
-                    # ======================================
-
                     review_id = generate_hash(
                         author,
                         review_text
@@ -827,26 +717,15 @@ async def extract_reviews_common(
                     if review_id in seen_reviews:
                         continue
 
-                    seen_reviews.add(
-                        review_id
-                    )
+                    seen_reviews.add(review_id)
 
                     reviews.append({
-
-                        "review_id":
-                            review_id,
-
-                        "author_name":
-                            author,
-
-                        "rating":
-                            rating,
-
-                        "review_date":
-                            review_date,
-
-                        "text":
-                            review_text
+                        "review_id": review_id,
+                        "author_name": author,
+                        "rating": rating,
+                        "review_date": review_date,
+                        "text": review_text,
+                        "source": "browser"
                     })
 
                 except Exception:
@@ -857,46 +736,28 @@ async def extract_reviews_common(
             )
 
             if len(reviews) >= target_limit:
-
                 break
-
-            # ==============================================
-            # EXPAND REVIEWS
-            # ==============================================
 
             await expand_reviews(page)
 
-            # ==============================================
-            # FEED SCROLL
-            # ==============================================
-
             try:
 
-                await page.evaluate("""
-
+                await page.evaluate(
+                    """
                     () => {
-
                         const feed = document.querySelector(
                             'div[role="feed"], div.RVCQse'
                         );
 
                         if(feed){
-
-                            feed.scrollBy(
-                                0,
-                                4000
-                            );
+                            feed.scrollBy(0, 4000);
                         }
                     }
-
-                """)
+                    """
+                )
 
             except Exception:
                 pass
-
-            # ==============================================
-            # FALLBACK SCROLL
-            # ==============================================
 
             await human_scroll(page)
 
@@ -917,11 +778,9 @@ async def extract_reviews_common(
             previous_count = current_count
 
             if idle_scrolls >= 3:
-
                 await open_reviews_panel(page)
 
             if idle_scrolls >= MAX_IDLE_SCROLLS:
-
                 break
 
         except Exception as e:
@@ -942,13 +801,157 @@ async def extract_reviews_common(
     return reviews
 
 # ==========================================================
+# ENGINE 0 - SERPAPI
+# ==========================================================
+
+def scrape_with_serpapi(
+    place_id,
+    target_limit=500
+):
+
+    logger.info(
+        "🚀 ENGINE 0 => SERPAPI"
+    )
+
+    if not SERPAPI_API_KEY:
+
+        logger.warning(
+            "⚠️ SERPAPI_API_KEY NOT FOUND"
+        )
+
+        return []
+
+    reviews = []
+
+    seen_reviews = set()
+
+    try:
+
+        next_page_token = None
+
+        while len(reviews) < target_limit:
+
+            params = {
+                "engine": "google_maps_reviews",
+                "place_id": place_id,
+                "api_key": SERPAPI_API_KEY,
+                "hl": "en"
+            }
+
+            if next_page_token:
+                params["next_page_token"] = next_page_token
+
+            proxies = None
+
+            if PROXY_URL:
+
+                proxies = {
+                    "http": PROXY_URL,
+                    "https": PROXY_URL
+                }
+
+            response = requests.get(
+                "https://serpapi.com/search.json",
+                params=params,
+                proxies=proxies,
+                timeout=REQUEST_TIMEOUT
+            )
+
+            response.raise_for_status()
+
+            data = response.json()
+
+            api_reviews = data.get(
+                "reviews",
+                []
+            )
+
+            if not api_reviews:
+                break
+
+            for review in api_reviews:
+
+                try:
+
+                    author = clean_text(
+                        review.get(
+                            "user",
+                            {}
+                        ).get(
+                            "name",
+                            ""
+                        )
+                    )
+
+                    review_text = clean_text(
+                        review.get(
+                            "snippet",
+                            ""
+                        )
+                    )
+
+                    if not review_text:
+                        continue
+
+                    review_id = generate_hash(
+                        author,
+                        review_text
+                    )
+
+                    if review_id in seen_reviews:
+                        continue
+
+                    seen_reviews.add(review_id)
+
+                    reviews.append({
+                        "review_id": review_id,
+                        "author_name": author,
+                        "rating": review.get("rating", 5),
+                        "review_date": clean_text(review.get("date", "")),
+                        "text": review_text,
+                        "likes": review.get("likes", 0),
+                        "source": "serpapi"
+                    })
+
+                except Exception:
+                    continue
+
+            logger.info(
+                f"✅ SERPAPI REVIEWS => {len(reviews)}"
+            )
+
+            next_page_token = (
+                data.get(
+                    "serpapi_pagination",
+                    {}
+                ).get(
+                    "next_page_token"
+                )
+            )
+
+            if not next_page_token:
+                break
+
+            time.sleep(
+                random.uniform(1, 3)
+            )
+
+        return reviews[:target_limit]
+
+    except Exception as e:
+
+        logger.exception(
+            f"❌ SERPAPI FAILED => {e}"
+        )
+
+        return []
+
+# ==========================================================
 # ENGINE 1 - CAMOUFOX
 # ==========================================================
 
 async def scrape_with_camoufox(
-
     place_id,
-
     target_limit
 ):
 
@@ -961,27 +964,17 @@ async def scrape_with_camoufox(
     try:
 
         browser = await AsyncCamoufox(
-
             headless=HEADLESS,
-
             humanize=True,
-
             geoip=True,
-
             block_webrtc=True,
-
             i_know_what_im_doing=True
-
         ).start()
 
         context = await browser.new_context(
-
             user_agent=UserAgent().random,
-
             viewport={
-
                 "width": 1440,
-
                 "height": 960
             }
         )
@@ -993,11 +986,8 @@ async def scrape_with_camoufox(
         await stealth_async(page)
 
         await page.goto(
-
             f"https://www.google.com/maps/place/?q=place_id:{place_id}",
-
             wait_until="domcontentloaded",
-
             timeout=120000
         )
 
@@ -1016,9 +1006,7 @@ async def scrape_with_camoufox(
             return []
 
         reviews = await extract_reviews_common(
-
             page,
-
             target_limit
         )
 
@@ -1040,7 +1028,6 @@ async def scrape_with_camoufox(
     finally:
 
         try:
-
             if browser:
                 await browser.close()
         except Exception:
@@ -1051,9 +1038,7 @@ async def scrape_with_camoufox(
 # ==========================================================
 
 async def scrape_with_playwright(
-
     place_id,
-
     target_limit
 ):
 
@@ -1068,12 +1053,10 @@ async def scrape_with_playwright(
         pw = await async_playwright().start()
 
         browser = await pw.chromium.launch(
-
             headless=HEADLESS
         )
 
         context = await browser.new_context(
-
             user_agent=UserAgent().random
         )
 
@@ -1084,11 +1067,8 @@ async def scrape_with_playwright(
         await stealth_async(page)
 
         await page.goto(
-
             f"https://www.google.com/maps/place/?q=place_id:{place_id}",
-
             wait_until="domcontentloaded",
-
             timeout=120000
         )
 
@@ -1102,9 +1082,7 @@ async def scrape_with_playwright(
             return []
 
         reviews = await extract_reviews_common(
-
             page,
-
             target_limit
         )
 
@@ -1126,7 +1104,6 @@ async def scrape_with_playwright(
     finally:
 
         try:
-
             if browser:
                 await browser.close()
         except Exception:
@@ -1137,9 +1114,7 @@ async def scrape_with_playwright(
 # ==========================================================
 
 def scrape_with_seleniumbase(
-
     place_id,
-
     target_limit
 ):
 
@@ -1152,9 +1127,7 @@ def scrape_with_seleniumbase(
     try:
 
         with SB(
-
             uc=True,
-
             headed=True
         ) as sb:
 
@@ -1167,11 +1140,9 @@ def scrape_with_seleniumbase(
             time.sleep(15)
 
             try:
-
                 sb.click(
                     'button[jsaction*="pane.reviewChart.moreReviews"]'
                 )
-
             except Exception:
                 pass
 
@@ -1185,9 +1156,7 @@ def scrape_with_seleniumbase(
 
                 try:
 
-                    text = clean_text(
-                        card.text
-                    )
+                    text = clean_text(card.text)
 
                     if not text:
                         continue
@@ -1198,18 +1167,11 @@ def scrape_with_seleniumbase(
                     )
 
                     reviews.append({
-
-                        "review_id":
-                            review_id,
-
-                        "author_name":
-                            "selenium",
-
-                        "rating":
-                            5,
-
-                        "text":
-                            text
+                        "review_id": review_id,
+                        "author_name": "selenium",
+                        "rating": 5,
+                        "text": text,
+                        "source": "seleniumbase"
                     })
 
                 except Exception:
@@ -1229,10 +1191,7 @@ def scrape_with_seleniumbase(
 # ENGINE 4 - REQUESTS FALLBACK
 # ==========================================================
 
-def scrape_with_requests(
-
-    place_id
-):
+def scrape_with_requests(place_id):
 
     logger.info(
         "🚀 ENGINE 4 => REQUESTS"
@@ -1245,24 +1204,26 @@ def scrape_with_requests(
         )
 
         headers = {
-
-            "User-Agent":
-                UserAgent().random
+            "User-Agent": UserAgent().random
         }
 
+        proxies = None
+
+        if PROXY_URL:
+            proxies = {
+                "http": PROXY_URL,
+                "https": PROXY_URL
+            }
+
         response = requests.get(
-
             url,
-
             headers=headers,
-
+            proxies=proxies,
             timeout=60
         )
 
         soup = BeautifulSoup(
-
             response.text,
-
             "lxml"
         )
 
@@ -1274,21 +1235,14 @@ def scrape_with_requests(
             return []
 
         return [{
-
-            "review_id":
-                generate_hash(
-                    "requests",
-                    text[:100]
-                ),
-
-            "author_name":
+            "review_id": generate_hash(
                 "requests",
-
-            "rating":
-                5,
-
-            "text":
-                text[:3000]
+                text[:100]
+            ),
+            "author_name": "requests",
+            "rating": 5,
+            "text": text[:3000],
+            "source": "requests"
         }]
 
     except Exception as e:
@@ -1312,26 +1266,36 @@ def scrape_with_requests(
     )
 )
 async def scrape_google_reviews(
-
     place_id: str,
-
     target_limit: int = 500
 ):
 
     try:
 
         logger.info(
-            "🚀 STARTING MULTI ENGINE SCRAPER"
+            "🚀 STARTING ENTERPRISE SCRAPER"
         )
 
-        # ==================================================
-        # ENGINE 1
-        # ==================================================
+        reviews = await asyncio.to_thread(
+            scrape_with_serpapi,
+            place_id,
+            target_limit
+        )
+
+        if reviews:
+
+            logger.info(
+                f"✅ SERPAPI SUCCESS => {len(reviews)}"
+            )
+
+            return reviews
+
+        logger.warning(
+            "⚠️ SERPAPI FAILED"
+        )
 
         reviews = await scrape_with_camoufox(
-
             place_id,
-
             target_limit
         )
 
@@ -1347,14 +1311,8 @@ async def scrape_google_reviews(
             "⚠️ CAMOUFOX FAILED"
         )
 
-        # ==================================================
-        # ENGINE 2
-        # ==================================================
-
         reviews = await scrape_with_playwright(
-
             place_id,
-
             target_limit
         )
 
@@ -1370,16 +1328,9 @@ async def scrape_google_reviews(
             "⚠️ PLAYWRIGHT FAILED"
         )
 
-        # ==================================================
-        # ENGINE 3
-        # ==================================================
-
         reviews = await asyncio.to_thread(
-
             scrape_with_seleniumbase,
-
             place_id,
-
             target_limit
         )
 
@@ -1395,14 +1346,8 @@ async def scrape_google_reviews(
             "⚠️ SELENIUMBASE FAILED"
         )
 
-        # ==================================================
-        # ENGINE 4
-        # ==================================================
-
         reviews = await asyncio.to_thread(
-
             scrape_with_requests,
-
             place_id
         )
 
@@ -1435,3 +1380,25 @@ async def scrape_google_reviews(
     finally:
 
         gc.collect()
+```
+
+# .env
+
+```env
+SERPAPI_API_KEY=YOUR_NEW_SERPAPI_KEY
+PROXY_URL=http://username:password@host:port
+```
+
+# requirements.txt additions
+
+```txt
+requests
+beautifulsoup4
+lxml
+fake-useragent
+playwright
+playwright-stealth
+camoufox
+seleniumbase
+tenacity
+```
