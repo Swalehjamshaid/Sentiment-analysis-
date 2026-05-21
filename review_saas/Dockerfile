@@ -1,16 +1,17 @@
 # ==========================================================
-# REVIEW INTEL AI — RAILWAY PRODUCTION DOCKERFILE
-# MAY 2026 ENTERPRISE VERSION
+# TRUSTLYTICS AI — RAILWAY PRODUCTION DOCKERFILE
+# MAY 2026 STABLE ENTERPRISE VERSION
 #
 # SUPPORTS:
 # ✅ FASTAPI
 # ✅ PLAYWRIGHT
 # ✅ CAMOUFOX
-# ✅ SELENIUMBASE
-# ✅ UNDETECTED CHROMEDRIVER
 # ✅ GOOGLE MAPS SCRAPING
-# ✅ FIREFOX + CHROMIUM
+# ✅ CHROMIUM
 # ✅ STEALTH BROWSERS
+# ✅ AI CHATBOT
+# ✅ RAG SYSTEM
+# ✅ PDF REPORTING
 # ✅ RAILWAY DEPLOYMENT
 # ==========================================================
 
@@ -46,14 +47,11 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     fonts-liberation \
     xdg-utils \
-    firefox-esr \
     chromium \
-    chromium-driver \
     libglib2.0-0 \
     libnss3 \
     libnspr4 \
     libdbus-1-3 \
-    libdbus-glib-1-2 \
     libatk1.0-0 \
     libatk-bridge2.0-0 \
     libcups2 \
@@ -66,7 +64,6 @@ RUN apt-get update && apt-get install -y \
     libxrandr2 \
     libxrender1 \
     libx11-xcb1 \
-    libxcb-dri3-0 \
     libxt6 \
     libxi6 \
     libgbm1 \
@@ -92,7 +89,7 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 
 # ==========================================================
-# UPGRADE PIP TO LATEST
+# UPGRADE PIP
 # ==========================================================
 
 RUN pip install --upgrade pip setuptools wheel
@@ -104,19 +101,19 @@ RUN pip install --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ==========================================================
-# INSTALL PLAYWRIGHT BROWSERS + DEPS
+# INSTALL PLAYWRIGHT BROWSER
 # ==========================================================
 
-RUN playwright install --with-deps chromium firefox
+RUN playwright install chromium
 
 # ==========================================================
-# INSTALL CAMOUFOX BROWSER
+# INSTALL CAMOUFOX
 # ==========================================================
 
 RUN python -m camoufox fetch
 
 # ==========================================================
-# CREATE PLAYWRIGHT CACHE DIR
+# CREATE PLAYWRIGHT CACHE
 # ==========================================================
 
 RUN mkdir -p /ms-playwright
@@ -128,7 +125,7 @@ RUN mkdir -p /ms-playwright
 COPY . .
 
 # ==========================================================
-# CREATE TMP DEBUG DIRECTORY
+# CREATE TMP DIRECTORY
 # ==========================================================
 
 RUN mkdir -p /tmp
@@ -146,7 +143,7 @@ EXPOSE 8080
 HEALTHCHECK CMD curl --fail http://localhost:8080 || exit 1
 
 # ==========================================================
-# START FASTAPI
+# START FASTAPI (PRODUCTION)
 # ==========================================================
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080"]
