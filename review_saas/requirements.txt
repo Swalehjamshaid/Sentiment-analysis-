@@ -1,6 +1,7 @@
 # ==========================================================
-# TRUSTLYTICS AI SaaS - ULTIMATE STABLE REQUIREMENTS
-# Railway + FastAPI + AI + RAG + Scraper + PDF + Analytics
+# TRUSTLYTICS AI SaaS — RAILWAY STABLE REQUIREMENTS
+# FASTAPI + PLAYWRIGHT + AI APIs + PDF + ANALYTICS
+# MAY 2026 PRODUCTION STABLE VERSION
 # ==========================================================
 
 # ==========================================================
@@ -78,17 +79,16 @@ watchfiles==0.24.0
 orjson==3.10.18
 
 # ==========================================================
-# AI / LLM CORE
+# AI API CLIENTS ONLY
 # ==========================================================
 
 openai==1.54.4
 groq==0.11.0
 google-generativeai==0.8.3
-
 tiktoken==0.8.0
 
 # ==========================================================
-# LANGCHAIN / AGENTS / WORKFLOWS
+# LIGHTWEIGHT LANGCHAIN
 # ==========================================================
 
 langchain==0.3.7
@@ -97,26 +97,7 @@ langchain-community==0.3.7
 langchain-openai==0.2.8
 langchain-text-splitters==0.3.2
 
-langgraph==0.2.39
-langsmith==0.1.147
-
 jsonpatch==1.33
-
-# ==========================================================
-# VECTOR DATABASE / RAG
-# ==========================================================
-
-faiss-cpu==1.8.0.post1
-chromadb==0.5.5
-
-# ==========================================================
-# EMBEDDINGS / NLP
-# ==========================================================
-
-sentence-transformers==3.2.1
-transformers==4.45.2
-tokenizers==0.20.1
-huggingface-hub==0.25.2
 
 # ==========================================================
 # DATA ANALYTICS
@@ -144,7 +125,6 @@ pymupdf==1.24.10
 # ==========================================================
 
 playwright==1.53.0
-camoufox==0.4.11
 playwright-stealth==1.0.6
 
 beautifulsoup4==4.12.3
@@ -198,3 +178,17 @@ urllib3==2.2.3
 certifi==2024.8.30
 charset-normalizer==3.4.0
 idna==3.10
+
+# ==========================================================
+# TEMPORARILY REMOVED FOR RAILWAY STABILITY
+# ==========================================================
+
+# camoufox==0.4.11
+# faiss-cpu==1.8.0.post1
+# chromadb==0.5.5
+# sentence-transformers==3.2.1
+# transformers==4.45.2
+# tokenizers==0.20.1
+# huggingface-hub==0.25.2
+# langgraph==0.2.39
+# langsmith==0.1.147
