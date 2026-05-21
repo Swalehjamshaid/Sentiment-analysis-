@@ -1,8 +1,8 @@
 # ==========================================================
 # FILE: app/main.py
-# TRUSTLYTICS AI — FINAL ENTERPRISE STABLE MAIN.PY
-# RAILWAY + FASTAPI + PLAYWRIGHT + AI SAFE VERSION
-# MAY 2026
+# TRUSTLYTICS AI — FINAL ENTERPRISE MAIN.PY
+# RAILWAY + FASTAPI + AI + CHATBOT + AUTH + REPORTS
+# MAY 2026 STABLE PRODUCTION VERSION
 # ==========================================================
 
 import os
@@ -13,22 +13,39 @@ import logging
 from datetime import datetime
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import (
+    FastAPI,
+    Request
+)
+
+from fastapi.responses import (
+    JSONResponse,
+    HTMLResponse
+)
+
 from fastapi.middleware.cors import CORSMiddleware
 
-from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.sessions import (
+    SessionMiddleware
+)
+
 from starlette.staticfiles import StaticFiles
-from starlette.templating import Jinja2Templates
+
+from starlette.templating import (
+    Jinja2Templates
+)
 
 from loguru import logger
 
 # ==========================================================
-# STARTUP DEBUG
+# STARTUP INFO
 # ==========================================================
 
 print("🚀 TRUSTLYTICS AI STARTING")
-print("🐍 PYTHON VERSION:", sys.version)
+
+print(
+    f"🐍 PYTHON VERSION: {sys.version}"
+)
 
 # ==========================================================
 # LOGGING
@@ -37,16 +54,25 @@ print("🐍 PYTHON VERSION:", sys.version)
 logger.remove()
 
 logger.add(
+
     sys.stdout,
+
     level="INFO",
+
     enqueue=True,
+
     backtrace=True,
+
     diagnose=False
 )
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO
+)
 
-logger.info("✅ LOGGER INITIALIZED")
+logger.info(
+    "✅ LOGGER INITIALIZED"
+)
 
 # ==========================================================
 # BASE DIRECTORY
@@ -56,7 +82,9 @@ BASE_DIR = os.path.dirname(
     os.path.abspath(__file__)
 )
 
-print(f"✅ BASE_DIR: {BASE_DIR}")
+print(
+    f"✅ BASE_DIR: {BASE_DIR}"
+)
 
 # ==========================================================
 # SETTINGS
@@ -66,17 +94,23 @@ try:
 
     from app.core.config import settings
 
-    print("✅ SETTINGS IMPORTED")
+    print(
+        "✅ SETTINGS IMPORTED"
+    )
 
 except Exception as e:
 
-    print("❌ SETTINGS IMPORT FAILED")
+    print(
+        "❌ SETTINGS IMPORT FAILED"
+    )
+
     print(str(e))
+
     traceback.print_exc()
 
     class DummySettings:
 
-        SECRET_KEY = "railway-secret"
+        SECRET_KEY = "trustlytics-secret"
 
     settings = DummySettings()
 
@@ -86,20 +120,31 @@ except Exception as e:
 
 init_models = None
 check_database_connection = None
+close_database = None
 
 try:
 
     from app.core.db import (
+
         init_models,
-        check_database_connection
+
+        check_database_connection,
+
+        close_database
     )
 
-    print("✅ DATABASE MODULE IMPORTED")
+    print(
+        "✅ DATABASE MODULE IMPORTED"
+    )
 
 except Exception as e:
 
-    print("❌ DATABASE IMPORT FAILED")
+    print(
+        "❌ DATABASE MODULE FAILED"
+    )
+
     print(str(e))
+
     traceback.print_exc()
 
 # ==========================================================
@@ -109,7 +154,9 @@ except Exception as e:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
-    logger.info("🚀 APPLICATION STARTUP")
+    logger.info(
+        "🚀 APPLICATION STARTUP"
+    )
 
     # ======================================================
     # DATABASE HEALTH CHECK
@@ -119,9 +166,9 @@ async def lifespan(app: FastAPI):
 
         if check_database_connection:
 
-            db_ok = await check_database_connection()
+            db_status = await check_database_connection()
 
-            if db_ok:
+            if db_status:
 
                 logger.success(
                     "✅ DATABASE CONNECTION HEALTHY"
@@ -179,9 +226,29 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    # ======================================================
+    # SHUTDOWN
+    # ======================================================
+
     logger.info(
         "🛑 APPLICATION SHUTDOWN"
     )
+
+    try:
+
+        if close_database:
+
+            await close_database()
+
+            logger.success(
+                "✅ DATABASE CLOSED"
+            )
+
+    except Exception as e:
+
+        logger.error(
+            f"❌ DATABASE SHUTDOWN ERROR: {e}"
+        )
 
 # ==========================================================
 # FASTAPI APP
@@ -191,14 +258,16 @@ app = FastAPI(
 
     title="Trustlytics AI",
 
-    description="Enterprise AI Reputation Intelligence Platform",
+    description="Enterprise AI Review Intelligence SaaS",
 
     version="3.0.0",
 
     lifespan=lifespan
 )
 
-print("✅ FASTAPI APP CREATED")
+print(
+    "✅ FASTAPI APP CREATED"
+)
 
 # ==========================================================
 # GLOBAL ERROR HANDLER
@@ -206,7 +275,9 @@ print("✅ FASTAPI APP CREATED")
 
 @app.exception_handler(Exception)
 async def global_exception_handler(
+
     request: Request,
+
     exc: Exception
 ):
 
@@ -247,16 +318,21 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-print("✅ CORS ENABLED")
+print(
+    "✅ CORS ENABLED"
+)
 
 # ==========================================================
 # SESSION MIDDLEWARE
 # ==========================================================
 
 SECRET_KEY = getattr(
+
     settings,
+
     "SECRET_KEY",
-    "railway-secret"
+
+    "trustlytics-secret"
 )
 
 app.add_middleware(
@@ -274,14 +350,18 @@ app.add_middleware(
     https_only=False
 )
 
-print("✅ SESSION ENABLED")
+print(
+    "✅ SESSION ENABLED"
+)
 
 # ==========================================================
 # TEMPLATES
 # ==========================================================
 
 TEMPLATE_DIR = os.path.join(
+
     BASE_DIR,
+
     "templates"
 )
 
@@ -293,18 +373,24 @@ if os.path.exists(TEMPLATE_DIR):
         directory=TEMPLATE_DIR
     )
 
-    print("✅ TEMPLATES LOADED")
+    print(
+        "✅ TEMPLATES LOADED"
+    )
 
 else:
 
-    print("⚠️ TEMPLATES DIRECTORY MISSING")
+    print(
+        "⚠️ TEMPLATES DIRECTORY MISSING"
+    )
 
 # ==========================================================
 # STATIC FILES
 # ==========================================================
 
 STATIC_DIR = os.path.join(
+
     BASE_DIR,
+
     "static"
 )
 
@@ -314,47 +400,128 @@ if os.path.exists(STATIC_DIR):
 
         "/static",
 
-        StaticFiles(
-            directory=STATIC_DIR
-        ),
+        StaticFiles(directory=STATIC_DIR),
 
         name="static"
     )
 
-    print("✅ STATIC FILES MOUNTED")
+    print(
+        "✅ STATIC FILES MOUNTED"
+    )
 
 else:
 
-    print("⚠️ STATIC DIRECTORY MISSING")
+    print(
+        "⚠️ STATIC DIRECTORY MISSING"
+    )
 
 # ==========================================================
-# ROOT ROUTES
+# HOME PAGE
 # ==========================================================
 
-@app.get("/")
-async def root():
+@app.get("/", response_class=HTMLResponse)
 
-    return {
+async def home():
 
-        "success": True,
+    return """
 
-        "service": "Trustlytics AI",
+    <html>
 
-        "version": "3.0.0",
+        <head>
 
-        "status": "running"
-    }
+            <title>Trustlytics AI</title>
+
+            <style>
+
+                body {
+
+                    font-family: Arial;
+
+                    background: #f5f7fb;
+
+                    padding: 50px;
+
+                    text-align: center;
+                }
+
+                .card {
+
+                    background: white;
+
+                    max-width: 700px;
+
+                    margin: auto;
+
+                    padding: 40px;
+
+                    border-radius: 16px;
+
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+                }
+
+                h1 {
+
+                    color: #4f46e5;
+                }
+
+                p {
+
+                    color: #555;
+                }
+
+            </style>
+
+        </head>
+
+        <body>
+
+            <div class="card">
+
+                <h1>
+
+                    ✅ Trustlytics AI Running Successfully
+
+                </h1>
+
+                <p>
+
+                    Railway deployment healthy.
+
+                </p>
+
+                <p>
+
+                    FastAPI backend operational.
+
+                </p>
+
+                <p>
+
+                    Enterprise AI Chatbot Ready.
+
+                </p>
+
+            </div>
+
+        </body>
+
+    </html>
+
+    """
 
 # ==========================================================
 # HEALTH CHECK
 # ==========================================================
 
 @app.get("/health")
+
 async def health_check():
 
     return {
 
         "success": True,
+
+        "service": "Trustlytics AI",
 
         "status": "healthy",
 
@@ -389,7 +556,7 @@ for route_name in ROUTES:
     try:
 
         logger.info(
-            f"📦 LOADING ROUTE: {route_name}"
+            f"📦 Loading Route: {route_name}"
         )
 
         module = __import__(
@@ -400,7 +567,9 @@ for route_name in ROUTES:
         )
 
         router = getattr(
+
             module,
+
             "router"
         )
 
@@ -424,7 +593,9 @@ for route_name in ROUTES:
 # STARTUP COMPLETE
 # ==========================================================
 
-print("✅ MAIN.PY FULLY LOADED")
+print(
+    "✅ MAIN.PY FULLY LOADED"
+)
 
 # ==========================================================
 # MAIN
