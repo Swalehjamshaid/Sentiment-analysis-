@@ -1,20 +1,25 @@
 # ==========================================================
-# TRUSTLYTICS AI — ULTRA STABLE RAILWAY DOCKERFILE
-# MAY 2026 PRODUCTION SAFE VERSION
+# TRUSTLYTICS AI — FINAL STABLE RAILWAY DOCKERFILE
+# MAY 2026 ENTERPRISE PRODUCTION VERSION
 #
-# GOALS:
-# ✅ Railway Stable
-# ✅ No Memory Crash
+# FEATURES:
 # ✅ FastAPI
 # ✅ Playwright
 # ✅ Google Maps Scraping
 # ✅ AI Chatbot
 # ✅ PDF Reporting
-# ✅ Lightweight Chromium
+# ✅ Railway Stable
+# ✅ Lightweight
+# ✅ No Chromium Conflicts
+# ✅ No OS Compatibility Warning
 # ✅ Production Optimized
 # ==========================================================
 
-FROM python:3.11-slim
+# ==========================================================
+# USE OFFICIAL PLAYWRIGHT IMAGE
+# ==========================================================
+
+FROM mcr.microsoft.com/playwright/python:v1.53.0-jammy
 
 # ==========================================================
 # ENVIRONMENT VARIABLES
@@ -23,9 +28,7 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    DEBIAN_FRONTEND=noninteractive
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # ==========================================================
 # WORK DIRECTORY
@@ -34,36 +37,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # ==========================================================
-# INSTALL ONLY ESSENTIAL SYSTEM PACKAGES
+# INSTALL REQUIRED SYSTEM PACKAGES ONLY
 # ==========================================================
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    g++ \
     curl \
     wget \
     git \
-    gcc \
-    g++ \
-    build-essential \
-    libglib2.0-0 \
-    libnss3 \
-    libnspr4 \
-    libdbus-1-3 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2 \
-    libatspi2.0-0 \
-    libgtk-3-0 \
-    libxshmfence1 \
-    libu2f-udev \
-    libvulkan1 \
     libxml2-dev \
     libxslt1-dev \
     zlib1g-dev \
@@ -71,43 +54,41 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi-dev \
     libssl-dev \
     libpq-dev \
-    fonts-liberation \
-    ca-certificates \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # ==========================================================
-# UPGRADE PIP
-# ==========================================================
-
-RUN python -m pip install --upgrade pip setuptools wheel
-
-# ==========================================================
-# COPY REQUIREMENTS FIRST
+# COPY REQUIREMENTS
 # ==========================================================
 
 COPY requirements.txt .
 
 # ==========================================================
-# INSTALL PYTHON REQUIREMENTS
+# UPGRADE PIP
+# ==========================================================
+
+RUN python -m pip install --upgrade \
+    pip \
+    setuptools \
+    wheel
+
+# ==========================================================
+# INSTALL PYTHON DEPENDENCIES
 # ==========================================================
 
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ==========================================================
-# INSTALL PLAYWRIGHT ONLY
-# ==========================================================
-
-RUN playwright install chromium
-
-# ==========================================================
 # CREATE REQUIRED DIRECTORIES
 # ==========================================================
 
-RUN mkdir -p /tmp /app/logs /app/uploads
+RUN mkdir -p \
+    /tmp \
+    /app/logs \
+    /app/uploads
 
 # ==========================================================
-# COPY APPLICATION
+# COPY APPLICATION FILES
 # ==========================================================
 
 COPY . .
@@ -126,7 +107,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
 CMD curl --fail http://localhost:8080/ || exit 1
 
 # ==========================================================
-# GUNICORN CONFIGURATION
+# GUNICORN SETTINGS
 # ==========================================================
 
 ENV GUNICORN_CMD_ARGS="\
@@ -134,7 +115,9 @@ ENV GUNICORN_CMD_ARGS="\
 --worker-class=uvicorn.workers.UvicornWorker \
 --bind=0.0.0.0:8080 \
 --timeout=300 \
---keep-alive=5"
+--keep-alive=5 \
+--max-requests=500 \
+--max-requests-jitter=50"
 
 # ==========================================================
 # START APPLICATION
