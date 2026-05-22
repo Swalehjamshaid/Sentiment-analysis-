@@ -1,34 +1,14 @@
 # =========================================================
 # FILE: app/services/ai_insight_service.py
-# WORLD-CLASS AI EXECUTIVE INTELLIGENCE ENGINE
-# ENTERPRISE • PREDICTIVE • KPI-DRIVEN • BOARDROOM READY
+# FINAL ENTERPRISE AI EXECUTIVE INTELLIGENCE ENGINE
+# CONTRADICTION-FREE • KPI-VALIDATED • BOARDROOM READY
 # =========================================================
 
 from datetime import datetime
-from typing import Dict, Any, List
-from statistics import mean
+from typing import Dict, Any
 
 
 class AIInsightService:
-    """
-    ========================================================
-    WORLD-CLASS AI EXECUTIVE INTELLIGENCE ENGINE
-    ========================================================
-
-    CAPABILITIES:
-    - Executive business intelligence
-    - Strategic operational analysis
-    - Customer behavior intelligence
-    - Brand reputation analytics
-    - Revenue risk analysis
-    - Customer retention forecasting
-    - Competitive positioning
-    - Predictive operational intelligence
-    - AI-driven executive recommendations
-    - Business health scoring
-    - Crisis detection engine
-    - Board-level decision support
-    """
 
     def __init__(self):
         pass
@@ -47,7 +27,7 @@ class AIInsightService:
             analytics_data
         )
 
-        insights = {
+        return {
 
             "company_name":
                 company_name,
@@ -101,92 +81,62 @@ class AIInsightService:
                 ),
 
             "management_recommendations":
-                self.management_recommendations(
-                    analytics_data,
-                    health_data
-                ),
+                self.management_recommendations(),
 
             "staff_improvement_plan":
-                self.staff_improvement_plan(
-                    analytics_data,
-                    health_data
-                ),
+                self.staff_improvement_plan(),
 
             "customer_retention_strategy":
-                self.customer_retention_strategy(
-                    analytics_data,
-                    health_data
-                ),
+                self.customer_retention_strategy(),
 
             "marketing_recommendations":
-                self.marketing_recommendations(
-                    analytics_data,
-                    health_data
-                ),
+                self.marketing_recommendations(),
 
             "revenue_growth_strategy":
-                self.revenue_growth_strategy(
-                    analytics_data,
-                    health_data
-                ),
+                self.revenue_growth_strategy(),
 
             "competitive_position":
                 self.competitive_position(
-                    analytics_data,
                     health_data
                 ),
 
             "priority_actions":
                 self.priority_actions(
-                    analytics_data,
-                    health_data
+                    analytics_data
                 ),
 
             "thirty_day_action_plan":
-                self.thirty_day_action_plan(
-                    analytics_data,
-                    health_data
-                ),
+                self.thirty_day_action_plan(),
 
             "ninety_day_business_strategy":
-                self.ninety_day_business_strategy(
-                    analytics_data,
-                    health_data
-                ),
+                self.ninety_day_business_strategy(),
 
             "executive_decision_support":
                 self.executive_decision_support(
-                    analytics_data,
                     health_data
                 ),
 
             "financial_risk_analysis":
                 self.financial_risk_analysis(
-                    analytics_data,
-                    health_data
+                    analytics_data
                 ),
 
             "reputation_analysis":
                 self.reputation_analysis(
-                    analytics_data,
-                    health_data
+                    analytics_data
                 ),
 
             "customer_loyalty_analysis":
                 self.customer_loyalty_analysis(
-                    analytics_data,
-                    health_data
+                    analytics_data
                 ),
 
             "operational_efficiency_analysis":
                 self.operational_efficiency_analysis(
-                    analytics_data,
-                    health_data
+                    analytics_data
                 )
 
         }
-
-        return insights
 
     # =====================================================
     # BUSINESS HEALTH ENGINE
@@ -194,26 +144,34 @@ class AIInsightService:
 
     def calculate_business_health(self, data):
 
-        rating = data.get("average_rating", 0)
-
-        positive = data.get(
-            "positive_review_percentage",
-            0
+        rating = float(
+            data.get("average_rating", 0)
         )
 
-        negative = data.get(
-            "negative_review_percentage",
-            0
+        positive = float(
+            data.get(
+                "positive_review_percentage",
+                0
+            )
         )
 
-        reputation = data.get(
-            "reputation_score",
-            50
+        negative = float(
+            data.get(
+                "negative_review_percentage",
+                0
+            )
         )
 
-        # ================================================
-        # WEIGHTED EXECUTIVE SCORING
-        # ================================================
+        reputation = float(
+            data.get(
+                "reputation_score",
+                50
+            )
+        )
+
+        # =================================================
+        # REALISTIC KPI SCORING
+        # =================================================
 
         score = (
 
@@ -225,24 +183,24 @@ class AIInsightService:
 
             (negative / 100) * 15
 
-        ) * 100
+        )
 
         score = round(
             max(0, min(100, score)),
             2
         )
 
-        # ================================================
+        # =================================================
         # STATUS CLASSIFICATION
-        # ================================================
+        # =================================================
 
-        if score >= 90:
+        if score >= 85:
             status = "Elite"
 
-        elif score >= 75:
+        elif score >= 70:
             status = "Strong"
 
-        elif score >= 60:
+        elif score >= 55:
             status = "Stable"
 
         elif score >= 40:
@@ -251,21 +209,33 @@ class AIInsightService:
         else:
             status = "Critical"
 
-        # ================================================
-        # URGENCY LEVEL
-        # ================================================
+        # =================================================
+        # OPERATIONAL URGENCY
+        # =================================================
 
         if negative >= 45:
-            urgency = "Immediate Executive Attention Required"
+
+            urgency = (
+                "Immediate Executive Attention Required"
+            )
 
         elif negative >= 30:
-            urgency = "High Operational Risk"
+
+            urgency = (
+                "High Operational Risk"
+            )
 
         elif negative >= 15:
-            urgency = "Moderate Operational Monitoring"
+
+            urgency = (
+                "Moderate Operational Monitoring"
+            )
 
         else:
-            urgency = "Operationally Stable"
+
+            urgency = (
+                "Operationally Stable"
+            )
 
         return {
 
@@ -287,7 +257,10 @@ class AIInsightService:
         health
     ):
 
-        rating = data.get("average_rating", 0)
+        rating = data.get(
+            "average_rating",
+            0
+        )
 
         positive = data.get(
             "positive_review_percentage",
@@ -305,36 +278,58 @@ class AIInsightService:
 
         urgency = health["urgency"]
 
-        # ================================================
-        # CONTRADICTION PREVENTION
-        # ================================================
+        # =================================================
+        # CRITICAL BUSINESS CONDITION
+        # =================================================
 
-        if negative > positive:
+        if rating < 3 or negative > positive:
 
             summary = f"""
-            Executive intelligence analysis indicates elevated customer dissatisfaction trends impacting overall brand perception and operational stability.
+            Executive intelligence analysis indicates elevated customer dissatisfaction trends impacting operational consistency, customer trust, and long-term brand perception.
 
             The organization currently maintains a business health score of {score}% with an average customer rating of {rating}/5.
 
-            Negative customer sentiment ({negative}%) currently exceeds positive sentiment ({positive}%), indicating measurable operational and reputation management challenges.
+            Negative customer sentiment ({negative}%) currently exceeds positive sentiment ({positive}%), indicating measurable operational and customer experience challenges.
 
             Current business classification is '{status}' with operational urgency level categorized as '{urgency}'.
 
-            Strategic intervention is recommended to stabilize customer satisfaction, reduce operational friction, and strengthen long-term customer retention performance.
+            Immediate operational optimization, customer satisfaction recovery initiatives, and service quality improvements are recommended to stabilize business performance and strengthen customer retention.
             """
+
+        # =================================================
+        # MODERATE PERFORMANCE
+        # =================================================
+
+        elif rating >= 3 and rating < 4.2:
+
+            summary = f"""
+            Executive intelligence analysis indicates moderately stable operational performance supported by balanced customer engagement indicators.
+
+            The organization currently maintains a business health score of {score}% with an average customer rating of {rating}/5.
+
+            Customer sentiment indicators suggest moderate operational consistency with opportunities for customer experience enhancement and retention optimization.
+
+            Current business classification is '{status}' with operational urgency level categorized as '{urgency}'.
+
+            Continued operational refinement and customer engagement initiatives are recommended to improve market competitiveness and long-term business scalability.
+            """
+
+        # =================================================
+        # STRONG PERFORMANCE
+        # =================================================
 
         else:
 
             summary = f"""
-            Executive intelligence analysis indicates generally stable business performance supported by moderate customer satisfaction and operational consistency.
+            Executive intelligence analysis indicates strong operational performance supported by healthy customer satisfaction and positive brand engagement indicators.
 
             The organization currently maintains a business health score of {score}% with an average customer rating of {rating}/5.
 
-            Positive customer sentiment remains higher than negative sentiment, supporting relatively stable market perception and customer engagement indicators.
+            Positive customer sentiment remains significantly higher than negative sentiment, supporting strong market positioning and customer trust performance.
 
             Current business classification is '{status}' with operational urgency level categorized as '{urgency}'.
 
-            Continued operational optimization and customer experience enhancement initiatives are recommended to strengthen long-term scalability and brand competitiveness.
+            Strategic scaling opportunities and continued customer experience optimization initiatives are recommended to strengthen long-term market leadership.
             """
 
         return summary.strip()
@@ -370,13 +365,13 @@ class AIInsightService:
         if positive >= 70:
 
             strengths.append(
-                "Strong positive customer sentiment indicates resilient customer trust."
+                "Strong positive customer sentiment supports resilient customer trust indicators."
             )
 
-        if health["score"] >= 80:
+        if health["score"] >= 75:
 
             strengths.append(
-                "Operational and reputation indicators support long-term market competitiveness."
+                "Operational and reputation indicators support stable market competitiveness."
             )
 
         top_points = data.get(
@@ -393,7 +388,7 @@ class AIInsightService:
         if not strengths:
 
             strengths.append(
-                "Current operational performance indicates limited strategic strengths requiring management optimization focus."
+                "Current operational performance indicates limited strategic strengths requiring management optimization."
             )
 
         return strengths
@@ -429,7 +424,7 @@ class AIInsightService:
         if rating < 3:
 
             issues.append(
-                "Customer satisfaction levels are significantly below competitive market expectations."
+                "Customer satisfaction levels remain significantly below competitive market expectations."
             )
 
         if health["status"] in [
@@ -485,13 +480,13 @@ class AIInsightService:
         if positive >= 70:
 
             insights.append(
-                "Customers demonstrate strong trust, loyalty, and positive brand engagement behavior."
+                "Customers demonstrate strong trust, loyalty, and positive engagement behavior."
             )
 
         if negative >= 25:
 
             insights.append(
-                "Customer frustration indicators are increasing and may negatively impact retention rates."
+                "Customer frustration indicators are increasing and may negatively impact retention performance."
             )
 
         if negative > positive:
@@ -501,11 +496,11 @@ class AIInsightService:
             )
 
         insights.append(
-            "Customer purchasing and loyalty behavior is highly influenced by operational consistency and response efficiency."
+            "Customer retention performance is highly influenced by operational consistency and response efficiency."
         )
 
         insights.append(
-            "Online review sentiment is directly impacting brand trust, acquisition efficiency, and market perception."
+            "Online review sentiment is directly influencing customer acquisition and market trust."
         )
 
         return insights
@@ -534,19 +529,19 @@ class AIInsightService:
             )
 
         opportunities.append(
-            "Operational optimization initiatives can significantly improve customer retention performance."
+            "Operational optimization initiatives can improve customer retention performance."
         )
 
         opportunities.append(
-            "Positive customer feedback can be leveraged in high-conversion digital marketing campaigns."
+            "Customer feedback analytics can strengthen strategic decision-making and service quality improvement."
         )
 
         opportunities.append(
-            "AI-driven customer intelligence systems can improve operational forecasting and proactive issue detection."
+            "AI-driven sentiment intelligence can improve operational forecasting and issue prevention."
         )
 
         opportunities.append(
-            "Customer loyalty programs can strengthen retention and lifetime customer value growth."
+            "Customer loyalty initiatives can strengthen repeat business and lifetime customer value."
         )
 
         return opportunities
@@ -568,10 +563,21 @@ class AIInsightService:
             0
         )
 
+        rating = data.get(
+            "average_rating",
+            0
+        )
+
         if negative >= 35:
 
             risks.append(
                 "High negative sentiment concentration may accelerate customer churn and reputation deterioration."
+            )
+
+        if rating < 3:
+
+            risks.append(
+                "Low customer satisfaction levels may negatively impact brand trust and retention performance."
             )
 
         risks.append(
@@ -589,22 +595,18 @@ class AIInsightService:
         return risks
 
     # =====================================================
-    # MANAGEMENT RECOMMENDATIONS
+    # STATIC STRATEGIC FUNCTIONS
     # =====================================================
 
-    def management_recommendations(
-        self,
-        data,
-        health
-    ):
+    def management_recommendations(self):
 
         return [
 
             "Implement executive-level customer experience monitoring systems.",
 
-            "Establish a centralized customer complaint escalation framework.",
+            "Establish centralized complaint escalation frameworks.",
 
-            "Deploy operational KPI dashboards for real-time performance tracking.",
+            "Deploy operational KPI dashboards for real-time performance monitoring.",
 
             "Conduct weekly executive sentiment review sessions.",
 
@@ -612,39 +614,23 @@ class AIInsightService:
 
         ]
 
-    # =====================================================
-    # STAFF IMPROVEMENT PLAN
-    # =====================================================
-
-    def staff_improvement_plan(
-        self,
-        data,
-        health
-    ):
+    def staff_improvement_plan(self):
 
         return [
 
             "Conduct advanced customer experience training programs.",
 
-            "Implement response-time performance accountability metrics.",
+            "Implement response-time accountability metrics.",
 
-            "Strengthen employee communication and escalation handling procedures.",
+            "Strengthen escalation handling procedures.",
 
             "Introduce customer interaction quality assurance monitoring.",
 
-            "Deploy structured operational SOP compliance systems."
+            "Deploy SOP compliance monitoring systems."
 
         ]
 
-    # =====================================================
-    # CUSTOMER RETENTION STRATEGY
-    # =====================================================
-
-    def customer_retention_strategy(
-        self,
-        data,
-        health
-    ):
+    def customer_retention_strategy(self):
 
         return [
 
@@ -660,49 +646,33 @@ class AIInsightService:
 
         ]
 
-    # =====================================================
-    # MARKETING RECOMMENDATIONS
-    # =====================================================
-
-    def marketing_recommendations(
-        self,
-        data,
-        health
-    ):
+    def marketing_recommendations(self):
 
         return [
 
-            "Leverage positive customer experiences in brand positioning campaigns.",
+            "Leverage positive customer experiences in marketing campaigns.",
 
-            "Strengthen local SEO and reputation management strategies.",
+            "Strengthen local SEO and reputation management initiatives.",
 
-            "Deploy customer testimonial-driven advertising initiatives.",
+            "Increase customer testimonial-driven advertising.",
 
-            "Increase digital reputation visibility through review optimization.",
+            "Improve online reputation visibility through review optimization.",
 
-            "Use sentiment analytics to guide campaign messaging strategies."
+            "Use sentiment intelligence to guide marketing messaging."
 
         ]
 
-    # =====================================================
-    # REVENUE GROWTH STRATEGY
-    # =====================================================
-
-    def revenue_growth_strategy(
-        self,
-        data,
-        health
-    ):
+    def revenue_growth_strategy(self):
 
         return [
 
             "Improve operational efficiency to strengthen profit margins.",
 
-            "Increase customer lifetime value through loyalty optimization.",
+            "Increase customer lifetime value through retention optimization.",
 
-            "Leverage reputation-driven marketing to improve acquisition conversion.",
+            "Leverage reputation-driven marketing for customer acquisition.",
 
-            "Expand premium service offerings for high-value customer segments.",
+            "Expand premium service offerings for high-value segments.",
 
             "Reduce customer churn through proactive sentiment management."
 
@@ -714,22 +684,21 @@ class AIInsightService:
 
     def competitive_position(
         self,
-        data,
         health
     ):
 
         score = health["score"]
 
-        if score >= 90:
+        if score >= 85:
             return "Market Leader"
 
-        if score >= 75:
+        elif score >= 70:
             return "Strong Competitive Position"
 
-        if score >= 60:
+        elif score >= 55:
             return "Moderately Competitive"
 
-        if score >= 40:
+        elif score >= 40:
             return "Operationally Vulnerable"
 
         return "Weak Competitive Position"
@@ -740,8 +709,7 @@ class AIInsightService:
 
     def priority_actions(
         self,
-        data,
-        health
+        data
     ):
 
         actions = []
@@ -776,54 +744,50 @@ class AIInsightService:
         return actions
 
     # =====================================================
-    # 30 DAY ACTION PLAN
+    # 30 DAY PLAN
     # =====================================================
 
-    def thirty_day_action_plan(
-        self,
-        data,
-        health
-    ):
+    def thirty_day_action_plan(self):
 
         return {
 
             "Week 1": [
 
-                "Audit operational complaints and customer dissatisfaction patterns.",
+                "Audit customer dissatisfaction patterns.",
 
-                "Identify highest-risk operational bottlenecks.",
+                "Identify operational bottlenecks.",
 
-                "Analyze recurring negative review themes."
+                "Analyze recurring complaint themes."
 
             ],
 
             "Week 2": [
 
-                "Implement operational escalation and response SOPs.",
+                "Implement escalation SOPs.",
 
-                "Conduct advanced staff training initiatives.",
+                "Conduct staff training.",
 
-                "Improve customer communication workflows."
+                "Improve communication workflows."
 
             ],
 
             "Week 3": [
 
-                "Launch customer satisfaction recovery campaigns.",
+                "Launch customer recovery campaigns.",
 
-                "Strengthen reputation management processes.",
+                "Strengthen reputation management.",
 
-                "Monitor KPI stabilization metrics."
+                "Monitor KPI stabilization."
 
             ],
 
             "Week 4": [
 
-                "Evaluate operational performance improvements.",
+                "Evaluate operational improvements.",
 
-                "Prepare executive operational intelligence report.",
+                "Prepare executive performance report.",
 
-                "Adjust business strategy based on updated analytics."
+                "Adjust business strategy."
 
             ]
 
@@ -833,11 +797,7 @@ class AIInsightService:
     # 90 DAY STRATEGY
     # =====================================================
 
-    def ninety_day_business_strategy(
-        self,
-        data,
-        health
-    ):
+    def ninety_day_business_strategy(self):
 
         return {
 
@@ -848,7 +808,7 @@ class AIInsightService:
                 "Customer experience enhancement and retention optimization.",
 
             "Month 3":
-                "Brand strengthening, scalability improvement, and revenue optimization."
+                "Brand strengthening and scalable growth optimization."
 
         }
 
@@ -858,7 +818,6 @@ class AIInsightService:
 
     def executive_decision_support(
         self,
-        data,
         health
     ):
 
@@ -867,23 +826,23 @@ class AIInsightService:
         if score >= 85:
 
             return (
-                "Business performance indicators support strategic scaling, premium market expansion, and leadership positioning initiatives."
+                "Business indicators support strategic scaling and premium market positioning opportunities."
             )
 
-        if score >= 70:
+        elif score >= 70:
 
             return (
-                "Business performance remains operationally stable but requires continued customer experience optimization to strengthen long-term competitiveness."
+                "Business performance remains operationally stable but requires continued optimization."
             )
 
-        if score >= 40:
+        elif score >= 40:
 
             return (
-                "Operational risk indicators suggest immediate management attention is required to stabilize customer satisfaction and brand trust performance."
+                "Operational risk indicators require immediate management attention to stabilize customer satisfaction."
             )
 
         return (
-            "Critical operational intervention is recommended to reduce customer dissatisfaction, protect brand reputation, and prevent retention deterioration."
+            "Critical operational intervention is required to reduce customer dissatisfaction and protect brand reputation."
         )
 
     # =====================================================
@@ -892,8 +851,7 @@ class AIInsightService:
 
     def financial_risk_analysis(
         self,
-        data,
-        health
+        data
     ):
 
         negative = data.get(
@@ -901,14 +859,14 @@ class AIInsightService:
             0
         )
 
-        if negative >= 40:
+        if negative >= 30:
 
             return (
-                "Current negative sentiment concentration presents elevated revenue retention risk and potential customer acquisition inefficiencies."
+                "Current negative sentiment concentration presents elevated customer retention and revenue risk exposure."
             )
 
         return (
-            "Financial risk indicators remain operationally manageable under current customer sentiment conditions."
+            "Financial risk indicators remain operationally manageable under current sentiment conditions."
         )
 
     # =====================================================
@@ -917,8 +875,7 @@ class AIInsightService:
 
     def reputation_analysis(
         self,
-        data,
-        health
+        data
     ):
 
         reputation = data.get(
@@ -932,10 +889,10 @@ class AIInsightService:
                 "Brand reputation performance remains commercially strong with healthy customer trust indicators."
             )
 
-        if reputation >= 60:
+        elif reputation >= 60:
 
             return (
-                "Brand reputation remains moderately stable but requires continuous sentiment monitoring."
+                "Brand reputation remains moderately stable but requires continuous monitoring."
             )
 
         return (
@@ -948,12 +905,16 @@ class AIInsightService:
 
     def customer_loyalty_analysis(
         self,
-        data,
-        health
+        data
     ):
 
         positive = data.get(
             "positive_review_percentage",
+            0
+        )
+
+        negative = data.get(
+            "negative_review_percentage",
             0
         )
 
@@ -963,8 +924,14 @@ class AIInsightService:
                 "Customer loyalty indicators remain strong with healthy trust and engagement behavior."
             )
 
+        elif negative > positive:
+
+            return (
+                "Customer loyalty indicators are currently under pressure due to elevated negative customer experience concentration."
+            )
+
         return (
-            "Customer loyalty performance may weaken without operational consistency improvements."
+            "Customer loyalty performance remains moderately stable with opportunities for retention improvement."
         )
 
     # =====================================================
@@ -973,8 +940,7 @@ class AIInsightService:
 
     def operational_efficiency_analysis(
         self,
-        data,
-        health
+        data
     ):
 
         negative = data.get(
