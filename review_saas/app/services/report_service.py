@@ -14,6 +14,10 @@ import logging
 from datetime import datetime
 from typing import Dict, Any
 
+import matplotlib
+
+matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 
 import plotly.graph_objects as go
