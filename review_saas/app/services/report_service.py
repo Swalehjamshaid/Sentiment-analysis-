@@ -1,7 +1,7 @@
 # ==========================================================
 # FILE: app/services/report_service.py
-# TRUSTLYTICS AI — WORLD-CLASS EXECUTIVE REPORT ENGINE
-# MAY 2026 ENTERPRISE PRODUCTION VERSION
+# TRUSTLYTICS AI — CLEAN ENTERPRISE REPORT SERVICE
+# RAILWAY SAFE VERSION
 # ==========================================================
 
 from __future__ import annotations
@@ -52,7 +52,9 @@ class ReportService:
         )
 
         os.makedirs(
+
             self.output_dir,
+
             exist_ok=True
         )
 
@@ -85,11 +87,11 @@ class ReportService:
         )
 
         logger.info(
-            f"🚀 GENERATING EXECUTIVE REPORT => {company_id}"
+            f"🚀 GENERATING REPORT => {company_id}"
         )
 
         # ==================================================
-        # FETCH COMPANY
+        # COMPANY
         # ==================================================
 
         company_result = await session.execute(
@@ -110,7 +112,7 @@ class ReportService:
             )
 
         # ==================================================
-        # FETCH REVIEWS
+        # REVIEWS
         # ==================================================
 
         review_result = await session.execute(
@@ -135,7 +137,7 @@ class ReportService:
         )
 
         # ==================================================
-        # ANALYTICS ENGINE
+        # ANALYTICS
         # ==================================================
 
         analytics = self._calculate_analytics(
@@ -147,7 +149,7 @@ class ReportService:
         )
 
         # ==================================================
-        # VALIDATION ENGINE
+        # VALIDATION
         # ==================================================
 
         validation = self._validate_report_logic(
@@ -155,7 +157,7 @@ class ReportService:
         )
 
         logger.info(
-            "✅ VALIDATION COMPLETE"
+            "✅ VALIDATION GENERATED"
         )
 
         # ==================================================
@@ -193,7 +195,7 @@ class ReportService:
         )
 
         # ==================================================
-        # CHART ENGINE
+        # CHARTS
         # ==================================================
 
         charts = self._generate_plotly_charts(
@@ -215,11 +217,11 @@ class ReportService:
         )
 
         logger.info(
-            "✅ WORDCLOUD GENERATED"
+            "✅ WORD CLOUD GENERATED"
         )
 
         # ==================================================
-        # HTML REPORT
+        # HTML
         # ==================================================
 
         html_content = self._render_html_report(
@@ -255,7 +257,6 @@ class ReportService:
         )
 
         pdf_filename = (
-
             f"Executive_Report_{safe_name}.pdf"
         )
 
@@ -267,7 +268,7 @@ class ReportService:
         )
 
         # ==================================================
-        # GENERATE PDF
+        # PDF GENERATION
         # ==================================================
 
         HTML(
@@ -409,12 +410,22 @@ class ReportService:
 
             retention_risk = "Low"
 
+        # ==================================================
+        # REVIEW TEXT
+        # IMPORTANT:
+        # Replace r.content with your actual field
+        # ==================================================
+
         review_text = " ".join([
 
-            str(r.review_text or "")
+            str(getattr(r, "content", "") or "")
 
             for r in reviews
         ])
+
+        # ==================================================
+        # TOP ISSUES
+        # ==================================================
 
         top_issues = [
 
@@ -699,7 +710,7 @@ class ReportService:
 
         text = " ".join([
 
-            str(r.review_text or "")
+            str(getattr(r, "content", "") or "")
 
             for r in reviews
         ])
@@ -748,7 +759,7 @@ class ReportService:
         ).decode()
 
     # ======================================================
-    # HTML REPORT RENDERER
+    # HTML RENDERER
     # ======================================================
 
     def _render_html_report(
