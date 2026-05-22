@@ -651,17 +651,35 @@ for route_name in ROUTES:
         )
 
         # ==================================================
-        # INCLUDE ROUTER DIRECTLY
-        # ==================================================
-        # IMPORTANT:
-        # All routers already contain their own prefixes
-        # Example:
-        # /api/chatbot
-        # /api/reports
-        # /api/reviews
+        # SMART PREFIX DETECTION
         # ==================================================
 
-        app.include_router(router)
+        existing_prefix = getattr(
+            router,
+            "prefix",
+            ""
+        )
+
+        # ==================================================
+        # ROUTER ALREADY HAS /api
+        # ==================================================
+
+        if existing_prefix.startswith("/api"):
+
+            app.include_router(router)
+
+        # ==================================================
+        # ROUTER DOES NOT HAVE /api
+        # ==================================================
+
+        else:
+
+            app.include_router(
+
+                router,
+
+                prefix="/api"
+            )
 
         print(
             f"✅ {route_name.upper()} ROUTER REGISTERED"
