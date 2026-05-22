@@ -203,6 +203,6 @@ httpcore==1.0.5
 anyio==4.6.0
 sniffio==1.3.1
 camoufox
+groq
+httpx
 
-groq>=0.9.0
-httpx>=0.25.2,<0.28.0
