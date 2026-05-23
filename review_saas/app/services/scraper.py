@@ -1,19 +1,31 @@
 # ==========================================================
 # FILE: app/services/scraper.py
-# REVIEW INTEL AI — STABLE 5 LAYER ENGINE
-# RAILWAY SAFE ENTERPRISE VERSION
+# REVIEW INTEL AI — 5 LAYER ENTERPRISE ENGINE
+# FINAL STABLE PRODUCTION VERSION
 # MAY 2026
 #
 # ==========================================================
-# FIXED:
-# ✅ TENACITY LOOP CRASH
-# ✅ BACKGROUND TASK COLLISION
-# ✅ DUPLICATE REVIEW ISSUE
+# LAYER 1 → SERPAPI TRUE NEW REVIEW ENGINE
+# LAYER 2 → PLAYWRIGHT ROTATION ENGINE
+# LAYER 3 → REQUESTS + BS4 ROTATION ENGINE
+# LAYER 4 → MICRO HARVEST ENGINE
+# LAYER 5 → CONTINUOUS INTELLIGENCE ENGINE
+#
+# ==========================================================
+# FEATURES
+# ==========================================================
 # ✅ TRUE NEXT 100 REVIEWS
+# ✅ DATE-WISE EXTRACTION
+# ✅ CONTINUOUS BACKGROUND HARVESTING
+# ✅ ROTATING PROXY SESSIONS
+# ✅ USER AGENT ROTATION
+# ✅ PLAYWRIGHT STEALTH
+# ✅ GOOGLE BLOCK DETECTION
+# ✅ DUPLICATE PREVENTION
 # ✅ CONTINUOUS HARVESTING
-# ✅ ROTATING PROXIES
-# ✅ RAILWAY MEMORY STABILITY
+# ✅ DASHBOARD INSTANT RESPONSE
 # ✅ SELF HEALING ENGINE
+# ✅ RAILWAY SAFE
 # ==========================================================
 
 import os
@@ -60,7 +72,7 @@ logger = logging.getLogger(
 )
 
 # ==========================================================
-# ENV VARIABLES
+# ENV
 # ==========================================================
 
 SERPAPI_API_KEY = os.getenv(
@@ -91,14 +103,14 @@ MAX_SCROLLS = 4
 
 REQUEST_TIMEOUT = 120
 
-BACKGROUND_SLEEP_MIN = 20
+BACKGROUND_SLEEP_MIN = 15
 
-BACKGROUND_SLEEP_MAX = 60
+BACKGROUND_SLEEP_MAX = 45
 
 MICRO_TARGET = 10
 
 # ==========================================================
-# PROXY ROTATION
+# ROTATING PROXY
 # ==========================================================
 
 def get_proxy():
@@ -600,6 +612,8 @@ async def extract_reviews_from_page(
 
                 seen.add(review_id)
 
+                existing_ids.add(review_id)
+
                 reviews.append({
 
                     "review_id":
@@ -645,7 +659,7 @@ async def extract_reviews_from_page(
         return []
 
 # ==========================================================
-# LAYER 1 — SERPAPI ENGINE
+# LAYER 1 — TRUE NEW REVIEW ENGINE
 # ==========================================================
 
 def serpapi_seed_reviews(
@@ -660,7 +674,7 @@ def serpapi_seed_reviews(
 ):
 
     logger.info(
-        "🚀 LAYER 1 => SERPAPI"
+        "🚀 LAYER 1 => TRUE NEW REVIEW ENGINE"
     )
 
     reviews = []
@@ -673,7 +687,17 @@ def serpapi_seed_reviews(
 
         next_page_token = None
 
-        while len(reviews) < target_limit:
+        true_new_reviews = 0
+
+        page_number = 0
+
+        while true_new_reviews < target_limit:
+
+            page_number += 1
+
+            logger.info(
+                f"📄 SERPAPI PAGE => {page_number}"
+            )
 
             params = {
 
@@ -718,7 +742,16 @@ def serpapi_seed_reviews(
             )
 
             if not api_reviews:
+
+                logger.info(
+                    "✅ NO MORE REVIEWS"
+                )
+
                 break
+
+            added_this_page = 0
+
+            skipped_duplicates = 0
 
             for review in api_reviews:
 
@@ -763,13 +796,25 @@ def serpapi_seed_reviews(
                         text
                     )
 
+                    # ======================================
+                    # DUPLICATE PROTECTION
+                    # ======================================
+
                     if review_id in seen:
+
+                        skipped_duplicates += 1
+
                         continue
 
                     if review_id in existing_ids:
+
+                        skipped_duplicates += 1
+
                         continue
 
                     seen.add(review_id)
+
+                    existing_ids.add(review_id)
 
                     reviews.append({
 
@@ -801,12 +846,32 @@ def serpapi_seed_reviews(
                             "serpapi"
                     })
 
+                    true_new_reviews += 1
+
+                    added_this_page += 1
+
                 except:
                     continue
 
             logger.info(
-                f"✅ SERPAPI UNIQUE => {len(reviews)}"
+                f"✅ PAGE NEW REVIEWS => {added_this_page}"
             )
+
+            logger.info(
+                f"⛔ DUPLICATES SKIPPED => {skipped_duplicates}"
+            )
+
+            logger.info(
+                f"✅ TOTAL TRUE NEW REVIEWS => {true_new_reviews}"
+            )
+
+            if true_new_reviews >= target_limit:
+
+                logger.info(
+                    "✅ TARGET REACHED"
+                )
+
+                break
 
             next_page_token = (
 
@@ -819,6 +884,11 @@ def serpapi_seed_reviews(
             )
 
             if not next_page_token:
+
+                logger.info(
+                    "✅ NO NEXT PAGE TOKEN"
+                )
+
                 break
 
             time.sleep(
@@ -836,7 +906,7 @@ def serpapi_seed_reviews(
         return []
 
 # ==========================================================
-# LAYER 2 — PLAYWRIGHT ENGINE
+# LAYER 2 — PLAYWRIGHT ROTATION ENGINE
 # ==========================================================
 
 @retry(
@@ -1010,7 +1080,7 @@ async def playwright_rotation_engine(
             pass
 
 # ==========================================================
-# LAYER 3 — REQUESTS ENGINE
+# LAYER 3 — REQUESTS + BS4 ENGINE
 # ==========================================================
 
 def requests_rotation_engine(place_id):
@@ -1200,10 +1270,14 @@ async def scrape_google_reviews(
 ):
 
     logger.info(
-        "🚀 STABLE 5 LAYER ENGINE STARTED"
+        "🚀 5 LAYER ENGINE STARTED"
     )
 
     try:
+
+        # ==================================================
+        # LOAD ALL EXISTING IDS
+        # ==================================================
 
         existing_review_ids = await load_existing_review_ids(
 
@@ -1212,8 +1286,12 @@ async def scrape_google_reviews(
             company_id=company_id
         )
 
+        logger.info(
+            f"✅ EXISTING DB REVIEWS => {len(existing_review_ids)}"
+        )
+
         # ==================================================
-        # LAYER 1 — FAST INITIAL REVIEWS
+        # LAYER 1 — TRUE NEW REVIEW ENGINE
         # ==================================================
 
         reviews = await asyncio.to_thread(
@@ -1230,7 +1308,7 @@ async def scrape_google_reviews(
         )
 
         # ==================================================
-        # SAVE INITIAL REVIEWS
+        # SAVE TRUE NEW REVIEWS
         # ==================================================
 
         await save_reviews_to_database(
@@ -1241,6 +1319,10 @@ async def scrape_google_reviews(
 
             reviews=reviews
         )
+
+        # ==================================================
+        # UPDATE MEMORY
+        # ==================================================
 
         harvested_ids = {
 
@@ -1253,7 +1335,7 @@ async def scrape_google_reviews(
         )
 
         # ==================================================
-        # START BACKGROUND ENGINE
+        # START CONTINUOUS ENGINE
         # ==================================================
 
         task = asyncio.create_task(
@@ -1277,7 +1359,7 @@ async def scrape_google_reviews(
         )
 
         logger.info(
-            f"✅ INITIAL REVIEWS => {len(reviews)}"
+            "✅ FRONTEND SUCCESS RESPONSE SENT"
         )
 
         return {
@@ -1285,7 +1367,13 @@ async def scrape_google_reviews(
             "success": True,
 
             "message":
-                f"{len(reviews)} NEW REVIEWS ADDED",
+                f"{len(reviews)} TRUE NEW REVIEWS ADDED",
+
+            "new_reviews_added":
+                len(reviews),
+
+            "continuous_engine":
+                True,
 
             "reviews":
                 reviews[:target_limit]
@@ -1307,6 +1395,10 @@ async def scrape_google_reviews(
 
             "message":
                 "SCRAPER FAILED",
+
+            "new_reviews_added": 0,
+
+            "continuous_engine": False,
 
             "reviews": []
         }
