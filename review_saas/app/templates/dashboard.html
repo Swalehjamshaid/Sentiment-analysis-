@@ -603,6 +603,15 @@ body {
                 <h6>SENTIMENT</h6>
 
                 <h1 id="sentimentScore">0%</h1>
+                <div class="card-icon">
+
+    <i class="bi bi-activity"></i>
+
+</div>
+
+</div>
+
+</div>
 <div class="col-lg-3 col-md-6">
 
     <div class="card-box card-blue">
@@ -1189,9 +1198,9 @@ async function loadRecentReviews(companyId) {
 
     try {
 
-        const response = await fetch(
-            /api/reviews/company/${companyId}`
-        );
+       const response = await fetch(
+    `/api/reviews/company/${companyId}`
+);
 
         const responseData =
             await response.json();
