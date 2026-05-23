@@ -1086,6 +1086,51 @@ async function loadDashboardMetrics() {
             'sentimentScore'
         ).innerText =
             `${kpis.customer_satisfaction || 0}%`;
+        // =====================================================
+// ADVANCED AI KPI CARDS
+// =====================================================
+
+document.getElementById(
+    'businessHealthScore'
+).innerText =
+    `${kpis.business_health_score || 0}%`;
+
+document.getElementById(
+    'executiveRisk'
+).innerText =
+    kpis.executive_risk || "Moderate";
+
+document.getElementById(
+    'predictedRating'
+).innerText =
+    kpis.predicted_rating || 0;
+
+document.getElementById(
+    'forecastReviews'
+).innerText =
+    kpis.forecast_reviews || 0;
+
+// =====================================================
+// AI EXECUTIVE SUMMARY
+// =====================================================
+
+document.getElementById(
+    'executiveSummary'
+).innerHTML =
+    data.executive_summary ||
+    `
+    <div class="alert alert-info rounded-4">
+
+        <h5>AI Executive Insights</h5>
+
+        <hr>
+
+        <p>
+        AI analysis is preparing business intelligence insights.
+        </p>
+
+    </div>
+    `;
 
         renderCharts(data);
 
