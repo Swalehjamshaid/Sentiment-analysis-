@@ -1,6 +1,6 @@
 # ==========================================================
 # FILE: app/routes/dashboard.py
-# TRUSTLYTICS AI — FRONTEND INTEGRATED VERSION
+# REVIEW INTEL AI — ENTERPRISE EXECUTIVE VERSION
 # FULLY COMPATIBLE WITH dashboard.html
 # ==========================================================
 
@@ -51,10 +51,6 @@ logger = logging.getLogger(__name__)
 
 # ==========================================================
 # ROUTER
-# IMPORTANT:
-# main.py already adds "/api"
-# FINAL URL:
-# /api/dashboard/{company_id}
 # ==========================================================
 
 router = APIRouter(
@@ -115,7 +111,7 @@ def calculate_sentiment(avg_rating):
 
 async def get_reviews_from_db(
     company_id: int,
-    limit: int = 2000
+    limit: int = 5000
 ):
 
     async with AsyncSessionLocal() as db:
@@ -143,8 +139,6 @@ async def get_reviews_from_db(
 
 # ==========================================================
 # MAIN DASHBOARD API
-# FRONTEND URL:
-# /api/dashboard/{company_id}?days=365
 # ==========================================================
 
 @router.get("/dashboard/{company_id}")
@@ -195,9 +189,18 @@ async def get_dashboard_data(
             try:
 
                 created_at = (
-                    safe_get(review, "google_review_time")
+
+                    safe_get(
+                        review,
+                        "google_review_time"
+                    )
+
                     or
-                    safe_get(review, "created_at")
+
+                    safe_get(
+                        review,
+                        "created_at"
+                    )
                 )
 
                 if not created_at:
@@ -260,7 +263,7 @@ async def get_dashboard_data(
         recent_reviews = 0
 
         # ==================================================
-        # LOOP
+        # PROCESS REVIEWS
         # ==================================================
 
         for review in reviews:
@@ -284,15 +287,24 @@ async def get_dashboard_data(
                     negative_reviews += 1
 
             # ==============================================
-            # MONTH GROUPING
+            # MONTHLY GROUPING
             # ==============================================
 
             try:
 
                 created_at = (
-                    safe_get(review, "google_review_time")
+
+                    safe_get(
+                        review,
+                        "google_review_time"
+                    )
+
                     or
-                    safe_get(review, "created_at")
+
+                    safe_get(
+                        review,
+                        "created_at"
+                    )
                 )
 
                 if not created_at:
@@ -310,7 +322,9 @@ async def get_dashboard_data(
 
                 if dt.tzinfo:
 
-                    dt = dt.replace(tzinfo=None)
+                    dt = dt.replace(
+                        tzinfo=None
+                    )
 
                 month_key = dt.strftime("%Y-%m")
 
@@ -383,7 +397,8 @@ async def get_dashboard_data(
         business_health_score = round(
 
             (
-                reputation_score * 0.5 +
+                reputation_score * 0.5
+                +
                 customer_satisfaction * 0.5
             ),
 
@@ -518,35 +533,120 @@ async def get_dashboard_data(
         # ==================================================
 
         executive_summary = f"""
-Business reputation currently stands at
-{reputation_score}% with an average rating
-of {average_rating}/5.
+Business reputation analysis indicates an
+average customer satisfaction rating of
+{average_rating}/5 across {total_reviews}
+reviews.
 
-Customer satisfaction level is
-{customer_satisfaction}% while
-business health score is
+Current reputation score is
+{reputation_score}% with customer
+satisfaction at {customer_satisfaction}%.
+
+Revenue risk exposure is currently
+{revenue_risk}% while overall business
+health score stands at
 {business_health_score}%.
 
-AI analysis categorizes the current
-executive risk as {executive_risk}.
+AI analysis categorizes executive risk as
+{executive_risk}.
 
-Projected future rating is
-{predicted_future_rating}/5 with expected
-future review volume of
+Forecasting models predict future rating
+stability around {predicted_future_rating}/5
+with expected review growth reaching
 {predicted_next_month_reviews} reviews.
+
+Recommended executive actions:
+
+• Improve customer complaint handling
+• Increase quality monitoring
+• Strengthen customer experience training
+• Focus on reputation recovery campaigns
+• Monitor monthly sentiment changes
+• Improve response time to customer issues
 """
 
         # ==================================================
         # RESPONSE
-        # IMPORTANT:
-        # EXACTLY MATCHES FRONTEND
         # ==================================================
 
         return {
 
             "status": "success",
 
-            "company_id": company_id,
+            "company_id":
+                company_id,
+
+            # ==================================================
+            # FRONTEND KPI COMPATIBILITY
+            # ==================================================
+
+            "total_reviews":
+                total_reviews,
+
+            "average_rating":
+                average_rating,
+
+            "avg_rating":
+                average_rating,
+
+            "negative_reviews":
+                negative_reviews,
+
+            "positive_reviews":
+                positive_reviews,
+
+            "neutral_reviews":
+                neutral_reviews,
+
+            "reputation_score":
+                reputation_score,
+
+            "customer_satisfaction":
+                customer_satisfaction,
+
+            "revenue_risk":
+                revenue_risk,
+
+            "business_health_score":
+                business_health_score,
+
+            "executive_risk":
+                executive_risk,
+
+            "predicted_rating":
+                predicted_future_rating,
+
+            "forecast_reviews":
+                predicted_next_month_reviews,
+
+            "executive_summary":
+                executive_summary,
+
+            # ==================================================
+            # CHARTS
+            # ==================================================
+
+            "month_labels":
+                month_labels,
+
+            "month_values":
+                month_values,
+
+            "monthly_positive":
+                monthly_positive_values,
+
+            "monthly_negative":
+                monthly_negative_values,
+
+            "monthly_average_rating":
+                monthly_average_rating,
+
+            "rating_distribution":
+                rating_distribution,
+
+            # ==================================================
+            # EXISTING STRUCTURE
+            # ==================================================
 
             "kpis": {
 
@@ -658,8 +758,6 @@ future review volume of
 
 # ==========================================================
 # REVIEWS API
-# FRONTEND URL:
-# /api/reviews/company/{company_id}
 # ==========================================================
 
 @router.get("/reviews/company/{company_id}")
@@ -709,8 +807,6 @@ async def get_company_reviews(
                 "rating":
                     rating,
 
-                # IMPORTANT:
-                # FRONTEND EXPECTS "content"
                 "content":
                     safe_get(
                         review,
