@@ -4,17 +4,18 @@
 # MAY 2026 — RAILWAY PRODUCTION VERSION
 #
 # ENGINES:
-# 1. CAMOUFOX
+# 1. CAMOUFOX + PROXY
 # 2. PLAYWRIGHT + STEALTH + PROXY
-# 3. REQUESTS + BS4
+# 3. REQUESTS + BS4 + PROXY
 # 4. SERPAPI FALLBACK
 #
 # FEATURES:
-# ✅ DATAIMPULSE PROXY
+# ✅ DATAIMPULSE PROXY ON ALL ENGINES
+# ✅ DATE RANGE FILTERING
+# ✅ MINIMUM 100 REVIEW LOGIC
+# ✅ REAL GOOGLE REVIEW CARDS
 # ✅ PLAYWRIGHT STEALTH
 # ✅ CAMOUFOX
-# ✅ DATE RANGE FILTERING
-# ✅ REAL GOOGLE REVIEW CARDS
 # ✅ DUPLICATE PROTECTION
 # ✅ SENTIMENT SAFE
 # ✅ RAILWAY SAFE
@@ -30,21 +31,16 @@ import asyncio
 import hashlib
 import logging
 import traceback
+import requests
+
+from bs4 import BeautifulSoup
 
 from datetime import (
     datetime,
     timedelta
 )
 
-from typing import (
-    List,
-    Dict,
-    Any
-)
-
-# ==========================================================
-# RETRIES
-# ==========================================================
+from fake_useragent import UserAgent
 
 from tenacity import (
     retry,
@@ -52,40 +48,17 @@ from tenacity import (
     wait_exponential
 )
 
-# ==========================================================
-# USER AGENT
-# ==========================================================
-
-from fake_useragent import UserAgent
-
-# ==========================================================
-# PLAYWRIGHT
-# ==========================================================
-
 from playwright.async_api import (
-    async_playwright,
-    TimeoutError as PlaywrightTimeout
+    async_playwright
 )
 
-# ==========================================================
-# PLAYWRIGHT STEALTH
-# ==========================================================
+from playwright_stealth import (
+    stealth_async
+)
 
-from playwright_stealth import stealth_async
-
-# ==========================================================
-# CAMOUFOX
-# ==========================================================
-
-from camoufox.async_api import AsyncCamoufox
-
-# ==========================================================
-# REQUESTS / BS4
-# ==========================================================
-
-import requests
-
-from bs4 import BeautifulSoup
+from camoufox.async_api import (
+    AsyncCamoufox
+)
 
 # ==========================================================
 # LOGGER
@@ -121,9 +94,11 @@ PROXY_PASSWORD = os.getenv(
 
 HEADLESS = True
 
-MAX_SCROLLS = 50
+MAX_SCROLLS = 60
 
 REQUEST_TIMEOUT = 120
+
+MINIMUM_REVIEWS = 100
 
 # ==========================================================
 # PROXY CONFIG
@@ -139,6 +114,10 @@ def get_proxy():
             PROXY_PASSWORD
         ):
 
+            logger.info(
+                "✅ DATAIMPULSE PROXY ENABLED"
+            )
+
             return {
 
                 "server":
@@ -149,6 +128,45 @@ def get_proxy():
 
                 "password":
                     PROXY_PASSWORD
+            }
+
+        logger.warning(
+            "⚠️ PROXY ENV VARIABLES MISSING"
+        )
+
+        return None
+
+    except Exception as e:
+
+        logger.warning(
+            f"⚠️ PROXY FAILED => {e}"
+        )
+
+        return None
+
+# ==========================================================
+# REQUESTS PROXY
+# ==========================================================
+
+def get_requests_proxy():
+
+    try:
+
+        if (
+            PROXY_SERVER and
+            PROXY_USERNAME and
+            PROXY_PASSWORD
+        ):
+
+            proxy_url = (
+                f"http://{PROXY_USERNAME}:{PROXY_PASSWORD}@{PROXY_SERVER}"
+            )
+
+            return {
+
+                "http": proxy_url,
+
+                "https": proxy_url
             }
 
         return None
@@ -318,7 +336,10 @@ def passes_date_filter(
         if "day" in lower_date:
 
             num = int(
-                re.search(r"\d+", lower_date).group()
+                re.search(
+                    r"\d+",
+                    lower_date
+                ).group()
             )
 
             actual_date = now - timedelta(days=num)
@@ -326,7 +347,10 @@ def passes_date_filter(
         elif "week" in lower_date:
 
             num = int(
-                re.search(r"\d+", lower_date).group()
+                re.search(
+                    r"\d+",
+                    lower_date
+                ).group()
             )
 
             actual_date = now - timedelta(days=num * 7)
@@ -334,7 +358,10 @@ def passes_date_filter(
         elif "month" in lower_date:
 
             num = int(
-                re.search(r"\d+", lower_date).group()
+                re.search(
+                    r"\d+",
+                    lower_date
+                ).group()
             )
 
             actual_date = now - timedelta(days=num * 30)
@@ -342,7 +369,10 @@ def passes_date_filter(
         elif "year" in lower_date:
 
             num = int(
-                re.search(r"\d+", lower_date).group()
+                re.search(
+                    r"\d+",
+                    lower_date
+                ).group()
             )
 
             actual_date = now - timedelta(days=num * 365)
@@ -358,13 +388,14 @@ def passes_date_filter(
         return True
 
 # ==========================================================
-# EXTRACT REVIEWS FROM PAGE
+# EXTRACT REVIEW CARDS
 # ==========================================================
 
 async def extract_reviews_from_page(
     page,
     target_limit=100,
-    start_date=None
+    start_date=None,
+    source="google_maps"
 ):
 
     reviews = []
@@ -389,10 +420,6 @@ async def extract_reviews_from_page(
 
                 card = cards.nth(i)
 
-                # ==================================================
-                # AUTHOR
-                # ==================================================
-
                 author = "Anonymous"
 
                 try:
@@ -407,10 +434,6 @@ async def extract_reviews_from_page(
 
                 except:
                     pass
-
-                # ==================================================
-                # REVIEW TEXT
-                # ==================================================
 
                 text = ""
 
@@ -430,10 +453,6 @@ async def extract_reviews_from_page(
                 if not text:
                     continue
 
-                # ==================================================
-                # REVIEW DATE
-                # ==================================================
-
                 review_date = ""
 
                 try:
@@ -449,19 +468,11 @@ async def extract_reviews_from_page(
                 except:
                     pass
 
-                # ==================================================
-                # DATE FILTER
-                # ==================================================
-
                 if not passes_date_filter(
                     review_date,
                     start_date
                 ):
                     continue
-
-                # ==================================================
-                # RATING
-                # ==================================================
 
                 rating = 5
 
@@ -487,10 +498,6 @@ async def extract_reviews_from_page(
                 except:
                     pass
 
-                # ==================================================
-                # DUPLICATE CHECK
-                # ==================================================
-
                 review_id = generate_hash(
                     author,
                     text
@@ -500,10 +507,6 @@ async def extract_reviews_from_page(
                     continue
 
                 seen.add(review_id)
-
-                # ==================================================
-                # SAVE REVIEW
-                # ==================================================
 
                 reviews.append({
 
@@ -526,7 +529,7 @@ async def extract_reviews_from_page(
                         0,
 
                     "source":
-                        "google_maps"
+                        source
                 })
 
                 if len(reviews) >= target_limit:
@@ -540,6 +543,10 @@ async def extract_reviews_from_page(
 
                 continue
 
+        logger.info(
+            f"✅ EXTRACTED REVIEWS => {len(reviews)}"
+        )
+
         return [
 
             normalize_review(r)
@@ -550,7 +557,7 @@ async def extract_reviews_from_page(
     except Exception as e:
 
         logger.exception(
-            f"❌ EXTRACT FAILED => {e}"
+            f"❌ EXTRACTION FAILED => {e}"
         )
 
         return []
@@ -571,8 +578,14 @@ async def scrape_with_camoufox(
 
     try:
 
+        proxy = get_proxy()
+
         async with AsyncCamoufox(
-            headless=HEADLESS
+
+            headless=HEADLESS,
+
+            proxy=proxy
+
         ) as browser:
 
             page = await browser.new_page()
@@ -597,10 +610,6 @@ async def scrape_with_camoufox(
 
                 return []
 
-            # ==================================================
-            # OPEN REVIEWS
-            # ==================================================
-
             try:
 
                 review_button = page.locator(
@@ -615,10 +624,6 @@ async def scrape_with_camoufox(
 
             except:
                 pass
-
-            # ==================================================
-            # SCROLL
-            # ==================================================
 
             try:
 
@@ -639,11 +644,18 @@ async def scrape_with_camoufox(
             except:
                 pass
 
-            return await extract_reviews_from_page(
+            reviews = await extract_reviews_from_page(
                 page,
                 target_limit,
-                start_date
+                start_date,
+                "camoufox"
             )
+
+            logger.info(
+                f"✅ CAMOUFOX REVIEWS => {len(reviews)}"
+            )
+
+            return reviews
 
     except Exception as e:
 
@@ -681,7 +693,7 @@ async def scrape_with_playwright(
 
                 slow_mo=50,
 
-                proxy=proxy,
+                proxy=proxy if proxy else None,
 
                 args=[
 
@@ -742,10 +754,6 @@ async def scrape_with_playwright(
 
                 return []
 
-            # ==================================================
-            # OPEN REVIEWS
-            # ==================================================
-
             try:
 
                 review_button = page.locator(
@@ -760,10 +768,6 @@ async def scrape_with_playwright(
 
             except:
                 pass
-
-            # ==================================================
-            # SORT NEWEST
-            # ==================================================
 
             try:
 
@@ -790,10 +794,6 @@ async def scrape_with_playwright(
             except:
                 pass
 
-            # ==================================================
-            # SCROLL
-            # ==================================================
-
             try:
 
                 review_feed = page.locator(
@@ -816,16 +816,17 @@ async def scrape_with_playwright(
             reviews = await extract_reviews_from_page(
                 page,
                 target_limit,
-                start_date
+                start_date,
+                "playwright"
+            )
+
+            logger.info(
+                f"✅ PLAYWRIGHT REVIEWS => {len(reviews)}"
             )
 
             await context.close()
 
             await browser.close()
-
-            logger.info(
-                f"✅ PLAYWRIGHT SUCCESS => {len(reviews)}"
-            )
 
             return reviews
 
@@ -852,7 +853,8 @@ async def scrape_with_playwright(
 # ==========================================================
 
 def scrape_with_requests(
-    place_id
+    place_id,
+    start_date=None
 ):
 
     logger.info(
@@ -871,11 +873,15 @@ def scrape_with_requests(
                 UserAgent().random
         }
 
+        proxies = get_requests_proxy()
+
         response = requests.get(
 
             url,
 
             headers=headers,
+
+            proxies=proxies,
 
             timeout=60
         )
@@ -918,6 +924,10 @@ def scrape_with_requests(
             "source":
                 "requests"
         }]
+
+        logger.warning(
+            f"⚠️ REQUESTS LOW QUALITY FALLBACK => {len(reviews)}"
+        )
 
         return [
 
@@ -964,7 +974,7 @@ def scrape_with_serpapi(
 
         next_page_token = None
 
-        while len(reviews) < target_limit:
+        while len(reviews) < max(target_limit, 100):
 
             params = {
 
@@ -1173,13 +1183,17 @@ async def scrape_google_reviews(
             start_date
         )
 
-        if reviews:
+        if reviews and len(reviews) >= MINIMUM_REVIEWS:
 
             logger.info(
                 f"✅ CAMOUFOX SUCCESS => {len(reviews)}"
             )
 
             return reviews
+
+        logger.warning(
+            f"⚠️ CAMOUFOX LOW COUNT => {len(reviews)}"
+        )
 
         # ==================================================
         # ENGINE 2 => PLAYWRIGHT
@@ -1194,13 +1208,17 @@ async def scrape_google_reviews(
             start_date
         )
 
-        if reviews:
+        if reviews and len(reviews) >= MINIMUM_REVIEWS:
 
             logger.info(
                 f"✅ PLAYWRIGHT SUCCESS => {len(reviews)}"
             )
 
             return reviews
+
+        logger.warning(
+            f"⚠️ PLAYWRIGHT LOW COUNT => {len(reviews)}"
+        )
 
         # ==================================================
         # ENGINE 3 => REQUESTS
@@ -1210,16 +1228,22 @@ async def scrape_google_reviews(
 
             scrape_with_requests,
 
-            place_id
+            place_id,
+
+            start_date
         )
 
-        if reviews:
+        if reviews and len(reviews) >= MINIMUM_REVIEWS:
 
             logger.info(
                 f"✅ REQUESTS SUCCESS => {len(reviews)}"
             )
 
             return reviews
+
+        logger.warning(
+            f"⚠️ REQUESTS LOW COUNT => {len(reviews)}"
+        )
 
         # ==================================================
         # ENGINE 4 => SERPAPI
