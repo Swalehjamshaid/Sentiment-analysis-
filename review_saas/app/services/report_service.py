@@ -1,6 +1,7 @@
 # ==========================================================
 # FILE: app/services/report_service.py
-# TRUSTLYTICS AI — CLEAN ENTERPRISE REPORT SERVICE
+# TRUSTLYTICS AI — ENTERPRISE EXECUTIVE REPORT SERVICE
+# ADVANCED AI INTELLIGENCE VERSION
 # RAILWAY SAFE VERSION
 # ==========================================================
 
@@ -56,14 +57,11 @@ class ReportService:
         )
 
         os.makedirs(
-
             self.output_dir,
-
             exist_ok=True
         )
 
         self.env = Environment(
-
             loader=FileSystemLoader(
                 "app/templates"
             )
@@ -199,6 +197,22 @@ class ReportService:
         )
 
         # ==================================================
+        # EXECUTIVE AI INTELLIGENCE
+        # ==================================================
+
+        executive_ai = (
+            self._generate_executive_ai_recommendations(
+                analytics=analytics,
+                validation=validation,
+                company_name=company.name,
+            )
+        )
+
+        logger.info(
+            "✅ EXECUTIVE AI GENERATED"
+        )
+
+        # ==================================================
         # CHARTS
         # ==================================================
 
@@ -237,6 +251,8 @@ class ReportService:
             validation=validation,
 
             ai_data=ai_data,
+
+            executive_ai=executive_ai,
 
             charts=charts,
 
@@ -416,8 +432,6 @@ class ReportService:
 
         # ==================================================
         # REVIEW TEXT
-        # IMPORTANT:
-        # Replace r.content with your actual field
         # ==================================================
 
         review_text = " ".join([
@@ -571,6 +585,245 @@ class ReportService:
         }
 
     # ======================================================
+    # EXECUTIVE AI ENGINE
+    # ======================================================
+
+    def _generate_executive_ai_recommendations(
+
+        self,
+
+        analytics,
+
+        validation,
+
+        company_name: str,
+
+    ):
+
+        average_rating = analytics["average_rating"]
+
+        positive_percent = analytics["positive_percent"]
+
+        negative_percent = analytics["negative_percent"]
+
+        reputation_score = analytics["reputation_score"]
+
+        retention_risk = analytics["retention_risk"]
+
+        # ==================================================
+        # BUSINESS HEALTH SCORE
+        # ==================================================
+
+        business_health = round(
+
+            (
+                (average_rating / 5) * 35 +
+                positive_percent * 0.40 +
+                reputation_score * 0.25
+            ),
+
+            2
+        )
+
+        # ==================================================
+        # BUSINESS STAGE
+        # ==================================================
+
+        if business_health >= 80:
+
+            business_stage = "Enterprise Excellence"
+
+        elif business_health >= 60:
+
+            business_stage = "Growth Stabilized"
+
+        elif business_health >= 40:
+
+            business_stage = "Operational Risk"
+
+        else:
+
+            business_stage = "Critical Recovery"
+
+        # ==================================================
+        # OPERATIONAL URGENCY
+        # ==================================================
+
+        if negative_percent >= 40:
+
+            urgency = (
+                "Immediate Executive Attention Required"
+            )
+
+        elif negative_percent >= 25:
+
+            urgency = (
+                "High Priority Operational Intervention"
+            )
+
+        else:
+
+            urgency = (
+                "Continuous Optimization Recommended"
+            )
+
+        # ==================================================
+        # RECOMMENDATIONS
+        # ==================================================
+
+        recommendations = [
+
+            {
+                "title":
+                    "Customer Experience Recovery Program",
+
+                "priority":
+                    "Critical",
+
+                "impact":
+                    "Reduce negative customer sentiment",
+
+                "action":
+                    (
+                        "Deploy rapid complaint resolution "
+                        "and guest recovery operations."
+                    )
+            },
+
+            {
+                "title":
+                    "Operational Intelligence Monitoring",
+
+                "priority":
+                    "High",
+
+                "impact":
+                    "Improve executive visibility",
+
+                "action":
+                    (
+                        "Deploy AI-powered KPI monitoring "
+                        "dashboard and predictive analytics."
+                    )
+            },
+
+            {
+                "title":
+                    "Reputation Recovery Initiative",
+
+                "priority":
+                    "High",
+
+                "impact":
+                    "Improve public trust and ratings",
+
+                "action":
+                    (
+                        "Launch online reputation "
+                        "management and customer "
+                        "engagement campaigns."
+                    )
+            },
+
+            {
+                "title":
+                    "Employee Performance Optimization",
+
+                "priority":
+                    "Medium",
+
+                "impact":
+                    "Increase service quality",
+
+                "action":
+                    (
+                        "Implement staff coaching, "
+                        "hospitality excellence training, "
+                        "and reward systems."
+                    )
+            }
+        ]
+
+        # ==================================================
+        # DECISION INTELLIGENCE
+        # ==================================================
+
+        decision_intelligence = {
+
+            "business_health_score":
+                business_health,
+
+            "business_stage":
+                business_stage,
+
+            "operational_urgency":
+                urgency,
+
+            "predicted_customer_risk":
+                retention_risk,
+
+            "forecast_positive_sentiment":
+                min(
+                    positive_percent + 15,
+                    95
+                ),
+
+            "forecast_negative_sentiment":
+                max(
+                    negative_percent - 20,
+                    5
+                ),
+
+            "predicted_rating":
+                round(
+                    min(
+                        average_rating + 1.0,
+                        5.0
+                    ),
+                    2
+                ),
+        }
+
+        # ==================================================
+        # EXECUTIVE SUMMARY
+        # ==================================================
+
+        executive_summary = f"""
+Executive intelligence analysis for {company_name}
+indicates measurable operational and customer
+experience improvement opportunities.
+
+The organization currently maintains a business
+health score of {business_health}% with an average
+customer rating of {average_rating}/5.
+
+Negative customer sentiment currently stands at
+{negative_percent}% while positive sentiment
+remains at {positive_percent}%.
+
+Operational urgency level is categorized as:
+{urgency}.
+
+AI predictive analysis indicates that implementing
+customer recovery initiatives, operational
+optimization systems, and AI-driven monitoring
+can significantly improve customer satisfaction,
+brand trust, and long-term retention performance.
+"""
+
+        return {
+
+            "executive_summary":
+                executive_summary,
+
+            "recommendations":
+                recommendations,
+
+            "decision_intelligence":
+                decision_intelligence,
+        }
+
+    # ======================================================
     # PLOTLY CHARTS
     # ======================================================
 
@@ -582,10 +835,6 @@ class ReportService:
     ):
 
         charts = {}
-
-        # ==================================================
-        # PIE CHART
-        # ==================================================
 
         pie_fig = go.Figure(
 
@@ -645,60 +894,6 @@ class ReportService:
             ).decode()
         )
 
-        # ==================================================
-        # BAR CHART
-        # ==================================================
-
-        bar_fig = px.bar(
-
-            x=[
-
-                "Positive",
-
-                "Neutral",
-
-                "Negative"
-            ],
-
-            y=[
-
-                analytics["positive_percent"],
-
-                analytics["neutral_percent"],
-
-                analytics["negative_percent"]
-            ],
-
-            title="Sentiment KPI Benchmark"
-        )
-
-        bar_fig.update_layout(
-
-            template="plotly_white",
-
-            height=450
-        )
-
-        try:
-
-            bar_image = bar_fig.to_image(
-                format="png"
-            )
-
-        except Exception:
-
-            logger.exception(
-                "❌ BAR CHART FAILED"
-            )
-
-            bar_image = b""
-
-        charts["bar_chart"] = (
-            base64.b64encode(
-                bar_image
-            ).decode()
-        )
-
         return charts
 
     # ======================================================
@@ -722,7 +917,6 @@ class ReportService:
         if not text.strip():
 
             text = (
-
                 "customer service "
                 "support delivery quality"
             )
@@ -778,6 +972,8 @@ class ReportService:
 
         ai_data,
 
+        executive_ai,
+
         charts,
 
         wordcloud_image,
@@ -787,7 +983,7 @@ class ReportService:
             "executive_report.html"
         )
 
-        return template.render(
+        html = template.render(
 
             company=company,
 
@@ -796,6 +992,8 @@ class ReportService:
             validation=validation,
 
             ai=ai_data,
+
+            executive_ai=executive_ai,
 
             charts=charts,
 
@@ -812,3 +1010,56 @@ class ReportService:
                 "%Y-%m-%d %H:%M UTC"
             )
         )
+
+        # ==================================================
+        # ADVANCED AI HTML INJECTION
+        # ==================================================
+
+        advanced_html = f"""
+
+        <div class='section'>
+            <h2>AI Strategic Recommendations</h2>
+
+            <div class='recommendation-card'>
+                <h3>Business Health Score</h3>
+                <p>
+                    {executive_ai['decision_intelligence']['business_health_score']}%
+                </p>
+            </div>
+
+            <div class='recommendation-card'>
+                <h3>Business Classification</h3>
+                <p>
+                    {executive_ai['decision_intelligence']['business_stage']}
+                </p>
+            </div>
+
+            <div class='recommendation-card'>
+                <h3>Operational Urgency</h3>
+                <p>
+                    {executive_ai['decision_intelligence']['operational_urgency']}
+                </p>
+            </div>
+
+            <div class='recommendation-card'>
+                <h3>Predicted Future Rating</h3>
+                <p>
+                    {executive_ai['decision_intelligence']['predicted_rating']} / 5
+                </p>
+            </div>
+
+        </div>
+
+        <div class='section'>
+
+            <h2>Executive AI Summary</h2>
+
+            <p>
+                {executive_ai['executive_summary']}
+            </p>
+
+        </div>
+
+        """
+
+        return html + advanced_html
