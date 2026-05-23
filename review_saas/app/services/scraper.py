@@ -1,21 +1,22 @@
 # ==========================================================
 # FILE: app/services/scraper.py
-# TRUSTLYTICS AI — EXTREME ENTERPRISE SCRAPER
-# MAY 2026 — ULTRA INTELLIGENT VERSION
+# TRUSTLYTICS AI — ULTRA ENTERPRISE SCRAPER
+# MAY 2026 — FINAL RAILWAY VERSION
 #
-# FEATURES:
-# ✅ PLAYWRIGHT + PROXY
-# ✅ CAMOUFOX + PROXY
-# ✅ REQUESTS + PROXY
-# ✅ SERPAPI SMART PAGINATION
-# ✅ NEXT 100 NEW REVIEWS
-# ✅ NO DUPLICATE REVIEWS
-# ✅ DATE-WISE EXTRACTION
+# FEATURES
+# ==========================================================
+# ✅ PLAYWRIGHT + STEALTH
+# ✅ DATAIMPULSE PROXY
+# ✅ FAST BURST ENGINE
+# ✅ 500 SMART ATTEMPTS
+# ✅ CONCURRENT WORKERS
 # ✅ HUMAN-LIKE BEHAVIOR
-# ✅ RANDOMIZED SCROLLING
+# ✅ DATE RANGE FILTERING
 # ✅ REVIEW EXPANSION
 # ✅ GOOGLE BLOCK DETECTION
-# ✅ MULTI-ENGINE MERGING
+# ✅ SERPAPI FALLBACK
+# ✅ NEXT 100 NEW REVIEWS
+# ✅ DUPLICATE PROTECTION
 # ✅ ENTERPRISE LOGGING
 # ✅ RAILWAY SAFE
 # ==========================================================
@@ -24,7 +25,6 @@ import os
 import re
 import gc
 import time
-import json
 import random
 import asyncio
 import hashlib
@@ -32,12 +32,12 @@ import logging
 import traceback
 import requests
 
-from bs4 import BeautifulSoup
-
 from datetime import (
     datetime,
     timedelta
 )
+
+from bs4 import BeautifulSoup
 
 from fake_useragent import UserAgent
 
@@ -53,10 +53,6 @@ from playwright.async_api import (
 
 from playwright_stealth import (
     stealth_async
-)
-
-from camoufox.async_api import (
-    AsyncCamoufox
 )
 
 # ==========================================================
@@ -93,14 +89,20 @@ PROXY_PASSWORD = os.getenv(
 
 HEADLESS = True
 
-MAX_SCROLLS = 120
+FAST_TIMEOUT = 18
+
+MAX_SCROLLS = 8
+
+CONCURRENT_WORKERS = 20
+
+TOTAL_ATTEMPTS = 500
 
 REQUEST_TIMEOUT = 120
 
 MINIMUM_REVIEWS = 100
 
 # ==========================================================
-# PROXY CONFIG
+# PROXY
 # ==========================================================
 
 def get_proxy():
@@ -112,6 +114,10 @@ def get_proxy():
             PROXY_USERNAME and
             PROXY_PASSWORD
         ):
+
+            logger.info(
+                "✅ PROXY ENABLED"
+            )
 
             return {
 
@@ -127,7 +133,12 @@ def get_proxy():
 
         return None
 
-    except:
+    except Exception as e:
+
+        logger.warning(
+            f"⚠️ PROXY FAILED => {e}"
+        )
+
         return None
 
 # ==========================================================
@@ -257,66 +268,6 @@ def passes_date_filter(
         return True
 
 # ==========================================================
-# NORMALIZE REVIEW
-# ==========================================================
-
-def normalize_review(review):
-
-    return {
-
-        "review_id":
-            review.get(
-                "review_id"
-            ),
-
-        "author_name":
-            clean_text(
-                review.get(
-                    "author_name",
-                    "Anonymous"
-                )
-            ),
-
-        "rating":
-            int(
-                review.get(
-                    "rating",
-                    5
-                )
-            ),
-
-        "review_date":
-            clean_text(
-                review.get(
-                    "review_date",
-                    ""
-                )
-            ),
-
-        "text":
-            clean_text(
-                review.get(
-                    "text",
-                    ""
-                )
-            ),
-
-        "likes":
-            int(
-                review.get(
-                    "likes",
-                    0
-                )
-            ),
-
-        "source":
-            review.get(
-                "source",
-                "unknown"
-            )
-    }
-
-# ==========================================================
 # GOOGLE BLOCK DETECTION
 # ==========================================================
 
@@ -357,41 +308,43 @@ async def detect_google_block(page):
         return False
 
 # ==========================================================
-# HUMAN-LIKE RANDOM ACTIONS
+# HUMAN BEHAVIOR
 # ==========================================================
 
 async def human_behavior(page):
 
     try:
 
-        for _ in range(random.randint(2, 5)):
+        for _ in range(random.randint(1, 3)):
 
             x = random.randint(100, 1200)
 
             y = random.randint(100, 800)
 
-            await page.mouse.move(
-                x,
-                y
-            )
+            await page.mouse.move(x, y)
 
             await asyncio.sleep(
-                random.uniform(0.3, 1)
+                random.uniform(0.2, 0.8)
             )
 
     except:
         pass
 
 # ==========================================================
-# REVIEW EXTRACTION
+# EXTRACT REVIEWS
 # ==========================================================
 
 async def extract_reviews_from_page(
+
     page,
+
     existing_ids=None,
+
     target_limit=100,
+
     start_date=None,
-    source="google_maps"
+
+    source="playwright"
 ):
 
     reviews = []
@@ -404,7 +357,7 @@ async def extract_reviews_from_page(
 
         await page.wait_for_selector(
             "div.jftiEf",
-            timeout=30000
+            timeout=15000
         )
 
         # ==================================================
@@ -417,9 +370,9 @@ async def extract_reviews_from_page(
                 "button.w8nwRe"
             )
 
-            btn_count = await buttons.count()
+            count = await buttons.count()
 
-            for i in range(btn_count):
+            for i in range(count):
 
                 try:
                     await buttons.nth(i).click()
@@ -433,19 +386,25 @@ async def extract_reviews_from_page(
             "div.jftiEf"
         )
 
-        count = await cards.count()
+        card_count = await cards.count()
 
         logger.info(
-            f"✅ REVIEW CARDS FOUND => {count}"
+            f"📦 CARDS FOUND => {card_count}"
         )
 
-        for i in range(count):
+        for i in range(card_count):
 
             try:
 
                 card = cards.nth(i)
 
                 author = "Anonymous"
+
+                text = ""
+
+                review_date = ""
+
+                rating = 5
 
                 try:
 
@@ -457,8 +416,6 @@ async def extract_reviews_from_page(
 
                 except:
                     pass
-
-                text = ""
 
                 try:
 
@@ -473,8 +430,6 @@ async def extract_reviews_from_page(
 
                 if not text:
                     continue
-
-                review_date = ""
 
                 try:
 
@@ -493,8 +448,6 @@ async def extract_reviews_from_page(
                 ):
                     continue
 
-                rating = 5
-
                 try:
 
                     rating_text = await card.locator(
@@ -509,7 +462,6 @@ async def extract_reviews_from_page(
                     )
 
                     if match:
-
                         rating = int(
                             match.group(1)
                         )
@@ -522,9 +474,9 @@ async def extract_reviews_from_page(
                     text
                 )
 
-                # ==================================================
+                # ==============================================
                 # DUPLICATE PREVENTION
-                # ==================================================
+                # ==============================================
 
                 if review_id in seen:
                     continue
@@ -561,45 +513,37 @@ async def extract_reviews_from_page(
                 if len(reviews) >= target_limit:
                     break
 
-            except Exception as e:
-
-                logger.warning(
-                    f"⚠️ REVIEW PARSE FAILED => {e}"
-                )
-
+            except:
                 continue
 
         logger.info(
             f"✅ NEW REVIEWS => {len(reviews)}"
         )
 
-        return [
-            normalize_review(r)
-            for r in reviews
-        ]
+        return reviews
 
     except Exception as e:
 
-        logger.exception(
-            f"❌ EXTRACTION FAILED => {e}"
+        logger.warning(
+            f"⚠️ EXTRACTION FAILED => {e}"
         )
 
         return []
 
 # ==========================================================
-# PLAYWRIGHT ENGINE
+# PLAYWRIGHT SCRAPER
 # ==========================================================
 
 async def scrape_with_playwright(
+
     place_id,
+
     existing_ids=None,
-    target_limit=100,
+
+    target_limit=25,
+
     start_date=None
 ):
-
-    logger.info(
-        "🚀 ENGINE 1 => PLAYWRIGHT"
-    )
 
     browser = None
 
@@ -613,9 +557,9 @@ async def scrape_with_playwright(
 
                 headless=HEADLESS,
 
-                slow_mo=150,
-
                 proxy=proxy,
+
+                slow_mo=30,
 
                 args=[
 
@@ -637,7 +581,7 @@ async def scrape_with_playwright(
 
                 viewport={
 
-                    "width": 1600,
+                    "width": 1400,
 
                     "height": 1200
                 }
@@ -657,22 +601,32 @@ async def scrape_with_playwright(
                 f"https://www.google.com/maps/place/?q=place_id:{place_id}"
             )
 
+            logger.info(
+                f"🌐 OPENING => {url}"
+            )
+
             await page.goto(
 
                 url,
 
                 wait_until="domcontentloaded",
 
-                timeout=120000
+                timeout=60000
             )
 
             await human_behavior(page)
 
-            await asyncio.sleep(10)
+            await asyncio.sleep(
+                random.uniform(1, 3)
+            )
 
             if await detect_google_block(page):
 
                 return []
+
+            # ==================================================
+            # OPEN REVIEWS
+            # ==================================================
 
             try:
 
@@ -684,7 +638,9 @@ async def scrape_with_playwright(
 
                     await review_button.first.click()
 
-                    await asyncio.sleep(10)
+                    await asyncio.sleep(
+                        random.uniform(1, 3)
+                    )
 
             except:
                 pass
@@ -703,7 +659,7 @@ async def scrape_with_playwright(
 
                     await sort_button.first.click()
 
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(1)
 
                     newest_option = page.locator(
                         'div[role="menuitemradio"]'
@@ -713,14 +669,22 @@ async def scrape_with_playwright(
 
                         await newest_option.nth(1).click()
 
-                        await asyncio.sleep(5)
+                        await asyncio.sleep(2)
 
             except:
                 pass
 
+            # ==================================================
+            # SCROLL
+            # ==================================================
+
             review_feed = page.locator(
                 'div[role="feed"]'
             )
+
+            previous_count = 0
+
+            same_count = 0
 
             for i in range(MAX_SCROLLS):
 
@@ -731,8 +695,34 @@ async def scrape_with_playwright(
                     )
 
                     await asyncio.sleep(
-                        random.uniform(3, 6)
+                        random.uniform(0.3, 1)
                     )
+
+                    cards = await page.locator(
+                        "div.jftiEf"
+                    ).count()
+
+                    logger.info(
+                        f"📜 SCROLL => {i+1} | {cards}"
+                    )
+
+                    if cards == previous_count:
+
+                        same_count += 1
+
+                    else:
+
+                        same_count = 0
+
+                    previous_count = cards
+
+                    if same_count >= 2:
+
+                        logger.info(
+                            "✅ ALL REVIEWS LOADED"
+                        )
+
+                        break
 
                 except:
                     pass
@@ -745,9 +735,7 @@ async def scrape_with_playwright(
 
                 target_limit=target_limit,
 
-                start_date=start_date,
-
-                source="playwright"
+                start_date=start_date
             )
 
             await context.close()
@@ -758,212 +746,187 @@ async def scrape_with_playwright(
 
     except Exception as e:
 
-        logger.exception(
-            f"❌ PLAYWRIGHT FAILED => {e}"
+        logger.warning(
+            f"⚠️ PLAYWRIGHT FAILED => {e}"
         )
 
         return []
 
+    finally:
+
+        try:
+            if browser:
+                await browser.close()
+        except:
+            pass
+
 # ==========================================================
-# CAMOUFOX ENGINE
+# FAST WORKER
 # ==========================================================
 
-async def scrape_with_camoufox(
+async def fast_worker(
+
+    worker_id,
+
     place_id,
+
     existing_ids=None,
-    target_limit=100,
+
+    target_limit=25,
+
     start_date=None
 ):
 
-    logger.info(
-        "🚀 ENGINE 2 => CAMOUFOX"
-    )
-
     try:
 
-        proxy_url = (
-            f"http://{PROXY_USERNAME}:{PROXY_PASSWORD}@{PROXY_SERVER}"
+        logger.info(
+            f"⚡ WORKER => {worker_id}"
         )
 
-        async with AsyncCamoufox(
+        return await asyncio.wait_for(
 
-            headless=True,
+            scrape_with_playwright(
 
-            proxy=proxy_url
-
-        ) as browser:
-
-            page = await browser.new_page()
-
-            url = (
-                f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-            )
-
-            await page.goto(
-
-                url,
-
-                wait_until="networkidle",
-
-                timeout=120000
-            )
-
-            await asyncio.sleep(10)
-
-            if await detect_google_block(page):
-
-                return []
-
-            try:
-
-                review_button = page.locator(
-                    'button[jsaction*="pane.reviewChart.moreReviews"]'
-                )
-
-                if await review_button.count() > 0:
-
-                    await review_button.first.click()
-
-                    await asyncio.sleep(10)
-
-            except:
-                pass
-
-            review_feed = page.locator(
-                'div[role="feed"]'
-            )
-
-            for i in range(MAX_SCROLLS):
-
-                try:
-
-                    await review_feed.evaluate(
-                        "(el) => el.scrollTop = el.scrollHeight"
-                    )
-
-                    await asyncio.sleep(
-                        random.uniform(3, 6)
-                    )
-
-                except:
-                    pass
-
-            return await extract_reviews_from_page(
-
-                page=page,
+                place_id=place_id,
 
                 existing_ids=existing_ids,
 
                 target_limit=target_limit,
 
-                start_date=start_date,
+                start_date=start_date
+            ),
 
-                source="camoufox"
-            )
+            timeout=FAST_TIMEOUT
+        )
 
     except Exception as e:
 
-        logger.exception(
-            f"❌ CAMOUFOX FAILED => {e}"
+        logger.warning(
+            f"⚠️ WORKER FAILED => {worker_id} | {e}"
         )
 
         return []
 
 # ==========================================================
-# REQUESTS ENGINE
+# ULTRA BURST ENGINE
 # ==========================================================
 
-def scrape_with_requests(
-    place_id
-):
+async def ultra_burst_scraper(
 
-    logger.info(
-        "🚀 ENGINE 3 => REQUESTS"
-    )
-
-    try:
-
-        url = (
-            f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-        )
-
-        headers = {
-
-            "User-Agent":
-                UserAgent().random
-        }
-
-        response = requests.get(
-
-            url,
-
-            headers=headers,
-
-            proxies=get_requests_proxy(),
-
-            timeout=60
-        )
-
-        soup = BeautifulSoup(
-            response.text,
-            "lxml"
-        )
-
-        text = clean_text(
-            soup.get_text()
-        )
-
-        if not text:
-            return []
-
-        return [{
-
-            "review_id":
-                generate_hash(
-                    "requests",
-                    text[:100]
-                ),
-
-            "author_name":
-                "Google User",
-
-            "rating":
-                5,
-
-            "review_date":
-                "",
-
-            "text":
-                text[:3000],
-
-            "likes":
-                0,
-
-            "source":
-                "requests"
-        }]
-
-    except Exception as e:
-
-        logger.exception(
-            f"❌ REQUESTS FAILED => {e}"
-        )
-
-        return []
-
-# ==========================================================
-# SERPAPI SMART PAGINATION
-# ==========================================================
-
-def scrape_with_serpapi(
     place_id,
+
     existing_ids=None,
+
     target_limit=100,
+
     start_date=None
 ):
 
     logger.info(
-        "🚀 ENGINE 4 => SERPAPI"
+        "🚀 ULTRA BURST STARTED"
+    )
+
+    all_reviews = []
+
+    existing_ids = existing_ids or set()
+
+    completed = 0
+
+    while completed < TOTAL_ATTEMPTS:
+
+        logger.info(
+            f"⚡ WAVE => {completed}/{TOTAL_ATTEMPTS}"
+        )
+
+        tasks = []
+
+        for i in range(CONCURRENT_WORKERS):
+
+            task = fast_worker(
+
+                worker_id=i,
+
+                place_id=place_id,
+
+                existing_ids=existing_ids,
+
+                target_limit=25,
+
+                start_date=start_date
+            )
+
+            tasks.append(task)
+
+        results = await asyncio.gather(
+
+            *tasks,
+
+            return_exceptions=True
+        )
+
+        completed += CONCURRENT_WORKERS
+
+        # ==================================================
+        # MERGE REVIEWS
+        # ==================================================
+
+        for result in results:
+
+            if isinstance(result, list):
+
+                all_reviews.extend(result)
+
+        unique_reviews = {
+
+            r["review_id"]: r
+            for r in all_reviews
+        }
+
+        all_reviews = list(
+            unique_reviews.values()
+        )
+
+        existing_ids.update({
+
+            r["review_id"]
+            for r in all_reviews
+        })
+
+        logger.info(
+            f"✅ UNIQUE => {len(all_reviews)}"
+        )
+
+        if len(all_reviews) >= target_limit:
+
+            logger.info(
+                "✅ TARGET REACHED"
+            )
+
+            return all_reviews[:target_limit]
+
+        await asyncio.sleep(
+            random.uniform(0.5, 2)
+        )
+
+    return all_reviews[:target_limit]
+
+# ==========================================================
+# SERPAPI
+# ==========================================================
+
+def scrape_with_serpapi(
+
+    place_id,
+
+    existing_ids=None,
+
+    target_limit=100,
+
+    start_date=None
+):
+
+    logger.info(
+        "🚀 SERPAPI STARTED"
     )
 
     if not SERPAPI_API_KEY:
@@ -1031,6 +994,7 @@ def scrape_with_serpapi(
                 try:
 
                     author = clean_text(
+
                         review.get(
                             "user",
                             {}
@@ -1068,9 +1032,9 @@ def scrape_with_serpapi(
                         text
                     )
 
-                    # ==================================================
-                    # FETCH ONLY NEW REVIEWS
-                    # ==================================================
+                    # ==========================================
+                    # SKIP EXISTING REVIEWS
+                    # ==========================================
 
                     if review_id in seen:
                         continue
@@ -1116,6 +1080,10 @@ def scrape_with_serpapi(
                 except:
                     continue
 
+            logger.info(
+                f"✅ SERPAPI NEW => {len(reviews)}"
+            )
+
             next_page_token = (
 
                 data.get(
@@ -1133,15 +1101,12 @@ def scrape_with_serpapi(
                 random.uniform(1, 2)
             )
 
-        return [
-            normalize_review(r)
-            for r in reviews
-        ]
+        return reviews
 
     except Exception as e:
 
-        logger.exception(
-            f"❌ SERPAPI FAILED => {e}"
+        logger.warning(
+            f"⚠️ SERPAPI FAILED => {e}"
         )
 
         return []
@@ -1158,9 +1123,9 @@ def scrape_with_serpapi(
 
         multiplier=2,
 
-        min=3,
+        min=2,
 
-        max=12
+        max=8
     )
 )
 
@@ -1188,10 +1153,10 @@ async def scrape_google_reviews(
     try:
 
         # ==================================================
-        # ENGINE 1 => PLAYWRIGHT
+        # BURST ENGINE
         # ==================================================
 
-        reviews = await scrape_with_playwright(
+        reviews = await ultra_burst_scraper(
 
             place_id=place_id,
 
@@ -1202,92 +1167,42 @@ async def scrape_google_reviews(
             start_date=start_date
         )
 
-        if len(reviews) >= MINIMUM_REVIEWS:
-
-            return reviews
-
         # ==================================================
-        # ENGINE 2 => CAMOUFOX
+        # SERPAPI FALLBACK
         # ==================================================
 
-        reviews2 = await scrape_with_camoufox(
+        if len(reviews) < target_limit:
 
-            place_id=place_id,
+            existing_ids = {
 
-            existing_ids=existing_review_ids,
+                r["review_id"]
+                for r in reviews
+            }
 
-            target_limit=target_limit,
+            serp_reviews = await asyncio.to_thread(
 
-            start_date=start_date
-        )
+                scrape_with_serpapi,
 
-        reviews.extend(reviews2)
+                place_id,
 
-        reviews = list({
+                existing_ids,
 
-            r["review_id"]: r
-            for r in reviews
+                target_limit,
 
-        }.values())
+                start_date
+            )
 
-        if len(reviews) >= MINIMUM_REVIEWS:
+            reviews.extend(serp_reviews)
 
-            return reviews[:target_limit]
+            reviews = list({
 
-        # ==================================================
-        # ENGINE 3 => REQUESTS
-        # ==================================================
+                r["review_id"]: r
+                for r in reviews
 
-        reviews3 = await asyncio.to_thread(
-
-            scrape_with_requests,
-
-            place_id
-        )
-
-        reviews.extend(reviews3)
-
-        reviews = list({
-
-            r["review_id"]: r
-            for r in reviews
-
-        }.values())
-
-        # ==================================================
-        # ENGINE 4 => SERPAPI
-        # ==================================================
-
-        existing_ids = {
-
-            r["review_id"]
-            for r in reviews
-        }
-
-        reviews4 = await asyncio.to_thread(
-
-            scrape_with_serpapi,
-
-            place_id,
-
-            existing_ids,
-
-            target_limit,
-
-            start_date
-        )
-
-        reviews.extend(reviews4)
-
-        reviews = list({
-
-            r["review_id"]: r
-            for r in reviews
-
-        }.values())
+            }.values())
 
         logger.info(
-            f"✅ FINAL UNIQUE REVIEWS => {len(reviews)}"
+            f"✅ FINAL REVIEWS => {len(reviews)}"
         )
 
         return reviews[:target_limit]
