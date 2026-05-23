@@ -1,25 +1,29 @@
 # ==========================================================
 # FILE: app/services/scraper.py
-# TRUSTLYTICS AI — CONTINUOUS REVIEW INTELLIGENCE ENGINE
-# MAY 2026 — ENTERPRISE ROTATION VERSION
+# REVIEW INTEL AI — 5 LAYER ENTERPRISE ENGINE
+# FINAL ENTERPRISE VERSION — MAY 2026
 #
-# ARCHITECTURE
 # ==========================================================
-# 1. SERPAPI SEED ENGINE
-#    → instantly uploads newest 100 reviews
+# LAYER 1 → SERPAPI TRUE PAGINATION ENGINE
+# LAYER 2 → PLAYWRIGHT ROTATION ENGINE
+# LAYER 3 → REQUESTS ROTATION ENGINE
+# LAYER 4 → MICRO HARVEST ENGINE
+# LAYER 5 → CONTINUOUS INTELLIGENCE ENGINE
 #
-# 2. BACKGROUND HARVESTER
-#    → continuously harvests reviews
-#
-# 3. ROTATION ENGINE
-#    → rotates proxies/fingerprints/user-agents
-#
-# 4. DUPLICATE ENGINE
-#    → prevents old reviews
-#
-# 5. TEMPORAL ENGINE
-#    → fetches reviews date-wise
-#
+# ==========================================================
+# FEATURES
+# ==========================================================
+# ✅ TRUE NEXT 100 REVIEWS
+# ✅ DATE-WISE EXTRACTION
+# ✅ CONTINUOUS BACKGROUND SCRAPING
+# ✅ ROTATING PROXY SESSIONS
+# ✅ USER AGENT ROTATION
+# ✅ PLAYWRIGHT STEALTH
+# ✅ GOOGLE BLOCK DETECTION
+# ✅ DUPLICATE PREVENTION
+# ✅ CONTINUOUS HARVESTING
+# ✅ DASHBOARD INSTANT RESPONSE
+# ✅ ENTERPRISE LOGGING
 # ==========================================================
 
 import os
@@ -66,7 +70,7 @@ logger = logging.getLogger(
 )
 
 # ==========================================================
-# ENV
+# ENV VARIABLES
 # ==========================================================
 
 SERPAPI_API_KEY = os.getenv(
@@ -93,16 +97,18 @@ HEADLESS = True
 
 FAST_TIMEOUT = 20
 
-MAX_SCROLLS = 6
+MAX_SCROLLS = 5
 
 REQUEST_TIMEOUT = 120
 
-BACKGROUND_SLEEP_MIN = 20
+BACKGROUND_SLEEP_MIN = 15
 
-BACKGROUND_SLEEP_MAX = 60
+BACKGROUND_SLEEP_MAX = 45
+
+MICRO_TARGET = 15
 
 # ==========================================================
-# PROXY ROTATION
+# ROTATING PROXY
 # ==========================================================
 
 def get_proxy():
@@ -186,7 +192,7 @@ def clean_text(text):
     return text[:5000]
 
 # ==========================================================
-# REVIEW HASH
+# HASH REVIEW
 # ==========================================================
 
 def generate_hash(author, text):
@@ -340,6 +346,135 @@ async def human_behavior(page):
         pass
 
 # ==========================================================
+# LOAD EXISTING IDS FROM DATABASE
+# ==========================================================
+
+async def load_existing_review_ids(
+
+    db,
+
+    company_id
+):
+
+    try:
+
+        query = """
+
+        SELECT review_id
+        FROM reviews
+        WHERE company_id = ?
+
+        """
+
+        async with db.execute(
+
+            query,
+
+            (company_id,)
+
+        ) as cursor:
+
+            rows = await cursor.fetchall()
+
+        ids = {
+
+            row[0]
+            for row in rows
+        }
+
+        logger.info(
+            f"✅ EXISTING IDS => {len(ids)}"
+        )
+
+        return ids
+
+    except Exception as e:
+
+        logger.warning(
+            f"⚠️ LOAD IDS FAILED => {e}"
+        )
+
+        return set()
+
+# ==========================================================
+# SAVE REVIEWS TO DATABASE
+# ==========================================================
+
+async def save_reviews_to_database(
+
+    db,
+
+    company_id,
+
+    reviews
+):
+
+    try:
+
+        if not reviews:
+            return
+
+        for review in reviews:
+
+            try:
+
+                await db.execute(
+
+                    """
+
+                    INSERT INTO reviews (
+
+                        company_id,
+                        review_id,
+                        author_name,
+                        rating,
+                        review_date,
+                        text,
+                        likes,
+                        source
+
+                    )
+
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+
+                    """,
+
+                    (
+
+                        company_id,
+
+                        review["review_id"],
+
+                        review["author_name"],
+
+                        review["rating"],
+
+                        review["review_date"],
+
+                        review["text"],
+
+                        review["likes"],
+
+                        review["source"]
+                    )
+                )
+
+            except:
+                continue
+
+        await db.commit()
+
+        logger.info(
+            f"✅ SAVED REVIEWS => {len(reviews)}"
+        )
+
+    except Exception as e:
+
+        logger.warning(
+            f"⚠️ SAVE FAILED => {e}"
+        )
+
+# ==========================================================
 # EXTRACT REVIEWS
 # ==========================================================
 
@@ -349,7 +484,7 @@ async def extract_reviews_from_page(
 
     existing_ids=None,
 
-    target_limit=50,
+    target_limit=20,
 
     start_date=None,
 
@@ -376,7 +511,7 @@ async def extract_reviews_from_page(
         count = await cards.count()
 
         logger.info(
-            f"📦 CARDS => {count}"
+            f"📦 CARDS FOUND => {count}"
         )
 
         for i in range(count):
@@ -449,7 +584,6 @@ async def extract_reviews_from_page(
                     )
 
                     if match:
-
                         rating = int(
                             match.group(1)
                         )
@@ -501,7 +635,7 @@ async def extract_reviews_from_page(
                 continue
 
         logger.info(
-            f"✅ EXTRACTED => {len(reviews)}"
+            f"✅ NEW REVIEWS => {len(reviews)}"
         )
 
         return reviews
@@ -515,217 +649,7 @@ async def extract_reviews_from_page(
         return []
 
 # ==========================================================
-# PLAYWRIGHT MICRO HARVESTER
-# ==========================================================
-
-async def micro_harvest(
-
-    place_id,
-
-    existing_ids=None,
-
-    target_limit=20,
-
-    start_date=None
-):
-
-    browser = None
-
-    try:
-
-        proxy = get_proxy()
-
-        async with async_playwright() as p:
-
-            browser = await p.chromium.launch(
-
-                headless=HEADLESS,
-
-                proxy=proxy,
-
-                slow_mo=random.randint(20, 80),
-
-                args=[
-
-                    "--disable-blink-features=AutomationControlled",
-
-                    "--disable-dev-shm-usage",
-
-                    "--disable-gpu",
-
-                    "--no-sandbox"
-                ]
-            )
-
-            logger.info(
-                "✅ BROWSER STARTED"
-            )
-
-            viewport_width = random.randint(
-                1200,
-                1800
-            )
-
-            viewport_height = random.randint(
-                800,
-                1400
-            )
-
-            context = await browser.new_context(
-
-                user_agent=UserAgent().random,
-
-                locale="en-US",
-
-                viewport={
-
-                    "width": viewport_width,
-
-                    "height": viewport_height
-                }
-            )
-
-            page = await context.new_page()
-
-            await stealth_async(page)
-
-            await page.set_extra_http_headers({
-
-                "Accept-Language":
-                    "en-US,en;q=0.9"
-            })
-
-            url = (
-                f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-            )
-
-            await page.goto(
-
-                url,
-
-                wait_until="domcontentloaded",
-
-                timeout=60000
-            )
-
-            logger.info(
-                "✅ PAGE LOADED"
-            )
-
-            if await detect_google_block(page):
-
-                return []
-
-            await human_behavior(page)
-
-            # ==================================================
-            # OPEN REVIEWS
-            # ==================================================
-
-            try:
-
-                button = page.locator(
-                    'button[jsaction*="pane.reviewChart.moreReviews"]'
-                )
-
-                if await button.count() > 0:
-
-                    await button.first.click()
-
-                    await asyncio.sleep(
-                        random.uniform(1, 3)
-                    )
-
-            except:
-                pass
-
-            # ==================================================
-            # SORT NEWEST
-            # ==================================================
-
-            try:
-
-                sort_button = page.locator(
-                    'button[aria-label*="Sort reviews"]'
-                )
-
-                if await sort_button.count() > 0:
-
-                    await sort_button.first.click()
-
-                    await asyncio.sleep(1)
-
-                    newest = page.locator(
-                        'div[role="menuitemradio"]'
-                    )
-
-                    if await newest.count() > 1:
-
-                        await newest.nth(1).click()
-
-                        await asyncio.sleep(2)
-
-            except:
-                pass
-
-            # ==================================================
-            # MICRO SCROLL
-            # ==================================================
-
-            review_feed = page.locator(
-                'div[role="feed"]'
-            )
-
-            for i in range(MAX_SCROLLS):
-
-                try:
-
-                    await review_feed.evaluate(
-                        "(el) => el.scrollTop = el.scrollHeight"
-                    )
-
-                    await asyncio.sleep(
-                        random.uniform(0.3, 1)
-                    )
-
-                except:
-                    pass
-
-            reviews = await extract_reviews_from_page(
-
-                page=page,
-
-                existing_ids=existing_ids,
-
-                target_limit=target_limit,
-
-                start_date=start_date
-            )
-
-            await context.close()
-
-            await browser.close()
-
-            return reviews
-
-    except Exception as e:
-
-        logger.warning(
-            f"⚠️ MICRO HARVEST FAILED => {e}"
-        )
-
-        return []
-
-    finally:
-
-        try:
-            if browser:
-                await browser.close()
-        except:
-            pass
-
-# ==========================================================
-# SERPAPI SEED ENGINE
+# LAYER 1 — SERPAPI TRUE PAGINATION ENGINE
 # ==========================================================
 
 def serpapi_seed_reviews(
@@ -740,7 +664,7 @@ def serpapi_seed_reviews(
 ):
 
     logger.info(
-        "🚀 SERPAPI SEED STARTED"
+        "🚀 LAYER 1 => SERPAPI"
     )
 
     reviews = []
@@ -753,7 +677,9 @@ def serpapi_seed_reviews(
 
         next_page_token = None
 
-        while len(reviews) < target_limit:
+        new_unique_count = 0
+
+        while True:
 
             params = {
 
@@ -843,10 +769,6 @@ def serpapi_seed_reviews(
                         text
                     )
 
-                    # ==========================================
-                    # ONLY NEW REVIEWS
-                    # ==========================================
-
                     if review_id in seen:
                         continue
 
@@ -885,15 +807,17 @@ def serpapi_seed_reviews(
                             "serpapi"
                     })
 
-                    if len(reviews) >= target_limit:
-                        break
+                    new_unique_count += 1
 
                 except:
                     continue
 
             logger.info(
-                f"✅ SERPAPI NEW => {len(reviews)}"
+                f"✅ TRUE NEW REVIEWS => {new_unique_count}"
             )
+
+            if new_unique_count >= target_limit:
+                break
 
             next_page_token = (
 
@@ -923,10 +847,245 @@ def serpapi_seed_reviews(
         return []
 
 # ==========================================================
-# CONTINUOUS BACKGROUND HARVESTER
+# LAYER 2 — PLAYWRIGHT ROTATION ENGINE
 # ==========================================================
 
-async def continuous_background_harvester(
+async def playwright_rotation_engine(
+
+    place_id,
+
+    existing_ids=None,
+
+    target_limit=20,
+
+    start_date=None
+):
+
+    browser = None
+
+    try:
+
+        proxy = get_proxy()
+
+        async with async_playwright() as p:
+
+            browser = await p.chromium.launch(
+
+                headless=HEADLESS,
+
+                proxy=proxy,
+
+                slow_mo=random.randint(20, 80),
+
+                args=[
+
+                    "--disable-blink-features=AutomationControlled",
+
+                    "--disable-dev-shm-usage",
+
+                    "--disable-gpu",
+
+                    "--no-sandbox"
+                ]
+            )
+
+            logger.info(
+                "✅ BROWSER STARTED"
+            )
+
+            context = await browser.new_context(
+
+                user_agent=UserAgent().random,
+
+                locale="en-US",
+
+                viewport={
+
+                    "width": random.randint(1200, 1800),
+
+                    "height": random.randint(800, 1400)
+                }
+            )
+
+            page = await context.new_page()
+
+            await stealth_async(page)
+
+            url = (
+                f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+            )
+
+            await page.goto(
+
+                url,
+
+                wait_until="domcontentloaded",
+
+                timeout=60000
+            )
+
+            logger.info(
+                "✅ PAGE LOADED"
+            )
+
+            if await detect_google_block(page):
+                return []
+
+            await human_behavior(page)
+
+            try:
+
+                button = page.locator(
+                    'button[jsaction*="pane.reviewChart.moreReviews"]'
+                )
+
+                if await button.count() > 0:
+
+                    await button.first.click()
+
+                    await asyncio.sleep(
+                        random.uniform(1, 3)
+                    )
+
+            except:
+                pass
+
+            review_feed = page.locator(
+                'div[role="feed"]'
+            )
+
+            for _ in range(MAX_SCROLLS):
+
+                try:
+
+                    await review_feed.evaluate(
+                        "(el) => el.scrollTop = el.scrollHeight"
+                    )
+
+                    await asyncio.sleep(
+                        random.uniform(0.3, 1)
+                    )
+
+                except:
+                    pass
+
+            reviews = await extract_reviews_from_page(
+
+                page=page,
+
+                existing_ids=existing_ids,
+
+                target_limit=target_limit,
+
+                start_date=start_date,
+
+                source="playwright"
+            )
+
+            await context.close()
+
+            await browser.close()
+
+            return reviews
+
+    except Exception as e:
+
+        logger.warning(
+            f"⚠️ PLAYWRIGHT FAILED => {e}"
+        )
+
+        return []
+
+    finally:
+
+        try:
+            if browser:
+                await browser.close()
+        except:
+            pass
+
+# ==========================================================
+# LAYER 3 — REQUESTS ROTATION ENGINE
+# ==========================================================
+
+def requests_rotation_engine(place_id):
+
+    try:
+
+        headers = {
+
+            "User-Agent":
+                UserAgent().random
+        }
+
+        response = requests.get(
+
+            f"https://www.google.com/maps/place/?q=place_id:{place_id}",
+
+            headers=headers,
+
+            proxies=get_requests_proxy(),
+
+            timeout=60
+        )
+
+        soup = BeautifulSoup(
+            response.text,
+            "lxml"
+        )
+
+        return clean_text(
+            soup.get_text()
+        )
+
+    except:
+        return ""
+
+# ==========================================================
+# LAYER 4 — MICRO HARVEST ENGINE
+# ==========================================================
+
+async def micro_harvest_engine(
+
+    place_id,
+
+    existing_review_ids=None,
+
+    start_date=None
+):
+
+    try:
+
+        reviews = await asyncio.wait_for(
+
+            playwright_rotation_engine(
+
+                place_id=place_id,
+
+                existing_ids=existing_review_ids,
+
+                target_limit=MICRO_TARGET,
+
+                start_date=start_date
+            ),
+
+            timeout=FAST_TIMEOUT
+        )
+
+        return reviews
+
+    except:
+        return []
+
+# ==========================================================
+# LAYER 5 — CONTINUOUS INTELLIGENCE ENGINE
+# ==========================================================
+
+async def continuous_intelligence_engine(
+
+    db,
+
+    company_id,
 
     place_id,
 
@@ -936,7 +1095,7 @@ async def continuous_background_harvester(
 ):
 
     logger.info(
-        "🚀 BACKGROUND HARVESTER STARTED"
+        "🚀 CONTINUOUS ENGINE STARTED"
     )
 
     existing_review_ids = (
@@ -948,29 +1107,31 @@ async def continuous_background_harvester(
         try:
 
             logger.info(
-                "⚡ MICRO HARVEST CYCLE"
+                "⚡ HARVEST CYCLE"
             )
 
-            reviews = await asyncio.wait_for(
+            reviews = await micro_harvest_engine(
 
-                micro_harvest(
+                place_id=place_id,
 
-                    place_id=place_id,
+                existing_review_ids=existing_review_ids,
 
-                    existing_ids=existing_review_ids,
-
-                    target_limit=20,
-
-                    start_date=start_date
-                ),
-
-                timeout=FAST_TIMEOUT
+                start_date=start_date
             )
 
             if reviews:
 
                 logger.info(
-                    f"✅ BACKGROUND NEW REVIEWS => {len(reviews)}"
+                    f"✅ CONTINUOUS NEW REVIEWS => {len(reviews)}"
+                )
+
+                await save_reviews_to_database(
+
+                    db=db,
+
+                    company_id=company_id,
+
+                    reviews=reviews
                 )
 
                 existing_review_ids.update({
@@ -979,11 +1140,12 @@ async def continuous_background_harvester(
                     for r in reviews
                 })
 
-                # ==========================================
-                # HERE SAVE TO DATABASE
-                # ==========================================
+            _ = await asyncio.to_thread(
 
-                # save_reviews_to_database(reviews)
+                requests_rotation_engine,
+
+                place_id
+            )
 
             sleep_time = random.randint(
 
@@ -993,7 +1155,7 @@ async def continuous_background_harvester(
             )
 
             logger.info(
-                f"😴 SLEEPING => {sleep_time}s"
+                f"😴 NEXT CYCLE => {sleep_time}s"
             )
 
             await asyncio.sleep(
@@ -1003,7 +1165,7 @@ async def continuous_background_harvester(
         except Exception as e:
 
             logger.warning(
-                f"⚠️ BACKGROUND FAILED => {e}"
+                f"⚠️ CONTINUOUS ENGINE FAILED => {e}"
             )
 
             await asyncio.sleep(10)
@@ -1028,11 +1190,13 @@ async def continuous_background_harvester(
 
 async def scrape_google_reviews(
 
-    place_id: str,
+    db,
 
-    existing_review_ids=None,
+    company_id,
 
-    target_limit: int = 100,
+    place_id,
+
+    target_limit=100,
 
     start_date=None,
 
@@ -1040,17 +1204,20 @@ async def scrape_google_reviews(
 ):
 
     logger.info(
-        "🚀 REVIEW INTELLIGENCE ENGINE STARTED"
-    )
-
-    existing_review_ids = (
-        existing_review_ids or set()
+        "🚀 5 LAYER ENTERPRISE ENGINE STARTED"
     )
 
     try:
 
+        existing_review_ids = await load_existing_review_ids(
+
+            db=db,
+
+            company_id=company_id
+        )
+
         # ==================================================
-        # 1. FAST SERPAPI SEED
+        # LAYER 1 — FAST 100 REVIEWS
         # ==================================================
 
         reviews = await asyncio.to_thread(
@@ -1066,13 +1233,18 @@ async def scrape_google_reviews(
             start_date
         )
 
-        logger.info(
-            f"✅ INITIAL REVIEWS => {len(reviews)}"
-        )
+        # ==================================================
+        # SAVE FIRST 100 REVIEWS
+        # ==================================================
 
-        # ==================================================
-        # 2. START BACKGROUND HARVESTER
-        # ==================================================
+        await save_reviews_to_database(
+
+            db=db,
+
+            company_id=company_id,
+
+            reviews=reviews
+        )
 
         harvested_ids = {
 
@@ -1084,9 +1256,17 @@ async def scrape_google_reviews(
             existing_review_ids
         )
 
+        # ==================================================
+        # START CONTINUOUS ENGINE
+        # ==================================================
+
         asyncio.create_task(
 
-            continuous_background_harvester(
+            continuous_intelligence_engine(
+
+                db=db,
+
+                company_id=company_id,
 
                 place_id=place_id,
 
@@ -1096,11 +1276,20 @@ async def scrape_google_reviews(
             )
         )
 
-        # ==================================================
-        # 3. INSTANT FRONTEND RESPONSE
-        # ==================================================
+        logger.info(
+            f"✅ INITIAL REVIEWS ADDED => {len(reviews)}"
+        )
 
-        return reviews[:target_limit]
+        return {
+
+            "success": True,
+
+            "message":
+                f"{len(reviews)} NEW REVIEWS ADDED",
+
+            "reviews":
+                reviews[:target_limit]
+        }
 
     except Exception as e:
 
@@ -1112,7 +1301,15 @@ async def scrape_google_reviews(
             traceback.format_exc()
         )
 
-        return []
+        return {
+
+            "success": False,
+
+            "message":
+                "SCRAPER FAILED",
+
+            "reviews": []
+        }
 
     finally:
 
