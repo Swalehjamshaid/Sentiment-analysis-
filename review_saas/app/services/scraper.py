@@ -1,8 +1,7 @@
 # ==========================================================
 # FILE: app/services/scraper.py
-# TRUSTLYTICS AI — FINAL HYBRID SCRAPER (May 2026)
-# 100% COMPATIBLE WITH main.py + reviews.py
-# No duplication | Better stability | All attributes preserved
+# TRUSTLYTICS AI — FINAL HYBRID SCRAPER (Updated)
+# 100% COMPATIBLE WITH reviews.py & main.py
 # ==========================================================
 
 import os
@@ -44,11 +43,6 @@ try:
 except Exception:
     stealth_async = None
 
-try:
-    from tenacity import retry, stop_after_attempt, wait_exponential
-except Exception:
-    retry = None
-
 # ==========================================================
 # LOGGER
 # ==========================================================
@@ -72,7 +66,7 @@ MAX_SCROLLS = 10
 PLAYWRIGHT_TARGET = 50
 
 # ==========================================================
-# CORE HELPERS
+# HELPERS
 # ==========================================================
 def engine_available(engine):
     return engine is not None
@@ -108,7 +102,6 @@ def passes_date_filter(review_date, start_date=None):
             return True
         lower = review_date.lower()
         now = datetime.utcnow()
-
         if "day" in lower:
             num = int(re.search(r"\d+", lower).group())
             actual = now - timedelta(days=num)
@@ -166,7 +159,7 @@ async def detect_google_block(page):
         block_keywords = ["captcha", "unusual traffic", "automated queries", "/sorry/", "not a robot"]
         for keyword in block_keywords:
             if keyword in content:
-                logger.warning(f"⚠️ GOOGLE BLOCK => {keyword}")
+                logger.warning(f"⚠️ GOOGLE BLOCK DETECTED => {keyword}")
                 return True
         return False
     except:
@@ -174,9 +167,8 @@ async def detect_google_block(page):
 
 
 # ==========================================================
-# PLAYWRIGHT ENGINE (Primary - with retry)
+# PLAYWRIGHT ENGINE
 # ==========================================================
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), reraise=True)
 async def scrape_with_playwright(
     place_id,
     existing_ids=None,
@@ -185,12 +177,12 @@ async def scrape_with_playwright(
 ):
     reviews = []
     existing_ids = existing_ids or set()
-    browser = None
 
     if not engine_available(async_playwright):
         logger.warning("⚠️ Playwright not available")
         return []
 
+    browser = None
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -216,7 +208,7 @@ async def scrape_with_playwright(
                 await stealth_async(page)
 
             url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-            logger.info(f"🚀 Playwright started for {place_id}")
+            logger.info(f"🚀 Playwright started for place_id: {place_id}")
 
             await page.goto(url, wait_until="domcontentloaded", timeout=PLAYWRIGHT_TIMEOUT)
 
@@ -226,7 +218,7 @@ async def scrape_with_playwright(
             await human_behavior(page)
             await asyncio.sleep(3)
 
-            # Open reviews
+            # Open reviews tab
             try:
                 button = page.locator('button[jsaction*="pane.reviewChart.moreReviews"]')
                 if await button.count() > 0:
@@ -235,19 +227,19 @@ async def scrape_with_playwright(
             except:
                 pass
 
-            # Scroll
-            feed = page.locator('div[role="feed"]')
+            # Scroll reviews
+            review_feed = page.locator('div[role="feed"]')
             for _ in range(MAX_SCROLLS):
                 try:
-                    await feed.evaluate("(el) => el.scrollTop = el.scrollHeight")
+                    await review_feed.evaluate("(el) => el.scrollTop = el.scrollHeight")
                     await asyncio.sleep(random.uniform(1.2, 2.5))
                 except:
                     pass
 
-            # Extract cards
+            # Extract reviews
             cards = page.locator("div.jftiEf")
             count = await cards.count()
-            logger.info(f"📦 Playwright found {count} cards")
+            logger.info(f"📦 Playwright found {count} review cards")
 
             seen = set()
             for i in range(count):
@@ -309,29 +301,6 @@ async def scrape_with_playwright(
 
 
 # ==========================================================
-# REQUESTS + BS4 (Light)
-# ==========================================================
-def scrape_with_requests(place_id):
-    try:
-        if not engine_available(requests):
-            return ""
-        headers = {"User-Agent": get_user_agent()}
-        response = requests.get(
-            f"https://www.google.com/maps/place/?q=place_id:{place_id}",
-            headers=headers,
-            proxies=get_requests_proxy(),
-            timeout=60
-        )
-        if not engine_available(BeautifulSoup):
-            return ""
-        soup = BeautifulSoup(response.text, "lxml")
-        return clean_text(soup.get_text())
-    except Exception as e:
-        logger.warning(f"Requests engine failed: {e}")
-        return ""
-
-
-# ==========================================================
 # SERPAPI ENGINE
 # ==========================================================
 def serpapi_true_next_reviews(
@@ -340,12 +309,13 @@ def serpapi_true_next_reviews(
     target_limit=100,
     start_date=None
 ):
-    if not engine_available(requests) or not SERPAPI_API_KEY:
-        return []
-
     reviews = []
     existing_ids = existing_ids or set()
     seen = set()
+
+    if not engine_available(requests) or not SERPAPI_API_KEY:
+        logger.warning("⚠️ SERPAPI not configured")
+        return reviews
 
     try:
         next_page_token = None
@@ -403,9 +373,8 @@ def serpapi_true_next_reviews(
                     continue
 
             next_page_token = data.get("serpapi_pagination", {}).get("next_page_token")
-            if not next_page_token or total_new >= target_limit:
+            if not next_page_token:
                 break
-
             time.sleep(random.uniform(1, 2.5))
 
         logger.info(f"✅ SERPAPI returned {len(reviews)} reviews")
@@ -417,7 +386,7 @@ def serpapi_true_next_reviews(
 
 
 # ==========================================================
-# MAIN ENTRY POINT
+# MAIN SCRAPER
 # ==========================================================
 async def scrape_google_reviews(
     place_id: str,
@@ -425,12 +394,12 @@ async def scrape_google_reviews(
     start_date=None,
     end_date=None
 ):
-    logger.info(f"🚀 Hybrid scraper started for place_id: {place_id}")
+    logger.info(f"🚀 Starting hybrid scrape for place_id: {place_id} | Target: {target_limit}")
 
     try:
         existing_review_ids = set()
 
-        # Layer 1: Playwright (Best quality)
+        # Layer 1: Playwright (Primary)
         playwright_reviews = await scrape_with_playwright(
             place_id=place_id,
             existing_ids=existing_review_ids,
@@ -442,6 +411,7 @@ async def scrape_google_reviews(
         remaining = target_limit - len(playwright_reviews)
         serp_reviews = []
         if remaining > 0:
+            logger.info(f"🚀 Using SERPAPI fallback for {remaining} more reviews")
             serp_reviews = await asyncio.to_thread(
                 serpapi_true_next_reviews,
                 place_id,
@@ -450,7 +420,7 @@ async def scrape_google_reviews(
                 start_date
             )
 
-        # Merge deduplicated
+        # Final deduplicated merge
         final_reviews = []
         seen = set()
         for review in playwright_reviews + serp_reviews:
@@ -459,11 +429,11 @@ async def scrape_google_reviews(
                 seen.add(rid)
                 final_reviews.append(review)
 
-        logger.info(f"✅ Final reviews: {len(final_reviews)}")
+        logger.info(f"✅ FINAL REVIEW COUNT => {len(final_reviews)}")
         return final_reviews
 
     except Exception as e:
-        logger.exception(f"❌ Scraper failed: {e}")
+        logger.exception(f"❌ SCRAPER FAILED => {e}")
         return []
     finally:
         gc.collect()
