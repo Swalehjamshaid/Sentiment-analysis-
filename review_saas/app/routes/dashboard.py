@@ -329,20 +329,20 @@ async def get_dashboard_data(
 
             try:
 
-                              created_at = (
+created_at = (
 
-                    safe_get(
-                        review,
-                        "google_review_time"
-                    )
+    safe_get(
+        review,
+        "google_review_time"
+    )
 
-                    or
+    or
 
-                    safe_get(
-                        review,
-                        "created_at"
-                    )
-                )
+    safe_get(
+        review,
+        "created_at"
+    )
+)
 
                 if not created_at:
                     continue
@@ -451,10 +451,22 @@ async def get_dashboard_data(
             # MONTHLY GROUPING
             # ==============================================
 
-                       try:
+                      try:
 
-                created_at = (
+    created_at = (
 
+        safe_get(
+            review,
+            "google_review_time"
+        )
+
+        or
+
+        safe_get(
+            review,
+            "created_at"
+        )
+    )
                     safe_get(
                         review,
                         "google_review_time"
