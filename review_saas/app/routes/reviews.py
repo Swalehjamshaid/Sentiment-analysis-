@@ -1,22 +1,8 @@
 # ==========================================================
 # FILE: app/services/scraper.py
-# TRUSTLYTICS AI — FINAL HYBRID SCRAPER
-# FULLY ALIGNED WITH reviews.py
+# FINAL ALIGNED HYBRID SCRAPER
+# 100% COMPATIBLE WITH reviews.py
 # MAY 2026
-#
-# ==========================================================
-# FEATURES
-# ==========================================================
-# ✅ Fully compatible with reviews.py
-# ✅ Returns LIST ONLY
-# ✅ No DB insertion here
-# ✅ Playwright + Proxy
-# ✅ Requests + BS4 + Proxy
-# ✅ SERPAPI final fallback
-# ✅ Runtime duplicate prevention
-# ✅ Date filtering
-# ✅ Railway safe
-# ✅ Enterprise logging
 # ==========================================================
 
 import os
@@ -91,7 +77,7 @@ PLAYWRIGHT_TIMEOUT = 60000
 
 HEADLESS = True
 
-MAX_SCROLLS = 5
+MAX_SCROLLS = 6
 
 # ==========================================================
 # CLEAN TEXT
@@ -129,9 +115,7 @@ def generate_hash(author, text):
 # ==========================================================
 
 def passes_date_filter(
-
     review_date,
-
     start_date=None
 ):
 
@@ -303,7 +287,7 @@ async def detect_google_block(page):
             await page.content()
         ).lower()
 
-        keywords = [
+        block_keywords = [
 
             "captcha",
 
@@ -316,7 +300,7 @@ async def detect_google_block(page):
             "not a robot"
         ]
 
-        for keyword in keywords:
+        for keyword in block_keywords:
 
             if keyword in content:
 
@@ -345,7 +329,7 @@ async def detect_google_block(page):
 
         min=2,
 
-        max=10
+        max=8
     ),
 
     reraise=True
@@ -414,6 +398,10 @@ async def scrape_with_playwright(
                 f"https://www.google.com/maps/place/?q=place_id:{place_id}"
             )
 
+            logger.info(
+                "🚀 PLAYWRIGHT PAGE OPEN"
+            )
+
             await page.goto(
 
                 url,
@@ -456,7 +444,7 @@ async def scrape_with_playwright(
                     )
 
                     await asyncio.sleep(
-                        random.uniform(0.5, 1)
+                        random.uniform(0.5, 1.5)
                     )
 
                 except:
@@ -584,13 +572,13 @@ async def scrape_with_playwright(
                 except:
                     continue
 
-            await context.close()
-
-            await browser.close()
-
             logger.info(
                 f"✅ PLAYWRIGHT REVIEWS => {len(reviews)}"
             )
+
+            await context.close()
+
+            await browser.close()
 
             return reviews
 
@@ -846,7 +834,7 @@ def serpapi_true_next_reviews(
             )
 
         logger.info(
-            f"✅ FINAL SERPAPI REVIEWS => {len(reviews)}"
+            f"✅ SERPAPI FINAL REVIEWS => {len(reviews)}"
         )
 
         return reviews
@@ -882,10 +870,6 @@ async def scrape_google_reviews(
 
         existing_review_ids = set()
 
-        logger.info(
-            "✅ MEMORY INITIALIZED"
-        )
-
         # ==================================================
         # LAYER 1 — PLAYWRIGHT
         # ==================================================
@@ -906,7 +890,7 @@ async def scrape_google_reviews(
         )
 
         # ==================================================
-        # LAYER 2 — REQUESTS + BS4
+        # LAYER 2 — REQUESTS
         # ==================================================
 
         await asyncio.to_thread(
