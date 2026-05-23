@@ -1,30 +1,32 @@
 # ==========================================================
 # FILE: app/services/scraper.py
-# TRUSTLYTICS AI — ULTRA ENTERPRISE SCRAPER
-# MAY 2026 — FINAL RAILWAY VERSION
+# TRUSTLYTICS AI — CONTINUOUS REVIEW INTELLIGENCE ENGINE
+# MAY 2026 — ENTERPRISE ROTATION VERSION
 #
-# FEATURES
+# ARCHITECTURE
 # ==========================================================
-# ✅ PLAYWRIGHT + STEALTH
-# ✅ DATAIMPULSE PROXY
-# ✅ FAST BURST ENGINE
-# ✅ 500 SMART ATTEMPTS
-# ✅ CONCURRENT WORKERS
-# ✅ HUMAN-LIKE BEHAVIOR
-# ✅ DATE RANGE FILTERING
-# ✅ REVIEW EXPANSION
-# ✅ GOOGLE BLOCK DETECTION
-# ✅ SERPAPI FALLBACK
-# ✅ NEXT 100 NEW REVIEWS
-# ✅ DUPLICATE PROTECTION
-# ✅ ENTERPRISE LOGGING
-# ✅ RAILWAY SAFE
+# 1. SERPAPI SEED ENGINE
+#    → instantly uploads newest 100 reviews
+#
+# 2. BACKGROUND HARVESTER
+#    → continuously harvests reviews
+#
+# 3. ROTATION ENGINE
+#    → rotates proxies/fingerprints/user-agents
+#
+# 4. DUPLICATE ENGINE
+#    → prevents old reviews
+#
+# 5. TEMPORAL ENGINE
+#    → fetches reviews date-wise
+#
 # ==========================================================
 
 import os
 import re
 import gc
 import time
+import json
 import random
 import asyncio
 import hashlib
@@ -37,9 +39,9 @@ from datetime import (
     timedelta
 )
 
-from bs4 import BeautifulSoup
-
 from fake_useragent import UserAgent
+
+from bs4 import BeautifulSoup
 
 from tenacity import (
     retry,
@@ -64,7 +66,7 @@ logger = logging.getLogger(
 )
 
 # ==========================================================
-# ENV VARIABLES
+# ENV
 # ==========================================================
 
 SERPAPI_API_KEY = os.getenv(
@@ -89,56 +91,46 @@ PROXY_PASSWORD = os.getenv(
 
 HEADLESS = True
 
-FAST_TIMEOUT = 18
+FAST_TIMEOUT = 20
 
-MAX_SCROLLS = 8
-
-CONCURRENT_WORKERS = 20
-
-TOTAL_ATTEMPTS = 500
+MAX_SCROLLS = 6
 
 REQUEST_TIMEOUT = 120
 
-MINIMUM_REVIEWS = 100
+BACKGROUND_SLEEP_MIN = 20
+
+BACKGROUND_SLEEP_MAX = 60
 
 # ==========================================================
-# PROXY
+# PROXY ROTATION
 # ==========================================================
 
 def get_proxy():
 
     try:
 
-        if (
-            PROXY_SERVER and
-            PROXY_USERNAME and
-            PROXY_PASSWORD
-        ):
-
-            logger.info(
-                "✅ PROXY ENABLED"
-            )
-
-            return {
-
-                "server":
-                    f"http://{PROXY_SERVER}",
-
-                "username":
-                    PROXY_USERNAME,
-
-                "password":
-                    PROXY_PASSWORD
-            }
-
-        return None
-
-    except Exception as e:
-
-        logger.warning(
-            f"⚠️ PROXY FAILED => {e}"
+        session_id = random.randint(
+            100000,
+            999999
         )
 
+        username = (
+            f"{PROXY_USERNAME}-session-{session_id}"
+        )
+
+        return {
+
+            "server":
+                f"http://{PROXY_SERVER}",
+
+            "username":
+                username,
+
+            "password":
+                PROXY_PASSWORD
+        }
+
+    except:
         return None
 
 # ==========================================================
@@ -149,8 +141,17 @@ def get_requests_proxy():
 
     try:
 
+        session_id = random.randint(
+            100000,
+            999999
+        )
+
+        username = (
+            f"{PROXY_USERNAME}-session-{session_id}"
+        )
+
         proxy_url = (
-            f"http://{PROXY_USERNAME}:{PROXY_PASSWORD}@{PROXY_SERVER}"
+            f"http://{username}:{PROXY_PASSWORD}@{PROXY_SERVER}"
         )
 
         return {
@@ -185,7 +186,7 @@ def clean_text(text):
     return text[:5000]
 
 # ==========================================================
-# HASH
+# REVIEW HASH
 # ==========================================================
 
 def generate_hash(author, text):
@@ -223,7 +224,9 @@ def passes_date_filter(
                 ).group()
             )
 
-            actual_date = now - timedelta(days=num)
+            actual_date = (
+                now - timedelta(days=num)
+            )
 
         elif "week" in lower_date:
 
@@ -234,7 +237,9 @@ def passes_date_filter(
                 ).group()
             )
 
-            actual_date = now - timedelta(days=num * 7)
+            actual_date = (
+                now - timedelta(days=num * 7)
+            )
 
         elif "month" in lower_date:
 
@@ -245,7 +250,9 @@ def passes_date_filter(
                 ).group()
             )
 
-            actual_date = now - timedelta(days=num * 30)
+            actual_date = (
+                now - timedelta(days=num * 30)
+            )
 
         elif "year" in lower_date:
 
@@ -256,7 +263,9 @@ def passes_date_filter(
                 ).group()
             )
 
-            actual_date = now - timedelta(days=num * 365)
+            actual_date = (
+                now - timedelta(days=num * 365)
+            )
 
         else:
 
@@ -324,7 +333,7 @@ async def human_behavior(page):
             await page.mouse.move(x, y)
 
             await asyncio.sleep(
-                random.uniform(0.2, 0.8)
+                random.uniform(0.2, 1)
             )
 
     except:
@@ -340,7 +349,7 @@ async def extract_reviews_from_page(
 
     existing_ids=None,
 
-    target_limit=100,
+    target_limit=50,
 
     start_date=None,
 
@@ -360,45 +369,23 @@ async def extract_reviews_from_page(
             timeout=15000
         )
 
-        # ==================================================
-        # EXPAND REVIEWS
-        # ==================================================
-
-        try:
-
-            buttons = page.locator(
-                "button.w8nwRe"
-            )
-
-            count = await buttons.count()
-
-            for i in range(count):
-
-                try:
-                    await buttons.nth(i).click()
-                except:
-                    pass
-
-        except:
-            pass
-
         cards = page.locator(
             "div.jftiEf"
         )
 
-        card_count = await cards.count()
+        count = await cards.count()
 
         logger.info(
-            f"📦 CARDS FOUND => {card_count}"
+            f"📦 CARDS => {count}"
         )
 
-        for i in range(card_count):
+        for i in range(count):
 
             try:
 
                 card = cards.nth(i)
 
-                author = "Anonymous"
+                author = ""
 
                 text = ""
 
@@ -462,6 +449,7 @@ async def extract_reviews_from_page(
                     )
 
                     if match:
+
                         rating = int(
                             match.group(1)
                         )
@@ -473,10 +461,6 @@ async def extract_reviews_from_page(
                     author,
                     text
                 )
-
-                # ==============================================
-                # DUPLICATE PREVENTION
-                # ==============================================
 
                 if review_id in seen:
                     continue
@@ -517,7 +501,7 @@ async def extract_reviews_from_page(
                 continue
 
         logger.info(
-            f"✅ NEW REVIEWS => {len(reviews)}"
+            f"✅ EXTRACTED => {len(reviews)}"
         )
 
         return reviews
@@ -531,16 +515,16 @@ async def extract_reviews_from_page(
         return []
 
 # ==========================================================
-# PLAYWRIGHT SCRAPER
+# PLAYWRIGHT MICRO HARVESTER
 # ==========================================================
 
-async def scrape_with_playwright(
+async def micro_harvest(
 
     place_id,
 
     existing_ids=None,
 
-    target_limit=25,
+    target_limit=20,
 
     start_date=None
 ):
@@ -559,7 +543,7 @@ async def scrape_with_playwright(
 
                 proxy=proxy,
 
-                slow_mo=30,
+                slow_mo=random.randint(20, 80),
 
                 args=[
 
@@ -573,6 +557,20 @@ async def scrape_with_playwright(
                 ]
             )
 
+            logger.info(
+                "✅ BROWSER STARTED"
+            )
+
+            viewport_width = random.randint(
+                1200,
+                1800
+            )
+
+            viewport_height = random.randint(
+                800,
+                1400
+            )
+
             context = await browser.new_context(
 
                 user_agent=UserAgent().random,
@@ -581,9 +579,9 @@ async def scrape_with_playwright(
 
                 viewport={
 
-                    "width": 1400,
+                    "width": viewport_width,
 
-                    "height": 1200
+                    "height": viewport_height
                 }
             )
 
@@ -601,10 +599,6 @@ async def scrape_with_playwright(
                 f"https://www.google.com/maps/place/?q=place_id:{place_id}"
             )
 
-            logger.info(
-                f"🌐 OPENING => {url}"
-            )
-
             await page.goto(
 
                 url,
@@ -614,15 +608,15 @@ async def scrape_with_playwright(
                 timeout=60000
             )
 
-            await human_behavior(page)
-
-            await asyncio.sleep(
-                random.uniform(1, 3)
+            logger.info(
+                "✅ PAGE LOADED"
             )
 
             if await detect_google_block(page):
 
                 return []
+
+            await human_behavior(page)
 
             # ==================================================
             # OPEN REVIEWS
@@ -630,13 +624,13 @@ async def scrape_with_playwright(
 
             try:
 
-                review_button = page.locator(
+                button = page.locator(
                     'button[jsaction*="pane.reviewChart.moreReviews"]'
                 )
 
-                if await review_button.count() > 0:
+                if await button.count() > 0:
 
-                    await review_button.first.click()
+                    await button.first.click()
 
                     await asyncio.sleep(
                         random.uniform(1, 3)
@@ -661,13 +655,13 @@ async def scrape_with_playwright(
 
                     await asyncio.sleep(1)
 
-                    newest_option = page.locator(
+                    newest = page.locator(
                         'div[role="menuitemradio"]'
                     )
 
-                    if await newest_option.count() > 1:
+                    if await newest.count() > 1:
 
-                        await newest_option.nth(1).click()
+                        await newest.nth(1).click()
 
                         await asyncio.sleep(2)
 
@@ -675,16 +669,12 @@ async def scrape_with_playwright(
                 pass
 
             # ==================================================
-            # SCROLL
+            # MICRO SCROLL
             # ==================================================
 
             review_feed = page.locator(
                 'div[role="feed"]'
             )
-
-            previous_count = 0
-
-            same_count = 0
 
             for i in range(MAX_SCROLLS):
 
@@ -697,32 +687,6 @@ async def scrape_with_playwright(
                     await asyncio.sleep(
                         random.uniform(0.3, 1)
                     )
-
-                    cards = await page.locator(
-                        "div.jftiEf"
-                    ).count()
-
-                    logger.info(
-                        f"📜 SCROLL => {i+1} | {cards}"
-                    )
-
-                    if cards == previous_count:
-
-                        same_count += 1
-
-                    else:
-
-                        same_count = 0
-
-                    previous_count = cards
-
-                    if same_count >= 2:
-
-                        logger.info(
-                            "✅ ALL REVIEWS LOADED"
-                        )
-
-                        break
 
                 except:
                     pass
@@ -747,7 +711,7 @@ async def scrape_with_playwright(
     except Exception as e:
 
         logger.warning(
-            f"⚠️ PLAYWRIGHT FAILED => {e}"
+            f"⚠️ MICRO HARVEST FAILED => {e}"
         )
 
         return []
@@ -761,57 +725,10 @@ async def scrape_with_playwright(
             pass
 
 # ==========================================================
-# FAST WORKER
+# SERPAPI SEED ENGINE
 # ==========================================================
 
-async def fast_worker(
-
-    worker_id,
-
-    place_id,
-
-    existing_ids=None,
-
-    target_limit=25,
-
-    start_date=None
-):
-
-    try:
-
-        logger.info(
-            f"⚡ WORKER => {worker_id}"
-        )
-
-        return await asyncio.wait_for(
-
-            scrape_with_playwright(
-
-                place_id=place_id,
-
-                existing_ids=existing_ids,
-
-                target_limit=target_limit,
-
-                start_date=start_date
-            ),
-
-            timeout=FAST_TIMEOUT
-        )
-
-    except Exception as e:
-
-        logger.warning(
-            f"⚠️ WORKER FAILED => {worker_id} | {e}"
-        )
-
-        return []
-
-# ==========================================================
-# ULTRA BURST ENGINE
-# ==========================================================
-
-async def ultra_burst_scraper(
+def serpapi_seed_reviews(
 
     place_id,
 
@@ -823,114 +740,8 @@ async def ultra_burst_scraper(
 ):
 
     logger.info(
-        "🚀 ULTRA BURST STARTED"
+        "🚀 SERPAPI SEED STARTED"
     )
-
-    all_reviews = []
-
-    existing_ids = existing_ids or set()
-
-    completed = 0
-
-    while completed < TOTAL_ATTEMPTS:
-
-        logger.info(
-            f"⚡ WAVE => {completed}/{TOTAL_ATTEMPTS}"
-        )
-
-        tasks = []
-
-        for i in range(CONCURRENT_WORKERS):
-
-            task = fast_worker(
-
-                worker_id=i,
-
-                place_id=place_id,
-
-                existing_ids=existing_ids,
-
-                target_limit=25,
-
-                start_date=start_date
-            )
-
-            tasks.append(task)
-
-        results = await asyncio.gather(
-
-            *tasks,
-
-            return_exceptions=True
-        )
-
-        completed += CONCURRENT_WORKERS
-
-        # ==================================================
-        # MERGE REVIEWS
-        # ==================================================
-
-        for result in results:
-
-            if isinstance(result, list):
-
-                all_reviews.extend(result)
-
-        unique_reviews = {
-
-            r["review_id"]: r
-            for r in all_reviews
-        }
-
-        all_reviews = list(
-            unique_reviews.values()
-        )
-
-        existing_ids.update({
-
-            r["review_id"]
-            for r in all_reviews
-        })
-
-        logger.info(
-            f"✅ UNIQUE => {len(all_reviews)}"
-        )
-
-        if len(all_reviews) >= target_limit:
-
-            logger.info(
-                "✅ TARGET REACHED"
-            )
-
-            return all_reviews[:target_limit]
-
-        await asyncio.sleep(
-            random.uniform(0.5, 2)
-        )
-
-    return all_reviews[:target_limit]
-
-# ==========================================================
-# SERPAPI
-# ==========================================================
-
-def scrape_with_serpapi(
-
-    place_id,
-
-    existing_ids=None,
-
-    target_limit=100,
-
-    start_date=None
-):
-
-    logger.info(
-        "🚀 SERPAPI STARTED"
-    )
-
-    if not SERPAPI_API_KEY:
-        return []
 
     reviews = []
 
@@ -1033,7 +844,7 @@ def scrape_with_serpapi(
                     )
 
                     # ==========================================
-                    # SKIP EXISTING REVIEWS
+                    # ONLY NEW REVIEWS
                     # ==========================================
 
                     if review_id in seen:
@@ -1112,7 +923,93 @@ def scrape_with_serpapi(
         return []
 
 # ==========================================================
-# MAIN SCRAPER
+# CONTINUOUS BACKGROUND HARVESTER
+# ==========================================================
+
+async def continuous_background_harvester(
+
+    place_id,
+
+    existing_review_ids=None,
+
+    start_date=None
+):
+
+    logger.info(
+        "🚀 BACKGROUND HARVESTER STARTED"
+    )
+
+    existing_review_ids = (
+        existing_review_ids or set()
+    )
+
+    while True:
+
+        try:
+
+            logger.info(
+                "⚡ MICRO HARVEST CYCLE"
+            )
+
+            reviews = await asyncio.wait_for(
+
+                micro_harvest(
+
+                    place_id=place_id,
+
+                    existing_ids=existing_review_ids,
+
+                    target_limit=20,
+
+                    start_date=start_date
+                ),
+
+                timeout=FAST_TIMEOUT
+            )
+
+            if reviews:
+
+                logger.info(
+                    f"✅ BACKGROUND NEW REVIEWS => {len(reviews)}"
+                )
+
+                existing_review_ids.update({
+
+                    r["review_id"]
+                    for r in reviews
+                })
+
+                # ==========================================
+                # HERE SAVE TO DATABASE
+                # ==========================================
+
+                # save_reviews_to_database(reviews)
+
+            sleep_time = random.randint(
+
+                BACKGROUND_SLEEP_MIN,
+
+                BACKGROUND_SLEEP_MAX
+            )
+
+            logger.info(
+                f"😴 SLEEPING => {sleep_time}s"
+            )
+
+            await asyncio.sleep(
+                sleep_time
+            )
+
+        except Exception as e:
+
+            logger.warning(
+                f"⚠️ BACKGROUND FAILED => {e}"
+            )
+
+            await asyncio.sleep(10)
+
+# ==========================================================
+# MAIN ENGINE
 # ==========================================================
 
 @retry(
@@ -1143,7 +1040,7 @@ async def scrape_google_reviews(
 ):
 
     logger.info(
-        "🚀 ENTERPRISE SCRAPER STARTED"
+        "🚀 REVIEW INTELLIGENCE ENGINE STARTED"
     )
 
     existing_review_ids = (
@@ -1153,64 +1050,62 @@ async def scrape_google_reviews(
     try:
 
         # ==================================================
-        # BURST ENGINE
+        # 1. FAST SERPAPI SEED
         # ==================================================
 
-        reviews = await ultra_burst_scraper(
+        reviews = await asyncio.to_thread(
 
-            place_id=place_id,
+            serpapi_seed_reviews,
 
-            existing_ids=existing_review_ids,
+            place_id,
 
-            target_limit=target_limit,
+            existing_review_ids,
 
-            start_date=start_date
+            target_limit,
+
+            start_date
         )
-
-        # ==================================================
-        # SERPAPI FALLBACK
-        # ==================================================
-
-        if len(reviews) < target_limit:
-
-            existing_ids = {
-
-                r["review_id"]
-                for r in reviews
-            }
-
-            serp_reviews = await asyncio.to_thread(
-
-                scrape_with_serpapi,
-
-                place_id,
-
-                existing_ids,
-
-                target_limit,
-
-                start_date
-            )
-
-            reviews.extend(serp_reviews)
-
-            reviews = list({
-
-                r["review_id"]: r
-                for r in reviews
-
-            }.values())
 
         logger.info(
-            f"✅ FINAL REVIEWS => {len(reviews)}"
+            f"✅ INITIAL REVIEWS => {len(reviews)}"
         )
+
+        # ==================================================
+        # 2. START BACKGROUND HARVESTER
+        # ==================================================
+
+        harvested_ids = {
+
+            r["review_id"]
+            for r in reviews
+        }
+
+        harvested_ids.update(
+            existing_review_ids
+        )
+
+        asyncio.create_task(
+
+            continuous_background_harvester(
+
+                place_id=place_id,
+
+                existing_review_ids=harvested_ids,
+
+                start_date=start_date
+            )
+        )
+
+        # ==================================================
+        # 3. INSTANT FRONTEND RESPONSE
+        # ==================================================
 
         return reviews[:target_limit]
 
     except Exception as e:
 
         logger.exception(
-            f"❌ MAIN SCRAPER FAILED => {e}"
+            f"❌ MAIN ENGINE FAILED => {e}"
         )
 
         logger.error(
