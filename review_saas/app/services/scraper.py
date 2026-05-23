@@ -4,22 +4,19 @@
 # MAY 2026 — RAILWAY PRODUCTION VERSION
 #
 # ENGINES:
-# 1. SERPAPI
-# 2. CAMOUFOX + PLAYWRIGHT
-# 3. PLAYWRIGHT STEALTH
-# 4. REQUESTS + BS4
+# 1. CAMOUFOX
+# 2. PLAYWRIGHT + STEALTH + PROXY
+# 3. REQUESTS + BS4
+# 4. SERPAPI FALLBACK
 #
 # FEATURES:
-# ✅ SERPAPI FIRST PRIORITY
-# ✅ CAMOUFOX SUPPORT
+# ✅ DATAIMPULSE PROXY
 # ✅ PLAYWRIGHT STEALTH
-# ✅ PROXYSCRAPE SUPPORT
-# ✅ DATAIMPULSE PROXY SUPPORT
-# ✅ GOOGLE BLOCK DETECTION
-# ✅ CAPTCHA DETECTION
-# ✅ HUMAN SCROLLING
+# ✅ CAMOUFOX
+# ✅ DATE RANGE FILTERING
+# ✅ REAL GOOGLE REVIEW CARDS
 # ✅ DUPLICATE PROTECTION
-# ✅ POSTGRESQL SAFE
+# ✅ SENTIMENT SAFE
 # ✅ RAILWAY SAFE
 # ✅ ENTERPRISE LOGGING
 # ==========================================================
@@ -27,13 +24,17 @@
 import os
 import re
 import gc
-import json
 import time
 import random
 import asyncio
 import hashlib
 import logging
 import traceback
+
+from datetime import (
+    datetime,
+    timedelta
+)
 
 from typing import (
     List,
@@ -46,11 +47,8 @@ from typing import (
 # ==========================================================
 
 from tenacity import (
-
     retry,
-
     stop_after_attempt,
-
     wait_exponential
 )
 
@@ -58,18 +56,14 @@ from tenacity import (
 # USER AGENT
 # ==========================================================
 
-from fake_useragent import (
-    UserAgent
-)
+from fake_useragent import UserAgent
 
 # ==========================================================
 # PLAYWRIGHT
 # ==========================================================
 
 from playwright.async_api import (
-
     async_playwright,
-
     TimeoutError as PlaywrightTimeout
 )
 
@@ -77,17 +71,13 @@ from playwright.async_api import (
 # PLAYWRIGHT STEALTH
 # ==========================================================
 
-from playwright_stealth import (
-    stealth_async
-)
+from playwright_stealth import stealth_async
 
 # ==========================================================
 # CAMOUFOX
 # ==========================================================
 
-from camoufox.async_api import (
-    AsyncCamoufox
-)
+from camoufox.async_api import AsyncCamoufox
 
 # ==========================================================
 # REQUESTS / BS4
@@ -95,9 +85,7 @@ from camoufox.async_api import (
 
 import requests
 
-from bs4 import (
-    BeautifulSoup
-)
+from bs4 import BeautifulSoup
 
 # ==========================================================
 # LOGGER
@@ -113,10 +101,6 @@ logger = logging.getLogger(
 
 SERPAPI_API_KEY = os.getenv(
     "SERPAPI_API_KEY"
-)
-
-PROXYSCRAPE_API_KEY = os.getenv(
-    "PROXYSCRAPE_API_KEY"
 )
 
 PROXY_SERVER = os.getenv(
@@ -137,7 +121,7 @@ PROXY_PASSWORD = os.getenv(
 
 HEADLESS = True
 
-MAX_SCROLLS = 60
+MAX_SCROLLS = 50
 
 REQUEST_TIMEOUT = 120
 
@@ -150,11 +134,8 @@ def get_proxy():
     try:
 
         if (
-
             PROXY_SERVER and
-
             PROXY_USERNAME and
-
             PROXY_PASSWORD
         ):
 
@@ -276,7 +257,7 @@ def normalize_review(review):
     }
 
 # ==========================================================
-# CAPTCHA DETECTION
+# GOOGLE BLOCK DETECTION
 # ==========================================================
 
 async def detect_google_block(page):
@@ -317,47 +298,654 @@ async def detect_google_block(page):
         return False
 
 # ==========================================================
-# HUMAN SCROLL
+# DATE FILTER
 # ==========================================================
 
-async def human_scroll(page):
+def passes_date_filter(
+    review_date,
+    start_date=None
+):
 
     try:
 
-        await page.mouse.wheel(
+        if not start_date:
+            return True
 
-            0,
+        lower_date = review_date.lower()
 
-            random.randint(
-                2000,
-                5000
+        now = datetime.utcnow()
+
+        if "day" in lower_date:
+
+            num = int(
+                re.search(r"\d+", lower_date).group()
             )
-        )
 
-        await asyncio.sleep(
+            actual_date = now - timedelta(days=num)
 
-            random.uniform(
-                2,
-                5
+        elif "week" in lower_date:
+
+            num = int(
+                re.search(r"\d+", lower_date).group()
             )
-        )
+
+            actual_date = now - timedelta(days=num * 7)
+
+        elif "month" in lower_date:
+
+            num = int(
+                re.search(r"\d+", lower_date).group()
+            )
+
+            actual_date = now - timedelta(days=num * 30)
+
+        elif "year" in lower_date:
+
+            num = int(
+                re.search(r"\d+", lower_date).group()
+            )
+
+            actual_date = now - timedelta(days=num * 365)
+
+        else:
+
+            actual_date = now
+
+        return actual_date >= start_date
 
     except Exception:
-        pass
+
+        return True
+
+# ==========================================================
+# EXTRACT REVIEWS FROM PAGE
+# ==========================================================
+
+async def extract_reviews_from_page(
+    page,
+    target_limit=100,
+    start_date=None
+):
+
+    reviews = []
+
+    seen = set()
+
+    try:
+
+        cards = page.locator(
+            "div.jftiEf"
+        )
+
+        count = await cards.count()
+
+        logger.info(
+            f"✅ REVIEW CARDS FOUND => {count}"
+        )
+
+        for i in range(count):
+
+            try:
+
+                card = cards.nth(i)
+
+                # ==================================================
+                # AUTHOR
+                # ==================================================
+
+                author = "Anonymous"
+
+                try:
+
+                    author = clean_text(
+
+                        await card.locator(
+                            ".d4r55"
+                        ).inner_text()
+
+                    )
+
+                except:
+                    pass
+
+                # ==================================================
+                # REVIEW TEXT
+                # ==================================================
+
+                text = ""
+
+                try:
+
+                    text = clean_text(
+
+                        await card.locator(
+                            ".wiI7pd"
+                        ).inner_text()
+
+                    )
+
+                except:
+                    pass
+
+                if not text:
+                    continue
+
+                # ==================================================
+                # REVIEW DATE
+                # ==================================================
+
+                review_date = ""
+
+                try:
+
+                    review_date = clean_text(
+
+                        await card.locator(
+                            ".rsqaWe"
+                        ).inner_text()
+
+                    )
+
+                except:
+                    pass
+
+                # ==================================================
+                # DATE FILTER
+                # ==================================================
+
+                if not passes_date_filter(
+                    review_date,
+                    start_date
+                ):
+                    continue
+
+                # ==================================================
+                # RATING
+                # ==================================================
+
+                rating = 5
+
+                try:
+
+                    rating_text = await card.locator(
+                        ".kvMYJc"
+                    ).get_attribute(
+                        "aria-label"
+                    )
+
+                    match = re.search(
+                        r"(\d)",
+                        str(rating_text)
+                    )
+
+                    if match:
+
+                        rating = int(
+                            match.group(1)
+                        )
+
+                except:
+                    pass
+
+                # ==================================================
+                # DUPLICATE CHECK
+                # ==================================================
+
+                review_id = generate_hash(
+                    author,
+                    text
+                )
+
+                if review_id in seen:
+                    continue
+
+                seen.add(review_id)
+
+                # ==================================================
+                # SAVE REVIEW
+                # ==================================================
+
+                reviews.append({
+
+                    "review_id":
+                        review_id,
+
+                    "author_name":
+                        author,
+
+                    "rating":
+                        rating,
+
+                    "review_date":
+                        review_date,
+
+                    "text":
+                        text,
+
+                    "likes":
+                        0,
+
+                    "source":
+                        "google_maps"
+                })
+
+                if len(reviews) >= target_limit:
+                    break
+
+            except Exception as e:
+
+                logger.warning(
+                    f"⚠️ REVIEW PARSE FAILED => {e}"
+                )
+
+                continue
+
+        return [
+
+            normalize_review(r)
+
+            for r in reviews
+        ]
+
+    except Exception as e:
+
+        logger.exception(
+            f"❌ EXTRACT FAILED => {e}"
+        )
+
+        return []
+
+# ==========================================================
+# CAMOUFOX ENGINE
+# ==========================================================
+
+async def scrape_with_camoufox(
+    place_id,
+    target_limit=100,
+    start_date=None
+):
+
+    logger.info(
+        "🚀 ENGINE 1 => CAMOUFOX"
+    )
+
+    try:
+
+        async with AsyncCamoufox(
+            headless=HEADLESS
+        ) as browser:
+
+            page = await browser.new_page()
+
+            url = (
+                f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+            )
+
+            await page.goto(
+                url,
+                wait_until="networkidle",
+                timeout=120000
+            )
+
+            await asyncio.sleep(5)
+
+            if await detect_google_block(page):
+
+                logger.warning(
+                    "⚠️ GOOGLE BLOCKED CAMOUFOX"
+                )
+
+                return []
+
+            # ==================================================
+            # OPEN REVIEWS
+            # ==================================================
+
+            try:
+
+                review_button = page.locator(
+                    'button[jsaction*="pane.reviewChart.moreReviews"]'
+                )
+
+                if await review_button.count() > 0:
+
+                    await review_button.first.click()
+
+                    await asyncio.sleep(5)
+
+            except:
+                pass
+
+            # ==================================================
+            # SCROLL
+            # ==================================================
+
+            try:
+
+                review_feed = page.locator(
+                    'div[role="feed"]'
+                )
+
+                for _ in range(MAX_SCROLLS):
+
+                    await review_feed.evaluate(
+                        "(el) => el.scrollTop = el.scrollHeight"
+                    )
+
+                    await asyncio.sleep(
+                        random.uniform(1.5, 3)
+                    )
+
+            except:
+                pass
+
+            return await extract_reviews_from_page(
+                page,
+                target_limit,
+                start_date
+            )
+
+    except Exception as e:
+
+        logger.exception(
+            f"❌ CAMOUFOX FAILED => {e}"
+        )
+
+        return []
+
+# ==========================================================
+# PLAYWRIGHT ENGINE
+# ==========================================================
+
+async def scrape_with_playwright(
+    place_id,
+    target_limit=100,
+    start_date=None
+):
+
+    logger.info(
+        "🚀 ENGINE 2 => PLAYWRIGHT"
+    )
+
+    browser = None
+
+    try:
+
+        proxy = get_proxy()
+
+        async with async_playwright() as p:
+
+            browser = await p.chromium.launch(
+
+                headless=True,
+
+                slow_mo=50,
+
+                proxy=proxy,
+
+                args=[
+
+                    "--disable-blink-features=AutomationControlled",
+
+                    "--disable-dev-shm-usage",
+
+                    "--no-sandbox",
+
+                    "--disable-gpu"
+                ]
+            )
+
+            context = await browser.new_context(
+
+                user_agent=UserAgent().random,
+
+                locale="en-US",
+
+                viewport={
+
+                    "width": 1400,
+
+                    "height": 1200
+                }
+            )
+
+            page = await context.new_page()
+
+            await stealth_async(page)
+
+            await page.set_extra_http_headers({
+
+                "Accept-Language":
+                    "en-US,en;q=0.9"
+            })
+
+            url = (
+                f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+            )
+
+            await page.goto(
+
+                url,
+
+                wait_until="domcontentloaded",
+
+                timeout=120000
+            )
+
+            await asyncio.sleep(5)
+
+            if await detect_google_block(page):
+
+                logger.warning(
+                    "⚠️ GOOGLE BLOCKED PLAYWRIGHT"
+                )
+
+                return []
+
+            # ==================================================
+            # OPEN REVIEWS
+            # ==================================================
+
+            try:
+
+                review_button = page.locator(
+                    'button[jsaction*="pane.reviewChart.moreReviews"]'
+                )
+
+                if await review_button.count() > 0:
+
+                    await review_button.first.click()
+
+                    await asyncio.sleep(5)
+
+            except:
+                pass
+
+            # ==================================================
+            # SORT NEWEST
+            # ==================================================
+
+            try:
+
+                sort_button = page.locator(
+                    'button[aria-label*="Sort reviews"]'
+                )
+
+                if await sort_button.count() > 0:
+
+                    await sort_button.first.click()
+
+                    await asyncio.sleep(2)
+
+                    newest_option = page.locator(
+                        'div[role="menuitemradio"]'
+                    )
+
+                    if await newest_option.count() > 1:
+
+                        await newest_option.nth(1).click()
+
+                        await asyncio.sleep(4)
+
+            except:
+                pass
+
+            # ==================================================
+            # SCROLL
+            # ==================================================
+
+            try:
+
+                review_feed = page.locator(
+                    'div[role="feed"]'
+                )
+
+                for _ in range(MAX_SCROLLS):
+
+                    await review_feed.evaluate(
+                        "(el) => el.scrollTop = el.scrollHeight"
+                    )
+
+                    await asyncio.sleep(
+                        random.uniform(1.5, 3.5)
+                    )
+
+            except:
+                pass
+
+            reviews = await extract_reviews_from_page(
+                page,
+                target_limit,
+                start_date
+            )
+
+            await context.close()
+
+            await browser.close()
+
+            logger.info(
+                f"✅ PLAYWRIGHT SUCCESS => {len(reviews)}"
+            )
+
+            return reviews
+
+    except Exception as e:
+
+        logger.exception(
+            f"❌ PLAYWRIGHT FAILED => {e}"
+        )
+
+        return []
+
+    finally:
+
+        try:
+
+            if browser:
+                await browser.close()
+
+        except:
+            pass
+
+# ==========================================================
+# REQUESTS FALLBACK
+# ==========================================================
+
+def scrape_with_requests(
+    place_id
+):
+
+    logger.info(
+        "🚀 ENGINE 3 => REQUESTS"
+    )
+
+    try:
+
+        url = (
+            f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+        )
+
+        headers = {
+
+            "User-Agent":
+                UserAgent().random
+        }
+
+        response = requests.get(
+
+            url,
+
+            headers=headers,
+
+            timeout=60
+        )
+
+        soup = BeautifulSoup(
+            response.text,
+            "lxml"
+        )
+
+        text = clean_text(
+            soup.get_text()
+        )
+
+        if not text:
+            return []
+
+        reviews = [{
+
+            "review_id":
+                generate_hash(
+                    "requests",
+                    text[:100]
+                ),
+
+            "author_name":
+                "Google User",
+
+            "rating":
+                5,
+
+            "review_date":
+                "",
+
+            "text":
+                text[:3000],
+
+            "likes":
+                0,
+
+            "source":
+                "requests"
+        }]
+
+        return [
+
+            normalize_review(r)
+
+            for r in reviews
+        ]
+
+    except Exception as e:
+
+        logger.exception(
+            f"❌ REQUESTS FAILED => {e}"
+        )
+
+        return []
 
 # ==========================================================
 # SERPAPI ENGINE
 # ==========================================================
 
 def scrape_with_serpapi(
-
     place_id,
-
-    target_limit=200
+    target_limit=100,
+    start_date=None
 ):
 
     logger.info(
-        "🚀 ENGINE 1 => SERPAPI"
+        "🚀 ENGINE 4 => SERPAPI"
     )
 
     if not SERPAPI_API_KEY:
@@ -445,6 +1033,19 @@ def scrape_with_serpapi(
                     if not text:
                         continue
 
+                    review_date = clean_text(
+                        review.get(
+                            "date",
+                            ""
+                        )
+                    )
+
+                    if not passes_date_filter(
+                        review_date,
+                        start_date
+                    ):
+                        continue
+
                     review_id = generate_hash(
                         author,
                         text
@@ -470,10 +1071,7 @@ def scrape_with_serpapi(
                             ),
 
                         "review_date":
-                            review.get(
-                                "date",
-                                ""
-                            ),
+                            review_date,
 
                         "text":
                             text,
@@ -509,10 +1107,7 @@ def scrape_with_serpapi(
                 break
 
             time.sleep(
-                random.uniform(
-                    1,
-                    2
-                )
+                random.uniform(1, 2)
             )
 
         return [
@@ -526,413 +1121,6 @@ def scrape_with_serpapi(
 
         logger.exception(
             f"❌ SERPAPI FAILED => {e}"
-        )
-
-        return []
-
-# ==========================================================
-# CAMOUFOX ENGINE
-# ==========================================================
-
-async def scrape_with_camoufox(
-
-    place_id,
-
-    target_limit=100
-):
-
-    logger.info(
-        "🚀 ENGINE 2 => CAMOUFOX"
-    )
-
-    reviews = []
-
-    seen = set()
-
-    try:
-
-        async with AsyncCamoufox(
-
-            headless=HEADLESS
-
-        ) as browser:
-
-            page = await browser.new_page()
-
-            url = (
-                f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-            )
-
-            await page.goto(
-
-                url,
-
-                wait_until="networkidle",
-
-                timeout=90000
-            )
-
-            await asyncio.sleep(5)
-
-            if await detect_google_block(page):
-
-                logger.warning(
-                    "⚠️ GOOGLE BLOCKED CAMOUFOX"
-                )
-
-                return []
-
-            for _ in range(MAX_SCROLLS):
-
-                await human_scroll(page)
-
-            html = await page.content()
-
-            soup = BeautifulSoup(
-
-                html,
-
-                "html.parser"
-            )
-
-            spans = soup.find_all("span")
-
-            for span in spans:
-
-                try:
-
-                    text = clean_text(
-                        span.get_text()
-                    )
-
-                    if len(text) < 40:
-                        continue
-
-                    review_id = generate_hash(
-                        "camoufox",
-                        text
-                    )
-
-                    if review_id in seen:
-                        continue
-
-                    seen.add(review_id)
-
-                    reviews.append({
-
-                        "review_id":
-                            review_id,
-
-                        "author_name":
-                            "Google User",
-
-                        "rating":
-                            5,
-
-                        "review_date":
-                            "",
-
-                        "text":
-                            text,
-
-                        "likes":
-                            0,
-
-                        "source":
-                            "camoufox"
-                    })
-
-                    if len(reviews) >= target_limit:
-                        break
-
-                except Exception:
-                    continue
-
-        logger.info(
-            f"✅ CAMOUFOX => {len(reviews)}"
-        )
-
-        return [
-
-            normalize_review(r)
-
-            for r in reviews
-        ]
-
-    except Exception as e:
-
-        logger.exception(
-            f"❌ CAMOUFOX FAILED => {e}"
-        )
-
-        return []
-
-# ==========================================================
-# PLAYWRIGHT STEALTH ENGINE
-# ==========================================================
-
-async def scrape_with_playwright(
-
-    place_id,
-
-    target_limit=100
-):
-
-    logger.info(
-        "🚀 ENGINE 3 => PLAYWRIGHT"
-    )
-
-    reviews = []
-
-    seen = set()
-
-    browser = None
-
-    try:
-
-        proxy = get_proxy()
-
-        async with async_playwright() as p:
-
-            browser = await p.chromium.launch(
-
-                headless=HEADLESS,
-
-                proxy=proxy,
-
-                args=[
-
-                    "--disable-blink-features=AutomationControlled",
-
-                    "--disable-dev-shm-usage",
-
-                    "--no-sandbox"
-                ]
-            )
-
-            context = await browser.new_context(
-
-                user_agent=UserAgent().random,
-
-                locale="en-US",
-
-                viewport={
-
-                    "width": 1400,
-
-                    "height": 900
-                }
-            )
-
-            page = await context.new_page()
-
-            await stealth_async(page)
-
-            url = (
-                f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-            )
-
-            await page.goto(
-
-                url,
-
-                wait_until="domcontentloaded",
-
-                timeout=90000
-            )
-
-            await asyncio.sleep(5)
-
-            if await detect_google_block(page):
-
-                logger.warning(
-                    "⚠️ GOOGLE BLOCKED PLAYWRIGHT"
-                )
-
-                return []
-
-            for _ in range(MAX_SCROLLS):
-
-                await human_scroll(page)
-
-            html = await page.content()
-
-            soup = BeautifulSoup(
-
-                html,
-
-                "html.parser"
-            )
-
-            spans = soup.find_all("span")
-
-            for span in spans:
-
-                try:
-
-                    text = clean_text(
-                        span.get_text()
-                    )
-
-                    if len(text) < 40:
-                        continue
-
-                    review_id = generate_hash(
-                        "playwright",
-                        text
-                    )
-
-                    if review_id in seen:
-                        continue
-
-                    seen.add(review_id)
-
-                    reviews.append({
-
-                        "review_id":
-                            review_id,
-
-                        "author_name":
-                            "Google User",
-
-                        "rating":
-                            5,
-
-                        "review_date":
-                            "",
-
-                        "text":
-                            text,
-
-                        "likes":
-                            0,
-
-                        "source":
-                            "playwright"
-                    })
-
-                    if len(reviews) >= target_limit:
-                        break
-
-                except Exception:
-                    continue
-
-            await context.close()
-
-            await browser.close()
-
-            logger.info(
-                f"✅ PLAYWRIGHT => {len(reviews)}"
-            )
-
-            return [
-
-                normalize_review(r)
-
-                for r in reviews
-            ]
-
-    except Exception as e:
-
-        logger.exception(
-            f"❌ PLAYWRIGHT FAILED => {e}"
-        )
-
-        return []
-
-    finally:
-
-        try:
-
-            if browser:
-                await browser.close()
-
-        except Exception:
-            pass
-
-# ==========================================================
-# REQUESTS FALLBACK
-# ==========================================================
-
-def scrape_with_requests(place_id):
-
-    logger.info(
-        "🚀 ENGINE 4 => REQUESTS"
-    )
-
-    try:
-
-        url = (
-            f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-        )
-
-        headers = {
-
-            "User-Agent":
-                UserAgent().random
-        }
-
-        response = requests.get(
-
-            url,
-
-            headers=headers,
-
-            timeout=60
-        )
-
-        soup = BeautifulSoup(
-
-            response.text,
-
-            "lxml"
-        )
-
-        text = clean_text(
-            soup.get_text()
-        )
-
-        if not text:
-            return []
-
-        reviews = [{
-
-            "review_id":
-                generate_hash(
-                    "requests",
-                    text[:100]
-                ),
-
-            "author_name":
-                "Google User",
-
-            "rating":
-                5,
-
-            "review_date":
-                "",
-
-            "text":
-                text[:3000],
-
-            "likes":
-                0,
-
-            "source":
-                "requests"
-        }]
-
-        return [
-
-            normalize_review(r)
-
-            for r in reviews
-        ]
-
-    except Exception as e:
-
-        logger.exception(
-            f"❌ REQUESTS FAILED => {e}"
         )
 
         return []
@@ -959,7 +1147,11 @@ async def scrape_google_reviews(
 
     place_id: str,
 
-    target_limit: int = 100
+    target_limit: int = 100,
+
+    start_date=None,
+
+    end_date=None
 ):
 
     logger.info(
@@ -969,35 +1161,16 @@ async def scrape_google_reviews(
     try:
 
         # ==================================================
-        # ENGINE 1 => SERPAPI
-        # ==================================================
-
-        reviews = await asyncio.to_thread(
-
-            scrape_with_serpapi,
-
-            place_id,
-
-            target_limit
-        )
-
-        if reviews:
-
-            logger.info(
-                f"✅ SERPAPI SUCCESS => {len(reviews)}"
-            )
-
-            return reviews
-
-        # ==================================================
-        # ENGINE 2 => CAMOUFOX
+        # ENGINE 1 => CAMOUFOX
         # ==================================================
 
         reviews = await scrape_with_camoufox(
 
             place_id,
 
-            target_limit
+            target_limit,
+
+            start_date
         )
 
         if reviews:
@@ -1009,14 +1182,16 @@ async def scrape_google_reviews(
             return reviews
 
         # ==================================================
-        # ENGINE 3 => PLAYWRIGHT
+        # ENGINE 2 => PLAYWRIGHT
         # ==================================================
 
         reviews = await scrape_with_playwright(
 
             place_id,
 
-            target_limit
+            target_limit,
+
+            start_date
         )
 
         if reviews:
@@ -1028,7 +1203,7 @@ async def scrape_google_reviews(
             return reviews
 
         # ==================================================
-        # ENGINE 4 => REQUESTS
+        # ENGINE 3 => REQUESTS
         # ==================================================
 
         reviews = await asyncio.to_thread(
@@ -1042,6 +1217,29 @@ async def scrape_google_reviews(
 
             logger.info(
                 f"✅ REQUESTS SUCCESS => {len(reviews)}"
+            )
+
+            return reviews
+
+        # ==================================================
+        # ENGINE 4 => SERPAPI
+        # ==================================================
+
+        reviews = await asyncio.to_thread(
+
+            scrape_with_serpapi,
+
+            place_id,
+
+            target_limit,
+
+            start_date
+        )
+
+        if reviews:
+
+            logger.info(
+                f"✅ SERPAPI SUCCESS => {len(reviews)}"
             )
 
             return reviews
