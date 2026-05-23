@@ -1,8 +1,21 @@
 # ==========================================================
 # FILE: app/services/scraper.py
-# REVIEW INTEL AI — ENTERPRISE 5 LAYER ENGINE
-# STABLE + RAILWAY SAFE VERSION
+# SERPAPI ONLY — TRUE NEXT 100 REVIEW ENGINE
+# STABLE ENTERPRISE VERSION
 # MAY 2026
+#
+# ==========================================================
+# FEATURES
+# ==========================================================
+# ✅ SERPAPI ONLY
+# ✅ TRUE NEXT 100 REVIEWS
+# ✅ DATABASE MEMORY
+# ✅ NO DUPLICATES
+# ✅ DATE-WISE EXTRACTION
+# ✅ CONTINUOUS PAGINATION
+# ✅ FRONTEND SUCCESS RESPONSE
+# ✅ RAILWAY SAFE
+# ✅ SIMPLE + STABLE
 # ==========================================================
 
 import os
@@ -16,102 +29,32 @@ import logging
 import traceback
 import requests
 
-from datetime import datetime, timedelta
-
-from fake_useragent import UserAgent
-
-from bs4 import BeautifulSoup
-
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
+from datetime import (
+    datetime,
+    timedelta
 )
-
-from playwright.async_api import async_playwright
-from playwright_stealth import stealth_async
 
 # ==========================================================
 # LOGGER
 # ==========================================================
 
-logger = logging.getLogger("app.services.scraper")
+logger = logging.getLogger(
+    "app.services.scraper"
+)
 
 # ==========================================================
 # ENV VARIABLES
 # ==========================================================
 
-SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY")
-
-PROXY_SERVER = os.getenv("PROXY_SERVER")
-PROXY_USERNAME = os.getenv("PROXY_USERNAME")
-PROXY_PASSWORD = os.getenv("PROXY_PASSWORD")
+SERPAPI_API_KEY = os.getenv(
+    "SERPAPI_API_KEY"
+)
 
 # ==========================================================
 # CONFIG
 # ==========================================================
 
-HEADLESS = True
-
-FAST_TIMEOUT = 20
-
-MAX_SCROLLS = 4
-
 REQUEST_TIMEOUT = 120
-
-MICRO_TARGET = 10
-
-ACTIVE_WINDOW_SECONDS = 600     # 10 minutes
-COOL_DOWN_SECONDS = 120         # 2 minutes
-
-# ==========================================================
-# PROXY ROTATION
-# ==========================================================
-
-def get_proxy():
-
-    try:
-
-        session_id = random.randint(100000, 999999)
-
-        username = (
-            f"{PROXY_USERNAME}-session-{session_id}"
-        )
-
-        return {
-            "server": f"http://{PROXY_SERVER}",
-            "username": username,
-            "password": PROXY_PASSWORD,
-        }
-
-    except Exception:
-        return None
-
-# ==========================================================
-# REQUESTS PROXY
-# ==========================================================
-
-def get_requests_proxy():
-
-    try:
-
-        session_id = random.randint(100000, 999999)
-
-        username = (
-            f"{PROXY_USERNAME}-session-{session_id}"
-        )
-
-        proxy_url = (
-            f"http://{username}:{PROXY_PASSWORD}@{PROXY_SERVER}"
-        )
-
-        return {
-            "http": proxy_url,
-            "https": proxy_url,
-        }
-
-    except Exception:
-        return None
 
 # ==========================================================
 # CLEAN TEXT
@@ -165,34 +108,54 @@ def passes_date_filter(
         if "day" in lower_date:
 
             num = int(
-                re.search(r"\d+", lower_date).group()
+                re.search(
+                    r"\d+",
+                    lower_date
+                ).group()
             )
 
-            actual_date = now - timedelta(days=num)
+            actual_date = (
+                now - timedelta(days=num)
+            )
 
         elif "week" in lower_date:
 
             num = int(
-                re.search(r"\d+", lower_date).group()
+                re.search(
+                    r"\d+",
+                    lower_date
+                ).group()
             )
 
-            actual_date = now - timedelta(days=num * 7)
+            actual_date = (
+                now - timedelta(days=num * 7)
+            )
 
         elif "month" in lower_date:
 
             num = int(
-                re.search(r"\d+", lower_date).group()
+                re.search(
+                    r"\d+",
+                    lower_date
+                ).group()
             )
 
-            actual_date = now - timedelta(days=num * 30)
+            actual_date = (
+                now - timedelta(days=num * 30)
+            )
 
         elif "year" in lower_date:
 
             num = int(
-                re.search(r"\d+", lower_date).group()
+                re.search(
+                    r"\d+",
+                    lower_date
+                ).group()
             )
 
-            actual_date = now - timedelta(days=num * 365)
+            actual_date = (
+                now - timedelta(days=num * 365)
+            )
 
         else:
 
@@ -200,7 +163,7 @@ def passes_date_filter(
 
         return actual_date >= start_date
 
-    except Exception:
+    except:
         return True
 
 # ==========================================================
@@ -208,7 +171,9 @@ def passes_date_filter(
 # ==========================================================
 
 async def load_existing_review_ids(
+
     db,
+
     company_id
 ):
 
@@ -223,13 +188,20 @@ async def load_existing_review_ids(
         """
 
         async with db.execute(
+
             query,
+
             (company_id,)
+
         ) as cursor:
 
             rows = await cursor.fetchall()
 
-        ids = {row[0] for row in rows}
+        ids = {
+
+            row[0]
+            for row in rows
+        }
 
         logger.info(
             f"✅ EXISTING IDS => {len(ids)}"
@@ -250,8 +222,11 @@ async def load_existing_review_ids(
 # ==========================================================
 
 async def save_reviews_to_database(
+
     db,
+
     company_id,
+
     reviews
 ):
 
@@ -290,19 +265,26 @@ async def save_reviews_to_database(
                     (
 
                         company_id,
+
                         review["review_id"],
+
                         review["author_name"],
+
                         review["rating"],
+
                         review["review_date"],
+
                         review["text"],
+
                         review["likes"],
-                        review["source"],
-                    ),
+
+                        review["source"]
+                    )
                 )
 
                 inserted += 1
 
-            except Exception:
+            except:
                 continue
 
         await db.commit()
@@ -322,225 +304,22 @@ async def save_reviews_to_database(
         return 0
 
 # ==========================================================
-# GOOGLE BLOCK DETECTION
+# SERPAPI TRUE NEXT REVIEW ENGINE
 # ==========================================================
 
-async def detect_google_block(page):
-
-    try:
-
-        content = (
-            await page.content()
-        ).lower()
-
-        keywords = [
-
-            "captcha",
-            "unusual traffic",
-            "automated queries",
-            "/sorry/",
-            "not a robot",
-
-        ]
-
-        for keyword in keywords:
-
-            if keyword in content:
-
-                logger.warning(
-                    f"⚠️ GOOGLE BLOCK => {keyword}"
-                )
-
-                return True
-
-        return False
-
-    except Exception:
-        return False
-
-# ==========================================================
-# HUMAN BEHAVIOR
-# ==========================================================
-
-async def human_behavior(page):
-
-    try:
-
-        for _ in range(random.randint(1, 3)):
-
-            x = random.randint(100, 1200)
-            y = random.randint(100, 800)
-
-            await page.mouse.move(x, y)
-
-            await asyncio.sleep(
-                random.uniform(0.2, 0.8)
-            )
-
-    except Exception:
-        pass
-
-# ==========================================================
-# EXTRACT REVIEWS
-# ==========================================================
-
-async def extract_reviews_from_page(
-
-    page,
-    existing_ids=None,
-    target_limit=20,
-    start_date=None,
-    source="playwright"
-
-):
-
-    reviews = []
-
-    seen = set()
-
-    existing_ids = existing_ids or set()
-
-    try:
-
-        await page.wait_for_selector(
-            "div.jftiEf",
-            timeout=10000
-        )
-
-        cards = page.locator("div.jftiEf")
-
-        count = await cards.count()
-
-        logger.info(
-            f"📦 CARDS FOUND => {count}"
-        )
-
-        for i in range(count):
-
-            try:
-
-                card = cards.nth(i)
-
-                author = ""
-                text = ""
-                review_date = ""
-                rating = 5
-
-                try:
-
-                    author = clean_text(
-                        await card.locator(".d4r55").inner_text()
-                    )
-
-                except Exception:
-                    pass
-
-                try:
-
-                    text = clean_text(
-                        await card.locator(".wiI7pd").inner_text()
-                    )
-
-                except Exception:
-                    pass
-
-                if not text:
-                    continue
-
-                try:
-
-                    review_date = clean_text(
-                        await card.locator(".rsqaWe").inner_text()
-                    )
-
-                except Exception:
-                    pass
-
-                if not passes_date_filter(
-                    review_date,
-                    start_date
-                ):
-                    continue
-
-                try:
-
-                    rating_text = await card.locator(
-                        ".kvMYJc"
-                    ).get_attribute("aria-label")
-
-                    match = re.search(
-                        r"(\d)",
-                        str(rating_text)
-                    )
-
-                    if match:
-                        rating = int(match.group(1))
-
-                except Exception:
-                    pass
-
-                review_id = generate_hash(
-                    author,
-                    text
-                )
-
-                if review_id in seen:
-                    continue
-
-                if review_id in existing_ids:
-                    continue
-
-                seen.add(review_id)
-
-                existing_ids.add(review_id)
-
-                reviews.append({
-
-                    "review_id": review_id,
-                    "author_name": author,
-                    "rating": rating,
-                    "review_date": review_date,
-                    "text": text,
-                    "likes": 0,
-                    "source": source,
-
-                })
-
-                if len(reviews) >= target_limit:
-                    break
-
-            except Exception:
-                continue
-
-        logger.info(
-            f"✅ NEW REVIEWS => {len(reviews)}"
-        )
-
-        return reviews
-
-    except Exception as e:
-
-        logger.warning(
-            f"⚠️ EXTRACTION FAILED => {e}"
-        )
-
-        return []
-
-# ==========================================================
-# LAYER 1 — SERPAPI ENGINE
-# ==========================================================
-
-def serpapi_seed_reviews(
+def serpapi_true_next_reviews(
 
     place_id,
-    existing_ids=None,
-    target_limit=100,
-    start_date=None
 
+    existing_ids=None,
+
+    target_limit=100,
+
+    start_date=None
 ):
 
     logger.info(
-        "🚀 LAYER 1 => SERPAPI"
+        "🚀 SERPAPI TRUE NEXT REVIEW ENGINE STARTED"
     )
 
     reviews = []
@@ -555,23 +334,43 @@ def serpapi_seed_reviews(
 
         true_new_reviews = 0
 
+        page_number = 0
+
+        # ==================================================
+        # CONTINUE UNTIL TRUE NEW REVIEWS FOUND
+        # ==================================================
+
         while true_new_reviews < target_limit:
+
+            page_number += 1
+
+            logger.info(
+                f"📄 PAGE => {page_number}"
+            )
 
             params = {
 
-                "engine": "google_maps_reviews",
-                "place_id": place_id,
-                "api_key": SERPAPI_API_KEY,
-                "sort_by": "newestFirst",
-                "hl": "en",
+                "engine":
+                    "google_maps_reviews",
 
+                "place_id":
+                    place_id,
+
+                "api_key":
+                    SERPAPI_API_KEY,
+
+                "sort_by":
+                    "newestFirst",
+
+                "hl":
+                    "en"
             }
 
             if next_page_token:
 
-                params["next_page_token"] = (
-                    next_page_token
-                )
+                params[
+                    "next_page_token"
+                ] = next_page_token
 
             response = requests.get(
 
@@ -579,7 +378,7 @@ def serpapi_seed_reviews(
 
                 params=params,
 
-                timeout=REQUEST_TIMEOUT,
+                timeout=REQUEST_TIMEOUT
             )
 
             response.raise_for_status()
@@ -591,8 +390,21 @@ def serpapi_seed_reviews(
                 []
             )
 
+            # ==================================================
+            # NO MORE REVIEWS
+            # ==================================================
+
             if not api_reviews:
+
+                logger.info(
+                    "✅ NO MORE REVIEWS AVAILABLE"
+                )
+
                 break
+
+            added_this_page = 0
+
+            skipped_duplicates = 0
 
             for review in api_reviews:
 
@@ -626,6 +438,10 @@ def serpapi_seed_reviews(
                         )
                     )
 
+                    # ==========================================
+                    # DATE FILTER
+                    # ==========================================
+
                     if not passes_date_filter(
                         review_date,
                         start_date
@@ -637,39 +453,99 @@ def serpapi_seed_reviews(
                         text
                     )
 
+                    # ==========================================
+                    # SKIP DUPLICATES
+                    # ==========================================
+
                     if review_id in seen:
+
+                        skipped_duplicates += 1
+
                         continue
 
+                    # ==========================================
+                    # SKIP EXISTING DATABASE REVIEWS
+                    # ==========================================
+
                     if review_id in existing_ids:
+
+                        skipped_duplicates += 1
+
                         continue
 
                     seen.add(review_id)
+
+                    # ==========================================
+                    # IMPORTANT
+                    # UPDATE MEMORY IMMEDIATELY
+                    # ==========================================
 
                     existing_ids.add(review_id)
 
                     reviews.append({
 
-                        "review_id": review_id,
-                        "author_name": author,
-                        "rating": review.get("rating", 5),
-                        "review_date": review_date,
-                        "text": text,
-                        "likes": review.get("likes", 0),
-                        "source": "serpapi",
+                        "review_id":
+                            review_id,
 
+                        "author_name":
+                            author,
+
+                        "rating":
+                            review.get(
+                                "rating",
+                                5
+                            ),
+
+                        "review_date":
+                            review_date,
+
+                        "text":
+                            text,
+
+                        "likes":
+                            review.get(
+                                "likes",
+                                0
+                            ),
+
+                        "source":
+                            "serpapi"
                     })
 
                     true_new_reviews += 1
 
-                except Exception:
+                    added_this_page += 1
+
+                except:
                     continue
 
             logger.info(
-                f"✅ TRUE NEW REVIEWS => {true_new_reviews}"
+                f"✅ PAGE NEW REVIEWS => {added_this_page}"
             )
 
+            logger.info(
+                f"⛔ DUPLICATES SKIPPED => {skipped_duplicates}"
+            )
+
+            logger.info(
+                f"✅ TOTAL TRUE NEW REVIEWS => {true_new_reviews}"
+            )
+
+            # ==================================================
+            # TARGET REACHED
+            # ==================================================
+
             if true_new_reviews >= target_limit:
+
+                logger.info(
+                    "✅ TARGET TRUE NEW REVIEWS REACHED"
+                )
+
                 break
+
+            # ==================================================
+            # PAGINATION
+            # ==================================================
 
             next_page_token = (
 
@@ -682,251 +558,19 @@ def serpapi_seed_reviews(
             )
 
             if not next_page_token:
+
+                logger.info(
+                    "✅ NO NEXT PAGE TOKEN"
+                )
+
                 break
 
             time.sleep(
                 random.uniform(1, 2)
             )
 
-        return reviews
-
-    except Exception as e:
-
-        logger.warning(
-            f"⚠️ SERPAPI FAILED => {e}"
-        )
-
-        return []
-
-# ==========================================================
-# LAYER 2 — PLAYWRIGHT ENGINE
-# ==========================================================
-
-@retry(
-
-    stop=stop_after_attempt(3),
-
-    wait=wait_exponential(
-        multiplier=1,
-        min=2,
-        max=10,
-    ),
-
-    reraise=True,
-)
-
-async def playwright_rotation_engine(
-
-    place_id,
-    existing_ids=None,
-    target_limit=10,
-    start_date=None
-
-):
-
-    browser = None
-
-    try:
-
-        proxy = get_proxy()
-
-        async with async_playwright() as p:
-
-            browser = await p.chromium.launch(
-
-                headless=HEADLESS,
-
-                proxy=proxy,
-
-                slow_mo=random.randint(20, 60),
-
-                args=[
-
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--no-sandbox",
-
-                ],
-            )
-
-            logger.info(
-                "✅ BROWSER STARTED"
-            )
-
-            context = await browser.new_context(
-
-                user_agent=UserAgent().random,
-
-                locale="en-US",
-
-                viewport={
-
-                    "width": random.randint(1200, 1800),
-                    "height": random.randint(800, 1400),
-
-                },
-            )
-
-            page = await context.new_page()
-
-            await stealth_async(page)
-
-            url = (
-                f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-            )
-
-            await page.goto(
-
-                url,
-
-                wait_until="domcontentloaded",
-
-                timeout=60000,
-            )
-
-            logger.info(
-                "✅ PAGE LOADED"
-            )
-
-            if await detect_google_block(page):
-                return []
-
-            await human_behavior(page)
-
-            try:
-
-                button = page.locator(
-                    'button[jsaction*="pane.reviewChart.moreReviews"]'
-                )
-
-                if await button.count() > 0:
-
-                    await button.first.click()
-
-                    await asyncio.sleep(
-                        random.uniform(1, 2)
-                    )
-
-            except Exception:
-                pass
-
-            review_feed = page.locator(
-                'div[role="feed"]'
-            )
-
-            for _ in range(MAX_SCROLLS):
-
-                try:
-
-                    await review_feed.evaluate(
-                        "(el) => el.scrollTop = el.scrollHeight"
-                    )
-
-                    await asyncio.sleep(
-                        random.uniform(0.3, 0.8)
-                    )
-
-                except Exception:
-                    pass
-
-            reviews = await extract_reviews_from_page(
-
-                page=page,
-                existing_ids=existing_ids,
-                target_limit=target_limit,
-                start_date=start_date,
-                source="playwright",
-            )
-
-            await context.close()
-
-            await browser.close()
-
-            return reviews
-
-    except Exception as e:
-
-        logger.warning(
-            f"⚠️ PLAYWRIGHT FAILED => {e}"
-        )
-
-        return []
-
-    finally:
-
-        try:
-
-            if browser:
-                await browser.close()
-
-        except Exception:
-            pass
-
-# ==========================================================
-# LAYER 3 — REQUESTS + BS4 ENGINE
-# ==========================================================
-
-def requests_rotation_engine(place_id):
-
-    try:
-
-        headers = {
-            "User-Agent": UserAgent().random
-        }
-
-        response = requests.get(
-
-            f"https://www.google.com/maps/place/?q=place_id:{place_id}",
-
-            headers=headers,
-
-            proxies=get_requests_proxy(),
-
-            timeout=60,
-        )
-
-        soup = BeautifulSoup(
-            response.text,
-            "lxml"
-        )
-
-        return clean_text(
-            soup.get_text()
-        )
-
-    except Exception:
-        return ""
-
-# ==========================================================
-# LAYER 4 — MICRO HARVEST ENGINE
-# ==========================================================
-
-async def micro_harvest_engine(
-
-    place_id,
-    existing_review_ids=None,
-    start_date=None
-
-):
-
-    try:
-
-        reviews = await asyncio.wait_for(
-
-            playwright_rotation_engine(
-
-                place_id=place_id,
-
-                existing_ids=existing_review_ids,
-
-                target_limit=MICRO_TARGET,
-
-                start_date=start_date,
-
-            ),
-
-            timeout=FAST_TIMEOUT,
+        logger.info(
+            f"✅ FINAL TRUE NEW REVIEWS => {len(reviews)}"
         )
 
         return reviews
@@ -934,130 +578,10 @@ async def micro_harvest_engine(
     except Exception as e:
 
         logger.warning(
-            f"⚠️ MICRO HARVEST FAILED => {e}"
+            f"⚠️ SERPAPI ENGINE FAILED => {e}"
         )
 
         return []
-
-# ==========================================================
-# LAYER 5 — CONTINUOUS ENGINE
-# ==========================================================
-
-async def continuous_intelligence_engine(
-
-    db,
-    company_id,
-    place_id,
-    existing_review_ids=None,
-    start_date=None
-
-):
-
-    logger.info(
-        "🚀 CONTINUOUS ENGINE STARTED"
-    )
-
-    existing_review_ids = (
-        existing_review_ids or set()
-    )
-
-    while True:
-
-        try:
-
-            logger.info(
-                "⚡ ACTIVE HARVEST WINDOW STARTED"
-            )
-
-            active_start = time.time()
-
-            while (
-                time.time() - active_start
-            ) < ACTIVE_WINDOW_SECONDS:
-
-                try:
-
-                    logger.info(
-                        "⚡ MICRO HARVEST CYCLE"
-                    )
-
-                    reviews = await micro_harvest_engine(
-
-                        place_id=place_id,
-
-                        existing_review_ids=existing_review_ids,
-
-                        start_date=start_date,
-                    )
-
-                    if reviews:
-
-                        logger.info(
-                            f"✅ BACKGROUND REVIEWS => {len(reviews)}"
-                        )
-
-                        await save_reviews_to_database(
-
-                            db=db,
-
-                            company_id=company_id,
-
-                            reviews=reviews,
-                        )
-
-                        existing_review_ids.update({
-
-                            r["review_id"]
-                            for r in reviews
-
-                        })
-
-                    _ = await asyncio.to_thread(
-
-                        requests_rotation_engine,
-                        place_id,
-                    )
-
-                    sleep_time = random.randint(
-                        15,
-                        40
-                    )
-
-                    logger.info(
-                        f"😴 MICRO SLEEP => {sleep_time}s"
-                    )
-
-                    await asyncio.sleep(
-                        sleep_time
-                    )
-
-                except Exception as cycle_error:
-
-                    logger.warning(
-                        f"⚠️ MICRO CYCLE FAILED => {cycle_error}"
-                    )
-
-                    await asyncio.sleep(5)
-
-            logger.info(
-                "🛑 ACTIVE WINDOW COMPLETE"
-            )
-
-            logger.info(
-                f"😴 COOL DOWN => {COOL_DOWN_SECONDS}s"
-            )
-
-            await asyncio.sleep(
-                COOL_DOWN_SECONDS
-            )
-
-        except Exception as e:
-
-            logger.warning(
-                f"⚠️ CONTINUOUS ENGINE FAILED => {e}"
-            )
-
-            await asyncio.sleep(30)
 
 # ==========================================================
 # MAIN ENGINE
@@ -1066,24 +590,33 @@ async def continuous_intelligence_engine(
 async def scrape_google_reviews(
 
     db,
-    company_id,
-    place_id,
-    target_limit=100,
-    start_date=None,
-    end_date=None
 
+    company_id,
+
+    place_id,
+
+    target_limit=100,
+
+    start_date=None,
+
+    end_date=None
 ):
 
     logger.info(
-        "🚀 5 LAYER ENGINE STARTED"
+        "🚀 SERPAPI ONLY ENGINE STARTED"
     )
 
     try:
 
+        # ==================================================
+        # LOAD EXISTING DATABASE IDS
+        # ==================================================
+
         existing_review_ids = await load_existing_review_ids(
 
             db=db,
-            company_id=company_id,
+
+            company_id=company_id
         )
 
         logger.info(
@@ -1091,12 +624,12 @@ async def scrape_google_reviews(
         )
 
         # ==================================================
-        # LAYER 1 — FAST TRUE NEW REVIEWS
+        # FETCH TRUE NEW REVIEWS
         # ==================================================
 
         reviews = await asyncio.to_thread(
 
-            serpapi_seed_reviews,
+            serpapi_true_next_reviews,
 
             place_id,
 
@@ -1104,11 +637,11 @@ async def scrape_google_reviews(
 
             target_limit,
 
-            start_date,
+            start_date
         )
 
         # ==================================================
-        # SAVE REVIEWS
+        # SAVE TRUE NEW REVIEWS
         # ==================================================
 
         inserted_count = await save_reviews_to_database(
@@ -1117,47 +650,16 @@ async def scrape_google_reviews(
 
             company_id=company_id,
 
-            reviews=reviews,
-        )
-
-        harvested_ids = {
-
-            r["review_id"]
-            for r in reviews
-
-        }
-
-        harvested_ids.update(
-            existing_review_ids
-        )
-
-        # ==================================================
-        # START BACKGROUND ENGINE
-        # ==================================================
-
-        task = asyncio.create_task(
-
-            continuous_intelligence_engine(
-
-                db=db,
-
-                company_id=company_id,
-
-                place_id=place_id,
-
-                existing_review_ids=harvested_ids,
-
-                start_date=start_date,
-            )
-        )
-
-        task.set_name(
-            f"harvester_{company_id}"
+            reviews=reviews
         )
 
         logger.info(
             "✅ FRONTEND SUCCESS RESPONSE SENT"
         )
+
+        # ==================================================
+        # RETURN TO FRONTEND
+        # ==================================================
 
         return {
 
@@ -1169,11 +671,8 @@ async def scrape_google_reviews(
             "new_reviews_added":
                 inserted_count,
 
-            "continuous_engine":
-                True,
-
             "reviews":
-                reviews[:target_limit],
+                reviews[:target_limit]
         }
 
     except Exception as e:
@@ -1195,9 +694,7 @@ async def scrape_google_reviews(
 
             "new_reviews_added": 0,
 
-            "continuous_engine": False,
-
-            "reviews": [],
+            "reviews": []
         }
 
     finally:
