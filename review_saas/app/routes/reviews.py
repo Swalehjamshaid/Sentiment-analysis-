@@ -422,6 +422,10 @@ async def save_reviews_to_database(
     "/reviews/sync/{company_id}"
 )
 
+@router.post(
+    "/reviews/ingest/{company_id}"
+)
+
 async def sync_reviews(
 
     request: Request,
