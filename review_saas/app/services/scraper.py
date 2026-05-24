@@ -1,20 +1,22 @@
 # ==========================================================
 # FILE: app/services/scraper.py
-# TRUSTLYTICS AI — ENTERPRISE HYBRID SCRAPER
+# TRUSTLYTICS AI — ULTRA ENTERPRISE GOOGLE SCRAPER
 # FINAL PRODUCTION VERSION — MAY 2026
 #
 # FEATURES:
-# ✅ Playwright Hybrid Scraping
-# ✅ SERPAPI Fallback
-# ✅ Duplicate Protection
-# ✅ AI Ready
-# ✅ Railway Optimized
-# ✅ Proxy Ready
+# ✅ Playwright Stealth Scraping
+# ✅ DataImpulse Rotating Proxies
+# ✅ APIFY Enterprise Reviews API
+# ✅ Incremental Review Sync
+# ✅ PostgreSQL Existing Review Detection
+# ✅ Ultra Fast Async Engine
 # ✅ Human Behavior Simulation
 # ✅ Google Block Detection
 # ✅ Enterprise Logging
-# ✅ Database Compatible
+# ✅ Railway Production Optimized
+# ✅ Duplicate Protection
 # ✅ Frontend Compatible
+# ✅ AI Ready
 # ==========================================================
 
 import os
@@ -34,6 +36,16 @@ from datetime import (
 )
 
 # ==========================================================
+# DATABASE IMPORTS
+# ==========================================================
+
+from sqlalchemy import select
+
+from app.core.db import AsyncSessionLocal
+
+from app.core.models import Review
+
+# ==========================================================
 # OPTIONAL IMPORTS
 # ==========================================================
 
@@ -41,6 +53,11 @@ try:
     import requests
 except:
     requests = None
+
+try:
+    import httpx
+except:
+    httpx = None
 
 try:
     from bs4 import BeautifulSoup
@@ -74,8 +91,8 @@ logger = logging.getLogger(
 # ENV VARIABLES
 # ==========================================================
 
-SERPAPI_API_KEY = os.getenv(
-    "SERPAPI_API_KEY"
+APIFY_TOKEN = os.getenv(
+    "APIFY_TOKEN"
 )
 
 PROXY_SERVER = os.getenv(
@@ -100,9 +117,9 @@ PLAYWRIGHT_TIMEOUT = 70000
 
 HEADLESS = True
 
-MAX_SCROLLS = 15
+MAX_SCROLLS = 25
 
-PLAYWRIGHT_TARGET = 60
+PLAYWRIGHT_TARGET = 80
 
 # ==========================================================
 # HELPERS
@@ -173,7 +190,10 @@ def parse_relative_date(relative_text):
 
         now = datetime.utcnow()
 
-        number_match = re.search(r"(\d+)", text)
+        number_match = re.search(
+            r"(\d+)",
+            text
+        )
 
         number = (
             int(number_match.group(1))
@@ -183,7 +203,9 @@ def parse_relative_date(relative_text):
 
         if "day" in text:
 
-            return now - timedelta(days=number)
+            return now - timedelta(
+                days=number
+            )
 
         elif "week" in text:
 
@@ -253,10 +275,11 @@ def get_proxy():
         if not PROXY_SERVER:
             return None
 
-        session_id = random.randint(
-            100000,
-            999999
-        )
+        session_id = hashlib.md5(
+
+            str(time.time()).encode()
+
+        ).hexdigest()[:12]
 
         username = (
             f"{PROXY_USERNAME}"
@@ -288,10 +311,11 @@ def get_requests_proxy():
         if not PROXY_SERVER:
             return None
 
-        session_id = random.randint(
-            100000,
-            999999
-        )
+        session_id = hashlib.md5(
+
+            str(time.time()).encode()
+
+        ).hexdigest()[:12]
 
         username = (
             f"{PROXY_USERNAME}"
@@ -315,13 +339,59 @@ def get_requests_proxy():
         return None
 
 # ==========================================================
+# EXISTING REVIEW IDS
+# ==========================================================
+
+async def load_existing_review_ids(
+    company_id: int
+):
+
+    existing = set()
+
+    try:
+
+        async with AsyncSessionLocal() as db:
+
+            stmt = select(
+                Review.google_review_id
+            ).where(
+                Review.company_id == company_id
+            )
+
+            result = await db.execute(stmt)
+
+            rows = result.fetchall()
+
+            for row in rows:
+
+                if row[0]:
+
+                    existing.add(row[0])
+
+        logger.info(
+            f"✅ EXISTING REVIEW IDS => {len(existing)}"
+        )
+
+        return existing
+
+    except Exception as e:
+
+        logger.warning(
+            f"⚠️ EXISTING IDS LOAD FAILED => {e}"
+        )
+
+        return set()
+
+# ==========================================================
+# HUMAN BEHAVIOR
+# ==========================================================
 
 async def human_behavior(page):
 
     try:
 
         for _ in range(
-            random.randint(2, 5)
+            random.randint(3, 7)
         ):
 
             await page.mouse.move(
@@ -333,12 +403,14 @@ async def human_behavior(page):
 
             await asyncio.sleep(
 
-                random.uniform(0.5, 1.5)
+                random.uniform(0.3, 1.2)
             )
 
     except:
         pass
 
+# ==========================================================
+# GOOGLE BLOCK DETECTION
 # ==========================================================
 
 async def detect_google_block(page):
@@ -381,7 +453,7 @@ async def detect_google_block(page):
 async def scrape_with_playwright(
     place_id,
     existing_ids=None,
-    target_limit=60,
+    target_limit=80,
     start_date=None
 ):
 
@@ -477,10 +549,6 @@ async def scrape_with_playwright(
 
             await asyncio.sleep(4)
 
-            # ==================================================
-            # OPEN REVIEWS
-            # ==================================================
-
             try:
 
                 button = page.locator(
@@ -495,10 +563,6 @@ async def scrape_with_playwright(
 
             except:
                 pass
-
-            # ==================================================
-            # SCROLL
-            # ==================================================
 
             review_feed = page.locator(
                 'div[role="feed"]'
@@ -516,17 +580,13 @@ async def scrape_with_playwright(
                     await asyncio.sleep(
 
                         random.uniform(
-                            1.2,
-                            2.8
+                            1,
+                            2
                         )
                     )
 
                 except:
                     pass
-
-            # ==================================================
-            # EXTRACT REVIEWS
-            # ==================================================
 
             cards = page.locator(
                 "div.jftiEf"
@@ -579,10 +639,6 @@ async def scrape_with_playwright(
                     ):
                         continue
 
-                    # ==========================================
-                    # RATING
-                    # ==========================================
-
                     rating = 5
 
                     try:
@@ -623,7 +679,7 @@ async def scrape_with_playwright(
 
                     existing_ids.add(review_id)
 
-                    review_data = {
+                    reviews.append({
 
                         "review_id":
                             review_id,
@@ -647,11 +703,7 @@ async def scrape_with_playwright(
 
                         "likes":
                             0
-                    }
-
-                    reviews.append(
-                        review_data
-                    )
+                    })
 
                     logger.info(
                         f"✅ REVIEW EXTRACTED => "
@@ -689,17 +741,15 @@ async def scrape_with_playwright(
         if browser:
 
             try:
-
                 await browser.close()
-
             except:
                 pass
 
 # ==========================================================
-# SERPAPI FALLBACK
+# APIFY ENTERPRISE SCRAPER
 # ==========================================================
 
-def serpapi_reviews(
+async def apify_reviews(
     place_id,
     existing_ids=None,
     target_limit=100,
@@ -710,89 +760,100 @@ def serpapi_reviews(
 
     existing_ids = existing_ids or set()
 
-    seen = set()
-
-    if (
-        not engine_available(requests)
-        or
-        not SERPAPI_API_KEY
-    ):
+    if not APIFY_TOKEN:
 
         logger.warning(
-            "⚠️ SERPAPI unavailable"
+            "⚠️ APIFY TOKEN MISSING"
         )
 
         return reviews
 
     try:
 
-        next_page_token = None
+        headers = {
 
-        total_new = 0
+            "Authorization":
+                f"Bearer {APIFY_TOKEN}",
 
-        while total_new < target_limit:
+            "Content-Type":
+                "application/json"
+        }
 
-            params = {
+        payload = {
 
-                "engine":
-                    "google_maps_reviews",
+            "placeIds": [place_id],
 
-                "place_id":
-                    place_id,
+            "maxReviews":
+                target_limit,
 
-                "api_key":
-                    SERPAPI_API_KEY,
+            "reviewsSort":
+                "newest",
 
-                "sort_by":
-                    "newestFirst",
+            "language":
+                "en"
+        }
 
-                "hl":
-                    "en"
-            }
+        async with httpx.AsyncClient(
 
-            if next_page_token:
+            timeout=120,
 
-                params[
-                    "next_page_token"
-                ] = next_page_token
+            proxies=get_requests_proxy()
 
-            response = requests.get(
+        ) as client:
 
-                "https://serpapi.com/search.json",
+            run_response = await client.post(
 
-                params=params,
+                "https://api.apify.com/v2/acts/"
+                "compass~google-maps-reviews-scraper/"
+                "runs?token="
+                f"{APIFY_TOKEN}",
 
-                timeout=REQUEST_TIMEOUT,
+                json=payload,
 
-                proxies=get_requests_proxy()
+                headers=headers
             )
 
-            response.raise_for_status()
+            run_data = run_response.json()
 
-            data = response.json()
+            run_id = run_data.get(
+                "data",
+                {}
+            ).get("id")
 
-            for review in data.get(
-                "reviews",
-                []
-            ):
+            if not run_id:
+
+                return reviews
+
+            logger.info(
+                f"🚀 APIFY RUN => {run_id}"
+            )
+
+            await asyncio.sleep(15)
+
+            dataset_response = await client.get(
+
+                f"https://api.apify.com/v2/"
+                f"actor-runs/{run_id}/dataset/items"
+            )
+
+            dataset = dataset_response.json()
+
+            seen = set()
+
+            for review in dataset:
 
                 try:
 
                     author = clean_text(
-
                         review.get(
-                            "user",
-                            {}
-                        ).get(
                             "name",
                             ""
                         )
                     )
 
                     text = clean_text(
-
                         review.get(
-                            "snippet",
+                            "text",
                             ""
                         )
                     )
@@ -801,18 +862,11 @@ def serpapi_reviews(
                         continue
 
                     review_date = clean_text(
-
                         review.get(
-                            "date",
+                            "publishedAtDate",
                             ""
                         )
                     )
-
-                    if not passes_date_filter(
-                        review_date,
-                        start_date
-                    ):
-                        continue
 
                     review_id = generate_hash(
                         author,
@@ -840,7 +894,7 @@ def serpapi_reviews(
 
                         "rating":
                             review.get(
-                                "rating",
+                                "stars",
                                 5
                             ),
 
@@ -848,49 +902,23 @@ def serpapi_reviews(
                             review_date,
 
                         "google_review_time":
-                            parse_relative_date(
-                                review_date
-                            ).isoformat(),
+                            datetime.utcnow().isoformat(),
 
                         "text":
                             text,
 
                         "likes":
                             review.get(
-                                "likes",
+                                "likesCount",
                                 0
                             )
                     })
 
-                    total_new += 1
-
-                    if total_new >= target_limit:
-
-                        break
-
                 except:
                     continue
 
-            next_page_token = data.get(
-                "serpapi_pagination",
-                {}
-            ).get(
-                "next_page_token"
-            )
-
-            if not next_page_token:
-
-                break
-
-            time.sleep(
-                random.uniform(
-                    1,
-                    2.5
-                )
-            )
-
         logger.info(
-            f"✅ SERPAPI REVIEWS => {len(reviews)}"
+            f"✅ APIFY REVIEWS => {len(reviews)}"
         )
 
         return reviews
@@ -898,7 +926,7 @@ def serpapi_reviews(
     except Exception as e:
 
         logger.warning(
-            f"⚠️ SERPAPI FAILED => {e}"
+            f"⚠️ APIFY FAILED => {e}"
         )
 
         return reviews
@@ -909,6 +937,7 @@ def serpapi_reviews(
 
 async def scrape_google_reviews(
     place_id: str,
+    company_id: int,
     target_limit: int = 100,
     start_date=None,
     end_date=None
@@ -921,11 +950,9 @@ async def scrape_google_reviews(
 
     try:
 
-        existing_review_ids = set()
-
-        # ==================================================
-        # PLAYWRIGHT LAYER
-        # ==================================================
+        existing_review_ids = await load_existing_review_ids(
+            company_id
+        )
 
         playwright_reviews = await scrape_with_playwright(
 
@@ -941,41 +968,31 @@ async def scrape_google_reviews(
             start_date=start_date
         )
 
-        # ==================================================
-        # SERPAPI FALLBACK
-        # ==================================================
-
         remaining = (
             target_limit
             -
             len(playwright_reviews)
         )
 
-        serp_reviews = []
+        apify_data = []
 
         if remaining > 0:
 
             logger.info(
-                f"🚀 SERPAPI FALLBACK => "
+                f"🚀 APIFY FALLBACK => "
                 f"{remaining}"
             )
 
-            serp_reviews = await asyncio.to_thread(
+            apify_data = await apify_reviews(
 
-                serpapi_reviews,
+                place_id=place_id,
 
-                place_id,
+                existing_ids=existing_review_ids,
 
-                existing_review_ids,
+                target_limit=remaining,
 
-                remaining,
-
-                start_date
+                start_date=start_date
             )
-
-        # ==================================================
-        # MERGE + DEDUPLICATE
-        # ==================================================
 
         final_reviews = []
 
@@ -984,7 +1001,7 @@ async def scrape_google_reviews(
         for review in (
             playwright_reviews
             +
-            serp_reviews
+            apify_data
         ):
 
             rid = review.get(
