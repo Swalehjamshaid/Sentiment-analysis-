@@ -1,4 +1,8 @@
-# filename: app/routes/companies.py
+# ==========================================================
+# FILE: app/routes/companies.py
+# TRUSTLYTICS AI — ENTERPRISE COMPANIES ROUTER
+# FIXED VERSION — ALL ATTRIBUTES PRESERVED
+# ==========================================================
 
 from __future__ import annotations
 
@@ -36,13 +40,17 @@ from app.core.config import settings
 
 logger = logging.getLogger("app.companies")
 
+# ==========================================================
+# ROUTER
+# ==========================================================
+
 router = APIRouter(
+
+    prefix="/api",
+
     tags=["companies"]
 )
 
-# ==========================================================
-# AUTH CHECK
-# ==========================================================
 # ==========================================================
 # AUTH CHECK
 # ==========================================================
@@ -60,11 +68,14 @@ def _require_user(
         )
 
         raise HTTPException(
+
             status_code=status.HTTP_401_UNAUTHORIZED,
+
             detail="Unauthorized"
         )
 
     return user_id
+
 # ==========================================================
 # PAYLOAD
 # ==========================================================
@@ -96,18 +107,26 @@ class OutscraperClient:
         self.api_key = api_key
 
     async def search(
+
         self,
+
         query: str
+
     ) -> List[Dict[str, Any]]:
 
         params = {
+
             "query": query,
+
             "async": "false",
+
             "limit": 5
         }
 
         async with httpx.AsyncClient(
+
             timeout=20
+
         ) as c:
 
             r = await c.get(
@@ -123,21 +142,32 @@ class OutscraperClient:
 
             r.raise_for_status()
 
-            return r.json().get("data", [])
+            return r.json().get(
+                "data",
+                []
+            )
 
     async def details(
+
         self,
+
         place_id: str
+
     ) -> Optional[Dict[str, Any]]:
 
         params = {
+
             "query": place_id,
+
             "async": "false",
+
             "limit": 1
         }
 
         async with httpx.AsyncClient(
+
             timeout=20
+
         ) as c:
 
             r = await c.get(
@@ -160,14 +190,21 @@ class OutscraperClient:
 
             return data[0] if data else None
 
+# ==========================================================
+# OUTSCRAPER LOADER
+# ==========================================================
+
 def _osc() -> Optional[OutscraperClient]:
 
     key = (
+
         os.getenv("OUTSCRAPER_API_KEY")
+
         or settings.OUTSCRAPER_API_KEY
     )
 
     if not key:
+
         return None
 
     return OutscraperClient(key)
@@ -199,84 +236,115 @@ async def companies_list(
         Review
     )
 
-    page = max(page, 1)
+    try:
 
-    size = max(1, min(100, size))
+        page = max(page, 1)
 
-    stmt = select(Company)
+        size = max(
+            1,
+            min(100, size)
+        )
 
-    if q:
+        stmt = select(Company)
 
-        stmt = stmt.where(
-            Company.name.ilike(
-                f"%{q}%"
+        if q:
+
+            stmt = stmt.where(
+
+                Company.name.ilike(
+                    f"%{q}%"
+                )
             )
+
+        stmt = stmt.order_by(
+            desc(Company.created_at)
         )
 
-    stmt = stmt.order_by(
-        desc(Company.created_at)
-    )
+        res = await session.execute(
 
-    res = await session.execute(
-
-        stmt.offset(
-            (page - 1) * size
-        ).limit(size)
-    )
-
-    companies = res.scalars().all()
-
-    items: List[Dict[str, Any]] = []
-
-    for c in companies:
-
-        stats_stmt = select(
-
-            func.count(Review.id),
-
-            func.avg(Review.rating)
-
-        ).where(
-            Review.company_id == c.id
+            stmt.offset(
+                (page - 1) * size
+            ).limit(size)
         )
 
-        stats_res = await session.execute(
-            stats_stmt
+        companies = res.scalars().all()
+
+        items: List[Dict[str, Any]] = []
+
+        for c in companies:
+
+            stats_stmt = select(
+
+                func.count(Review.id),
+
+                func.avg(Review.rating)
+
+            ).where(
+                Review.company_id == c.id
+            )
+
+            stats_res = await session.execute(
+                stats_stmt
+            )
+
+            stats_data = stats_res.first()
+
+            count = (
+                stats_data[0]
+                if stats_data
+                else 0
+            )
+
+            avg = (
+                stats_data[1]
+                if stats_data
+                else 0
+            )
+
+            items.append({
+
+                "id":
+                    c.id,
+
+                "name":
+                    c.name,
+
+                "place_id":
+                    c.google_place_id,
+
+                "address":
+                    c.address or "",
+
+                "review_count":
+                    int(count or 0),
+
+                "avg_rating":
+                    round(float(avg or 0), 2),
+            })
+
+        logger.info(
+            f"✅ Loaded {len(items)} companies"
         )
 
-        stats_data = stats_res.first()
+        return {
 
-        count = stats_data[0] if stats_data else 0
+            "status": "success",
 
-        avg = stats_data[1] if stats_data else 0
+            "companies": items
+        }
 
-        items.append({
+    except Exception as e:
 
-            "id":
-                c.id,
+        logger.exception(
+            "❌ Failed to load companies"
+        )
 
-            "name":
-                c.name,
+        raise HTTPException(
 
-            "place_id":
-                c.google_place_id,
+            status_code=500,
 
-            "address":
-                c.address or "",
-
-            "review_count":
-                int(count or 0),
-
-            "avg_rating":
-                round(float(avg or 0), 2),
-        })
-
-    return {
-
-        "status": "success",
-
-        "companies": items
-    }
+            detail=f"Companies load failed: {str(e)}"
+        )
 
 # ==========================================================
 # ADD COMPANY
@@ -460,25 +528,69 @@ async def delete_company(
 
     from app.core.models import Company
 
-    comp = await session.get(
-        Company,
-        company_id
-    )
+    try:
 
-    if not comp:
-
-        raise HTTPException(
-            status_code=404,
-            detail="Company not found"
+        comp = await session.get(
+            Company,
+            company_id
         )
 
-    await session.delete(comp)
+        if not comp:
 
-    await session.commit()
+            raise HTTPException(
+
+                status_code=404,
+
+                detail="Company not found"
+            )
+
+        await session.delete(comp)
+
+        await session.commit()
+
+        logger.info(
+            f"✅ Deleted company {company_id}"
+        )
+
+        return {
+
+            "status": "deleted",
+
+            "id": company_id
+        }
+
+    except HTTPException:
+
+        raise
+
+    except Exception as e:
+
+        logger.exception(
+            "❌ Failed to delete company"
+        )
+
+        await session.rollback()
+
+        raise HTTPException(
+
+            status_code=500,
+
+            detail=f"Delete failed: {str(e)}"
+        )
+
+# ==========================================================
+# HEALTH CHECK
+# ==========================================================
+
+@router.get("/companies-health")
+
+async def companies_health():
 
     return {
 
-        "status": "deleted",
+        "status": "healthy",
 
-        "id": company_id
+        "router": "companies",
+
+        "service": "Trustlytics AI"
     }
