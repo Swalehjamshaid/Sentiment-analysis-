@@ -476,7 +476,11 @@ async def sync_reviews(
         # SCRAPE REVIEWS
         # ==============================================
 
-      scraped_reviews = await scrape_google_reviews(
+      # ==========================================================
+# SCRAPE REVIEWS
+# ==========================================================
+
+scraped_reviews = await scrape_google_reviews(
 
     place_id=
         company.google_place_id,
@@ -486,6 +490,12 @@ async def sync_reviews(
 
     target_limit=
         limit
+)
+
+logger.info(
+
+    f"✅ SCRAPED REVIEWS => "
+    f"{len(scraped_reviews)}"
 )
         logger.info(
             f"✅ SCRAPED REVIEWS => {len(scraped_reviews)}"
