@@ -1,7 +1,12 @@
 # ==========================================================
 # FILE: app/routes/reviews.py
-# REVIEW INTEL AI — ENTERPRISE REVIEWS ENGINE
-# FULLY DATABASE + DASHBOARD ALIGNED
+# TRUSTLYTICS AI — FINAL ENTERPRISE REVIEWS ENGINE
+# FULLY SYNCHRONIZED WITH:
+# ✅ models.py
+# ✅ dashboard.py
+# ✅ companies.py
+# ✅ scraper.py
+# ✅ PostgreSQL
 # MAY 2026
 # ==========================================================
 
@@ -27,14 +32,14 @@ from datetime import (
 )
 
 import logging
-import traceback
-import asyncio
 
 # ==========================================================
 # DATABASE
 # ==========================================================
 
-from app.core.db import AsyncSessionLocal
+from app.core.db import (
+    AsyncSessionLocal
+)
 
 # ==========================================================
 # MODELS
@@ -68,7 +73,9 @@ logger = logging.getLogger(
 # ==========================================================
 
 router = APIRouter(
+
     prefix="/api",
+
     tags=["Reviews"]
 )
 
@@ -86,6 +93,7 @@ def safe_text(value):
         return str(value).strip()
 
     except:
+
         return ""
 
 
@@ -99,11 +107,12 @@ def safe_rating(value):
         return float(value)
 
     except:
+
         return 0
 
 
 # ==========================================================
-# FORMAT REVIEW DATE
+# NORMALIZE REVIEW DATE
 # ==========================================================
 
 def normalize_review_date(review_date):
@@ -111,17 +120,23 @@ def normalize_review_date(review_date):
     try:
 
         if not review_date:
+
             return datetime.utcnow()
 
-        lower = review_date.lower()
+        lower = str(review_date).lower()
 
         now = datetime.utcnow()
 
         if "day" in lower:
 
             num = int(
+
                 "".join(
-                    filter(str.isdigit, lower)
+
+                    filter(
+                        str.isdigit,
+                        lower
+                    )
                 ) or 0
             )
 
@@ -130,8 +145,13 @@ def normalize_review_date(review_date):
         elif "week" in lower:
 
             num = int(
+
                 "".join(
-                    filter(str.isdigit, lower)
+
+                    filter(
+                        str.isdigit,
+                        lower
+                    )
                 ) or 0
             )
 
@@ -140,8 +160,13 @@ def normalize_review_date(review_date):
         elif "month" in lower:
 
             num = int(
+
                 "".join(
-                    filter(str.isdigit, lower)
+
+                    filter(
+                        str.isdigit,
+                        lower
+                    )
                 ) or 0
             )
 
@@ -150,8 +175,13 @@ def normalize_review_date(review_date):
         elif "year" in lower:
 
             num = int(
+
                 "".join(
-                    filter(str.isdigit, lower)
+
+                    filter(
+                        str.isdigit,
+                        lower
+                    )
                 ) or 0
             )
 
@@ -186,17 +216,30 @@ async def save_reviews_to_database(
                 try:
 
                     review_id = safe_text(
+
                         review.get(
                             "review_id"
                         )
                     )
+
+                    if not review_id:
+
+                        skipped += 1
+
+                        continue
+
+                    # ======================================
+                    # DUPLICATE CHECK
+                    # ======================================
 
                     existing_stmt = (
 
                         select(Review)
 
                         .where(
-                            Review.review_id == review_id
+
+                            Review.google_review_id
+                            == review_id
                         )
                     )
 
@@ -204,13 +247,19 @@ async def save_reviews_to_database(
                         existing_stmt
                     )
 
-                    existing = existing_result.scalar_one_or_none()
+                    existing = (
+                        existing_result.scalar_one_or_none()
+                    )
 
                     if existing:
 
                         skipped += 1
 
                         continue
+
+                    # ======================================
+                    # DATE
+                    # ======================================
 
                     review_date = normalize_review_date(
 
@@ -219,48 +268,102 @@ async def save_reviews_to_database(
                         )
                     )
 
+                    # ======================================
+                    # SENTIMENT SCORE
+                    # ======================================
+
+                    rating = safe_rating(
+
+                        review.get(
+                            "rating"
+                        )
+                    )
+
+                    if rating >= 4:
+
+                        sentiment_score = 1.0
+
+                    elif rating <= 2:
+
+                        sentiment_score = -1.0
+
+                    else:
+
+                        sentiment_score = 0.0
+
+                    # ======================================
+                    # INSERT REVIEW
+                    # ======================================
+
                     db_review = Review(
 
                         company_id=
                             company_id,
 
-                        review_id=
+                        google_review_id=
                             review_id,
 
                         author_name=
                             safe_text(
+
                                 review.get(
                                     "author_name"
                                 )
                             ),
 
                         rating=
-                            safe_rating(
-                                review.get(
-                                    "rating"
-                                )
-                            ),
+                            int(rating),
+
+                        sentiment_score=
+                            sentiment_score,
 
                         text=
                             safe_text(
+
                                 review.get(
                                     "text"
-                                )
-                            ),
-
-                        review_likes=
-                            int(
-                                review.get(
-                                    "likes",
-                                    0
                                 )
                             ),
 
                         google_review_time=
                             review_date,
 
+                        first_seen_at=
+                            datetime.utcnow(),
+
+                        review_likes=
+                            int(
+
+                                review.get(
+                                    "likes",
+                                    0
+                                )
+                            ),
+
                         created_at=
-                            datetime.utcnow()
+                            datetime.utcnow(),
+
+                        # ==================================
+                        # AI ANALYTICS PLACEHOLDERS
+                        # ==================================
+
+                        issue_category=
+                            None,
+
+                        emotion=
+                            None,
+
+                        urgency_score=
+                            None,
+
+                        ai_summary=
+                            None,
+
+                        risk_score=
+                            None,
+
+                        topic_cluster=
+                            None
                     )
 
                     db.add(
@@ -337,9 +440,9 @@ async def sync_reviews(
             f"🚀 REVIEW SYNC STARTED => {company_id}"
         )
 
-        # ==================================================
+        # ==============================================
         # GET COMPANY
-        # ==================================================
+        # ==============================================
 
         async with AsyncSessionLocal() as db:
 
@@ -365,14 +468,14 @@ async def sync_reviews(
                     detail="Company not found"
                 )
 
-        # ==================================================
+        # ==============================================
         # SCRAPE REVIEWS
-        # ==================================================
+        # ==============================================
 
         scraped_reviews = await scrape_google_reviews(
 
             place_id=
-                company.place_id,
+                company.google_place_id,
 
             target_limit=
                 limit
@@ -382,9 +485,9 @@ async def sync_reviews(
             f"✅ SCRAPED REVIEWS => {len(scraped_reviews)}"
         )
 
-        # ==================================================
+        # ==============================================
         # SAVE TO DATABASE
-        # ==================================================
+        # ==============================================
 
         save_result = await save_reviews_to_database(
 
@@ -466,6 +569,7 @@ async def get_company_reviews(
                 )
 
                 .order_by(
+
                     desc(
                         Review.google_review_time
                     )
@@ -515,7 +619,7 @@ async def get_company_reviews(
                         review.id,
 
                     "review_id":
-                        review.review_id,
+                        review.google_review_id,
 
                     "author_name":
                         safe_text(
@@ -552,7 +656,19 @@ async def get_company_reviews(
                         else None,
 
                     "sentiment":
-                        sentiment
+                        sentiment,
+
+                    "issue_category":
+                        review.issue_category,
+
+                    "emotion":
+                        review.emotion,
+
+                    "urgency_score":
+                        review.urgency_score,
+
+                    "risk_score":
+                        review.risk_score
                 })
 
             return {
