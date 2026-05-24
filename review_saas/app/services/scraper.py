@@ -1,15 +1,26 @@
 # ==========================================================
 # FILE: app/services/scraper.py
-# TRUSTLYTICS AI — ENTERPRISE GOOGLE REVIEW SCRAPER
-# FULLY ALIGNED WITH:
-# ✅ review.py
+# TRUSTLYTICS AI — ULTRA ENTERPRISE SCRAPER
+# MAY 2026 — FINAL PRODUCTION VERSION
+#
+# FULLY SYNCHRONIZED WITH:
+# ✅ reviews.py
 # ✅ dashboard.py
 # ✅ PostgreSQL
 # ✅ Railway
 # ✅ SERPAPI
 # ✅ Playwright
 # ✅ Proxy Rotation
-# MAY 2026
+# ✅ Incremental Sync
+# ✅ Duplicate Protection
+# ✅ Legacy Compatibility
+# ✅ Frontend Compatibility
+#
+# SUPPORTS:
+# ✅ Old Routes
+# ✅ New Routes
+# ✅ Old Function Calls
+# ✅ New Function Calls
 # ==========================================================
 
 import os
@@ -17,7 +28,6 @@ import re
 import gc
 import time
 import json
-import random
 import asyncio
 import hashlib
 import logging
@@ -105,7 +115,7 @@ PLAYWRIGHT_TIMEOUT = 70000
 
 HEADLESS = True
 
-MAX_SCROLLS = 20
+MAX_SCROLLS = 25
 
 # ==========================================================
 # HELPERS
@@ -335,6 +345,14 @@ async def scrape_serpapi_reviews(
 
         return []
 
+    if not httpx:
+
+        logger.warning(
+            "⚠️ HTTPX NOT INSTALLED"
+        )
+
+        return []
+
     try:
 
         async with httpx.AsyncClient(
@@ -383,6 +401,15 @@ async def scrape_serpapi_reviews(
 
                     params=params
                 )
+
+                if response.status_code != 200:
+
+                    logger.warning(
+                        f"⚠️ SERPAPI STATUS => "
+                        f"{response.status_code}"
+                    )
+
+                    break
 
                 data = response.json()
 
@@ -542,6 +569,10 @@ async def playwright_backup(
 
     if not async_playwright:
 
+        logger.warning(
+            "⚠️ PLAYWRIGHT NOT INSTALLED"
+        )
+
         return []
 
     browser = None
@@ -612,7 +643,7 @@ async def playwright_backup(
 
                     await button.first.click()
 
-                    await asyncio.sleep(4)
+                    await asyncio.sleep(5)
 
             except:
                 pass
@@ -783,7 +814,7 @@ async def playwright_backup(
 
 async def scrape_google_reviews(
     place_id: str,
-    company_id: int,
+    company_id: int = None,
     target_limit: int = 100,
     start_date=None,
     end_date=None
@@ -804,9 +835,17 @@ async def scrape_google_reviews(
 
             return []
 
-        existing_review_ids = await load_existing_review_ids(
-            company_id
-        )
+        # ==================================================
+        # BACKWARD COMPATIBILITY
+        # ==================================================
+
+        existing_review_ids = set()
+
+        if company_id:
+
+            existing_review_ids = await load_existing_review_ids(
+                company_id
+            )
 
         # ==================================================
         # PRIMARY — SERPAPI
