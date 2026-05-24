@@ -7,6 +7,8 @@
 # ✅ companies.py
 # ✅ scraper.py
 # ✅ PostgreSQL
+# ✅ Railway
+# ✅ Frontend
 # MAY 2026
 # ==========================================================
 
@@ -96,6 +98,7 @@ def safe_text(value):
 
         return ""
 
+# ==========================================================
 
 def safe_rating(value):
 
@@ -109,7 +112,6 @@ def safe_rating(value):
     except:
 
         return 0
-
 
 # ==========================================================
 # NORMALIZE REVIEW DATE
@@ -194,7 +196,7 @@ def normalize_review_date(review_date):
         return datetime.utcnow()
 
 # ==========================================================
-# SAVE REVIEWS
+# SAVE REVIEWS TO DATABASE
 # ==========================================================
 
 async def save_reviews_to_database(
@@ -269,7 +271,7 @@ async def save_reviews_to_database(
                     )
 
                     # ======================================
-                    # SENTIMENT SCORE
+                    # SENTIMENT
                     # ======================================
 
                     rating = safe_rating(
@@ -344,7 +346,7 @@ async def save_reviews_to_database(
                             datetime.utcnow(),
 
                         # ==================================
-                        # AI ANALYTICS PLACEHOLDERS
+                        # AI PLACEHOLDERS
                         # ==================================
 
                         issue_category=
@@ -476,29 +478,21 @@ async def sync_reviews(
         # SCRAPE REVIEWS
         # ==============================================
 
-      # ==========================================================
-# SCRAPE REVIEWS
-# ==========================================================
+        scraped_reviews = await scrape_google_reviews(
 
-scraped_reviews = await scrape_google_reviews(
+            place_id=
+                company.google_place_id,
 
-    place_id=
-        company.google_place_id,
+            company_id=
+                company_id,
 
-    company_id=
-        company_id,
+            target_limit=
+                limit
+        )
 
-    target_limit=
-        limit
-)
-
-logger.info(
-
-    f"✅ SCRAPED REVIEWS => "
-    f"{len(scraped_reviews)}"
-)
         logger.info(
-            f"✅ SCRAPED REVIEWS => {len(scraped_reviews)}"
+            f"✅ SCRAPED REVIEWS => "
+            f"{len(scraped_reviews)}"
         )
 
         # ==============================================
