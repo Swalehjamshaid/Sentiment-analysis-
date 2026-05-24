@@ -4,9 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Review Intel AI - AI Reputation Monitoring Platform" />
     <title>Review Intel AI Dashboard</title>
-    
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -24,7 +22,7 @@
         }
         body {
             background: linear-gradient(135deg, #eef2ff, #f8fafc, #f3f4f6);
-            font-family: 'Segoe UI', Arial, sans-serif;
+            font-family: Arial, sans-serif;
             color: var(--dark);
             min-height: 100vh;
             overflow-x: hidden;
@@ -37,8 +35,13 @@
             margin-top: 24px;
             box-shadow: 0 10px 25px rgba(0,0,0,0.15);
         }
-        .brand-title { font-size: 34px; font-weight: 700; letter-spacing: -0.5px; }
-        .brand-sub { opacity: 0.85; font-size: 15px; }
+        .brand-title {
+            font-size: 34px;
+            font-weight: 700;
+        }
+        .brand-sub {
+            opacity: 0.8;
+        }
         .card-box {
             border-radius: 22px;
             padding: 24px;
@@ -46,16 +49,24 @@
             min-height: 180px;
             position: relative;
             overflow: hidden;
-            transition: all 0.3s ease;
+            transition: 0.3s ease;
         }
-        .card-box:hover { transform: translateY(-5px); box-shadow: 0 15px 30px rgba(0,0,0,0.2); }
+        .card-box:hover {
+            transform: translateY(-5px);
+        }
         .card-blue { background: linear-gradient(135deg, #1d4ed8, #1e40af); }
         .card-green { background: linear-gradient(135deg, #059669, #047857); }
         .card-red { background: linear-gradient(135deg, #dc2626, #991b1b); }
         .card-purple { background: linear-gradient(135deg, #7c3aed, #5b21b6); }
         .card-orange { background: linear-gradient(135deg, #f59e0b, #d97706); }
         .card-dark { background: linear-gradient(135deg, #111827, #1f2937); }
-        .card-icon { position: absolute; right: 18px; bottom: 18px; font-size: 42px; opacity: 0.2; }
+        .card-icon {
+            position: absolute;
+            right: 18px;
+            bottom: 18px;
+            font-size: 42px;
+            opacity: 0.2;
+        }
         .section-card {
             background: white;
             border-radius: 24px;
@@ -69,16 +80,49 @@
         .btn-main {
             border-radius: 14px;
             min-height: 50px;
-            font-weight: 600;
+            font-weight: bold;
+        }
+        .table thead {
+            background: #111827;
+            color: white;
+        }
+        .table {
+            border-radius: 18px;
+            overflow: hidden;
+        }
+        .badge-positive {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        .badge-negative {
+            background: #fee2e2;
+            color: #991b1b;
         }
         .loading-overlay {
             position: fixed;
             inset: 0;
-            background: rgba(255,255,255,0.9);
+            background: rgba(255,255,255,0.8);
             display: none;
             justify-content: center;
             align-items: center;
             z-index: 99999;
+        }
+        .pac-container {
+            z-index: 999999 !important;
+            background: #ffffff !important;
+            border-radius: 12px !important;
+            margin-top: 6px !important;
+            border: 1px solid #e5e7eb !important;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15) !important;
+            font-family: inherit !important;
+        }
+        .pac-item {
+            padding: 12px 16px !important;
+            cursor: pointer !important;
+            font-size: 14px !important;
+        }
+        .pac-item:hover {
+            background-color: #f3f4f6 !important;
         }
     </style>
 </head>
@@ -123,7 +167,7 @@
                 <div class="col-lg-6">
                     <label class="fw-bold mb-2">Select Business</label>
                     <select class="form-select" id="companySelect">
-                        <option value="">Loading companies...</option>
+                        <option value="">Choose Company</option>
                     </select>
                 </div>
                 <div class="col-lg-3">
@@ -227,7 +271,7 @@
             </div>
         </div>
 
-        <!-- CHARTS & AI SUMMARY & REVIEWS (Same as before) -->
+        <!-- CHARTS -->
         <div class="row mt-4 g-4">
             <div class="col-lg-8">
                 <div class="section-card">
@@ -243,6 +287,7 @@
             </div>
         </div>
 
+        <!-- AI EXECUTIVE INTELLIGENCE -->
         <div class="section-card mt-4">
             <h3 class="mb-4"><i class="bi bi-cpu"></i> AI Executive Intelligence</h3>
             <div id="executiveSummary" style="line-height:1.9; font-size:16px; color:#374151;">
@@ -250,6 +295,7 @@
             </div>
         </div>
 
+        <!-- RECENT REVIEWS -->
         <div class="section-card mt-4">
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <h4 class="mb-0">Recent Reviews</h4>
@@ -267,14 +313,16 @@
                         </tr>
                     </thead>
                     <tbody id="reviewsTableBody">
-                        <tr><td colspan="5" class="text-center py-4">No reviews available</td></tr>
+                        <tr>
+                            <td colspan="5" class="text-center py-4">No reviews available</td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
 
-    <!-- ADD BUSINESS MODAL (Unchanged) -->
+    <!-- ADD BUSINESS MODAL -->
     <div class="modal fade" id="addBusinessModal" tabindex="-1">
         <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content border-0 rounded-4 overflow-hidden">
@@ -308,67 +356,395 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
-        let reviewChart, ratingChart;
+        let reviewChart;
+        let ratingChart;
 
-        function showLoading() { document.getElementById('loadingOverlay').style.display = 'flex'; }
-        function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
+        function showLoading() {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
 
         async function loadCompanies() {
-            const select = document.getElementById('companySelect');
             try {
-                select.innerHTML = '<option value="">Loading companies...</option>';
                 const response = await fetch('/api/companies');
-                if (!response.ok) throw new Error('Failed to load companies');
-                
                 const data = await response.json();
                 const companies = data.companies || [];
-
+                const select = document.getElementById('companySelect');
                 select.innerHTML = '<option value="">Choose Company</option>';
-                if (companies.length === 0) {
-                    select.innerHTML = '<option value="">No companies found. Please add one.</option>';
-                } else {
-                    companies.forEach(company => {
-                        const option = document.createElement('option');
-                        option.value = company.id;
-                        option.textContent = company.name;
-                        select.appendChild(option);
-                    });
-                }
-                console.log(`✅ Loaded ${companies.length} companies`);
+                companies.forEach(company => {
+                    const option = document.createElement('option');
+                    option.value = company.id;
+                    option.textContent = company.name;
+                    select.appendChild(option);
+                });
             } catch (err) {
-                console.error('❌ Error loading companies:', err);
-                select.innerHTML = '<option value="">Error loading companies. Check console.</option>';
+                console.error(err);
             }
         }
 
-        // Rest of your original functions remain unchanged...
-        async function loadDashboardMetrics() { /* Your original code */ }
-        function renderCharts(data) { /* Your original code */ }
-        async function loadRecentReviews(companyId) { /* Your original code */ }
+        async function loadDashboardMetrics() {
+            try {
+                showLoading();
+                const companyId = document.getElementById('companySelect').value;
+                if (!companyId) {
+                    hideLoading();
+                    return;
+                }
+                const selectedDays = document.getElementById('dateRange').value;
+                console.log('📊 Timeline Selected:', selectedDays);
+                const response = await fetch(`/api/dashboard/${companyId}?days=${selectedDays}`);
+                const data = await response.json();
+                const kpis = data.kpis || {};
+                const breakdown = data.review_breakdown || {};
 
-        // Event Listeners (Preserved)
-        document.getElementById('saveBusinessBtn').onclick = async () => { /* Your original code */ };
-        document.getElementById('syncBtn').onclick = async () => { /* Your original code */ };
-        document.getElementById('generateReportBtn').onclick = async () => { /* Your original code */ };
-        document.getElementById('logoutBtn').addEventListener('click', () => window.location.href = '/logout');
+                document.getElementById('totalReviews').innerText = kpis.total_reviews || 0;
+                document.getElementById('avgRating').innerText = kpis.average_rating || 0;
+                document.getElementById('negativeReviews').innerText = breakdown.negative_reviews || 0;
+                document.getElementById('reputation').innerText = `${kpis.reputation_score || 0}%`;
+                document.getElementById('revenueRisk').innerText = `${kpis.revenue_risk || 0}%`;
+                document.getElementById('sentimentScore').innerText = `${kpis.customer_satisfaction || 0}%`;
+                document.getElementById('businessHealthScore').innerText = `${kpis.business_health_score || 0}%`;
+                document.getElementById('executiveRisk').innerText = kpis.executive_risk || "Moderate";
+                document.getElementById('predictedRating').innerText = kpis.predicted_rating || 0;
+                document.getElementById('forecastReviews').innerText = kpis.forecast_reviews || 0;
 
-        function initializeGoogleAutocomplete() { /* Your original code */ }
+                document.getElementById('executiveSummary').innerHTML = data.executive_summary || `
+                    <div class="alert alert-info rounded-4">
+                        <h5>AI Executive Insights</h5>
+                        <hr>
+                        <p>AI analysis is preparing business intelligence insights.</p>
+                    </div>
+                `;
+
+                renderCharts(data);
+                await loadRecentReviews(companyId);
+                hideLoading();
+            } catch (err) {
+                hideLoading();
+                console.error(err);
+            }
+        }
+
+        function renderCharts(data) {
+            const charts = data.charts || {};
+            const reviewCtx = document.getElementById('reviewChart');
+            const ratingCtx = document.getElementById('ratingChart');
+
+            if (reviewChart) reviewChart.destroy();
+            if (ratingChart) ratingChart.destroy();
+
+            reviewChart = new Chart(reviewCtx, {
+                type: 'line',
+                data: {
+                    labels: charts.monthly_trend?.labels || [],
+                    datasets: [{
+                        label: 'Monthly Reviews',
+                        data: charts.monthly_trend?.values || [],
+                        borderWidth: 3,
+                        tension: 0.4
+                    }]
+                },
+                options: { responsive: true }
+            });
+
+            ratingChart = new Chart(ratingCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: charts.rating_distribution?.labels || [],
+                    datasets: [{
+                        data: charts.rating_distribution?.values || [],
+                        borderWidth: 2
+                    }]
+                },
+                options: { responsive: true }
+            });
+        }
+
+        async function loadRecentReviews(companyId) {
+            try {
+                const response = await fetch(`/api/reviews/company/${companyId}`);
+                const responseData = await response.json();
+                const reviews = responseData.reviews || [];
+                const tbody = document.getElementById('reviewsTableBody');
+                tbody.innerHTML = '';
+
+                if (!reviews.length) {
+                    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4">No reviews found</td></tr>`;
+                    return;
+                }
+
+                reviews.forEach(review => {
+                    const sentimentClass = review.rating >= 4 ? 'badge-positive' : 'badge-negative';
+                    const sentimentText = review.rating >= 4 ? 'Positive' : 'Negative';
+                    tbody.innerHTML += `
+                        <tr>
+                            <td>${review.author || 'Anonymous'}</td>
+                            <td><i class="bi bi-star-fill text-warning"></i> ${review.rating}</td>
+                            <td>${review.content || '-'}</td>
+                            <td>${review.created_at || '-'}</td>
+                            <td><span class="badge ${sentimentClass}">${sentimentText}</span></td>
+                        </tr>
+                    `;
+                });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // Save Business
+        document.getElementById('saveBusinessBtn').onclick = async () => {
+            try {
+                const payload = {
+                    name: document.getElementById('companyName').value,
+                    place_id: document.getElementById('placeId').value,
+                    address: document.getElementById('companyAddress').value
+                };
+                const response = await fetch('/api/companies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || 'Save failed');
+
+                alert('✅ Business saved successfully');
+                bootstrap.Modal.getInstance(document.getElementById('addBusinessModal')).hide();
+                loadCompanies();
+            } catch (err) {
+                console.error(err);
+                alert('❌ ' + err.message);
+            }
+        };
+
+        // Sync Reviews
+        document.getElementById('syncBtn').onclick = async () => {
+            try {
+                const companyId = document.getElementById('companySelect').value;
+                if (!companyId) {
+                    alert('Please select company');
+                    return;
+                }
+                showLoading();
+                const response = await fetch(`/api/reviews/ingest/${companyId}`, { method: 'POST' });
+                const data = await response.json();
+                hideLoading();
+                if (!response.ok) throw new Error(data.detail || 'Sync failed');
+                alert(`✅ Reviews Added: ${data.reviews_collected}`);
+                loadDashboardMetrics();
+            } catch (err) {
+                hideLoading();
+                console.error(err);
+                alert('❌ ' + err.message);
+            }
+        };
+
+        // Generate Report
+        document.getElementById('generateReportBtn').onclick = async () => {
+            try {
+                const companyId = document.getElementById('companySelect').value;
+                if (!companyId) {
+                    alert('Please select company');
+                    return;
+                }
+                showLoading();
+                window.open(`/api/reports/${companyId}/download`, '_blank');
+                hideLoading();
+            } catch (err) {
+                hideLoading();
+                console.error(err);
+                alert('❌ Failed to generate report');
+            }
+        };
+
+        // Google Autocomplete
+        function initializeGoogleAutocomplete() {
+            if (!window.google || !google.maps || !google.maps.places) {
+                console.error("Google Maps API not loaded");
+                return;
+            }
+            const input = document.getElementById('googleSearchInput');
+            if (!input) return;
+            const autocomplete = new google.maps.places.Autocomplete(input, {
+                types: ['establishment'],
+                fields: ['name', 'place_id', 'formatted_address']
+            });
+            autocomplete.addListener('place_changed', function () {
+                const place = autocomplete.getPlace();
+                document.getElementById('companyName').value = place.name || '';
+                document.getElementById('placeId').value = place.place_id || '';
+                document.getElementById('companyAddress').value = place.formatted_address || '';
+            });
+            console.log("✅ Google Autocomplete Ready");
+        }
+
+        // Page Load
+        document.getElementById('logoutBtn').addEventListener('click', function () {
+            window.location.href = '/logout';
+        });
 
         window.onload = function () {
             loadCompanies();
             document.getElementById('companySelect').addEventListener('change', loadDashboardMetrics);
-            document.getElementById('dateRange').addEventListener('change', loadDashboardMetrics);
             document.getElementById('refreshDashboardBtn').addEventListener('click', loadDashboardMetrics);
+            document.getElementById('dateRange').addEventListener('change', loadDashboardMetrics);
 
             const modal = document.getElementById('addBusinessModal');
-            modal.addEventListener('shown.bs.modal', () => setTimeout(initializeGoogleAutocomplete, 500));
+            modal.addEventListener('shown.bs.modal', function () {
+                setTimeout(initializeGoogleAutocomplete, 500);
+            });
         };
     </script>
 
-    <!-- Google Maps & AI Chatbot (Unchanged) -->
+    <!-- GOOGLE MAPS API -->
     <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBDGZGCBMMZ289ZCFlghMyh-vVrZwk7RpM&libraries=places"></script>
-    
-    <!-- AI Chatbot Code (Same as before) -->
-    <!-- ... (I kept it short here to save space - use the previous version I gave you for chatbot) ... -->
+
+    <!-- AI CHATBOT -->
+    <style>
+        #aiChatbotContainer{
+            position:fixed;
+            bottom:20px;
+            right:20px;
+            width:380px;
+            height:600px;
+            background:#ffffff;
+            border-radius:20px;
+            box-shadow:0 10px 40px rgba(0,0,0,0.2);
+            overflow:hidden;
+            z-index:99999;
+            display:flex;
+            flex-direction:column;
+            font-family:Arial,sans-serif;
+        }
+        #aiChatbotHeader{
+            background:#111827;
+            color:white;
+            padding:15px;
+            font-size:18px;
+            font-weight:bold;
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+        }
+        #aiChatMessages{
+            flex:1;
+            overflow-y:auto;
+            padding:15px;
+            background:#f3f4f6;
+        }
+        .chatMessage{
+            margin-bottom:15px;
+            padding:12px;
+            border-radius:12px;
+            line-height:1.5;
+        }
+        .userMessage{
+            background:#2563eb;
+            color:white;
+            margin-left:40px;
+        }
+        .botMessage{
+            background:white;
+            color:#111827;
+            margin-right:40px;
+            border:1px solid #ddd;
+        }
+        #aiChatInputContainer{
+            display:flex;
+            padding:10px;
+            border-top:1px solid #ddd;
+            background:white;
+        }
+        #aiChatInput{
+            flex:1;
+            padding:12px;
+            border:1px solid #ccc;
+            border-radius:10px;
+            outline:none;
+            font-size:14px;
+        }
+        #aiChatSendBtn{
+            margin-left:10px;
+            padding:12px 18px;
+            background:#2563eb;
+            color:white;
+            border:none;
+            border-radius:10px;
+            cursor:pointer;
+            font-weight:bold;
+        }
+        #aiChatSendBtn:hover{
+            background:#1d4ed8;
+        }
+    </style>
+
+    <div id="aiChatbotContainer">
+        <div id="aiChatbotHeader">AI Business Expert</div>
+        <div id="aiChatMessages">
+            <div class="chatMessage botMessage">
+                Hello 👋<br><br>
+                I am your AI Business Intelligence Assistant.<br><br>
+                Ask me about:
+                <br>• Customer complaints
+                <br>• Delivery issues
+                <br>• Product quality
+                <br>• Staff behavior
+                <br>• Business trends
+                <br>• Customer sentiment
+            </div>
+        </div>
+        <div id="aiChatInputContainer">
+            <input type="text" id="aiChatInput" placeholder="Ask AI about business reviews...">
+            <button id="aiChatSendBtn">Send</button>
+        </div>
+    </div>
+
+    <script>
+        const chatInput = document.getElementById("aiChatInput");
+        const sendBtn = document.getElementById("aiChatSendBtn");
+        const messagesContainer = document.getElementById("aiChatMessages");
+
+        async function sendChatMessage(){
+            const message = chatInput.value.trim();
+            if(!message) return;
+
+            messagesContainer.innerHTML += `<div class="chatMessage userMessage">${message}</div>`;
+            chatInput.value = "";
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            const companySelect = document.getElementById("companySelect");
+            const companyId = companySelect ? companySelect.value : null;
+
+            messagesContainer.innerHTML += `<div class="chatMessage botMessage" id="typingMessage">AI is analyzing reviews...</div>`;
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            try{
+                const response = await fetch("/api/chatbot/chat", {
+                    method:"POST",
+                    headers:{"Content-Type":"application/json"},
+                    body:JSON.stringify({company_id:companyId, message:message})
+                });
+                const data = await response.json();
+
+                const typing = document.getElementById("typingMessage");
+                if(typing) typing.remove();
+
+                messagesContainer.innerHTML += `<div class="chatMessage botMessage">${data.answer}</div>`;
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }catch(error){
+                console.error(error);
+                const typing = document.getElementById("typingMessage");
+                if(typing) typing.remove();
+                messagesContainer.innerHTML += `<div class="chatMessage botMessage">AI Server Error occurred.</div>`;
+            }
+        }
+
+        sendBtn.addEventListener("click", sendChatMessage);
+        chatInput.addEventListener("keypress", function(event){
+            if(event.key === "Enter") sendChatMessage();
+        });
+    </script>
 </body>
 </html>
