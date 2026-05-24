@@ -476,15 +476,17 @@ async def sync_reviews(
         # SCRAPE REVIEWS
         # ==============================================
 
-        scraped_reviews = await scrape_google_reviews(
+       scraped_reviews = await scrape_google_reviews(
 
-            place_id=
-                company.google_place_id,
+    place_id=
+        company.google_place_id,
 
-            target_limit=
-                limit
-        )
+    company_id=
+        company_id,
 
+    target_limit=
+        limit
+)
         logger.info(
             f"✅ SCRAPED REVIEWS => {len(scraped_reviews)}"
         )
