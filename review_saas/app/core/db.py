@@ -62,8 +62,20 @@ if not DATABASE_URL:
 # ==========================================================
 # FIX RAILWAY POSTGRES URL
 # ==========================================================
-
 if DATABASE_URL.startswith(
+    "postgresql://"
+):
+
+    DATABASE_URL = DATABASE_URL.replace(
+
+        "postgresql://",
+
+        "postgresql+asyncpg://",
+
+        1
+    )
+
+elif DATABASE_URL.startswith(
     "postgres://"
 ):
 
