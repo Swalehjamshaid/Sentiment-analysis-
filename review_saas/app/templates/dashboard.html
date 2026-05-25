@@ -397,18 +397,18 @@
                 const kpis = data.kpis || {};
                 const breakdown = data.review_breakdown || {};
 
-                document.getElementById('totalReviews').innerText = kpis.total_reviews || 0;
+                document.getElementById('totalReviews').innerText = kpis.forecast_reviews || 0;
                 document.getElementById('avgRating').innerText = kpis.average_rating || 0;
                 document.getElementById('negativeReviews').innerText = kpis.negative_reviews || 0;
                 document.getElementById('reputation').innerText = `${kpis.reputation_score || 0}%`;
                 document.getElementById('revenueRisk').innerText = `${kpis.revenue_risk || 0}%`;
                 document.getElementById('sentimentScore').innerText = `${kpis.reputation_score || 0}%`;
-                document.getElementById('businessHealthScore').innerText = `${kpis.business_health || 0}%`;
+                document.getElementById('businessHealthScore').innerText = `${kpis.business_health_score || 0}%`;
                 document.getElementById('executiveRisk').innerText = kpis.executive_risk || "Moderate";
                 document.getElementById('predictedRating').innerText = kpis.predicted_rating || 0;
                 document.getElementById('forecastReviews').innerText = kpis.total_reviews || 0;
 
-                document.getElementById('executiveSummary').innerHTML = data.ai_summary || `
+                document.getElementById('executiveSummary').innerHTML = data.executive_summary || `
                     <div class="alert alert-info rounded-4">
                         <h5>AI Executive Insights</h5>
                         <hr>
@@ -426,8 +426,8 @@
         }
 
         function renderCharts(data) {
-            const monthlyTrends = data.monthly_trends || [];
-            const ratingDistribution = data.rating_distribution || {};
+         const monthlyTrends = data.charts?.monthly_trend || {};
+        const ratingDistribution = data.charts?.rating_distribution || {};
 
             const reviewCtx = document.getElementById('reviewChart');
             const ratingCtx = document.getElementById('ratingChart');
@@ -438,10 +438,10 @@
             reviewChart = new Chart(reviewCtx, {
                 type: 'line',
                 data: {
-                    labels: monthlyTrends.map(item => item.month),
+                    labels: monthlyTrends.labels || [],
                     datasets: [{
                         label: 'Monthly Reviews',
-                        data: monthlyTrends.map(item => item.reviews),
+                        data: monthlyTrends.values || [],
                         borderWidth: 3,
                         tension: 0.4
                     }]
@@ -452,9 +452,9 @@
             ratingChart = new Chart(ratingCtx, {
                 type: 'doughnut',
                 data: {
-                    labels: Object.keys(ratingDistribution),
+                    labels: ratingDistribution.labels || [],
                     datasets: [{
-                        data: Object.values(ratingDistribution),
+                        data: ,
                         borderWidth: 2
                     }]
                 },
@@ -478,10 +478,10 @@
                     const sentimentText = review.rating >= 4 ? 'Positive' : 'Negative';
                     tbody.innerHTML += `
                         <tr>
-                            <td>${review.author_name || 'Anonymous'}</td>
+                            <td>${review.author || 'Anonymous'}</td>
                             <td><i class="bi bi-star-fill text-warning"></i> ${review.rating}</td>
-                            <td>${review.text || '-'}</td>
-                            <td>${review.review_date || '-'}</td>
+                            <td>${review.content || '-'}</td>
+                            <td>${review.created_at || '-'}</td>
                             <td><span class="badge ${sentimentClass}">${sentimentText}</span></td>
                         </tr>
                     `;
