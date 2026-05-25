@@ -641,7 +641,9 @@ async def get_dashboard_data(
 
                 "average_rating":
                     average_rating,
-
+"negative_reviews":
+    negative_reviews,
+                
                 "reputation_score":
                     reputation_score,
 
