@@ -225,5 +225,4 @@ textblob==0.18.0.post0
 spacy==3.8.2
 seaborn==0.13.2
 scikit-learn==1.5.2
-crawl4ai==0.4.247
-
+crawl4ai
