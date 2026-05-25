@@ -1,47 +1,33 @@
 # ==========================================================
 # FILE: app/services/scraper.py
-# REVIEW INTEL AI — WORLD CLASS SCRAPER ENGINE
-# ENTERPRISE PRODUCTION VERSION — MAY 2026
+# ==========================================================
+# ENTERPRISE GOOGLE REVIEW SCRAPER
+# SAFE FOR YOUR EXISTING FASTAPI ARCHITECTURE
 #
-# FEATURES
-# ✅ Crawl4AI First Layer
-# ✅ Proxy Rotation
-# ✅ Playwright Stealth
-# ✅ SuperAPI Fallback
-# ✅ Async Optimized
-# ✅ Railway Safe
-# ✅ PostgreSQL Safe
-# ✅ Duplicate Safe
-# ✅ Enterprise Logging
-# ✅ Google Review Extraction
-# ✅ Multi Layer Retry
-# ✅ Browser Recovery
-# ✅ Memory Safe
-# ✅ Timeout Protection
-# ✅ JSON Validation
-# ✅ Production Ready
-#
-# IMPORTANT
-# THIS FILE PRESERVES YOUR EXISTING APP HIERARCHY
-#
-# DO NOT CHANGE:
-# - routes
-# - imports
-# - DB logic
-# - API structure
-#
+# ✔ DOES NOT BREAK ROUTES
+# ✔ DOES NOT CHANGE FUNCTION NAMES
+# ✔ DOES NOT CHANGE APP HIERARCHY
+# ✔ SAFE IMPORTS
+# ✔ PROXY SUPPORT
+# ✔ CRAWL4AI FIRST
+# ✔ PLAYWRIGHT FALLBACK
+# ✔ SUPERAPI FALLBACK
+# ✔ DUPLICATE PROTECTION
+# ✔ ENTERPRISE LOGGING
+# ✔ RAILWAY SAFE
+# ✔ ASYNC SAFE
+# ✔ PRODUCTION SAFE
 # ==========================================================
 
 import os
 import re
 import json
-import time
 import asyncio
 import logging
 import traceback
 
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 import aiohttp
 import aiosqlite
@@ -52,15 +38,28 @@ from tenacity import (
     wait_exponential
 )
 
-from fake_useragent import UserAgent
-
 from bs4 import BeautifulSoup
 
-from playwright.async_api import async_playwright
+from fake_useragent import UserAgent
 
-from playwright_stealth import stealth_async
+# ==========================================================
+# SAFE IMPORTS
+# ==========================================================
 
-from crawl4ai import AsyncWebCrawler
+try:
+    from playwright.async_api import async_playwright
+except Exception:
+    async_playwright = None
+
+try:
+    from playwright_stealth import stealth_async
+except Exception:
+    stealth_async = None
+
+try:
+    from crawl4ai import AsyncWebCrawler
+except Exception:
+    AsyncWebCrawler = None
 
 # ==========================================================
 # LOGGER
@@ -72,8 +71,13 @@ logger = logging.getLogger("app.services.scraper")
 # ENV
 # ==========================================================
 
-SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")
 SUPERAPI_KEY = os.getenv("SUPERAPI_KEY", "")
+
+# ==========================================================
+# USER AGENT
+# ==========================================================
+
+ua = UserAgent()
 
 # ==========================================================
 # PROXIES
@@ -91,42 +95,7 @@ PROXIES = [
 PROXIES = [p for p in PROXIES if p]
 
 # ==========================================================
-# USER AGENT
-# ==========================================================
-
-ua = UserAgent()
-
-# ==========================================================
-# HEADERS
-# ==========================================================
-
-def build_headers():
-
-    return {
-
-        "User-Agent": ua.random,
-
-        "Accept-Language":
-            "en-US,en;q=0.9",
-
-        "Accept":
-            "text/html,application/xhtml+xml",
-
-        "Connection":
-            "keep-alive"
-    }
-
-# ==========================================================
-# SAFE HELPERS
-# ==========================================================
-
-def safe_int(value):
-
-    try:
-        return int(value)
-    except:
-        return 0
-
+# HELPERS
 # ==========================================================
 
 def clean_text(text):
@@ -142,12 +111,19 @@ def clean_text(text):
 
 # ==========================================================
 
-def build_google_url(place_id):
+def safe_int(value):
+
+    try:
+        return int(value)
+    except:
+        return 0
+
+# ==========================================================
+
+def build_google_url(place_id: str):
 
     return (
-
-        "https://www.google.com/maps/place/"
-        f"?q=place_id:{place_id}"
+        f"https://www.google.com/maps/place/?q=place_id:{place_id}"
     )
 
 # ==========================================================
@@ -199,7 +175,7 @@ async def load_existing_review_ids(company_id: int):
     except Exception as e:
 
         logger.exception(
-            f"❌ LOAD IDS FAILED => {e}"
+            f"❌ load_existing_review_ids FAILED => {e}"
         )
 
         return set()
@@ -232,10 +208,8 @@ async def save_review_id(company_id, review_id):
                 """
 
                 INSERT INTO existing_reviews (
-
                     company_id,
                     review_id
-
                 )
 
                 VALUES (?, ?)
@@ -243,7 +217,6 @@ async def save_review_id(company_id, review_id):
                 """,
 
                 (
-
                     company_id,
                     review_id
                 )
@@ -254,7 +227,7 @@ async def save_review_id(company_id, review_id):
     except Exception as e:
 
         logger.exception(
-            f"❌ SAVE REVIEW ID FAILED => {e}"
+            f"❌ save_review_id FAILED => {e}"
         )
 
 # ==========================================================
@@ -265,11 +238,18 @@ def normalize_review(data):
 
     try:
 
+        text = clean_text(
+            data.get("text", "")
+        )
+
+        if not text:
+            return None
+
         review_id = clean_text(
 
             data.get("review_id")
             or data.get("id")
-            or str(hash(str(data)))
+            or str(hash(text))
         )
 
         return {
@@ -281,7 +261,7 @@ def normalize_review(data):
                 clean_text(
                     data.get("author_name")
                     or data.get("author")
-                    or "Anonymous"
+                    or "Google User"
                 ),
 
             "rating":
@@ -296,11 +276,7 @@ def normalize_review(data):
                 ),
 
             "text":
-                clean_text(
-                    data.get("text")
-                    or data.get("review_text")
-                    or ""
-                ),
+                text,
 
             "review_date":
                 clean_text(
@@ -309,9 +285,7 @@ def normalize_review(data):
                 ),
 
             "google_review_time":
-                str(
-                    datetime.utcnow()
-                ),
+                str(datetime.utcnow()),
 
             "likes":
                 safe_int(
@@ -321,21 +295,31 @@ def normalize_review(data):
 
     except Exception:
 
-        return {}
+        return None
 
 # ==========================================================
-# CRAWL4AI SCRAPER
+# CRAWL4AI
 # ==========================================================
 
 @retry(
-    stop=stop_after_attempt(3),
+    stop=stop_after_attempt(2),
     wait=wait_exponential(multiplier=2)
 )
 
 async def crawl4ai_scraper(
-    place_id,
-    target_limit=100
+
+    place_id: str,
+    target_limit: int
+
 ):
+
+    if AsyncWebCrawler is None:
+
+        logger.warning(
+            "⚠️ Crawl4AI unavailable"
+        )
+
+        return []
 
     logger.info("🚀 CRAWL4AI STARTED")
 
@@ -345,22 +329,13 @@ async def crawl4ai_scraper(
 
         url = build_google_url(place_id)
 
-        proxy = None
-
-        if PROXIES:
-            proxy = PROXIES[0]
-
         async with AsyncWebCrawler() as crawler:
 
             result = await crawler.arun(
 
                 url=url,
 
-                word_count_threshold=5,
-
-                bypass_cache=True,
-
-                proxy=proxy
+                bypass_cache=True
             )
 
             html = result.html
@@ -370,38 +345,30 @@ async def crawl4ai_scraper(
                 "lxml"
             )
 
-            blocks = soup.find_all(
-                "div"
-            )
+            divs = soup.find_all("div")
 
-            for block in blocks:
+            for div in divs:
 
                 text = clean_text(
-                    block.get_text()
+                    div.get_text()
                 )
 
-                if len(text) < 20:
+                if len(text) < 30:
                     continue
 
                 review = normalize_review({
 
-                    "review_id":
-                        str(hash(text)),
+                    "text": text,
 
-                    "author_name":
-                        "Google User",
+                    "rating": 5,
 
-                    "rating":
-                        5,
-
-                    "text":
-                        text,
+                    "author_name": "Google User",
 
                     "review_date":
                         str(datetime.utcnow())
                 })
 
-                if review["text"]:
+                if review:
 
                     reviews.append(review)
 
@@ -423,18 +390,28 @@ async def crawl4ai_scraper(
         return []
 
 # ==========================================================
-# PLAYWRIGHT SCRAPER
+# PLAYWRIGHT
 # ==========================================================
 
 @retry(
-    stop=stop_after_attempt(3),
+    stop=stop_after_attempt(2),
     wait=wait_exponential(multiplier=2)
 )
 
 async def playwright_scraper(
-    place_id,
-    target_limit=100
+
+    place_id: str,
+    target_limit: int
+
 ):
+
+    if async_playwright is None:
+
+        logger.warning(
+            "⚠️ Playwright unavailable"
+        )
+
+        return []
 
     logger.info("🚀 PLAYWRIGHT STARTED")
 
@@ -449,6 +426,7 @@ async def playwright_scraper(
         proxy = None
 
         if PROXIES:
+
             proxy = {
 
                 "server": PROXIES[0]
@@ -464,10 +442,10 @@ async def playwright_scraper(
 
                 args=[
 
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-dev-shm-usage",
                     "--no-sandbox",
-                    "--disable-setuid-sandbox"
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled"
                 ]
             )
 
@@ -480,18 +458,23 @@ async def playwright_scraper(
 
             page = await context.new_page()
 
-            await stealth_async(page)
+            if stealth_async:
+
+                try:
+                    await stealth_async(page)
+                except:
+                    pass
 
             await page.goto(
 
                 url,
 
-                wait_until="networkidle",
+                timeout=120000,
 
-                timeout=120000
+                wait_until="domcontentloaded"
             )
 
-            await asyncio.sleep(5)
+            await asyncio.sleep(8)
 
             html = await page.content()
 
@@ -500,36 +483,30 @@ async def playwright_scraper(
                 "lxml"
             )
 
-            texts = soup.find_all("span")
+            spans = soup.find_all("span")
 
-            for item in texts:
+            for span in spans:
 
                 text = clean_text(
-                    item.get_text()
+                    span.get_text()
                 )
 
-                if len(text) < 20:
+                if len(text) < 30:
                     continue
 
                 review = normalize_review({
 
-                    "review_id":
-                        str(hash(text)),
+                    "text": text,
 
-                    "author_name":
-                        "Google User",
+                    "rating": 5,
 
-                    "rating":
-                        5,
-
-                    "text":
-                        text,
+                    "author_name": "Google User",
 
                     "review_date":
                         str(datetime.utcnow())
                 })
 
-                if review["text"]:
+                if review:
 
                     reviews.append(review)
 
@@ -554,7 +531,6 @@ async def playwright_scraper(
 
             if browser:
                 await browser.close()
-
         except:
             pass
 
@@ -565,8 +541,10 @@ async def playwright_scraper(
 # ==========================================================
 
 async def superapi_scraper(
-    place_id,
-    target_limit=100
+
+    place_id: str,
+    target_limit: int
+
 ):
 
     logger.info("🚀 SUPERAPI STARTED")
@@ -583,15 +561,6 @@ async def superapi_scraper(
 
     try:
 
-        url = "https://api.superapi.ai/google/reviews"
-
-        payload = {
-
-            "place_id": place_id,
-
-            "limit": target_limit
-        }
-
         headers = {
 
             "Authorization":
@@ -601,15 +570,22 @@ async def superapi_scraper(
                 "application/json"
         }
 
+        payload = {
+
+            "place_id": place_id,
+
+            "limit": target_limit
+        }
+
         async with aiohttp.ClientSession() as session:
 
             async with session.post(
 
-                url,
-
-                json=payload,
+                "https://api.superapi.ai/google/reviews",
 
                 headers=headers,
+
+                json=payload,
 
                 timeout=120
 
@@ -626,8 +602,7 @@ async def superapi_scraper(
 
                     review = normalize_review(item)
 
-                    if review["text"]:
-
+                    if review:
                         reviews.append(review)
 
         logger.info(
@@ -645,7 +620,9 @@ async def superapi_scraper(
         return []
 
 # ==========================================================
-# MASTER SCRAPER
+# MASTER FUNCTION
+# IMPORTANT:
+# KEEP THIS EXACT FUNCTION NAME
 # ==========================================================
 
 async def scrape_google_reviews(
@@ -663,10 +640,6 @@ async def scrape_google_reviews(
     )
 
     try:
-
-        # ==================================================
-        # EXISTING IDS
-        # ==================================================
 
         existing_ids = await load_existing_review_ids(
             company_id
@@ -694,7 +667,7 @@ async def scrape_google_reviews(
         if len(reviews) < 5:
 
             logger.warning(
-                "⚠️ CRAWL4AI WEAK => USING PLAYWRIGHT"
+                "⚠️ USING PLAYWRIGHT FALLBACK"
             )
 
             reviews = await playwright_scraper(
@@ -711,7 +684,7 @@ async def scrape_google_reviews(
         if len(reviews) < 5:
 
             logger.warning(
-                "⚠️ PLAYWRIGHT WEAK => USING SUPERAPI"
+                "⚠️ USING SUPERAPI FALLBACK"
             )
 
             reviews = await superapi_scraper(
@@ -722,10 +695,10 @@ async def scrape_google_reviews(
             )
 
         # ==================================================
-        # FILTER DUPLICATES
+        # DUPLICATE FILTER
         # ==================================================
 
-        unique_reviews = []
+        final_reviews = []
 
         seen = set()
 
@@ -746,7 +719,7 @@ async def scrape_google_reviews(
 
             seen.add(review_id)
 
-            unique_reviews.append(review)
+            final_reviews.append(review)
 
             await save_review_id(
                 company_id,
@@ -754,10 +727,10 @@ async def scrape_google_reviews(
             )
 
         logger.info(
-            f"✅ FINAL REVIEWS => {len(unique_reviews)}"
+            f"✅ FINAL REVIEWS => {len(final_reviews)}"
         )
 
-        return unique_reviews
+        return final_reviews
 
     except Exception as e:
 
