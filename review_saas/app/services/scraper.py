@@ -1,7 +1,7 @@
 # ==========================================================
 # FILE: app/services/scraper.py
-# REVIEW INTEL AI — ENTERPRISE HYBRID SCRAPER
-# UPDATED DB-SAFE VERSION — MAY 2026
+# REVIEW INTEL AI - HYBRID SCRAPER
+# DB-SAFE + RAILWAY-SAFE VERSION - MAY 2026
 # ==========================================================
 
 import os
@@ -28,21 +28,8 @@ from tenacity import (
 from sqlalchemy import select
 from sqlalchemy.inspection import inspect as sa_inspect
 
-# ==========================================================
-# DATABASE
-# ==========================================================
-
 from app.core.db import AsyncSessionLocal
-
-# ==========================================================
-# MODELS
-# ==========================================================
-
 from app.core.models import Review
-
-# ==========================================================
-# LOGGER
-# ==========================================================
 
 logger = logging.getLogger("app.services.scraper")
 
@@ -56,6 +43,10 @@ PROXY_SERVER = os.getenv("PROXY_SERVER")
 PROXY_USERNAME = os.getenv("PROXY_USERNAME")
 PROXY_PASSWORD = os.getenv("PROXY_PASSWORD")
 
+ENABLE_PLAYWRIGHT_FALLBACK = (
+    os.getenv("ENABLE_PLAYWRIGHT_FALLBACK", "false").lower() == "true"
+)
+
 # ==========================================================
 # CONFIG
 # ==========================================================
@@ -66,7 +57,7 @@ HEADLESS = True
 MAX_SCROLLS = 30
 
 # ==========================================================
-# USER AGENT
+# HELPERS
 # ==========================================================
 
 def get_user_agent():
@@ -81,9 +72,6 @@ def get_user_agent():
             "Chrome/126.0 Safari/537.36"
         )
 
-# ==========================================================
-# CLEAN TEXT
-# ==========================================================
 
 def clean_text(text):
     try:
@@ -100,9 +88,6 @@ def clean_text(text):
     except Exception:
         return ""
 
-# ==========================================================
-# HASH GENERATOR
-# ==========================================================
 
 def generate_hash(author, text):
     raw = f"{author}_{text}"
@@ -111,9 +96,6 @@ def generate_hash(author, text):
         raw.encode("utf-8")
     ).hexdigest()
 
-# ==========================================================
-# SAFE INTEGER
-# ==========================================================
 
 def safe_int(value, default=0):
     try:
@@ -121,9 +103,6 @@ def safe_int(value, default=0):
     except Exception:
         return default
 
-# ==========================================================
-# DATE PARSER
-# ==========================================================
 
 def parse_relative_date(relative_text):
     try:
@@ -140,7 +119,6 @@ def parse_relative_date(relative_text):
             return now - timedelta(days=1)
 
         match = re.search(r"(\d+)", text)
-
         number = int(match.group(1)) if match else 1
 
         if "day" in text:
@@ -160,9 +138,6 @@ def parse_relative_date(relative_text):
     except Exception:
         return datetime.utcnow()
 
-# ==========================================================
-# PROXY
-# ==========================================================
 
 def build_proxy_url():
     try:
@@ -212,11 +187,11 @@ async def load_existing_review_ids(company_id: int):
                 if row[0]:
                     existing.add(row[0])
 
-        logger.info(f"✅ EXISTING IDS => {len(existing)}")
+        logger.info(f"EXISTING REVIEW IDS => {len(existing)}")
         return existing
 
     except Exception as e:
-        logger.exception(f"❌ EXISTING IDS FAILED => {e}")
+        logger.exception(f"EXISTING REVIEW IDS FAILED => {e}")
         return set()
 
 # ==========================================================
@@ -289,11 +264,11 @@ def normalize_review(
         }
 
     except Exception as e:
-        logger.warning(f"⚠️ NORMALIZE FAILED => {e}")
+        logger.warning(f"NORMALIZE REVIEW FAILED => {e}")
         return None
 
 # ==========================================================
-# REVIEW MODEL SAFE PAYLOAD
+# DB SAFE PAYLOAD
 # ==========================================================
 
 def get_review_model_columns():
@@ -303,13 +278,12 @@ def get_review_model_columns():
             for column in sa_inspect(Review).mapper.column_attrs
         }
     except Exception as e:
-        logger.exception(f"❌ REVIEW MODEL INSPECT FAILED => {e}")
+        logger.exception(f"REVIEW MODEL INSPECT FAILED => {e}")
         return set()
 
 
 def build_review_payload(company_id: int, review: dict):
     columns = get_review_model_columns()
-
     payload = {}
 
     if "company_id" in columns:
@@ -368,16 +342,16 @@ def build_review_payload(company_id: int, review: dict):
     return payload
 
 # ==========================================================
-# SAVE REVIEWS TO DATABASE
+# SAVE REVIEWS
 # ==========================================================
 
 async def save_reviews_to_db(company_id: int, reviews: list[dict]):
     if not company_id:
-        logger.error("❌ COMPANY ID MISSING — CANNOT SAVE REVIEWS")
+        logger.error("COMPANY ID MISSING - CANNOT SAVE REVIEWS")
         return 0
 
     if not reviews:
-        logger.info("⚠️ NO REVIEWS TO SAVE")
+        logger.info("NO REVIEWS TO SAVE")
         return 0
 
     saved_count = 0
@@ -385,6 +359,7 @@ async def save_reviews_to_db(company_id: int, reviews: list[dict]):
     async with AsyncSessionLocal() as db:
         try:
             existing_ids = await load_existing_review_ids(company_id)
+            columns = get_review_model_columns()
 
             for review in reviews:
                 google_review_id = (
@@ -403,14 +378,13 @@ async def save_reviews_to_db(company_id: int, reviews: list[dict]):
                     review=review,
                 )
 
-                if "google_review_id" in get_review_model_columns():
+                if "google_review_id" in columns:
                     payload["google_review_id"] = google_review_id
 
                 if not payload:
                     continue
 
                 db_review = Review(**payload)
-
                 db.add(db_review)
 
                 existing_ids.add(google_review_id)
@@ -418,12 +392,12 @@ async def save_reviews_to_db(company_id: int, reviews: list[dict]):
 
             await db.commit()
 
-            logger.info(f"✅ REVIEWS SAVED TO DB => {saved_count}")
+            logger.info(f"REVIEWS SAVED TO DB => {saved_count}")
             return saved_count
 
         except Exception as e:
             await db.rollback()
-            logger.exception(f"❌ SAVE REVIEWS FAILED => {e}")
+            logger.exception(f"SAVE REVIEWS FAILED => {e}")
             return 0
 
 # ==========================================================
@@ -448,7 +422,7 @@ async def scrape_serpapi_reviews(
     existing_ids = existing_ids or set()
 
     if not SERPAPI_KEY:
-        logger.error("❌ SERPAPI KEY MISSING")
+        logger.error("SERPAPI KEY MISSING")
         return []
 
     try:
@@ -484,27 +458,25 @@ async def scrape_serpapi_reviews(
                 if next_page_token:
                     params["next_page_token"] = next_page_token
 
-                logger.info(f"🚀 SERPAPI REQUEST => {fetched}")
+                logger.info(f"SERPAPI REQUEST START => {fetched}")
 
                 response = await client.get(
                     "https://serpapi.com/search.json",
                     params=params,
                 )
 
-                logger.info(f"✅ SERP STATUS => {response.status_code}")
+                logger.info(f"SERPAPI STATUS => {response.status_code}")
 
                 if response.status_code != 200:
                     logger.warning(
-                        f"⚠️ SERP STATUS => {response.status_code} | {response.text[:500]}"
+                        f"SERPAPI BAD STATUS => {response.status_code} | {response.text[:500]}"
                     )
                     break
 
                 data = response.json()
 
-                logger.info(f"🚀 RESPONSE KEYS => {list(data.keys())}")
-
                 if "error" in data:
-                    logger.error(f"❌ SERPAPI ERROR => {data['error']}")
+                    logger.error(f"SERPAPI ERROR => {data['error']}")
                     return []
 
                 raw_reviews = (
@@ -512,7 +484,7 @@ async def scrape_serpapi_reviews(
                     or data.get("place_results", {}).get("reviews", [])
                 )
 
-                logger.info(f"📦 SERPAPI RAW => {len(raw_reviews)}")
+                logger.info(f"SERPAPI RAW REVIEWS => {len(raw_reviews)}")
 
                 if not raw_reviews:
                     break
@@ -548,15 +520,17 @@ async def scrape_serpapi_reviews(
                     random.uniform(1, 3)
                 )
 
-        logger.info(f"✅ SERPAPI REVIEWS => {len(reviews)}")
+        logger.info(f"SERPAPI REVIEWS FETCHED => {len(reviews)}")
         return reviews
 
     except Exception as e:
-        logger.exception(f"❌ SERPAPI FAILED => {e}")
+        logger.exception(f"SERPAPI FAILED => {type(e).__name__}: {e}")
         return []
 
 # ==========================================================
 # PLAYWRIGHT FALLBACK
+# Disabled by default. Enable only with:
+# ENABLE_PLAYWRIGHT_FALLBACK=true
 # ==========================================================
 
 @retry(
@@ -576,88 +550,124 @@ async def playwright_backup(
     reviews = []
     existing_ids = existing_ids or set()
 
+    if not ENABLE_PLAYWRIGHT_FALLBACK:
+        logger.info("PLAYWRIGHT FALLBACK DISABLED")
+        return []
+
     browser = None
     context = None
 
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=HEADLESS,
-                proxy=(
-                    {
-                        "server": f"http://{PROXY_SERVER}",
-                        "username": PROXY_USERNAME,
-                        "password": PROXY_PASSWORD,
-                    }
-                    if PROXY_SERVER
-                    else None
-                ),
-                args=[
+            launch_options = {
+                "headless": HEADLESS,
+                "args": [
                     "--disable-blink-features=AutomationControlled",
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
                     "--disable-setuid-sandbox",
-                    "--single-process",
-                    "--no-zygote",
-                    "--disable-web-security",
                     "--no-sandbox",
+                    "--disable-extensions",
+                    "--disable-background-networking",
+                    "--disable-background-timer-throttling",
+                    "--disable-renderer-backgrounding",
                 ],
-            )
+            }
+
+            if PROXY_SERVER:
+                launch_options["proxy"] = {
+                    "server": f"http://{PROXY_SERVER}",
+                }
+
+                if PROXY_USERNAME and PROXY_PASSWORD:
+                    launch_options["proxy"]["username"] = PROXY_USERNAME
+                    launch_options["proxy"]["password"] = PROXY_PASSWORD
+
+            browser = await p.chromium.launch(**launch_options)
 
             context = await browser.new_context(
                 user_agent=get_user_agent(),
                 locale="en-US",
+                viewport={
+                    "width": 1366,
+                    "height": 768,
+                },
             )
 
             page = await context.new_page()
+            page.set_default_timeout(30000)
+            page.set_default_navigation_timeout(PLAYWRIGHT_TIMEOUT)
 
             await page.route(
-                "**/*.{png,jpg,jpeg,gif,svg,webp}",
+                "**/*.{png,jpg,jpeg,gif,svg,webp,woff,woff2}",
                 lambda route: route.abort(),
             )
 
             url = (
-                "https://www.google.com/maps/place/"
-                f"?q=place_id:{place_id}"
+                "https://www.google.com/maps/search/"
+                f"?api=1&query=Google&query_place_id={place_id}"
             )
 
-            logger.info(f"🚀 PLAYWRIGHT STARTED => {place_id}")
-
-            await page.goto(
-                url,
-                wait_until="domcontentloaded",
-                timeout=PLAYWRIGHT_TIMEOUT,
-            )
-
-            await asyncio.sleep(5)
+            logger.info(f"PLAYWRIGHT GOTO => {url}")
 
             try:
-                button = page.locator(
-                    'button[jsaction*="pane.reviewChart.moreReviews"]'
+                await page.goto(
+                    url,
+                    wait_until="commit",
+                    timeout=PLAYWRIGHT_TIMEOUT,
+                )
+            except Exception as goto_error:
+                logger.exception(
+                    f"PLAYWRIGHT GOTO FAILED => {type(goto_error).__name__}: {goto_error}"
+                )
+                return []
+
+            await page.wait_for_timeout(5000)
+
+            try:
+                consent_buttons = page.locator(
+                    'button:has-text("Accept all"), '
+                    'button:has-text("I agree"), '
+                    'button:has-text("Accept")'
                 )
 
-                if await button.count() > 0:
-                    await button.first.click()
-                    await asyncio.sleep(5)
+                if await consent_buttons.count() > 0:
+                    await consent_buttons.first.click()
+                    await page.wait_for_timeout(3000)
 
             except Exception:
                 pass
+
+            try:
+                reviews_button = page.locator(
+                    'button[jsaction*="pane.reviewChart.moreReviews"], '
+                    'button:has-text("reviews"), '
+                    'button:has-text("Reviews")'
+                )
+
+                if await reviews_button.count() > 0:
+                    await reviews_button.first.click()
+                    await page.wait_for_timeout(5000)
+
+            except Exception as button_error:
+                logger.warning(f"REVIEW BUTTON FAILED => {button_error}")
 
             review_feed = page.locator('div[role="feed"]')
 
             for _ in range(MAX_SCROLLS):
                 try:
-                    await review_feed.evaluate(
-                        "(el) => el.scrollTop = el.scrollHeight"
-                    )
+                    if await review_feed.count() > 0:
+                        await review_feed.first.evaluate(
+                            "(el) => el.scrollTop = el.scrollHeight"
+                        )
 
                     await page.mouse.wheel(
                         0,
                         random.randint(1000, 3000),
                     )
 
-                    await asyncio.sleep(
-                        random.uniform(1, 2)
+                    await page.wait_for_timeout(
+                        random.randint(1000, 2000)
                     )
 
                 except Exception:
@@ -666,7 +676,7 @@ async def playwright_backup(
             cards = page.locator("div[data-review-id]")
             count = await cards.count()
 
-            logger.info(f"📦 PLAYWRIGHT CARDS => {count}")
+            logger.info(f"PLAYWRIGHT REVIEW CARDS => {count}")
 
             seen = set()
 
@@ -674,23 +684,28 @@ async def playwright_backup(
                 try:
                     card = cards.nth(i)
 
-                    author = clean_text(
-                        await card.locator(".d4r55").inner_text()
-                    )
+                    try:
+                        author = clean_text(
+                            await card.locator(".d4r55").inner_text()
+                        )
+                    except Exception:
+                        author = "Anonymous"
 
                     text = ""
 
-                    try:
-                        text = clean_text(
-                            await card.locator(
-                                'span[jsname="bN97Pc"]'
-                            ).inner_text()
-                        )
-                    except Exception:
+                    for selector in [
+                        'span[jsname="bN97Pc"]',
+                        ".MyEned",
+                        ".wiI7pd",
+                    ]:
                         try:
                             text = clean_text(
-                                await card.locator(".MyEned").inner_text()
+                                await card.locator(selector).inner_text()
                             )
+
+                            if text:
+                                break
+
                         except Exception:
                             pass
 
@@ -747,14 +762,14 @@ async def playwright_backup(
                         break
 
                 except Exception as card_error:
-                    logger.warning(f"⚠️ CARD FAILED => {card_error}")
+                    logger.warning(f"PLAYWRIGHT CARD FAILED => {card_error}")
                     continue
 
-        logger.info(f"✅ PLAYWRIGHT REVIEWS => {len(reviews)}")
+        logger.info(f"PLAYWRIGHT REVIEWS FETCHED => {len(reviews)}")
         return reviews
 
     except Exception as e:
-        logger.exception(f"❌ PLAYWRIGHT FAILED => {e}")
+        logger.exception(f"PLAYWRIGHT FAILED => {type(e).__name__}: {e}")
         return []
 
     finally:
@@ -782,11 +797,11 @@ async def scrape_google_reviews(
     end_date=None,
     save_to_database: bool = True,
 ):
-    logger.info(f"🚀 HYBRID SCRAPER STARTED => {place_id}")
+    logger.info(f"HYBRID SCRAPER STARTED => {place_id}")
 
     try:
         if not place_id:
-            logger.error("❌ PLACE ID MISSING")
+            logger.error("PLACE ID MISSING")
             return []
 
         existing_review_ids = set()
@@ -796,10 +811,6 @@ async def scrape_google_reviews(
                 company_id
             )
 
-        # ==================================================
-        # SERPAPI
-        # ==================================================
-
         serp_reviews = await scrape_serpapi_reviews(
             place_id=place_id,
             existing_ids=existing_review_ids,
@@ -808,14 +819,10 @@ async def scrape_google_reviews(
             end_date=end_date,
         )
 
-        # ==================================================
-        # PLAYWRIGHT FALLBACK
-        # ==================================================
-
-        if len(serp_reviews) < target_limit:
+        if len(serp_reviews) < target_limit and ENABLE_PLAYWRIGHT_FALLBACK:
             remaining = target_limit - len(serp_reviews)
 
-            logger.warning(f"⚠️ PLAYWRIGHT FALLBACK => {remaining}")
+            logger.warning(f"PLAYWRIGHT FALLBACK STARTED => {remaining}")
 
             playwright_reviews = await playwright_backup(
                 place_id=place_id,
@@ -827,9 +834,8 @@ async def scrape_google_reviews(
 
             serp_reviews.extend(playwright_reviews)
 
-        # ==================================================
-        # FINAL DEDUP
-        # ==================================================
+        else:
+            logger.info("PLAYWRIGHT FALLBACK SKIPPED")
 
         final_reviews = []
         seen = set()
@@ -844,11 +850,7 @@ async def scrape_google_reviews(
                 seen.add(rid)
                 final_reviews.append(review)
 
-        logger.info(f"✅ FINAL REVIEW COUNT => {len(final_reviews)}")
-
-        # ==================================================
-        # DATABASE SAVE
-        # ==================================================
+        logger.info(f"FINAL REVIEW COUNT => {len(final_reviews)}")
 
         if save_to_database and company_id:
             saved_count = await save_reviews_to_db(
@@ -856,12 +858,12 @@ async def scrape_google_reviews(
                 reviews=final_reviews,
             )
 
-            logger.info(f"✅ FINAL DB SAVED COUNT => {saved_count}")
+            logger.info(f"FINAL DB SAVED COUNT => {saved_count}")
 
         return final_reviews
 
     except Exception as e:
-        logger.exception(f"❌ SCRAPER FAILED => {e}")
+        logger.exception(f"SCRAPER FAILED => {type(e).__name__}: {e}")
         return []
 
     finally:
