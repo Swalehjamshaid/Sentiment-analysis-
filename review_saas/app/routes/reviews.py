@@ -1,24 +1,26 @@
 # ==========================================================
 # FILE: app/routes/reviews.py
-# TRUSTLYTICS AI — ENTERPRISE REVIEW ROUTER
-# FULLY ALIGNED WITH MAIN.PY + SCRAPER.PY
-# MAY 2026
 # ==========================================================
 
 from __future__ import annotations
 
 import traceback
 
-from typing import Any
-
 from fastapi import (
     APIRouter,
-    HTTPException,
     Depends,
-    Request
+    HTTPException
 )
 
 from fastapi.responses import JSONResponse
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from sqlalchemy import (
+    select,
+    delete,
+    func
+)
 
 from loguru import logger
 
@@ -28,8 +30,6 @@ from loguru import logger
 
 from app.core.db import get_db
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 # ==========================================================
 # MODELS
 # ==========================================================
@@ -37,16 +37,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import (
     Company,
     Review
-)
-
-# ==========================================================
-# SQLALCHEMY
-# ==========================================================
-
-from sqlalchemy import (
-    select,
-    func,
-    delete
 )
 
 # ==========================================================
@@ -74,13 +64,13 @@ router = APIRouter(
 
 @router.get("/test")
 
-async def test_reviews():
+async def test_route():
 
     return {
 
         "success": True,
 
-        "message": "Reviews router working successfully"
+        "message": "Reviews route working"
     }
 
 # ==========================================================
@@ -98,121 +88,61 @@ async def get_company_reviews(
 
     try:
 
-        logger.info(
-            f"📥 FETCHING REVIEWS => {company_id}"
-        )
-
-        company_query = await db.execute(
-
-            select(Company).where(
-                Company.id == company_id
-            )
-        )
-
-        company = company_query.scalar_one_or_none()
-
-        if not company:
-
-            raise HTTPException(
-
-                status_code=404,
-
-                detail="Company not found"
-            )
-
-        reviews_query = await db.execute(
+        query = await db.execute(
 
             select(Review)
 
             .where(
                 Review.company_id == company_id
             )
-
-            .order_by(
-                Review.created_at.desc()
-            )
         )
 
-        reviews = reviews_query.scalars().all()
-
-        total_reviews = len(reviews)
-
-        logger.info(
-            f"📊 TOTAL REVIEWS => {total_reviews}"
-        )
-
-        reviews_data = []
-
-        for review in reviews:
-
-            reviews_data.append({
-
-                "id": review.id,
-
-                "reviewer_name":
-                    getattr(
-                        review,
-                        "reviewer_name",
-                        "Anonymous"
-                    ),
-
-                "rating":
-                    getattr(
-                        review,
-                        "rating",
-                        0
-                    ),
-
-                "review_text":
-                    getattr(
-                        review,
-                        "review_text",
-                        ""
-                    ),
-
-                "review_date":
-                    str(
-                        getattr(
-                            review,
-                            "review_date",
-                            ""
-                        )
-                    ),
-
-                "sentiment":
-                    getattr(
-                        review,
-                        "sentiment",
-                        "neutral"
-                    ),
-
-                "source":
-                    getattr(
-                        review,
-                        "source",
-                        "Google"
-                    )
-            })
+        reviews = query.scalars().all()
 
         return {
 
             "success": True,
 
-            "company_id": company_id,
+            "total_reviews": len(reviews),
 
-            "company_name":
-                company.name,
+            "reviews": [
 
-            "total_reviews":
-                total_reviews,
+                {
 
-            "reviews":
-                reviews_data
+                    "id": r.id,
+
+                    "reviewer_name":
+                        getattr(
+                            r,
+                            "reviewer_name",
+                            "Anonymous"
+                        ),
+
+                    "rating":
+                        getattr(
+                            r,
+                            "rating",
+                            0
+                        ),
+
+                    "review_text":
+                        getattr(
+                            r,
+                            "review_text",
+                            ""
+                        ),
+
+                    "source":
+                        getattr(
+                            r,
+                            "source",
+                            "Google"
+                        )
+                }
+
+                for r in reviews
+            ]
         }
-
-    except HTTPException:
-
-        raise
 
     except Exception as e:
 
@@ -255,13 +185,11 @@ async def sync_reviews(
             f"🚀 REVIEW SYNC STARTED => {company_id}"
         )
 
-        # ==================================================
-        # COMPANY VALIDATION
-        # ==================================================
-
         company_query = await db.execute(
 
-            select(Company).where(
+            select(Company)
+
+            .where(
                 Company.id == company_id
             )
         )
@@ -277,28 +205,12 @@ async def sync_reviews(
                 detail="Company not found"
             )
 
-        logger.success(
-            f"✅ COMPANY FOUND => {company.name}"
-        )
-
-        # ==================================================
-        # SCRAPER EXECUTION
-        # ==================================================
-
-        scraper_result = await sync_company_reviews(
+        result = await sync_company_reviews(
 
             db=db,
 
             company=company
         )
-
-        logger.success(
-            f"✅ SCRAPER COMPLETED => {company.name}"
-        )
-
-        # ==================================================
-        # REVIEW COUNT
-        # ==================================================
 
         review_count_query = await db.execute(
 
@@ -313,28 +225,21 @@ async def sync_reviews(
 
         total_reviews = review_count_query.scalar()
 
-        logger.info(
-            f"📊 TOTAL REVIEWS => {total_reviews}"
+        logger.success(
+            f"✅ REVIEW SYNC COMPLETED => {total_reviews}"
         )
 
         return {
 
             "success": True,
 
-            "message":
-                "Reviews synced successfully",
+            "company_id": company_id,
 
-            "company_id":
-                company_id,
+            "company_name": company.name,
 
-            "company_name":
-                company.name,
+            "total_reviews": total_reviews,
 
-            "total_reviews":
-                total_reviews,
-
-            "scraper_result":
-                scraper_result
+            "scraper_result": result
         }
 
     except HTTPException:
@@ -344,7 +249,7 @@ async def sync_reviews(
     except Exception as e:
 
         logger.error(
-            f"❌ REVIEW SYNC FAILED => {e}"
+            f"❌ SYNC ERROR => {e}"
         )
 
         logger.error(
@@ -378,110 +283,28 @@ async def delete_reviews(
 
     try:
 
-        logger.warning(
-            f"🗑️ DELETING REVIEWS => {company_id}"
-        )
-
         await db.execute(
 
-            delete(Review).where(
+            delete(Review)
+
+            .where(
                 Review.company_id == company_id
             )
         )
 
         await db.commit()
 
-        logger.success(
-            "✅ REVIEWS DELETED"
-        )
-
         return {
 
             "success": True,
 
-            "message":
-                "Reviews deleted successfully"
+            "message": "Reviews deleted successfully"
         }
 
     except Exception as e:
 
         logger.error(
-            f"❌ DELETE FAILED => {e}"
-        )
-
-        logger.error(
-            traceback.format_exc()
-        )
-
-        return JSONResponse(
-
-            status_code=500,
-
-            content={
-
-                "success": False,
-
-                "message": str(e)
-            }
-        )
-
-# ==========================================================
-# REVIEW STATS
-# ==========================================================
-
-@router.get("/stats/{company_id}")
-
-async def review_stats(
-
-    company_id: int,
-
-    db: AsyncSession = Depends(get_db)
-):
-
-    try:
-
-        total_query = await db.execute(
-
-            select(func.count())
-
-            .select_from(Review)
-
-            .where(
-                Review.company_id == company_id
-            )
-        )
-
-        total_reviews = total_query.scalar()
-
-        avg_query = await db.execute(
-
-            select(func.avg(Review.rating))
-
-            .where(
-                Review.company_id == company_id
-            )
-        )
-
-        average_rating = avg_query.scalar()
-
-        return {
-
-            "success": True,
-
-            "company_id":
-                company_id,
-
-            "total_reviews":
-                total_reviews or 0,
-
-            "average_rating":
-                round(float(average_rating or 0), 2)
-        }
-
-    except Exception as e:
-
-        logger.error(
-            f"❌ STATS ERROR => {e}"
+            f"❌ DELETE ERROR => {e}"
         )
 
         logger.error(
