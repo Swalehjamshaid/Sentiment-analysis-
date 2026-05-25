@@ -1,9 +1,7 @@
 # ==========================================================
-# ENTERPRISE GOOGLE REVIEWS SCRAPER
-# HIERARCHY:
-# 1. Crawl4AI + Proxy
-# 2. Playwright + Proxy
-# 3. SERPAPI Fallback
+# scraper.py
+# ENTERPRISE GOOGLE REVIEW SCRAPER
+# FULL BACKWARD COMPATIBILITY VERSION
 # ==========================================================
 
 import os
@@ -13,10 +11,6 @@ import json
 import random
 import asyncio
 import logging
-from datetime import datetime
-
-import aiofiles
-import aiosqlite
 
 from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
@@ -27,10 +21,7 @@ from tenacity import (
     wait_random_exponential,
 )
 
-from playwright.async_api import (
-    async_playwright,
-)
-
+from playwright.async_api import async_playwright
 from playwright_stealth import stealth_async
 
 from crawl4ai import AsyncWebCrawler
@@ -46,7 +37,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ==========================================================
-# ENV
+# ENVIRONMENT
 # ==========================================================
 
 SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")
@@ -55,11 +46,11 @@ PROXY_SERVER = os.getenv("PROXY_SERVER", "")
 PROXY_USERNAME = os.getenv("PROXY_USERNAME", "")
 PROXY_PASSWORD = os.getenv("PROXY_PASSWORD", "")
 
+HEADLESS = True
+
 REQUEST_TIMEOUT = 180
 
 PLAYWRIGHT_TIMEOUT = 120000
-
-HEADLESS = True
 
 MAX_SCROLLS = 60
 
@@ -70,13 +61,15 @@ MAX_SCROLLS = 60
 ua = UserAgent()
 
 def get_user_agent():
+
     try:
         return ua.chrome
+
     except Exception:
+
         return (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 "
-            "(KHTML, like Gecko) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/124.0 Safari/537.36"
         )
 
@@ -107,8 +100,6 @@ def normalize_review(
     review,
     existing_ids=None,
     seen=None,
-    start_date=None,
-    end_date=None,
 ):
 
     existing_ids = existing_ids or set()
@@ -155,10 +146,12 @@ async def serpapi_reviews(
 ):
 
     if not SERPAPI_KEY:
-        logger.warning("NO SERPAPI KEY")
+
+        logger.warning("SERPAPI KEY MISSING")
+
         return []
 
-    logger.info("USING SERPAPI")
+    logger.info("LEVEL 3 => SERPAPI")
 
     reviews = []
 
@@ -230,18 +223,18 @@ async def crawl4ai_reviews(
     target_limit=50,
 ):
 
-    logger.info("USING CRAWL4AI")
+    logger.info("LEVEL 1 => CRAWL4AI")
 
     reviews = []
 
     seen = set()
 
-    url = (
-        "https://www.google.com/maps/search/"
-        f"?api=1&query=Google&query_place_id={place_id}"
-    )
-
     try:
+
+        url = (
+            "https://www.google.com/maps/search/"
+            f"?api=1&query=Google&query_place_id={place_id}"
+        )
 
         browser_config = {}
 
@@ -251,11 +244,10 @@ async def crawl4ai_reviews(
                 "server": f"http://{PROXY_SERVER}"
             }
 
-            if (
-                PROXY_USERNAME
-                and PROXY_PASSWORD
-            ):
+            if PROXY_USERNAME and PROXY_PASSWORD:
+
                 browser_config["proxy"]["username"] = PROXY_USERNAME
+
                 browser_config["proxy"]["password"] = PROXY_PASSWORD
 
         async with AsyncWebCrawler(
@@ -275,39 +267,27 @@ async def crawl4ai_reviews(
             html = result.html
 
             if not html:
+
                 logger.warning("EMPTY HTML")
+
                 return []
 
-            soup = BeautifulSoup(
-                html,
-                "lxml",
-            )
+            soup = BeautifulSoup(html, "lxml")
 
-            candidates = soup.find_all(
-                string=re.compile(
-                    r"stars",
-                    re.I,
-                )
-            )
+            blocks = soup.find_all("div")
 
-            logger.info(
-                f"CRAWL4AI CANDIDATES => {len(candidates)}"
-            )
+            logger.info(f"TOTAL HTML BLOCKS => {len(blocks)}")
 
-            for item in candidates:
+            for block in blocks:
 
                 try:
 
-                    parent = item.parent
+                    text = clean_text(block.get_text())
 
-                    text = clean_text(
-                        parent.get_text(
-                            " ",
-                            strip=True,
-                        )
-                    )
+                    if len(text) < 30:
+                        continue
 
-                    if len(text) < 20:
+                    if "stars" not in text.lower():
                         continue
 
                     normalized = normalize_review(
@@ -332,22 +312,18 @@ async def crawl4ai_reviews(
                 except Exception:
                     pass
 
-        logger.info(
-            f"CRAWL4AI REVIEWS => {len(reviews)}"
-        )
+        logger.info(f"CRAWL4AI REVIEWS => {len(reviews)}")
 
         return reviews
 
     except Exception as e:
 
-        logger.exception(
-            f"CRAWL4AI FAILED => {e}"
-        )
+        logger.exception(f"CRAWL4AI FAILED => {e}")
 
         return []
 
 # ==========================================================
-# PLAYWRIGHT BACKUP
+# PLAYWRIGHT SECONDARY
 # ==========================================================
 
 @retry(
@@ -357,11 +333,13 @@ async def crawl4ai_reviews(
         max=10,
     ),
 )
-async def playwright_backup(
+async def playwright_reviews(
     place_id,
     existing_ids=None,
     target_limit=50,
 ):
+
+    logger.info("LEVEL 2 => PLAYWRIGHT")
 
     reviews = []
 
@@ -383,56 +361,47 @@ async def playwright_backup(
                     "--disable-dev-shm-usage",
                     "--disable-blink-features=AutomationControlled",
                     "--disable-infobars",
-                    "--ignore-certificate-errors",
                     "--disable-gpu",
-                    "--window-size=1920,1080",
                     "--disable-web-security",
-                    "--disable-features=IsolateOrigins,site-per-process",
+                    "--window-size=1920,1080",
                 ],
             }
 
             if PROXY_SERVER:
 
                 launch_options["proxy"] = {
-                    "server": f"http://{PROXY_SERVER}",
+                    "server": f"http://{PROXY_SERVER}"
                 }
 
-                if (
-                    PROXY_USERNAME
-                    and PROXY_PASSWORD
-                ):
-                    launch_options["proxy"]["username"] = PROXY_USERNAME
-                    launch_options["proxy"]["password"] = PROXY_PASSWORD
+                if PROXY_USERNAME and PROXY_PASSWORD:
 
-            logger.info("STARTING PLAYWRIGHT")
+                    launch_options["proxy"]["username"] = PROXY_USERNAME
+
+                    launch_options["proxy"]["password"] = PROXY_PASSWORD
 
             browser = await p.chromium.launch(
                 **launch_options
             )
 
-            logger.info("BROWSER STARTED")
-
             context = await browser.new_context(
                 user_agent=get_user_agent(),
-                locale="en-US",
-                timezone_id="America/New_York",
                 viewport={
                     "width": 1920,
                     "height": 1080,
                 },
                 java_script_enabled=True,
-                bypass_csp=True,
+                locale="en-US",
             )
 
             page = await context.new_page()
 
             await stealth_async(page)
 
-            page.set_default_navigation_timeout(
+            page.set_default_timeout(
                 PLAYWRIGHT_TIMEOUT
             )
 
-            page.set_default_timeout(
+            page.set_default_navigation_timeout(
                 PLAYWRIGHT_TIMEOUT
             )
 
@@ -446,7 +415,6 @@ async def playwright_backup(
             await page.goto(
                 url,
                 wait_until="domcontentloaded",
-                timeout=PLAYWRIGHT_TIMEOUT,
             )
 
             await page.wait_for_timeout(8000)
@@ -457,8 +425,6 @@ async def playwright_backup(
                 'button:has-text("Reviews")',
             ]
 
-            review_opened = False
-
             for selector in selectors:
 
                 try:
@@ -467,39 +433,26 @@ async def playwright_backup(
 
                     if await button.count() > 0:
 
-                        await button.click(
-                            timeout=10000
-                        )
-
-                        review_opened = True
+                        await button.click()
 
                         logger.info(
-                            f"REVIEWS OPENED => {selector}"
+                            f"CLICKED => {selector}"
                         )
 
                         break
 
                 except Exception:
-                    continue
-
-            if not review_opened:
-                logger.warning(
-                    "REVIEWS BUTTON NOT FOUND"
-                )
+                    pass
 
             await page.wait_for_timeout(5000)
-
-            await page.wait_for_selector(
-                'div[role="feed"]',
-                timeout=30000,
-            )
 
             feed = page.locator(
                 'div[role="feed"]'
             ).first
 
-            empty_scrolls = 0
             last_height = 0
+
+            empty_scrolls = 0
 
             for _ in range(MAX_SCROLLS):
 
@@ -515,8 +468,8 @@ async def playwright_backup(
 
                     await page.wait_for_timeout(
                         random.randint(
-                            1200,
-                            2500,
+                            1500,
+                            3000,
                         )
                     )
 
@@ -525,8 +478,11 @@ async def playwright_backup(
                     )
 
                     if new_height == last_height:
+
                         empty_scrolls += 1
+
                     else:
+
                         empty_scrolls = 0
 
                     last_height = new_height
@@ -534,21 +490,16 @@ async def playwright_backup(
                     if empty_scrolls >= 8:
                         break
 
-                except Exception as e:
-
-                    logger.warning(
-                        f"SCROLL FAILED => {e}"
-                    )
+                except Exception:
+                    pass
 
             cards = page.locator(
-                'div.jftiEf'
+                "div.jftiEf"
             )
 
             count = await cards.count()
 
-            logger.info(
-                f"PLAYWRIGHT CARDS => {count}"
-            )
+            logger.info(f"TOTAL CARDS => {count}")
 
             seen = set()
 
@@ -557,18 +508,6 @@ async def playwright_backup(
                 try:
 
                     card = cards.nth(i)
-
-                    try:
-
-                        more_button = card.locator(
-                            'button:has-text("More")'
-                        ).first
-
-                        if await more_button.count() > 0:
-                            await more_button.click()
-
-                    except Exception:
-                        pass
 
                     author = "Anonymous"
 
@@ -608,6 +547,29 @@ async def playwright_backup(
                     if not text:
                         continue
 
+                    rating = 5
+
+                    try:
+
+                        rating_element = card.locator(
+                            'span[aria-label*="star"]'
+                        ).first
+
+                        aria = await rating_element.get_attribute(
+                            "aria-label"
+                        )
+
+                        match = re.search(
+                            r"(\\d+)",
+                            str(aria),
+                        )
+
+                        if match:
+                            rating = int(match.group(1))
+
+                    except Exception:
+                        pass
+
                     review_date = ""
 
                     try:
@@ -617,31 +579,6 @@ async def playwright_backup(
                                 ".rsqaWe"
                             ).inner_text()
                         )
-
-                    except Exception:
-                        pass
-
-                    rating = 5
-
-                    try:
-
-                        rating_element = card.locator(
-                            'span[aria-label*="star"]'
-                        ).first
-
-                        aria_label = await rating_element.get_attribute(
-                            "aria-label"
-                        )
-
-                        rating_match = re.search(
-                            r"(\\d+)",
-                            str(aria_label),
-                        )
-
-                        if rating_match:
-                            rating = int(
-                                rating_match.group(1)
-                            )
 
                     except Exception:
                         pass
@@ -680,7 +617,7 @@ async def playwright_backup(
     except Exception as e:
 
         logger.exception(
-            f"PLAYWRIGHT TRACE => {e}"
+            f"PLAYWRIGHT FAILED => {e}"
         )
 
         return []
@@ -717,60 +654,62 @@ async def scrape_google_reviews(
     target_limit=50,
 ):
 
-    existing_ids = existing_ids or set()
+    logger.info(
+        f"START SCRAPING => {place_id}"
+    )
 
     # ======================================================
     # LEVEL 1
     # ======================================================
 
-    logger.info("LEVEL 1 => CRAWL4AI")
-
     reviews = await crawl4ai_reviews(
-        place_id=place_id,
-        existing_ids=existing_ids,
-        target_limit=target_limit,
+        place_id,
+        existing_ids,
+        target_limit,
     )
 
     if reviews:
+
         logger.info(
-            f"SUCCESS CRAWL4AI => {len(reviews)}"
+            f"CRAWL4AI SUCCESS => {len(reviews)}"
         )
+
         return reviews
 
     # ======================================================
     # LEVEL 2
     # ======================================================
 
-    logger.info("LEVEL 2 => PLAYWRIGHT")
-
-    reviews = await playwright_backup(
-        place_id=place_id,
-        existing_ids=existing_ids,
-        target_limit=target_limit,
+    reviews = await playwright_reviews(
+        place_id,
+        existing_ids,
+        target_limit,
     )
 
     if reviews:
+
         logger.info(
-            f"SUCCESS PLAYWRIGHT => {len(reviews)}"
+            f"PLAYWRIGHT SUCCESS => {len(reviews)}"
         )
+
         return reviews
 
     # ======================================================
     # LEVEL 3
     # ======================================================
 
-    logger.info("LEVEL 3 => SERPAPI")
-
     reviews = await serpapi_reviews(
-        place_id=place_id,
-        existing_ids=existing_ids,
-        target_limit=target_limit,
+        place_id,
+        existing_ids,
+        target_limit,
     )
 
     if reviews:
+
         logger.info(
-            f"SUCCESS SERPAPI => {len(reviews)}"
+            f"SERPAPI SUCCESS => {len(reviews)}"
         )
+
         return reviews
 
     logger.warning("NO REVIEWS FOUND")
@@ -778,16 +717,35 @@ async def scrape_google_reviews(
     return []
 
 # ==========================================================
+# BACKWARD COMPATIBILITY
+# IMPORTANT
+# ==========================================================
+
+async def scrape_reviews(*args, **kwargs):
+
+    return await scrape_google_reviews(
+        *args,
+        **kwargs,
+    )
+
+async def sync_google_reviews(*args, **kwargs):
+
+    return await scrape_google_reviews(
+        *args,
+        **kwargs,
+    )
+
+# ==========================================================
 # TEST
 # ==========================================================
 
 async def main():
 
-    PLACE_ID = "ChIJN1t_tDeuEmsRUsoyG83frY4"
+    place_id = "ChIJN1t_tDeuEmsRUsoyG83frY4"
 
     reviews = await scrape_google_reviews(
-        place_id=PLACE_ID,
-        target_limit=20,
+        place_id=place_id,
+        target_limit=10,
     )
 
     print(
@@ -799,4 +757,5 @@ async def main():
     )
 
 if __name__ == "__main__":
+
     asyncio.run(main())
