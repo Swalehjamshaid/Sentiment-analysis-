@@ -489,7 +489,7 @@
                     tbody.innerHTML += `
                         <tr>
                             <td>${review.author || 'Anonymous'}</td>
-                            <td><i class="bi bi-star-fill text-warning"></i> ${review.rating}</td>
+                           <td><i class="bi bi-star-fill text-warning"></i> ${review.rating || 0}</td>
                             <td>${review.content || '-'}</td>
                             <td>${review.created_at || '-'}</td>
                             <td><span class="badge ${sentimentClass}">${sentimentText}</span></td>
@@ -556,7 +556,7 @@
                     return;
                 }
                 showLoading();
-                window.open(`/api/reports/${companyId}/download`, '_blank');
+              window.open(`/api/reports/${companyId}/download`, '_blank', 'noopener,noreferrer');
                 hideLoading();
             } catch (err) {
                 hideLoading();
