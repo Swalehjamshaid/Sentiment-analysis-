@@ -1,769 +1,309 @@
 # ==========================================================
-# FILE: app/services/scraper.py
-# ==========================================================
-# ULTRA SAFE ENTERPRISE SCRAPER
-# FIXED VERSION
-#
-# ✔ NO ROUTE BREAKING
-# ✔ NO FASTAPI IMPORT CRASH
-# ✔ NO GLOBAL RISKY IMPORTS
-# ✔ LAZY IMPORT SYSTEM
-# ✔ PROXY SUPPORT
-# ✔ CRAWL4AI FIRST
-# ✔ PLAYWRIGHT FALLBACK
-# ✔ SUPERAPI FALLBACK
-# ✔ DUPLICATE SAFE
-# ✔ ASYNC SAFE
-# ✔ RAILWAY SAFE
-# ✔ ENTERPRISE SAFE
+# FILE: app/routes/reviews.py
+# FULLY ALIGNED WITH YOUR scraper.py
 # ==========================================================
 
-import os
-import re
-import asyncio
-import logging
-import traceback
-
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
 from datetime import datetime
 
-import aiohttp
-import aiosqlite
+# ==========================================================
+# DATABASE
+# ==========================================================
 
-from bs4 import BeautifulSoup
+from app.database import get_db
 
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential
+# ==========================================================
+# MODELS
+# ==========================================================
+
+from app.models.company import Company
+from app.models.review import Review
+
+# ==========================================================
+# SCRAPER
+# ==========================================================
+
+from app.scraper import scrape_google_reviews
+
+# ==========================================================
+# ROUTER
+# ==========================================================
+
+router = APIRouter(
+    prefix="/api/reviews",
+    tags=["Reviews"]
 )
 
 # ==========================================================
-# LOGGER
+# HEALTH
 # ==========================================================
 
-logger = logging.getLogger("app.services.scraper")
+@router.get("/health")
+async def health():
+
+    return {
+        "success": True,
+        "message": "Review routes working"
+    }
 
 # ==========================================================
-# ENV
+# SYNC REVIEWS
 # ==========================================================
 
-SUPERAPI_KEY = os.getenv("SUPERAPI_KEY", "")
-
-# ==========================================================
-# PROXIES
-# ==========================================================
-
-PROXIES = [
-
-    os.getenv("PROXY_1"),
-    os.getenv("PROXY_2"),
-    os.getenv("PROXY_3"),
-    os.getenv("PROXY_4"),
-
-]
-
-PROXIES = [p for p in PROXIES if p]
-
-# ==========================================================
-# SAFE USER AGENT
-# ==========================================================
-
-def get_user_agent():
+@router.post("/sync/{company_id}")
+async def sync_reviews(
+    company_id: int,
+    db: Session = Depends(get_db)
+):
 
     try:
 
-        from fake_useragent import UserAgent
+        print("=" * 60)
+        print(f"🚀 STARTING REVIEW SYNC => {company_id}")
+        print("=" * 60)
 
-        ua = UserAgent()
+        # ==================================================
+        # GET COMPANY
+        # ==================================================
 
-        return ua.random
+        company = db.query(Company).filter(
+            Company.id == company_id
+        ).first()
 
-    except Exception:
+        if not company:
 
-        return (
-
-            "Mozilla/5.0 "
-            "(Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 "
-            "(KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        )
-
-# ==========================================================
-# HELPERS
-# ==========================================================
-
-def clean_text(text):
-
-    if not text:
-        return ""
-
-    return re.sub(
-        r"\s+",
-        " ",
-        str(text)
-    ).strip()
-
-# ==========================================================
-
-def safe_int(value):
-
-    try:
-        return int(value)
-    except:
-        return 0
-
-# ==========================================================
-
-def build_google_url(place_id):
-
-    return (
-        f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-    )
-
-# ==========================================================
-# EXISTING REVIEW IDS
-# ==========================================================
-
-async def load_existing_review_ids(company_id):
-
-    try:
-
-        existing_ids = set()
-
-        db_path = "reviews_cache.db"
-
-        async with aiosqlite.connect(db_path) as db:
-
-            await db.execute("""
-
-                CREATE TABLE IF NOT EXISTS existing_reviews (
-
-                    company_id INTEGER,
-                    review_id TEXT
-
-                )
-
-            """)
-
-            cursor = await db.execute(
-
-                """
-
-                SELECT review_id
-                FROM existing_reviews
-                WHERE company_id = ?
-
-                """,
-
-                (company_id,)
+            raise HTTPException(
+                status_code=404,
+                detail="Company not found"
             )
 
-            rows = await cursor.fetchall()
+        print(f"✅ COMPANY => {company.name}")
 
-            for row in rows:
+        # ==================================================
+        # PLACE ID CHECK
+        # ==================================================
 
-                existing_ids.add(row[0])
+        if not company.place_id:
 
-        return existing_ids
-
-    except Exception as e:
-
-        logger.exception(
-            f"❌ load_existing_review_ids => {e}"
-        )
-
-        return set()
-
-# ==========================================================
-# SAVE REVIEW ID
-# ==========================================================
-
-async def save_review_id(company_id, review_id):
-
-    try:
-
-        db_path = "reviews_cache.db"
-
-        async with aiosqlite.connect(db_path) as db:
-
-            await db.execute("""
-
-                CREATE TABLE IF NOT EXISTS existing_reviews (
-
-                    company_id INTEGER,
-                    review_id TEXT
-
-                )
-
-            """)
-
-            await db.execute(
-
-                """
-
-                INSERT INTO existing_reviews (
-
-                    company_id,
-                    review_id
-
-                )
-
-                VALUES (?, ?)
-
-                """,
-
-                (
-
-                    company_id,
-                    review_id
-                )
+            raise HTTPException(
+                status_code=400,
+                detail="Missing Google Place ID"
             )
 
-            await db.commit()
+        print(f"✅ PLACE ID => {company.place_id}")
 
-    except Exception as e:
+        # ==================================================
+        # EXISTING IDS
+        # ==================================================
 
-        logger.exception(
-            f"❌ save_review_id => {e}"
-        )
+        existing_reviews = db.query(
+            Review.review_id
+        ).filter(
+            Review.company_id == company.id
+        ).all()
 
-# ==========================================================
-# NORMALIZER
-# ==========================================================
-
-def normalize_review(data):
-
-    try:
-
-        text = clean_text(
-            data.get("text", "")
-        )
-
-        if not text:
-            return None
-
-        review_id = clean_text(
-
-            data.get("review_id")
-            or str(hash(text))
-        )
-
-        return {
-
-            "review_id":
-                review_id,
-
-            "author_name":
-                clean_text(
-                    data.get(
-                        "author_name",
-                        "Google User"
-                    )
-                ),
-
-            "rating":
-                max(
-                    1,
-                    min(
-                        safe_int(
-                            data.get("rating", 5)
-                        ),
-                        5
-                    )
-                ),
-
-            "text":
-                text,
-
-            "review_date":
-                clean_text(
-                    data.get(
-                        "review_date",
-                        ""
-                    )
-                ),
-
-            "google_review_time":
-                str(datetime.utcnow()),
-
-            "likes":
-                safe_int(
-                    data.get("likes", 0)
-                )
+        existing_ids = {
+            r[0]
+            for r in existing_reviews
+            if r[0]
         }
 
-    except Exception:
+        print(f"✅ EXISTING IDS => {len(existing_ids)}")
 
-        return None
+        # ==================================================
+        # SCRAPE REVIEWS
+        # ==================================================
 
-# ==========================================================
-# CRAWL4AI SCRAPER
-# ==========================================================
-
-@retry(
-    stop=stop_after_attempt(2),
-    wait=wait_exponential(multiplier=2)
-)
-
-async def crawl4ai_scraper(
-
-    place_id,
-    target_limit
-
-):
-
-    logger.info(
-        "🚀 CRAWL4AI STARTED"
-    )
-
-    try:
-
-        try:
-
-            from crawl4ai import AsyncWebCrawler
-
-        except Exception as e:
-
-            logger.warning(
-                f"⚠️ Crawl4AI unavailable => {e}"
-            )
-
-            return []
-
-        reviews = []
-
-        url = build_google_url(place_id)
-
-        async with AsyncWebCrawler() as crawler:
-
-            result = await crawler.arun(
-
-                url=url,
-
-                bypass_cache=True
-            )
-
-            html = result.html
-
-            soup = BeautifulSoup(
-                html,
-                "lxml"
-            )
-
-            divs = soup.find_all("div")
-
-            for div in divs:
-
-                text = clean_text(
-                    div.get_text()
-                )
-
-                if len(text) < 40:
-                    continue
-
-                review = normalize_review({
-
-                    "text": text,
-
-                    "rating": 5,
-
-                    "author_name":
-                        "Google User",
-
-                    "review_date":
-                        str(datetime.utcnow())
-                })
-
-                if review:
-
-                    reviews.append(review)
-
-                if len(reviews) >= target_limit:
-                    break
-
-        logger.info(
-            f"✅ CRAWL4AI => {len(reviews)}"
+        reviews = await scrape_google_reviews(
+            place_id=company.place_id,
+            existing_ids=existing_ids,
+            target_limit=300
         )
 
-        return reviews
+        print(f"✅ SCRAPER RETURNED => {len(reviews)}")
 
-    except Exception as e:
+        # ==================================================
+        # EMPTY
+        # ==================================================
 
-        logger.exception(
-            f"❌ crawl4ai_scraper => {e}"
-        )
+        if not reviews:
 
-        return []
-
-# ==========================================================
-# PLAYWRIGHT SCRAPER
-# ==========================================================
-
-@retry(
-    stop=stop_after_attempt(2),
-    wait=wait_exponential(multiplier=2)
-)
-
-async def playwright_scraper(
-
-    place_id,
-    target_limit
-
-):
-
-    logger.info(
-        "🚀 PLAYWRIGHT STARTED"
-    )
-
-    browser = None
-
-    try:
-
-        try:
-
-            from playwright.async_api import (
-                async_playwright
-            )
-
-        except Exception as e:
-
-            logger.warning(
-                f"⚠️ Playwright unavailable => {e}"
-            )
-
-            return []
-
-        try:
-
-            from playwright_stealth import (
-                stealth_async
-            )
-
-        except Exception:
-
-            stealth_async = None
-
-        reviews = []
-
-        url = build_google_url(place_id)
-
-        proxy = None
-
-        if PROXIES:
-
-            proxy = {
-
-                "server": PROXIES[0]
+            return {
+                "success": False,
+                "message": "No reviews found",
+                "inserted_reviews": 0,
+                "total_reviews": 0
             }
 
-        async with async_playwright() as p:
+        inserted = 0
+        failed = 0
 
-            browser = await p.chromium.launch(
+        # ==================================================
+        # SAVE REVIEWS
+        # ==================================================
 
-                headless=True,
+        for item in reviews:
 
-                proxy=proxy,
+            try:
 
-                args=[
+                review_id = str(
+                    item.get("review_id", "")
+                ).strip()
 
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled"
-                ]
-            )
-
-            context = await browser.new_context(
-
-                user_agent=get_user_agent(),
-
-                locale="en-US"
-            )
-
-            page = await context.new_page()
-
-            if stealth_async:
-
-                try:
-                    await stealth_async(page)
-                except:
-                    pass
-
-            await page.goto(
-
-                url,
-
-                timeout=120000,
-
-                wait_until="domcontentloaded"
-            )
-
-            await asyncio.sleep(8)
-
-            html = await page.content()
-
-            soup = BeautifulSoup(
-                html,
-                "lxml"
-            )
-
-            spans = soup.find_all("span")
-
-            for span in spans:
-
-                text = clean_text(
-                    span.get_text()
-                )
-
-                if len(text) < 40:
+                if not review_id:
+                    failed += 1
                     continue
 
-                review = normalize_review({
+                # ==========================================
+                # DUPLICATE CHECK
+                # ==========================================
 
-                    "text": text,
+                existing = db.query(Review).filter(
+                    Review.review_id == review_id
+                ).first()
 
-                    "rating": 5,
+                if existing:
+                    continue
 
-                    "author_name":
-                        "Google User",
+                # ==========================================
+                # DATA
+                # ==========================================
 
-                    "review_date":
-                        str(datetime.utcnow())
-                })
+                author = str(
+                    item.get("author", "Anonymous")
+                )[:255]
 
-                if review:
+                text = str(
+                    item.get("text", "")
+                ).strip()
 
-                    reviews.append(review)
+                rating = item.get("rating", 5)
 
-                if len(reviews) >= target_limit:
-                    break
+                try:
+                    rating = float(rating)
+                except:
+                    rating = 5.0
 
-            await browser.close()
+                review_date = item.get("date", "")
 
-        logger.info(
-            f"✅ PLAYWRIGHT => {len(reviews)}"
-        )
+                # ==========================================
+                # CREATE REVIEW
+                # ==========================================
 
-        return reviews
-
-    except Exception as e:
-
-        logger.exception(
-            f"❌ playwright_scraper => {e}"
-        )
-
-        try:
-
-            if browser:
-                await browser.close()
-        except:
-            pass
-
-        return []
-
-# ==========================================================
-# SUPERAPI
-# ==========================================================
-
-async def superapi_scraper(
-
-    place_id,
-    target_limit
-
-):
-
-    logger.info(
-        "🚀 SUPERAPI STARTED"
-    )
-
-    try:
-
-        if not SUPERAPI_KEY:
-
-            logger.warning(
-                "⚠️ SUPERAPI KEY MISSING"
-            )
-
-            return []
-
-        reviews = []
-
-        headers = {
-
-            "Authorization":
-                f"Bearer {SUPERAPI_KEY}",
-
-            "Content-Type":
-                "application/json"
-        }
-
-        payload = {
-
-            "place_id": place_id,
-
-            "limit": target_limit
-        }
-
-        async with aiohttp.ClientSession() as session:
-
-            async with session.post(
-
-                "https://api.superapi.ai/google/reviews",
-
-                headers=headers,
-
-                json=payload,
-
-                timeout=120
-
-            ) as response:
-
-                data = await response.json()
-
-                items = data.get(
-                    "reviews",
-                    []
+                new_review = Review(
+                    company_id=company.id,
+                    review_id=review_id,
+                    author=author,
+                    text=text,
+                    rating=rating,
+                    review_date=review_date,
+                    source="Google"
                 )
 
-                for item in items:
+                db.add(new_review)
 
-                    review = normalize_review(item)
+                inserted += 1
 
-                    if review:
-                        reviews.append(review)
+            except Exception as insert_error:
 
-        logger.info(
-            f"✅ SUPERAPI => {len(reviews)}"
+                print(
+                    f"❌ INSERT ERROR => {insert_error}"
+                )
+
+                failed += 1
+
+        # ==================================================
+        # COMMIT
+        # ==================================================
+
+        db.commit()
+
+        print("=" * 60)
+        print(f"✅ INSERTED => {inserted}")
+        print(f"❌ FAILED => {failed}")
+        print("=" * 60)
+
+        return {
+            "success": True,
+            "message": "Reviews synced successfully",
+            "inserted_reviews": inserted,
+            "failed_reviews": failed,
+            "total_reviews": len(reviews)
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        db.rollback()
+
+        print("=" * 60)
+        print(f"❌ REVIEW SYNC ERROR => {e}")
+        print("=" * 60)
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
         )
+
+# ==========================================================
+# GET COMPANY REVIEWS
+# ==========================================================
+
+@router.get("/company/{company_id}")
+async def get_company_reviews(
+    company_id: int,
+    db: Session = Depends(get_db)
+):
+
+    try:
+
+        reviews = db.query(Review).filter(
+            Review.company_id == company_id
+        ).order_by(
+            desc(Review.id)
+        ).all()
 
         return reviews
 
     except Exception as e:
 
-        logger.exception(
-            f"❌ superapi_scraper => {e}"
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
         )
 
-        return []
-
 # ==========================================================
-# MASTER FUNCTION
-# IMPORTANT:
-# KEEP THIS EXACT NAME
+# DELETE REVIEWS
 # ==========================================================
 
-async def scrape_google_reviews(
-
-    place_id: str,
-
+@router.delete("/company/{company_id}")
+async def delete_company_reviews(
     company_id: int,
-
-    target_limit: int = 100
-
+    db: Session = Depends(get_db)
 ):
-
-    logger.info(
-        f"🚀 SCRAPE STARTED => {place_id}"
-    )
 
     try:
 
-        existing_ids = await load_existing_review_ids(
-            company_id
-        )
+        deleted = db.query(Review).filter(
+            Review.company_id == company_id
+        ).delete()
 
-        logger.info(
-            f"✅ EXISTING IDS => {len(existing_ids)}"
-        )
+        db.commit()
 
-        # ==================================================
-        # LAYER 1 — CRAWL4AI
-        # ==================================================
-
-        reviews = await crawl4ai_scraper(
-
-            place_id,
-            target_limit
-        )
-
-        # ==================================================
-        # LAYER 2 — PLAYWRIGHT
-        # ==================================================
-
-        if len(reviews) < 5:
-
-            logger.warning(
-                "⚠️ PLAYWRIGHT FALLBACK"
-            )
-
-            reviews = await playwright_scraper(
-
-                place_id,
-                target_limit
-            )
-
-        # ==================================================
-        # LAYER 3 — SUPERAPI
-        # ==================================================
-
-        if len(reviews) < 5:
-
-            logger.warning(
-                "⚠️ SUPERAPI FALLBACK"
-            )
-
-            reviews = await superapi_scraper(
-
-                place_id,
-                target_limit
-            )
-
-        # ==================================================
-        # FILTER DUPLICATES
-        # ==================================================
-
-        final_reviews = []
-
-        seen = set()
-
-        for review in reviews:
-
-            review_id = review.get(
-                "review_id"
-            )
-
-            if not review_id:
-                continue
-
-            if review_id in seen:
-                continue
-
-            if review_id in existing_ids:
-                continue
-
-            seen.add(review_id)
-
-            final_reviews.append(review)
-
-            await save_review_id(
-
-                company_id,
-                review_id
-            )
-
-        logger.info(
-            f"✅ FINAL REVIEWS => {len(final_reviews)}"
-        )
-
-        return final_reviews
+        return {
+            "success": True,
+            "deleted_reviews": deleted
+        }
 
     except Exception as e:
 
-        logger.exception(
-            f"❌ scrape_google_reviews => {e}"
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
         )
-
-        traceback.print_exc()
-
-        return []
