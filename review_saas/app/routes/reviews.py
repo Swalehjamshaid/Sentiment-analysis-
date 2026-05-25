@@ -1,17 +1,20 @@
 # ==========================================================
 # FILE: app/routes/reviews.py
-# REVIEW INTEL AI — ENTERPRISE REVIEW ENGINE
-# FINAL STABLE VERSION — MAY 2026
+# REVIEW INTEL AI — WORLD CLASS REVIEW ENGINE
+# ENTERPRISE PRODUCTION VERSION — MAY 2026
 #
-# FULLY SYNCHRONIZED WITH:
-# ✅ dashboard.py
-# ✅ scraper.py
-# ✅ chatbot.py
-# ✅ PostgreSQL
-# ✅ Railway
-# ✅ Frontend Dashboard
-# ✅ Incremental Sync
+# FEATURES:
+# ✅ PostgreSQL Stable
+# ✅ Async Safe
+# ✅ Railway Ready
+# ✅ Enterprise Logging
 # ✅ Duplicate Protection
+# ✅ Incremental Sync
+# ✅ SERPAPI + PLAYWRIGHT
+# ✅ Better Error Handling
+# ✅ DB Rollback Protection
+# ✅ Datetime Protection
+# ✅ Production Grade Validation
 # ==========================================================
 
 import logging
@@ -33,9 +36,7 @@ from sqlalchemy import (
 # DATABASE
 # ==========================================================
 
-from app.core.db import (
-    AsyncSessionLocal
-)
+from app.core.db import AsyncSessionLocal
 
 # ==========================================================
 # MODELS
@@ -51,8 +52,7 @@ from app.core.models import (
 # ==========================================================
 
 from app.services.scraper import (
-    scrape_serpapi_reviews,
-    playwright_backup,
+    scrape_google_reviews,
     load_existing_review_ids
 )
 
@@ -76,7 +76,7 @@ router = APIRouter(
 )
 
 # ==========================================================
-# SAFE HELPERS
+# HELPERS
 # ==========================================================
 
 def safe_int(value):
@@ -85,6 +85,23 @@ def safe_int(value):
         return int(value)
     except:
         return 0
+
+# ==========================================================
+
+def safe_datetime(value):
+
+    try:
+
+        if not value:
+            return datetime.utcnow()
+
+        return datetime.fromisoformat(
+            str(value)
+        )
+
+    except:
+
+        return datetime.utcnow()
 
 # ==========================================================
 
@@ -107,7 +124,7 @@ def calculate_sentiment(rating):
         return "neutral"
 
 # ==========================================================
-# GET REVIEWS
+# GET COMPANY REVIEWS
 # ==========================================================
 
 @router.get("/company/{company_id}")
@@ -126,6 +143,10 @@ async def get_company_reviews(
         )
 
         async with AsyncSessionLocal() as db:
+
+            # ==================================================
+            # COMPANY
+            # ==================================================
 
             company_stmt = select(
                 Company
@@ -147,6 +168,10 @@ async def get_company_reviews(
 
                     detail="Company not found"
                 )
+
+            # ==================================================
+            # REVIEWS
+            # ==================================================
 
             stmt = (
 
@@ -245,7 +270,7 @@ async def get_company_reviews(
     except Exception as e:
 
         logger.exception(
-            "❌ GET REVIEWS FAILED"
+            f"❌ GET REVIEWS FAILED => {e}"
         )
 
         raise HTTPException(
@@ -311,6 +336,10 @@ async def sync_reviews(
                 None
             )
 
+            logger.info(
+                f"🚀 PLACE ID => {place_id}"
+            )
+
             if not place_id:
 
                 raise HTTPException(
@@ -328,47 +357,36 @@ async def sync_reviews(
                 company_id
             )
 
+            logger.info(
+                f"✅ EXISTING IDS => {len(existing_ids)}"
+            )
+
             # ==================================================
-            # SERPAPI
+            # SCRAPER
             # ==================================================
 
-            reviews = await scrape_serpapi_reviews(
+            reviews = await scrape_google_reviews(
 
-                place_id=
-                    place_id,
+                place_id=place_id,
 
-                existing_ids=
-                    existing_ids,
+                company_id=company_id,
 
                 target_limit=150
             )
 
-            # ==================================================
-            # PLAYWRIGHT FALLBACK
-            # ==================================================
-
-            if not reviews:
-
-                logger.warning(
-                    "⚠️ SERPAPI EMPTY — PLAYWRIGHT FALLBACK"
-                )
-
-                reviews = await playwright_backup(
-
-                    place_id=
-                        place_id,
-
-                    existing_ids=
-                        existing_ids,
-
-                    target_limit=80
-                )
+            logger.info(
+                f"✅ SCRAPER RETURNED => {len(reviews)}"
+            )
 
             # ==================================================
             # NO REVIEWS
             # ==================================================
 
             if not reviews:
+
+                logger.warning(
+                    "⚠️ NO REVIEWS RETURNED"
+                )
 
                 return {
 
@@ -378,8 +396,14 @@ async def sync_reviews(
                     "inserted_reviews":
                         0,
 
+                    "skipped_reviews":
+                        0,
+
+                    "total_fetched":
+                        0,
+
                     "message":
-                        "No new reviews found."
+                        "No reviews found."
                 }
 
             # ==================================================
@@ -390,6 +414,8 @@ async def sync_reviews(
 
             skipped = 0
 
+            failed = 0
+
             for review_data in reviews:
 
                 try:
@@ -398,9 +424,15 @@ async def sync_reviews(
                         "review_id"
                     )
 
-                    # ==============================
+                    if not review_id:
+
+                        failed += 1
+
+                        continue
+
+                    # ==============================================
                     # DUPLICATE CHECK
-                    # ==============================
+                    # ==============================================
 
                     existing_stmt = select(
                         Review
@@ -423,9 +455,24 @@ async def sync_reviews(
 
                         continue
 
-                    # ==============================
+                    # ==============================================
+                    # VALIDATE TEXT
+                    # ==============================================
+
+                    review_text = review_data.get(
+                        "text",
+                        ""
+                    )
+
+                    if not review_text:
+
+                        skipped += 1
+
+                        continue
+
+                    # ==============================================
                     # CREATE REVIEW
-                    # ==============================
+                    # ==============================================
 
                     review = Review(
 
@@ -442,18 +489,21 @@ async def sync_reviews(
                             ),
 
                         rating=
-                            safe_int(
-                                review_data.get(
-                                    "rating",
+                            max(
+                                1,
+                                min(
+                                    safe_int(
+                                        review_data.get(
+                                            "rating",
+                                            5
+                                        )
+                                    ),
                                     5
                                 )
                             ),
 
                         text=
-                            review_data.get(
-                                "text",
-                                ""
-                            ),
+                            review_text,
 
                         review_date=
                             review_data.get(
@@ -462,19 +512,11 @@ async def sync_reviews(
                             ),
 
                         google_review_time=
-
-                            datetime.fromisoformat(
-
+                            safe_datetime(
                                 review_data.get(
                                     "google_review_time"
                                 )
-                            )
-
-                            if review_data.get(
-                                "google_review_time"
-                            )
-
-                            else datetime.utcnow(),
+                            ),
 
                         likes=
                             safe_int(
@@ -491,8 +533,10 @@ async def sync_reviews(
 
                 except Exception as review_error:
 
-                    logger.warning(
-                        f"⚠️ REVIEW INSERT FAILED => {review_error}"
+                    failed += 1
+
+                    logger.exception(
+                        f"❌ REVIEW INSERT FAILED => {review_error}"
                     )
 
                     continue
@@ -501,7 +545,28 @@ async def sync_reviews(
             # COMMIT
             # ==================================================
 
-            await db.commit()
+            try:
+
+                await db.commit()
+
+            except Exception as commit_error:
+
+                await db.rollback()
+
+                logger.exception(
+                    f"❌ DB COMMIT FAILED => {commit_error}"
+                )
+
+                raise HTTPException(
+
+                    status_code=500,
+
+                    detail=str(commit_error)
+                )
+
+            # ==================================================
+            # LOGGING
+            # ==================================================
 
             logger.info(
                 f"✅ INSERTED => {inserted}"
@@ -509,6 +574,10 @@ async def sync_reviews(
 
             logger.info(
                 f"⏭️ SKIPPED => {skipped}"
+            )
+
+            logger.info(
+                f"❌ FAILED => {failed}"
             )
 
             # ==================================================
@@ -535,12 +604,15 @@ async def sync_reviews(
                 "skipped_reviews":
                     skipped,
 
+                "failed_reviews":
+                    failed,
+
                 "total_fetched":
                     len(reviews),
 
                 "message":
 
-                    f"{inserted} new reviews added."
+                    f"{inserted} new reviews added successfully."
             }
 
     except HTTPException:
@@ -550,7 +622,7 @@ async def sync_reviews(
     except Exception as e:
 
         logger.exception(
-            "❌ REVIEW SYNC FAILED"
+            f"❌ REVIEW SYNC FAILED => {e}"
         )
 
         raise HTTPException(
@@ -618,7 +690,7 @@ async def delete_review(
     except Exception as e:
 
         logger.exception(
-            "❌ DELETE REVIEW FAILED"
+            f"❌ DELETE REVIEW FAILED => {e}"
         )
 
         raise HTTPException(
@@ -629,7 +701,7 @@ async def delete_review(
         )
 
 # ==========================================================
-# REVIEW HEALTH
+# HEALTH
 # ==========================================================
 
 @router.get("/health")
