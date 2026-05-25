@@ -124,23 +124,28 @@ pymupdf==1.24.10
 # ==========================================================
 # SCRAPING & AUTOMATION
 # ==========================================================
-
-playwright>=1.52.0
+# Browser Automation
+playwright>=1.52.0,<1.61.0
 playwright-stealth==1.0.6
 
+# HTML Parsing
 beautifulsoup4==4.12.3
-lxml==5.2.2
+lxml>=5.3.0,<5.4.0
+
+# User Agent & Retry
 fake-useragent==1.5.1
-
 tenacity==9.0.0
-PyYAML==6.0.2
 
+# Config & Async
+PyYAML==6.0.2
 aiofiles==24.1.0
 aiosqlite==0.20.0
-curl_cffi
-camoufox
-browserforge
 
+# Advanced Networking
+curl_cffi>=0.7.0
+
+# AI Crawling
+crawl4ai==0.4.248
 # ==========================================================
 # CACHE & REDIS
 # ==========================================================
@@ -225,4 +230,4 @@ textblob==0.18.0.post0
 spacy==3.8.2
 seaborn==0.13.2
 scikit-learn==1.5.2
-crawl4ai
+
