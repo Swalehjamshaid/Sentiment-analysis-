@@ -1,5 +1,6 @@
 # ==========================================================
 # FILE: app/routes/reviews.py
+# FULLY ALIGNED WITH YOUR REAL MODELS
 # ==========================================================
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ from app.core.db import get_db
 # MODELS
 # ==========================================================
 
-from app.models.models import (
+from app.core.models import (
     Company,
     Review
 )
@@ -52,9 +53,7 @@ from app.services.scraper import (
 # ==========================================================
 
 router = APIRouter(
-
     prefix="/api/reviews",
-
     tags=["Reviews"]
 )
 
@@ -63,14 +62,11 @@ router = APIRouter(
 # ==========================================================
 
 @router.get("/test")
-
-async def test_route():
+async def test_reviews():
 
     return {
-
         "success": True,
-
-        "message": "Reviews route working"
+        "message": "Reviews router working"
     }
 
 # ==========================================================
@@ -88,61 +84,117 @@ async def get_company_reviews(
 
     try:
 
-        query = await db.execute(
+        logger.info(
+            f"📥 FETCHING REVIEWS => {company_id}"
+        )
+
+        company_query = await db.execute(
+
+            select(Company)
+
+            .where(
+                Company.id == company_id
+            )
+        )
+
+        company = company_query.scalar_one_or_none()
+
+        if not company:
+
+            raise HTTPException(
+
+                status_code=404,
+
+                detail="Company not found"
+            )
+
+        reviews_query = await db.execute(
 
             select(Review)
 
             .where(
                 Review.company_id == company_id
             )
+
+            .order_by(
+                Review.created_at.desc()
+            )
         )
 
-        reviews = query.scalars().all()
+        reviews = reviews_query.scalars().all()
+
+        logger.success(
+            f"✅ REVIEWS FOUND => {len(reviews)}"
+        )
+
+        formatted_reviews = []
+
+        for review in reviews:
+
+            formatted_reviews.append({
+
+                "id":
+                    review.id,
+
+                # FRONTEND EXPECTS author
+                "author":
+                    review.author_name,
+
+                # FRONTEND EXPECTS content
+                "content":
+                    review.text,
+
+                "rating":
+                    review.rating,
+
+                "created_at":
+                    str(review.created_at),
+
+                "google_review_time":
+                    str(review.google_review_time),
+
+                "sentiment_score":
+                    review.sentiment_score,
+
+                "review_likes":
+                    review.review_likes,
+
+                "issue_category":
+                    review.issue_category,
+
+                "emotion":
+                    review.emotion,
+
+                "urgency_score":
+                    review.urgency_score,
+
+                "risk_score":
+                    review.risk_score,
+
+                "ai_summary":
+                    review.ai_summary
+            })
 
         return {
 
             "success": True,
 
-            "total_reviews": len(reviews),
+            "company_id":
+                company.id,
 
-            "reviews": [
+            "company_name":
+                company.name,
 
-                {
+            "total_reviews":
+                len(formatted_reviews),
 
-                    "id": r.id,
-
-                    "reviewer_name":
-                        getattr(
-                            r,
-                            "reviewer_name",
-                            "Anonymous"
-                        ),
-
-                    "rating":
-                        getattr(
-                            r,
-                            "rating",
-                            0
-                        ),
-
-                    "review_text":
-                        getattr(
-                            r,
-                            "review_text",
-                            ""
-                        ),
-
-                    "source":
-                        getattr(
-                            r,
-                            "source",
-                            "Google"
-                        )
-                }
-
-                for r in reviews
-            ]
+            "reviews":
+                formatted_reviews
         }
+
+    except HTTPException:
+
+        raise
 
     except Exception as e:
 
@@ -205,14 +257,30 @@ async def sync_reviews(
                 detail="Company not found"
             )
 
-        result = await sync_company_reviews(
+        logger.success(
+            f"✅ COMPANY FOUND => {company.name}"
+        )
+
+        # ==================================================
+        # RUN SCRAPER
+        # ==================================================
+
+        scraper_result = await sync_company_reviews(
 
             db=db,
 
             company=company
         )
 
-        review_count_query = await db.execute(
+        logger.success(
+            "✅ SCRAPER COMPLETED"
+        )
+
+        # ==================================================
+        # TOTAL REVIEWS
+        # ==================================================
+
+        total_query = await db.execute(
 
             select(func.count())
 
@@ -223,23 +291,30 @@ async def sync_reviews(
             )
         )
 
-        total_reviews = review_count_query.scalar()
+        total_reviews = total_query.scalar() or 0
 
         logger.success(
-            f"✅ REVIEW SYNC COMPLETED => {total_reviews}"
+            f"✅ TOTAL REVIEWS => {total_reviews}"
         )
 
         return {
 
             "success": True,
 
-            "company_id": company_id,
+            "message":
+                "Reviews synced successfully",
 
-            "company_name": company.name,
+            "reviews_collected":
+                scraper_result.get(
+                    "reviews_collected",
+                    0
+                ),
 
-            "total_reviews": total_reviews,
+            "total_reviews":
+                total_reviews,
 
-            "scraper_result": result
+            "company_id":
+                company_id
         }
 
     except HTTPException:
@@ -283,6 +358,10 @@ async def delete_reviews(
 
     try:
 
+        logger.warning(
+            f"🗑️ DELETING REVIEWS => {company_id}"
+        )
+
         await db.execute(
 
             delete(Review)
@@ -298,13 +377,86 @@ async def delete_reviews(
 
             "success": True,
 
-            "message": "Reviews deleted successfully"
+            "message":
+                "Reviews deleted successfully"
         }
 
     except Exception as e:
 
         logger.error(
             f"❌ DELETE ERROR => {e}"
+        )
+
+        logger.error(
+            traceback.format_exc()
+        )
+
+        return JSONResponse(
+
+            status_code=500,
+
+            content={
+
+                "success": False,
+
+                "message": str(e)
+            }
+        )
+
+# ==========================================================
+# REVIEW STATS
+# ==========================================================
+
+@router.get("/stats/{company_id}")
+
+async def review_stats(
+
+    company_id: int,
+
+    db: AsyncSession = Depends(get_db)
+):
+
+    try:
+
+        total_query = await db.execute(
+
+            select(func.count())
+
+            .select_from(Review)
+
+            .where(
+                Review.company_id == company_id
+            )
+        )
+
+        total_reviews = total_query.scalar() or 0
+
+        avg_query = await db.execute(
+
+            select(func.avg(Review.rating))
+
+            .where(
+                Review.company_id == company_id
+            )
+        )
+
+        average_rating = avg_query.scalar() or 0
+
+        return {
+
+            "success": True,
+
+            "total_reviews":
+                total_reviews,
+
+            "average_rating":
+                round(float(average_rating), 2)
+        }
+
+    except Exception as e:
+
+        logger.error(
+            f"❌ STATS ERROR => {e}"
         )
 
         logger.error(
