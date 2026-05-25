@@ -274,13 +274,17 @@
             <div class="col-lg-8">
                 <div class="section-card">
                     <h4 class="mb-4">Review Analytics</h4>
-                    <canvas id="reviewChart" height="120"></canvas>
+                  <div style="height:420px;">
+    <canvas id="reviewChart"></canvas>
+</div>
                 </div>
             </div>
             <div class="col-lg-4">
                 <div class="section-card">
                     <h4 class="mb-4">Rating Distribution</h4>
-                    <canvas id="ratingChart"></canvas>
+                  <div style="height:420px;">
+    <canvas id="ratingChart"></canvas>
+</div>
                 </div>
             </div>
         </div>
@@ -403,12 +407,12 @@
                 document.getElementById('reputation').innerText = `${kpis.reputation_score || 0}%`;
                 document.getElementById('revenueRisk').innerText = `${kpis.revenue_risk || 0}%`;
                 document.getElementById('sentimentScore').innerText = `${kpis.reputation_score || 0}%`;
-                document.getElementById('businessHealthScore').innerText = `${kpis.business_health || 0}%`;
+               document.getElementById('businessHealthScore').innerText = `${kpis.business_health_score || 0}%`;
                 document.getElementById('executiveRisk').innerText = kpis.executive_risk || "Moderate";
                 document.getElementById('predictedRating').innerText = kpis.predicted_rating || 0;
-                document.getElementById('forecastReviews').innerText = kpis.total_reviews || 0;
+                document.getElementById('forecastReviews').innerText = kpis.forecast_reviews || 0;
 
-                document.getElementById('executiveSummary').innerHTML = data.ai_summary || `
+          document.getElementById('executiveSummary').innerHTML = data.executive_summary || `
                     <div class="alert alert-info rounded-4">
                         <h5>AI Executive Insights</h5>
                         <hr>
@@ -426,8 +430,14 @@
         }
 
         function renderCharts(data) {
-            const monthlyTrends = data.monthly_trends || [];
-            const ratingDistribution = data.rating_distribution || {};
+           const monthlyTrends = data.charts?.monthly_trend || {
+    labels: [],
+    values: []
+};
+           const ratingDistribution = data.charts?.rating_distribution || {
+    labels: [],
+    values: []
+};
 
             const reviewCtx = document.getElementById('reviewChart');
             const ratingCtx = document.getElementById('ratingChart');
@@ -438,10 +448,10 @@
             reviewChart = new Chart(reviewCtx, {
                 type: 'line',
                 data: {
-                    labels: monthlyTrends.map(item => item.month),
+                   labels: monthlyTrends.labels || [],
                     datasets: [{
                         label: 'Monthly Reviews',
-                        data: monthlyTrends.map(item => item.reviews),
+                       data: monthlyTrends.values || [],
                         borderWidth: 3,
                         tension: 0.4
                     }]
@@ -452,9 +462,9 @@
             ratingChart = new Chart(ratingCtx, {
                 type: 'doughnut',
                 data: {
-                    labels: Object.keys(ratingDistribution),
+                 labels: ratingDistribution.labels || [],
                     datasets: [{
-                        data: Object.values(ratingDistribution),
+                      data: ratingDistribution.values || [],
                         borderWidth: 2
                     }]
                 },
@@ -478,10 +488,10 @@
                     const sentimentText = review.rating >= 4 ? 'Positive' : 'Negative';
                     tbody.innerHTML += `
                         <tr>
-                            <td>${review.author_name || 'Anonymous'}</td>
+                            <td>${review.author || 'Anonymous'}</td>
                             <td><i class="bi bi-star-fill text-warning"></i> ${review.rating}</td>
-                            <td>${review.text || '-'}</td>
-                            <td>${review.review_date || '-'}</td>
+                            <td>${review.content || '-'}</td>
+                            <td>${review.created_at || '-'}</td>
                             <td><span class="badge ${sentimentClass}">${sentimentText}</span></td>
                         </tr>
                     `;
@@ -680,7 +690,7 @@
                 const data = await response.json();
                 const typing = document.getElementById("typingMessage");
                 if(typing) typing.remove();
-                messagesContainer.innerHTML += `<div class="chatMessage botMessage">${data.answer}</div>`;
+                messagesContainer.innerHTML += `<div class="chatMessage botMessage">${data.answer || "No AI response available."</div>`;
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
             }catch(error){
                 console.error(error);
