@@ -136,17 +136,9 @@ PyYAML==6.0.2
 
 aiofiles==24.1.0
 aiosqlite==0.20.0
-
-httpx==0.28.1
-
-curl_cffi==0.7.1
-tls-client==1.0.1
-
-browserforge==1.2.1
-camoufox==0.4.11
-
-selectolax==0.3.21
-cloudscraper==1.2.71
+curl_cffi
+camoufox
+browserforge
 
 # ==========================================================
 # CACHE & REDIS
