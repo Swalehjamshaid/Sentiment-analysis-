@@ -1,41 +1,97 @@
 # =========================================================
 # FILE: review_saas/app/routes/reviews.py
+# TRUSTLYTICS AI - ENTERPRISE REVIEWS ROUTER
+# FULLY STABILIZED VERSION
 # =========================================================
 
-from fastapi import (
-    APIRouter,
-    Depends,
-    HTTPException,
-    Query
-)
-
-from sqlalchemy.orm import Session
-from sqlalchemy import desc, func, and_
-
-from typing import Optional
-from datetime import datetime
-import traceback
-import logging
+print("🔥 REVIEWS.PY IMPORT STARTED")
 
 # =========================================================
-# DATABASE
+# SAFE IMPORTS
 # =========================================================
 
-from app.database import get_db
+try:
+
+    from fastapi import (
+        APIRouter,
+        Depends,
+        HTTPException,
+        Query
+    )
+
+    print("✅ FASTAPI IMPORTED")
+
+except Exception as e:
+
+    print(f"❌ FASTAPI IMPORT FAILED => {e}")
+
+try:
+
+    from sqlalchemy.orm import Session
+
+    from sqlalchemy import (
+        desc,
+        func,
+        and_
+    )
+
+    print("✅ SQLALCHEMY IMPORTED")
+
+except Exception as e:
+
+    print(f"❌ SQLALCHEMY IMPORT FAILED => {e}")
+
+try:
+
+    from typing import Optional
+
+    from datetime import datetime
+
+    import traceback
+
+    import logging
+
+    print("✅ PYTHON MODULES IMPORTED")
+
+except Exception as e:
+
+    print(f"❌ PYTHON MODULE IMPORT FAILED => {e}")
 
 # =========================================================
-# MODELS
+# DATABASE IMPORT
 # =========================================================
 
-from app.models import Company, Review
+try:
+
+    from app.core.db import get_db
+
+    print("✅ DATABASE IMPORTED")
+
+except Exception as e:
+
+    print(f"❌ DATABASE IMPORT FAILED => {e}")
+
+    get_db = None
 
 # =========================================================
-# LOGGER
+# MODELS IMPORT
 # =========================================================
 
-logger = logging.getLogger(__name__)
+try:
 
-print("🔥 REVIEWS ROUTER LOADED 🔥")
+    from app.models import (
+        Company,
+        Review
+    )
+
+    print("✅ MODELS IMPORTED")
+
+except Exception as e:
+
+    print(f"❌ MODELS IMPORT FAILED => {e}")
+
+    Company = None
+    Review = None
 
 # =========================================================
 # SCRAPER IMPORT
@@ -49,24 +105,36 @@ try:
 
     SCRAPER_AVAILABLE = True
 
-    print("✅ SCRAPER IMPORT SUCCESS")
+    print("✅ SCRAPER IMPORTED")
 
-except Exception as scraper_error:
+except Exception as e:
 
     scrape_google_reviews = None
 
-    print(
-        f"❌ SCRAPER IMPORT FAILED => {scraper_error}"
-    )
+    print(f"❌ SCRAPER IMPORT FAILED => {e}")
+
+# =========================================================
+# LOGGER
+# =========================================================
+
+logger = logging.getLogger(__name__)
+
+logger.setLevel(logging.INFO)
+
+print("✅ LOGGER READY")
 
 # =========================================================
 # ROUTER
 # =========================================================
 
 router = APIRouter(
+
     prefix="/api/reviews",
+
     tags=["Reviews"]
 )
+
+print("✅ REVIEWS ROUTER CREATED")
 
 # =========================================================
 # HEALTH ROUTE
@@ -105,6 +173,33 @@ async def test_sync():
     }
 
 # =========================================================
+# DEBUG ROUTES
+# =========================================================
+
+@router.get("/debug/routes")
+async def debug_routes():
+
+    return {
+
+        "success": True,
+
+        "routes": [
+
+            "/api/reviews/health",
+
+            "/api/reviews/test-sync",
+
+            "/api/reviews/company/{company_id}",
+
+            "/api/reviews/sync/{company_id}",
+
+            "/api/reviews/analytics/{company_id}",
+
+            "/api/reviews/delete/{review_id}"
+        ]
+    }
+
+# =========================================================
 # GET COMPANY REVIEWS
 # =========================================================
 
@@ -137,6 +232,24 @@ async def get_company_reviews(
             f"📊 FETCHING REVIEWS => {company_id}"
         )
 
+        if Company is None:
+
+            raise HTTPException(
+
+                status_code=500,
+
+                detail="Company model import failed"
+            )
+
+        if Review is None:
+
+            raise HTTPException(
+
+                status_code=500,
+
+                detail="Review model import failed"
+            )
+
         company = db.query(Company).filter(
             Company.id == company_id
         ).first()
@@ -155,7 +268,7 @@ async def get_company_reviews(
         )
 
         # =================================================
-        # FILTER BY RATING
+        # FILTERS
         # =================================================
 
         if rating is not None:
@@ -163,10 +276,6 @@ async def get_company_reviews(
             query = query.filter(
                 Review.rating == rating
             )
-
-        # =================================================
-        # FILTER BY SENTIMENT
-        # =================================================
 
         if sentiment:
 
@@ -265,9 +374,23 @@ async def sync_reviews(
             f"🚀 SYNC STARTED => {company_id}"
         )
 
-        # =================================================
-        # COMPANY CHECK
-        # =================================================
+        if Company is None:
+
+            raise HTTPException(
+
+                status_code=500,
+
+                detail="Company model import failed"
+            )
+
+        if Review is None:
+
+            raise HTTPException(
+
+                status_code=500,
+
+                detail="Review model import failed"
+            )
 
         company = db.query(Company).filter(
             Company.id == company_id
@@ -333,7 +456,7 @@ async def sync_reviews(
         )
 
         # =================================================
-        # SCRAPE
+        # SCRAPE REVIEWS
         # =================================================
 
         scraped_reviews = scrape_google_reviews(
@@ -394,10 +517,6 @@ async def sync_reviews(
                         0
                     )
                 )
-
-                # =========================================
-                # DUPLICATE CHECK
-                # =========================================
 
                 existing_review = db.query(Review).filter(
 
@@ -523,7 +642,7 @@ async def sync_reviews(
         )
 
 # =========================================================
-# REVIEW ANALYTICS
+# ANALYTICS
 # =========================================================
 
 @router.get("/analytics/{company_id}")
@@ -677,32 +796,7 @@ async def delete_review(
         )
 
 # =========================================================
-# DEBUG ROUTE
+# ROUTER LOADED
 # =========================================================
 
-@router.get("/debug/routes")
-async def debug_routes():
-
-    return {
-
-        "success": True,
-
-        "routes": [
-
-            "/api/reviews/health",
-
-            "/api/reviews/test-sync",
-
-            "/api/reviews/company/{company_id}",
-
-            "/api/reviews/sync/{company_id}",
-
-            "/api/reviews/analytics/{company_id}",
-
-            "/api/reviews/delete/{review_id}"
-        ]
-    }
-
-# =========================================================
-# END OF FILE
-# =========================================================
+print("✅ REVIEWS ROUTER FULLY LOADED")
