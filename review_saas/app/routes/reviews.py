@@ -90,14 +90,18 @@ from auth import get_current_user
 
 try:
 
-    from scraper import scrape_google_reviews
+  try:
+
+    from app.scraper import scrape_google_reviews
+
+    print("✅ SCRAPER IMPORT SUCCESS")
 
 except Exception as scraper_error:
 
     scrape_google_reviews = None
 
     print(
-        f"SCRAPER IMPORT FAILED: {scraper_error}"
+        f"❌ SCRAPER IMPORT FAILED: {scraper_error}"
     )
 
 # =========================================================
