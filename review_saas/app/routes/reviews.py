@@ -313,9 +313,7 @@ async def sync_reviews(
 
     force_refresh: bool = False,
 
-    db: Session = Depends(get_db),
-
-    current_user=Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
 
     try:
