@@ -59,11 +59,15 @@ try:
 
 except Exception as scraper_error:
 
+    import traceback
+
     scrape_google_reviews = None
 
-    print(
-        f"❌ SCRAPER IMPORT FAILED => {scraper_error}"
-    )
+    print("❌ SCRAPER IMPORT FAILED")
+
+    print(scraper_error)
+
+    print(traceback.format_exc())
 
 # =========================================================
 # LOGGER
