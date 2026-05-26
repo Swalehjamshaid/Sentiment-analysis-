@@ -15,7 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import (
     select,
     desc,
-    and_
+    and_,
+    func
 )
 
 from typing import Optional
@@ -24,6 +25,8 @@ from datetime import datetime
 
 import traceback
 import logging
+import hashlib
+import inspect
 
 # =========================================================
 # DATABASE
@@ -84,6 +87,51 @@ router = APIRouter(
 )
 
 print("✅ REVIEWS ROUTER LOADED")
+
+# =========================================================
+# HELPERS
+# =========================================================
+
+def serialize_datetime(value):
+
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        return value.isoformat()
+
+    return value
+
+
+def generate_google_review_id(
+    company_id: int,
+    author: str,
+    review_text: str
+):
+
+    raw_value = f"{company_id}:{author}:{review_text}"
+
+    return hashlib.sha256(
+        raw_value.encode("utf-8")
+    ).hexdigest()
+
+
+async def run_scraper(
+    google_place_id: str
+):
+
+    if scrape_google_reviews is None:
+        return []
+
+    result = scrape_google_reviews(
+        google_place_id
+    )
+
+    if inspect.isawaitable(result):
+        result = await result
+
+    return result or []
+
 
 # =========================================================
 # HEALTH ROUTE
@@ -168,7 +216,11 @@ async def get_company_reviews(
         ge=0
     ),
 
-    rating: Optional[int] = None,
+    rating: Optional[int] = Query(
+        None,
+        ge=1,
+        le=5
+    ),
 
     db: AsyncSession = Depends(get_db)
 ):
@@ -178,10 +230,6 @@ async def get_company_reviews(
         logger.info(
             f"📊 FETCHING REVIEWS => {company_id}"
         )
-
-        # =================================================
-        # COMPANY CHECK
-        # =================================================
 
         company_result = await db.execute(
 
@@ -201,11 +249,13 @@ async def get_company_reviews(
                 detail="Company not found"
             )
 
-        # =================================================
-        # REVIEWS QUERY
-        # =================================================
-
         query = select(Review).where(
+            Review.company_id == company_id
+        )
+
+        count_query = select(
+            func.count(Review.id)
+        ).where(
             Review.company_id == company_id
         )
 
@@ -215,9 +265,15 @@ async def get_company_reviews(
                 Review.rating == rating
             )
 
-        # =================================================
-        # FETCH REVIEWS
-        # =================================================
+            count_query = count_query.where(
+                Review.rating == rating
+            )
+
+        total_result = await db.execute(
+            count_query
+        )
+
+        total_reviews = total_result.scalar() or 0
 
         reviews_result = await db.execute(
 
@@ -227,8 +283,6 @@ async def get_company_reviews(
         )
 
         reviews = reviews_result.scalars().all()
-
-        total_reviews = len(reviews)
 
         response_reviews = []
 
@@ -252,10 +306,14 @@ async def get_company_reviews(
                     review.sentiment_score,
 
                 "google_review_time":
-                    review.google_review_time,
+                    serialize_datetime(
+                        review.google_review_time
+                    ),
 
                 "created_at":
-                    review.created_at
+                    serialize_datetime(
+                        review.created_at
+                    )
             })
 
         logger.info(
@@ -314,10 +372,6 @@ async def sync_reviews(
             f"🚀 SYNC STARTED => {company_id}"
         )
 
-        # =================================================
-        # COMPANY CHECK
-        # =================================================
-
         company_result = await db.execute(
 
             select(Company).where(
@@ -336,10 +390,6 @@ async def sync_reviews(
                 detail="Company not found"
             )
 
-        # =================================================
-        # SCRAPER CHECK
-        # =================================================
-
         if not SCRAPER_AVAILABLE:
 
             return {
@@ -351,10 +401,6 @@ async def sync_reviews(
 
                 "company_id": company_id
             }
-
-        # =================================================
-        # PLACE ID
-        # =================================================
 
         google_place_id = getattr(
             company,
@@ -378,11 +424,7 @@ async def sync_reviews(
             f"🌍 SCRAPING REVIEWS => {google_place_id}"
         )
 
-        # =================================================
-        # SCRAPE REVIEWS
-        # =================================================
-
-        scraped_reviews = scrape_google_reviews(
+        scraped_reviews = await run_scraper(
             google_place_id
         )
 
@@ -404,10 +446,6 @@ async def sync_reviews(
         duplicate_reviews = 0
         failed_reviews = 0
 
-        # =================================================
-        # PROCESS REVIEWS
-        # =================================================
-
         for item in scraped_reviews:
 
             try:
@@ -427,23 +465,35 @@ async def sync_reviews(
 
                 if not review_text:
 
+                    failed_reviews += 1
+
                     continue
 
-                author = item.get(
-                    "author",
-                    "Anonymous"
-                )
-
-                rating = int(
+                author = str(
                     item.get(
-                        "rating",
-                        0
+                        "author",
+                        "Anonymous"
                     )
-                )
+                ).strip() or "Anonymous"
 
-                # =========================================
-                # DUPLICATE CHECK
-                # =========================================
+                try:
+
+                    rating = int(
+                        item.get(
+                            "rating",
+                            0
+                        )
+                    )
+
+                except Exception:
+
+                    rating = 0
+
+                if rating < 0:
+                    rating = 0
+
+                if rating > 5:
+                    rating = 5
 
                 duplicate_result = await db.execute(
 
@@ -474,19 +524,16 @@ async def sync_reviews(
 
                     continue
 
-                # =========================================
-                # INSERT REVIEW
-                # =========================================
-
                 review = Review(
 
                     company_id=company_id,
 
-                    google_review_id=str(
-                        hash(
-                            review_text + author
-                        )
-                    ),
+                    google_review_id=
+                        generate_google_review_id(
+                            company_id,
+                            author,
+                            review_text
+                        ),
 
                     author_name=author,
 
@@ -513,9 +560,9 @@ async def sync_reviews(
                     f"❌ REVIEW INSERT ERROR => {review_error}"
                 )
 
-        # =================================================
-        # DATABASE COMMIT
-        # =================================================
+                logger.error(
+                    traceback.format_exc()
+                )
 
         await db.commit()
 
@@ -579,6 +626,24 @@ async def review_analytics(
 
     try:
 
+        company_result = await db.execute(
+
+            select(Company).where(
+                Company.id == company_id
+            )
+        )
+
+        company = company_result.scalar_one_or_none()
+
+        if not company:
+
+            raise HTTPException(
+
+                status_code=404,
+
+                detail="Company not found"
+            )
+
         result = await db.execute(
 
             select(Review).where(
@@ -606,7 +671,7 @@ async def review_analytics(
         average_rating = round(
 
             sum([
-                review.rating
+                review.rating or 0
                 for review in reviews
             ]) / total_reviews,
 
@@ -624,10 +689,17 @@ async def review_analytics(
             "average_rating": average_rating
         }
 
+    except HTTPException:
+        raise
+
     except Exception as e:
 
         logger.error(
             f"❌ ANALYTICS ERROR => {e}"
+        )
+
+        logger.error(
+            traceback.format_exc()
         )
 
         raise HTTPException(
@@ -688,6 +760,14 @@ async def delete_review(
     except Exception as e:
 
         await db.rollback()
+
+        logger.error(
+            f"❌ DELETE REVIEW ERROR => {e}"
+        )
+
+        logger.error(
+            traceback.format_exc()
+        )
 
         raise HTTPException(
 
