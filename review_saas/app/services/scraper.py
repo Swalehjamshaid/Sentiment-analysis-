@@ -4,9 +4,7 @@
 # FULLY STABILIZED PRODUCTION VERSION
 # =========================================================
 from __future__ import annotations
-
 print("🔥 SCRAPER.PY LOADED")
-
 import os
 import re
 import json
