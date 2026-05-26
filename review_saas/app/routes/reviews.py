@@ -6,8 +6,7 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
-    Query,
-    BackgroundTasks
+    Query
 )
 
 from sqlalchemy.orm import Session
@@ -34,13 +33,13 @@ from app.models import (
 )
 
 # =========================================================
-# AUTH
+# LOGGER
 # =========================================================
 
-from app.auth import get_current_user
+logger = logging.getLogger(__name__)
 
 # =========================================================
-# SCRAPER
+# SCRAPER IMPORT
 # =========================================================
 
 SCRAPER_AVAILABLE = False
@@ -51,19 +50,17 @@ try:
 
     SCRAPER_AVAILABLE = True
 
+    logger.info(
+        "✅ SCRAPER IMPORTED SUCCESSFULLY"
+    )
+
 except Exception as scraper_error:
 
     scrape_google_reviews = None
 
-    print(
-        f"❌ SCRAPER IMPORT ERROR => {scraper_error}"
+    logger.error(
+        f"❌ SCRAPER IMPORT FAILED => {scraper_error}"
     )
-
-# =========================================================
-# LOGGER
-# =========================================================
-
-logger = logging.getLogger(__name__)
 
 # =========================================================
 # ROUTER
@@ -77,23 +74,7 @@ router = APIRouter(
 )
 
 # =========================================================
-# TEST ROUTE
-# =========================================================
-
-@router.get("/test-sync")
-async def test_sync():
-
-    return {
-
-        "success": True,
-
-        "message": "TEST ROUTE WORKING",
-
-        "scraper_available": SCRAPER_AVAILABLE
-    }
-
-# =========================================================
-# HEALTH CHECK
+# HEALTH ROUTE
 # =========================================================
 
 @router.get("/health")
@@ -105,11 +86,23 @@ async def reviews_health():
 
         "service": "reviews",
 
-        "status": "healthy",
-
         "scraper_available": SCRAPER_AVAILABLE,
 
         "timestamp": datetime.utcnow()
+    }
+
+# =========================================================
+# TEST ROUTE
+# =========================================================
+
+@router.get("/test-sync")
+async def test_sync():
+
+    return {
+
+        "success": True,
+
+        "message": "TEST ROUTE WORKING"
     }
 
 # =========================================================
@@ -199,6 +192,8 @@ async def get_company_reviews(
                 "author": review.author,
 
                 "rating": review.rating,
+
+                "content": review.review_text,
 
                 "review_text": review.review_text,
 
@@ -331,7 +326,7 @@ async def sync_reviews(
             }
 
         logger.info(
-            f"🌍 SCRAPING => {google_place_id}"
+            f"🌍 SCRAPING REVIEWS => {google_place_id}"
         )
 
         # =================================================
@@ -353,7 +348,7 @@ async def sync_reviews(
 
                 "company_id": company_id,
 
-                "inserted_reviews": 0
+                "reviews_collected": 0
             }
 
         inserted_reviews = 0
@@ -390,6 +385,13 @@ async def sync_reviews(
                     "Anonymous"
                 )
 
+                rating = int(
+                    item.get(
+                        "rating",
+                        0
+                    )
+                )
+
                 # =========================================
                 # DUPLICATE CHECK
                 # =========================================
@@ -416,13 +418,6 @@ async def sync_reviews(
                 # =========================================
                 # SENTIMENT
                 # =========================================
-
-                rating = int(
-                    item.get(
-                        "rating",
-                        0
-                    )
-                )
 
                 sentiment = "neutral"
 
@@ -493,6 +488,8 @@ async def sync_reviews(
 
             "company_name": company.name,
 
+            "reviews_collected": inserted_reviews,
+
             "inserted_reviews": inserted_reviews,
 
             "duplicate_reviews": duplicate_reviews,
@@ -525,7 +522,7 @@ async def sync_reviews(
         )
 
 # =========================================================
-# REVIEW ANALYTICS
+# ANALYTICS
 # =========================================================
 
 @router.get("/analytics/{company_id}")
@@ -554,7 +551,13 @@ async def review_analytics(
 
                 "total_reviews": 0,
 
-                "average_rating": 0
+                "average_rating": 0,
+
+                "positive_reviews": 0,
+
+                "negative_reviews": 0,
+
+                "neutral_reviews": 0
             }
 
         average_rating = round(
